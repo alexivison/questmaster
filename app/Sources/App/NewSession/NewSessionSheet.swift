@@ -14,6 +14,7 @@ final class NewSessionSheetPresenter: ObservableObject {
         initialFocus: NewSessionField = .path,
         mutationClient: ServeMutationSending,
         directoryClient: ServeDirectorySuggesting?,
+        modelClient: ServeModelSuggesting? = nil,
         onSuccess: @escaping (String?) -> Void
     ) {
         presentation = NewSessionSheetPresentation(
@@ -24,6 +25,7 @@ final class NewSessionSheetPresenter: ObservableObject {
             initialFocus: initialFocus,
             mutationClient: mutationClient,
             directoryClient: directoryClient,
+            modelClient: modelClient,
             onSuccess: onSuccess
         )
     }
@@ -42,6 +44,7 @@ struct NewSessionSheetPresentation: Identifiable {
     let initialFocus: NewSessionField
     let mutationClient: ServeMutationSending
     let directoryClient: ServeDirectorySuggesting?
+    let modelClient: ServeModelSuggesting?
     let onSuccess: (String?) -> Void
 }
 
@@ -90,15 +93,17 @@ struct NewSessionSheetView: View {
 
 @MainActor
 final class NewSessionSheetModel: ObservableObject {
-    static let sheetSize = CGSize(width: 540, height: 580)
+    static let sheetSize = CGSize(width: 540, height: 626)
 
     let state: NewSessionViewState
 
     private let mutationClient: ServeMutationSending
     private let directoryClient: ServeDirectorySuggesting?
+    private let modelClient: ServeModelSuggesting?
     private let onSuccess: (String?) -> Void
     private let dismiss: () -> Void
     private var suggestionRequestID = 0
+    private var modelRequestID = 0
     private let maxVisibleSuggestionRows = 3
     private var suggestionDebounceTask: Task<Void, Never>?
     private let suggestionDebounceInterval: Duration = .milliseconds(175)
@@ -118,6 +123,7 @@ final class NewSessionSheetModel: ObservableObject {
         )
         mutationClient = presentation.mutationClient
         directoryClient = presentation.directoryClient
+        modelClient = presentation.modelClient
         onSuccess = presentation.onSuccess
         self.dismiss = dismiss
     }
@@ -131,12 +137,14 @@ final class NewSessionSheetModel: ObservableObject {
             self.state.requestFocus(self.state.model.focusedField)
         }
         requestPathSuggestions(recentsOnly: false)
+        requestModelSuggestions()
     }
 
     func disappear() {
         suggestionDebounceTask?.cancel()
         suggestionDebounceTask = nil
         suggestionRequestID += 1
+        modelRequestID += 1
         state.clearSuggestions()
     }
 
@@ -206,19 +214,19 @@ final class NewSessionSheetModel: ObservableObject {
         }
         if Keymap.NewSession.selectLeft.matches(event.keyCode) {
             if !textInputFocused, state.model.isSelectFocused {
-                state.model.handle(.left)
+                cycleSelection(.left)
                 return true
             }
             return false
         }
         if Keymap.NewSession.selectRight.matches(event.keyCode) {
             if !textInputFocused, state.model.isSelectFocused {
-                state.model.handle(.right)
+                cycleSelection(.right)
                 return true
             }
             return false
         }
-        if !textInputFocused, flags.subtracting(.shift).isEmpty, state.model.handleSelectShortcut(chars) {
+        if !textInputFocused, flags.subtracting(.shift).isEmpty, cycleSelectionShortcut(chars) {
             return true
         }
         if Keymap.NewSession.create.matches(chars) {
@@ -255,6 +263,33 @@ final class NewSessionSheetModel: ObservableObject {
                 return
             }
             self.requestPathSuggestions(recentsOnly: recentsOnly)
+        }
+    }
+
+    /// Resolves the model list for the agent and role now selected. The list
+    /// is never held in the app: leaving the picker on `default` keeps whatever
+    /// the harness would launch on its own, and a failed resolve simply leaves
+    /// that lone entry rather than raising an error the user must clear.
+    func requestModelSuggestions() {
+        guard let modelClient else {
+            return
+        }
+        modelRequestID += 1
+        let requestID = modelRequestID
+        let agent = state.model.selectedAgent
+        let role = state.model.role.isMaster ? "master" : "standalone"
+        modelClient.suggestModels(agent: agent, role: role) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.modelRequestID == requestID else {
+                    return
+                }
+                switch result {
+                case .success(let response):
+                    self.state.model.setModelOptions(response.models, defaultModel: response.defaultModel)
+                case .failure:
+                    self.state.model.resetModelOptions()
+                }
+            }
         }
     }
 
@@ -303,7 +338,8 @@ final class NewSessionSheetModel: ObservableObject {
                 cwd: payload.path,
                 agent: payload.agent,
                 color: payload.color,
-                prompt: payload.prompt
+                prompt: payload.prompt,
+                model: payload.model
             )
             mutationClient.send(request) { [weak self] result in
                 DispatchQueue.main.async {
@@ -332,8 +368,37 @@ final class NewSessionSheetModel: ObservableObject {
         switch state.model.focusedField {
         case .path, .title, .prompt:
             return true
-        case .agent, .color, .role:
+        case .agent, .model, .color, .role:
             return false
+        }
+    }
+
+    /// Cycles the focused select, re-resolving models when the change moved
+    /// them: model ids are per harness, and the role picks which default the
+    /// harness would apply.
+    private func cycleSelection(_ key: NewSessionFormKey) {
+        let before = modelScope
+        state.model.handle(key)
+        refreshModelsIfScopeChanged(from: before)
+    }
+
+    private func cycleSelectionShortcut(_ key: String?) -> Bool {
+        let before = modelScope
+        guard state.model.handleSelectShortcut(key) else {
+            return false
+        }
+        refreshModelsIfScopeChanged(from: before)
+        return true
+    }
+
+    private var modelScope: (agent: String, master: Bool) {
+        (agent: state.model.selectedAgent, master: state.model.role.isMaster)
+    }
+
+    private func refreshModelsIfScopeChanged(from before: (agent: String, master: Bool)) {
+        let after = modelScope
+        if before.agent != after.agent || before.master != after.master {
+            requestModelSuggestions()
         }
     }
 

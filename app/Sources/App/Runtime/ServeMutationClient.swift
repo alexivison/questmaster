@@ -20,12 +20,23 @@ struct DirectorySuggestionResponse {
     let recents: [String]
 }
 
+/// The serve `models` response: what the backend resolved for one agent and
+/// role, plus the role default it would apply on its own.
+struct ModelSuggestionResponse {
+    let models: [SessionModelOption]
+    let defaultModel: String
+}
+
 protocol ServeMutationSending: AnyObject {
     func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void)
 }
 
 protocol ServeDirectorySuggesting: AnyObject {
     func suggestDirectories(query: String, completion: @escaping (Result<DirectorySuggestionResponse, Error>) -> Void)
+}
+
+protocol ServeModelSuggesting: AnyObject {
+    func suggestModels(agent: String, role: String, completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void)
 }
 
 final class UnixSocketMutationClient: ServeMutationSending {
@@ -103,5 +114,56 @@ extension UnixSocketMutationClient: ServeDirectorySuggesting {
 
     private static func stringArray(_ value: Any?) -> [String] {
         (value as? [Any])?.compactMap { $0 as? String } ?? []
+    }
+}
+
+extension UnixSocketMutationClient: ServeModelSuggesting {
+    /// The picker is cycled with ←/→, so it asks for a ranked head of the list
+    /// (recents, aliases, then newest first) rather than every model a harness
+    /// could run — `questmaster models` is the exhaustive view.
+    private static let modelSuggestionLimit = 20
+
+    func suggestModels(agent: String, role: String, completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void) {
+        queue.async { [socketPath] in
+            do {
+                let ack = try Self.sendObject([
+                    "id": UUID().uuidString,
+                    "method": "models",
+                    "data": [
+                        "agent": agent,
+                        "role": role,
+                        "limit": Self.modelSuggestionLimit,
+                    ] as [String: Any],
+                ], socketPath: socketPath)
+                guard let data = ack.data as? [String: Any] else {
+                    throw ServeClientError.protocolError("models response missing data")
+                }
+                completion(.success(ModelSuggestionResponse(
+                    models: Self.modelOptions(data["models"]),
+                    defaultModel: data["default"] as? String ?? ""
+                )))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private static func modelOptions(_ value: Any?) -> [SessionModelOption] {
+        guard let rows = value as? [Any] else {
+            return []
+        }
+        return rows.compactMap { row in
+            guard let row = row as? [String: Any],
+                  let id = (row["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !id.isEmpty else {
+                return nil
+            }
+            let rawLabel = (row["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return SessionModelOption(
+                id: id,
+                label: rawLabel.isEmpty ? id : rawLabel,
+                note: row["note"] as? String ?? ""
+            )
+        }
     }
 }

@@ -365,6 +365,15 @@ enum RenderPreview {
             "/Users/aleksi.tuominen/Code/questmaster",
             "/Users/aleksi.tuominen/Code/dotfiles",
         ]
+        // Stand-ins for what the serve models topic resolves at runtime.
+        state.model.setModelOptions(
+            [
+                SessionModelOption(id: "opus", label: "opus", note: "alias · tracks Claude Opus 5"),
+                SessionModelOption(id: "sonnet", label: "sonnet", note: "alias · tracks Claude Sonnet 5"),
+                SessionModelOption(id: "claude-opus-5", label: "claude-opus-5", note: "Claude Opus 5 · 2026-07-24"),
+            ],
+            defaultModel: "sonnet"
+        )
         return NewSessionRootView(
             state: state,
             onFocusChanged: { _ in },

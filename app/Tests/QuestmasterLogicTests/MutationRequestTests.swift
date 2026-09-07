@@ -5,6 +5,7 @@ struct MutationRequestTests {
     static func run() {
         startTrimsOptionalFields()
         startOmitsNoColor()
+        startEncodesModelOverrideAndOmitsDefault()
         startShellEncodesPlainTerminalData()
         startShellRequiresCwdAndOmitsBlankTitle()
         questMutationsEncodeQuestData()
@@ -56,6 +57,40 @@ struct MutationRequestTests {
             expect(data?["color"] == nil, "no color should be omitted")
         } catch {
             fail("no-color start request threw \(error)")
+        }
+    }
+
+    private static func startEncodesModelOverrideAndOmitsDefault() {
+        do {
+            // An unknown id is encoded as typed: the harness decides whether a
+            // model exists, so a model released today works today.
+            let override = try ServeMutationRequests.start(
+                role: .standalone,
+                title: nil,
+                cwd: "/tmp/project",
+                agent: "claude",
+                color: NewSessionFormModel.noColor,
+                prompt: nil,
+                model: " claude-opus-9-unreleased "
+            )
+            let overrideData = (override.jsonObject(id: "start-model") as NSDictionary)["data"] as? NSDictionary
+            expect(
+                overrideData?["model"] as? String == "claude-opus-9-unreleased",
+                "model override was not encoded verbatim"
+            )
+
+            let defaulted = try ServeMutationRequests.start(
+                role: .standalone,
+                title: nil,
+                cwd: "/tmp/project",
+                agent: "claude",
+                color: NewSessionFormModel.noColor,
+                prompt: nil
+            )
+            let defaultedData = (defaulted.jsonObject(id: "start-default") as NSDictionary)["data"] as? NSDictionary
+            expect(defaultedData?["model"] == nil, "the default entry should omit the model key")
+        } catch {
+            fail("model start request threw \(error)")
         }
     }
 

@@ -69,6 +69,13 @@ struct NewSessionRootView: View {
                 swatchColor: nil
             )
             selectRow(
+                label: "Model",
+                field: .model,
+                note: modelNote,
+                title: state.model.selectedModelOption.label,
+                swatchColor: nil
+            )
+            selectRow(
                 label: "Role",
                 field: .role,
                 note: "the shape it takes in the field",
@@ -195,6 +202,17 @@ struct NewSessionRootView: View {
         state.model.submitting ? "Creating session…" : ""
     }
 
+    /// The model row's hint: what the harness would launch on its own while
+    /// the default entry is selected, and the resolved model's own annotation
+    /// (vendor name, release date, alias, or "recent") once one is picked.
+    private var modelNote: String {
+        let option = state.model.selectedModelOption
+        guard option.isDefault else {
+            return option.note.isEmpty ? "passed to the harness as-is" : option.note
+        }
+        return option.note.isEmpty ? "whatever the harness picks for this role" : "the harness default (\(option.note))"
+    }
+
     private var roleTitle: String {
         switch state.model.role {
         case .standalone:
@@ -306,7 +324,7 @@ struct NewSessionRootView: View {
         switch field {
         case .path, .title:
             focusedField = field
-        case .agent, .color, .prompt, .role:
+        case .agent, .model, .color, .prompt, .role:
             focusedField = nil
         }
     }

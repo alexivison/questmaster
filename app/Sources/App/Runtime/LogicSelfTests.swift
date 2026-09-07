@@ -43,6 +43,8 @@ enum LogicSelfTests {
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
         ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
+        ("testNewSessionResolvesModelsPerAgent", testNewSessionResolvesModelsPerAgent),
+        ("testNewSessionKeepsDefaultModelWhenResolveFails", testNewSessionKeepsDefaultModelWhenResolveFails),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1415,6 +1417,7 @@ enum LogicSelfTests {
                 initialFocus: .path,
                 mutationClient: StubMutationClient(result: .failure(StubMutationError())),
                 directoryClient: nil,
+                modelClient: nil,
                 onSuccess: { _ in }
             ),
             dismiss: {}
@@ -1436,6 +1439,86 @@ enum LogicSelfTests {
 
         model.state.pathSuggestions = []
         try expect(!model.handle(try keyEvent("", keyCode: 125)), "down arrow should not be consumed without suggestions")
+    }
+
+    // The sheet must never carry a model list of its own: it asks the backend
+    // for one per agent and role, and re-asks when either changes.
+    private static func testNewSessionResolvesModelsPerAgent() throws {
+        let client = StubModelClient(models: [
+            "claude": [SessionModelOption(id: "opus", label: "opus", note: "alias")],
+            "codex": [SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol", note: "GPT-5.6 Sol")],
+        ], defaults: ["claude": "sonnet", "codex": "gpt-5.6-terra"])
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .agent)
+
+        model.present()
+        drainMainQueue()
+        try expect(client.requests.first?.agent == "claude", "the sheet should resolve models for the initial agent")
+        try expect(client.requests.first?.role == "standalone", "a standalone sheet should ask for standalone defaults")
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" }),
+            "resolved models should reach the picker"
+        )
+        try expect(
+            model.state.model.selectedModelOption.isDefault,
+            "the default entry stays selected until the user picks a model"
+        )
+        try expect(model.state.model.selectedModel.isEmpty, "the default entry sends no model override")
+        try expect(
+            model.state.model.modelOptions.first?.note == "sonnet",
+            "the default entry should be annotated with the harness role default"
+        )
+
+        // Cycle the model select onto a real model, then change the agent.
+        model.state.model.focusedField = .model
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        try expect(model.state.model.selectedModel == "opus", "cycling should select the resolved model")
+
+        model.state.model.focusedField = .agent
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent select")
+        try expect(
+            model.state.model.selectedModel.isEmpty,
+            "another harness's model must not carry over"
+        )
+        drainMainQueue()
+        try expect(client.requests.last?.agent == "codex", "changing the agent should re-resolve models")
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" }),
+            "the new agent's models should replace the previous list"
+        )
+    }
+
+    private static func testNewSessionKeepsDefaultModelWhenResolveFails() throws {
+        let client = StubModelClient(models: [:], defaults: [:], failing: true)
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .path)
+
+        model.present()
+        drainMainQueue()
+
+        // A failed resolve is not the user's problem: the default entry alone
+        // still starts a session on the harness's own model.
+        try expect(model.state.model.modelOptions.count == 1, "a failed resolve should leave only the default entry")
+        try expect(model.state.model.selectedModel.isEmpty, "a failed resolve should send no model override")
+        try expect(model.state.model.errorMessage == nil, "a failed resolve should not raise a form error")
+    }
+
+    private static func newSessionSheetModel(
+        modelClient: ServeModelSuggesting?,
+        initialFocus: NewSessionField
+    ) -> NewSessionSheetModel {
+        NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                role: .standalone,
+                initialPath: "/tmp/project",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: initialFocus,
+                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                directoryClient: nil,
+                modelClient: modelClient,
+                onSuccess: { _ in }
+            ),
+            dismiss: {}
+        )
     }
 
     private static func sessionCoordinator(
@@ -1513,6 +1596,35 @@ enum LogicSelfTests {
     }
 
     private struct StubMutationError: Error {}
+
+    private final class StubModelClient: ServeModelSuggesting {
+        private let models: [String: [SessionModelOption]]
+        private let defaults: [String: String]
+        private let failing: Bool
+        private(set) var requests: [(agent: String, role: String)] = []
+
+        init(models: [String: [SessionModelOption]], defaults: [String: String], failing: Bool = false) {
+            self.models = models
+            self.defaults = defaults
+            self.failing = failing
+        }
+
+        func suggestModels(
+            agent: String,
+            role: String,
+            completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
+        ) {
+            requests.append((agent: agent, role: role))
+            if failing {
+                completion(.failure(StubMutationError()))
+                return
+            }
+            completion(.success(ModelSuggestionResponse(
+                models: models[agent] ?? [],
+                defaultModel: defaults[agent] ?? ""
+            )))
+        }
+    }
 
     private final class Counter {
         var value = 0

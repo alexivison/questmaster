@@ -13,12 +13,41 @@ public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case path
     case title
     case agent
+    case model
     case role
     case color
     case prompt
 
     public var isSelect: Bool {
-        self == .agent || self == .color || self == .role
+        self == .agent || self == .color || self == .role || self == .model
+    }
+}
+
+/// One entry in the model select.
+///
+/// The options are pushed in from the serve `models` topic rather than declared
+/// here: the app must never carry a model list, or a newly released model would
+/// need an app release. `defaultOption` is the only entry the app owns, and it
+/// means "leave the harness's role default alone".
+public struct SessionModelOption: Equatable {
+    public let id: String
+    public let label: String
+    public let note: String
+
+    public init(id: String, label: String, note: String = "") {
+        self.id = id
+        self.label = label
+        self.note = note
+    }
+
+    /// The default entry, annotated with the role default the backend reports
+    /// so the picker can say which model "default" actually means.
+    public static func defaultOption(note: String = "") -> SessionModelOption {
+        SessionModelOption(id: "", label: "default", note: note)
+    }
+
+    public var isDefault: Bool {
+        id.isEmpty
     }
 }
 
@@ -45,6 +74,8 @@ public struct NewSessionSubmitPayload: Equatable {
     public let path: String
     public let title: String?
     public let agent: String
+    /// Empty means "no override": the harness applies its role default.
+    public let model: String
     public let color: String
     public let prompt: String?
 }
@@ -69,8 +100,10 @@ public struct NewSessionFormModel: Equatable {
 
     public private(set) var agents: [String]
     public private(set) var colors: [String]
+    public private(set) var modelOptions: [SessionModelOption]
     public private(set) var selectedAgentIndex: Int
     public private(set) var selectedColorIndex: Int
+    public private(set) var selectedModelIndex: Int
 
     public init(
         role: NewSessionRole,
@@ -91,8 +124,10 @@ public struct NewSessionFormModel: Equatable {
         errorMessage = nil
         self.agents = agents.isEmpty ? NewSessionFormModel.defaultAgents : agents
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
+        modelOptions = [.defaultOption()]
         selectedAgentIndex = 0
         selectedColorIndex = Self.colorIndex(for: initialColor, in: self.colors)
+        selectedModelIndex = 0
     }
 
     public var selectedAgent: String {
@@ -107,8 +142,43 @@ public struct NewSessionFormModel: Equatable {
         selectedColor.isEmpty ? Self.noColorLabel : selectedColor
     }
 
+    /// The selected model id, empty when the default entry is selected.
+    public var selectedModel: String {
+        selectedModelOption.isDefault ? "" : selectedModelOption.id
+    }
+
+    public var selectedModelOption: SessionModelOption {
+        value(at: selectedModelIndex, in: modelOptions) ?? .defaultOption()
+    }
+
     public mutating func setRole(_ role: NewSessionRole) {
+        guard self.role != role else {
+            return
+        }
         self.role = role
+        // The role decides which default model the harness applies, so the
+        // resolved list no longer describes this form.
+        resetModelOptions()
+    }
+
+    /// Replaces the model list with what the backend resolved for the current
+    /// agent and role. A selection the user already made survives the refresh
+    /// when the new list still offers it.
+    public mutating func setModelOptions(_ models: [SessionModelOption], defaultModel: String = "") {
+        let previous = selectedModel
+        var options: [SessionModelOption] = [.defaultOption(note: defaultModel)]
+        for model in models where !model.isDefault {
+            options.append(model)
+        }
+        modelOptions = options
+        selectedModelIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+    }
+
+    /// Drops back to the lone default entry, for when the resolved list stops
+    /// applying (the agent or role changed) or a fetch failed.
+    public mutating func resetModelOptions() {
+        modelOptions = [.defaultOption()]
+        selectedModelIndex = 0
     }
 
     public mutating func handle(_ key: NewSessionFormKey) {
@@ -172,6 +242,7 @@ public struct NewSessionFormModel: Equatable {
             path: cleanPath,
             title: clean(title),
             agent: selectedAgent,
+            model: selectedModel,
             color: selectedColor,
             prompt: clean(prompt)
         )
@@ -219,12 +290,17 @@ public struct NewSessionFormModel: Equatable {
         switch focusedField {
         case .agent:
             selectedAgentIndex = wrapped(selectedAgentIndex + delta, count: agents.count)
+            // Model ids are harness-specific, so another agent's list never
+            // carries over — the sheet resolves a fresh one.
+            resetModelOptions()
+        case .model:
+            selectedModelIndex = wrapped(selectedModelIndex + delta, count: modelOptions.count)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
         case .role:
             let roles: [NewSessionRole] = [.standalone, .master]
             let index = roles.firstIndex(of: role) ?? 0
-            role = roles[wrapped(index + delta, count: roles.count)]
+            setRole(roles[wrapped(index + delta, count: roles.count)])
         case .path, .title, .prompt:
             break
         }

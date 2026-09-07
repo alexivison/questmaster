@@ -40,6 +40,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shellHandles: ShellWindowController.Handles?
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
+    private var modelSuggestionClient: ServeModelSuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private let newQuestPresenter = NewQuestSheetPresenter()
     private let destructiveConfirmationPresenter = DestructiveConfirmationPresenter()
@@ -185,6 +186,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
+        modelSuggestionClient = serveMutationClient
         sessionCoordinator = makeSessionCoordinator(mutationClient: serveMutationClient)
         createWindow()
         do {
@@ -688,6 +690,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             initialFocus: initialFocus,
             mutationClient: mutationClient,
             directoryClient: directorySuggestionClient,
+            modelClient: modelSuggestionClient,
             onSuccess: { [weak self] sessionID in
                 guard let self else {
                     return
