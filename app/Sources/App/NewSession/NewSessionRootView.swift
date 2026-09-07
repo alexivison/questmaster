@@ -120,7 +120,7 @@ struct NewSessionRootView: View {
             horizontalInset: Metrics.horizontalInset,
             spacing: Metrics.horizontalInset,
             onSelect: { focus(.model) },
-            accessory: { refreshModelsButton }
+            accessory: { AnyView(refreshModelsButton) }
         )
     }
 

@@ -1216,15 +1216,6 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 		t.Fatalf("models = %#v, want the built-in defaults", data["models"])
 	}
 
-	// The bare-string shorthand (mirroring dir_suggest's) must resolve the
-	// same way as the full object form.
-	writeRequest(t, enc, map[string]any{"id": "models-shorthand", "method": "models", "data": "claude"})
-	shorthand := assertResponseTopic(t, dec, "models")
-	shorthandData, ok := shorthand.Data.(map[string]any)
-	if !ok || shorthandData["agent"] != "claude" || shorthandData["role"] != "standalone" {
-		t.Fatalf("models bare-string data = %#v, want claude/standalone", shorthand.Data)
-	}
-
 	// limit is honored: it must actually cap the response, not just decode
 	// without error.
 	writeRequest(t, enc, map[string]any{

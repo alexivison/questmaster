@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/session"
 )
 
 const probeTimeout = 4 * time.Second
@@ -99,7 +100,7 @@ func probeBinary(agentName string) (string, bool) {
 	if path, ok := lookPathAugmented(spec.DefaultCLI); ok {
 		return path, true
 	}
-	fallback := expandHome(spec.FallbackPath)
+	fallback := session.ExpandUserPath(spec.FallbackPath)
 	if fallback == "" {
 		return "", false
 	}
@@ -110,24 +111,17 @@ func probeBinary(agentName string) (string, bool) {
 }
 
 // lookPathAugmented searches PATH the same way a real launch would before
-// falling back further: QUESTMASTER_PATH_PREFIX, ~/.local/bin and
-// /opt/homebrew/bin ahead of the process's own PATH (see
-// internal/session/agent_resolution.go's defaultAgentPath, which this
-// mirrors). A GUI-launched questmaster process often has a thinner PATH than
-// an interactive shell, which is exactly the case that would otherwise make
-// an installed harness look "not found" here even though it launches fine.
+// falling back further: internal/session's DefaultAgentPath prepends
+// QUESTMASTER_PATH_PREFIX, ~/.local/bin and /opt/homebrew/bin ahead of the
+// process's own PATH. A GUI-launched questmaster process often has a thinner
+// PATH than an interactive shell, which is exactly the case that would
+// otherwise make an installed harness look "not found" here even though it
+// launches fine.
 func lookPathAugmented(name string) (string, bool) {
 	if path, err := exec.LookPath(name); err == nil {
 		return path, true
 	}
-	home, _ := os.UserHomeDir()
-	augmented := mergePathLists(
-		os.Getenv("QUESTMASTER_PATH_PREFIX"),
-		filepath.Join(home, ".local/bin"),
-		"/opt/homebrew/bin",
-		os.Getenv("PATH"),
-	)
-	for _, dir := range filepath.SplitList(augmented) {
+	for _, dir := range filepath.SplitList(session.DefaultAgentPath()) {
 		if dir == "" {
 			continue
 		}
@@ -137,36 +131,4 @@ func lookPathAugmented(name string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// mergePathLists concatenates PATH-style lists, dropping empty entries and
-// de-duplicating while preserving first-seen order.
-func mergePathLists(paths ...string) string {
-	merged := make([]string, 0, 8)
-	seen := make(map[string]struct{}, 8)
-	for _, path := range paths {
-		for _, dir := range filepath.SplitList(path) {
-			if dir == "" {
-				continue
-			}
-			if _, ok := seen[dir]; ok {
-				continue
-			}
-			seen[dir] = struct{}{}
-			merged = append(merged, dir)
-		}
-	}
-	return strings.Join(merged, string(os.PathListSeparator))
-}
-
-func expandHome(path string) string {
-	path = strings.TrimSpace(path)
-	if !strings.HasPrefix(path, "~") {
-		return path
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, strings.TrimPrefix(path, "~"))
 }

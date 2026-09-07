@@ -65,16 +65,8 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 }
 
 func decodeModelsPayload(raw json.RawMessage) (modelsPayload, error) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 {
+	if len(bytes.TrimSpace(raw)) == 0 {
 		return modelsPayload{}, nil
-	}
-	if raw[0] == '"' {
-		var agentName string
-		if err := json.Unmarshal(raw, &agentName); err != nil {
-			return modelsPayload{}, fmt.Errorf("decode models agent: %w", err)
-		}
-		return modelsPayload{Agent: agentName}, nil
 	}
 	var payload modelsPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {

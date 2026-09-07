@@ -20,6 +20,19 @@ func defaultAgentPath() string {
 	return mergePathLists(os.Getenv("QUESTMASTER_PATH_PREFIX"), filepath.Join(home, ".local/bin"), "/opt/homebrew/bin", os.Getenv("PATH"))
 }
 
+// DefaultAgentPath exports defaultAgentPath for internal/modelsuggest, which
+// probes the same binaries this resolves at launch and needs the identical
+// search order rather than a second copy of it.
+func DefaultAgentPath() string {
+	return defaultAgentPath()
+}
+
+// ExpandUserPath exports expandUserPath for internal/modelsuggest, which
+// expands the same "~"-prefixed FallbackPath spec field this package does.
+func ExpandUserPath(path string) string {
+	return expandUserPath(path)
+}
+
 func resolveAgentBinary(provider agent.Agent, agentPath string) (string, string, bool) {
 	return resolveAgentBinaryForLaunch(provider, "", agentPath)
 }
