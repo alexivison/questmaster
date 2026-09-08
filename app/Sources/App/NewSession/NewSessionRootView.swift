@@ -154,7 +154,7 @@ struct NewSessionRootView: View {
     private var effortSubtextRow: some View {
         let focused = state.model.focusedField == .model
         let connectorColor = (focused ? AppPalette.brassActive : AppPalette.line).swiftUI
-        return HStack(spacing: 6) {
+        return HStack(alignment: .effortMarker, spacing: 6) {
             VStack(spacing: 0) {
                 Rectangle()
                     .fill(connectorColor)
@@ -165,13 +165,15 @@ struct NewSessionRootView: View {
                         width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
                         height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
                     )
+                    .alignmentGuide(.effortMarker) { $0[VerticalAlignment.center] }
             }
             Text(state.model.selectedEffortOption.label)
-                .font(AppFonts.modalHelper.swiftUI)
+                .font(AppFonts.modalHelperLarge.swiftUI)
                 .italic()
                 .foregroundStyle(AppPalette.dim.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .alignmentGuide(.effortMarker) { $0[VerticalAlignment.center] }
         }
         .padding(.leading, Token.Radius.control + 3)
     }
@@ -403,4 +405,16 @@ struct NewSessionRootView: View {
             focusedField = nil
         }
     }
+}
+
+/// Aligns the effort connector's marker (not the taller stub-plus-marker
+/// column above it) with the vertical center of the effort text beside it.
+private struct EffortMarkerAlignment: AlignmentID {
+    static func defaultValue(in context: ViewDimensions) -> CGFloat {
+        context[VerticalAlignment.center]
+    }
+}
+
+private extension VerticalAlignment {
+    static let effortMarker = VerticalAlignment(EffortMarkerAlignment.self)
 }

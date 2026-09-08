@@ -179,6 +179,9 @@ enum AppFonts {
     static let modalLabel = NSFont.systemFont(ofSize: 10, weight: .semibold).serif
     /// Italic flavor/helper text next to modal fields.
     static let modalHelper = NSFont.systemFont(ofSize: 11.5).serif
+    /// The Model row's effort sub-text — a touch larger than modalHelper
+    /// since it stands alone on its own line rather than trailing a control.
+    static let modalHelperLarge = NSFont.systemFont(ofSize: 13).serif
     /// Card-style list row titles (Tracker sessions, quests, artifacts).
     static let itemTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
     /// `itemTitle` for the row that additionally needs its own emphasis (e.g. the
