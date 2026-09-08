@@ -122,7 +122,10 @@ struct ModalSelectRow: View {
             topAligned: subtext != nil
         ) {
             if let subtext {
-                VStack(alignment: .leading, spacing: 6) {
+                // No spacing here: the connector's own stub supplies the gap,
+                // starting flush against the control's frame rather than
+                // floating below it.
+                VStack(alignment: .leading, spacing: 0) {
                     controlRow
                     subtext()
                 }

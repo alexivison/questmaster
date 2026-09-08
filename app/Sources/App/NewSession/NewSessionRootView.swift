@@ -139,15 +139,19 @@ struct NewSessionRootView: View {
     /// The reasoning-effort level hangs off the Model row the same way a
     /// worker hangs off its master in the tracker — reusing that connector
     /// marker (and the same line color) makes the relationship legible at a
-    /// glance instead of needing a label like "Effort:" to spell it out.
+    /// glance instead of needing a label like "Effort:" to spell it out. The
+    /// connector and value pick up the control's own focused/brass color, the
+    /// same way its border does.
     private var effortSubtextRow: some View {
-        HStack(spacing: 6) {
+        let focused = state.model.focusedField == .model
+        let connectorColor = (focused ? AppPalette.brassActive : AppPalette.line).swiftUI
+        return HStack(spacing: 6) {
             VStack(spacing: 0) {
                 Rectangle()
-                    .fill(AppPalette.line.swiftUI)
-                    .frame(width: Token.Size.divider, height: 5)
+                    .fill(connectorColor)
+                    .frame(width: Token.Size.divider, height: 6)
                 TrackerWorkerConnectorMarker()
-                    .fill(AppPalette.line.swiftUI)
+                    .fill(connectorColor)
                     .frame(
                         width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
                         height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
@@ -156,7 +160,7 @@ struct NewSessionRootView: View {
             Text(state.model.selectedEffortOption.label)
                 .font(AppFonts.modalHelper.swiftUI)
                 .italic()
-                .foregroundStyle(AppPalette.dim.swiftUI)
+                .foregroundStyle(focused ? AppPalette.brassActive.swiftUI : AppPalette.dim.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
