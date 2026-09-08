@@ -66,6 +66,13 @@ struct NewSessionRootView: View {
             pathRow
             textRow(label: "Title", placeholder: "optional, auto-generated if blank", text: titleBinding, field: .title)
             selectRow(
+                label: "Role",
+                field: .role,
+                note: "the shape it takes in the field",
+                title: roleTitle,
+                swatchColor: nil
+            )
+            selectRow(
                 label: "Agent",
                 field: .agent,
                 note: "the agent who answers the call",
@@ -73,14 +80,6 @@ struct NewSessionRootView: View {
                 swatchColor: nil
             )
             modelSelectRow
-            effortSelectRow
-            selectRow(
-                label: "Role",
-                field: .role,
-                note: "the shape it takes in the field",
-                title: roleTitle,
-                swatchColor: nil
-            )
             selectRow(
                 label: "Color",
                 field: .color,
@@ -123,34 +122,6 @@ struct NewSessionRootView: View {
             onSelect: { focus(.model) },
             accessory: { AnyView(refreshModelsButton) }
         )
-    }
-
-    private var effortSelectRow: some View {
-        ModalSelectRow(
-            label: "Effort",
-            labelWidth: Metrics.rowLabelWidth,
-            title: state.model.selectedEffortOption.label,
-            note: effortNote,
-            swatchColor: nil,
-            focused: state.model.focusedField == .reasoningEffort,
-            disabled: state.model.submitting,
-            controlWidth: Metrics.selectWidth,
-            horizontalInset: Metrics.horizontalInset,
-            spacing: Metrics.horizontalInset,
-            onSelect: { focus(.reasoningEffort) }
-        )
-    }
-
-    /// The effort row's hint: the title already shows the concrete level once
-    /// resolved (the harness's own default, or a picked level), so this only
-    /// says what kind of value it is. Unlike the model row, there is no
-    /// refresh affordance — the level list has no cache to bypass.
-    private var effortNote: String {
-        let option = state.model.selectedEffortOption
-        if option.isDefault {
-            return option.label == "default" ? "whatever the harness picks for this role" : "the default for this role"
-        }
-        return "passed to the harness as-is"
     }
 
     private var refreshModelsButton: some View {
@@ -259,9 +230,11 @@ struct NewSessionRootView: View {
 
     /// The model row's hint: the title already shows the concrete default id
     /// once resolved, so this only needs to say what kind of value it is —
-    /// the role default, or the resolved model's own annotation (vendor name,
-    /// release date, alias, or "recent") once one is picked. The `r` shortcut
-    /// is surfaced only while the row itself is focused, where it's actually
+    /// the role default, or the resolved model's own annotation (vendor name
+    /// or "recent") once one is picked. The reasoning-effort level rides
+    /// along as a sub-text rather than its own row, since it is a property of
+    /// the launch, not a separate field to tab to. The `r`/`e` shortcuts are
+    /// surfaced only while the row itself is focused, where they're actually
     /// live.
     private var modelNote: String {
         let option = state.model.selectedModelOption
@@ -271,10 +244,11 @@ struct NewSessionRootView: View {
         } else {
             base = option.note.isEmpty ? "passed to the harness as-is" : option.note
         }
+        let combined = "\(base) · effort: \(state.model.selectedEffortOption.label)"
         guard state.model.focusedField == .model else {
-            return base
+            return combined
         }
-        return state.isRefreshingModels ? "\(base) · refreshing…" : "\(base) · r to refresh"
+        return state.isRefreshingModels ? "\(combined) · refreshing…" : "\(combined) · r refresh · e effort"
     }
 
     private var roleTitle: String {
@@ -388,7 +362,7 @@ struct NewSessionRootView: View {
         switch field {
         case .path, .title:
             focusedField = field
-        case .agent, .model, .reasoningEffort, .color, .prompt, .role:
+        case .agent, .model, .color, .prompt, .role:
             focusedField = nil
         }
     }

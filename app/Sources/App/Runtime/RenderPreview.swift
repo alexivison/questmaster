@@ -369,8 +369,8 @@ enum RenderPreview {
         // at runtime.
         state.model.setModelOptions(
             [
-                SessionModelOption(id: "claude-opus-5", label: "claude-opus-5", note: "Claude Opus 5 · 2026-07-24"),
-                SessionModelOption(id: "claude-sonnet-5", label: "claude-sonnet-5", note: "Claude Sonnet 5 · 2026-06-01"),
+                SessionModelOption(id: "claude-opus-5", label: "claude-opus-5", note: "Claude Opus 5"),
+                SessionModelOption(id: "claude-sonnet-5", label: "claude-sonnet-5", note: "Claude Sonnet 5"),
             ],
             defaultModel: "claude-sonnet-5"
         )

@@ -12,15 +12,14 @@ public enum NewSessionRole: Equatable {
 public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case path
     case title
+    case role
     case agent
     case model
-    case reasoningEffort
-    case role
     case color
     case prompt
 
     public var isSelect: Bool {
-        self == .agent || self == .color || self == .role || self == .model || self == .reasoningEffort
+        self == .agent || self == .color || self == .role || self == .model
     }
 }
 
@@ -238,13 +237,16 @@ public struct NewSessionFormModel: Equatable {
     /// Replaces the reasoning-effort list with what the backend resolved for
     /// the current agent, role and model. Mirrors setModelOptions: a selection
     /// the user already made survives the refresh when the new list still
-    /// offers it.
+    /// offers it. The applied default level is always a member of the
+    /// harness's own supported-levels list, so it is dropped from the concrete
+    /// entries here — otherwise it would show up twice, once as the default
+    /// entry and once more as an identically-named concrete pick.
     public mutating func setEffortOptions(_ levels: [String], defaultLevel: String = "") {
         let previous = selectedReasoningEffort
         var options: [SessionReasoningEffortOption] = [.defaultOption(defaultLevel)]
         for level in levels {
             let trimmed = level.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
+            guard !trimmed.isEmpty, trimmed != defaultLevel else {
                 continue
             }
             options.append(SessionReasoningEffortOption(id: trimmed, label: trimmed))
@@ -258,6 +260,16 @@ public struct NewSessionFormModel: Equatable {
     public mutating func resetEffortOptions() {
         effortOptions = [.defaultOption()]
         selectedEffortIndex = 0
+    }
+
+    /// Cycles the reasoning-effort selection independent of focus — bound to
+    /// `e` while the Model field is focused, since Effort has no row of its
+    /// own (its current value is a sub-text of the Model row instead).
+    public mutating func cycleReasoningEffort() {
+        guard !submitting else {
+            return
+        }
+        selectedEffortIndex = wrapped(selectedEffortIndex + 1, count: effortOptions.count)
     }
 
     public mutating func handle(_ key: NewSessionFormKey) {
@@ -382,8 +394,6 @@ public struct NewSessionFormModel: Equatable {
             }
         case .model:
             selectedModelIndex = wrapped(selectedModelIndex + delta, count: modelOptions.count)
-        case .reasoningEffort:
-            selectedEffortIndex = wrapped(selectedEffortIndex + delta, count: effortOptions.count)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
         case .role:

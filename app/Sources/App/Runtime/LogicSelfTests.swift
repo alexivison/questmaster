@@ -50,6 +50,7 @@ enum LogicSelfTests {
         ("testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne", testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne),
         ("testNewSessionResolvesReasoningEffortsPerAgentAndModel", testNewSessionResolvesReasoningEffortsPerAgentAndModel),
         ("testNewSessionKeepsDefaultReasoningEffortWhenResolveFails", testNewSessionKeepsDefaultReasoningEffortWhenResolveFails),
+        ("testNewSessionEffortKeyCyclesWhileModelFocused", testNewSessionEffortKeyCyclesWhileModelFocused),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1492,6 +1493,21 @@ enum LogicSelfTests {
             model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" }),
             "the new agent's models should replace the previous list"
         )
+
+        // Returning to an agent already resolved this sheet session must
+        // apply instantly from cache, not re-ask the backend.
+        let requestsBeforeReturn = client.requests.count
+        try expect(model.handle(try keyEvent("h", keyCode: 4)), "h should cycle the agent select back")
+        try expect(model.state.model.selectedAgent == "claude", "precondition: back to claude")
+        drainMainQueue()
+        try expect(
+            client.requests.count == requestsBeforeReturn,
+            "returning to an already-resolved agent must not re-ask the backend"
+        )
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" }),
+            "the cached list should apply instantly"
+        )
     }
 
     private static func testNewSessionKeepsDefaultModelWhenResolveFails() throws {
@@ -1617,12 +1633,20 @@ enum LogicSelfTests {
         try expect(effortClient.requests.first?.agent == "claude", "the sheet should resolve efforts for the initial agent")
         try expect(effortClient.requests.first?.model.isEmpty == true, "the default entry sends no model override to resolve against")
         try expect(
-            model.state.model.effortOptions.contains(where: { $0.id == "xhigh" }),
+            model.state.model.effortOptions.contains(where: { $0.id == "low" }),
             "resolved efforts should reach the picker"
         )
         try expect(
             model.state.model.selectedEffortOption.isDefault,
             "the default entry stays selected until the user picks a level"
+        )
+        try expect(
+            model.state.model.selectedEffortOption.label == "xhigh",
+            "the default entry should show the concrete applied level"
+        )
+        try expect(
+            !model.state.model.effortOptions.contains(where: { $0.id == "xhigh" }),
+            "the level matching the default must not be repeated as a concrete entry"
         )
 
         // Cycling onto a real model (still the same agent/role) must
@@ -1651,6 +1675,34 @@ enum LogicSelfTests {
         // entry alone still starts a session on the harness's own effort.
         try expect(model.state.model.effortOptions.count == 1, "no client should leave only the default entry")
         try expect(model.state.model.selectedReasoningEffort.isEmpty, "the default entry should send no effort override")
+    }
+
+    // Effort has no row of its own: `e` must cycle it while the Model field
+    // is focused, and must not be claimed anywhere else (it would otherwise
+    // collide with typing "e" into a text field, or another select's own
+    // shortcuts).
+    private static func testNewSessionEffortKeyCyclesWhileModelFocused() throws {
+        let effortClient = StubReasoningEffortClient(
+            efforts: ["claude": ["low", "high"]],
+            defaults: ["claude": "xhigh"]
+        )
+        let model = newSessionSheetModel(modelClient: nil, effortClient: effortClient, initialFocus: .model)
+
+        model.present()
+        drainMainQueue()
+        try expect(model.state.model.selectedEffortOption.isDefault, "precondition: default effort selected")
+
+        try expect(
+            model.handle(try keyEvent("e", keyCode: 14)),
+            "e should be consumed while the model field is focused"
+        )
+        try expect(model.state.model.selectedReasoningEffort == "low", "e should cycle to the first resolved level")
+
+        model.state.model.focusedField = .agent
+        try expect(
+            !model.handle(try keyEvent("e", keyCode: 14)),
+            "e should not be claimed by the sheet outside the model field"
+        )
     }
 
     private static func newSessionSheetModel(

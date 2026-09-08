@@ -1274,11 +1274,14 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	}
 
 	// query filters the list: a substring that matches nothing must yield no
-	// models, even from the built-in-default floor.
+	// models, even from the built-in-default floor. master's own role
+	// default (opus) is deliberately not repeated as a list entry — it is
+	// already the reported Default — so this matches against sonnet, the
+	// sibling role's default, which the floor does still offer.
 	writeRequest(t, enc, map[string]any{
 		"id":     "models-query-match",
 		"method": "models",
-		"data":   map[string]any{"agent": "claude", "role": "master", "query": "opus"},
+		"data":   map[string]any{"agent": "claude", "role": "master", "query": "sonnet"},
 	})
 	matched := assertResponseTopic(t, dec, "models")
 	matchedData, ok := matched.Data.(map[string]any)
@@ -1287,7 +1290,7 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	}
 	matchedModels, _ := matchedData["models"].([]any)
 	if len(matchedModels) == 0 {
-		t.Fatalf("models query=opus = %#v, want at least the opus default", matchedData["models"])
+		t.Fatalf("models query=sonnet = %#v, want at least the sibling role's default", matchedData["models"])
 	}
 
 	writeRequest(t, enc, map[string]any{

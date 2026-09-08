@@ -99,7 +99,7 @@ struct NewSessionSheetView: View {
 
 @MainActor
 final class NewSessionSheetModel: ObservableObject {
-    static let sheetSize = CGSize(width: 540, height: 672)
+    static let sheetSize = CGSize(width: 540, height: 626)
 
     let state: NewSessionViewState
 
@@ -115,6 +115,25 @@ final class NewSessionSheetModel: ObservableObject {
     private let maxVisibleSuggestionRows = 3
     private var suggestionDebounceTask: Task<Void, Never>?
     private let suggestionDebounceInterval: Duration = .milliseconds(175)
+
+    /// Suggestions already resolved this sheet session, so returning to an
+    /// agent/role/model combination the user has already visited applies
+    /// instantly instead of resetting to the default entry and re-asking the
+    /// backend. Cleared implicitly when the sheet is deallocated — there is no
+    /// reason to persist it past one New Session sheet.
+    private var modelCache: [ModelScopeKey: ModelSuggestionResponse] = [:]
+    private var effortCache: [EffortScopeKey: ReasoningEffortSuggestionResponse] = [:]
+
+    private struct ModelScopeKey: Hashable {
+        let agent: String
+        let role: String
+    }
+
+    private struct EffortScopeKey: Hashable {
+        let agent: String
+        let role: String
+        let model: String
+    }
 
     init(
         presentation: NewSessionSheetPresentation,
@@ -245,6 +264,11 @@ final class NewSessionSheetModel: ObservableObject {
             refreshModels()
             return true
         }
+        if !textInputFocused, flags.subtracting(.shift).isEmpty, Keymap.NewSession.cycleReasoningEffort.matches(chars),
+           state.model.focusedField == .model {
+            state.model.cycleReasoningEffort()
+            return true
+        }
         if Keymap.NewSession.create.matches(chars) {
             if state.model.creationRequested(by: .enter) {
                 submit()
@@ -295,10 +319,19 @@ final class NewSessionSheetModel: ObservableObject {
         guard let modelClient else {
             return
         }
+        // Bump the request ID before the cache check too: it invalidates any
+        // still in-flight request for a scope the user has since navigated
+        // away from, so a stale response arriving after we've already
+        // applied a cached hit can never clobber it.
         modelRequestID += 1
         let requestID = modelRequestID
         let agent = state.model.selectedAgent
         let role = state.model.role.isMaster ? "master" : "standalone"
+        let key = ModelScopeKey(agent: agent, role: role)
+        if !refresh, let cached = modelCache[key] {
+            state.model.setModelOptions(cached.models, defaultModel: cached.defaultModel)
+            return
+        }
         if refresh {
             state.isRefreshingModels = true
         }
@@ -310,6 +343,7 @@ final class NewSessionSheetModel: ObservableObject {
                 self.state.isRefreshingModels = false
                 switch result {
                 case .success(let response):
+                    self.modelCache[key] = response
                     self.state.model.setModelOptions(response.models, defaultModel: response.defaultModel)
                 case .failure:
                     self.state.model.resetModelOptions()
@@ -332,11 +366,18 @@ final class NewSessionSheetModel: ObservableObject {
         guard let effortClient else {
             return
         }
+        // See requestModelSuggestions: bump first, so an in-flight request
+        // for an abandoned scope can't clobber a cache hit applied below.
         effortRequestID += 1
         let requestID = effortRequestID
         let agent = state.model.selectedAgent
         let role = state.model.role.isMaster ? "master" : "standalone"
         let model = state.model.selectedModel
+        let key = EffortScopeKey(agent: agent, role: role, model: model)
+        if let cached = effortCache[key] {
+            state.model.setEffortOptions(cached.efforts, defaultLevel: cached.defaultEffort)
+            return
+        }
         effortClient.suggestReasoningEfforts(agent: agent, role: role, model: model) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self, self.effortRequestID == requestID else {
@@ -344,6 +385,7 @@ final class NewSessionSheetModel: ObservableObject {
                 }
                 switch result {
                 case .success(let response):
+                    self.effortCache[key] = response
                     self.state.model.setEffortOptions(response.efforts, defaultLevel: response.defaultEffort)
                 case .failure:
                     self.state.model.resetEffortOptions()
@@ -428,7 +470,7 @@ final class NewSessionSheetModel: ObservableObject {
         switch state.model.focusedField {
         case .path, .title, .prompt:
             return true
-        case .agent, .model, .reasoningEffort, .color, .role:
+        case .agent, .model, .color, .role:
             return false
         }
     }

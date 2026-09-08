@@ -376,26 +376,28 @@ func harnessOnlyModels(harnessIDs []string, collector *modelCollector) []Model {
 }
 
 // defaultModels keeps the declared role defaults in the list even when every
-// dynamic source came up empty, so the picker is never blank.
+// dynamic source came up empty, so the picker is never blank. roleDefault
+// itself is never one of them — it is already the special "default" entry's
+// own value, and repeating it here as a second, identically-named row is
+// exactly the confusing duplicate a picker must not show. The sibling role's
+// default is still offered, so a standalone session can explicitly pick the
+// master tier (or vice versa) without switching Role first.
 func defaultModels(policy agent.ModelPolicy, roleDefault string) []Model {
-	models := make([]Model, 0, 3)
-	for _, id := range []string{roleDefault, policy.Worker, policy.Master} {
-		if strings.TrimSpace(id) == "" {
+	models := make([]Model, 0, 2)
+	for _, id := range []string{policy.Worker, policy.Master} {
+		if strings.TrimSpace(id) == "" || id == roleDefault {
 			continue
 		}
-		models = append(models, Model{ID: id, Label: id, Note: "built-in default"})
+		models = append(models, Model{ID: id, Label: id, Note: "the other role's built-in default"})
 	}
 	return models
 }
 
+// modelNote is deliberately just the vendor's display name: a release date
+// alongside every entry adds noise without helping a pick, and newest-first
+// ordering already carries recency.
 func modelNote(model CatalogModel) string {
-	if model.Name == "" {
-		return model.ReleaseDate
-	}
-	if model.ReleaseDate == "" {
-		return model.Name
-	}
-	return model.Name + " · " + model.ReleaseDate
+	return model.Name
 }
 
 func modelName(model CatalogModel) string {

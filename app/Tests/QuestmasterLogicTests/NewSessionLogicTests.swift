@@ -44,17 +44,15 @@ struct NewSessionLogicTests {
         model.handle(.controlJ)
         expect(model.focusedField == .title, "control-j should move to title")
         model.handle(.controlJ)
+        expect(model.focusedField == .role, "control-j should move to role")
+        model.handle(.controlJ)
         expect(model.focusedField == .agent, "control-j should move to agent")
         model.handle(.controlJ)
         expect(model.focusedField == .model, "control-j should move to model")
         model.handle(.controlJ)
-        expect(model.focusedField == .reasoningEffort, "control-j should move to reasoning effort")
-        model.handle(.controlJ)
-        expect(model.focusedField == .role, "control-j should move to role")
-        model.handle(.controlJ)
         expect(model.focusedField == .color, "control-j should move to color")
         model.handle(.controlK)
-        expect(model.focusedField == .role, "control-k should move back to role")
+        expect(model.focusedField == .model, "control-k should move back to model")
     }
 
     private static func focusCycleIncludesRole() {
@@ -189,7 +187,9 @@ struct NewSessionLogicTests {
 
     // Mirrors modelSelectStartsOnDefaultAndTakesResolvedOptions: the app owns
     // exactly one effort entry — "default" — and receives the rest from the
-    // backend.
+    // backend. Effort has no row of its own — cycleReasoningEffort() is
+    // bound to `e` while the Model field is focused — so it is exercised
+    // directly rather than through focus + left/right.
     private static func effortSelectStartsOnDefaultAndTakesResolvedOptions() {
         var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
         expect(model.effortOptions.count == 1, "the picker should start with only the default entry")
@@ -198,16 +198,21 @@ struct NewSessionLogicTests {
         expect(model.submitPayload()?.reasoningEffort == "", "an untouched picker should not override the effort")
 
         model.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "xhigh")
-        expect(model.effortOptions.count == 6, "resolved levels should append to the default entry")
+        // xhigh is both the applied default and a member of the supported
+        // list, so it must not appear a second time as a concrete entry.
+        expect(model.effortOptions.count == 5, "the level matching the default must not be repeated")
         expect(model.effortOptions.first?.label == "xhigh", "the default entry should show the concrete applied level")
         expect(model.selectedEffortOption.isDefault, "resolving should not change the selection")
 
-        model.focusedField = .reasoningEffort
-        model.handle(.right)
-        expect(model.selectedReasoningEffort == "low", "right should select the first resolved level")
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort == "low", "cycling should select the first resolved level")
         expect(model.submitPayload()?.reasoningEffort == "low", "a picked level should reach the payload")
-        model.handle(.left)
-        expect(model.selectedReasoningEffort.isEmpty, "left should return to the default entry")
+        model.cycleReasoningEffort()
+        model.cycleReasoningEffort()
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort == "max", "cycling should reach the last resolved level")
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort.isEmpty, "cycling past the last level should wrap to the default entry")
     }
 
     // Mirrors agentAndRoleChangesDropAnotherHarnessModel: valid effort levels
@@ -219,9 +224,8 @@ struct NewSessionLogicTests {
             initialPath: "/tmp/project",
             agents: ["claude", "codex"]
         )
-        model.setEffortOptions(["low", "high", "xhigh"], defaultLevel: "xhigh")
-        model.focusedField = .reasoningEffort
-        model.handle(.right)
+        model.setEffortOptions(["low", "high"], defaultLevel: "xhigh")
+        model.cycleReasoningEffort()
         expect(model.selectedReasoningEffort == "low", "precondition: low selected")
 
         model.focusedField = .agent
@@ -230,9 +234,8 @@ struct NewSessionLogicTests {
         expect(model.selectedReasoningEffort.isEmpty, "a claude effort level must not launch on codex")
         expect(model.effortOptions.count == 1, "the stale list should be dropped with the agent")
 
-        model.setEffortOptions(["minimal", "xhigh", "ultra"], defaultLevel: "xhigh")
-        model.focusedField = .reasoningEffort
-        model.handle(.right)
+        model.setEffortOptions(["minimal", "ultra"], defaultLevel: "xhigh")
+        model.cycleReasoningEffort()
         expect(model.selectedReasoningEffort == "minimal", "precondition: codex effort selected")
 
         model.setRole(.master)

@@ -124,7 +124,7 @@ func TestQueryDropsClaudeFamilyAliases(t *testing.T) {
 	if count := countID(got.Models, "opus"); count != 1 {
 		t.Fatalf("models %v contains opus %d times, want exactly 1", ids(got.Models), count)
 	}
-	if note := noteForID(got.Models, "opus"); note != "built-in default" {
+	if note := noteForID(got.Models, "opus"); note != "the other role's built-in default" {
 		t.Errorf("opus note = %q, want the built-in-default fallback, not a family alias", note)
 	}
 	for _, model := range got.Models {
@@ -182,8 +182,15 @@ func TestQueryFallsBackWhenEveryDynamicSourceIsEmpty(t *testing.T) {
 	if got.Default != "opus" {
 		t.Errorf("default = %q, want opus", got.Default)
 	}
-	if !containsID(got.Models, "opus") || !containsID(got.Models, "sonnet") {
-		t.Errorf("models = %v, want the built-in role defaults", ids(got.Models))
+	// opus is already the reported Default; repeating it as a second list
+	// entry with the same name would be the exact confusing duplicate this
+	// fallback must not create. sonnet (the sibling role's default) still
+	// keeps the picker non-empty.
+	if containsID(got.Models, "opus") {
+		t.Errorf("models = %v, should not repeat the role default already reported in Default", ids(got.Models))
+	}
+	if !containsID(got.Models, "sonnet") {
+		t.Errorf("models = %v, want the sibling role's built-in default", ids(got.Models))
 	}
 }
 
