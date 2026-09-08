@@ -14,6 +14,8 @@ final class NewSessionSheetPresenter: ObservableObject {
         initialFocus: NewSessionField = .path,
         mutationClient: ServeMutationSending,
         directoryClient: ServeDirectorySuggesting?,
+        modelClient: ServeModelSuggesting? = nil,
+        effortClient: ServeReasoningEffortSuggesting? = nil,
         onSuccess: @escaping (String?) -> Void
     ) {
         presentation = NewSessionSheetPresentation(
@@ -24,6 +26,8 @@ final class NewSessionSheetPresenter: ObservableObject {
             initialFocus: initialFocus,
             mutationClient: mutationClient,
             directoryClient: directoryClient,
+            modelClient: modelClient,
+            effortClient: effortClient,
             onSuccess: onSuccess
         )
     }
@@ -42,6 +46,8 @@ struct NewSessionSheetPresentation: Identifiable {
     let initialFocus: NewSessionField
     let mutationClient: ServeMutationSending
     let directoryClient: ServeDirectorySuggesting?
+    let modelClient: ServeModelSuggesting?
+    let effortClient: ServeReasoningEffortSuggesting?
     let onSuccess: (String?) -> Void
 }
 
@@ -72,6 +78,9 @@ struct NewSessionSheetView: View {
             },
             onCancel: {
                 model.close()
+            },
+            onRefreshModels: {
+                model.refreshModels()
             }
         )
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
@@ -90,18 +99,41 @@ struct NewSessionSheetView: View {
 
 @MainActor
 final class NewSessionSheetModel: ObservableObject {
-    static let sheetSize = CGSize(width: 540, height: 580)
+    static let sheetSize = CGSize(width: 540, height: 626)
 
     let state: NewSessionViewState
 
     private let mutationClient: ServeMutationSending
     private let directoryClient: ServeDirectorySuggesting?
+    private let modelClient: ServeModelSuggesting?
+    private let effortClient: ServeReasoningEffortSuggesting?
     private let onSuccess: (String?) -> Void
     private let dismiss: () -> Void
     private var suggestionRequestID = 0
+    private var modelRequestID = 0
+    private var effortRequestID = 0
     private let maxVisibleSuggestionRows = 3
     private var suggestionDebounceTask: Task<Void, Never>?
     private let suggestionDebounceInterval: Duration = .milliseconds(175)
+
+    /// Suggestions already resolved this sheet session, so returning to an
+    /// agent/role/model combination the user has already visited applies
+    /// instantly instead of resetting to the default entry and re-asking the
+    /// backend. Cleared implicitly when the sheet is deallocated — there is no
+    /// reason to persist it past one New Session sheet.
+    private var modelCache: [ModelScopeKey: ModelSuggestionResponse] = [:]
+    private var effortCache: [EffortScopeKey: ReasoningEffortSuggestionResponse] = [:]
+
+    private struct ModelScopeKey: Hashable {
+        let agent: String
+        let role: String
+    }
+
+    private struct EffortScopeKey: Hashable {
+        let agent: String
+        let role: String
+        let model: String
+    }
 
     init(
         presentation: NewSessionSheetPresentation,
@@ -118,6 +150,8 @@ final class NewSessionSheetModel: ObservableObject {
         )
         mutationClient = presentation.mutationClient
         directoryClient = presentation.directoryClient
+        modelClient = presentation.modelClient
+        effortClient = presentation.effortClient
         onSuccess = presentation.onSuccess
         self.dismiss = dismiss
     }
@@ -131,12 +165,16 @@ final class NewSessionSheetModel: ObservableObject {
             self.state.requestFocus(self.state.model.focusedField)
         }
         requestPathSuggestions(recentsOnly: false)
+        requestModelSuggestions()
+        requestReasoningEffortSuggestions()
     }
 
     func disappear() {
         suggestionDebounceTask?.cancel()
         suggestionDebounceTask = nil
         suggestionRequestID += 1
+        modelRequestID += 1
+        effortRequestID += 1
         state.clearSuggestions()
     }
 
@@ -206,19 +244,29 @@ final class NewSessionSheetModel: ObservableObject {
         }
         if Keymap.NewSession.selectLeft.matches(event.keyCode) {
             if !textInputFocused, state.model.isSelectFocused {
-                state.model.handle(.left)
+                cycleSelection(.left)
                 return true
             }
             return false
         }
         if Keymap.NewSession.selectRight.matches(event.keyCode) {
             if !textInputFocused, state.model.isSelectFocused {
-                state.model.handle(.right)
+                cycleSelection(.right)
                 return true
             }
             return false
         }
-        if !textInputFocused, flags.subtracting(.shift).isEmpty, state.model.handleSelectShortcut(chars) {
+        if !textInputFocused, flags.subtracting(.shift).isEmpty, cycleSelectionShortcut(chars) {
+            return true
+        }
+        if !textInputFocused, flags.subtracting(.shift).isEmpty, Keymap.NewSession.refreshModels.matches(chars),
+           state.model.focusedField == .model {
+            refreshModels()
+            return true
+        }
+        if !textInputFocused, flags.subtracting(.shift).isEmpty, Keymap.NewSession.cycleReasoningEffort.matches(chars),
+           state.model.focusedField == .model {
+            state.model.cycleReasoningEffort()
             return true
         }
         if Keymap.NewSession.create.matches(chars) {
@@ -255,6 +303,94 @@ final class NewSessionSheetModel: ObservableObject {
                 return
             }
             self.requestPathSuggestions(recentsOnly: recentsOnly)
+        }
+    }
+
+    /// Resolves the model list for the agent and role now selected. The list
+    /// is never held in the app: leaving the picker on `default` keeps whatever
+    /// the harness would launch on its own, and a failed resolve simply leaves
+    /// that lone entry rather than raising an error the user must clear.
+    ///
+    /// `refresh` forces the backend past its catalog cache — pass it only for
+    /// an explicit user refresh (the button or the `r` key on the Model
+    /// field), never for the sheet's own resolves on open or an agent/role
+    /// change, which should stay cheap and silent.
+    func requestModelSuggestions(refresh: Bool = false) {
+        guard let modelClient else {
+            return
+        }
+        // Bump the request ID before the cache check too: it invalidates any
+        // still in-flight request for a scope the user has since navigated
+        // away from, so a stale response arriving after we've already
+        // applied a cached hit can never clobber it.
+        modelRequestID += 1
+        let requestID = modelRequestID
+        let agent = state.model.selectedAgent
+        let role = state.model.role.isMaster ? "master" : "standalone"
+        let key = ModelScopeKey(agent: agent, role: role)
+        if !refresh, let cached = modelCache[key] {
+            state.model.setModelOptions(cached.models, defaultModel: cached.defaultModel)
+            return
+        }
+        if refresh {
+            state.isRefreshingModels = true
+        }
+        modelClient.suggestModels(agent: agent, role: role, refresh: refresh) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.modelRequestID == requestID else {
+                    return
+                }
+                self.state.isRefreshingModels = false
+                switch result {
+                case .success(let response):
+                    self.modelCache[key] = response
+                    self.state.model.setModelOptions(response.models, defaultModel: response.defaultModel)
+                case .failure:
+                    self.state.model.resetModelOptions()
+                }
+            }
+        }
+    }
+
+    /// Re-resolves the model list bypassing the backend's catalog cache.
+    /// Bound to the Model row's refresh button and to `r` while it is focused.
+    func refreshModels() {
+        requestModelSuggestions(refresh: true)
+    }
+
+    /// Resolves the reasoning-effort list for the agent, role and model now
+    /// selected. Unlike models there is no cache to bypass, so this has no
+    /// refresh variant — the sheet re-resolves silently whenever agent, role
+    /// or model changes (see refreshSuggestionsIfScopeChanged).
+    func requestReasoningEffortSuggestions() {
+        guard let effortClient else {
+            return
+        }
+        // See requestModelSuggestions: bump first, so an in-flight request
+        // for an abandoned scope can't clobber a cache hit applied below.
+        effortRequestID += 1
+        let requestID = effortRequestID
+        let agent = state.model.selectedAgent
+        let role = state.model.role.isMaster ? "master" : "standalone"
+        let model = state.model.selectedModel
+        let key = EffortScopeKey(agent: agent, role: role, model: model)
+        if let cached = effortCache[key] {
+            state.model.setEffortOptions(cached.efforts, defaultLevel: cached.defaultEffort)
+            return
+        }
+        effortClient.suggestReasoningEfforts(agent: agent, role: role, model: model) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.effortRequestID == requestID else {
+                    return
+                }
+                switch result {
+                case .success(let response):
+                    self.effortCache[key] = response
+                    self.state.model.setEffortOptions(response.efforts, defaultLevel: response.defaultEffort)
+                case .failure:
+                    self.state.model.resetEffortOptions()
+                }
+            }
         }
     }
 
@@ -303,7 +439,9 @@ final class NewSessionSheetModel: ObservableObject {
                 cwd: payload.path,
                 agent: payload.agent,
                 color: payload.color,
-                prompt: payload.prompt
+                prompt: payload.prompt,
+                model: payload.model,
+                reasoningEffort: payload.reasoningEffort
             )
             mutationClient.send(request) { [weak self] result in
                 DispatchQueue.main.async {
@@ -332,8 +470,42 @@ final class NewSessionSheetModel: ObservableObject {
         switch state.model.focusedField {
         case .path, .title, .prompt:
             return true
-        case .agent, .color, .role:
+        case .agent, .model, .color, .role:
             return false
+        }
+    }
+
+    /// Cycles the focused select, re-resolving models and reasoning efforts
+    /// when the change moved them: model ids are per harness, effort levels
+    /// are per harness and (for Codex/OpenCode) per model, and the role picks
+    /// which default of each the harness would apply.
+    private func cycleSelection(_ key: NewSessionFormKey) {
+        let before = suggestionScope
+        state.model.handle(key)
+        refreshSuggestionsIfScopeChanged(from: before)
+    }
+
+    private func cycleSelectionShortcut(_ key: String?) -> Bool {
+        let before = suggestionScope
+        guard state.model.handleSelectShortcut(key) else {
+            return false
+        }
+        refreshSuggestionsIfScopeChanged(from: before)
+        return true
+    }
+
+    private var suggestionScope: (agent: String, master: Bool, model: String) {
+        (agent: state.model.selectedAgent, master: state.model.role.isMaster, model: state.model.selectedModel)
+    }
+
+    private func refreshSuggestionsIfScopeChanged(from before: (agent: String, master: Bool, model: String)) {
+        let after = suggestionScope
+        let agentOrRoleChanged = before.agent != after.agent || before.master != after.master
+        if agentOrRoleChanged {
+            requestModelSuggestions()
+        }
+        if agentOrRoleChanged || before.model != after.model {
+            requestReasoningEffortSuggestions()
         }
     }
 

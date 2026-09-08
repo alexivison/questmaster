@@ -54,33 +54,35 @@ func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []
 }
 
 type mutationPayload struct {
-	ID             string         `json:"id"`
-	SessionID      string         `json:"session_id"`
-	WorkerID       string         `json:"worker_id"`
-	TargetID       string         `json:"target_id"`
-	MasterID       string         `json:"master_id"`
-	Name           string         `json:"name"`
-	Body           string         `json:"body"`
-	Content        string         `json:"content"`
-	Message        string         `json:"message"`
-	Scope          string         `json:"scope"`
-	Repo           string         `json:"repo"`
-	RepoID         string         `json:"repo_identity"`
-	Title          string         `json:"title"`
-	Cwd            string         `json:"cwd"`
-	Agent          string         `json:"agent"`
-	Primary        string         `json:"primary"`
-	Color          string         `json:"color"`
-	Master         string         `json:"master"`
-	Shell          string         `json:"shell"`
-	Prompt         string         `json:"prompt"`
-	QuestID        string         `json:"quest_id"`
-	Path           string         `json:"path"`
-	ProjectID      string         `json:"project_id"`
-	ProjectPath    string         `json:"project_path"`
-	ProjectName    string         `json:"project_name"`
-	ProjectChanged string         `json:"project_changed"`
-	Extra          map[string]any `json:"-"`
+	ID              string         `json:"id"`
+	SessionID       string         `json:"session_id"`
+	WorkerID        string         `json:"worker_id"`
+	TargetID        string         `json:"target_id"`
+	MasterID        string         `json:"master_id"`
+	Name            string         `json:"name"`
+	Body            string         `json:"body"`
+	Content         string         `json:"content"`
+	Message         string         `json:"message"`
+	Scope           string         `json:"scope"`
+	Repo            string         `json:"repo"`
+	RepoID          string         `json:"repo_identity"`
+	Title           string         `json:"title"`
+	Cwd             string         `json:"cwd"`
+	Agent           string         `json:"agent"`
+	Primary         string         `json:"primary"`
+	Color           string         `json:"color"`
+	Master          string         `json:"master"`
+	Shell           string         `json:"shell"`
+	Model           string         `json:"model"`
+	ReasoningEffort string         `json:"reasoning_effort"`
+	Prompt          string         `json:"prompt"`
+	QuestID         string         `json:"quest_id"`
+	Path            string         `json:"path"`
+	ProjectID       string         `json:"project_id"`
+	ProjectPath     string         `json:"project_path"`
+	ProjectName     string         `json:"project_name"`
+	ProjectChanged  string         `json:"project_changed"`
+	Extra           map[string]any `json:"-"`
 }
 
 type mutationHandler func(*Server, context.Context, Request, mutationPayload) (any, error)
@@ -231,6 +233,15 @@ func (s *Server) mutateSpawn(ctx context.Context, req Request, payload mutationP
 	if primary := strings.TrimSpace(firstNonEmpty(payload.Primary, payload.Agent)); primary != "" {
 		args = append(args, "--primary", primary)
 	}
+	// An empty model leaves the harness's role default in place; any non-empty
+	// value is passed through untouched, so a model Questmaster has never
+	// heard of still launches.
+	if model := strings.TrimSpace(payload.Model); model != "" {
+		args = append(args, "--model", model)
+	}
+	if effort := strings.TrimSpace(payload.ReasoningEffort); effort != "" {
+		args = append(args, "--reasoning-effort", effort)
+	}
 	var stdin []byte
 	if strings.TrimSpace(payload.Prompt) != "" {
 		args = append(args, "--prompt-file", "-")
@@ -257,6 +268,20 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 	}
 	if primary := strings.TrimSpace(firstNonEmpty(payload.Primary, payload.Agent)); primary != "" {
 		args = append(args, "--primary", primary)
+	}
+	// A shell session runs no agent, so it takes no model: --model is simply
+	// never appended here rather than forwarded for the CLI to reject (the CLI
+	// itself does separately reject the combination via
+	// validateShellSessionFlags, but only when both flags reach it together —
+	// which this branch ensures never happens over the app's mutation path).
+	if model := strings.TrimSpace(payload.Model); model != "" && !mutationTruthy(payload.Shell) {
+		args = append(args, "--model", model)
+	}
+	// Mirrors the model guard above: a shell session takes no reasoning
+	// effort either, so it is never forwarded rather than left for the CLI to
+	// reject.
+	if effort := strings.TrimSpace(payload.ReasoningEffort); effort != "" && !mutationTruthy(payload.Shell) {
+		args = append(args, "--reasoning-effort", effort)
 	}
 	if color := strings.TrimSpace(payload.Color); color != "" {
 		args = append(args, "--color", color)

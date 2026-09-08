@@ -82,11 +82,19 @@ Invariants that aren't obvious from the code:
 
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
+- **No model list is hardcoded.** Each harness declares its role defaults and
+  catalog sources once, as `ModelPolicy` in its `agent.Spec`; `modelsuggest`
+  resolves the selectable list at runtime (recent launches → harness
+  enumeration → the cached models.dev catalog) and nothing validates a model
+  id — `--model` is passed to the harness verbatim. When adding a harness,
+  declare its policy; never add a model to a list. Tests must set
+  `QUESTMASTER_MODEL_CATALOG_URL=off` (or inject a `Fetcher`) so they never
+  reach the network.
 
 ## The Go↔Swift contract
 
 `internal/serve/testdata/*.json` are the single source of truth for the serve wire
-shapes (tracker and dir_suggest payloads + response/event envelopes). Both the
+shapes (tracker, dir_suggest and models payloads + response/event envelopes). Both the
 Go serve golden test and the Swift app's contract-fixture test decode the same
 files. If you change a serve payload shape, **regenerate the goldens and update
 both sides in the same change**:

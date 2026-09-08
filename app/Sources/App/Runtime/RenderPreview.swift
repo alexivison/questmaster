@@ -16,7 +16,7 @@ enum RenderPreview {
             ? CommandLine.arguments[flagIndex + 1]
             : NSTemporaryDirectory()
 
-        render(newSessionView(), size: CGSize(width: 540, height: 580), to: "\(outputDir)/new-session.png")
+        render(newSessionView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
@@ -365,12 +365,26 @@ enum RenderPreview {
             "/Users/aleksi.tuominen/Code/questmaster",
             "/Users/aleksi.tuominen/Code/dotfiles",
         ]
+        // Stand-ins for what the serve models/reasoning_efforts topics resolve
+        // at runtime.
+        state.model.setModelOptions(
+            [
+                SessionModelOption(id: "claude-opus-5", label: "claude-opus-5", note: "Claude Opus 5"),
+                SessionModelOption(id: "claude-sonnet-5", label: "claude-sonnet-5", note: "Claude Sonnet 5"),
+            ],
+            defaultModel: "claude-sonnet-5"
+        )
+        state.model.setEffortOptions(
+            ["low", "medium", "high", "xhigh", "max"],
+            defaultLevel: "xhigh"
+        )
         return NewSessionRootView(
             state: state,
             onFocusChanged: { _ in },
             onPathChanged: {},
             onCreate: {},
-            onCancel: {}
+            onCancel: {},
+            onRefreshModels: {}
         )
         .background(AppPalette.panel.swiftUI)
     }

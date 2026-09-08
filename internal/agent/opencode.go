@@ -37,6 +37,18 @@ var openCodeSpec = Spec{
 	BinaryEnvVar:   "OPENCODE_BIN",
 	FallbackPath:   "/opt/homebrew/bin/opencode",
 	State:          StatePlugin,
+	Models: ModelPolicy{
+		Worker: openCodeWorkerGPTModel,
+		Master: openCodeMasterGPTModel,
+		// OpenCode takes provider-qualified ids and can enumerate the
+		// providers the user actually configured, so these catalog sources
+		// are only the fallback for when `opencode models` cannot run.
+		Sources: []ModelSource{
+			{Catalog: "opencode", Prefix: "opencode/"},
+			{Catalog: "anthropic", Prefix: "anthropic/"},
+			{Catalog: "openai", Prefix: "openai/"},
+		},
+	},
 }
 
 // ValidateOpenCodeReasoningVersion ensures the per-launch variant surface is
@@ -103,7 +115,7 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 	// by default; a user's custom AgentConfig.Model (anything other than the
 	// baked-in big-pickle default) still pins standalone.
 	isResumingExistingSession := opts.Continuing && opts.ResumeID != ""
-	model := resolveModel(opts, openCodeWorkerGPTModel, openCodeMasterGPTModel)
+	model := resolveModel(opts, o.spec.Models.Worker, o.spec.Models.Master)
 	if !isResumingExistingSession && opts.Role == RoleStandalone && opts.Model == "" && o.model != "" && o.model != defaultOpenCodeModel {
 		model = o.model
 	}
@@ -136,6 +148,18 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		}
 	}
 	return cmd
+}
+
+// DefaultModel overrides base to mirror BuildCmd's standalone quirk: a
+// non-default configured model still pins standalone even though the
+// package-level ModelPolicy only declares the worker/master tiers. Keeping
+// this in sync with BuildCmd's condition (rather than duplicating the model
+// resolution independently) is what keeps the two from silently diverging.
+func (o *OpenCode) DefaultModel(role SessionRole) string {
+	if role == RoleStandalone && o.model != "" && o.model != defaultOpenCodeModel {
+		return o.model
+	}
+	return o.base.DefaultModel(role)
 }
 
 func (o *OpenCode) agentName(role SessionRole) string {

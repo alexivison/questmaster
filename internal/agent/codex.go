@@ -25,6 +25,11 @@ var codexSpec = Spec{
 	BinaryEnvVar:   "CODEX_BIN",
 	FallbackPath:   "/opt/homebrew/bin/codex",
 	Filter:         filterCodex,
+	Models: ModelPolicy{
+		Worker:  codexWorkerGPTModel,
+		Master:  codexMasterGPTModel,
+		Sources: []ModelSource{{Catalog: "openai"}},
+	},
 }
 
 // Codex implements the built-in Codex provider.
@@ -39,7 +44,7 @@ func NewCodex(cfg AgentConfig) *Codex {
 
 // CodexDefaultModel returns the role's built-in Codex model.
 func CodexDefaultModel(role SessionRole) string {
-	return resolveModel(CmdOpts{Role: role}, codexWorkerGPTModel, codexMasterGPTModel)
+	return DefaultModelFor(codexSpec.Name, role)
 }
 
 func (c *Codex) BuildCmd(opts CmdOpts) string {
@@ -50,7 +55,7 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
-	if model := resolveModel(opts, codexWorkerGPTModel, codexMasterGPTModel); model != "" {
+	if model := resolveModel(opts, c.spec.Models.Worker, c.spec.Models.Master); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	reasoning := codexMasterReasoning

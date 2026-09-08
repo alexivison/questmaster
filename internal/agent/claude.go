@@ -13,6 +13,8 @@ const (
 	// The aliases auto-track the latest Claude models, so they needn't be bumped by id.
 	claudeSonnetModel = "sonnet"
 	claudeOpusModel   = "opus"
+
+	claudeDefaultReasoningEffort = "xhigh"
 )
 
 var claudeSpec = Spec{
@@ -25,6 +27,14 @@ var claudeSpec = Spec{
 	EnvVar:         "CLAUDE_SESSION_ID",
 	BinaryEnvVar:   "CLAUDE_BIN",
 	FallbackPath:   "~/.local/bin/claude",
+	Models: ModelPolicy{
+		Worker: claudeSonnetModel,
+		Master: claudeOpusModel,
+		// No family aliases: the suggestion list stays to concrete catalog
+		// ids, since claudeSonnetModel/claudeOpusModel above already cover
+		// the "track the latest release" case for the role defaults.
+		Sources: []ModelSource{{Catalog: "anthropic"}},
+	},
 }
 
 // Claude implements the built-in Claude provider.
@@ -47,20 +57,11 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
 	if opts.ReasoningEffort == "" {
-		cmd += " --effort xhigh"
+		cmd += " --effort " + claudeDefaultReasoningEffort
 	} else {
 		cmd += " --effort " + config.ShellQuote(opts.ReasoningEffort)
 	}
-	model := opts.Model
-	if model == "" && (!opts.Continuing || opts.ResumeID == "") {
-		switch opts.Role {
-		case RoleMaster:
-			model = claudeOpusModel
-		case RoleWorker, RoleStandalone:
-			model = claudeSonnetModel
-		}
-	}
-	if model != "" {
+	if model := resolveModel(opts, c.spec.Models.Worker, c.spec.Models.Master); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)

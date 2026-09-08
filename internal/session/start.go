@@ -165,6 +165,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 				Role:     string(binding.Role),
 				CLI:      cli,
 				ResumeID: resumeID,
+				Model:    model,
 			})
 		}
 

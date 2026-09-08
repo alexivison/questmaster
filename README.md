@@ -119,6 +119,47 @@ Running `questmaster` with no subcommand prints help. Lifecycle operations such 
 
 When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook can rename the tmux window after the first message. An explicit title is always kept as-is.
 
+## Model selection
+
+Every harness launches on its role default model (workers and standalone on the
+worker tier, masters on the master tier). `start --model <id>` and
+`spawn --model <id>` override it, and the value is passed to the harness
+verbatim — questmaster never validates a model id, so a model released today
+works today.
+
+`questmaster models <agent>` lists what an agent can be launched with:
+
+```sh
+questmaster models claude              # JSON, agent-first
+questmaster models codex --role worker --text
+questmaster models opencode --refresh  # refetch instead of using the cache
+```
+
+The list is resolved at runtime, so no questmaster release is needed when a
+model ships. It merges, best-first:
+
+1. **recent launches** — models this agent has already run here (recorded per
+   session), which is what makes an unlisted model a one-time cost,
+2. **the harness itself**, where it can enumerate its models (`opencode
+   models`); that list is authoritative when available,
+3. **the [models.dev](https://models.dev) catalog**, rendered into each
+   harness's own vocabulary — bare ids for Claude and Codex, provider-qualified
+   ids for OpenCode and Pi — plus the family aliases Claude accepts (`opus`,
+   `sonnet`), which track the latest model in their family.
+
+The catalog is fetched once a day and cached, distilled, in
+`<state-root>/model-catalog.json`; a stale cache is still served when a fetch
+fails. Set `QUESTMASTER_MODEL_CATALOG_URL` to point at another catalog, or to
+`off` to never fetch — suggestions then come from the cache, the harness,
+recent launches, and the built-in role defaults. Each harness declares its role
+defaults and catalog sources in one place (`internal/agent`'s `ModelPolicy`).
+
+The native app's new-session sheet has a Model row backed by the same data over
+the serve `models` topic; leaving it on `default` keeps the role default. It
+resolves fresh on open and whenever the agent or role changes, always through
+the cache described above; its refresh button (or `r` while the row is
+focused) forces a refetch past that cache for the currently selected agent.
+
 ## Native macOS app
 
 Questmaster.app is the native macOS human interface over the `qm` CLI and Go `serve` backend, with an AppKit shell and SwiftUI content surfaces. Packaged app launches use an app-owned serve socket namespace over the selected `QUESTMASTER_STATE_ROOT`; standalone `qm serve` still uses the default `<state-root>/serve.sock`. The app renders pushed runtime JSON, sends mutations over the same socket, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected, remembered, or discovered, otherwise it falls back to a local shell.
@@ -147,7 +188,7 @@ State defaults to `~/.questmaster-state`. Override it with `QUESTMASTER_STATE_RO
 export QUESTMASTER_STATE_ROOT=/path/to/state
 ```
 
-Sessions use `qm-*` IDs (for example `qm-1234567890`). The current session ID is read from `QUESTMASTER_SESSION`. Artifacts are indexed in `<state-root>/artifacts.json`; per-session artifact sidecars are synced for compatibility.
+Sessions use `qm-*` IDs (for example `qm-1234567890`). The current session ID is read from `QUESTMASTER_SESSION`. Artifacts are indexed in `<state-root>/artifacts.json`; per-session artifact sidecars are synced for compatibility. The model catalog is cached in `<state-root>/model-catalog.json`.
 
 ## Development
 

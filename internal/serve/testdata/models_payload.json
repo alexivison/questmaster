@@ -1,0 +1,23 @@
+{
+  "agent": "claude",
+  "role": "standalone",
+  "default": "sonnet",
+  "models": [
+    {
+      "id": "opus",
+      "label": "opus",
+      "note": "alias · tracks Claude Opus 5"
+    },
+    {
+      "id": "claude-opus-5",
+      "label": "claude-opus-5",
+      "note": "Claude Opus 5 · 2026-07-24"
+    },
+    {
+      "id": "claude-opus-9-unreleased",
+      "label": "claude-opus-9-unreleased",
+      "note": "recent"
+    }
+  ],
+  "source": "catalog"
+}
