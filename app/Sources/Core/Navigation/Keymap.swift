@@ -170,7 +170,7 @@ public enum Keymap {
     }
 
     public enum NewSession {
-        public static let defaultFooterText = "⏎ create · ⌥k field · ←→ select · tab complete · esc cancel"
+        public static let defaultFooterText = "⏎ create · ⌥k field · ←→ select · r refresh model · e effort · tab complete · esc cancel"
         public static let promptFooterText = "⏎/^s create · ⇧⏎ newline · ⌥k field · esc cancel"
 
         public static let cancel = KeyCodeBinding(keyCodes: [53])
@@ -184,6 +184,12 @@ public enum Keymap {
         public static let selectRight = KeyCodeBinding(keyCodes: [124])
         public static let selectLeftCharacter = CharacterBinding(keys: ["h"])
         public static let selectRightCharacter = CharacterBinding(keys: ["l"])
+        /// Refetches the model list while the Model select is focused. Plain
+        /// `r` (no modifier), distinct from ^r which recents-completes the path.
+        public static let refreshModels = CharacterBinding(keys: ["r"])
+        /// Cycles the reasoning-effort sub-text while the Model select is
+        /// focused. Effort has no row of its own.
+        public static let cycleReasoningEffort = CharacterBinding(keys: ["e"])
         public static let suggestionUp = KeyCodeBinding(keyCodes: [126])
         public static let suggestionDown = KeyCodeBinding(keyCodes: [125])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])

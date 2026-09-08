@@ -39,6 +39,29 @@ struct ContractFixtureTests {
         let suggestions = try decodeFixture(DirSuggestFixture.self, "dir_suggest_payload.json")
         expect(suggestions.suggestions == ["/tmp/project-app", "/tmp/project-log"], "dir_suggest suggestions did not decode")
         expect(suggestions.recents == ["/tmp/project-app"], "dir_suggest recents did not decode")
+
+        let models = try decodeFixture(ModelsFixture.self, "models_payload.json")
+        expect(models.agent == "claude" && models.role == "standalone", "models agent/role did not decode")
+        expect(models.defaultModel == "sonnet", "models role default did not decode")
+        expect(models.source == "catalog", "models source did not decode")
+        expect(models.models.count == 3, "models list did not decode")
+        expect(models.models.first?.id == "opus", "models id did not decode")
+        expect(models.models.first?.note == "alias · tracks Claude Opus 5", "models note did not decode")
+        // The picker consumes the payload as SessionModelOption values, so the
+        // wire rows must map onto that type without loss.
+        let options = models.models.map { SessionModelOption(id: $0.id, label: $0.label, note: $0.note ?? "") }
+        let allResolved = options.allSatisfy({ option in !option.isDefault })
+        expect(allResolved, "resolved models must never masquerade as the default entry")
+        expect(options.last?.label == "claude-opus-9-unreleased", "models label did not decode")
+
+        let reasoningEfforts = try decodeFixture(ReasoningEffortsFixture.self, "reasoning_efforts_payload.json")
+        expect(reasoningEfforts.agent == "codex" && reasoningEfforts.role == "master", "reasoning_efforts agent/role did not decode")
+        expect(reasoningEfforts.defaultEffort == "xhigh", "reasoning_efforts default did not decode")
+        expect(reasoningEfforts.efforts == ["minimal", "low", "medium", "high", "xhigh"], "reasoning_efforts levels did not decode")
+        // The picker consumes the payload as SessionReasoningEffortOption
+        // values, so the wire rows must map onto that type without loss.
+        let effortOptions = reasoningEfforts.efforts.map { SessionReasoningEffortOption(id: $0, label: $0) }
+        expect(effortOptions.allSatisfy({ !$0.isDefault }), "resolved effort levels must never masquerade as the default entry")
     }
 
     private static func envelopeFixturesDecode() throws {
@@ -104,6 +127,42 @@ struct ContractFixtureTests {
 private struct DirSuggestFixture: Decodable {
     var suggestions: [String]
     var recents: [String]
+}
+
+private struct ModelsFixture: Decodable {
+    struct Row: Decodable {
+        var id: String
+        var label: String
+        var note: String?
+    }
+
+    var agent: String
+    var role: String
+    var defaultModel: String
+    var models: [Row]
+    var source: String
+
+    enum CodingKeys: String, CodingKey {
+        case agent
+        case role
+        case models
+        case source
+        case defaultModel = "default"
+    }
+}
+
+private struct ReasoningEffortsFixture: Decodable {
+    var agent: String
+    var role: String
+    var defaultEffort: String
+    var efforts: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case agent
+        case role
+        case efforts
+        case defaultEffort = "default"
+    }
 }
 
 private struct ContractFixtureError: Error, CustomStringConvertible {

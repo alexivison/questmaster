@@ -1880,7 +1880,11 @@ private struct TrackerWorkerConnectorShape: Shape {
     }
 }
 
-private struct TrackerWorkerConnectorMarker: Shape {
+/// The small diamond marking where a worker branches off its master's
+/// connector spine. Not private: NewSessionRootView reuses it for the same
+/// "this value hangs off that one" relationship between the Model and
+/// Effort rows.
+struct TrackerWorkerConnectorMarker: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.midX, y: rect.minY))

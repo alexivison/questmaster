@@ -39,6 +39,21 @@ func buildSpecsByName() map[string]Spec {
 	return m
 }
 
+// SpecOf returns the named agent's static spec. Unknown names resolve to the
+// zero Spec, which is the safe default for callers.
+func SpecOf(name string) Spec {
+	return specsByName[name]
+}
+
+// Names lists the built-in agent names in harness-guide order.
+func Names() []string {
+	names := make([]string, 0, len(providerDefs))
+	for _, d := range providerDefs {
+		names = append(names, d.spec.Name)
+	}
+	return names
+}
+
 // StateModeOf reports how the named agent reports activity/state. Unknown
 // agents are treated as StateNative.
 func StateModeOf(name string) StateMode {

@@ -43,6 +43,16 @@ enum LogicSelfTests {
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
         ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
+        ("testNewSessionResolvesModelsPerAgent", testNewSessionResolvesModelsPerAgent),
+        ("testNewSessionKeepsDefaultModelWhenResolveFails", testNewSessionKeepsDefaultModelWhenResolveFails),
+        ("testNewSessionRefreshModelsKeyForcesARefetch", testNewSessionRefreshModelsKeyForcesARefetch),
+        ("testNewSessionRefreshModelsButtonTracksInFlightState", testNewSessionRefreshModelsButtonTracksInFlightState),
+        ("testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne", testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne),
+        ("testNewSessionResolvesReasoningEffortsPerAgentAndModel", testNewSessionResolvesReasoningEffortsPerAgentAndModel),
+        ("testNewSessionKeepsDefaultReasoningEffortWhenResolveFails", testNewSessionKeepsDefaultReasoningEffortWhenResolveFails),
+        ("testNewSessionEffortKeyCyclesWhileModelFocused", testNewSessionEffortKeyCyclesWhileModelFocused),
+        ("testConnectWithRetryRetriesUntilConnectSucceeds", testConnectWithRetryRetriesUntilConnectSucceeds),
+        ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1415,6 +1425,8 @@ enum LogicSelfTests {
                 initialFocus: .path,
                 mutationClient: StubMutationClient(result: .failure(StubMutationError())),
                 directoryClient: nil,
+                modelClient: nil,
+                effortClient: nil,
                 onSuccess: { _ in }
             ),
             dismiss: {}
@@ -1436,6 +1448,327 @@ enum LogicSelfTests {
 
         model.state.pathSuggestions = []
         try expect(!model.handle(try keyEvent("", keyCode: 125)), "down arrow should not be consumed without suggestions")
+    }
+
+    // The sheet must never carry a model list of its own: it asks the backend
+    // for one per agent and role, and re-asks when either changes.
+    private static func testNewSessionResolvesModelsPerAgent() throws {
+        let client = StubModelClient(models: [
+            "claude": [SessionModelOption(id: "opus", label: "opus", note: "alias")],
+            "codex": [SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol", note: "GPT-5.6 Sol")],
+        ], defaults: ["claude": "sonnet", "codex": "gpt-5.6-terra"])
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .agent)
+
+        model.present()
+        drainMainQueue()
+        try expect(client.requests.first?.agent == "claude", "the sheet should resolve models for the initial agent")
+        try expect(client.requests.first?.role == "standalone", "a standalone sheet should ask for standalone defaults")
+        try expect(client.requests.first?.refresh == false, "the sheet's own resolve on open must not force a refetch")
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" }),
+            "resolved models should reach the picker"
+        )
+        try expect(
+            model.state.model.selectedModelOption.isDefault,
+            "the default entry stays selected until the user picks a model"
+        )
+        try expect(model.state.model.selectedModel.isEmpty, "the default entry sends no model override")
+        try expect(
+            model.state.model.modelOptions.first?.note == "sonnet",
+            "the default entry should be annotated with the harness role default"
+        )
+
+        // Cycle the model select onto a real model, then change the agent.
+        model.state.model.focusedField = .model
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        try expect(model.state.model.selectedModel == "opus", "cycling should select the resolved model")
+
+        model.state.model.focusedField = .agent
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent select")
+        try expect(
+            model.state.model.selectedModel.isEmpty,
+            "another harness's model must not carry over"
+        )
+        drainMainQueue()
+        try expect(client.requests.last?.agent == "codex", "changing the agent should re-resolve models")
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" }),
+            "the new agent's models should replace the previous list"
+        )
+
+        // Returning to an agent already resolved this sheet session must
+        // apply instantly from cache, not re-ask the backend.
+        let requestsBeforeReturn = client.requests.count
+        try expect(model.handle(try keyEvent("h", keyCode: 4)), "h should cycle the agent select back")
+        try expect(model.state.model.selectedAgent == "claude", "precondition: back to claude")
+        drainMainQueue()
+        try expect(
+            client.requests.count == requestsBeforeReturn,
+            "returning to an already-resolved agent must not re-ask the backend"
+        )
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" }),
+            "the cached list should apply instantly"
+        )
+    }
+
+    private static func testNewSessionKeepsDefaultModelWhenResolveFails() throws {
+        let client = StubModelClient(models: [:], defaults: [:], failing: true)
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .path)
+
+        model.present()
+        drainMainQueue()
+
+        // A failed resolve is not the user's problem: the default entry alone
+        // still starts a session on the harness's own model.
+        try expect(model.state.model.modelOptions.count == 1, "a failed resolve should leave only the default entry")
+        try expect(model.state.model.selectedModel.isEmpty, "a failed resolve should send no model override")
+        try expect(model.state.model.errorMessage == nil, "a failed resolve should not raise a form error")
+    }
+
+    // The `r` key is the model picker's own refresh shortcut — it must reach
+    // the backend with refresh:true (bypassing the catalog cache) and only
+    // while the Model field is actually focused.
+    private static func testNewSessionRefreshModelsKeyForcesARefetch() throws {
+        let client = StubModelClient(
+            models: ["claude": [SessionModelOption(id: "opus", label: "opus")]],
+            defaults: ["claude": "sonnet"]
+        )
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+
+        model.present()
+        drainMainQueue()
+
+        try expect(
+            model.handle(try keyEvent("r", keyCode: 15)),
+            "r should be consumed while the model field is focused"
+        )
+        drainMainQueue()
+        try expect(client.requests.last?.refresh == true, "r should force a refetch past the catalog cache")
+
+        model.state.model.focusedField = .agent
+        let requestsBeforeAgentR = client.requests.count
+        try expect(
+            !model.handle(try keyEvent("r", keyCode: 15)),
+            "r should not be claimed by the sheet outside the model field"
+        )
+        drainMainQueue()
+        try expect(
+            client.requests.count == requestsBeforeAgentR,
+            "r on another field must not trigger a model refetch"
+        )
+    }
+
+    // The refresh button's disabled/dimmed state is driven by isRefreshingModels,
+    // which must be true only for the duration of an in-flight refresh.
+    private static func testNewSessionRefreshModelsButtonTracksInFlightState() throws {
+        let client = StubModelClient(
+            models: ["claude": [SessionModelOption(id: "opus", label: "opus")]],
+            defaults: ["claude": "sonnet"]
+        )
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+
+        model.present()
+        drainMainQueue()
+        try expect(!model.state.isRefreshingModels, "the sheet's own resolve on open should not show as refreshing")
+
+        model.refreshModels()
+        try expect(model.state.isRefreshingModels, "a refresh should show as in-flight immediately")
+        drainMainQueue()
+        try expect(!model.state.isRefreshingModels, "the flag should clear once the refresh completes")
+        try expect(client.requests.last?.refresh == true, "the refresh button should force a refetch")
+    }
+
+    // The modelRequestID guard exists precisely for this: an earlier
+    // request's response arriving *after* a newer one must be discarded, not
+    // applied on top of it. StubModelClient's deferred-completion mode lets
+    // this test fire them in the opposite order from how they were called.
+    private static func testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne() throws {
+        let staleModel = SessionModelOption(id: "opus-initial", label: "opus-initial")
+        let freshModel = SessionModelOption(id: "opus-refreshed", label: "opus-refreshed")
+        let client = StubModelClient(deferCompletions: true, sequencedModels: [[staleModel], [freshModel]])
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+
+        model.present()
+        model.refreshModels()
+        try expect(client.requests.count == 2, "present and refreshModels should each fire one request")
+
+        // Fire the newer (refresh) request first, then the stale initial one
+        // — the opposite of call order.
+        client.fireCompletion(forRequestAt: 1)
+        drainMainQueue()
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" }),
+            "the newer response should apply"
+        )
+        try expect(!model.state.isRefreshingModels, "the newer (refresh) request completing should clear the flag")
+
+        client.fireCompletion(forRequestAt: 0)
+        drainMainQueue()
+        try expect(
+            !model.state.model.modelOptions.contains(where: { $0.id == "opus-initial" }),
+            "a stale response arriving after a newer one must be discarded, not applied on top of it"
+        )
+        try expect(
+            model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" }),
+            "the newer response must still stand after the stale one arrives"
+        )
+    }
+
+    // Mirrors testNewSessionResolvesModelsPerAgent: the sheet must never carry
+    // a reasoning-effort list of its own, and re-asks whenever agent, role, or
+    // model changes — model matters here because Codex/OpenCode's valid
+    // levels depend on which model is selected.
+    private static func testNewSessionResolvesReasoningEffortsPerAgentAndModel() throws {
+        let effortClient = StubReasoningEffortClient(
+            efforts: ["claude": ["low", "medium", "high", "xhigh", "max"], "gpt-5.6-sol": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]],
+            defaults: ["claude": "xhigh", "gpt-5.6-sol": "xhigh"]
+        )
+        let modelClient = StubModelClient(
+            models: ["codex": [SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol")]],
+            defaults: ["claude": "sonnet", "codex": "gpt-5.6-terra"]
+        )
+        let model = newSessionSheetModel(modelClient: modelClient, effortClient: effortClient, initialFocus: .agent)
+
+        model.present()
+        drainMainQueue()
+        try expect(effortClient.requests.first?.agent == "claude", "the sheet should resolve efforts for the initial agent")
+        try expect(effortClient.requests.first?.model.isEmpty == true, "the default entry sends no model override to resolve against")
+        try expect(
+            model.state.model.effortOptions.contains(where: { $0.id == "low" }),
+            "resolved efforts should reach the picker"
+        )
+        try expect(
+            model.state.model.selectedEffortOption.isDefault,
+            "the default entry stays selected until the user picks a level"
+        )
+        try expect(
+            model.state.model.selectedEffortOption.label == "xhigh",
+            "the default entry should show the concrete applied level"
+        )
+        try expect(
+            !model.state.model.effortOptions.contains(where: { $0.id == "xhigh" }),
+            "the level matching the default must not be repeated as a concrete entry"
+        )
+
+        // Cycling onto a real model (still the same agent/role) must
+        // re-resolve efforts against that model.
+        model.state.model.focusedField = .agent
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent select")
+        drainMainQueue()
+        model.state.model.focusedField = .model
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        drainMainQueue()
+        try expect(model.state.model.selectedModel == "gpt-5.6-sol", "precondition: a real model is selected")
+        try expect(effortClient.requests.last?.model == "gpt-5.6-sol", "selecting a model should re-resolve efforts against it")
+        try expect(
+            model.state.model.effortOptions.contains(where: { $0.id == "ultra" }),
+            "the model-specific effort tier should reach the picker"
+        )
+    }
+
+    private static func testNewSessionKeepsDefaultReasoningEffortWhenResolveFails() throws {
+        let model = newSessionSheetModel(modelClient: nil, effortClient: nil, initialFocus: .path)
+
+        model.present()
+        drainMainQueue()
+
+        // No client at all is the same shape as a failed resolve: the default
+        // entry alone still starts a session on the harness's own effort.
+        try expect(model.state.model.effortOptions.count == 1, "no client should leave only the default entry")
+        try expect(model.state.model.selectedReasoningEffort.isEmpty, "the default entry should send no effort override")
+    }
+
+    // The app-launched qm serve can take a few seconds to bind its socket
+    // (ServeProcess.waitForSocket), and this client has no reconnect loop of
+    // its own — a New Session sheet opened in that window must not just fail
+    // once and sit stuck on the default entry forever.
+    private static func testConnectWithRetryRetriesUntilConnectSucceeds() throws {
+        var attempts = 0
+        var sleeps: [TimeInterval] = []
+        let fd = try UnixSocketMutationClient.connectWithRetry(
+            socketPath: "unused",
+            connect: { _ in
+                attempts += 1
+                if attempts < 3 {
+                    throw ServeClientError.connect("not ready yet")
+                }
+                return 42
+            },
+            sleep: { sleeps.append($0) }
+        )
+        try expect(fd == 42, "should return the fd from the attempt that finally succeeded")
+        try expect(attempts == 3, "should retry past two failures instead of giving up after the first")
+        try expect(sleeps == [0.15, 0.3], "should wait using the schedule between the two failed attempts")
+    }
+
+    private static func testConnectWithRetryGivesUpAfterExhaustingTheSchedule() throws {
+        var attempts = 0
+        var thrown: Error?
+        do {
+            _ = try UnixSocketMutationClient.connectWithRetry(
+                socketPath: "unused",
+                connect: { _ in
+                    attempts += 1
+                    throw ServeClientError.connect("still not ready")
+                },
+                sleep: { _ in }
+            )
+        } catch {
+            thrown = error
+        }
+        try expect(attempts == UnixSocketMutationClient.connectRetryDelays.count, "should give up only after exhausting every scheduled attempt")
+        try expect(thrown != nil, "should propagate the last connect failure once retries are exhausted")
+    }
+
+    // Effort has no row of its own: `e` must cycle it while the Model field
+    // is focused, and must not be claimed anywhere else (it would otherwise
+    // collide with typing "e" into a text field, or another select's own
+    // shortcuts).
+    private static func testNewSessionEffortKeyCyclesWhileModelFocused() throws {
+        let effortClient = StubReasoningEffortClient(
+            efforts: ["claude": ["low", "high"]],
+            defaults: ["claude": "xhigh"]
+        )
+        let model = newSessionSheetModel(modelClient: nil, effortClient: effortClient, initialFocus: .model)
+
+        model.present()
+        drainMainQueue()
+        try expect(model.state.model.selectedEffortOption.isDefault, "precondition: default effort selected")
+
+        try expect(
+            model.handle(try keyEvent("e", keyCode: 14)),
+            "e should be consumed while the model field is focused"
+        )
+        try expect(model.state.model.selectedReasoningEffort == "low", "e should cycle to the first resolved level")
+
+        model.state.model.focusedField = .agent
+        try expect(
+            !model.handle(try keyEvent("e", keyCode: 14)),
+            "e should not be claimed by the sheet outside the model field"
+        )
+    }
+
+    private static func newSessionSheetModel(
+        modelClient: ServeModelSuggesting?,
+        effortClient: ServeReasoningEffortSuggesting? = nil,
+        initialFocus: NewSessionField
+    ) -> NewSessionSheetModel {
+        NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                role: .standalone,
+                initialPath: "/tmp/project",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: initialFocus,
+                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                directoryClient: nil,
+                modelClient: modelClient,
+                effortClient: effortClient,
+                onSuccess: { _ in }
+            ),
+            dismiss: {}
+        )
     }
 
     private static func sessionCoordinator(
@@ -1513,6 +1846,99 @@ enum LogicSelfTests {
     }
 
     private struct StubMutationError: Error {}
+
+    private final class StubModelClient: ServeModelSuggesting {
+        private let models: [String: [SessionModelOption]]
+        private let defaults: [String: String]
+        private let failing: Bool
+        private let deferCompletions: Bool
+        /// When set, overrides the per-agent `models` lookup with one entry
+        /// per call, in call order, regardless of agent — lets a test give
+        /// two calls for the *same* agent distinguishable responses, which is
+        /// what proves which of two racing completions actually won.
+        private let sequencedModels: [[SessionModelOption]]?
+        private(set) var requests: [(agent: String, role: String, refresh: Bool)] = []
+        private var pendingCompletions: [() -> Void] = []
+
+        init(
+            models: [String: [SessionModelOption]] = [:],
+            defaults: [String: String] = [:],
+            failing: Bool = false,
+            deferCompletions: Bool = false,
+            sequencedModels: [[SessionModelOption]]? = nil
+        ) {
+            self.models = models
+            self.defaults = defaults
+            self.failing = failing
+            self.deferCompletions = deferCompletions
+            self.sequencedModels = sequencedModels
+        }
+
+        func suggestModels(
+            agent: String,
+            role: String,
+            refresh: Bool,
+            completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
+        ) {
+            let requestIndex = requests.count
+            requests.append((agent: agent, role: role, refresh: refresh))
+            let resolvedModels = sequencedModels.flatMap { sequence in
+                sequence.indices.contains(requestIndex) ? sequence[requestIndex] : nil
+            } ?? models[agent] ?? []
+            let failing = self.failing
+            let defaultModel = defaults[agent] ?? ""
+            let fire: () -> Void = {
+                if failing {
+                    completion(.failure(StubMutationError()))
+                    return
+                }
+                completion(.success(ModelSuggestionResponse(models: resolvedModels, defaultModel: defaultModel)))
+            }
+            guard deferCompletions else {
+                fire()
+                return
+            }
+            pendingCompletions.append(fire)
+        }
+
+        /// Fires one deferred completion by the index of the request it
+        /// belongs to (0-based, matching `requests`), letting a test choose
+        /// an arrival order that differs from call order. A no-op past the
+        /// first fire, so firing the same index twice can't double-invoke it.
+        func fireCompletion(forRequestAt index: Int) {
+            guard pendingCompletions.indices.contains(index) else {
+                return
+            }
+            let fire = pendingCompletions[index]
+            pendingCompletions[index] = { () -> Void in }
+            fire()
+        }
+    }
+
+    private final class StubReasoningEffortClient: ServeReasoningEffortSuggesting {
+        private let efforts: [String: [String]]
+        private let defaults: [String: String]
+        private(set) var requests: [(agent: String, role: String, model: String)] = []
+
+        init(efforts: [String: [String]] = [:], defaults: [String: String] = [:]) {
+            self.efforts = efforts
+            self.defaults = defaults
+        }
+
+        func suggestReasoningEfforts(
+            agent: String,
+            role: String,
+            model: String,
+            completion: @escaping (Result<ReasoningEffortSuggestionResponse, Error>) -> Void
+        ) {
+            requests.append((agent: agent, role: role, model: model))
+            let key = model.isEmpty ? agent : model
+            completion(.success(ReasoningEffortSuggestionResponse(
+                efforts: efforts[key] ?? efforts[agent] ?? [],
+                defaultEffort: defaults[key] ?? defaults[agent] ?? ""
+            )))
+        }
+    }
 
     private final class Counter {
         var value = 0

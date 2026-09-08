@@ -12,13 +12,68 @@ public enum NewSessionRole: Equatable {
 public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case path
     case title
-    case agent
     case role
+    case agent
+    case model
     case color
     case prompt
 
     public var isSelect: Bool {
-        self == .agent || self == .color || self == .role
+        self == .agent || self == .color || self == .role || self == .model
+    }
+}
+
+/// One entry in the model select.
+///
+/// The options are pushed in from the serve `models` topic rather than declared
+/// here: the app must never carry a model list, or a newly released model would
+/// need an app release. `defaultOption` is the only entry the app owns, and it
+/// means "leave the harness's role default alone".
+public struct SessionModelOption: Equatable {
+    public let id: String
+    public let label: String
+    public let note: String
+
+    public init(id: String, label: String, note: String = "") {
+        self.id = id
+        self.label = label
+        self.note = note
+    }
+
+    /// The default entry. Its label is the role default the backend reports
+    /// (e.g. "claude-sonnet-5") so the picker shows what will actually launch;
+    /// before that is known it falls back to the literal "default".
+    public static func defaultOption(note: String = "") -> SessionModelOption {
+        SessionModelOption(id: "", label: note.isEmpty ? "default" : note, note: note)
+    }
+
+    public var isDefault: Bool {
+        id.isEmpty
+    }
+}
+
+/// One entry in the reasoning-effort select.
+///
+/// Levels come from the serve `reasoning_efforts` topic rather than being
+/// declared here, same as `SessionModelOption` — the valid set differs per
+/// harness and, for Codex/OpenCode, per model. `defaultOption` means "no
+/// --reasoning-effort override", and shows the level the harness applies on
+/// its own once the backend reports one.
+public struct SessionReasoningEffortOption: Equatable {
+    public let id: String
+    public let label: String
+
+    public init(id: String, label: String) {
+        self.id = id
+        self.label = label
+    }
+
+    public static func defaultOption(_ appliedLevel: String = "") -> SessionReasoningEffortOption {
+        SessionReasoningEffortOption(id: "", label: appliedLevel.isEmpty ? "default" : appliedLevel)
+    }
+
+    public var isDefault: Bool {
+        id.isEmpty
     }
 }
 
@@ -45,6 +100,11 @@ public struct NewSessionSubmitPayload: Equatable {
     public let path: String
     public let title: String?
     public let agent: String
+    /// Empty means "no override": the harness applies its role default.
+    public let model: String
+    /// Empty means "no override": the harness applies its own reasoning-effort
+    /// default (or, for OpenCode with no override, none at all).
+    public let reasoningEffort: String
     public let color: String
     public let prompt: String?
 }
@@ -69,8 +129,12 @@ public struct NewSessionFormModel: Equatable {
 
     public private(set) var agents: [String]
     public private(set) var colors: [String]
+    public private(set) var modelOptions: [SessionModelOption]
+    public private(set) var effortOptions: [SessionReasoningEffortOption]
     public private(set) var selectedAgentIndex: Int
     public private(set) var selectedColorIndex: Int
+    public private(set) var selectedModelIndex: Int
+    public private(set) var selectedEffortIndex: Int
 
     public init(
         role: NewSessionRole,
@@ -91,8 +155,12 @@ public struct NewSessionFormModel: Equatable {
         errorMessage = nil
         self.agents = agents.isEmpty ? NewSessionFormModel.defaultAgents : agents
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
+        modelOptions = [.defaultOption()]
+        effortOptions = [.defaultOption()]
         selectedAgentIndex = 0
         selectedColorIndex = Self.colorIndex(for: initialColor, in: self.colors)
+        selectedModelIndex = 0
+        selectedEffortIndex = 0
     }
 
     public var selectedAgent: String {
@@ -107,8 +175,101 @@ public struct NewSessionFormModel: Equatable {
         selectedColor.isEmpty ? Self.noColorLabel : selectedColor
     }
 
+    /// The selected model id, empty when the default entry is selected.
+    public var selectedModel: String {
+        selectedModelOption.isDefault ? "" : selectedModelOption.id
+    }
+
+    public var selectedModelOption: SessionModelOption {
+        value(at: selectedModelIndex, in: modelOptions) ?? .defaultOption()
+    }
+
+    /// The selected reasoning-effort level, empty when the default entry is
+    /// selected.
+    public var selectedReasoningEffort: String {
+        selectedEffortOption.isDefault ? "" : selectedEffortOption.id
+    }
+
+    public var selectedEffortOption: SessionReasoningEffortOption {
+        value(at: selectedEffortIndex, in: effortOptions) ?? .defaultOption()
+    }
+
     public mutating func setRole(_ role: NewSessionRole) {
+        guard self.role != role else {
+            return
+        }
         self.role = role
+        // The role decides which default model (and reasoning effort) the
+        // harness applies, so the resolved lists no longer describe this form.
+        resetModelOptions()
+        resetEffortOptions()
+    }
+
+    /// Replaces the model list with what the backend resolved for the current
+    /// agent and role. A selection the user already made survives the refresh
+    /// when the new list still offers it.
+    public mutating func setModelOptions(_ models: [SessionModelOption], defaultModel: String = "") {
+        let previous = selectedModel
+        var options: [SessionModelOption] = [.defaultOption(note: defaultModel)]
+        for model in models {
+            // A whitespace-only id would otherwise render as "selected" while
+            // MutationRequests.start's trimming silently treats it as unset
+            // at submit time — drop it here so the picker never shows a
+            // selection that launches on the default anyway. This also
+            // subsumes filtering out any backend entry masquerading as the
+            // default (isDefault is exactly the empty-id case).
+            guard !model.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                continue
+            }
+            options.append(model)
+        }
+        modelOptions = options
+        selectedModelIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+    }
+
+    /// Drops back to the lone default entry, for when the resolved list stops
+    /// applying (the agent or role changed) or a fetch failed.
+    public mutating func resetModelOptions() {
+        modelOptions = [.defaultOption()]
+        selectedModelIndex = 0
+    }
+
+    /// Replaces the reasoning-effort list with what the backend resolved for
+    /// the current agent, role and model. Mirrors setModelOptions: a selection
+    /// the user already made survives the refresh when the new list still
+    /// offers it. The applied default level is always a member of the
+    /// harness's own supported-levels list, so it is dropped from the concrete
+    /// entries here — otherwise it would show up twice, once as the default
+    /// entry and once more as an identically-named concrete pick.
+    public mutating func setEffortOptions(_ levels: [String], defaultLevel: String = "") {
+        let previous = selectedReasoningEffort
+        var options: [SessionReasoningEffortOption] = [.defaultOption(defaultLevel)]
+        for level in levels {
+            let trimmed = level.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != defaultLevel else {
+                continue
+            }
+            options.append(SessionReasoningEffortOption(id: trimmed, label: trimmed))
+        }
+        effortOptions = options
+        selectedEffortIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+    }
+
+    /// Drops back to the lone default entry, for when the resolved list stops
+    /// applying (the agent, role or model changed) or a fetch failed.
+    public mutating func resetEffortOptions() {
+        effortOptions = [.defaultOption()]
+        selectedEffortIndex = 0
+    }
+
+    /// Cycles the reasoning-effort selection independent of focus — bound to
+    /// `e` while the Model field is focused, since Effort has no row of its
+    /// own (its current value is a sub-text of the Model row instead).
+    public mutating func cycleReasoningEffort() {
+        guard !submitting else {
+            return
+        }
+        selectedEffortIndex = wrapped(selectedEffortIndex + 1, count: effortOptions.count)
     }
 
     public mutating func handle(_ key: NewSessionFormKey) {
@@ -172,6 +333,8 @@ public struct NewSessionFormModel: Equatable {
             path: cleanPath,
             title: clean(title),
             agent: selectedAgent,
+            model: selectedModel,
+            reasoningEffort: selectedReasoningEffort,
             color: selectedColor,
             prompt: clean(prompt)
         )
@@ -218,13 +381,25 @@ public struct NewSessionFormModel: Equatable {
     private mutating func cycleSelection(_ delta: Int) {
         switch focusedField {
         case .agent:
+            let previousAgent = selectedAgent
             selectedAgentIndex = wrapped(selectedAgentIndex + delta, count: agents.count)
+            // Model ids are harness-specific, so another agent's list never
+            // carries over — the sheet resolves a fresh one. Only reset when
+            // the agent actually changed (mirrors setRole), so cycling a
+            // single-agent list doesn't needlessly drop an already-resolved
+            // list.
+            if selectedAgent != previousAgent {
+                resetModelOptions()
+                resetEffortOptions()
+            }
+        case .model:
+            selectedModelIndex = wrapped(selectedModelIndex + delta, count: modelOptions.count)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
         case .role:
             let roles: [NewSessionRole] = [.standalone, .master]
             let index = roles.firstIndex(of: role) ?? 0
-            role = roles[wrapped(index + delta, count: roles.count)]
+            setRole(roles[wrapped(index + delta, count: roles.count)])
         case .path, .title, .prompt:
             break
         }

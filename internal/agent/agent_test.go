@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -161,6 +162,108 @@ func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
 	}
 }
 
+// The model picker labels its "default" entry with DefaultModelFor, so that
+// value must be exactly what BuildCmd launches when no override is given.
+func TestDefaultModelForMatchesLaunchedModel(t *testing.T) {
+	t.Parallel()
+
+	providers := map[string]Agent{
+		"claude":   NewClaude(AgentConfig{}),
+		"codex":    NewCodex(AgentConfig{}),
+		"opencode": NewOpenCode(AgentConfig{}),
+		"pi":       NewPi(AgentConfig{}),
+	}
+	for name, provider := range providers {
+		for _, role := range []SessionRole{RoleStandalone, RoleWorker, RoleMaster} {
+			want := DefaultModelFor(name, role)
+			if want == "" {
+				t.Errorf("%s (%v) declares no role default", name, role)
+				continue
+			}
+			got := provider.BuildCmd(CmdOpts{Binary: "/bin/agent", AgentPath: "/p", Role: role})
+			if !strings.Contains(got, "--model '"+want+"'") {
+				t.Errorf("%s (%v) launches without its declared default %q: %q", name, role, want, got)
+			}
+		}
+	}
+
+	if got := DefaultModelFor("brand-new-harness", RoleMaster); got != "" {
+		t.Errorf("unknown agent default = %q, want empty", got)
+	}
+}
+
+// TestOpenCodeDefaultModelMatchesConfiguredStandaloneOverride guards the exact
+// case DefaultModelFor cannot see: a non-default configured model still pins
+// OpenCode standalone in BuildCmd. Agent.DefaultModel must track that quirk
+// instead of only reflecting the static ModelPolicy, or the model picker's
+// "default" label would silently lie about what a configured instance
+// actually launches with.
+func TestOpenCodeDefaultModelMatchesConfiguredStandaloneOverride(t *testing.T) {
+	t.Parallel()
+
+	provider := NewOpenCode(AgentConfig{Model: "opencode/custom-model"})
+
+	if got := provider.DefaultModel(RoleStandalone); got != "opencode/custom-model" {
+		t.Fatalf("DefaultModel(standalone) = %q, want the configured override", got)
+	}
+	launched := provider.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleStandalone})
+	if !strings.Contains(launched, "--model 'opencode/custom-model'") {
+		t.Fatalf("BuildCmd(standalone) = %q, want it to launch with the configured override", launched)
+	}
+
+	// The override is standalone-only: master still falls back to the static
+	// policy in both DefaultModel and BuildCmd, matching each other.
+	if got, want := provider.DefaultModel(RoleMaster), openCodeMasterGPTModel; got != want {
+		t.Fatalf("DefaultModel(master) = %q, want the static master default %q", got, want)
+	}
+	launchedMaster := provider.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleMaster})
+	if !strings.Contains(launchedMaster, "--model '"+openCodeMasterGPTModel+"'") {
+		t.Fatalf("BuildCmd(master) = %q, want the static master default", launchedMaster)
+	}
+}
+
+func TestModelPolicySourcesDeclareCatalogProviders(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range Names() {
+		policy := ModelPolicyOf(name)
+		if len(policy.Sources) == 0 {
+			t.Errorf("%s declares no model catalog source", name)
+		}
+		for _, source := range policy.Sources {
+			if source.Catalog == "" {
+				t.Errorf("%s has a model source with no catalog provider", name)
+			}
+		}
+	}
+	// No built-in provider offers family aliases: the suggestion list stays to
+	// concrete catalog ids everywhere.
+	for _, name := range Names() {
+		for _, source := range ModelPolicyOf(name).Sources {
+			if source.Aliases {
+				t.Errorf("%s should not offer family aliases", name)
+			}
+		}
+	}
+}
+
+func TestFamilyAlias(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"claude-opus":  "opus",
+		"claude-fable": "fable",
+		"gpt-terra":    "terra",
+		"gpt":          "",
+		"":             "",
+	}
+	for family, want := range cases {
+		if got := FamilyAlias(family); got != want {
+			t.Errorf("FamilyAlias(%q) = %q, want %q", family, got, want)
+		}
+	}
+}
+
 func TestProviderBuildCmd_ResumeKeepsSessionModel(t *testing.T) {
 	t.Parallel()
 
@@ -282,6 +385,52 @@ func TestValidateReasoningEffort(t *testing.T) {
 		}
 		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 			t.Errorf("ValidateReasoningEffort(%q, %q, %q) = %v, want %q", tt.provider, tt.model, tt.effort, err, tt.wantErr)
+		}
+	}
+}
+
+func TestSupportedReasoningEfforts(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		provider string
+		model    string
+		want     []string
+	}{
+		{provider: "claude", want: []string{"low", "medium", "high", "xhigh", "max"}},
+		{provider: "codex", model: "gpt-5.6-terra", want: []string{"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}},
+		{provider: "codex", model: "gpt-5.4", want: []string{"minimal", "low", "medium", "high", "xhigh"}},
+		{provider: "pi", want: []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}},
+		{provider: "opencode", model: "openai/gpt-5.4", want: []string{"off", "none", "minimal", "low", "medium", "high", "xhigh"}},
+		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", want: []string{"high", "max"}},
+		{provider: "opencode", model: "other/model", want: nil},
+		{provider: "unknown", want: nil},
+	} {
+		got := SupportedReasoningEfforts(tt.provider, tt.model)
+		if !slices.Equal(got, tt.want) {
+			t.Errorf("SupportedReasoningEfforts(%q, %q) = %v, want %v", tt.provider, tt.model, got, tt.want)
+		}
+	}
+}
+
+func TestDefaultReasoningEffortFor(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		provider string
+		role     SessionRole
+		want     string
+	}{
+		{provider: "claude", role: RoleWorker, want: "xhigh"},
+		{provider: "claude", role: RoleMaster, want: "xhigh"},
+		{provider: "codex", role: RoleWorker, want: codexWorkerReasoning},
+		{provider: "codex", role: RoleMaster, want: codexMasterReasoning},
+		{provider: "pi", role: RoleStandalone, want: "xhigh"},
+		{provider: "opencode", role: RoleWorker, want: ""},
+		{provider: "unknown", role: RoleWorker, want: ""},
+	} {
+		if got := DefaultReasoningEffortFor(tt.provider, tt.role); got != tt.want {
+			t.Errorf("DefaultReasoningEffortFor(%q, %v) = %q, want %q", tt.provider, tt.role, got, tt.want)
 		}
 	}
 }

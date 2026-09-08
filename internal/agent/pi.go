@@ -9,6 +9,8 @@ import (
 const (
 	piWorkerGPTModel = "openai-codex/gpt-5.6-terra"
 	piMasterGPTModel = "openai-codex/gpt-5.6-sol"
+
+	piDefaultReasoningEffort = "xhigh"
 )
 
 var piSpec = Spec{
@@ -22,6 +24,13 @@ var piSpec = Spec{
 	BinaryEnvVar:   "PI_BIN",
 	FallbackPath:   "/opt/homebrew/bin/pi",
 	State:          StateSidecar,
+	Models: ModelPolicy{
+		Worker: piWorkerGPTModel,
+		Master: piMasterGPTModel,
+		// Pi qualifies models with its own provider naming, so catalog ids
+		// are offered under the provider prefix its defaults use.
+		Sources: []ModelSource{{Catalog: "openai", Prefix: "openai-codex/"}},
+	},
 }
 
 // Pi implements the built-in Pi provider.
@@ -52,11 +61,11 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 	if opts.Role == RoleMaster && opts.SystemBrief != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(opts.SystemBrief)
 	}
-	if model := resolveModel(opts, piWorkerGPTModel, piMasterGPTModel); model != "" {
+	if model := resolveModel(opts, p.spec.Models.Worker, p.spec.Models.Master); model != "" {
 		cmd += " --model " + config.ShellQuote(model)
 	}
 	if opts.ReasoningEffort == "" {
-		cmd += " --thinking xhigh"
+		cmd += " --thinking " + piDefaultReasoningEffort
 	} else {
 		cmd += " --thinking " + config.ShellQuote(opts.ReasoningEffort)
 	}

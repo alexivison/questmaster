@@ -10,6 +10,9 @@ final class NewSessionViewState: ObservableObject {
     @Published var highlightedSuggestionIndex = 0
     @Published var focusRequest: NewSessionField
     @Published var focusGeneration = 0
+    /// Set only for an explicit refresh (button or `r`), not the sheet's own
+    /// resolves on open or agent/role change — those are silent.
+    @Published var isRefreshingModels = false
 
     init(model: NewSessionFormModel) {
         self.model = model
@@ -35,6 +38,7 @@ struct NewSessionRootView: View {
     var onPathChanged: () -> Void
     var onCreate: () -> Void
     var onCancel: () -> Void
+    var onRefreshModels: () -> Void
 
     @FocusState private var focusedField: NewSessionField?
 
@@ -62,19 +66,20 @@ struct NewSessionRootView: View {
             pathRow
             textRow(label: "Title", placeholder: "optional, auto-generated if blank", text: titleBinding, field: .title)
             selectRow(
-                label: "Agent",
-                field: .agent,
-                note: "the agent who answers the call",
-                title: AgentKind.displayName(for: state.model.selectedAgent),
-                swatchColor: nil
-            )
-            selectRow(
                 label: "Role",
                 field: .role,
                 note: "the shape it takes in the field",
                 title: roleTitle,
                 swatchColor: nil
             )
+            selectRow(
+                label: "Agent",
+                field: .agent,
+                note: "the agent who answers the call",
+                title: AgentKind.displayName(for: state.model.selectedAgent),
+                swatchColor: nil
+            )
+            modelSelectRow
             selectRow(
                 label: "Color",
                 field: .color,
@@ -100,6 +105,77 @@ struct NewSessionRootView: View {
             state.model.focusedField = next
             onFocusChanged(next)
         }
+    }
+
+    private var modelSelectRow: some View {
+        ModalSelectRow(
+            label: "Model",
+            labelWidth: Metrics.rowLabelWidth,
+            title: state.model.selectedModelOption.label,
+            note: modelNote,
+            swatchColor: nil,
+            focused: state.model.focusedField == .model,
+            disabled: state.model.submitting,
+            controlWidth: Metrics.selectWidth,
+            horizontalInset: Metrics.horizontalInset,
+            spacing: Metrics.horizontalInset,
+            onSelect: { focus(.model) },
+            accessory: { AnyView(refreshModelsButton) },
+            subtext: { AnyView(effortSubtextRow) }
+        )
+    }
+
+    private var refreshModelsButton: some View {
+        ChromeIconButton(
+            symbolName: "arrow.clockwise",
+            accessibilityLabel: "Refresh models",
+            tooltip: "Refetch the model list  r",
+            action: onRefreshModels
+        )
+        .disabled(state.model.submitting || state.isRefreshingModels)
+        .opacity(state.isRefreshingModels ? 0.5 : 1)
+    }
+
+    /// The reasoning-effort level hangs off the Model row the same way a
+    /// worker hangs off its master in the tracker — reusing that connector
+    /// marker (and the same line color) makes the relationship legible at a
+    /// glance instead of needing a label like "Effort:" to spell it out. Only
+    /// the connector picks up the control's own focused/brass color, the same
+    /// way its border does — the value's own color stays put, so it doesn't
+    /// compete with the note beside the control for the "this is focused"
+    /// signal.
+    ///
+    /// Indented past the control's own corner radius: flush against the
+    /// literal left edge, the connector's top would land against the curved
+    /// part of the control's border instead of the straight part, reading as
+    /// a gap even at zero spacing. The stub's height (not VStack spacing,
+    /// which stays 0 so the connector keeps touching the control) is what
+    /// pushes the value further from the control.
+    private var effortSubtextRow: some View {
+        let focused = state.model.focusedField == .model
+        let connectorColor = (focused ? AppPalette.brassActive : AppPalette.line).swiftUI
+        return HStack(alignment: .effortMarker, spacing: 6) {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(connectorColor)
+                    .frame(width: Token.Size.divider, height: 12)
+                TrackerWorkerConnectorMarker()
+                    .fill(connectorColor)
+                    .frame(
+                        width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
+                        height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
+                    )
+                    .alignmentGuide(.effortMarker) { $0[VerticalAlignment.center] }
+            }
+            Text(state.model.selectedEffortOption.label)
+                .font(AppFonts.modalHelperLarge.swiftUI)
+                .italic()
+                .foregroundStyle(AppPalette.dim.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .alignmentGuide(.effortMarker) { $0[VerticalAlignment.center] }
+        }
+        .padding(.leading, Token.Radius.control + 3)
     }
 
     private var pathRow: some View {
@@ -193,6 +269,25 @@ struct NewSessionRootView: View {
 
     private var footerText: String {
         state.model.submitting ? "Creating session…" : ""
+    }
+
+    /// The model row's hint: the title already shows the concrete default id
+    /// once resolved, so this only needs to say what kind of value it is —
+    /// the role default, or the resolved model's own annotation (vendor name
+    /// or "recent") once one is picked. The `r`/`e` shortcuts are surfaced
+    /// only while the row itself is focused, where they're actually live.
+    private var modelNote: String {
+        let option = state.model.selectedModelOption
+        let base: String
+        if option.isDefault {
+            base = option.note.isEmpty ? "whatever the harness picks for this role" : "the default for this role"
+        } else {
+            base = option.note.isEmpty ? "passed to the harness as-is" : option.note
+        }
+        guard state.model.focusedField == .model else {
+            return base
+        }
+        return state.isRefreshingModels ? "\(base) · refreshing…" : "\(base) · r refresh · e effort"
     }
 
     private var roleTitle: String {
@@ -306,8 +401,20 @@ struct NewSessionRootView: View {
         switch field {
         case .path, .title:
             focusedField = field
-        case .agent, .color, .prompt, .role:
+        case .agent, .model, .color, .prompt, .role:
             focusedField = nil
         }
     }
+}
+
+/// Aligns the effort connector's marker (not the taller stub-plus-marker
+/// column above it) with the vertical center of the effort text beside it.
+private struct EffortMarkerAlignment: AlignmentID {
+    static func defaultValue(in context: ViewDimensions) -> CGFloat {
+        context[VerticalAlignment.center]
+    }
+}
+
+private extension VerticalAlignment {
+    static let effortMarker = VerticalAlignment(EffortMarkerAlignment.self)
 }

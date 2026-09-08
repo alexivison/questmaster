@@ -86,6 +86,7 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newReportCmd(o.store, o.client))
 	root.AddCommand(newWorkersCmd(o.store, o.client))
 	root.AddCommand(newAgentCmd())
+	root.AddCommand(newModelsCmd(o.store))
 	root.AddCommand(newHookCmd(o.store, o.client))
 	root.AddCommand(newHooksCmd())
 	root.AddCommand(newStateCmd(o.store))

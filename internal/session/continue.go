@@ -128,6 +128,10 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 				CLI:      cli,
 				ResumeID: resumeID,
 				Window:   agentState.Window,
+				// A resumed session keeps the harness's own conversation
+				// model, but the model it was first launched with stays
+				// recorded so it survives in the recents list.
+				Model: agentState.Model,
 			})
 		}
 

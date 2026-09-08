@@ -356,6 +356,15 @@ func manifestAgentResumeID(agents []state.AgentManifest, role string) string {
 	return ""
 }
 
+func manifestAgentModel(agents []state.AgentManifest, role string) string {
+	for _, spec := range agents {
+		if spec.Role == role {
+			return spec.Model
+		}
+	}
+	return ""
+}
+
 func writePiResumeState(t *testing.T, store *state.Store, sessionID, resumeID string) {
 	t.Helper()
 	setTestStateRoot(t, store.Root())
@@ -574,6 +583,46 @@ func TestStart_StandaloneUsesStandalonePrompt(t *testing.T) {
 	}
 	if strings.Count(launch, task) != 1 {
 		t.Fatalf("expected standalone task prompt once in launch command, got %q", launch)
+	}
+}
+
+// TestStart_RecordsExplicitModelButNotRoleDefault guards the subtlest part of
+// model recording: an explicit --model override is stored verbatim in the
+// manifest (so modelsuggest's recents source can offer it again), but a
+// launch that took its role default records an empty Model — the manifest
+// deliberately does not resolve/store the harness's implicit default, only
+// what was explicitly asked for.
+func TestStart_RecordsExplicitModelButNotRoleDefault(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 1234567895 }
+
+	withOverride, err := svc.Start(t.Context(), StartOpts{
+		Cwd:   t.TempDir(),
+		Model: "claude-opus-9-unreleased",
+	})
+	if err != nil {
+		t.Fatalf("start with model override: %v", err)
+	}
+	m, err := svc.Store.Read(withOverride.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := manifestAgentModel(m.Agents, "primary"); got != "claude-opus-9-unreleased" {
+		t.Fatalf("primary agent model = %q, want the explicit override recorded verbatim", got)
+	}
+
+	svc.Now = func() int64 { return 1234567896 }
+	withoutOverride, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start without model override: %v", err)
+	}
+	m, err = svc.Store.Read(withoutOverride.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := manifestAgentModel(m.Agents, "primary"); got != "" {
+		t.Fatalf("primary agent model = %q, want empty for a role-default launch", got)
 	}
 }
 
@@ -825,6 +874,41 @@ func TestContinue_StoppedRegular(t *testing.T) {
 	// Session should now be running
 	if !runner.sessions["qm-stopped"] {
 		t.Fatal("session not recreated in tmux")
+	}
+}
+
+// TestContinue_PreservesRecordedModel guards resume specifically: the model a
+// session was first launched with must survive being re-recorded on
+// Continue, since that recorded value is modelsuggest's only source for
+// offering a model again that no catalog or harness enumeration knows about.
+func TestContinue_PreservesRecordedModel(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+
+	cwd := t.TempDir()
+	if err := svc.Store.Create(state.Manifest{
+		SessionID:   "qm-model-resume",
+		Title:       "resume-with-model",
+		Cwd:         cwd,
+		SessionType: "",
+		AgentPath:   "/usr/bin",
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1, Model: "claude-opus-9-unreleased"},
+		},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	if _, err := svc.Continue(t.Context(), "qm-model-resume"); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	m, err := svc.Store.Read("qm-model-resume")
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := manifestAgentModel(m.Agents, "primary"); got != "claude-opus-9-unreleased" {
+		t.Fatalf("primary agent model after continue = %q, want the originally recorded model preserved", got)
 	}
 }
 

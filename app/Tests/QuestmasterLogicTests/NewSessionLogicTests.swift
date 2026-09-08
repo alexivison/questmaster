@@ -7,6 +7,13 @@ struct NewSessionLogicTests {
         focusMovesThroughFieldsWithControlJAndK()
         focusCycleIncludesRole()
         defaultAgentListIncludesOpenCode()
+        modelSelectStartsOnDefaultAndTakesResolvedOptions()
+        modelSelectionSurvivesARefreshThatStillOffersIt()
+        agentAndRoleChangesDropAnotherHarnessModel()
+        setModelOptionsDropsWhitespaceOnlyIDs()
+        cyclingASingleAgentListDoesNotResetModelOptions()
+        effortSelectStartsOnDefaultAndTakesResolvedOptions()
+        roleAndAgentChangesDropTheResolvedEffortList()
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
         roleSelectsWithArrowKeys()
@@ -37,13 +44,15 @@ struct NewSessionLogicTests {
         model.handle(.controlJ)
         expect(model.focusedField == .title, "control-j should move to title")
         model.handle(.controlJ)
+        expect(model.focusedField == .role, "control-j should move to role")
+        model.handle(.controlJ)
         expect(model.focusedField == .agent, "control-j should move to agent")
         model.handle(.controlJ)
-        expect(model.focusedField == .role, "control-j should move to role")
+        expect(model.focusedField == .model, "control-j should move to model")
         model.handle(.controlJ)
         expect(model.focusedField == .color, "control-j should move to color")
         model.handle(.controlK)
-        expect(model.focusedField == .role, "control-k should move back to role")
+        expect(model.focusedField == .model, "control-k should move back to model")
     }
 
     private static func focusCycleIncludesRole() {
@@ -59,6 +68,178 @@ struct NewSessionLogicTests {
             NewSessionFormModel.defaultAgents == ["claude", "codex", "opencode", "pi"],
             "default agent order mismatch: \(NewSessionFormModel.defaultAgents)"
         )
+    }
+
+    // The app owns exactly one model entry — "default" — and receives the rest
+    // from the backend, so a newly released model needs no app change.
+    private static func modelSelectStartsOnDefaultAndTakesResolvedOptions() {
+        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        expect(model.modelOptions.count == 1, "the picker should start with only the default entry")
+        expect(model.selectedModelOption.isDefault, "the default entry should be selected")
+        expect(model.selectedModel.isEmpty, "the default entry should send no model override")
+        expect(model.submitPayload()?.model == "", "an untouched picker should not override the model")
+
+        model.setModelOptions(
+            [
+                SessionModelOption(id: "opus", label: "opus", note: "alias · tracks Claude Opus 5"),
+                SessionModelOption(id: "claude-opus-9-unreleased", label: "claude-opus-9-unreleased", note: "recent"),
+            ],
+            defaultModel: "sonnet"
+        )
+        expect(model.modelOptions.count == 3, "resolved models should append to the default entry")
+        expect(model.modelOptions.first?.note == "sonnet", "the default entry should carry the role default")
+        expect(model.selectedModelOption.isDefault, "resolving should not change the selection")
+
+        model.focusedField = .model
+        model.handle(.right)
+        expect(model.selectedModel == "opus", "right should select the first resolved model")
+        expect(model.submitPayload()?.model == "opus", "a picked model should reach the payload")
+        model.handle(.right)
+        expect(model.selectedModel == "claude-opus-9-unreleased", "right should reach a model no catalog knows")
+        model.handle(.left)
+        expect(model.selectedModel == "opus", "left should cycle back")
+        model.handle(.left)
+        expect(model.selectedModel.isEmpty, "left should return to the default entry")
+    }
+
+    private static func modelSelectionSurvivesARefreshThatStillOffersIt() {
+        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
+        model.focusedField = .model
+        model.handle(.right)
+        expect(model.selectedModel == "opus", "precondition: opus selected")
+
+        model.setModelOptions(
+            [
+                SessionModelOption(id: "sonnet", label: "sonnet"),
+                SessionModelOption(id: "opus", label: "opus"),
+            ],
+            defaultModel: "sonnet"
+        )
+        expect(model.selectedModel == "opus", "a refresh that still offers the model should keep it selected")
+
+        model.setModelOptions([SessionModelOption(id: "haiku", label: "haiku")], defaultModel: "sonnet")
+        expect(model.selectedModel.isEmpty, "a refresh without the model should fall back to the default")
+    }
+
+    private static func agentAndRoleChangesDropAnotherHarnessModel() {
+        var model = NewSessionFormModel(
+            role: .standalone,
+            initialPath: "/tmp/project",
+            agents: ["claude", "codex"]
+        )
+        model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
+        model.focusedField = .model
+        model.handle(.right)
+        expect(model.selectedModel == "opus", "precondition: opus selected")
+
+        model.focusedField = .agent
+        model.handle(.right)
+        expect(model.selectedAgent == "codex", "precondition: agent cycled")
+        expect(model.selectedModel.isEmpty, "a claude model must not launch on codex")
+        expect(model.modelOptions.count == 1, "the stale list should be dropped with the agent")
+
+        model.setModelOptions([SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol")], defaultModel: "gpt-5.6-terra")
+        model.focusedField = .model
+        model.handle(.right)
+        expect(model.selectedModel == "gpt-5.6-sol", "precondition: codex model selected")
+
+        model.setRole(.master)
+        expect(model.selectedModel.isEmpty, "the role decides the default model, so its list is re-resolved")
+    }
+
+    // A whitespace-only id would otherwise render as "selected" in the picker
+    // while MutationRequests.start's trimming silently sends no override at
+    // submit time — setModelOptions must drop it rather than offer a
+    // selection that lies about what actually launches.
+    private static func setModelOptionsDropsWhitespaceOnlyIDs() {
+        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        model.setModelOptions(
+            [
+                SessionModelOption(id: "opus", label: "opus"),
+                SessionModelOption(id: "   ", label: "blank"),
+            ],
+            defaultModel: "sonnet"
+        )
+        expect(model.modelOptions.count == 2, "a whitespace-only id should be dropped, not offered")
+        expect(!model.modelOptions.contains(where: { $0.label == "blank" }), "the blank entry must not appear in the picker")
+    }
+
+    // cycleSelection's .agent case must mirror setRole's "only reset on an
+    // actual change" guard: with a single agent, cycling can't change the
+    // selection, so an already-resolved model list must survive it.
+    private static func cyclingASingleAgentListDoesNotResetModelOptions() {
+        var model = NewSessionFormModel(
+            role: .standalone,
+            initialPath: "/tmp/project",
+            agents: ["claude"]
+        )
+        model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
+        model.focusedField = .model
+        model.handle(.right)
+        expect(model.selectedModel == "opus", "precondition: opus selected")
+
+        model.focusedField = .agent
+        model.handle(.right)
+        expect(model.selectedAgent == "claude", "precondition: cycling a single-agent list is a no-op")
+        expect(model.selectedModel == "opus", "a no-op agent cycle must not drop the resolved model list")
+    }
+
+    // Mirrors modelSelectStartsOnDefaultAndTakesResolvedOptions: the app owns
+    // exactly one effort entry — "default" — and receives the rest from the
+    // backend. Effort has no row of its own — cycleReasoningEffort() is
+    // bound to `e` while the Model field is focused — so it is exercised
+    // directly rather than through focus + left/right.
+    private static func effortSelectStartsOnDefaultAndTakesResolvedOptions() {
+        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        expect(model.effortOptions.count == 1, "the picker should start with only the default entry")
+        expect(model.selectedEffortOption.isDefault, "the default entry should be selected")
+        expect(model.selectedReasoningEffort.isEmpty, "the default entry should send no effort override")
+        expect(model.submitPayload()?.reasoningEffort == "", "an untouched picker should not override the effort")
+
+        model.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "xhigh")
+        // xhigh is both the applied default and a member of the supported
+        // list, so it must not appear a second time as a concrete entry.
+        expect(model.effortOptions.count == 5, "the level matching the default must not be repeated")
+        expect(model.effortOptions.first?.label == "xhigh", "the default entry should show the concrete applied level")
+        expect(model.selectedEffortOption.isDefault, "resolving should not change the selection")
+
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort == "low", "cycling should select the first resolved level")
+        expect(model.submitPayload()?.reasoningEffort == "low", "a picked level should reach the payload")
+        model.cycleReasoningEffort()
+        model.cycleReasoningEffort()
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort == "max", "cycling should reach the last resolved level")
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort.isEmpty, "cycling past the last level should wrap to the default entry")
+    }
+
+    // Mirrors agentAndRoleChangesDropAnotherHarnessModel: valid effort levels
+    // are per harness (and per model, for Codex/OpenCode), so a stale
+    // resolved list must not survive an agent or role change.
+    private static func roleAndAgentChangesDropTheResolvedEffortList() {
+        var model = NewSessionFormModel(
+            role: .standalone,
+            initialPath: "/tmp/project",
+            agents: ["claude", "codex"]
+        )
+        model.setEffortOptions(["low", "high"], defaultLevel: "xhigh")
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort == "low", "precondition: low selected")
+
+        model.focusedField = .agent
+        model.handle(.right)
+        expect(model.selectedAgent == "codex", "precondition: agent cycled")
+        expect(model.selectedReasoningEffort.isEmpty, "a claude effort level must not launch on codex")
+        expect(model.effortOptions.count == 1, "the stale list should be dropped with the agent")
+
+        model.setEffortOptions(["minimal", "ultra"], defaultLevel: "xhigh")
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort == "minimal", "precondition: codex effort selected")
+
+        model.setRole(.master)
+        expect(model.selectedReasoningEffort.isEmpty, "the role decides the default effort, so its list is re-resolved")
     }
 
     private static func selectorsCycleOnlyOnSelectableFields() {
