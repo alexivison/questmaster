@@ -106,39 +106,62 @@ struct ModalSelectRow: View {
     var horizontalInset: CGFloat = 18
     var spacing: CGFloat = 18
     var onSelect: () -> Void
-    /// An optional control after the note (e.g. the model row's refresh
+    /// An optional control after the control (e.g. the model row's refresh
     /// button). Omitted for the plain select row every other field uses.
     var accessory: (() -> AnyView)?
+    /// Puts note on its own full-width line below the control instead of
+    /// squeezed beside it — the model row's note (its own annotation plus
+    /// the reasoning-effort sub-text) routinely runs too long for the space
+    /// left over next to the control.
+    var noteBelow: Bool = false
 
     var body: some View {
         ModalFormRow(
             label: label,
             labelWidth: labelWidth,
             horizontalInset: horizontalInset,
-            spacing: spacing
+            spacing: spacing,
+            topAligned: noteBelow
         ) {
-            HStack(spacing: 12) {
-                ModalSelectControl(
-                    title: title,
-                    swatchColor: swatchColor,
-                    focused: focused,
-                    disabled: disabled
-                )
-                .frame(width: controlWidth, height: 36)
-                .onTapGesture(perform: onSelect)
-
-                Text(note)
-                    .font(AppFonts.modalHelper.swiftUI)
-                    .italic()
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                if let accessory {
-                    accessory()
+            if noteBelow {
+                VStack(alignment: .leading, spacing: 4) {
+                    controlRow
+                    noteText
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                HStack(spacing: 12) {
+                    controlRow
+                    noteText
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var controlRow: some View {
+        HStack(spacing: 12) {
+            ModalSelectControl(
+                title: title,
+                swatchColor: swatchColor,
+                focused: focused,
+                disabled: disabled
+            )
+            .frame(width: controlWidth, height: 36)
+            .onTapGesture(perform: onSelect)
+
+            if let accessory {
+                accessory()
+            }
+        }
+    }
+
+    private var noteText: some View {
+        Text(note)
+            .font(AppFonts.modalHelper.swiftUI)
+            .italic()
+            .foregroundStyle(AppPalette.dim.swiftUI)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 }
