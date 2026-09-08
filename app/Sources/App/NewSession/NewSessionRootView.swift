@@ -139,14 +139,18 @@ struct NewSessionRootView: View {
     /// The reasoning-effort level hangs off the Model row the same way a
     /// worker hangs off its master in the tracker — reusing that connector
     /// marker (and the same line color) makes the relationship legible at a
-    /// glance instead of needing a label like "Effort:" to spell it out. The
-    /// connector and value pick up the control's own focused/brass color, the
-    /// same way its border does.
+    /// glance instead of needing a label like "Effort:" to spell it out. Only
+    /// the connector picks up the control's own focused/brass color, the same
+    /// way its border does — the value's own color stays put, so it doesn't
+    /// compete with the note beside the control for the "this is focused"
+    /// signal.
     ///
     /// Indented past the control's own corner radius: flush against the
     /// literal left edge, the connector's top would land against the curved
     /// part of the control's border instead of the straight part, reading as
-    /// a gap even at zero spacing.
+    /// a gap even at zero spacing. The stub's height (not VStack spacing,
+    /// which stays 0 so the connector keeps touching the control) is what
+    /// pushes the value further from the control.
     private var effortSubtextRow: some View {
         let focused = state.model.focusedField == .model
         let connectorColor = (focused ? AppPalette.brassActive : AppPalette.line).swiftUI
@@ -154,7 +158,7 @@ struct NewSessionRootView: View {
             VStack(spacing: 0) {
                 Rectangle()
                     .fill(connectorColor)
-                    .frame(width: Token.Size.divider, height: 6)
+                    .frame(width: Token.Size.divider, height: 12)
                 TrackerWorkerConnectorMarker()
                     .fill(connectorColor)
                     .frame(
@@ -165,7 +169,7 @@ struct NewSessionRootView: View {
             Text(state.model.selectedEffortOption.label)
                 .font(AppFonts.modalHelper.swiftUI)
                 .italic()
-                .foregroundStyle(focused ? AppPalette.brassActive.swiftUI : AppPalette.dim.swiftUI)
+                .foregroundStyle(AppPalette.dim.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
