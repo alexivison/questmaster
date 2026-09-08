@@ -73,6 +73,14 @@ final class UnixSocketMutationClient: ServeMutationSending {
     /// never delays the mutation the user is actually waiting on.
     private let modelQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.models")
     private static let responseTimeoutSeconds = 35
+    /// Mirrors UnixSocketServeClient's own backoff schedule: the app-launched
+    /// `qm serve` can take a few seconds to bind its socket (see
+    /// ServeProcess.waitForSocket), and this client has no equivalent
+    /// reconnect loop of its own — a New Session sheet opened (or a menu
+    /// mutation fired) in that window would otherwise fail once, silently,
+    /// with nothing to prompt a second try. Retried only before any bytes are
+    /// written, so a mutation already in flight is never repeated.
+    static let connectRetryDelays: [TimeInterval] = [0, 0.15, 0.3, 0.6, 1.0]
 
     init(socketPath: String) {
         self.socketPath = socketPath
@@ -90,8 +98,29 @@ final class UnixSocketMutationClient: ServeMutationSending {
         }
     }
 
+    /// `connect`/`sleep` are injectable so LogicSelfTests can prove the
+    /// retry/give-up behavior without a real socket or real delays.
+    static func connectWithRetry(
+        socketPath: String,
+        connect: (String) throws -> Int32 = UnixSocketIO.connect,
+        sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) }
+    ) throws -> Int32 {
+        var lastError: Error = ServeClientError.connect("unknown connection failure")
+        for delay in connectRetryDelays {
+            if delay > 0 {
+                sleep(delay)
+            }
+            do {
+                return try connect(socketPath)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
     private static func sendObject(_ object: [String: Any], socketPath: String) throws -> ServeMutationAck {
-        let fd = try UnixSocketIO.connect(path: socketPath)
+        let fd = try connectWithRetry(socketPath: socketPath)
         defer {
             shutdown(fd, SHUT_RDWR)
             close(fd)

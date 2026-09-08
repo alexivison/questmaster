@@ -51,6 +51,8 @@ enum LogicSelfTests {
         ("testNewSessionResolvesReasoningEffortsPerAgentAndModel", testNewSessionResolvesReasoningEffortsPerAgentAndModel),
         ("testNewSessionKeepsDefaultReasoningEffortWhenResolveFails", testNewSessionKeepsDefaultReasoningEffortWhenResolveFails),
         ("testNewSessionEffortKeyCyclesWhileModelFocused", testNewSessionEffortKeyCyclesWhileModelFocused),
+        ("testConnectWithRetryRetriesUntilConnectSucceeds", testConnectWithRetryRetriesUntilConnectSucceeds),
+        ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1675,6 +1677,48 @@ enum LogicSelfTests {
         // entry alone still starts a session on the harness's own effort.
         try expect(model.state.model.effortOptions.count == 1, "no client should leave only the default entry")
         try expect(model.state.model.selectedReasoningEffort.isEmpty, "the default entry should send no effort override")
+    }
+
+    // The app-launched qm serve can take a few seconds to bind its socket
+    // (ServeProcess.waitForSocket), and this client has no reconnect loop of
+    // its own — a New Session sheet opened in that window must not just fail
+    // once and sit stuck on the default entry forever.
+    private static func testConnectWithRetryRetriesUntilConnectSucceeds() throws {
+        var attempts = 0
+        var sleeps: [TimeInterval] = []
+        let fd = try UnixSocketMutationClient.connectWithRetry(
+            socketPath: "unused",
+            connect: { _ in
+                attempts += 1
+                if attempts < 3 {
+                    throw ServeClientError.connect("not ready yet")
+                }
+                return 42
+            },
+            sleep: { sleeps.append($0) }
+        )
+        try expect(fd == 42, "should return the fd from the attempt that finally succeeded")
+        try expect(attempts == 3, "should retry past two failures instead of giving up after the first")
+        try expect(sleeps == [0.15, 0.3], "should wait using the schedule between the two failed attempts")
+    }
+
+    private static func testConnectWithRetryGivesUpAfterExhaustingTheSchedule() throws {
+        var attempts = 0
+        var thrown: Error?
+        do {
+            _ = try UnixSocketMutationClient.connectWithRetry(
+                socketPath: "unused",
+                connect: { _ in
+                    attempts += 1
+                    throw ServeClientError.connect("still not ready")
+                },
+                sleep: { _ in }
+            )
+        } catch {
+            thrown = error
+        }
+        try expect(attempts == UnixSocketMutationClient.connectRetryDelays.count, "should give up only after exhausting every scheduled attempt")
+        try expect(thrown != nil, "should propagate the last connect failure once retries are exhausted")
     }
 
     // Effort has no row of its own: `e` must cycle it while the Model field
