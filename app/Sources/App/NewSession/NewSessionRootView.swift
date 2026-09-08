@@ -121,7 +121,7 @@ struct NewSessionRootView: View {
             spacing: Metrics.horizontalInset,
             onSelect: { focus(.model) },
             accessory: { AnyView(refreshModelsButton) },
-            noteBelow: true
+            subtext: effortSubtext
         )
     }
 
@@ -232,11 +232,8 @@ struct NewSessionRootView: View {
     /// The model row's hint: the title already shows the concrete default id
     /// once resolved, so this only needs to say what kind of value it is —
     /// the role default, or the resolved model's own annotation (vendor name
-    /// or "recent") once one is picked. The reasoning-effort level rides
-    /// along as a sub-text rather than its own row, since it is a property of
-    /// the launch, not a separate field to tab to. The `r`/`e` shortcuts are
-    /// surfaced only while the row itself is focused, where they're actually
-    /// live.
+    /// or "recent") once one is picked. The `r`/`e` shortcuts are surfaced
+    /// only while the row itself is focused, where they're actually live.
     private var modelNote: String {
         let option = state.model.selectedModelOption
         let base: String
@@ -245,11 +242,18 @@ struct NewSessionRootView: View {
         } else {
             base = option.note.isEmpty ? "passed to the harness as-is" : option.note
         }
-        let combined = "\(base) · effort: \(state.model.selectedEffortOption.label)"
         guard state.model.focusedField == .model else {
-            return combined
+            return base
         }
-        return state.isRefreshingModels ? "\(combined) · refreshing…" : "\(combined) · r refresh · e effort"
+        return state.isRefreshingModels ? "\(base) · refreshing…" : "\(base) · r refresh · e effort"
+    }
+
+    /// The reasoning-effort level rides along as a sub-text below the model
+    /// control rather than its own row, since it is a property of the
+    /// launch, not a separate field to tab to. It is a plain value only — no
+    /// model info, no keyboard hints, both of which already live in modelNote.
+    private var effortSubtext: String {
+        "Effort: \(state.model.selectedEffortOption.label)"
     }
 
     private var roleTitle: String {

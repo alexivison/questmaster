@@ -106,14 +106,13 @@ struct ModalSelectRow: View {
     var horizontalInset: CGFloat = 18
     var spacing: CGFloat = 18
     var onSelect: () -> Void
-    /// An optional control after the control (e.g. the model row's refresh
+    /// An optional control after the note (e.g. the model row's refresh
     /// button). Omitted for the plain select row every other field uses.
     var accessory: (() -> AnyView)?
-    /// Puts note on its own full-width line below the control instead of
-    /// squeezed beside it — the model row's note (its own annotation plus
-    /// the reasoning-effort sub-text) routinely runs too long for the space
-    /// left over next to the control.
-    var noteBelow: Bool = false
+    /// An additional line below the control (e.g. the model row's current
+    /// reasoning-effort level) — a plain value with no hint text of its own.
+    /// Omitted for every row except Model.
+    var subtext: String?
 
     var body: some View {
         ModalFormRow(
@@ -121,20 +120,22 @@ struct ModalSelectRow: View {
             labelWidth: labelWidth,
             horizontalInset: horizontalInset,
             spacing: spacing,
-            topAligned: noteBelow
+            topAligned: subtext != nil
         ) {
-            if noteBelow {
-                VStack(alignment: .leading, spacing: 4) {
+            if let subtext {
+                VStack(alignment: .leading, spacing: 6) {
                     controlRow
-                    noteText
+                    Text(subtext)
+                        .font(AppFonts.modalHelper.swiftUI)
+                        .italic()
+                        .foregroundStyle(AppPalette.dim.swiftUI)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                HStack(spacing: 12) {
-                    controlRow
-                    noteText
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                controlRow
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -149,6 +150,8 @@ struct ModalSelectRow: View {
             )
             .frame(width: controlWidth, height: 36)
             .onTapGesture(perform: onSelect)
+
+            noteText
 
             if let accessory {
                 accessory()
