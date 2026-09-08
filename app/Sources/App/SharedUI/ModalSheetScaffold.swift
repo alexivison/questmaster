@@ -110,9 +110,8 @@ struct ModalSelectRow: View {
     /// button). Omitted for the plain select row every other field uses.
     var accessory: (() -> AnyView)?
     /// An additional line below the control (e.g. the model row's current
-    /// reasoning-effort level) — a plain value with no hint text of its own.
-    /// Omitted for every row except Model.
-    var subtext: String?
+    /// reasoning-effort level). Omitted for every row except Model.
+    var subtext: (() -> AnyView)?
 
     var body: some View {
         ModalFormRow(
@@ -125,12 +124,7 @@ struct ModalSelectRow: View {
             if let subtext {
                 VStack(alignment: .leading, spacing: 6) {
                     controlRow
-                    Text(subtext)
-                        .font(AppFonts.modalHelper.swiftUI)
-                        .italic()
-                        .foregroundStyle(AppPalette.dim.swiftUI)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    subtext()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {

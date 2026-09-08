@@ -121,7 +121,7 @@ struct NewSessionRootView: View {
             spacing: Metrics.horizontalInset,
             onSelect: { focus(.model) },
             accessory: { AnyView(refreshModelsButton) },
-            subtext: effortSubtext
+            subtext: { AnyView(effortSubtextRow) }
         )
     }
 
@@ -134,6 +134,32 @@ struct NewSessionRootView: View {
         )
         .disabled(state.model.submitting || state.isRefreshingModels)
         .opacity(state.isRefreshingModels ? 0.5 : 1)
+    }
+
+    /// The reasoning-effort level hangs off the Model row the same way a
+    /// worker hangs off its master in the tracker — reusing that connector
+    /// marker (and the same line color) makes the relationship legible at a
+    /// glance instead of needing a label like "Effort:" to spell it out.
+    private var effortSubtextRow: some View {
+        HStack(spacing: 6) {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(AppPalette.line.swiftUI)
+                    .frame(width: Token.Size.divider, height: 5)
+                TrackerWorkerConnectorMarker()
+                    .fill(AppPalette.line.swiftUI)
+                    .frame(
+                        width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
+                        height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
+                    )
+            }
+            Text(state.model.selectedEffortOption.label)
+                .font(AppFonts.modalHelper.swiftUI)
+                .italic()
+                .foregroundStyle(AppPalette.dim.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
     }
 
     private var pathRow: some View {
@@ -246,14 +272,6 @@ struct NewSessionRootView: View {
             return base
         }
         return state.isRefreshingModels ? "\(base) · refreshing…" : "\(base) · r refresh · e effort"
-    }
-
-    /// The reasoning-effort level rides along as a sub-text below the model
-    /// control rather than its own row, since it is a property of the
-    /// launch, not a separate field to tab to. It is a plain value only — no
-    /// model info, no keyboard hints, both of which already live in modelNote.
-    private var effortSubtext: String {
-        "Effort: \(state.model.selectedEffortOption.label)"
     }
 
     private var roleTitle: String {
