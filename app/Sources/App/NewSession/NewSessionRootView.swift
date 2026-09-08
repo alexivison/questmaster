@@ -142,6 +142,11 @@ struct NewSessionRootView: View {
     /// glance instead of needing a label like "Effort:" to spell it out. The
     /// connector and value pick up the control's own focused/brass color, the
     /// same way its border does.
+    ///
+    /// Indented past the control's own corner radius: flush against the
+    /// literal left edge, the connector's top would land against the curved
+    /// part of the control's border instead of the straight part, reading as
+    /// a gap even at zero spacing.
     private var effortSubtextRow: some View {
         let focused = state.model.focusedField == .model
         let connectorColor = (focused ? AppPalette.brassActive : AppPalette.line).swiftUI
@@ -164,6 +169,7 @@ struct NewSessionRootView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
+        .padding(.leading, Token.Radius.control + 3)
     }
 
     private var pathRow: some View {
