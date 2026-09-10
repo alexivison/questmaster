@@ -28,6 +28,7 @@ struct SectionedList<Content: View, Footer: View>: View {
     private let footer: () -> Footer
     @State private var contentHeight: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    @State private var scrollDebounceTask: Task<Void, Never>?
 
     init(
         selectedID: String?,
@@ -83,11 +84,29 @@ struct SectionedList<Content: View, Footer: View>: View {
                 guard scrollOnSelectionChange else {
                     return
                 }
-                scrollSelected(with: proxy, id: nextID)
+                scheduleScroll(with: proxy, id: nextID)
             }
             .onChange(of: scrollTargetID) { _, nextID in
-                scrollSelected(with: proxy, id: nextID)
+                scheduleScroll(with: proxy, id: nextID)
             }
+        }
+    }
+
+    /// Rapid selection moves (e.g. holding an arrow key) each set a new target
+    /// id; scrolling to every intermediate one queues up expensive LazyVStack
+    /// reconciliation faster than it can complete, stalling the main thread.
+    /// Debounce so only the final target of a burst actually scrolls.
+    private func scheduleScroll(with proxy: ScrollViewProxy, id: String?) {
+        scrollDebounceTask?.cancel()
+        guard let id else {
+            return
+        }
+        scrollDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            proxy.scrollTo(id, anchor: .center)
         }
     }
 
