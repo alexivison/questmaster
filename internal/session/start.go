@@ -161,11 +161,12 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 				}
 			}
 			manifestAgents = append(manifestAgents, state.AgentManifest{
-				Name:     provider.Name(),
-				Role:     string(binding.Role),
-				CLI:      cli,
-				ResumeID: resumeID,
-				Model:    model,
+				Name:            provider.Name(),
+				Role:            string(binding.Role),
+				CLI:             cli,
+				ResumeID:        resumeID,
+				Model:           model,
+				ReasoningEffort: reasoningEffort,
 			})
 		}
 
