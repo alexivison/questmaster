@@ -912,6 +912,42 @@ func TestContinue_PreservesRecordedModel(t *testing.T) {
 	}
 }
 
+// TestContinue_RelaunchesWithRecordedModelAndReasoningEffort guards the
+// actual relaunch command, not just the re-recorded manifest: without a
+// resume ID to inherit from, Continue must pass the model and reasoning
+// effort the session was originally spawned with into BuildCmd, instead of
+// silently falling back to the role default.
+func TestContinue_RelaunchesWithRecordedModelAndReasoningEffort(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+
+	cwd := t.TempDir()
+	if err := svc.Store.Create(state.Manifest{
+		SessionID:   "qm-model-reasoning-resume",
+		Title:       "resume-with-model-and-effort",
+		Cwd:         cwd,
+		SessionType: "",
+		AgentPath:   "/usr/bin",
+		Agents: []state.AgentManifest{
+			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1, Model: "claude-opus-9-unreleased", ReasoningEffort: "high"},
+		},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+
+	if _, err := svc.Continue(t.Context(), "qm-model-reasoning-resume"); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+
+	launched := launchContaining(runner.calls, "resume-with-model-and-effort")
+	if !strings.Contains(launched, "--model 'claude-opus-9-unreleased'") {
+		t.Fatalf("relaunch command should carry the recorded model, got %q", launched)
+	}
+	if !strings.Contains(launched, "--effort 'high'") {
+		t.Fatalf("relaunch command should carry the recorded reasoning effort, got %q", launched)
+	}
+}
+
 func TestLaunchSessionPropagatesAppOwnedEnvironment(t *testing.T) {
 	setTestStateRoot(t, t.TempDir())
 	bin := filepath.Join(t.TempDir(), "qm")

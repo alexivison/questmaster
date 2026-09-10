@@ -64,6 +64,10 @@ type AgentManifest struct {
 	// took its role default. It is recorded so a model chosen once can be
 	// offered again without Questmaster knowing the model exists.
 	Model string `json:"model,omitempty"`
+	// ReasoningEffort is the explicit reasoning effort this agent was launched
+	// with, empty when it took its harness default. Recorded so Continue can
+	// relaunch with the same effort instead of falling back to the default.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // knownManifestKeys is the set of JSON keys mapped to typed Manifest fields.
