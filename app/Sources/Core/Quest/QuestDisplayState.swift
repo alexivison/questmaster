@@ -15,6 +15,14 @@ public struct QuestSection: Equatable, Identifiable {
 }
 
 public enum QuestDisplayState {
+    public static let maxRowPreviewLength = 4000
+
+    public static func rowPreview(for content: String) -> String {
+        content.count > maxRowPreviewLength
+            ? String(content.prefix(maxRowPreviewLength)) + "…"
+            : content
+    }
+
     public static func sections(
         quests: [QuestItem],
         repos: [TrackerRepo],

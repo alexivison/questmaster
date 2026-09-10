@@ -178,7 +178,7 @@ private struct QuestRow: View {
                 }
 
                 VStack(alignment: .leading, spacing: 0) {
-                    Markdown(quest.content)
+                    Markdown(QuestDisplayState.rowPreview(for: quest.content))
                         .markdownTheme(.basic)
                         .markdownTextStyle {
                             FontSize(AppFonts.itemTitle.pointSize)
