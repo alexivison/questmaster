@@ -33,10 +33,8 @@ struct SettingsSheetPresentation: Identifiable {
 struct SettingsSheetView: View {
     @StateObject private var model: SettingsSheetModel
 
-    /// Section order top-to-bottom in the content pane. Must match
-    /// `RoleDefaultsSettingsModel.roles`' storage order so keyboard row
-    /// navigation walks visually adjacent rows.
-    private static let roleSections = [("master", "Master"), ("worker", "Worker")]
+    /// Role groups shown for the active tab, top-to-bottom.
+    private static let roleGroups = [("master", "Master"), ("worker", "Worker")]
 
     private enum Metrics {
         static let sidebarWidth: CGFloat = 224
@@ -50,7 +48,7 @@ struct SettingsSheetView: View {
     var body: some View {
         ModalSheetScaffold(
             title: "Settings",
-            footerText: "←→/hl change value · ⌃j/⌃k move · esc cancel · ⏎ done",
+            footerText: "[ ] tab · ←→/hl change value · ⌃j/⌃k move · esc cancel · ⏎ done",
             errorMessage: model.errorMessage,
             cancelLabel: "Cancel",
             onCancel: { model.cancel() },
@@ -59,24 +57,17 @@ struct SettingsSheetView: View {
         ) {
             HStack(alignment: .top, spacing: Token.Spacing.section) {
                 sidebar
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: Token.Spacing.section) {
-                            ForEach(Self.roleSections, id: \.0) { role, title in
-                                SettingsSectionHeader(title: title)
-                                ForEach(rowIndices(for: role), id: \.self) { index in
-                                    agentFieldGroup(index: index)
-                                        .id(index)
-                                }
-                            }
+                VStack(alignment: .leading, spacing: Token.Spacing.section) {
+                    tabBar
+                    ForEach(Array(Self.roleGroups.enumerated()), id: \.offset) { offset, group in
+                        roleFieldGroup(role: group.0, title: group.1)
+                        if offset < Self.roleGroups.count - 1 {
+                            SettingsSeparator()
                         }
-                        .padding(.top, Token.Spacing.element)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .onChange(of: model.state.focusedRowIndex) { _, focused in
-                        proxy.scrollTo(focused, anchor: .center)
                     }
                 }
+                .padding(.top, Token.Spacing.element)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, Token.Spacing.content)
         }
@@ -95,33 +86,47 @@ struct SettingsSheetView: View {
         .frame(width: Metrics.sidebarWidth, alignment: .top)
     }
 
-    private func rowIndices(for role: String) -> [Int] {
-        model.state.rows.indices.filter { model.state.rows[$0].role == role }
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(model.state.agents.enumerated()), id: \.offset) { index, agent in
+                SettingsAgentTab(
+                    title: AgentKind.displayName(for: agent),
+                    selected: index == model.state.selectedAgentIndex,
+                    onSelect: { model.selectTab(index) }
+                )
+            }
+        }
     }
 
-    private func agentFieldGroup(index: Int) -> some View {
-        let row = model.state.rows[index]
-        return VStack(alignment: .leading, spacing: Token.Spacing.inline) {
-            SettingsFormFieldRow(
-                title: AgentKind.displayName(for: row.agent),
-                subtitle: "The default \(row.role) model and reasoning effort",
-                value: row.selectedModelOption.label,
-                isLoading: !row.hasResolvedModelOptions,
-                focused: model.state.focusedRowIndex == index && model.state.focusedField == .model,
-                controlWidth: Metrics.controlWidth,
-                onSelect: { model.focus(index, field: .model) }
-            )
-            SettingsFormFieldRow(
-                title: "",
-                subtitle: "",
-                value: row.selectedEffortOption.label,
-                isLoading: !row.hasResolvedEffortOptions,
-                focused: model.state.focusedRowIndex == index && model.state.focusedField == .effort,
-                controlWidth: Metrics.controlWidth,
-                onSelect: { model.focus(index, field: .effort) }
-            )
+    @ViewBuilder
+    private func roleFieldGroup(role: String, title: String) -> some View {
+        if let rowIndex = model.state.index(agent: model.state.selectedAgent, role: role) {
+            let row = model.state.rows[rowIndex]
+            let isFocusedRole = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role
+            VStack(alignment: .leading, spacing: Token.Spacing.element) {
+                Text(title)
+                    .font(AppFonts.bodyBold.swiftUI)
+                    .foregroundStyle(AppPalette.text.swiftUI)
+                SettingsFormFieldRow(
+                    title: "Model",
+                    subtitle: "The default \(role) model and reasoning effort",
+                    value: row.selectedModelOption.label,
+                    isLoading: !row.hasResolvedModelOptions,
+                    focused: isFocusedRole && model.state.focusedField == .model,
+                    controlWidth: Metrics.controlWidth,
+                    onSelect: { model.focus(role: role, field: .model) }
+                )
+                SettingsFormFieldRow(
+                    title: "Reasoning effort",
+                    subtitle: "The default \(role) model and reasoning effort",
+                    value: row.selectedEffortOption.label,
+                    isLoading: !row.hasResolvedEffortOptions,
+                    focused: isFocusedRole && model.state.focusedField == .effort,
+                    controlWidth: Metrics.controlWidth,
+                    onSelect: { model.focus(role: role, field: .effort) }
+                )
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -164,18 +169,26 @@ private struct SettingsSidebarItem: View {
     }
 }
 
-/// A settings section title ("Master" / "Worker") with the rule beneath it
-/// that separates it from the fields below.
-private struct SettingsSectionHeader: View {
+/// One agent tab: gold text + underline when selected, dim otherwise —
+/// `[`/`]` (`Keymap.Settings.previousTab`/`.nextTab`) move between these,
+/// a click jumps straight to one.
+private struct SettingsAgentTab: View {
     let title: String
+    let selected: Bool
+    var onSelect: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Token.Spacing.element) {
+        VStack(spacing: Token.Spacing.hairline) {
             Text(title)
                 .font(AppFonts.bodyBold.swiftUI)
-                .foregroundStyle(AppPalette.text.swiftUI)
-            SettingsSeparator()
+                .foregroundStyle((selected ? AppPalette.accent : AppPalette.dim).swiftUI)
+            Rectangle()
+                .fill((selected ? AppPalette.accent : AppPalette.lineSoftSubtle).swiftUI)
+                .frame(height: Token.Size.divider)
         }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
     }
 }
 
@@ -189,9 +202,6 @@ private struct SettingsSeparator: View {
 
 /// One labeled select field: a title + description on the left, a
 /// `ModalSelectControl` on the right, docked to the row's trailing edge.
-/// Passing empty `title`/`subtitle` renders a blank label column (used for
-/// the reasoning-effort row directly beneath its model row, so both controls
-/// stay column-aligned without repeating the agent's label).
 private struct SettingsFormFieldRow: View {
     let title: String
     let subtitle: String
@@ -204,18 +214,14 @@ private struct SettingsFormFieldRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: Token.Spacing.content) {
             VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
-                if !title.isEmpty {
-                    Text(title)
-                        .font(AppFonts.modalHelperLarge.swiftUI)
-                        .foregroundStyle(AppPalette.text.swiftUI)
-                }
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(AppFonts.modalHelper.swiftUI)
-                        .italic()
-                        .foregroundStyle(AppPalette.dim.swiftUI)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(title)
+                    .font(AppFonts.modalHelperLarge.swiftUI)
+                    .foregroundStyle(AppPalette.text.swiftUI)
+                Text(subtitle)
+                    .font(AppFonts.modalHelper.swiftUI)
+                    .italic()
+                    .foregroundStyle(AppPalette.dim.swiftUI)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -260,7 +266,7 @@ private struct SettingsSkeletonControl: View {
 
 @MainActor
 final class SettingsSheetModel: ObservableObject {
-    static let sheetSize = CGSize(width: 900, height: 780)
+    static let sheetSize = CGSize(width: 900, height: 600)
 
     @Published var state = RoleDefaultsSettingsModel()
     @Published var errorMessage: String?
@@ -281,7 +287,7 @@ final class SettingsSheetModel: ObservableObject {
         modelClient = presentation.modelClient
         effortClient = presentation.effortClient
         self.dismiss = dismiss
-        let rowCount = RoleDefaultsSettingsModel.agents.count * RoleDefaultsSettingsModel.roles.count
+        let rowCount = RoleDefaultsSettingsModel.defaultAgents.count * RoleDefaultsSettingsModel.roles.count
         modelRequestIDs = Array(repeating: 0, count: rowCount)
         effortRequestIDs = Array(repeating: 0, count: rowCount)
     }
@@ -304,9 +310,16 @@ final class SettingsSheetModel: ObservableObject {
         }
     }
 
-    func focus(_ index: Int, field: RoleDefaultField) {
-        state.focusedRowIndex = index
+    func focus(role: String, field: RoleDefaultField) {
+        guard let roleIndex = RoleDefaultsSettingsModel.roles.firstIndex(of: role) else {
+            return
+        }
+        state.focusedRoleIndex = roleIndex
         state.focusedField = field
+    }
+
+    func selectTab(_ index: Int) {
+        state.selectTab(index)
     }
 
     func handle(_ event: NSEvent) -> Bool {
@@ -345,6 +358,14 @@ final class SettingsSheetModel: ObservableObject {
             cycleFocusedValue(1)
             return true
         }
+        if Keymap.Settings.previousTab.matches(chars) {
+            state.moveTab(-1)
+            return true
+        }
+        if Keymap.Settings.nextTab.matches(chars) {
+            state.moveTab(1)
+            return true
+        }
         return false
     }
 
@@ -368,7 +389,9 @@ final class SettingsSheetModel: ObservableObject {
     /// invalidates the effort list (valid levels can depend on the model), so
     /// only that case re-fetches; cycling the effort itself needs no refetch.
     private func cycleFocusedValue(_ delta: Int) {
-        let rowIndex = state.focusedRowIndex
+        guard let rowIndex = state.focusedRowIndex else {
+            return
+        }
         let field = state.focusedField
         state.cycleFocusedValue(delta)
         if field == .model {
