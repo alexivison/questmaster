@@ -55,9 +55,9 @@ struct SettingsSheetView: View {
             primaryLabel: "Done",
             onPrimary: { model.confirm() }
         ) {
-            HStack(alignment: .top, spacing: Token.Spacing.section) {
+            HStack(alignment: .top, spacing: Token.Spacing.content) {
                 sidebar
-                VStack(alignment: .leading, spacing: Token.Spacing.section) {
+                VStack(alignment: .leading, spacing: Token.Spacing.content) {
                     tabBar
                     ForEach(Array(Self.roleGroups.enumerated()), id: \.offset) { offset, group in
                         roleFieldGroup(role: group.0, title: group.1)
@@ -184,7 +184,7 @@ private struct SettingsAgentTab: View {
     var onSelect: () -> Void
 
     var body: some View {
-        VStack(spacing: Token.Spacing.hairline) {
+        VStack(spacing: Token.Spacing.inline) {
             Text(title)
                 .font(AppFonts.bodyBold.swiftUI)
                 .foregroundStyle((selected ? AppPalette.accent : AppPalette.dim).swiftUI)
