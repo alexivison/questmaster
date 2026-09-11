@@ -70,8 +70,14 @@ struct SettingsSheetView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, Token.Spacing.content)
+            // Greedy on height so this area (not the space after the footer)
+            // absorbs the gap between the sheet's fixed content-agnostic
+            // footprint (900x780) and the tab content's own natural size —
+            // the footer then lands near the bottom instead of right after
+            // the fields, and the fields themselves stay pinned to the top.
+            .frame(maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height, alignment: .top)
+        .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height)
         .background(AppPalette.panel.swiftUI)
         .background(SheetKeyEventMonitor { model.handle($0) })
         .onAppear { model.present() }
