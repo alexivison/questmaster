@@ -71,6 +71,7 @@ public enum Keymap {
     }
 
     public enum Command {
+        public static let settings = CommandBinding(title: "Settings…", keyEquivalent: ",")
         public static let quitQuestmaster = CommandBinding(title: "Quit Questmaster App", keyEquivalent: "q")
         public static let newSession = CommandBinding(title: "New Session", keyEquivalent: "n")
         public static let newQuest = CommandBinding(title: "New Quest", keyEquivalent: "t")

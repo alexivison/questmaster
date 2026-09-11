@@ -10,6 +10,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 type reasoningEffortsPayload struct {
@@ -47,10 +48,19 @@ func (s *Server) reasoningEfforts(req Request) (any, error) {
 	agentName = strings.ToLower(strings.TrimSpace(agentName))
 	role := modelsuggest.ParseRole(payload.Role)
 
+	root := state.StateRoot()
+	if s.Snapshotter != nil {
+		root = s.Snapshotter.StateRoot()
+	}
+	defaultEffort := agent.DefaultReasoningEffortFor(agentName, role)
+	if def, ok, _ := state.NewRoleDefaultsStore(root).Get(agentName, agent.RoleDefaultsKey(role)); ok && def.ReasoningEffort != "" {
+		defaultEffort = def.ReasoningEffort
+	}
+
 	return ReasoningEffortSuggestions{
 		Agent:   agentName,
 		Role:    modelsuggest.RoleName(role),
-		Default: agent.DefaultReasoningEffortFor(agentName, role),
+		Default: defaultEffort,
 		Efforts: agent.SupportedReasoningEfforts(agentName, strings.TrimSpace(payload.Model)),
 	}, nil
 }

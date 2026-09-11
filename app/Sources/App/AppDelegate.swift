@@ -44,6 +44,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var reasoningEffortSuggestionClient: ServeReasoningEffortSuggesting?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private let newQuestPresenter = NewQuestSheetPresenter()
+    private let settingsPresenter = SettingsSheetPresenter()
     private let destructiveConfirmationPresenter = DestructiveConfirmationPresenter()
     private let caffeineController = CaffeineController()
     private var sessionCoordinator: SessionCoordinator?
@@ -58,6 +59,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
         newQuestPresenter: newQuestPresenter,
+        settingsPresenter: settingsPresenter,
         destructiveConfirmationPresenter: destructiveConfirmationPresenter
     )
     private var focusCoordinator: ShellFocusCoordinator!
@@ -161,6 +163,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             actions: MenuActions(
                 openNewSession: #selector(openNewSession),
                 openNewQuest: #selector(openNewQuest),
+                openSettings: #selector(openSettings),
                 openNewTerminal: #selector(openNewTerminal),
                 openNewMasterSession: #selector(openNewMasterSession),
                 editFocusedSession: #selector(editFocusedSession),
@@ -240,6 +243,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.terminalShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.terminalShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
         handles.terminalShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
+        handles.terminalShell.onOpenSettings = { [weak self] in self?.openSettings() }
         handles.terminalShell.onCopySessionID = { [weak self] _ in self?.toastPresenter.show("Copied session ID") }
         handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
         handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
@@ -641,6 +645,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openNewSession() {
         presentNewSession(role: .standalone)
+    }
+
+    @objc private func openSettings() {
+        guard let mutationClient else {
+            renderSnapshot()
+            return
+        }
+        settingsPresenter.present(
+            mutationClient: mutationClient,
+            modelClient: modelSuggestionClient,
+            effortClient: reasoningEffortSuggestionClient
+        )
     }
 
     @objc private func openNewQuest() {

@@ -68,6 +68,7 @@ struct TerminalTopBar: View {
     let onOpenArtifacts: () -> Void
     let onOpenQuests: () -> Void
     let onToggleCaffeine: () -> Void
+    let onOpenSettings: () -> Void
     let onCopySessionID: (String) -> Void
 
     var body: some View {
@@ -117,6 +118,13 @@ struct TerminalTopBar: View {
                             onOpenQuests()
                         }
                     }
+                    ChromeDivider()
+                    ChromeIconButton(
+                        symbolName: "gearshape",
+                        accessibilityLabel: "Settings",
+                        tooltip: tooltip("Settings", Keymap.Command.settings),
+                        action: onOpenSettings
+                    )
                 }
             }
             ChromeSessionChip(

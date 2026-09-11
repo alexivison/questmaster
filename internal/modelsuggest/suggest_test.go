@@ -242,6 +242,39 @@ func TestQueryDedupsAcrossRecentsAndCatalog(t *testing.T) {
 	}
 }
 
+// TestQueryReportsPersistedRoleDefault guards the one place a persisted
+// state.RoleDefaultsStore entry should override the reported Default: the
+// harness's own hardcoded ModelPolicy stays the fallback when nothing is
+// persisted.
+func TestQueryReportsPersistedRoleDefault(t *testing.T) {
+	t.Parallel()
+
+	store := seedStore(t, nil)
+	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "worker", state.RoleDefault{Model: "claude-opus-9-unreleased"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+
+	got := Query(context.Background(), Options{
+		Agent:   "claude",
+		Role:    agent.RoleStandalone,
+		Catalog: testCatalog(t),
+		Store:   store,
+	})
+	if got.Default != "claude-opus-9-unreleased" {
+		t.Fatalf("default = %q, want the persisted role default", got.Default)
+	}
+
+	master := Query(context.Background(), Options{
+		Agent:   "claude",
+		Role:    agent.RoleMaster,
+		Catalog: testCatalog(t),
+		Store:   store,
+	})
+	if master.Default != "opus" {
+		t.Fatalf("master default = %q, want the harness default unaffected by the worker override", master.Default)
+	}
+}
+
 func TestQueryFiltersAndCaps(t *testing.T) {
 	t.Parallel()
 

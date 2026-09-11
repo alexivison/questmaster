@@ -7,13 +7,15 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let store: RuntimeStore
     private let model: DockPaneModel
     private let newQuestPresenter: NewQuestSheetPresenter
+    private let settingsPresenter: SettingsSheetPresenter
 
-    init(store: RuntimeStore, newQuestPresenter: NewQuestSheetPresenter) {
+    init(store: RuntimeStore, newQuestPresenter: NewQuestSheetPresenter, settingsPresenter: SettingsSheetPresenter) {
         self.store = store
         self.newQuestPresenter = newQuestPresenter
+        self.settingsPresenter = settingsPresenter
         let model = DockPaneModel()
         self.model = model
-        super.init(rootView: DockRootView(store: store, model: model, newQuestPresenter: newQuestPresenter))
+        super.init(rootView: DockRootView(store: store, model: model, newQuestPresenter: newQuestPresenter, settingsPresenter: settingsPresenter))
         configureModelCallbacks()
     }
 
@@ -21,6 +23,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         self.store = rootView.store
         self.model = rootView.model
         self.newQuestPresenter = rootView.newQuestPresenter
+        self.settingsPresenter = rootView.settingsPresenter
         super.init(rootView: rootView)
         configureModelCallbacks()
     }
@@ -276,6 +279,7 @@ struct DockRootView: View {
     let store: RuntimeStore
     @ObservedObject var model: DockPaneModel
     @ObservedObject var newQuestPresenter: NewQuestSheetPresenter
+    @ObservedObject var settingsPresenter: SettingsSheetPresenter
 
     var body: some View {
         Group {
@@ -313,6 +317,11 @@ struct DockRootView: View {
         .sheet(item: $newQuestPresenter.presentation) { presentation in
             NewQuestSheetView(presentation: presentation) {
                 newQuestPresenter.dismiss()
+            }
+        }
+        .sheet(item: $settingsPresenter.presentation) { presentation in
+            SettingsSheetView(presentation: presentation) {
+                settingsPresenter.dismiss()
             }
         }
     }

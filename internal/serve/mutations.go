@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -69,6 +71,7 @@ type mutationPayload struct {
 	Title           string         `json:"title"`
 	Cwd             string         `json:"cwd"`
 	Agent           string         `json:"agent"`
+	Role            string         `json:"role"`
 	Primary         string         `json:"primary"`
 	Color           string         `json:"color"`
 	Master          string         `json:"master"`
@@ -111,6 +114,9 @@ var mutationRegistry = map[string]mutationHandler{
 	},
 	"recolor": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRecolor(payload)
+	},
+	"role_default.set": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateRoleDefaultSet(payload)
 	},
 	"quest.add": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestAdd(payload)
@@ -369,6 +375,51 @@ func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {
 	default:
 		return nil, fmt.Errorf("scope is required (want session or repo)")
 	}
+}
+
+// mutateRoleDefaultSet persists a default model and/or reasoning effort for
+// one agent+role pair. Sending both fields empty clears the override, the
+// same "empty clears" convention mutateRecolor's repo scope uses.
+func (s *Server) mutateRoleDefaultSet(payload mutationPayload) (any, error) {
+	agentName, err := requiredValue("agent", payload.Agent)
+	if err != nil {
+		return nil, err
+	}
+	agentName = strings.ToLower(strings.TrimSpace(agentName))
+	if !slices.Contains(agent.Names(), agentName) {
+		return nil, fmt.Errorf("unknown agent %q (want one of %s)", agentName, strings.Join(agent.Names(), ", "))
+	}
+
+	role := strings.ToLower(strings.TrimSpace(payload.Role))
+	var sessionRole agent.SessionRole
+	switch role {
+	case "worker":
+		sessionRole = agent.RoleWorker
+	case "master":
+		sessionRole = agent.RoleMaster
+	default:
+		return nil, fmt.Errorf("role is required (want worker or master)")
+	}
+
+	model := strings.TrimSpace(payload.Model)
+	reasoningEffort := strings.TrimSpace(payload.ReasoningEffort)
+	if reasoningEffort != "" {
+		validationModel := model
+		if validationModel == "" {
+			validationModel = agent.DefaultModelFor(agentName, sessionRole)
+		}
+		if err := agent.ValidateReasoningEffort(agentName, validationModel, reasoningEffort); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := state.NewRoleDefaultsStore(s.mutationStore().Root()).Set(agentName, role, state.RoleDefault{
+		Model:           model,
+		ReasoningEffort: reasoningEffort,
+	}); err != nil {
+		return nil, err
+	}
+	return map[string]string{"agent": agentName, "role": role, "model": model, "reasoning_effort": reasoningEffort}, nil
 }
 
 func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {

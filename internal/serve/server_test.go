@@ -1406,6 +1406,61 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 	}
 }
 
+// TestServerModelsAndReasoningEffortsTopicsReflectPersistedRoleDefault guards
+// the read side of Settings: once a default is persisted, the same topics the
+// New Session sheet already polls must report it, without any wire-shape
+// change.
+func TestServerModelsAndReasoningEffortsTopicsReflectPersistedRoleDefault(t *testing.T) {
+	env := seedServeFixture(t)
+	t.Setenv(modelsuggest.CatalogURLEnv, "off")
+	if err := state.NewRoleDefaultsStore(env.store.Root()).Set("claude", "worker", state.RoleDefault{
+		Model:           "claude-opus-9-unreleased",
+		ReasoningEffort: "low",
+	}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+
+	writeRequest(t, enc, map[string]any{
+		"id":     "models",
+		"method": "models",
+		"data":   map[string]any{"agent": "claude", "role": "worker"},
+	})
+	modelsResp := assertResponseTopic(t, dec, "models")
+	modelsData, ok := modelsResp.Data.(map[string]any)
+	if !ok || modelsData["default"] != "claude-opus-9-unreleased" {
+		t.Fatalf("models default = %#v, want the persisted role default", modelsResp.Data)
+	}
+
+	writeRequest(t, enc, map[string]any{
+		"id":     "reasoning-efforts",
+		"method": "reasoning_efforts",
+		"data":   map[string]any{"agent": "claude", "role": "worker"},
+	})
+	effortsResp := assertResponseTopic(t, dec, "reasoning_efforts")
+	effortsData, ok := effortsResp.Data.(map[string]any)
+	if !ok || effortsData["default"] != "low" {
+		t.Fatalf("reasoning_efforts default = %#v, want the persisted role default", effortsResp.Data)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
 func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := tempSocketPath(t)
@@ -1543,6 +1598,83 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	})
 	if bad.Type != "response" || bad.OK == nil || *bad.OK || !strings.Contains(bad.Error, "invalid color") {
 		t.Fatalf("bad color response = %#v, want invalid color error", bad)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	runner := &recordingMutationRunner{}
+	srv := &Server{
+		SocketPath:     socketPath,
+		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval:  time.Hour,
+		MutationRunner: runner,
+	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
+
+	setResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-set",
+		"method": "role_default.set",
+		"data": map[string]any{
+			"agent":            "claude",
+			"role":             "worker",
+			"model":            "claude-opus-9-unreleased",
+			"reasoning_effort": "low",
+		},
+	})
+	if !envelopeContains(setResp, `"model":"claude-opus-9-unreleased"`) || !envelopeContains(setResp, `"reasoning_effort":"low"`) {
+		t.Fatalf("role_default.set response = %#v, want claude-opus-9-unreleased/low", setResp)
+	}
+	if got := runner.Commands(); len(got) != 0 {
+		t.Fatalf("role_default.set should mutate in-process, delegated commands = %#v", got)
+	}
+	def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "worker")
+	if err != nil {
+		t.Fatalf("get role default: %v", err)
+	}
+	if !ok || def.Model != "claude-opus-9-unreleased" || def.ReasoningEffort != "low" {
+		t.Fatalf("persisted role default = %+v ok=%v, want claude-opus-9-unreleased/low", def, ok)
+	}
+
+	// codex's plain gpt-5.4 does not support "max" — the reasoning effort must
+	// be validated against the given model before anything is persisted.
+	bad := sendRawMutation(t, socketPath, map[string]any{
+		"id":     "role-default-bad-effort",
+		"method": "role_default.set",
+		"data": map[string]any{
+			"agent":            "codex",
+			"role":             "worker",
+			"model":            "gpt-5.4",
+			"reasoning_effort": "max",
+		},
+	})
+	if bad.Type != "response" || bad.OK == nil || *bad.OK || !strings.Contains(bad.Error, "supported: minimal, low, medium, high, xhigh") {
+		t.Fatalf("role_default.set with an unsupported effort = %#v, want a validation error", bad)
+	}
+	if _, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("codex", "worker"); err != nil || ok {
+		t.Fatalf("codex worker default after invalid set: ok=%v err=%v, want nothing persisted", ok, err)
+	}
+
+	// Sending both fields empty clears the override.
+	clearResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-clear",
+		"method": "role_default.set",
+		"data":   map[string]any{"agent": "claude", "role": "worker"},
+	})
+	if !envelopeContains(clearResp, `"model":""`) {
+		t.Fatalf("role_default.set clear response = %#v, want empty model", clearResp)
+	}
+	if _, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "worker"); err != nil || ok {
+		t.Fatalf("claude worker default after clear: ok=%v err=%v, want cleared", ok, err)
 	}
 
 	cancel()

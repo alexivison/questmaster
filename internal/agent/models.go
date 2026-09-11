@@ -59,6 +59,16 @@ func DefaultModelFor(name string, role SessionRole) string {
 	return resolveModel(CmdOpts{Role: role}, policy.Worker, policy.Master)
 }
 
+// RoleDefaultsKey collapses a session role to the two buckets the persisted
+// role-defaults store keys on: everything but master shares the worker tier,
+// mirroring resolveModel's own master-vs-everything-else convention.
+func RoleDefaultsKey(role SessionRole) string {
+	if role == RoleMaster {
+		return "master"
+	}
+	return "worker"
+}
+
 // FamilyAlias reduces a models.dev family to the short alias a harness
 // accepts, by dropping the vendor-prefixed head of the family name:
 // "claude-opus" becomes "opus". Families with no separator have no alias.

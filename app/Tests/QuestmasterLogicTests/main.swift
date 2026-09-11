@@ -12,6 +12,7 @@ enum QuestmasterLogicTests {
         DockWidthPreferenceTests.run()
         ServeRecoveryPolicyTests.run()
         NewSessionLogicTests.run()
+        RoleDefaultsLogicTests.run()
         NewTerminalLogicTests.run()
         DestructiveConfirmationTests.run()
         KeymapTests.run()

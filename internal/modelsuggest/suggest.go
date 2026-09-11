@@ -158,6 +158,11 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	if agentName == "" {
 		return result
 	}
+	if opts.Store != nil {
+		if def, ok, _ := state.NewRoleDefaultsStore(opts.Store.Root()).Get(agentName, agent.RoleDefaultsKey(opts.Role)); ok && def.Model != "" {
+			result.Default = def.Model
+		}
+	}
 
 	collector := &modelCollector{seen: map[string]bool{}, query: strings.ToLower(strings.TrimSpace(opts.Query))}
 	collector.addAll(recentModels(opts.Store, agentName))

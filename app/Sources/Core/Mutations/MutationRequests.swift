@@ -78,6 +78,26 @@ public enum ServeMutationRequests {
         )
     }
 
+    /// Persists a default model and/or reasoning effort for one agent+role
+    /// pair. Passing both `model` and `reasoningEffort` empty clears the
+    /// override, the same "empty clears" convention as `recolorRepo`.
+    public static func setRoleDefault(
+        agent: String,
+        role: String,
+        model: String,
+        reasoningEffort: String
+    ) throws -> ServeMutationRequest {
+        ServeMutationRequest(
+            method: "role_default.set",
+            data: [
+                "agent": try required("agent", agent),
+                "role": try required("role", role),
+                "model": model,
+                "reasoning_effort": reasoningEffort,
+            ]
+        )
+    }
+
     public static func start(
         role: NewSessionRole,
         title: String?,
