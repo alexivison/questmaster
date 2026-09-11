@@ -31,6 +31,7 @@ enum RenderPreview {
         render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
+        render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         print("RenderPreview: done")
         exit(0)
     }
@@ -389,6 +390,18 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
+    @MainActor
+    private static func settingsView() -> some View {
+        SettingsSheetView(
+            presentation: SettingsSheetPresentation(
+                mutationClient: SettingsPreviewMutationClient(),
+                modelClient: SettingsPreviewModelClient(),
+                effortClient: SettingsPreviewEffortClient()
+            ),
+            dismiss: {}
+        )
+    }
+
     private static func confirmationView() -> some View {
         DestructiveConfirmationSheetView(
             spec: .deleteSession(sessionID: "qm-1783901769"),
@@ -445,6 +458,37 @@ enum RenderPreview {
         } catch {
             print("RenderPreview: write failed for \(path): \(error)")
         }
+    }
+}
+
+/// Stand-in clients for `settingsView()` — same idea as `newSessionView()`'s
+/// manually-seeded state, but the Settings sheet owns its client references
+/// directly rather than accepting pre-populated state, so previewing it means
+/// answering the sheet's own fetches with a plausible model/effort per agent.
+private final class SettingsPreviewMutationClient: ServeMutationSending {
+    func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {}
+}
+
+private final class SettingsPreviewModelClient: ServeModelSuggesting {
+    func suggestModels(
+        agent: String,
+        role: String,
+        refresh: Bool,
+        completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
+    ) {
+        let model = "\(agent)-\(role)-preview"
+        completion(.success(ModelSuggestionResponse(models: [SessionModelOption(id: model, label: model, note: "")], defaultModel: model)))
+    }
+}
+
+private final class SettingsPreviewEffortClient: ServeReasoningEffortSuggesting {
+    func suggestReasoningEfforts(
+        agent: String,
+        role: String,
+        model: String,
+        completion: @escaping (Result<ReasoningEffortSuggestionResponse, Error>) -> Void
+    ) {
+        completion(.success(ReasoningEffortSuggestionResponse(efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "xhigh")))
     }
 }
 #endif

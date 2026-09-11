@@ -12,6 +12,11 @@ public struct RoleDefaultRow: Equatable {
     public private(set) var selectedModelIndex: Int
     public private(set) var effortOptions: [SessionReasoningEffortOption]
     public private(set) var selectedEffortIndex: Int
+    /// False until `setModelOptions`/`setEffortOptions` first resolves this
+    /// row's real list — the sheet shows a skeleton in place of the select
+    /// control until then, rather than the placeholder "default" entry.
+    public private(set) var hasResolvedModelOptions = false
+    public private(set) var hasResolvedEffortOptions = false
 
     public init(agent: String, role: String) {
         self.agent = agent
@@ -53,6 +58,7 @@ public struct RoleDefaultRow: Equatable {
         }
         modelOptions = options
         selectedModelIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+        hasResolvedModelOptions = true
     }
 
     /// Replaces the reasoning-effort list with what the backend resolved for
@@ -70,6 +76,7 @@ public struct RoleDefaultRow: Equatable {
         }
         effortOptions = options
         selectedEffortIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+        hasResolvedEffortOptions = true
     }
 
     public mutating func cycleModel(_ delta: Int) {
@@ -81,20 +88,46 @@ public struct RoleDefaultRow: Equatable {
     }
 }
 
-/// Backs the Settings sheet's default-model/reasoning-effort table: one row
-/// per (agent, role) pair, independently cycled and persisted.
+/// The two independently-selectable controls within one `RoleDefaultRow`.
+public enum RoleDefaultField: Equatable {
+    case model
+    case effort
+}
+
+/// Backs the Settings sheet's default-model/reasoning-effort table: one tab
+/// per agent, each showing that agent's Master and Worker rows, each with two
+/// independently focusable/cyclable controls (model, effort).
 public struct RoleDefaultsSettingsModel: Equatable {
-    public static let agents = NewSessionFormModel.defaultAgents
-    public static let roles = ["worker", "master"]
+    public static let defaultAgents = NewSessionFormModel.defaultAgents
+    public static let roles = ["master", "worker"]
 
+    public let agents: [String]
     public private(set) var rows: [RoleDefaultRow]
-    public var focusedRowIndex: Int
+    public var selectedAgentIndex: Int
+    /// Index into `Self.roles` for the currently focused row within the
+    /// active tab.
+    public var focusedRoleIndex: Int
+    public var focusedField: RoleDefaultField
 
-    public init(agents: [String] = RoleDefaultsSettingsModel.agents) {
-        rows = agents.flatMap { agent in
+    public init(agents: [String] = RoleDefaultsSettingsModel.defaultAgents) {
+        let resolvedAgents = agents.isEmpty ? RoleDefaultsSettingsModel.defaultAgents : agents
+        self.agents = resolvedAgents
+        rows = resolvedAgents.flatMap { agent in
             Self.roles.map { role in RoleDefaultRow(agent: agent, role: role) }
         }
-        focusedRowIndex = 0
+        selectedAgentIndex = 0
+        focusedRoleIndex = 0
+        focusedField = .model
+    }
+
+    public var selectedAgent: String {
+        agents[selectedAgentIndex]
+    }
+
+    /// The row index within `rows` for the currently focused (tab, role)
+    /// combination.
+    public var focusedRowIndex: Int? {
+        index(agent: selectedAgent, role: Self.roles[focusedRoleIndex])
     }
 
     public func index(agent: String, role: String) -> Int? {
@@ -115,25 +148,47 @@ public struct RoleDefaultsSettingsModel: Equatable {
         rows[index].setEffortOptions(levels, defaultLevel: defaultLevel)
     }
 
+    /// Moves focus by `delta` steps across the active tab's 4 fields (master
+    /// model, master effort, worker model, worker effort) — wraps within the
+    /// tab. Switching tabs is `moveTab`'s job, not this one's.
     public mutating func moveFocus(_ delta: Int) {
-        guard !rows.isEmpty else {
-            return
-        }
-        focusedRowIndex = roleDefaultsWrapped(focusedRowIndex + delta, count: rows.count)
+        let totalFields = Self.roles.count * 2
+        let current = focusedRoleIndex * 2 + (focusedField == .model ? 0 : 1)
+        let next = roleDefaultsWrapped(current + delta, count: totalFields)
+        focusedRoleIndex = next / 2
+        focusedField = next.isMultiple(of: 2) ? .model : .effort
     }
 
-    public mutating func cycleFocusedModel(_ delta: Int) {
-        guard rows.indices.contains(focusedRowIndex) else {
+    /// Jumps directly to a specific agent tab (e.g. a mouse click) and resets
+    /// focus to that tab's first field.
+    public mutating func selectTab(_ index: Int) {
+        guard agents.indices.contains(index) else {
             return
         }
-        rows[focusedRowIndex].cycleModel(delta)
+        selectedAgentIndex = index
+        focusedRoleIndex = 0
+        focusedField = .model
     }
 
-    public mutating func cycleFocusedEffort(_ delta: Int) {
-        guard rows.indices.contains(focusedRowIndex) else {
+    /// Switches the active agent tab by `delta` steps, wrapping.
+    public mutating func moveTab(_ delta: Int) {
+        guard !agents.isEmpty else {
             return
         }
-        rows[focusedRowIndex].cycleEffort(delta)
+        selectTab(roleDefaultsWrapped(selectedAgentIndex + delta, count: agents.count))
+    }
+
+    /// Cycles the value of whichever field currently has focus.
+    public mutating func cycleFocusedValue(_ delta: Int) {
+        guard let rowIndex = focusedRowIndex else {
+            return
+        }
+        switch focusedField {
+        case .model:
+            rows[rowIndex].cycleModel(delta)
+        case .effort:
+            rows[rowIndex].cycleEffort(delta)
+        }
     }
 }
 

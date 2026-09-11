@@ -195,4 +195,9 @@ public enum Keymap {
         public static let suggestionDown = KeyCodeBinding(keyCodes: [125])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])
     }
+
+    public enum Settings {
+        public static let previousTab = CharacterBinding(keys: ["["])
+        public static let nextTab = CharacterBinding(keys: ["]"])
+    }
 }
