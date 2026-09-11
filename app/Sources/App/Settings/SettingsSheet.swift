@@ -71,7 +71,7 @@ struct SettingsSheetView: View {
             }
             .padding(.horizontal, Token.Spacing.content)
         }
-        .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height)
+        .frame(width: SettingsSheetModel.sheetWidth)
         .background(AppPalette.panel.swiftUI)
         .background(SheetKeyEventMonitor { model.handle($0) })
         .onAppear { model.present() }
@@ -266,7 +266,12 @@ private struct SettingsSkeletonControl: View {
 
 @MainActor
 final class SettingsSheetModel: ObservableObject {
-    static let sheetSize = CGSize(width: 900, height: 600)
+    /// Only the width is fixed — height comes from the content's own natural
+    /// size. A hardcoded height has to be hand-kept in sync with content and
+    /// can drift out of sync with what the live `.sheet()` presentation
+    /// actually measures; letting the content dictate it removes that class
+    /// of bug entirely.
+    static let sheetWidth: CGFloat = 900
 
     @Published var state = RoleDefaultsSettingsModel()
     @Published var errorMessage: String?
