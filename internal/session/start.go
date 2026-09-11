@@ -99,14 +99,27 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			return StartResult{}, fmt.Errorf("resolve session roles: primary role is not configured")
 		}
 
+		resolvedModel := opts.Model
+		resolvedReasoningEffort := opts.ReasoningEffort
+
 		resolvedAgentCLIs := make(map[agent.Role]string, len(bindings))
 		for _, binding := range bindings {
 			if binding.Role == agent.RolePrimary {
-				model := opts.Model
-				if model == "" && binding.Agent.Name() == "codex" {
-					model = agent.CodexDefaultModel(agentRole)
+				if resolvedModel == "" || resolvedReasoningEffort == "" {
+					if def, ok, _ := state.NewRoleDefaultsStore(s.Store.Root()).Get(binding.Agent.Name(), agent.RoleDefaultsKey(agentRole)); ok {
+						if resolvedModel == "" {
+							resolvedModel = def.Model
+						}
+						if resolvedReasoningEffort == "" {
+							resolvedReasoningEffort = def.ReasoningEffort
+						}
+					}
 				}
-				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), model, opts.ReasoningEffort); err != nil {
+				validationModel := resolvedModel
+				if validationModel == "" {
+					validationModel = agent.DefaultModelFor(binding.Agent.Name(), agentRole)
+				}
+				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), validationModel, resolvedReasoningEffort); err != nil {
 					return StartResult{}, err
 				}
 			}
@@ -139,8 +152,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			if binding.Role == agent.RolePrimary {
 				prompt = opts.Prompt
 				brief = opts.SystemBrief
-				model = opts.Model
-				reasoningEffort = opts.ReasoningEffort
+				model = resolvedModel
+				reasoningEffort = resolvedReasoningEffort
 			}
 			launchAgents[binding.Role] = provider
 			agentCmds[binding.Role] = provider.BuildCmd(agent.CmdOpts{

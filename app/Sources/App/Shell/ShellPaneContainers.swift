@@ -103,6 +103,7 @@ final class TerminalShellView: NSView {
     var onOpenArtifacts: (() -> Void)?
     var onOpenQuests: (() -> Void)?
     var onToggleCaffeine: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
     var onCopySessionID: ((String) -> Void)?
 
     init(
@@ -123,6 +124,7 @@ final class TerminalShellView: NSView {
             onOpenArtifacts: { [weak self] in self?.onOpenArtifacts?() },
             onOpenQuests: { [weak self] in self?.onOpenQuests?() },
             onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() },
+            onOpenSettings: { [weak self] in self?.onOpenSettings?() },
             onCopySessionID: { [weak self] sessionID in self?.onCopySessionID?(sessionID) }
         ))
         layoutTopBarAndBody(in: self, topBar: topBar, body: body)

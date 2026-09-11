@@ -10,6 +10,8 @@ final class MenuController {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
+        appMenu.addItem(commandMenuItem(Keymap.Command.settings, action: actions.openSettings, target: target))
+        appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(commandMenuItem(Keymap.Command.quitQuestmaster, action: #selector(NSApplication.terminate(_:))))
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
@@ -122,6 +124,7 @@ final class MenuController {
 struct MenuActions {
     let openNewSession: Selector
     let openNewQuest: Selector
+    let openSettings: Selector
     let openNewTerminal: Selector
     let openNewMasterSession: Selector
     let editFocusedSession: Selector

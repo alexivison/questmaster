@@ -13,6 +13,7 @@ struct MutationRequestTests {
         artifactDeleteEncodesArtifactData()
         deleteAndSwitchEncodeSessionData()
         renameSessionEncodesTitle()
+        setRoleDefaultEncodesAgentRoleModelAndEffort()
         mutationFailureFeedbackNamesActionAndError()
         print("MutationRequestTests: all tests passed")
     }
@@ -212,6 +213,41 @@ struct MutationRequestTests {
             expect(field == "title", "blank rename title missing field was \(field)")
         } catch {
             fail("blank rename title threw wrong error \(error)")
+        }
+    }
+
+    private static func setRoleDefaultEncodesAgentRoleModelAndEffort() {
+        do {
+            let request = try ServeMutationRequests.setRoleDefault(
+                agent: " claude ",
+                role: " worker ",
+                model: "claude-opus-9-unreleased",
+                reasoningEffort: "low"
+            )
+            let data = request.jsonObject(id: "role-default")["data"] as? NSDictionary
+            expect(request.method == "role_default.set", "role_default.set method mismatch")
+            expect(data?["agent"] as? String == "claude", "agent should be trimmed")
+            expect(data?["role"] as? String == "worker", "role should be trimmed")
+            expect(data?["model"] as? String == "claude-opus-9-unreleased", "model should pass through")
+            expect(data?["reasoning_effort"] as? String == "low", "reasoning effort should pass through")
+
+            // Empty model/effort clears the override rather than throwing —
+            // only agent and role are required.
+            let clear = try ServeMutationRequests.setRoleDefault(agent: "claude", role: "worker", model: "", reasoningEffort: "")
+            let clearData = clear.jsonObject(id: "role-default-clear")["data"] as? NSDictionary
+            expect(clearData?["model"] as? String == "", "clearing should send an empty model")
+            expect(clearData?["reasoning_effort"] as? String == "", "clearing should send an empty reasoning effort")
+        } catch {
+            fail("role default request threw \(error)")
+        }
+
+        do {
+            _ = try ServeMutationRequests.setRoleDefault(agent: " ", role: "worker", model: "", reasoningEffort: "")
+            fail("blank agent should throw")
+        } catch ServeMutationRequestError.missing(let field) {
+            expect(field == "agent", "blank agent missing field was \(field)")
+        } catch {
+            fail("blank agent threw wrong error \(error)")
         }
     }
 

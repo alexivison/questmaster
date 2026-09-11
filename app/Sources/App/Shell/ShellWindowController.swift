@@ -22,6 +22,7 @@ final class ShellWindowController {
     private let navigation: NavigationStore
     private let newSessionPresenter: NewSessionSheetPresenter
     private let newQuestPresenter: NewQuestSheetPresenter
+    private let settingsPresenter: SettingsSheetPresenter
     private let destructiveConfirmationPresenter: DestructiveConfirmationPresenter
 
     private var handles: Handles?
@@ -31,12 +32,14 @@ final class ShellWindowController {
         navigation: NavigationStore,
         newSessionPresenter: NewSessionSheetPresenter,
         newQuestPresenter: NewQuestSheetPresenter,
+        settingsPresenter: SettingsSheetPresenter,
         destructiveConfirmationPresenter: DestructiveConfirmationPresenter
     ) {
         self.runtimeStore = runtimeStore
         self.navigation = navigation
         self.newSessionPresenter = newSessionPresenter
         self.newQuestPresenter = newQuestPresenter
+        self.settingsPresenter = settingsPresenter
         self.destructiveConfirmationPresenter = destructiveConfirmationPresenter
     }
 
@@ -75,7 +78,7 @@ final class ShellWindowController {
                 trackerEffectExecutor?.execute(effect) ?? false
             }
         ), keyboardBridge: keyboardBridge)
-        let dockView = SwiftUIDockPane(store: runtimeStore, newQuestPresenter: newQuestPresenter)
+        let dockView = SwiftUIDockPane(store: runtimeStore, newQuestPresenter: newQuestPresenter, settingsPresenter: settingsPresenter)
         let terminalHost = DeferredTerminalHost(
             title: "Terminal starting",
             detail: "Preparing terminal environment.",

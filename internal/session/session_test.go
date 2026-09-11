@@ -626,6 +626,145 @@ func TestStart_RecordsExplicitModelButNotRoleDefault(t *testing.T) {
 	}
 }
 
+// TestStart_AppliesPersistedRoleDefault guards the launch-time resolution
+// order: explicit opts win, then a persisted state.RoleDefaultsStore entry,
+// then the harness's hardcoded ModelPolicy. It must apply to any provider,
+// not just Codex.
+func TestStart_AppliesPersistedRoleDefault(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 5401 }
+
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("claude", "worker", state.RoleDefault{
+		Model:           "claude-opus-9-unreleased",
+		ReasoningEffort: "low",
+	}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Prompt: "use the persisted default"})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := manifestAgentModel(m.Agents, "primary"); got != "claude-opus-9-unreleased" {
+		t.Fatalf("primary agent model = %q, want the persisted role default recorded", got)
+	}
+
+	launch := launchContaining(runner.calls, "use the persisted default")
+	if !strings.Contains(launch, "--model 'claude-opus-9-unreleased'") || !strings.Contains(launch, "--effort 'low'") {
+		t.Fatalf("launch should apply the persisted role default, got %q", launch)
+	}
+}
+
+// TestStart_ExplicitModelOverridesPersistedRoleDefault guards precedence: an
+// explicit --model/--reasoning-effort must still win over a persisted default.
+func TestStart_ExplicitModelOverridesPersistedRoleDefault(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 5402 }
+
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("claude", "worker", state.RoleDefault{
+		Model: "claude-opus-9-unreleased",
+	}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Prompt: "explicit wins", Model: "opus"})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	m, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if got := manifestAgentModel(m.Agents, "primary"); got != "opus" {
+		t.Fatalf("primary agent model = %q, want the explicit override, not the persisted default", got)
+	}
+
+	launch := launchContaining(runner.calls, "explicit wins")
+	if !strings.Contains(launch, "--model 'opus'") {
+		t.Fatalf("launch should use the explicit override, got %q", launch)
+	}
+}
+
+// TestStart_CodexReasoningEffortValidatesAgainstPersistedModel extends
+// TestStart_CodexReasoningEffortUsesEffectiveModel's proof to a persisted
+// default: reasoning-effort validation must use whatever model actually
+// launches, whether that came from an explicit --model or a persisted
+// default, not just the harness's hardcoded fallback.
+func TestStart_CodexReasoningEffortValidatesAgainstPersistedModel(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 5403 }
+
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{"codex": {CLI: "/bin/sh"}},
+		Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: "codex", Window: 0}},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("codex", "worker", state.RoleDefault{Model: "gpt-5.4"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+
+	started := len(runner.sessions)
+	if _, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Prompt: "invalid effort for persisted model", ReasoningEffort: "max"}); err == nil ||
+		!strings.Contains(err.Error(), "supported: minimal, low, medium, high, xhigh") {
+		t.Fatalf("Start(persisted gpt-5.4, max) = %v, want a validation error against the persisted model", err)
+	}
+	if len(runner.sessions) != started {
+		t.Fatalf("invalid effort against a persisted model must fail before creating a tmux session: %+v", runner.sessions)
+	}
+}
+
+// TestContinue_KeepsOriginallyResolvedPersistedDefaultAfterItChanges guards
+// the interaction between Start's persisted-default resolution and Continue's
+// resume contract: once Start records what it actually resolved to, later
+// changing the persisted default must not affect an already-running session's
+// relaunch.
+func TestContinue_KeepsOriginallyResolvedPersistedDefaultAfterItChanges(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	svc.Now = func() int64 { return 5404 }
+
+	defaults := state.NewRoleDefaultsStore(svc.Store.Root())
+	if err := defaults.Set("claude", "worker", state.RoleDefault{Model: "claude-opus-9-unreleased", ReasoningEffort: "low"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Prompt: "persisted default at launch"})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	// The user changes the persisted default after this session already launched.
+	if err := defaults.Set("claude", "worker", state.RoleDefault{Model: "sonnet", ReasoningEffort: "high"}); err != nil {
+		t.Fatalf("change role default: %v", err)
+	}
+
+	// Simulate the tmux session having stopped, so Continue takes the
+	// reconstruct-from-manifest path instead of just reattaching.
+	delete(runner.sessions, result.SessionID)
+
+	beforeContinue := len(runner.calls)
+	if _, err := svc.Continue(t.Context(), result.SessionID); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	launch := launchContaining(runner.calls[beforeContinue:], "--model")
+	if !strings.Contains(launch, "--model 'claude-opus-9-unreleased'") || !strings.Contains(launch, "--effort 'low'") {
+		t.Fatalf("relaunch should use the originally recorded model/effort, not the now-changed persisted default, got %q", launch)
+	}
+}
+
 func TestStart_Master(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)

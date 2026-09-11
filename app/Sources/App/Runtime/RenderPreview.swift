@@ -39,7 +39,7 @@ enum RenderPreview {
     private static func terminalTopBarView() -> some View {
         TerminalTopBar(
             model: TerminalChromeModel(sessionChip: .init(title: "Session title that stretches the frame", id: "qm-0123", agent: "codex")),
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onToggleCaffeine: {}, onCopySessionID: { _ in }
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
         )
     }
 
