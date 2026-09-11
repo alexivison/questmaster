@@ -33,10 +33,14 @@ struct SettingsSheetPresentation: Identifiable {
 struct SettingsSheetView: View {
     @StateObject private var model: SettingsSheetModel
 
+    /// Section order top-to-bottom in the content pane. Must match
+    /// `RoleDefaultsSettingsModel.roles`' storage order so keyboard row
+    /// navigation walks visually adjacent rows.
+    private static let roleSections = [("master", "Master"), ("worker", "Worker")]
+
     private enum Metrics {
-        static let labelWidth: CGFloat = 170
-        static let selectWidth: CGFloat = 280
-        static let horizontalInset: CGFloat = 32
+        static let sidebarWidth: CGFloat = 224
+        static let controlWidth: CGFloat = 280
     }
 
     init(presentation: SettingsSheetPresentation, dismiss: @escaping () -> Void) {
@@ -46,21 +50,35 @@ struct SettingsSheetView: View {
     var body: some View {
         ModalSheetScaffold(
             title: "Settings",
-            footerText: "←→ select model · e effort · ⌥j/⌥k row · esc cancel · ⏎ done",
+            footerText: "←→/hl change value · ⌃j/⌃k move · esc cancel · ⏎ done",
             errorMessage: model.errorMessage,
             cancelLabel: "Cancel",
             onCancel: { model.cancel() },
             primaryLabel: "Done",
             onPrimary: { model.confirm() }
         ) {
-            ScrollView {
-                VStack(spacing: Token.Spacing.element) {
-                    ForEach(Array(model.state.rows.enumerated()), id: \.offset) { index, row in
-                        roleDefaultRow(index: index, row: row)
+            HStack(alignment: .top, spacing: Token.Spacing.section) {
+                sidebar
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: Token.Spacing.section) {
+                            ForEach(Self.roleSections, id: \.0) { role, title in
+                                SettingsSectionHeader(title: title)
+                                ForEach(rowIndices(for: role), id: \.self) { index in
+                                    agentFieldGroup(index: index)
+                                        .id(index)
+                                }
+                            }
+                        }
+                        .padding(.top, Token.Spacing.element)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .onChange(of: model.state.focusedRowIndex) { _, focused in
+                        proxy.scrollTo(focused, anchor: .center)
                     }
                 }
-                .padding(.vertical, Token.Spacing.element)
             }
+            .padding(.horizontal, Token.Spacing.content)
         }
         .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height)
         .background(AppPalette.panel.swiftUI)
@@ -69,34 +87,174 @@ struct SettingsSheetView: View {
         .onDisappear { model.disappear() }
     }
 
-    private func roleDefaultRow(index: Int, row: RoleDefaultRow) -> some View {
-        ModalSelectRow(
-            label: Self.rowLabel(row),
-            labelWidth: Metrics.labelWidth,
-            title: row.selectedModelOption.label,
-            note: row.selectedModelOption.note,
-            swatchColor: nil,
-            focused: model.state.focusedRowIndex == index,
-            disabled: false,
-            controlWidth: Metrics.selectWidth,
-            horizontalInset: Metrics.horizontalInset,
-            onSelect: { model.focus(index) },
-            subtext: { AnyView(effortSubtext(for: row)) }
+    private var sidebar: some View {
+        VStack(spacing: Token.Spacing.element) {
+            SettingsSidebarItem(title: "Models and Reasoning", symbolName: "slider.horizontal.3", selected: true)
+        }
+        .padding(.top, Token.Spacing.element)
+        .frame(width: Metrics.sidebarWidth, alignment: .top)
+    }
+
+    private func rowIndices(for role: String) -> [Int] {
+        model.state.rows.indices.filter { model.state.rows[$0].role == role }
+    }
+
+    private func agentFieldGroup(index: Int) -> some View {
+        let row = model.state.rows[index]
+        return VStack(alignment: .leading, spacing: Token.Spacing.inline) {
+            SettingsFormFieldRow(
+                title: AgentKind.displayName(for: row.agent),
+                subtitle: "The default \(row.role) model and reasoning effort",
+                value: row.selectedModelOption.label,
+                isLoading: !row.hasResolvedModelOptions,
+                focused: model.state.focusedRowIndex == index && model.state.focusedField == .model,
+                controlWidth: Metrics.controlWidth,
+                onSelect: { model.focus(index, field: .model) }
+            )
+            SettingsFormFieldRow(
+                title: "",
+                subtitle: "",
+                value: row.selectedEffortOption.label,
+                isLoading: !row.hasResolvedEffortOptions,
+                focused: model.state.focusedRowIndex == index && model.state.focusedField == .effort,
+                controlWidth: Metrics.controlWidth,
+                onSelect: { model.focus(index, field: .effort) }
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A sidebar section entry, styled as the same riveted `ItemCardShape` card
+/// every Tracker/Quest/Artifact row uses — `cornerOrnament: nil` gives it the
+/// plain corner-bolt dots a Tracker worker row shows (master/standalone rows
+/// are the ones that swap those dots for a fancier ornament image).
+private struct SettingsSidebarItem: View {
+    let title: String
+    let symbolName: String
+    let selected: Bool
+
+    var body: some View {
+        ListRow(
+            selected: selected,
+            background: { selected, hovered in
+                ItemCardShape(selected: selected, hovered: hovered)
+            },
+            content: {
+                // Same content insets every Tracker/Quest/Artifact row uses,
+                // so this card reads at the same scale as the ones it's
+                // styled after instead of a cramped custom pill. A plain SF
+                // Symbol (unlike those rows' agent-mark badges) sits right at
+                // the icon column's edge, so this row adds extra clearance on
+                // top of the shared insets to keep it off the corner bolts.
+                HStack(spacing: ItemCardShape.iconLabelGap) {
+                    Image(systemName: symbolName)
+                    Text(title)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .font(AppFonts.itemTitle.swiftUI)
+                .foregroundStyle((selected ? AppPalette.bright : AppPalette.text).swiftUI)
+                .padding(.leading, ItemCardShape.contentPadding + Token.Spacing.element)
+                .padding(.trailing, ItemCardShape.trailingContentPadding + Token.Spacing.element)
+                .padding(.vertical, ItemCardShape.contentPadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         )
     }
+}
 
-    private func effortSubtext(for row: RoleDefaultRow) -> some View {
-        Text(row.selectedEffortOption.label)
-            .font(AppFonts.modalHelper.swiftUI)
-            .italic()
-            .foregroundStyle(AppPalette.dim.swiftUI)
-            .lineLimit(1)
-            .padding(.leading, Token.Radius.control + 3)
+/// A settings section title ("Master" / "Worker") with the rule beneath it
+/// that separates it from the fields below.
+private struct SettingsSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Token.Spacing.element) {
+            Text(title)
+                .font(AppFonts.bodyBold.swiftUI)
+                .foregroundStyle(AppPalette.text.swiftUI)
+            SettingsSeparator()
+        }
     }
+}
 
-    private static func rowLabel(_ row: RoleDefaultRow) -> String {
-        let role = row.role.prefix(1).uppercased() + row.role.dropFirst()
-        return "\(AgentKind.displayName(for: row.agent)) \(role)"
+private struct SettingsSeparator: View {
+    var body: some View {
+        Rectangle()
+            .fill(AppPalette.lineSoftSubtle.swiftUI)
+            .frame(height: Token.Size.divider)
+    }
+}
+
+/// One labeled select field: a title + description on the left, a
+/// `ModalSelectControl` on the right, docked to the row's trailing edge.
+/// Passing empty `title`/`subtitle` renders a blank label column (used for
+/// the reasoning-effort row directly beneath its model row, so both controls
+/// stay column-aligned without repeating the agent's label).
+private struct SettingsFormFieldRow: View {
+    let title: String
+    let subtitle: String
+    let value: String
+    let isLoading: Bool
+    let focused: Bool
+    let controlWidth: CGFloat
+    var onSelect: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Token.Spacing.content) {
+            VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
+                if !title.isEmpty {
+                    Text(title)
+                        .font(AppFonts.modalHelperLarge.swiftUI)
+                        .foregroundStyle(AppPalette.text.swiftUI)
+                }
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(AppFonts.modalHelper.swiftUI)
+                        .italic()
+                        .foregroundStyle(AppPalette.dim.swiftUI)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isLoading {
+                SettingsSkeletonControl()
+                    .frame(width: controlWidth, height: 36)
+            } else {
+                ModalSelectControl(title: value, swatchColor: nil, focused: focused, disabled: false)
+                    .frame(width: controlWidth, height: 36)
+                    .onTapGesture(perform: onSelect)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Pulsing placeholder shown in place of a select control until its options
+/// resolve — same visual language as `TerminalAttachSkeleton`/the tracker's
+/// skeleton, sized to one control instead of a whole pane.
+private struct SettingsSkeletonControl: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: Token.Radius.control)
+            .fill(AppPalette.item.swiftUI)
+            .opacity(pulse ? 0.7 : 0.5)
+            .onAppear {
+                guard !reduceMotion else {
+                    pulse = true
+                    return
+                }
+                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+                    pulse = true
+                }
+            }
+            .onDisappear {
+                pulse = false
+            }
     }
 }
 
@@ -146,8 +304,9 @@ final class SettingsSheetModel: ObservableObject {
         }
     }
 
-    func focus(_ index: Int) {
+    func focus(_ index: Int, field: RoleDefaultField) {
         state.focusedRowIndex = index
+        state.focusedField = field
     }
 
     func handle(_ event: NSEvent) -> Bool {
@@ -179,15 +338,11 @@ final class SettingsSheetModel: ObservableObject {
             return true
         }
         if Keymap.NewSession.selectLeft.matches(event.keyCode) || Keymap.NewSession.selectLeftCharacter.matches(chars) {
-            cycleModel(-1)
+            cycleFocusedValue(-1)
             return true
         }
         if Keymap.NewSession.selectRight.matches(event.keyCode) || Keymap.NewSession.selectRightCharacter.matches(chars) {
-            cycleModel(1)
-            return true
-        }
-        if Keymap.NewSession.cycleReasoningEffort.matches(chars) {
-            cycleEffort()
+            cycleFocusedValue(1)
             return true
         }
         return false
@@ -209,14 +364,16 @@ final class SettingsSheetModel: ObservableObject {
         dismiss()
     }
 
-    private func cycleModel(_ delta: Int) {
+    /// Cycles whichever field currently has focus. Changing the model
+    /// invalidates the effort list (valid levels can depend on the model), so
+    /// only that case re-fetches; cycling the effort itself needs no refetch.
+    private func cycleFocusedValue(_ delta: Int) {
         let rowIndex = state.focusedRowIndex
-        state.cycleFocusedModel(delta)
-        requestEffortSuggestions(rowIndex: rowIndex)
-    }
-
-    private func cycleEffort() {
-        state.cycleFocusedEffort(1)
+        let field = state.focusedField
+        state.cycleFocusedValue(delta)
+        if field == .model {
+            requestEffortSuggestions(rowIndex: rowIndex)
+        }
     }
 
     private func requestModelSuggestions(rowIndex: Int) {

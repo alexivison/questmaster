@@ -7,7 +7,8 @@ struct RoleDefaultsLogicTests {
         modelSelectStartsOnDefaultAndTakesResolvedOptions()
         effortSelectStartsOnDefaultAndTakesResolvedOptions()
         settingRowOptionsOnlyAffectsThatRow()
-        focusNavigationCyclesTheFocusedRowOnly()
+        focusNavigationVisitsEveryFieldInOrder()
+        cyclingFocusedValueAffectsOnlyTheFocusedField()
         print("RoleDefaultsLogicTests: all tests passed")
     }
 
@@ -15,10 +16,10 @@ struct RoleDefaultsLogicTests {
         let model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
         expect(model.rows.count == 4, "2 agents x 2 roles should produce 4 rows, got \(model.rows.count)")
         expect(
-            model.rows.map { "\($0.agent):\($0.role)" } == ["claude:worker", "claude:master", "codex:worker", "codex:master"],
-            "rows should be agent-major, worker-then-master: \(model.rows)"
+            model.rows.map { "\($0.agent):\($0.role)" } == ["claude:master", "codex:master", "claude:worker", "codex:worker"],
+            "rows should be role-major, master-then-worker: \(model.rows)"
         )
-        expect(model.index(agent: "codex", role: "master") == 3, "index should locate the matching row")
+        expect(model.index(agent: "codex", role: "master") == 1, "index should locate the matching row")
         expect(model.index(agent: "pi", role: "worker") == nil, "index should return nil for an agent not in the model")
     }
 
@@ -63,31 +64,54 @@ struct RoleDefaultsLogicTests {
 
     private static func settingRowOptionsOnlyAffectsThatRow() {
         var model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
-        model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet", agent: "claude", role: "worker")
-        model.cycleFocusedModel(1)
-        expect(model.rows[0].selectedModel == "opus", "cycling the focused row should select its resolved model")
+        model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet", agent: "claude", role: "master")
+        model.cycleFocusedValue(1)
+        expect(model.rows[0].selectedModel == "opus", "cycling the focused field should select its resolved model")
         expect(model.rows[1].selectedModelOption.isDefault, "an unrelated row must not be affected")
-        expect(model.rows[2].modelOptions.count == 1, "a different agent's row must not receive another agent's options")
+        expect(model.rows[2].modelOptions.count == 1, "a different (agent, role) row must not receive another row's options")
     }
 
-    private static func focusNavigationCyclesTheFocusedRowOnly() {
+    private static func focusNavigationVisitsEveryFieldInOrder() {
         var model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
-        expect(model.focusedRowIndex == 0, "focus should start on the first row")
+        expect(model.focusedRowIndex == 0 && model.focusedField == .model, "focus should start on the first row's model field")
 
         model.moveFocus(1)
-        expect(model.focusedRowIndex == 1, "moveFocus(1) should advance one row")
+        expect(model.focusedRowIndex == 0 && model.focusedField == .effort, "moveFocus(1) should advance to the same row's effort field")
+
+        model.moveFocus(1)
+        expect(model.focusedRowIndex == 1 && model.focusedField == .model, "moveFocus(1) should advance to the next row's model field")
+
+        model.moveFocus(-1)
+        expect(model.focusedRowIndex == 0 && model.focusedField == .effort, "moveFocus(-1) should step back to the previous row's effort field")
+
         model.moveFocus(-1)
         model.moveFocus(-1)
-        expect(model.focusedRowIndex == model.rows.count - 1, "moveFocus should wrap backward past the first row")
+        expect(
+            model.focusedRowIndex == model.rows.count - 1 && model.focusedField == .effort,
+            "moveFocus should wrap backward past the first field to the last row's effort field"
+        )
 
         model.moveFocus(1)
-        expect(model.focusedRowIndex == 0, "moveFocus should wrap forward past the last row")
+        expect(model.focusedRowIndex == 0 && model.focusedField == .model, "moveFocus should wrap forward past the last field")
+    }
 
-        model.setModelOptions([SessionModelOption(id: "gpt-5.6-terra", label: "gpt-5.6-terra")], defaultModel: "gpt-5.6-terra", agent: "claude", role: "master")
+    private static func cyclingFocusedValueAffectsOnlyTheFocusedField() {
+        var model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
+        model.setModelOptions([SessionModelOption(id: "gpt-5.6-terra", label: "gpt-5.6-terra")], defaultModel: "gpt-5.6-terra", agent: "codex", role: "master")
+        model.setEffortOptions(["low", "high"], defaultLevel: "high", agent: "codex", role: "master")
+
+        model.moveFocus(2)
+        expect(model.focusedRowIndex == 1 && model.focusedField == .model, "sanity: focus should land on codex:master's model field")
+        model.cycleFocusedValue(1)
+        expect(model.rows[1].selectedModel == "gpt-5.6-terra", "cycling while the model field is focused should change the model")
+        expect(model.rows[1].selectedReasoningEffort.isEmpty, "the effort field must not change while the model field is focused")
+
         model.moveFocus(1)
-        model.cycleFocusedModel(1)
-        expect(model.rows[1].selectedModel == "gpt-5.6-terra", "cycling after moving focus should affect the newly focused row")
-        expect(model.rows[0].selectedModelOption.isDefault, "the previously focused row must not be affected")
+        expect(model.focusedField == .effort, "sanity: focus should now be on the effort field")
+        model.cycleFocusedValue(1)
+        expect(model.rows[1].selectedReasoningEffort == "low", "cycling while the effort field is focused should change the effort")
+        expect(model.rows[1].selectedModel == "gpt-5.6-terra", "the model field must not change while the effort field is focused")
+        expect(model.rows[0].selectedModelOption.isDefault, "an unrelated row must not be affected")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

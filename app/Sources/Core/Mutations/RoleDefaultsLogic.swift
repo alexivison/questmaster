@@ -12,6 +12,11 @@ public struct RoleDefaultRow: Equatable {
     public private(set) var selectedModelIndex: Int
     public private(set) var effortOptions: [SessionReasoningEffortOption]
     public private(set) var selectedEffortIndex: Int
+    /// False until `setModelOptions`/`setEffortOptions` first resolves this
+    /// row's real list — the sheet shows a skeleton in place of the select
+    /// control until then, rather than the placeholder "default" entry.
+    public private(set) var hasResolvedModelOptions = false
+    public private(set) var hasResolvedEffortOptions = false
 
     public init(agent: String, role: String) {
         self.agent = agent
@@ -53,6 +58,7 @@ public struct RoleDefaultRow: Equatable {
         }
         modelOptions = options
         selectedModelIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+        hasResolvedModelOptions = true
     }
 
     /// Replaces the reasoning-effort list with what the backend resolved for
@@ -70,6 +76,7 @@ public struct RoleDefaultRow: Equatable {
         }
         effortOptions = options
         selectedEffortIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+        hasResolvedEffortOptions = true
     }
 
     public mutating func cycleModel(_ delta: Int) {
@@ -81,20 +88,32 @@ public struct RoleDefaultRow: Equatable {
     }
 }
 
+/// The two independently-selectable controls within one `RoleDefaultRow`.
+public enum RoleDefaultField: Equatable {
+    case model
+    case effort
+}
+
 /// Backs the Settings sheet's default-model/reasoning-effort table: one row
-/// per (agent, role) pair, independently cycled and persisted.
+/// per (agent, role) pair, each with two independently focusable/cyclable
+/// controls (model, effort).
 public struct RoleDefaultsSettingsModel: Equatable {
     public static let agents = NewSessionFormModel.defaultAgents
-    public static let roles = ["worker", "master"]
+    /// Master first, matching the Settings sheet's visual section order — row
+    /// storage order must track display order so keyboard row navigation
+    /// (`moveFocus`) walks visually adjacent rows.
+    public static let roles = ["master", "worker"]
 
     public private(set) var rows: [RoleDefaultRow]
     public var focusedRowIndex: Int
+    public var focusedField: RoleDefaultField
 
     public init(agents: [String] = RoleDefaultsSettingsModel.agents) {
-        rows = agents.flatMap { agent in
-            Self.roles.map { role in RoleDefaultRow(agent: agent, role: role) }
+        rows = Self.roles.flatMap { role in
+            agents.map { agent in RoleDefaultRow(agent: agent, role: role) }
         }
         focusedRowIndex = 0
+        focusedField = .model
     }
 
     public func index(agent: String, role: String) -> Int? {
@@ -115,25 +134,31 @@ public struct RoleDefaultsSettingsModel: Equatable {
         rows[index].setEffortOptions(levels, defaultLevel: defaultLevel)
     }
 
+    /// Moves focus by `delta` steps across every (row, field) pair — each row
+    /// contributes two stops, model then effort — so keyboard navigation
+    /// visits every independently-selectable control in display order.
     public mutating func moveFocus(_ delta: Int) {
         guard !rows.isEmpty else {
             return
         }
-        focusedRowIndex = roleDefaultsWrapped(focusedRowIndex + delta, count: rows.count)
+        let totalFields = rows.count * 2
+        let current = focusedRowIndex * 2 + (focusedField == .model ? 0 : 1)
+        let next = roleDefaultsWrapped(current + delta, count: totalFields)
+        focusedRowIndex = next / 2
+        focusedField = next.isMultiple(of: 2) ? .model : .effort
     }
 
-    public mutating func cycleFocusedModel(_ delta: Int) {
+    /// Cycles the value of whichever field currently has focus.
+    public mutating func cycleFocusedValue(_ delta: Int) {
         guard rows.indices.contains(focusedRowIndex) else {
             return
         }
-        rows[focusedRowIndex].cycleModel(delta)
-    }
-
-    public mutating func cycleFocusedEffort(_ delta: Int) {
-        guard rows.indices.contains(focusedRowIndex) else {
-            return
+        switch focusedField {
+        case .model:
+            rows[focusedRowIndex].cycleModel(delta)
+        case .effort:
+            rows[focusedRowIndex].cycleEffort(delta)
         }
-        rows[focusedRowIndex].cycleEffort(delta)
     }
 }
 
