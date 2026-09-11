@@ -31,7 +31,7 @@ enum RenderPreview {
         render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
-        render(settingsView(), size: CGSize(width: SettingsSheetModel.sheetWidth, height: 500), autoHeight: true, to: "\(outputDir)/settings.png")
+        render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         print("RenderPreview: done")
         exit(0)
     }

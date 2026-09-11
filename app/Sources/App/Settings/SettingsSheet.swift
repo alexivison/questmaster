@@ -71,7 +71,7 @@ struct SettingsSheetView: View {
             }
             .padding(.horizontal, Token.Spacing.content)
         }
-        .frame(width: SettingsSheetModel.sheetWidth)
+        .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height, alignment: .top)
         .background(AppPalette.panel.swiftUI)
         .background(SheetKeyEventMonitor { model.handle($0) })
         .onAppear { model.present() }
@@ -266,12 +266,11 @@ private struct SettingsSkeletonControl: View {
 
 @MainActor
 final class SettingsSheetModel: ObservableObject {
-    /// Only the width is fixed — height comes from the content's own natural
-    /// size. A hardcoded height has to be hand-kept in sync with content and
-    /// can drift out of sync with what the live `.sheet()` presentation
-    /// actually measures; letting the content dictate it removes that class
-    /// of bug entirely.
-    static let sheetWidth: CGFloat = 900
+    /// Deliberately taller than the tab redesign's own content — the sheet
+    /// keeps its original footprint, with content anchored to the top
+    /// (`alignment: .top` on the frame below) rather than shrinking or
+    /// centering in the leftover space.
+    static let sheetSize = CGSize(width: 900, height: 780)
 
     @Published var state = RoleDefaultsSettingsModel()
     @Published var errorMessage: String?
