@@ -1096,10 +1096,9 @@ func TestContinue_PreservesRecordedModel(t *testing.T) {
 }
 
 // TestContinue_RelaunchesWithRecordedModelAndReasoningEffort guards the
-// actual relaunch command, not just the re-recorded manifest: without a
-// resume ID to inherit from, Continue must pass the model and reasoning
-// effort the session was originally spawned with into BuildCmd, instead of
-// silently falling back to the role default.
+// actual relaunch command, not just the re-recorded manifest: Continue must
+// pass the model and reasoning effort the session was originally spawned with
+// into BuildCmd even when it resumes a native conversation.
 func TestContinue_RelaunchesWithRecordedModelAndReasoningEffort(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
@@ -1112,7 +1111,7 @@ func TestContinue_RelaunchesWithRecordedModelAndReasoningEffort(t *testing.T) {
 		SessionType: "",
 		AgentPath:   "/usr/bin",
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1, Model: "claude-opus-9-unreleased", ReasoningEffort: "high"},
+			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", ResumeID: "claude-resume", Window: 1, Model: "claude-opus-9-unreleased", ReasoningEffort: "high"},
 		},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
