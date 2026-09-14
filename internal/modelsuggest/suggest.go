@@ -10,10 +10,10 @@
 //     root), including the family aliases a harness accepts.
 //
 // Every source is optional and every failure is quiet: with no network, no
-// cache and no history the list falls back to the agent's declared role
-// default. Nothing here validates a model — an id the user types is passed to
-// the harness as-is, which is the only way a model released this morning can
-// be used this morning.
+// cache and no history the list can legitimately be empty. Nothing here
+// validates a model — an id the user types is passed to the harness as-is,
+// which is the only way a model released this morning can be used this
+// morning.
 package modelsuggest
 
 import (
@@ -52,9 +52,11 @@ type Model struct {
 // Suggestions is the model data served to native clients and to
 // `questmaster models`.
 //
-// Default is the model the agent launches with for this role when no override
-// is given; it is reported rather than listed so clients can label their own
-// "default" entry without repeating a built-in id.
+// Default is the persisted role-defaults override's model, or "" when
+// nothing is configured for this agent+role — Settings is the only source of
+// a default, so there is no other value to fall back to. It is reported
+// rather than listed so clients can label their own "default" entry without
+// repeating an id.
 type Suggestions struct {
 	Agent   string  `json:"agent"`
 	Role    string  `json:"role"`
@@ -149,17 +151,16 @@ func Query(ctx context.Context, opts Options) Suggestions {
 
 	policy := agent.ModelPolicyOf(agentName)
 	result := Suggestions{
-		Agent:   agentName,
-		Role:    RoleName(opts.Role),
-		Default: defaultModelForAgent(agentName, opts.Role),
-		Models:  []Model{},
-		Source:  SourceBuiltin,
+		Agent:  agentName,
+		Role:   RoleName(opts.Role),
+		Models: []Model{},
+		Source: SourceBuiltin,
 	}
 	if agentName == "" {
 		return result
 	}
 	if opts.Store != nil {
-		if def, ok, _ := state.NewRoleDefaultsStore(opts.Store.Root()).Get(agentName, agent.RoleDefaultsKey(opts.Role)); ok && def.Model != "" {
+		if def, ok, _ := state.NewRoleDefaultsStore(opts.Store.Root()).Get(agentName, agent.RoleDefaultsKey(opts.Role)); ok {
 			result.Default = def.Model
 		}
 	}
@@ -183,27 +184,29 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	// Harness ids the catalog knows nothing about still belong in the list:
 	// the harness is the authority on what it can run.
 	collector.addAll(harnessOnlyModels(harnessIDs, collector))
-	collector.addAll(defaultModels(policy, result.Default))
 
 	if len(collector.models) > limit {
 		collector.models = collector.models[:limit]
 	}
+	// A persisted override isn't guaranteed to survive the ranking above —
+	// it might not be independently present in recents/catalog/harness
+	// enumeration at all (e.g. a freshly-typed or not-yet-launched model
+	// id), or a full dynamic list may have pushed it past the limit. Back
+	// it in explicitly, past the limit if necessary, so a genuinely
+	// configured row can never misrender as unconfigured. Checked against
+	// the already-truncated list (not collector.seen, which still marks ids
+	// sliced off above as "present"), and still subject to the active query
+	// — an active search narrows the list same as for any other entry, and
+	// Suggestions.Default (reported separately, above) already tells the
+	// caller what's configured regardless of whether it matches the search.
+	if result.Default != "" && !containsModelID(collector.models, result.Default) {
+		defaultModel := Model{ID: result.Default, Label: result.Default, Note: "your configured default"}
+		if collector.matches(defaultModel) {
+			collector.models = append(collector.models, defaultModel)
+		}
+	}
 	result.Models = collector.models
 	return result
-}
-
-// defaultModelForAgent resolves the default model a fresh instance of
-// agentName would launch with, honoring any instance-level override BuildCmd
-// applies (e.g. OpenCode's configured-model quirk for standalone) rather than
-// just the harness's static ModelPolicy — see agent.DefaultModelFor's doc
-// comment for why those can otherwise diverge. Falls back to the static
-// policy (empty for an unrecognized name) when the name isn't a known
-// built-in provider.
-func defaultModelForAgent(agentName string, role agent.SessionRole) string {
-	if provider, err := agent.Resolve(agentName, nil); err == nil {
-		return provider.DefaultModel(role)
-	}
-	return agent.DefaultModelFor(agentName, role)
 }
 
 // RoleName renders a session role as the wire string used by the models topic
@@ -257,6 +260,18 @@ func (c *modelCollector) add(model Model) {
 	}
 	c.seen[model.ID] = true
 	c.models = append(c.models, model)
+}
+
+// containsModelID reports whether models already includes id — used after
+// truncating to the ranking limit, where modelCollector's own seen map is no
+// longer trustworthy (it still marks ids sliced off the list as "present").
+func containsModelID(models []Model, id string) bool {
+	for _, model := range models {
+		if model.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *modelCollector) matches(model Model) bool {
@@ -376,24 +391,6 @@ func harnessOnlyModels(harnessIDs []string, collector *modelCollector) []Model {
 			continue
 		}
 		models = append(models, Model{ID: id, Label: id})
-	}
-	return models
-}
-
-// defaultModels keeps the declared role defaults in the list even when every
-// dynamic source came up empty, so the picker is never blank. roleDefault
-// itself is never one of them — it is already the special "default" entry's
-// own value, and repeating it here as a second, identically-named row is
-// exactly the confusing duplicate a picker must not show. The sibling role's
-// default is still offered, so a standalone session can explicitly pick the
-// master tier (or vice versa) without switching Role first.
-func defaultModels(policy agent.ModelPolicy, roleDefault string) []Model {
-	models := make([]Model, 0, 2)
-	for _, id := range []string{policy.Worker, policy.Master} {
-		if strings.TrimSpace(id) == "" || id == roleDefault {
-			continue
-		}
-		models = append(models, Model{ID: id, Label: id, Note: "the other role's built-in default"})
 	}
 	return models
 }

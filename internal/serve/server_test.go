@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1219,8 +1220,19 @@ func TestServerDirSuggestReturnsPickerSuggestionsAndRecents(t *testing.T) {
 func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	env := seedServeFixture(t)
 	// Never reach the network from a test: with fetching off and no cache,
-	// suggestions fall back to the agent's declared role defaults.
+	// suggestions rely only on recents and the persisted role default —
+	// there is no hardcoded per-harness floor anymore.
 	t.Setenv(modelsuggest.CatalogURLEnv, "off")
+	if err := env.store.Create(state.Manifest{
+		SessionID: "qm-recent-claude",
+		Cwd:       t.TempDir(),
+		Agents:    []state.AgentManifest{{Name: "claude", Role: "primary", Model: "claude-opus-9-unreleased"}},
+	}); err != nil {
+		t.Fatalf("seed recent model: %v", err)
+	}
+	if err := state.NewRoleDefaultsStore(env.store.Root()).Set("claude", "master", state.RoleDefault{Model: "opus"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
 	socketPath := tempSocketPath(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -1249,15 +1261,16 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 		t.Fatalf("models data = %#v, want claude/master", data)
 	}
 	if data["default"] != "opus" {
-		t.Fatalf("models default = %#v, want opus", data["default"])
+		t.Fatalf("models default = %#v, want the persisted role default opus", data["default"])
 	}
 	models, ok := data["models"].([]any)
-	if !ok || len(models) == 0 {
-		t.Fatalf("models = %#v, want the built-in defaults", data["models"])
+	if !ok || len(models) != 2 {
+		t.Fatalf("models = %#v, want the recent model plus the backfilled persisted default", data["models"])
 	}
 
-	// limit is honored: it must actually cap the response, not just decode
-	// without error.
+	// limit caps the ranked, dynamic part of the list, but the persisted
+	// default always survives past it (it's backfilled after truncation) —
+	// so limit=1 here still yields 2: the one ranked entry plus the default.
 	writeRequest(t, enc, map[string]any{
 		"id":     "models-limit",
 		"method": "models",
@@ -1269,19 +1282,16 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 		t.Fatalf("models limit data = %#v, want object", limited.Data)
 	}
 	limitedModels, ok := limitedData["models"].([]any)
-	if !ok || len(limitedModels) != 1 {
-		t.Fatalf("models with limit=1 = %#v, want exactly one entry", limitedData["models"])
+	if !ok || len(limitedModels) != 2 {
+		t.Fatalf("models with limit=1 = %#v, want the one ranked entry plus the backfilled default", limitedData["models"])
 	}
 
 	// query filters the list: a substring that matches nothing must yield no
-	// models, even from the built-in-default floor. master's own role
-	// default (opus) is deliberately not repeated as a list entry — it is
-	// already the reported Default — so this matches against sonnet, the
-	// sibling role's default, which the floor does still offer.
+	// models, even the backfilled persisted default.
 	writeRequest(t, enc, map[string]any{
 		"id":     "models-query-match",
 		"method": "models",
-		"data":   map[string]any{"agent": "claude", "role": "master", "query": "sonnet"},
+		"data":   map[string]any{"agent": "claude", "role": "master", "query": "unreleased"},
 	})
 	matched := assertResponseTopic(t, dec, "models")
 	matchedData, ok := matched.Data.(map[string]any)
@@ -1290,7 +1300,7 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	}
 	matchedModels, _ := matchedData["models"].([]any)
 	if len(matchedModels) == 0 {
-		t.Fatalf("models query=sonnet = %#v, want at least the sibling role's default", matchedData["models"])
+		t.Fatalf("models query=unreleased = %#v, want at least the recent model", matchedData["models"])
 	}
 
 	writeRequest(t, enc, map[string]any{
@@ -1348,6 +1358,10 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 	conn, enc, dec := dialServe(t, socketPath)
 	defer conn.Close() //nolint:errcheck
 
+	if err := state.NewRoleDefaultsStore(env.store.Root()).Set("codex", "master", state.RoleDefault{ReasoningEffort: "xhigh"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+
 	// codex's gpt-5.6 family accepts the two extra tiers a plain gpt-5.4
 	// model would not, so the model must actually shape the level list.
 	writeRequest(t, enc, map[string]any{
@@ -1364,7 +1378,7 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		t.Fatalf("reasoning_efforts data = %#v, want codex/master", data)
 	}
 	if data["default"] != "xhigh" {
-		t.Fatalf("reasoning_efforts default = %#v, want xhigh", data["default"])
+		t.Fatalf("reasoning_efforts default = %#v, want the persisted role default xhigh", data["default"])
 	}
 	efforts := stringList(data["efforts"])
 	if !reflect.DeepEqual(efforts, []string{"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}) {
@@ -1398,6 +1412,61 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 	}
 	if errEnv.OK == nil || *errEnv.OK || errEnv.Error == "" {
 		t.Fatalf("reasoning_efforts without an agent = %#v, want an error envelope", errEnv)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+// TestServerReasoningEffortsTopicUsesPersistedModelWhenCallerModelIsEmpty
+// guards the Settings sheet's first-open request: it fires a row's model and
+// reasoning_efforts requests at the same time, so the very first
+// reasoning_efforts call for a row goes out with an empty model (the model
+// request hasn't resolved yet). If that empty model were read literally,
+// "max" (only valid for codex's gpt-5.6-* models) would be missing from
+// Efforts even though it's exactly the persisted override — reproducing a
+// real incident where confirming Settings without touching that row silently
+// cleared its already-configured reasoning effort.
+func TestServerReasoningEffortsTopicUsesPersistedModelWhenCallerModelIsEmpty(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := state.NewRoleDefaultsStore(env.store.Root()).Set("codex", "worker", state.RoleDefault{
+		Model:           "gpt-5.6-luna",
+		ReasoningEffort: "max",
+	}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:    socketPath,
+		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval: time.Hour,
+	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
+
+	conn, enc, dec := dialServe(t, socketPath)
+	defer conn.Close() //nolint:errcheck
+
+	writeRequest(t, enc, map[string]any{
+		"id":     "reasoning-efforts-empty-model",
+		"method": "reasoning_efforts",
+		"data":   map[string]any{"agent": "codex", "role": "worker", "model": ""},
+	})
+	resp := assertResponseTopic(t, dec, "reasoning_efforts")
+	data, ok := resp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("reasoning_efforts data = %#v, want object", resp.Data)
+	}
+	if data["default"] != "max" {
+		t.Fatalf("reasoning_efforts default = %#v, want max", data["default"])
+	}
+	efforts := stringList(data["efforts"])
+	if !slices.Contains(efforts, "max") {
+		t.Fatalf("reasoning_efforts efforts = %v, want the persisted override's model to shape the list (max present)", efforts)
 	}
 
 	cancel()
@@ -1664,17 +1733,101 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 		t.Fatalf("codex worker default after invalid set: ok=%v err=%v, want nothing persisted", ok, err)
 	}
 
-	// Sending both fields empty clears the override.
-	clearResp := sendMutation(t, socketPath, map[string]any{
+	// Sending both fields empty is rejected — there is no more implicit
+	// clear now that Settings is the sole source of a default. The prior
+	// entry must survive untouched.
+	clearResp := sendRawMutation(t, socketPath, map[string]any{
 		"id":     "role-default-clear",
 		"method": "role_default.set",
 		"data":   map[string]any{"agent": "claude", "role": "worker"},
 	})
-	if !envelopeContains(clearResp, `"model":""`) {
-		t.Fatalf("role_default.set clear response = %#v, want empty model", clearResp)
+	if clearResp.Type != "response" || clearResp.OK == nil || *clearResp.OK || clearResp.Error == "" {
+		t.Fatalf("role_default.set with both fields empty = %#v, want a validation error", clearResp)
 	}
-	if _, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "worker"); err != nil || ok {
-		t.Fatalf("claude worker default after clear: ok=%v err=%v, want cleared", ok, err)
+	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "worker"); err != nil || !ok || def.Model != "claude-opus-9-unreleased" || def.ReasoningEffort != "low" {
+		t.Fatalf("claude worker default after a rejected clear: def=%+v ok=%v err=%v, want the prior entry untouched", def, ok, err)
+	}
+
+	// standalone persists to its own bucket, independent of worker.
+	standaloneResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-set-standalone",
+		"method": "role_default.set",
+		"data": map[string]any{
+			"agent":            "claude",
+			"role":             "standalone",
+			"model":            "sonnet",
+			"reasoning_effort": "medium",
+		},
+	})
+	if !envelopeContains(standaloneResp, `"model":"sonnet"`) {
+		t.Fatalf("role_default.set standalone response = %#v, want sonnet persisted", standaloneResp)
+	}
+	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "worker"); err != nil || !ok || def.Model != "claude-opus-9-unreleased" {
+		t.Fatalf("claude worker default after a standalone set: def=%+v ok=%v err=%v, want unaffected by the standalone bucket", def, ok, err)
+	}
+	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "standalone"); err != nil || !ok || def.Model != "sonnet" {
+		t.Fatalf("claude standalone default = %+v ok=%v err=%v, want sonnet persisted separately from worker", def, ok, err)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+// TestServerRoleDefaultSetMutationMergesPartialUpdates guards a real bug:
+// Set() replaces the whole persisted record, so a caller that sends only
+// reasoning_effort (or only model) must not silently wipe the other,
+// already-configured field. mutateRoleDefaultSet's own reasoning-effort
+// validation already falls back to the persisted model when none is given —
+// the write must honor that same merge, not just the validation.
+func TestServerRoleDefaultSetMutationMergesPartialUpdates(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:     socketPath,
+		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval:  time.Hour,
+		MutationRunner: &recordingMutationRunner{},
+	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
+
+	sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-set-full",
+		"method": "role_default.set",
+		"data": map[string]any{
+			"agent":            "codex",
+			"role":             "master",
+			"model":            "gpt-5.6-sol",
+			"reasoning_effort": "high",
+		},
+	})
+
+	effortOnlyResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-set-effort-only",
+		"method": "role_default.set",
+		"data":   map[string]any{"agent": "codex", "role": "master", "reasoning_effort": "max"},
+	})
+	if !envelopeContains(effortOnlyResp, `"model":"gpt-5.6-sol"`) {
+		t.Fatalf("role_default.set effort-only response = %#v, want the persisted model still reported", effortOnlyResp)
+	}
+	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("codex", "master"); err != nil || !ok || def.Model != "gpt-5.6-sol" || def.ReasoningEffort != "max" {
+		t.Fatalf("codex master after effort-only update: def=%+v ok=%v err=%v, want model unaffected and effort updated", def, ok, err)
+	}
+
+	modelOnlyResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-set-model-only",
+		"method": "role_default.set",
+		"data":   map[string]any{"agent": "codex", "role": "master", "model": "gpt-5.6-terra"},
+	})
+	if !envelopeContains(modelOnlyResp, `"reasoning_effort":"max"`) {
+		t.Fatalf("role_default.set model-only response = %#v, want the persisted effort still reported", modelOnlyResp)
+	}
+	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("codex", "master"); err != nil || !ok || def.Model != "gpt-5.6-terra" || def.ReasoningEffort != "max" {
+		t.Fatalf("codex master after model-only update: def=%+v ok=%v err=%v, want effort unaffected and model updated", def, ok, err)
 	}
 
 	cancel()

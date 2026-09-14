@@ -7,13 +7,6 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
-const (
-	codexWorkerGPTModel  = "gpt-5.6-terra"
-	codexMasterGPTModel  = "gpt-5.6-sol"
-	codexMasterReasoning = "xhigh"
-	codexWorkerReasoning = "xhigh"
-)
-
 var codexSpec = Spec{
 	Name:           "codex",
 	DisplayName:    "Codex",
@@ -26,8 +19,6 @@ var codexSpec = Spec{
 	FallbackPath:   "/opt/homebrew/bin/codex",
 	Filter:         filterCodex,
 	Models: ModelPolicy{
-		Worker:  codexWorkerGPTModel,
-		Master:  codexMasterGPTModel,
 		Sources: []ModelSource{{Catalog: "openai"}},
 	},
 }
@@ -42,11 +33,6 @@ func NewCodex(cfg AgentConfig) *Codex {
 	return &Codex{base: newBase(codexSpec, cfg)}
 }
 
-// CodexDefaultModel returns the role's built-in Codex model.
-func CodexDefaultModel(role SessionRole) string {
-	return DefaultModelFor(codexSpec.Name, role)
-}
-
 func (c *Codex) BuildCmd(opts CmdOpts) string {
 	binary := opts.Binary
 	if binary == "" {
@@ -55,17 +41,12 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
-	if model := resolveModel(opts, c.spec.Models.Worker, c.spec.Models.Master); model != "" {
-		cmd += " --model " + config.ShellQuote(model)
-	}
-	reasoning := codexMasterReasoning
-	if opts.Role == RoleWorker {
-		reasoning = codexWorkerReasoning
+	if opts.Model != "" {
+		cmd += " --model " + config.ShellQuote(opts.Model)
 	}
 	if opts.ReasoningEffort != "" {
-		reasoning = opts.ReasoningEffort
+		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(opts.ReasoningEffort))
 	}
-	cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(reasoning))
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))

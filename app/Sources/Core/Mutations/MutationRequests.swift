@@ -79,8 +79,10 @@ public enum ServeMutationRequests {
     }
 
     /// Persists a default model and/or reasoning effort for one agent+role
-    /// pair. Passing both `model` and `reasoningEffort` empty clears the
-    /// override, the same "empty clears" convention as `recolorRepo`.
+    /// pair. At least one of `model`/`reasoningEffort` must be non-empty —
+    /// Settings is the sole source of a default, so there is no "clear the
+    /// override" convention anymore (unlike `recolorRepo`'s repo scope): the
+    /// backend rejects both fields empty rather than deleting the entry.
     public static func setRoleDefault(
         agent: String,
         role: String,

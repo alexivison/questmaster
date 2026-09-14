@@ -34,7 +34,7 @@ struct SettingsSheetView: View {
     @StateObject private var model: SettingsSheetModel
 
     /// Role groups shown for the active tab, top-to-bottom.
-    private static let roleGroups = [("master", "Master"), ("worker", "Worker")]
+    private static let roleGroups = [("master", "Master"), ("standalone", "Standalone"), ("worker", "Worker")]
 
     private enum Metrics {
         static let sidebarWidth: CGFloat = 224
@@ -57,13 +57,12 @@ struct SettingsSheetView: View {
         ) {
             HStack(alignment: .top, spacing: Token.Spacing.content) {
                 sidebar
-                VStack(alignment: .leading, spacing: Token.Spacing.content) {
+                VStack(alignment: .leading, spacing: 0) {
                     tabBar
+                        .padding(.bottom, Token.Spacing.content)
                     ForEach(Array(Self.roleGroups.enumerated()), id: \.offset) { offset, group in
                         roleFieldGroup(role: group.0, title: group.1)
-                        if offset < Self.roleGroups.count - 1 {
-                            SettingsSeparator()
-                        }
+                            .padding(.bottom, offset < Self.roleGroups.count - 1 ? Token.Spacing.groupGap : 0)
                     }
                 }
                 .padding(.top, Token.Spacing.element)
@@ -109,14 +108,15 @@ struct SettingsSheetView: View {
         if let rowIndex = model.state.index(agent: model.state.selectedAgent, role: role) {
             let row = model.state.rows[rowIndex]
             let isFocusedRole = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role
-            VStack(alignment: .leading, spacing: Token.Spacing.element) {
+            VStack(alignment: .leading, spacing: Token.Spacing.section) {
                 Text(title)
-                    .font(AppFonts.bodyBold.swiftUI)
+                    .font(AppFonts.settingsSectionTitle.swiftUI)
                     .foregroundStyle(AppPalette.text.swiftUI)
+                SettingsSeparator()
                 SettingsFormFieldRow(
                     title: "Model",
-                    subtitle: "The default \(role) model and reasoning effort",
-                    value: row.selectedModelOption.label,
+                    subtitle: "The default \(role) model",
+                    value: row.selectedModelOption?.label ?? "Not configured",
                     isLoading: !row.hasResolvedModelOptions,
                     focused: isFocusedRole && model.state.focusedField == .model,
                     controlWidth: Metrics.controlWidth,
@@ -124,8 +124,8 @@ struct SettingsSheetView: View {
                 )
                 SettingsFormFieldRow(
                     title: "Reasoning effort",
-                    subtitle: "The default \(role) model and reasoning effort",
-                    value: row.selectedEffortOption.label,
+                    subtitle: "The default \(role) reasoning effort",
+                    value: row.selectedEffortOption?.label ?? "Not configured",
                     isLoading: !row.hasResolvedEffortOptions,
                     focused: isFocusedRole && model.state.focusedField == .effort,
                     controlWidth: Metrics.controlWidth,
@@ -291,6 +291,11 @@ final class SettingsSheetModel: ObservableObject {
     /// clobber a newer one — mirrors NewSessionSheetModel's request-ID guard.
     private var modelRequestIDs: [Int]
     private var effortRequestIDs: [Int]
+    /// Counts `role_default.set` sends still in flight from the current
+    /// `confirm()` call, so the sheet can wait for all of them (and surface
+    /// any failure) before tearing itself down — dismissing immediately would
+    /// otherwise race the async sends and silently drop a validation error.
+    private var pendingSaves = 0
 
     init(presentation: SettingsSheetPresentation, dismiss: @escaping () -> Void) {
         mutationClient = presentation.mutationClient
@@ -386,13 +391,37 @@ final class SettingsSheetModel: ObservableObject {
         dismiss()
     }
 
-    /// Persists every row's current selection, then closes.
+    /// Persists only the rows that actually changed, then closes once every
+    /// save has finished. An untouched row — configured or not — is never
+    /// resent, so confirming can never silently clear or recreate it. A
+    /// failed save keeps the sheet open with the error shown instead of
+    /// dismissing regardless — dismissing unconditionally would otherwise
+    /// look like a successful save when it wasn't.
     func confirm() {
-        for row in state.rows {
+        guard pendingSaves == 0 else {
+            return
+        }
+        errorMessage = nil
+        sendDirtyRows()
+    }
+
+    /// Sends every currently-dirty row, or dismisses if there's nothing left
+    /// to send. Called both by `confirm()` and, once a round of saves
+    /// finishes, by `saveCompleted()` — the user can keep editing while a
+    /// save is in flight, so a fresh edit made during that window must still
+    /// get sent (and its own row re-checked) before the sheet actually
+    /// closes, rather than being silently discarded on dismiss.
+    private func sendDirtyRows() {
+        let dirtyRows = state.rows.filter(\.isDirty)
+        guard !dirtyRows.isEmpty else {
+            disappear()
+            dismiss()
+            return
+        }
+        pendingSaves = dirtyRows.count
+        for row in dirtyRows {
             sendRoleDefault(agent: row.agent, role: row.role, model: row.selectedModel, reasoningEffort: row.selectedReasoningEffort)
         }
-        disappear()
-        dismiss()
     }
 
     /// Cycles whichever field currently has focus. Changing the model
@@ -422,7 +451,12 @@ final class SettingsSheetModel: ObservableObject {
                     return
                 }
                 if case .success(let response) = result {
-                    self.state.setModelOptions(response.models, defaultModel: response.defaultModel, agent: row.agent, role: row.role)
+                    self.state.setModelOptions(
+                        response.models,
+                        defaultModel: response.defaultModel,
+                        agent: row.agent,
+                        role: row.role
+                    )
                 }
             }
         }
@@ -442,7 +476,12 @@ final class SettingsSheetModel: ObservableObject {
                     return
                 }
                 if case .success(let response) = result {
-                    self.state.setEffortOptions(response.efforts, defaultLevel: response.defaultEffort, agent: row.agent, role: row.role)
+                    self.state.setEffortOptions(
+                        response.efforts,
+                        defaultLevel: response.defaultEffort,
+                        agent: row.agent,
+                        role: row.role
+                    )
                 }
             }
         }
@@ -456,13 +495,31 @@ final class SettingsSheetModel: ObservableObject {
                     guard let self else {
                         return
                     }
-                    if case .failure(let error) = result {
+                    switch result {
+                    case .success:
+                        self.state.markSaved(agent: agent, role: role, model: model, reasoningEffort: reasoningEffort)
+                    case .failure(let error):
                         self.errorMessage = error.localizedDescription
                     }
+                    self.saveCompleted()
                 }
             }
         } catch {
             errorMessage = error.localizedDescription
+            saveCompleted()
         }
+    }
+
+    /// Closes out one row's save; once every row from the current round has
+    /// reported back with no error, re-checks for dirty rows rather than
+    /// dismissing outright — an edit made while that round's saves were
+    /// still in flight must still get sent (see `sendDirtyRows`), not
+    /// silently discarded by an immediate dismiss.
+    private func saveCompleted() {
+        pendingSaves -= 1
+        guard pendingSaves == 0, errorMessage == nil else {
+            return
+        }
+        sendDirtyRows()
     }
 }

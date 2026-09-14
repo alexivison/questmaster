@@ -9,14 +9,6 @@ import (
 
 const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false}`
 
-const (
-	// The aliases auto-track the latest Claude models, so they needn't be bumped by id.
-	claudeSonnetModel = "sonnet"
-	claudeOpusModel   = "opus"
-
-	claudeDefaultReasoningEffort = "xhigh"
-)
-
 var claudeSpec = Spec{
 	Name:           "claude",
 	DisplayName:    "Claude",
@@ -28,11 +20,6 @@ var claudeSpec = Spec{
 	BinaryEnvVar:   "CLAUDE_BIN",
 	FallbackPath:   "~/.local/bin/claude",
 	Models: ModelPolicy{
-		Worker: claudeSonnetModel,
-		Master: claudeOpusModel,
-		// No family aliases: the suggestion list stays to concrete catalog
-		// ids, since claudeSonnetModel/claudeOpusModel above already cover
-		// the "track the latest release" case for the role defaults.
 		Sources: []ModelSource{{Catalog: "anthropic"}},
 	},
 }
@@ -56,13 +43,11 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	cmd := fmt.Sprintf("export PATH=%s; unset CLAUDECODE; exec %s --permission-mode bypassPermissions",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	cmd += " --settings " + config.ShellQuote(claudeDisableTipsSettings)
-	if opts.ReasoningEffort == "" {
-		cmd += " --effort " + claudeDefaultReasoningEffort
-	} else {
+	if opts.ReasoningEffort != "" {
 		cmd += " --effort " + config.ShellQuote(opts.ReasoningEffort)
 	}
-	if model := resolveModel(opts, c.spec.Models.Worker, c.spec.Models.Master); model != "" {
-		cmd += " --model " + config.ShellQuote(model)
+	if opts.Model != "" {
+		cmd += " --model " + config.ShellQuote(opts.Model)
 	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {

@@ -29,6 +29,7 @@ func TestOpenCodeBuildCmd_UsesAgentPromptAndExplicitModel(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Prompt:    "inspect activity",
 		Role:      RoleWorker,
+		Model:     "openai/gpt-5.6-terra",
 	})
 	wantCmd := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/opencode' --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --prompt 'inspect activity'"
 	if got != wantCmd {
@@ -57,25 +58,21 @@ func TestOpenCodeBuildCmd_UsesAgentPromptAndExplicitModel(t *testing.T) {
 	}
 }
 
-func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
+// TestOpenCodeBuildCmd_ModelOverride guards the two things that matter now
+// that there is no hardcoded per-role default: no --model flag at all when
+// nothing is configured, for any role, and an explicit override always
+// winning.
+func TestOpenCodeBuildCmd_ModelOverride(t *testing.T) {
 	t.Parallel()
 
 	o := NewOpenCode(AgentConfig{})
 	base := CmdOpts{Binary: "/bin/opencode", AgentPath: "/p"}
 
-	worker := o.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai/gpt-5.6-terra'") {
-		t.Fatalf("worker should get gpt-5.6-terra: %q", worker)
-	}
-
-	master := o.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'openai/gpt-5.6-sol'") {
-		t.Fatalf("master should get the gpt-5.6-sol tier: %q", master)
-	}
-
-	standalone := o.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'openai/gpt-5.6-terra'") {
-		t.Fatalf("standalone should get gpt-5.6-terra: %q", standalone)
+	for _, role := range []SessionRole{RoleWorker, RoleStandalone, RoleMaster} {
+		got := o.BuildCmd(withRole(base, role))
+		if strings.Contains(got, "--model '") {
+			t.Fatalf("opencode role %v with no override should omit --model: %q", role, got)
+		}
 	}
 
 	override := base
@@ -83,13 +80,6 @@ func TestOpenCodeBuildCmd_WorkerModelPolicy(t *testing.T) {
 	override.Model = "openai/custom"
 	if got := o.BuildCmd(override); !strings.Contains(got, "--model 'openai/custom'") {
 		t.Fatalf("explicit override should win: %q", got)
-	}
-
-	// An explicitly-configured model (not the baked-in big-pickle default) still
-	// wins for standalone.
-	configured := NewOpenCode(AgentConfig{Model: "provider/custom"})
-	if got := configured.BuildCmd(withRole(base, RoleStandalone)); !strings.Contains(got, "--model 'provider/custom'") {
-		t.Fatalf("explicit config model should pin standalone: %q", got)
 	}
 }
 
@@ -116,7 +106,6 @@ func TestOpenCodeBuildCmd_RoleSpecificAgentNames(t *testing.T) {
 func TestOpenCodeBuildCmd_ResumeStillPassesAgent(t *testing.T) {
 	t.Parallel()
 
-	// Explicit opts.Model override wins over the worker default for opencode.
 	o := NewOpenCode(AgentConfig{OpenCodeAgent: "qm-custom"})
 	got := o.BuildCmd(CmdOpts{
 		Binary:    "/bin/opencode",
@@ -182,19 +171,6 @@ func TestOpenCodeBuildCmd_ReasoningEffortUsesInteractiveVariant(t *testing.T) {
 		if !strings.Contains(anthropic, want) {
 			t.Fatalf("BuildCmd(Anthropic reasoning effort) missing %q in %q", want, anthropic)
 		}
-	}
-}
-
-func TestDefaultConfig_OpenCodeHasExplicitModel(t *testing.T) {
-	t.Parallel()
-
-	cfg := DefaultConfig()
-	opencode, ok := cfg.Agents["opencode"]
-	if !ok {
-		t.Fatal("DefaultConfig missing opencode agent")
-	}
-	if opencode.Model == "" {
-		t.Fatal("DefaultConfig opencode model must be explicit")
 	}
 }
 
