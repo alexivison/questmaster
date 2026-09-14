@@ -106,16 +106,6 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 				resumeID = m.ExtraString(provider.ResumeKey())
 			}
 
-			// With a resume ID, the harness's own conversation carries the
-			// model forward. Without one (crashed before capturing a resume
-			// ID, or the harness has no resume support), there's no
-			// conversation to inherit from, so fall back to what it was
-			// originally spawned with instead of the role default.
-			model := ""
-			if resumeID == "" {
-				model = agentState.Model
-			}
-
 			launchAgents[role] = provider
 			agentCmds[role] = provider.BuildCmd(agent.CmdOpts{
 				Binary:          cli,
@@ -124,7 +114,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 				Title:           m.Title,
 				Role:            agentRole,
 				Continuing:      true,
-				Model:           model,
+				Model:           agentState.Model,
 				ReasoningEffort: agentState.ReasoningEffort,
 			})
 			if resumeID != "" {
