@@ -1,18 +1,17 @@
 package agent
 
-// providerDef ties an agent's static Spec to its constructor and optional
-// default model. providerDefs is the single source of truth from which the
-// constructor map, the default config, and the master harness-guide order are
-// all derived, so a new built-in harness is declared in exactly one place
-// rather than threaded through several parallel lists.
+// providerDef ties an agent's static Spec to its constructor. providerDefs is
+// the single source of truth from which the constructor map, the default
+// config, and the master harness-guide order are all derived, so a new
+// built-in harness is declared in exactly one place rather than threaded
+// through several parallel lists.
 type providerDef struct {
-	spec  Spec
-	model string // optional default model baked into DefaultConfig
-	new   func(AgentConfig) Agent
+	spec Spec
+	new  func(AgentConfig) Agent
 }
 
 func (d providerDef) defaultConfig() AgentConfig {
-	return AgentConfig{CLI: d.spec.DefaultCLI, Model: d.model}
+	return AgentConfig{CLI: d.spec.DefaultCLI}
 }
 
 // providerDefs lists the built-in harnesses in master harness-guide order.
@@ -22,7 +21,7 @@ func (d providerDef) defaultConfig() AgentConfig {
 var providerDefs = []providerDef{
 	{spec: claudeSpec, new: func(c AgentConfig) Agent { return NewClaude(c) }},
 	{spec: codexSpec, new: func(c AgentConfig) Agent { return NewCodex(c) }},
-	{spec: openCodeSpec, model: defaultOpenCodeModel, new: func(c AgentConfig) Agent { return NewOpenCode(c) }},
+	{spec: openCodeSpec, new: func(c AgentConfig) Agent { return NewOpenCode(c) }},
 	{spec: piSpec, new: func(c AgentConfig) Agent { return NewPi(c) }},
 }
 

@@ -7,12 +7,13 @@ struct NewSessionLogicTests {
         focusMovesThroughFieldsWithControlJAndK()
         focusCycleIncludesRole()
         defaultAgentListIncludesOpenCode()
-        modelSelectStartsOnDefaultAndTakesResolvedOptions()
+        modelSelectStartsUnconfiguredAndTakesResolvedOptions()
+        modelSelectSeedsOntoSettingsCurrentDefaultOnFirstResolveOnly()
         modelSelectionSurvivesARefreshThatStillOffersIt()
         agentAndRoleChangesDropAnotherHarnessModel()
         setModelOptionsDropsWhitespaceOnlyIDs()
         cyclingASingleAgentListDoesNotResetModelOptions()
-        effortSelectStartsOnDefaultAndTakesResolvedOptions()
+        effortSelectStartsUnconfiguredAndTakesResolvedOptions()
         roleAndAgentChangesDropTheResolvedEffortList()
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
@@ -70,13 +71,15 @@ struct NewSessionLogicTests {
         )
     }
 
-    // The app owns exactly one model entry — "default" — and receives the rest
-    // from the backend, so a newly released model needs no app change.
-    private static func modelSelectStartsOnDefaultAndTakesResolvedOptions() {
+    // Options are never declared in the app — they come entirely from the
+    // backend, so a newly released model needs no app change. There is no
+    // synthetic "default" entry: "nothing selected" is a fact about the
+    // form's own selection state, not a member of the options list.
+    private static func modelSelectStartsUnconfiguredAndTakesResolvedOptions() {
         var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
-        expect(model.modelOptions.count == 1, "the picker should start with only the default entry")
-        expect(model.selectedModelOption.isDefault, "the default entry should be selected")
-        expect(model.selectedModel.isEmpty, "the default entry should send no model override")
+        expect(model.modelOptions.isEmpty, "the picker should start with no options at all")
+        expect(model.selectedModelOption == nil, "nothing should be selected before anything resolves")
+        expect(model.selectedModel.isEmpty, "an unconfigured picker should send no model override")
         expect(model.submitPayload()?.model == "", "an untouched picker should not override the model")
 
         model.setModelOptions(
@@ -86,9 +89,9 @@ struct NewSessionLogicTests {
             ],
             defaultModel: "sonnet"
         )
-        expect(model.modelOptions.count == 3, "resolved models should append to the default entry")
-        expect(model.modelOptions.first?.note == "sonnet", "the default entry should carry the role default")
-        expect(model.selectedModelOption.isDefault, "resolving should not change the selection")
+        expect(model.modelOptions.count == 2, "resolved models should be exactly the concrete options given")
+        // "sonnet" isn't one of the resolved options, so nothing gets seeded.
+        expect(model.selectedModelOption == nil, "resolving with a default missing from the list should leave nothing selected")
 
         model.focusedField = .model
         model.handle(.right)
@@ -99,7 +102,25 @@ struct NewSessionLogicTests {
         model.handle(.left)
         expect(model.selectedModel == "opus", "left should cycle back")
         model.handle(.left)
-        expect(model.selectedModel.isEmpty, "left should return to the default entry")
+        expect(model.selectedModel.isEmpty, "left should return to nothing selected")
+    }
+
+    // New Session is a pure consumer of whatever Settings currently has
+    // configured: the field pre-fills with that default (when it's present
+    // in the resolved list) rather than starting unselected, though it can
+    // still be overridden for this one launch — the override never writes
+    // back to Settings.
+    private static func modelSelectSeedsOntoSettingsCurrentDefaultOnFirstResolveOnly() {
+        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        model.setModelOptions(
+            [SessionModelOption(id: "sonnet", label: "sonnet"), SessionModelOption(id: "opus", label: "opus")],
+            defaultModel: "sonnet"
+        )
+        expect(model.selectedModel == "sonnet", "New Session should pre-fill with Settings' current default")
+
+        model.focusedField = .model
+        model.handle(.right)
+        expect(model.selectedModel == "opus", "the pre-filled default can still be overridden for this one launch")
     }
 
     private static func modelSelectionSurvivesARefreshThatStillOffersIt() {
@@ -137,7 +158,7 @@ struct NewSessionLogicTests {
         model.handle(.right)
         expect(model.selectedAgent == "codex", "precondition: agent cycled")
         expect(model.selectedModel.isEmpty, "a claude model must not launch on codex")
-        expect(model.modelOptions.count == 1, "the stale list should be dropped with the agent")
+        expect(model.modelOptions.isEmpty, "the stale list should be dropped with the agent")
 
         model.setModelOptions([SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol")], defaultModel: "gpt-5.6-terra")
         model.focusedField = .model
@@ -161,7 +182,7 @@ struct NewSessionLogicTests {
             ],
             defaultModel: "sonnet"
         )
-        expect(model.modelOptions.count == 2, "a whitespace-only id should be dropped, not offered")
+        expect(model.modelOptions.count == 1, "a whitespace-only id should be dropped, not offered")
         expect(!model.modelOptions.contains(where: { $0.label == "blank" }), "the blank entry must not appear in the picker")
     }
 
@@ -185,34 +206,29 @@ struct NewSessionLogicTests {
         expect(model.selectedModel == "opus", "a no-op agent cycle must not drop the resolved model list")
     }
 
-    // Mirrors modelSelectStartsOnDefaultAndTakesResolvedOptions: the app owns
-    // exactly one effort entry — "default" — and receives the rest from the
-    // backend. Effort has no row of its own — cycleReasoningEffort() is
-    // bound to `e` while the Model field is focused — so it is exercised
-    // directly rather than through focus + left/right.
-    private static func effortSelectStartsOnDefaultAndTakesResolvedOptions() {
+    // Mirrors modelSelectStartsUnconfiguredAndTakesResolvedOptions. Effort has
+    // no row of its own — cycleReasoningEffort() is bound to `e` while the
+    // Model field is focused — so it is exercised directly rather than
+    // through focus + left/right.
+    private static func effortSelectStartsUnconfiguredAndTakesResolvedOptions() {
         var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
-        expect(model.effortOptions.count == 1, "the picker should start with only the default entry")
-        expect(model.selectedEffortOption.isDefault, "the default entry should be selected")
-        expect(model.selectedReasoningEffort.isEmpty, "the default entry should send no effort override")
+        expect(model.effortOptions.isEmpty, "the picker should start with no options at all")
+        expect(model.selectedEffortOption == nil, "nothing should be selected before anything resolves")
+        expect(model.selectedReasoningEffort.isEmpty, "an unconfigured picker should send no effort override")
         expect(model.submitPayload()?.reasoningEffort == "", "an untouched picker should not override the effort")
 
         model.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "xhigh")
-        // xhigh is both the applied default and a member of the supported
-        // list, so it must not appear a second time as a concrete entry.
-        expect(model.effortOptions.count == 5, "the level matching the default must not be repeated")
-        expect(model.effortOptions.first?.label == "xhigh", "the default entry should show the concrete applied level")
-        expect(model.selectedEffortOption.isDefault, "resolving should not change the selection")
+        expect(model.effortOptions.count == 5, "every supported level should be a plain, unfiltered option")
+        // "xhigh" is a resolved level here, so it seeds the selection.
+        expect(model.selectedReasoningEffort == "xhigh", "resolving onto a default present in the list should select it")
 
         model.cycleReasoningEffort()
-        expect(model.selectedReasoningEffort == "low", "cycling should select the first resolved level")
+        expect(model.selectedReasoningEffort == "max", "cycling from xhigh should reach the next resolved level")
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort.isEmpty, "cycling past the last level should wrap to nothing selected")
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort == "low", "cycling from nothing selected should reach the first resolved level")
         expect(model.submitPayload()?.reasoningEffort == "low", "a picked level should reach the payload")
-        model.cycleReasoningEffort()
-        model.cycleReasoningEffort()
-        model.cycleReasoningEffort()
-        expect(model.selectedReasoningEffort == "max", "cycling should reach the last resolved level")
-        model.cycleReasoningEffort()
-        expect(model.selectedReasoningEffort.isEmpty, "cycling past the last level should wrap to the default entry")
     }
 
     // Mirrors agentAndRoleChangesDropAnotherHarnessModel: valid effort levels
@@ -232,7 +248,7 @@ struct NewSessionLogicTests {
         model.handle(.right)
         expect(model.selectedAgent == "codex", "precondition: agent cycled")
         expect(model.selectedReasoningEffort.isEmpty, "a claude effort level must not launch on codex")
-        expect(model.effortOptions.count == 1, "the stale list should be dropped with the agent")
+        expect(model.effortOptions.isEmpty, "the stale list should be dropped with the agent")
 
         model.setEffortOptions(["minimal", "ultra"], defaultLevel: "xhigh")
         model.cycleReasoningEffort()

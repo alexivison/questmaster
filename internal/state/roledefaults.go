@@ -75,14 +75,20 @@ func (s *RoleDefaultsStore) Get(agent, role string) (RoleDefault, bool, error) {
 	return d, ok, nil
 }
 
-// Set records agent+role's default, stamping the change time. A def with
-// both fields empty clears the override so launches fall back to the
-// harness's own default. An empty agent or role is a no-op.
+// Set records agent+role's default, stamping the change time. There is no
+// implicit clear: a def with both fields empty is rejected rather than
+// deleting a persisted entry — Settings is the only source of a default, so
+// once configured, an agent+role's entry is replaced with a new concrete
+// value or left untouched, never removed through this call. An empty agent
+// or role is a no-op.
 func (s *RoleDefaultsStore) Set(agent, role string, def RoleDefault) error {
 	agent = strings.TrimSpace(agent)
 	role = strings.TrimSpace(role)
 	if agent == "" || role == "" {
 		return nil
+	}
+	if def.isEmpty() {
+		return fmt.Errorf("role default requires a model or reasoning effort")
 	}
 	return s.withLock(func() error {
 		m, err := s.loadFrom()
@@ -92,15 +98,10 @@ func (s *RoleDefaultsStore) Set(agent, role string, def RoleDefault) error {
 			}
 			m = map[string]RoleDefault{}
 		}
-		key := roleDefaultsKey(agent, role)
-		if def.isEmpty() {
-			delete(m, key)
-		} else {
-			def.Model = strings.TrimSpace(def.Model)
-			def.ReasoningEffort = strings.TrimSpace(def.ReasoningEffort)
-			def.UpdatedAt = NowColorStamp()
-			m[key] = def
-		}
+		def.Model = strings.TrimSpace(def.Model)
+		def.ReasoningEffort = strings.TrimSpace(def.ReasoningEffort)
+		def.UpdatedAt = NowColorStamp()
+		m[roleDefaultsKey(agent, role)] = def
 		return s.writeLocked(m)
 	})
 }

@@ -194,6 +194,9 @@ enum AppFonts {
     static let modalButtonLabel = NSFont.systemFont(ofSize: 12.5, weight: .semibold).serif
     /// Sectioned-list group titles (e.g. the repo name above a Tracker group).
     static let sectionTitle = NSFont.systemFont(ofSize: 11, weight: .semibold).serif
+    /// The Settings sheet's per-role group titles (Master/Standalone/Worker) —
+    /// a step up from `bodyBold` since each heads its own separator-ruled block.
+    static let settingsSectionTitle = NSFont.systemFont(ofSize: 14.5, weight: .semibold)
 }
 
 extension NSFont {

@@ -48,10 +48,11 @@ struct ContractFixtureTests {
         expect(models.models.first?.id == "opus", "models id did not decode")
         expect(models.models.first?.note == "alias · tracks Claude Opus 5", "models note did not decode")
         // The picker consumes the payload as SessionModelOption values, so the
-        // wire rows must map onto that type without loss.
+        // wire rows must map onto that type without loss — every option must
+        // be a real, concrete id, never the empty id that means "nothing
+        // selected" in the form's own selection state.
         let options = models.models.map { SessionModelOption(id: $0.id, label: $0.label, note: $0.note ?? "") }
-        let allResolved = options.allSatisfy({ option in !option.isDefault })
-        expect(allResolved, "resolved models must never masquerade as the default entry")
+        expect(options.allSatisfy { !$0.id.isEmpty }, "resolved models must never carry an empty id")
         expect(options.last?.label == "claude-opus-9-unreleased", "models label did not decode")
 
         let reasoningEfforts = try decodeFixture(ReasoningEffortsFixture.self, "reasoning_efforts_payload.json")
@@ -61,7 +62,7 @@ struct ContractFixtureTests {
         // The picker consumes the payload as SessionReasoningEffortOption
         // values, so the wire rows must map onto that type without loss.
         let effortOptions = reasoningEfforts.efforts.map { SessionReasoningEffortOption(id: $0, label: $0) }
-        expect(effortOptions.allSatisfy({ !$0.isDefault }), "resolved effort levels must never masquerade as the default entry")
+        expect(effortOptions.allSatisfy { !$0.id.isEmpty }, "resolved effort levels must never carry an empty id")
     }
 
     private static func envelopeFixturesDecode() throws {

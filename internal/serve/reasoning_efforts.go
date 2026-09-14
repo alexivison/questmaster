@@ -20,8 +20,9 @@ type reasoningEffortsPayload struct {
 }
 
 // ReasoningEffortSuggestions is the reasoning-effort picker's wire shape: the
-// levels an agent, role and model accept, and the level applied when no
-// --reasoning-effort override is given.
+// levels an agent, role and model accept, and the persisted role-defaults
+// override level, or "" when nothing is configured for this agent+role —
+// Settings is the only source of a default.
 type ReasoningEffortSuggestions struct {
 	Agent   string   `json:"agent"`
 	Role    string   `json:"role"`
@@ -33,9 +34,8 @@ type ReasoningEffortSuggestions struct {
 // selectable --reasoning-effort levels for one agent, role and model. Like the
 // models topic, it is advisory — start and spawn accept any level the harness
 // understands, listed or not. Unlike models, resolving it never touches the
-// network or a subprocess: agent.SupportedReasoningEfforts and
-// agent.DefaultReasoningEffortFor are both pure lookups, so there is no cache
-// to bypass and no refresh flag.
+// network or a subprocess: agent.SupportedReasoningEfforts is a pure lookup,
+// so there is no cache to bypass and no refresh flag.
 func (s *Server) reasoningEfforts(req Request) (any, error) {
 	payload, err := decodeReasoningEffortsPayload(req.Data)
 	if err != nil {
@@ -52,16 +52,33 @@ func (s *Server) reasoningEfforts(req Request) (any, error) {
 	if s.Snapshotter != nil {
 		root = s.Snapshotter.StateRoot()
 	}
-	defaultEffort := agent.DefaultReasoningEffortFor(agentName, role)
-	if def, ok, _ := state.NewRoleDefaultsStore(root).Get(agentName, agent.RoleDefaultsKey(role)); ok && def.ReasoningEffort != "" {
+	def, hasDefault, _ := state.NewRoleDefaultsStore(root).Get(agentName, agent.RoleDefaultsKey(role))
+
+	defaultEffort := ""
+	if hasDefault {
 		defaultEffort = def.ReasoningEffort
+	}
+
+	// The Settings sheet resolves a row's model and its reasoning-effort
+	// levels in parallel, so the first ever request for a row arrives before
+	// the client knows what model is actually in effect and sends "". An
+	// empty model must not be read as "nothing configured" in that case: a
+	// persisted model override can support levels an empty model's baseline
+	// does not (e.g. codex's "max" is only valid for gpt-5.6-* models), and
+	// computing Efforts against the wrong model would silently drop that
+	// override from the selectable list. Resolve the same way session.Start
+	// does: caller's model, else the persisted override's model, else
+	// genuinely unknown (empty — there is no further fallback).
+	effectiveModel := strings.TrimSpace(payload.Model)
+	if effectiveModel == "" && hasDefault {
+		effectiveModel = def.Model
 	}
 
 	return ReasoningEffortSuggestions{
 		Agent:   agentName,
 		Role:    modelsuggest.RoleName(role),
 		Default: defaultEffort,
-		Efforts: agent.SupportedReasoningEfforts(agentName, strings.TrimSpace(payload.Model)),
+		Efforts: agent.SupportedReasoningEfforts(agentName, effectiveModel),
 	}, nil
 }
 

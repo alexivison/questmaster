@@ -2,19 +2,13 @@ package agent
 
 import "strings"
 
-// ModelPolicy is a harness's declared model story: the role default models it
-// launches with, and where a dynamic list of selectable models comes from.
-//
-// It exists so that adding a model — or a whole new model family — never means
-// editing Questmaster. The role defaults are the only model ids baked into the
-// binary; everything offered as a choice is resolved at runtime from the
-// catalog sources below (and, for harnesses that can enumerate their own
+// ModelPolicy is a harness's declared model story: where a dynamic list of
+// selectable models comes from. There is no baked-in default model — the
+// persisted role-defaults store (configured in Settings) is the only source
+// of a default; everything offered as a choice is resolved at runtime from
+// the catalog sources below (and, for harnesses that can enumerate their own
 // models, from the harness itself).
 type ModelPolicy struct {
-	// Worker is the default model for worker and standalone sessions.
-	Worker string
-	// Master is the default model for master sessions.
-	Master string
 	// Sources map catalog providers onto the model strings this harness
 	// accepts. Order is presentation order.
 	Sources []ModelSource
@@ -46,27 +40,18 @@ func ModelPolicyOf(name string) ModelPolicy {
 	return specsByName[name].Models
 }
 
-// DefaultModelFor returns the model a *freshly-constructed default* instance
-// of the named agent launches with for a role when no override is given. It
-// reflects only the harness's static ModelPolicy — it cannot see instance-level
-// state a specific Agent value's BuildCmd might also consult (OpenCode's
-// configured-model override for standalone). Prefer Agent.DefaultModel when an
-// actual instance is available (e.g. via agent.Resolve); this free function
-// exists for callers that only have a bare agent name, such as
-// `questmaster models` and the wire-contract fallback in modelsuggest.
-func DefaultModelFor(name string, role SessionRole) string {
-	policy := ModelPolicyOf(name)
-	return resolveModel(CmdOpts{Role: role}, policy.Worker, policy.Master)
-}
-
-// RoleDefaultsKey collapses a session role to the two buckets the persisted
-// role-defaults store keys on: everything but master shares the worker tier,
-// mirroring resolveModel's own master-vs-everything-else convention.
+// RoleDefaultsKey maps a session role to its own bucket in the persisted
+// role-defaults store: standalone, master and worker each persist an
+// independent default.
 func RoleDefaultsKey(role SessionRole) string {
-	if role == RoleMaster {
+	switch role {
+	case RoleMaster:
 		return "master"
+	case RoleWorker:
+		return "worker"
+	default:
+		return "standalone"
 	}
-	return "worker"
 }
 
 // FamilyAlias reduces a models.dev family to the short alias a harness

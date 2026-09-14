@@ -10,14 +10,10 @@ import (
 )
 
 const (
-	defaultOpenCodeModel = "opencode/big-pickle"
-
 	// --variant is exposed by OpenCode 1.17.15+ through `opencode run
 	// --interactive`, its direct interactive split-footer mode. It keeps the
 	// configured role agent and plugin bridge without shared-state mutation.
 	openCodeReasoningMinVersion = "1.17.15"
-	openCodeWorkerGPTModel      = "openai/gpt-5.6-terra"
-	openCodeMasterGPTModel      = "openai/gpt-5.6-sol"
 
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.
@@ -38,8 +34,6 @@ var openCodeSpec = Spec{
 	FallbackPath:   "/opt/homebrew/bin/opencode",
 	State:          StatePlugin,
 	Models: ModelPolicy{
-		Worker: openCodeWorkerGPTModel,
-		Master: openCodeMasterGPTModel,
 		// OpenCode takes provider-qualified ids and can enumerate the
 		// providers the user actually configured, so these catalog sources
 		// are only the fallback for when `opencode models` cannot run.
@@ -86,19 +80,13 @@ func ValidateOpenCodeReasoningVersion(binary string) error {
 // names installed by hooks.OpenCodeInstaller.
 type OpenCode struct {
 	base
-	model         string
 	openCodeAgent string
 }
 
 // NewOpenCode constructs an OpenCode provider from config.
 func NewOpenCode(cfg AgentConfig) *OpenCode {
-	model := cfg.Model
-	if model == "" {
-		model = defaultOpenCodeModel
-	}
 	return &OpenCode{
 		base:          newBase(openCodeSpec, cfg),
-		model:         model,
 		openCodeAgent: cfg.OpenCodeAgent,
 	}
 }
@@ -109,25 +97,14 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		binary = o.Binary()
 	}
 
-	// Precedence: explicit override > role default with
-	// one opencode-specific twist: standalone honors an explicitly-configured
-	// model. opencode's --model is required, so standalone uses the worker tier
-	// by default; a user's custom AgentConfig.Model (anything other than the
-	// baked-in big-pickle default) still pins standalone.
-	isResumingExistingSession := opts.Continuing && opts.ResumeID != ""
-	model := resolveModel(opts, o.spec.Models.Worker, o.spec.Models.Master)
-	if !isResumingExistingSession && opts.Role == RoleStandalone && opts.Model == "" && o.model != "" && o.model != defaultOpenCodeModel {
-		model = o.model
-	}
-
 	cmd := fmt.Sprintf("export PATH=%s; exec %s",
 		config.ShellQuote(opts.AgentPath),
 		config.ShellQuote(binary))
 	if opts.ReasoningEffort != "" {
 		cmd += " run --interactive"
 	}
-	if model != "" {
-		cmd += " --model " + config.ShellQuote(model)
+	if opts.Model != "" {
+		cmd += " --model " + config.ShellQuote(opts.Model)
 	}
 	cmd += " --agent " + config.ShellQuote(o.agentName(opts.Role))
 	if opts.ReasoningEffort != "" {
@@ -148,18 +125,6 @@ func (o *OpenCode) BuildCmd(opts CmdOpts) string {
 		}
 	}
 	return cmd
-}
-
-// DefaultModel overrides base to mirror BuildCmd's standalone quirk: a
-// non-default configured model still pins standalone even though the
-// package-level ModelPolicy only declares the worker/master tiers. Keeping
-// this in sync with BuildCmd's condition (rather than duplicating the model
-// resolution independently) is what keeps the two from silently diverging.
-func (o *OpenCode) DefaultModel(role SessionRole) string {
-	if role == RoleStandalone && o.model != "" && o.model != defaultOpenCodeModel {
-		return o.model
-	}
-	return o.base.DefaultModel(role)
 }
 
 func (o *OpenCode) agentName(role SessionRole) string {

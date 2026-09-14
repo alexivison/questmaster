@@ -25,10 +25,12 @@ public enum NewSessionField: CaseIterable, Equatable, Hashable {
 
 /// One entry in the model select.
 ///
-/// The options are pushed in from the serve `models` topic rather than declared
-/// here: the app must never carry a model list, or a newly released model would
-/// need an app release. `defaultOption` is the only entry the app owns, and it
-/// means "leave the harness's role default alone".
+/// The options are pushed in from the serve `models` topic rather than
+/// declared here: the app must never carry a model list, or a newly released
+/// model would need an app release. There is no synthetic "default" entry —
+/// every option is a real, concrete id; "nothing selected" is a fact about
+/// the form's selection state (see `NewSessionFormModel.selectedModelIndex`),
+/// not a member of this list.
 public struct SessionModelOption: Equatable {
     public let id: String
     public let label: String
@@ -39,26 +41,13 @@ public struct SessionModelOption: Equatable {
         self.label = label
         self.note = note
     }
-
-    /// The default entry. Its label is the role default the backend reports
-    /// (e.g. "claude-sonnet-5") so the picker shows what will actually launch;
-    /// before that is known it falls back to the literal "default".
-    public static func defaultOption(note: String = "") -> SessionModelOption {
-        SessionModelOption(id: "", label: note.isEmpty ? "default" : note, note: note)
-    }
-
-    public var isDefault: Bool {
-        id.isEmpty
-    }
 }
 
 /// One entry in the reasoning-effort select.
 ///
 /// Levels come from the serve `reasoning_efforts` topic rather than being
 /// declared here, same as `SessionModelOption` — the valid set differs per
-/// harness and, for Codex/OpenCode, per model. `defaultOption` means "no
-/// --reasoning-effort override", and shows the level the harness applies on
-/// its own once the backend reports one.
+/// harness and, for Codex/OpenCode, per model.
 public struct SessionReasoningEffortOption: Equatable {
     public let id: String
     public let label: String
@@ -66,14 +55,6 @@ public struct SessionReasoningEffortOption: Equatable {
     public init(id: String, label: String) {
         self.id = id
         self.label = label
-    }
-
-    public static func defaultOption(_ appliedLevel: String = "") -> SessionReasoningEffortOption {
-        SessionReasoningEffortOption(id: "", label: appliedLevel.isEmpty ? "default" : appliedLevel)
-    }
-
-    public var isDefault: Bool {
-        id.isEmpty
     }
 }
 
@@ -100,10 +81,13 @@ public struct NewSessionSubmitPayload: Equatable {
     public let path: String
     public let title: String?
     public let agent: String
-    /// Empty means "no override": the harness applies its role default.
+    /// Empty means "no override for this launch": whatever Settings has
+    /// configured for this agent+role applies, or nothing if Settings has
+    /// nothing configured either.
     public let model: String
-    /// Empty means "no override": the harness applies its own reasoning-effort
-    /// default (or, for OpenCode with no override, none at all).
+    /// Empty means "no override for this launch": whatever Settings has
+    /// configured for this agent+role applies, or nothing if Settings has
+    /// nothing configured either.
     public let reasoningEffort: String
     public let color: String
     public let prompt: String?
@@ -133,8 +117,16 @@ public struct NewSessionFormModel: Equatable {
     public private(set) var effortOptions: [SessionReasoningEffortOption]
     public private(set) var selectedAgentIndex: Int
     public private(set) var selectedColorIndex: Int
-    public private(set) var selectedModelIndex: Int
-    public private(set) var selectedEffortIndex: Int
+    /// Nil means nothing is selected — no override for this launch, whatever
+    /// Settings has configured for this agent+role applies.
+    public private(set) var selectedModelIndex: Int?
+    public private(set) var selectedEffortIndex: Int?
+    /// False until `setModelOptions`/`setEffortOptions` first resolves this
+    /// agent+role's real list — first resolve pre-selects Settings' current
+    /// default (if any); a later re-resolve (agent/role change) instead
+    /// preserves whatever is currently selected.
+    private var hasResolvedModelOptions = false
+    private var hasResolvedEffortOptions = false
 
     public init(
         role: NewSessionRole,
@@ -155,12 +147,12 @@ public struct NewSessionFormModel: Equatable {
         errorMessage = nil
         self.agents = agents.isEmpty ? NewSessionFormModel.defaultAgents : agents
         self.colors = colors.isEmpty ? NewSessionFormModel.defaultColors : colors
-        modelOptions = [.defaultOption()]
-        effortOptions = [.defaultOption()]
+        modelOptions = []
+        effortOptions = []
         selectedAgentIndex = 0
         selectedColorIndex = Self.colorIndex(for: initialColor, in: self.colors)
-        selectedModelIndex = 0
-        selectedEffortIndex = 0
+        selectedModelIndex = nil
+        selectedEffortIndex = nil
     }
 
     public var selectedAgent: String {
@@ -175,23 +167,22 @@ public struct NewSessionFormModel: Equatable {
         selectedColor.isEmpty ? Self.noColorLabel : selectedColor
     }
 
-    /// The selected model id, empty when the default entry is selected.
+    /// The selected model id, empty when nothing is selected.
     public var selectedModel: String {
-        selectedModelOption.isDefault ? "" : selectedModelOption.id
+        selectedModelOption?.id ?? ""
     }
 
-    public var selectedModelOption: SessionModelOption {
-        value(at: selectedModelIndex, in: modelOptions) ?? .defaultOption()
+    public var selectedModelOption: SessionModelOption? {
+        selectedModelIndex.flatMap { value(at: $0, in: modelOptions) }
     }
 
-    /// The selected reasoning-effort level, empty when the default entry is
-    /// selected.
+    /// The selected reasoning-effort level, empty when nothing is selected.
     public var selectedReasoningEffort: String {
-        selectedEffortOption.isDefault ? "" : selectedEffortOption.id
+        selectedEffortOption?.id ?? ""
     }
 
-    public var selectedEffortOption: SessionReasoningEffortOption {
-        value(at: selectedEffortIndex, in: effortOptions) ?? .defaultOption()
+    public var selectedEffortOption: SessionReasoningEffortOption? {
+        selectedEffortIndex.flatMap { value(at: $0, in: effortOptions) }
     }
 
     public mutating func setRole(_ role: NewSessionRole) {
@@ -206,60 +197,60 @@ public struct NewSessionFormModel: Equatable {
     }
 
     /// Replaces the model list with what the backend resolved for the current
-    /// agent and role. A selection the user already made survives the refresh
-    /// when the new list still offers it.
+    /// agent and role. On the very first resolve for this agent+role, the
+    /// selection seeds onto `defaultModel` (whatever Settings currently has
+    /// configured, if anything) directly. A later re-resolve (the effort list
+    /// refetching after the user changes the model) instead preserves
+    /// whatever is currently selected, so an in-progress choice survives.
     public mutating func setModelOptions(_ models: [SessionModelOption], defaultModel: String = "") {
-        let previous = selectedModel
-        var options: [SessionModelOption] = [.defaultOption(note: defaultModel)]
-        for model in models {
-            // A whitespace-only id would otherwise render as "selected" while
-            // MutationRequests.start's trimming silently treats it as unset
-            // at submit time — drop it here so the picker never shows a
-            // selection that launches on the default anyway. This also
-            // subsumes filtering out any backend entry masquerading as the
-            // default (isDefault is exactly the empty-id case).
-            guard !model.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
-            options.append(model)
+        let firstResolve = !hasResolvedModelOptions
+        let previousID = selectedModelOption?.id
+        // A whitespace-only id would otherwise render as "selected" while
+        // MutationRequests.start's trimming silently treats it as unset at
+        // submit time — drop it here so the picker never shows a selection
+        // that launches without an override anyway.
+        modelOptions = models.filter { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if firstResolve {
+            selectedModelIndex = defaultModel.isEmpty ? nil : modelOptions.firstIndex(where: { $0.id == defaultModel })
+        } else {
+            selectedModelIndex = previousID.flatMap { id in modelOptions.firstIndex(where: { $0.id == id }) }
         }
-        modelOptions = options
-        selectedModelIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+        hasResolvedModelOptions = true
     }
 
-    /// Drops back to the lone default entry, for when the resolved list stops
-    /// applying (the agent or role changed) or a fetch failed.
+    /// Drops back to an empty, unresolved list, for when the resolved list
+    /// stops applying (the agent or role changed) or a fetch failed — the
+    /// next `setModelOptions` call is then treated as a fresh first resolve.
     public mutating func resetModelOptions() {
-        modelOptions = [.defaultOption()]
-        selectedModelIndex = 0
+        modelOptions = []
+        selectedModelIndex = nil
+        hasResolvedModelOptions = false
     }
 
     /// Replaces the reasoning-effort list with what the backend resolved for
-    /// the current agent, role and model. Mirrors setModelOptions: a selection
-    /// the user already made survives the refresh when the new list still
-    /// offers it. The applied default level is always a member of the
-    /// harness's own supported-levels list, so it is dropped from the concrete
-    /// entries here — otherwise it would show up twice, once as the default
-    /// entry and once more as an identically-named concrete pick.
+    /// the current agent, role and model. Mirrors `setModelOptions`'s
+    /// first-resolve seeding.
     public mutating func setEffortOptions(_ levels: [String], defaultLevel: String = "") {
-        let previous = selectedReasoningEffort
-        var options: [SessionReasoningEffortOption] = [.defaultOption(defaultLevel)]
-        for level in levels {
+        let firstResolve = !hasResolvedEffortOptions
+        let previousID = selectedEffortOption?.id
+        effortOptions = levels.compactMap { level in
             let trimmed = level.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed != defaultLevel else {
-                continue
-            }
-            options.append(SessionReasoningEffortOption(id: trimmed, label: trimmed))
+            return trimmed.isEmpty ? nil : SessionReasoningEffortOption(id: trimmed, label: trimmed)
         }
-        effortOptions = options
-        selectedEffortIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+        if firstResolve {
+            selectedEffortIndex = defaultLevel.isEmpty ? nil : effortOptions.firstIndex(where: { $0.id == defaultLevel })
+        } else {
+            selectedEffortIndex = previousID.flatMap { id in effortOptions.firstIndex(where: { $0.id == id }) }
+        }
+        hasResolvedEffortOptions = true
     }
 
-    /// Drops back to the lone default entry, for when the resolved list stops
-    /// applying (the agent, role or model changed) or a fetch failed.
+    /// Drops back to an empty, unresolved list, for when the resolved list
+    /// stops applying (the agent, role or model changed) or a fetch failed.
     public mutating func resetEffortOptions() {
-        effortOptions = [.defaultOption()]
-        selectedEffortIndex = 0
+        effortOptions = []
+        selectedEffortIndex = nil
+        hasResolvedEffortOptions = false
     }
 
     /// Cycles the reasoning-effort selection independent of focus — bound to
@@ -269,7 +260,7 @@ public struct NewSessionFormModel: Equatable {
         guard !submitting else {
             return
         }
-        selectedEffortIndex = wrapped(selectedEffortIndex + 1, count: effortOptions.count)
+        selectedEffortIndex = cycleOptionalIndex(selectedEffortIndex, delta: 1, count: effortOptions.count)
     }
 
     public mutating func handle(_ key: NewSessionFormKey) {
@@ -393,7 +384,7 @@ public struct NewSessionFormModel: Equatable {
                 resetEffortOptions()
             }
         case .model:
-            selectedModelIndex = wrapped(selectedModelIndex + delta, count: modelOptions.count)
+            selectedModelIndex = cycleOptionalIndex(selectedModelIndex, delta: delta, count: modelOptions.count)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
         case .role:
@@ -439,4 +430,16 @@ private func wrapped(_ index: Int, count: Int) -> Int {
         return 0
     }
     return index
+}
+
+/// Cycles among `count` real options plus a virtual "nothing selected" slot,
+/// wrapping. The virtual slot sits last, after every real option, and always
+/// maps to `nil` — New Session never gates it off (unlike Settings' own
+/// `RoleDefaultRow`), since deferring to whatever Settings currently has
+/// configured (or nothing) is always a legitimate choice for a one-shot
+/// launch.
+private func cycleOptionalIndex(_ current: Int?, delta: Int, count: Int) -> Int? {
+    let currentSlot = current ?? count
+    let next = wrapped(currentSlot + delta, count: count + 1)
+    return next < count ? next : nil
 }

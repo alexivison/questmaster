@@ -115,11 +115,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 						}
 					}
 				}
-				validationModel := resolvedModel
-				if validationModel == "" {
-					validationModel = agent.DefaultModelFor(binding.Agent.Name(), agentRole)
-				}
-				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), validationModel, resolvedReasoningEffort); err != nil {
+				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), resolvedModel, resolvedReasoningEffort); err != nil {
 					return StartResult{}, err
 				}
 			}

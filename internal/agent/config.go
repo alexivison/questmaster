@@ -9,7 +9,6 @@ type Config struct {
 // AgentConfig describes one configured agent provider.
 type AgentConfig struct {
 	CLI           string `toml:"cli"`
-	Model         string `toml:"model"`
 	OpenCodeAgent string `toml:"opencode_agent"`
 }
 

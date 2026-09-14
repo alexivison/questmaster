@@ -37,12 +37,6 @@ type Agent interface {
 	MasterPrompt() string
 	StandalonePrompt() string
 	WorkerPrompt() string
-	// DefaultModel returns the model this specific instance launches with for
-	// role when no override is given — the same value BuildCmd applies. Unlike
-	// the package-level DefaultModelFor (which only knows a harness's static
-	// ModelPolicy), this can account for instance-level state BuildCmd
-	// consults, such as OpenCode's configured-model override for standalone.
-	DefaultModel(role SessionRole) string
 
 	FilterPaneLines(raw string, max int) []string
 
@@ -68,11 +62,12 @@ type CmdOpts struct {
 	// Continuing reopens an existing Questmaster session. Providers leave model
 	// selection to the native conversation unless Model explicitly overrides it.
 	Continuing bool
-	// Model is an explicit per-spawn model override. When empty, new sessions
-	// apply their role default through resolveModel.
+	// Model is an explicit per-spawn model override. When empty, no --model
+	// flag is passed and the harness applies its own behavior.
 	Model string
 	// ReasoningEffort is an explicit per-spawn reasoning override. When empty,
-	// providers retain their hardcoded role default.
+	// no reasoning-effort flag is passed and the harness applies its own
+	// behavior.
 	ReasoningEffort string
 }
 
@@ -127,26 +122,6 @@ func SupportedReasoningEfforts(provider, model string) []string {
 	return splitReasoningEfforts(supported)
 }
 
-// DefaultReasoningEffortFor returns the reasoning-effort level a freshly-built
-// instance of provider applies for role when no --reasoning-effort override is
-// given. OpenCode (and any unrecognized provider) passes no effort flag at all
-// in that case, so it returns "".
-func DefaultReasoningEffortFor(provider string, role SessionRole) string {
-	switch provider {
-	case "claude":
-		return claudeDefaultReasoningEffort
-	case "codex":
-		if role == RoleMaster {
-			return codexMasterReasoning
-		}
-		return codexWorkerReasoning
-	case "pi":
-		return piDefaultReasoningEffort
-	default:
-		return ""
-	}
-}
-
 func splitReasoningEfforts(supported string) []string {
 	if supported == "" {
 		return nil
@@ -155,9 +130,6 @@ func splitReasoningEfforts(supported string) []string {
 }
 
 func supportedOpenCodeReasoningEfforts(model string) string {
-	if model == "" {
-		model = openCodeWorkerGPTModel
-	}
 	provider, _, ok := strings.Cut(strings.ToLower(model), "/")
 	if !ok {
 		return ""
@@ -166,22 +138,6 @@ func supportedOpenCodeReasoningEfforts(model string) string {
 		"openai":    "off,none,minimal,low,medium,high,xhigh",
 		"anthropic": "high,max",
 	}[provider]
-}
-
-// resolveModel applies the per-role model policy: an explicit opts.Model
-// override always wins; otherwise master gets masterDefault and worker/
-// standalone get workerDefault.
-func resolveModel(opts CmdOpts, workerDefault, masterDefault string) string {
-	if opts.Model != "" {
-		return opts.Model
-	}
-	if opts.Continuing && opts.ResumeID != "" {
-		return ""
-	}
-	if opts.Role == RoleMaster {
-		return masterDefault
-	}
-	return workerDefault
 }
 
 func joinSystemPrompt(base, brief string) string {

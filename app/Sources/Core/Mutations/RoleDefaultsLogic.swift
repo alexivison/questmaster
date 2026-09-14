@@ -2,89 +2,152 @@ import Foundation
 
 /// One Settings row: the persisted default model and reasoning effort for one
 /// agent+role pair. Reuses `SessionModelOption`/`SessionReasoningEffortOption`
-/// from the New Session sheet — the "default" entry (empty id) means the same
-/// thing here as there: no override, the harness's own default applies.
+/// from the New Session sheet. Unlike New Session, "not configured" here is a
+/// one-way door: a row that starts unconfigured can be given a real value, but
+/// a row that already has one can never be cycled back to unconfigured —
+/// Settings is the sole source of a default, and the persisted store itself
+/// rejects an attempt to clear an existing entry (see
+/// `role_default.set`/`RoleDefaultsStore.Set`).
 public struct RoleDefaultRow: Equatable {
     public let agent: String
-    public let role: String // "worker" or "master"
+    public let role: String // "master", "standalone" or "worker"
 
     public private(set) var modelOptions: [SessionModelOption]
-    public private(set) var selectedModelIndex: Int
+    public private(set) var selectedModelIndex: Int?
     public private(set) var effortOptions: [SessionReasoningEffortOption]
-    public private(set) var selectedEffortIndex: Int
+    public private(set) var selectedEffortIndex: Int?
     /// False until `setModelOptions`/`setEffortOptions` first resolves this
     /// row's real list — the sheet shows a skeleton in place of the select
-    /// control until then, rather than the placeholder "default" entry.
+    /// control until then.
     public private(set) var hasResolvedModelOptions = false
     public private(set) var hasResolvedEffortOptions = false
+
+    /// Set once, at first resolve: whether "not configured" is still a
+    /// reachable cycle position for this field. False the moment a persisted
+    /// default is found — there is no going back to unconfigured from there.
+    private var canReturnToNotConfiguredModel = true
+    private var canReturnToNotConfiguredEffort = true
+    /// The selection as of the last successful save (or the first resolve,
+    /// before anything is saved) — `isDirty` diffs the live selection against
+    /// this baseline so `confirm()` only resends rows that actually changed.
+    private var savedModelIndexAtResolve: Int?
+    private var savedEffortIndexAtResolve: Int?
 
     public init(agent: String, role: String) {
         self.agent = agent
         self.role = role
-        modelOptions = [.defaultOption()]
-        selectedModelIndex = 0
-        effortOptions = [.defaultOption()]
-        selectedEffortIndex = 0
+        modelOptions = []
+        selectedModelIndex = nil
+        effortOptions = []
+        selectedEffortIndex = nil
     }
 
-    public var selectedModelOption: SessionModelOption {
-        modelOptions.indices.contains(selectedModelIndex) ? modelOptions[selectedModelIndex] : .defaultOption()
+    public var selectedModelOption: SessionModelOption? {
+        selectedModelIndex.flatMap { roleDefaultsValue(at: $0, in: modelOptions) }
     }
 
-    /// The selected model id, empty when the default entry is selected —
-    /// what `role_default.set` sends to clear the override.
+    /// The selected model id, empty when nothing is selected.
     public var selectedModel: String {
-        selectedModelOption.isDefault ? "" : selectedModelOption.id
+        selectedModelOption?.id ?? ""
     }
 
-    public var selectedEffortOption: SessionReasoningEffortOption {
-        effortOptions.indices.contains(selectedEffortIndex) ? effortOptions[selectedEffortIndex] : .defaultOption()
+    public var selectedEffortOption: SessionReasoningEffortOption? {
+        selectedEffortIndex.flatMap { roleDefaultsValue(at: $0, in: effortOptions) }
     }
 
-    /// The selected reasoning-effort level, empty when the default entry is
-    /// selected.
+    /// The selected reasoning-effort level, empty when nothing is selected.
     public var selectedReasoningEffort: String {
-        selectedEffortOption.isDefault ? "" : selectedEffortOption.id
+        selectedEffortOption?.id ?? ""
+    }
+
+    /// Whether the model selection has changed since it was last saved (or
+    /// since the row's first resolve, if never saved).
+    public var isModelDirty: Bool {
+        hasResolvedModelOptions && selectedModelIndex != savedModelIndexAtResolve
+    }
+
+    /// Whether the effort selection has changed since it was last saved (or
+    /// since the row's first resolve, if never saved).
+    public var isEffortDirty: Bool {
+        hasResolvedEffortOptions && selectedEffortIndex != savedEffortIndexAtResolve
+    }
+
+    /// Whether this row has any unsaved change — `confirm()` only sends rows
+    /// where this is true, so an untouched row (configured or not) is never
+    /// resent and can never be silently cleared or recreated.
+    public var isDirty: Bool {
+        isModelDirty || isEffortDirty
     }
 
     /// Replaces the model list with what the backend resolved for this row's
-    /// agent and role. A selection already made survives the refresh when the
-    /// new list still offers it. Mirrors `NewSessionFormModel.setModelOptions`.
+    /// agent and role. On the very first resolve, the selection seeds onto
+    /// `defaultModel` (the persisted override, if any) directly — the value
+    /// shown in the picker IS the default, with no separate placeholder
+    /// entry. A later re-resolve (e.g. after the user changes the model and
+    /// the effort list refetches) preserves whatever is currently selected
+    /// instead, so an in-progress edit never gets discarded.
     public mutating func setModelOptions(_ models: [SessionModelOption], defaultModel: String) {
-        let previous = selectedModel
-        var options: [SessionModelOption] = [.defaultOption(note: defaultModel)]
-        for model in models where !model.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            options.append(model)
+        let firstResolve = !hasResolvedModelOptions
+        let previousID = selectedModelOption?.id
+        modelOptions = models.filter { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if firstResolve {
+            let foundIndex = defaultModel.isEmpty ? nil : modelOptions.firstIndex(where: { $0.id == defaultModel })
+            // Gate on whether a default was actually found and selected, not
+            // just on whether the backend reported a non-empty string: if a
+            // persisted default's id is somehow missing from the resolved
+            // list, the row still displays (and behaves) as unconfigured
+            // rather than getting silently locked out of "not configured".
+            selectedModelIndex = foundIndex
+            canReturnToNotConfiguredModel = foundIndex == nil
+            savedModelIndexAtResolve = selectedModelIndex
+        } else {
+            selectedModelIndex = previousID.flatMap { id in modelOptions.firstIndex(where: { $0.id == id }) }
         }
-        modelOptions = options
-        selectedModelIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
         hasResolvedModelOptions = true
     }
 
     /// Replaces the reasoning-effort list with what the backend resolved for
     /// this row's agent, role and currently selected model. Mirrors
-    /// `NewSessionFormModel.setEffortOptions`.
+    /// `setModelOptions`'s first-resolve seeding.
     public mutating func setEffortOptions(_ levels: [String], defaultLevel: String) {
-        let previous = selectedReasoningEffort
-        var options: [SessionReasoningEffortOption] = [.defaultOption(defaultLevel)]
-        for level in levels {
+        let firstResolve = !hasResolvedEffortOptions
+        let previousID = selectedEffortOption?.id
+        effortOptions = levels.compactMap { level in
             let trimmed = level.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed != defaultLevel else {
-                continue
-            }
-            options.append(SessionReasoningEffortOption(id: trimmed, label: trimmed))
+            return trimmed.isEmpty ? nil : SessionReasoningEffortOption(id: trimmed, label: trimmed)
         }
-        effortOptions = options
-        selectedEffortIndex = options.firstIndex(where: { $0.id == previous }) ?? 0
+        if firstResolve {
+            let foundIndex = defaultLevel.isEmpty ? nil : effortOptions.firstIndex(where: { $0.id == defaultLevel })
+            selectedEffortIndex = foundIndex
+            canReturnToNotConfiguredEffort = foundIndex == nil
+            savedEffortIndexAtResolve = selectedEffortIndex
+        } else {
+            selectedEffortIndex = previousID.flatMap { id in effortOptions.firstIndex(where: { $0.id == id }) }
+        }
         hasResolvedEffortOptions = true
     }
 
     public mutating func cycleModel(_ delta: Int) {
-        selectedModelIndex = roleDefaultsWrapped(selectedModelIndex + delta, count: modelOptions.count)
+        selectedModelIndex = roleDefaultsCycleOptional(
+            selectedModelIndex, delta: delta, count: modelOptions.count, canReturnToNotConfigured: canReturnToNotConfiguredModel
+        )
     }
 
     public mutating func cycleEffort(_ delta: Int) {
-        selectedEffortIndex = roleDefaultsWrapped(selectedEffortIndex + delta, count: effortOptions.count)
+        selectedEffortIndex = roleDefaultsCycleOptional(
+            selectedEffortIndex, delta: delta, count: effortOptions.count, canReturnToNotConfigured: canReturnToNotConfiguredEffort
+        )
+    }
+
+    /// Marks the values actually persisted by a `role_default.set` save as
+    /// the new saved baseline. Takes the values that were sent — not the
+    /// row's current live selection — because the user can keep editing
+    /// while that save is still in flight; baselining the live selection
+    /// would silently mark a newer, never-sent edit as "already saved" the
+    /// instant the earlier save's ack arrives.
+    public mutating func markSaved(model: String, reasoningEffort: String) {
+        savedModelIndexAtResolve = model.isEmpty ? nil : modelOptions.firstIndex(where: { $0.id == model })
+        savedEffortIndexAtResolve = reasoningEffort.isEmpty ? nil : effortOptions.firstIndex(where: { $0.id == reasoningEffort })
     }
 }
 
@@ -95,11 +158,11 @@ public enum RoleDefaultField: Equatable {
 }
 
 /// Backs the Settings sheet's default-model/reasoning-effort table: one tab
-/// per agent, each showing that agent's Master and Worker rows, each with two
-/// independently focusable/cyclable controls (model, effort).
+/// per agent, each showing that agent's Master, Standalone and Worker rows,
+/// each with two independently focusable/cyclable controls (model, effort).
 public struct RoleDefaultsSettingsModel: Equatable {
     public static let defaultAgents = NewSessionFormModel.defaultAgents
-    public static let roles = ["master", "worker"]
+    public static let roles = ["master", "standalone", "worker"]
 
     public let agents: [String]
     public private(set) var rows: [RoleDefaultRow]
@@ -148,9 +211,18 @@ public struct RoleDefaultsSettingsModel: Equatable {
         rows[index].setEffortOptions(levels, defaultLevel: defaultLevel)
     }
 
-    /// Moves focus by `delta` steps across the active tab's 4 fields (master
-    /// model, master effort, worker model, worker effort) — wraps within the
-    /// tab. Switching tabs is `moveTab`'s job, not this one's.
+    /// Marks the values actually persisted by one row's `role_default.set`
+    /// save as its new saved baseline — call once that save actually lands.
+    public mutating func markSaved(agent: String, role: String, model: String, reasoningEffort: String) {
+        guard let index = index(agent: agent, role: role) else {
+            return
+        }
+        rows[index].markSaved(model: model, reasoningEffort: reasoningEffort)
+    }
+
+    /// Moves focus by `delta` steps across the active tab's fields (model and
+    /// effort for each role in `roles`, in order) — wraps within the tab.
+    /// Switching tabs is `moveTab`'s job, not this one's.
     public mutating func moveFocus(_ delta: Int) {
         let totalFields = Self.roles.count * 2
         let current = focusedRoleIndex * 2 + (focusedField == .model ? 0 : 1)
@@ -190,6 +262,28 @@ public struct RoleDefaultsSettingsModel: Equatable {
             rows[rowIndex].cycleEffort(delta)
         }
     }
+}
+
+private func roleDefaultsValue<T>(at index: Int, in values: [T]) -> T? {
+    guard values.indices.contains(index) else {
+        return nil
+    }
+    return values[index]
+}
+
+/// Cycles among `count` real options plus, only when `canReturnToNotConfigured`
+/// is true, a virtual "not configured" slot at the end, wrapping. Once a row
+/// starts with a persisted override, `canReturnToNotConfigured` is false and
+/// the virtual slot is entirely absent from the cycle — there is no way to
+/// pick a real value and then cycle back to "not configured" for that row.
+private func roleDefaultsCycleOptional(_ current: Int?, delta: Int, count: Int, canReturnToNotConfigured: Bool) -> Int? {
+    let slots = count + (canReturnToNotConfigured ? 1 : 0)
+    guard slots > 0 else {
+        return nil
+    }
+    let currentSlot = current ?? count
+    let next = roleDefaultsWrapped(currentSlot + delta, count: slots)
+    return next < count ? next : nil
 }
 
 private func roleDefaultsWrapped(_ index: Int, count: Int) -> Int {

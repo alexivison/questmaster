@@ -21,15 +21,17 @@ struct DirectorySuggestionResponse {
 }
 
 /// The serve `models` response: what the backend resolved for one agent and
-/// role, plus the role default it would apply on its own.
+/// role, plus the persisted role default (empty when nothing is configured —
+/// Settings is the sole source of a default, so there is no other value to
+/// fall back to).
 struct ModelSuggestionResponse {
     let models: [SessionModelOption]
     let defaultModel: String
 }
 
 /// The serve `reasoning_efforts` response: the levels one agent/role/model
-/// accepts, plus the level the harness applies on its own (empty when it
-/// forces none, like OpenCode with no override).
+/// accepts, plus the persisted default level (empty when nothing is
+/// configured).
 struct ReasoningEffortSuggestionResponse {
     let efforts: [String]
     let defaultEffort: String
