@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,18 +51,9 @@ func TestModelsCmdJSONReportsRoleDefault(t *testing.T) {
 	if got.Default != "opus" {
 		t.Errorf("default = %q, want the persisted role default opus", got.Default)
 	}
-	if !modelIDPresent(got.Models, "opus") {
+	if !slices.ContainsFunc(got.Models, func(m modelsuggest.Model) bool { return m.ID == "opus" }) {
 		t.Errorf("models = %v, want the persisted default backfilled as a selectable option", got.Models)
 	}
-}
-
-func modelIDPresent(models []modelsuggest.Model, id string) bool {
-	for _, model := range models {
-		if model.ID == id {
-			return true
-		}
-	}
-	return false
 }
 
 func TestModelsCmdTextAndRecents(t *testing.T) {
