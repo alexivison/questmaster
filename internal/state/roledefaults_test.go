@@ -69,18 +69,23 @@ func TestRoleDefaultsStorePersistsAcrossInstances(t *testing.T) {
 	}
 }
 
-func TestRoleDefaultsStoreEmptyDefaultClears(t *testing.T) {
+// TestRoleDefaultsStoreSetRejectsEmptyDefault guards the removed "empty
+// clears" convention: Settings is the sole source of a default, so there is
+// no floor left to clear back to. A blank def is rejected outright, and a
+// pre-existing entry for that key is left untouched.
+func TestRoleDefaultsStoreSetRejectsEmptyDefault(t *testing.T) {
 	t.Parallel()
 
 	store := NewRoleDefaultsStore(t.TempDir())
 	if err := store.Set("pi", "worker", RoleDefault{Model: "opus"}); err != nil {
 		t.Fatalf("set: %v", err)
 	}
-	if err := store.Set("pi", "worker", RoleDefault{}); err != nil {
-		t.Fatalf("clear: %v", err)
+	if err := store.Set("pi", "worker", RoleDefault{}); err == nil {
+		t.Fatal("Set with both fields empty should be rejected")
 	}
-	if _, ok, err := store.Get("pi", "worker"); err != nil || ok {
-		t.Fatalf("after clear: ok=%v err=%v, want cleared", ok, err)
+	def, ok, err := store.Get("pi", "worker")
+	if err != nil || !ok || def.Model != "opus" {
+		t.Fatalf("after rejected clear: def=%+v ok=%v err=%v, want the prior entry untouched", def, ok, err)
 	}
 }
 

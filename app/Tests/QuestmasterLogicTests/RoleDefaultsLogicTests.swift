@@ -4,8 +4,12 @@ import QuestmasterCore
 struct RoleDefaultsLogicTests {
     static func run() {
         rowsCoverEveryAgentAndRoleInOrder()
-        modelSelectStartsOnDefaultAndTakesResolvedOptions()
-        effortSelectStartsOnDefaultAndTakesResolvedOptions()
+        modelSelectStartsUnconfiguredAndTakesResolvedOptions()
+        effortSelectStartsUnconfiguredAndTakesResolvedOptions()
+        modelSelectSeedsOntoAPersistedDefaultOnFirstResolveOnly()
+        effortSelectSeedsOntoAPersistedDefaultOnFirstResolveOnly()
+        configuredRowCanNeverCycleBackToNotConfigured()
+        rowDirtyTrackingReflectsUnsavedChanges()
         settingRowOptionsOnlyAffectsThatRow()
         focusNavigationStaysWithinTheActiveTab()
         moveTabSwitchesAgentAndResetsFocus()
@@ -15,30 +19,30 @@ struct RoleDefaultsLogicTests {
 
     private static func rowsCoverEveryAgentAndRoleInOrder() {
         let model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
-        expect(model.rows.count == 4, "2 agents x 2 roles should produce 4 rows, got \(model.rows.count)")
+        expect(model.rows.count == 6, "2 agents x 3 roles should produce 6 rows, got \(model.rows.count)")
         expect(
-            model.rows.map { "\($0.agent):\($0.role)" } == ["claude:master", "claude:worker", "codex:master", "codex:worker"],
-            "rows should be agent-major, master-then-worker: \(model.rows)"
+            model.rows.map { "\($0.agent):\($0.role)" } ==
+                ["claude:master", "claude:standalone", "claude:worker", "codex:master", "codex:standalone", "codex:worker"],
+            "rows should be agent-major, master-then-standalone-then-worker: \(model.rows)"
         )
-        expect(model.index(agent: "codex", role: "master") == 2, "index should locate the matching row")
+        expect(model.index(agent: "codex", role: "master") == 3, "index should locate the matching row")
         expect(model.index(agent: "pi", role: "worker") == nil, "index should return nil for an agent not in the model")
     }
 
-    private static func modelSelectStartsOnDefaultAndTakesResolvedOptions() {
+    private static func modelSelectStartsUnconfiguredAndTakesResolvedOptions() {
         var row = RoleDefaultRow(agent: "claude", role: "worker")
-        expect(row.selectedModelOption.isDefault, "a fresh row should start on the default entry")
-        expect(row.selectedModel.isEmpty, "the default entry should send no override")
+        expect(row.selectedModelOption == nil, "a fresh row should start with nothing selected")
+        expect(row.selectedModel.isEmpty, "an unconfigured row should send no override")
 
         row.setModelOptions(
             [
                 SessionModelOption(id: "opus", label: "opus"),
                 SessionModelOption(id: "claude-opus-9-unreleased", label: "claude-opus-9-unreleased", note: "recent"),
             ],
-            defaultModel: "sonnet"
+            defaultModel: ""
         )
-        expect(row.modelOptions.count == 3, "resolved models should append to the default entry")
-        expect(row.modelOptions.first?.note == "sonnet", "the default entry should carry the harness default")
-        expect(row.selectedModelOption.isDefault, "resolving should not change the selection")
+        expect(row.modelOptions.count == 2, "resolved models should be exactly the concrete options given")
+        expect(row.selectedModelOption == nil, "resolving with no persisted default should leave nothing selected")
 
         row.cycleModel(1)
         expect(row.selectedModel == "opus", "cycling right should select the first resolved model")
@@ -46,21 +50,95 @@ struct RoleDefaultsLogicTests {
         expect(row.selectedModel == "claude-opus-9-unreleased", "cycling right again should reach the next model")
         row.cycleModel(-1)
         row.cycleModel(-1)
-        expect(row.selectedModel.isEmpty, "cycling back past the first entry should wrap to the default")
+        expect(row.selectedModel.isEmpty, "cycling back past the first entry should wrap to nothing selected")
     }
 
-    private static func effortSelectStartsOnDefaultAndTakesResolvedOptions() {
+    private static func effortSelectStartsUnconfiguredAndTakesResolvedOptions() {
         var row = RoleDefaultRow(agent: "codex", role: "master")
-        row.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "xhigh")
-        // xhigh is both the applied default and a member of the supported
-        // list, so it must not appear a second time as a concrete entry.
-        expect(row.effortOptions.count == 5, "the level matching the default must not be repeated")
-        expect(row.effortOptions.first?.label == "xhigh", "the default entry should show the concrete applied level")
+        row.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "")
+        expect(row.effortOptions.count == 5, "every supported level should be a plain, unfiltered option")
+        expect(row.selectedEffortOption == nil, "resolving with no persisted default should leave nothing selected")
 
         row.cycleEffort(1)
         expect(row.selectedReasoningEffort == "minimal", "cycling should select the first resolved level")
         row.cycleEffort(-1)
-        expect(row.selectedReasoningEffort.isEmpty, "cycling back should return to the default entry")
+        expect(row.selectedReasoningEffort.isEmpty, "cycling back should return to nothing selected")
+    }
+
+    // Guards the Settings "confirm silently clears an unconfigured row" fix:
+    // a row must open already-selected on a persisted default, not on a
+    // placeholder — the value shown in the picker IS the default.
+    private static func modelSelectSeedsOntoAPersistedDefaultOnFirstResolveOnly() {
+        var row = RoleDefaultRow(agent: "claude", role: "worker")
+        row.setModelOptions(
+            [SessionModelOption(id: "opus", label: "opus"), SessionModelOption(id: "claude-opus-9-unreleased", label: "claude-opus-9-unreleased")],
+            defaultModel: "claude-opus-9-unreleased"
+        )
+        expect(row.selectedModel == "claude-opus-9-unreleased", "a persisted default should seed the selection on first resolve")
+
+        // A later re-resolve (e.g. a background refresh) must preserve the
+        // selection the user is now looking at rather than re-seed — seeding
+        // is a first-resolve-only thing. Here the new list no longer offers
+        // the previously-selected id, so the selection falls back to nothing.
+        row.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "claude-opus-9-unreleased")
+        expect(row.selectedModelOption == nil, "a re-resolve must not re-seed once the list no longer offers the previous selection")
+
+        var untouched = RoleDefaultRow(agent: "claude", role: "worker")
+        untouched.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
+        expect(untouched.selectedModelOption == nil, "a default id missing from the resolved list must not be treated as selected")
+    }
+
+    private static func effortSelectSeedsOntoAPersistedDefaultOnFirstResolveOnly() {
+        var row = RoleDefaultRow(agent: "codex", role: "master")
+        row.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "high")
+        expect(row.selectedReasoningEffort == "high", "a persisted default should seed the selection on first resolve")
+        expect(row.effortOptions.filter { $0.id == "high" }.count == 1, "levels are never filtered or deduped against the default")
+
+        var untouched = RoleDefaultRow(agent: "codex", role: "master")
+        untouched.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "")
+        expect(untouched.selectedEffortOption == nil, "with no persisted default, resolving should leave nothing selected")
+    }
+
+    // Guards the store's one-way contract: role_default.set never clears an
+    // existing entry, so a row that starts configured must never be able to
+    // cycle its way back to "not configured" — there would be nothing
+    // meaningful to send if it did.
+    private static func configuredRowCanNeverCycleBackToNotConfigured() {
+        var row = RoleDefaultRow(agent: "claude", role: "worker")
+        row.setModelOptions(
+            [SessionModelOption(id: "opus", label: "opus"), SessionModelOption(id: "sonnet", label: "sonnet")],
+            defaultModel: "opus"
+        )
+        expect(row.selectedModel == "opus", "sanity: seeded onto the persisted default")
+
+        for _ in 0..<6 {
+            row.cycleModel(1)
+            expect(!row.selectedModel.isEmpty, "a configured row must never cycle to nothing selected: \(row.selectedModel)")
+        }
+        for _ in 0..<6 {
+            row.cycleModel(-1)
+            expect(!row.selectedModel.isEmpty, "a configured row must never cycle to nothing selected: \(row.selectedModel)")
+        }
+    }
+
+    private static func rowDirtyTrackingReflectsUnsavedChanges() {
+        var row = RoleDefaultRow(agent: "claude", role: "worker")
+        row.setModelOptions(
+            [SessionModelOption(id: "opus", label: "opus"), SessionModelOption(id: "sonnet", label: "sonnet")],
+            defaultModel: "opus"
+        )
+        row.setEffortOptions(["low", "high"], defaultLevel: "high")
+        expect(!row.isDirty, "a row that just resolved onto its persisted values is not dirty")
+
+        row.cycleEffort(1)
+        expect(row.isEffortDirty && row.isDirty, "changing the effort selection should mark the row dirty")
+        expect(!row.isModelDirty, "the model field itself did not change")
+
+        row.markSaved()
+        expect(!row.isDirty, "markSaved should reset the baseline once a save actually lands")
+
+        row.cycleModel(1)
+        expect(row.isModelDirty && row.isDirty, "changing the model after a save should register as newly dirty")
     }
 
     private static func settingRowOptionsOnlyAffectsThatRow() {
@@ -68,8 +146,8 @@ struct RoleDefaultsLogicTests {
         model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet", agent: "claude", role: "master")
         model.cycleFocusedValue(1)
         expect(model.rows[0].selectedModel == "opus", "cycling the focused field should select its resolved model")
-        expect(model.rows[1].selectedModelOption.isDefault, "an unrelated row must not be affected")
-        expect(model.rows[2].modelOptions.count == 1, "a different (agent, role) row must not receive another row's options")
+        expect(model.rows[1].selectedModelOption == nil, "an unrelated row must not be affected")
+        expect(model.rows[2].modelOptions.isEmpty, "a different (agent, role) row must not receive another row's options")
     }
 
     private static func focusNavigationStaysWithinTheActiveTab() {
@@ -83,10 +161,16 @@ struct RoleDefaultsLogicTests {
         expect(model.focusedRoleIndex == 0 && model.focusedField == .effort, "moveFocus(1) should advance to the master-effort field")
 
         model.moveFocus(1)
-        expect(model.focusedRoleIndex == 1 && model.focusedField == .model, "moveFocus(1) should advance to the worker-model field")
+        expect(model.focusedRoleIndex == 1 && model.focusedField == .model, "moveFocus(1) should advance to the standalone-model field")
 
         model.moveFocus(1)
-        expect(model.focusedRoleIndex == 1 && model.focusedField == .effort, "moveFocus(1) should advance to the worker-effort field")
+        expect(model.focusedRoleIndex == 1 && model.focusedField == .effort, "moveFocus(1) should advance to the standalone-effort field")
+
+        model.moveFocus(1)
+        expect(model.focusedRoleIndex == 2 && model.focusedField == .model, "moveFocus(1) should advance to the worker-model field")
+
+        model.moveFocus(1)
+        expect(model.focusedRoleIndex == 2 && model.focusedField == .effort, "moveFocus(1) should advance to the worker-effort field")
 
         model.moveFocus(1)
         expect(
@@ -96,7 +180,7 @@ struct RoleDefaultsLogicTests {
 
         model.moveFocus(-1)
         expect(
-            model.selectedAgentIndex == 0 && model.focusedRoleIndex == 1 && model.focusedField == .effort,
+            model.selectedAgentIndex == 0 && model.focusedRoleIndex == 2 && model.focusedField == .effort,
             "moveFocus should wrap backward within the tab"
         )
     }
@@ -125,8 +209,13 @@ struct RoleDefaultsLogicTests {
 
     private static func cyclingFocusedValueAffectsOnlyTheFocusedField() {
         var model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
-        model.setModelOptions([SessionModelOption(id: "gpt-5.6-terra", label: "gpt-5.6-terra")], defaultModel: "gpt-5.6-terra", agent: "codex", role: "master")
-        model.setEffortOptions(["low", "high"], defaultLevel: "high", agent: "codex", role: "master")
+        model.setModelOptions(
+            [SessionModelOption(id: "gpt-5.6-terra", label: "gpt-5.6-terra"), SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol")],
+            defaultModel: "",
+            agent: "codex",
+            role: "master"
+        )
+        model.setEffortOptions(["low", "high"], defaultLevel: "", agent: "codex", role: "master")
 
         model.moveTab(1)
         expect(
@@ -145,7 +234,7 @@ struct RoleDefaultsLogicTests {
         expect(model.rows[codexMasterIndex].selectedModel == "gpt-5.6-terra", "the model field must not change while the effort field is focused")
 
         let claudeMasterIndex = model.index(agent: "claude", role: "master")!
-        expect(model.rows[claudeMasterIndex].selectedModelOption.isDefault, "an unrelated row must not be affected")
+        expect(model.rows[claudeMasterIndex].selectedModelOption == nil, "an unrelated row must not be affected")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

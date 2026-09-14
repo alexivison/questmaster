@@ -123,31 +123,26 @@ func TestClaudeBuildCmd(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleWorker,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --model 'sonnet' --append-system-prompt '" + claude.WorkerPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --append-system-prompt '" + claude.WorkerPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd() = %q, want %q", got, want)
 	}
 }
 
-func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
+// TestClaudeBuildCmd_ModelOverride guards the two things that matter now that
+// there is no hardcoded per-role default: no --model flag at all when nothing
+// is configured, for any role, and an explicit override always winning.
+func TestClaudeBuildCmd_ModelOverride(t *testing.T) {
 	t.Parallel()
 
 	claude := NewClaude(AgentConfig{})
 	base := CmdOpts{Binary: "/usr/local/bin/claude", AgentPath: "/tmp/bin:/usr/bin"}
 
-	worker := claude.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'sonnet'") {
-		t.Fatalf("worker should pin Sonnet: %q", worker)
-	}
-
-	standalone := claude.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'sonnet'") {
-		t.Fatalf("standalone should pin Sonnet: %q", standalone)
-	}
-
-	master := claude.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'opus'") {
-		t.Fatalf("master should pin Opus: %q", master)
+	for _, role := range []SessionRole{RoleWorker, RoleStandalone, RoleMaster} {
+		got := claude.BuildCmd(withRole(base, role))
+		if strings.Contains(got, "--model '") {
+			t.Fatalf("role %v with no override should omit --model: %q", role, got)
+		}
 	}
 
 	override := base
@@ -156,69 +151,6 @@ func TestClaudeBuildCmd_RoleModelPolicy(t *testing.T) {
 	got := claude.BuildCmd(override)
 	if !strings.Contains(got, "--model 'opus'") {
 		t.Fatalf("explicit override should win: %q", got)
-	}
-	if strings.Contains(got, "sonnet") {
-		t.Fatalf("override should replace the worker default, not append it: %q", got)
-	}
-}
-
-// The model picker labels its "default" entry with DefaultModelFor, so that
-// value must be exactly what BuildCmd launches when no override is given.
-func TestDefaultModelForMatchesLaunchedModel(t *testing.T) {
-	t.Parallel()
-
-	providers := map[string]Agent{
-		"claude":   NewClaude(AgentConfig{}),
-		"codex":    NewCodex(AgentConfig{}),
-		"opencode": NewOpenCode(AgentConfig{}),
-		"pi":       NewPi(AgentConfig{}),
-	}
-	for name, provider := range providers {
-		for _, role := range []SessionRole{RoleStandalone, RoleWorker, RoleMaster} {
-			want := DefaultModelFor(name, role)
-			if want == "" {
-				t.Errorf("%s (%v) declares no role default", name, role)
-				continue
-			}
-			got := provider.BuildCmd(CmdOpts{Binary: "/bin/agent", AgentPath: "/p", Role: role})
-			if !strings.Contains(got, "--model '"+want+"'") {
-				t.Errorf("%s (%v) launches without its declared default %q: %q", name, role, want, got)
-			}
-		}
-	}
-
-	if got := DefaultModelFor("brand-new-harness", RoleMaster); got != "" {
-		t.Errorf("unknown agent default = %q, want empty", got)
-	}
-}
-
-// TestOpenCodeDefaultModelMatchesConfiguredStandaloneOverride guards the exact
-// case DefaultModelFor cannot see: a non-default configured model still pins
-// OpenCode standalone in BuildCmd. Agent.DefaultModel must track that quirk
-// instead of only reflecting the static ModelPolicy, or the model picker's
-// "default" label would silently lie about what a configured instance
-// actually launches with.
-func TestOpenCodeDefaultModelMatchesConfiguredStandaloneOverride(t *testing.T) {
-	t.Parallel()
-
-	provider := NewOpenCode(AgentConfig{Model: "opencode/custom-model"})
-
-	if got := provider.DefaultModel(RoleStandalone); got != "opencode/custom-model" {
-		t.Fatalf("DefaultModel(standalone) = %q, want the configured override", got)
-	}
-	launched := provider.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleStandalone})
-	if !strings.Contains(launched, "--model 'opencode/custom-model'") {
-		t.Fatalf("BuildCmd(standalone) = %q, want it to launch with the configured override", launched)
-	}
-
-	// The override is standalone-only: master still falls back to the static
-	// policy in both DefaultModel and BuildCmd, matching each other.
-	if got, want := provider.DefaultModel(RoleMaster), openCodeMasterGPTModel; got != want {
-		t.Fatalf("DefaultModel(master) = %q, want the static master default %q", got, want)
-	}
-	launchedMaster := provider.BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleMaster})
-	if !strings.Contains(launchedMaster, "--model '"+openCodeMasterGPTModel+"'") {
-		t.Fatalf("BuildCmd(master) = %q, want the static master default", launchedMaster)
 	}
 }
 
@@ -286,21 +218,22 @@ func TestProviderBuildCmd_ResumeKeepsSessionModel(t *testing.T) {
 	}
 }
 
-func TestProviderBuildCmd_ContinuationWithoutResumeIDUsesDefaultModel(t *testing.T) {
+// TestProviderBuildCmd_ContinuationWithoutResumeIDOmitsModelWhenUnset guards
+// that a continuation with no resume ID and no configured default omits
+// --model entirely, same as any other unconfigured launch — there is no
+// hardcoded per-role default left to fall back to.
+func TestProviderBuildCmd_ContinuationWithoutResumeIDOmitsModelWhenUnset(t *testing.T) {
 	t.Parallel()
 
 	opts := CmdOpts{Binary: "/bin/agent", AgentPath: "/p", Role: RoleMaster, Continuing: true}
-	for name, tt := range map[string]struct {
-		provider Agent
-		model    string
-	}{
-		"claude":   {NewClaude(AgentConfig{}), "opus"},
-		"codex":    {NewCodex(AgentConfig{}), "gpt-5.6-sol"},
-		"opencode": {NewOpenCode(AgentConfig{}), "openai/gpt-5.6-sol"},
-		"pi":       {NewPi(AgentConfig{}), "openai-codex/gpt-5.6-sol"},
+	for name, provider := range map[string]Agent{
+		"claude":   NewClaude(AgentConfig{}),
+		"codex":    NewCodex(AgentConfig{}),
+		"opencode": NewOpenCode(AgentConfig{}),
+		"pi":       NewPi(AgentConfig{}),
 	} {
-		if got := tt.provider.BuildCmd(opts); !strings.Contains(got, "--model '"+tt.model+"'") {
-			t.Fatalf("%s continuation without a resume ID should use %q: %q", name, tt.model, got)
+		if got := provider.BuildCmd(opts); strings.Contains(got, "--model '") {
+			t.Fatalf("%s continuation without a resume ID or configured default should omit --model: %q", name, got)
 		}
 	}
 }
@@ -336,7 +269,7 @@ func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 		{
 			name: "opencode",
 			cmd:  NewOpenCode(AgentConfig{}).BuildCmd(CmdOpts{Binary: "/bin/opencode", AgentPath: "/p", Role: RoleWorker, Prompt: "inspect", ReasoningEffort: "high"}),
-			want: "run --interactive --model 'openai/gpt-5.6-terra' --agent 'questmaster-worker' --variant 'high' 'inspect'",
+			want: "run --interactive --agent 'questmaster-worker' --variant 'high' 'inspect'",
 		},
 	}
 	for _, tt := range tests {
@@ -409,28 +342,6 @@ func TestSupportedReasoningEfforts(t *testing.T) {
 		got := SupportedReasoningEfforts(tt.provider, tt.model)
 		if !slices.Equal(got, tt.want) {
 			t.Errorf("SupportedReasoningEfforts(%q, %q) = %v, want %v", tt.provider, tt.model, got, tt.want)
-		}
-	}
-}
-
-func TestDefaultReasoningEffortFor(t *testing.T) {
-	t.Parallel()
-
-	for _, tt := range []struct {
-		provider string
-		role     SessionRole
-		want     string
-	}{
-		{provider: "claude", role: RoleWorker, want: "xhigh"},
-		{provider: "claude", role: RoleMaster, want: "xhigh"},
-		{provider: "codex", role: RoleWorker, want: codexWorkerReasoning},
-		{provider: "codex", role: RoleMaster, want: codexMasterReasoning},
-		{provider: "pi", role: RoleStandalone, want: "xhigh"},
-		{provider: "opencode", role: RoleWorker, want: ""},
-		{provider: "unknown", role: RoleWorker, want: ""},
-	} {
-		if got := DefaultReasoningEffortFor(tt.provider, tt.role); got != tt.want {
-			t.Errorf("DefaultReasoningEffortFor(%q, %v) = %q, want %q", tt.provider, tt.role, got, tt.want)
 		}
 	}
 }
@@ -560,7 +471,7 @@ func TestClaudeBuildCmd_Master(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleMaster,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --effort xhigh --model 'opus' --append-system-prompt '" + claude.MasterPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --append-system-prompt '" + claude.MasterPrompt() + "'"
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}
@@ -624,34 +535,24 @@ func TestCodexBuildCmd_ExtendedReasoningEffort(t *testing.T) {
 	}
 }
 
-func TestCodexBuildCmd_WorkerModelPolicy(t *testing.T) {
+// TestCodexBuildCmd_ModelAndReasoningOverride guards the two things that
+// matter now that there is no hardcoded per-role default: no --model or
+// -c model_reasoning_effort= flag at all when nothing is configured, for any
+// role, and explicit overrides always winning.
+func TestCodexBuildCmd_ModelAndReasoningOverride(t *testing.T) {
 	t.Parallel()
 
 	codex := NewCodex(AgentConfig{})
 	base := CmdOpts{Binary: "/opt/homebrew/bin/codex", AgentPath: "/tmp/bin:/usr/bin"}
 
-	worker := codex.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'gpt-5.6-terra'") {
-		t.Fatalf("codex worker should pin gpt-5.6-terra: %q", worker)
-	}
-	if !strings.Contains(worker, `model_reasoning_effort="xhigh"`) {
-		t.Fatalf("codex worker should use xhigh reasoning: %q", worker)
-	}
-
-	standalone := codex.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'gpt-5.6-terra'") {
-		t.Fatalf("codex standalone should pin gpt-5.6-terra: %q", standalone)
-	}
-	if !strings.Contains(standalone, `model_reasoning_effort="xhigh"`) {
-		t.Fatalf("codex standalone should use xhigh reasoning: %q", standalone)
-	}
-
-	master := codex.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'gpt-5.6-sol'") {
-		t.Fatalf("codex master should pin gpt-5.6-sol: %q", master)
-	}
-	if !strings.Contains(master, `model_reasoning_effort="xhigh"`) {
-		t.Fatalf("codex master should use xhigh reasoning: %q", master)
+	for _, role := range []SessionRole{RoleWorker, RoleStandalone, RoleMaster} {
+		got := codex.BuildCmd(withRole(base, role))
+		if strings.Contains(got, "--model '") {
+			t.Fatalf("codex role %v with no override should omit --model: %q", role, got)
+		}
+		if strings.Contains(got, "model_reasoning_effort") {
+			t.Fatalf("codex role %v with no override should omit model_reasoning_effort: %q", role, got)
+		}
 	}
 
 	override := base
@@ -729,8 +630,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.6-sol' -c " +
-		configShellQuote(`model_reasoning_effort="xhigh"`) + " -c " +
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
 		" -- 'triage the backlog'"
 	if got != want {
@@ -780,28 +680,24 @@ func TestPiBuildCmdWithResume(t *testing.T) {
 	}
 }
 
-func TestPiBuildCmd_WorkerModelAndThinking(t *testing.T) {
+// TestPiBuildCmd_ModelAndThinkingOverride guards the two things that matter
+// now that there is no hardcoded per-role default: no --model or --thinking
+// flag at all when nothing is configured, for any role, and an explicit
+// override always winning.
+func TestPiBuildCmd_ModelAndThinkingOverride(t *testing.T) {
 	t.Parallel()
 
 	pi := NewPi(AgentConfig{})
 	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
 
-	worker := pi.BuildCmd(withRole(base, RoleWorker))
-	if !strings.Contains(worker, "--model 'openai-codex/gpt-5.6-terra'") {
-		t.Fatalf("pi worker should pin gpt-5.6-terra: %q", worker)
-	}
-	if !strings.Contains(worker, "--thinking xhigh") {
-		t.Fatalf("pi worker should request xhigh thinking: %q", worker)
-	}
-
-	standalone := pi.BuildCmd(withRole(base, RoleStandalone))
-	if !strings.Contains(standalone, "--model 'openai-codex/gpt-5.6-terra'") || !strings.Contains(standalone, "--thinking xhigh") {
-		t.Fatalf("pi standalone should pin gpt-5.6-terra with xhigh thinking: %q", standalone)
-	}
-
-	master := pi.BuildCmd(withRole(base, RoleMaster))
-	if !strings.Contains(master, "--model 'openai-codex/gpt-5.6-sol'") || !strings.Contains(master, "--thinking xhigh") {
-		t.Fatalf("pi master should pin gpt-5.6-sol with xhigh thinking: %q", master)
+	for _, role := range []SessionRole{RoleWorker, RoleStandalone, RoleMaster} {
+		got := pi.BuildCmd(withRole(base, role))
+		if strings.Contains(got, "--model '") {
+			t.Fatalf("pi role %v with no override should omit --model: %q", role, got)
+		}
+		if strings.Contains(got, "--thinking") {
+			t.Fatalf("pi role %v with no override should omit --thinking: %q", role, got)
+		}
 	}
 
 	override := base

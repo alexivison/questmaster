@@ -26,10 +26,17 @@ func idleRunner() *mockRunner {
 	return &mockRunner{fn: func(context.Context, ...string) (string, error) { return "", nil }}
 }
 
+// TestModelsCmdJSONReportsRoleDefault guards that the models command reports
+// a persisted role default. There is no hardcoded per-harness floor anymore
+// — Settings is the sole source of a default — so this seeds one first.
 func TestModelsCmdJSONReportsRoleDefault(t *testing.T) {
 	offlineCatalog(t)
 	store := setupStore(t)
 	runner := idleRunner()
+
+	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "master", state.RoleDefault{Model: "opus"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
 
 	out := runCmd(t, store, runner, "models", "claude", "--role", "master")
 
@@ -41,11 +48,20 @@ func TestModelsCmdJSONReportsRoleDefault(t *testing.T) {
 		t.Fatalf("suggestions = %+v, want claude/master", got)
 	}
 	if got.Default != "opus" {
-		t.Errorf("default = %q, want opus", got.Default)
+		t.Errorf("default = %q, want the persisted role default opus", got.Default)
 	}
-	if len(got.Models) == 0 {
-		t.Errorf("models are empty, want the built-in defaults as a floor")
+	if !modelIDPresent(got.Models, "opus") {
+		t.Errorf("models = %v, want the persisted default backfilled as a selectable option", got.Models)
 	}
+}
+
+func modelIDPresent(models []modelsuggest.Model, id string) bool {
+	for _, model := range models {
+		if model.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func TestModelsCmdTextAndRecents(t *testing.T) {

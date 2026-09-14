@@ -6,13 +6,6 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
-const (
-	piWorkerGPTModel = "openai-codex/gpt-5.6-terra"
-	piMasterGPTModel = "openai-codex/gpt-5.6-sol"
-
-	piDefaultReasoningEffort = "xhigh"
-)
-
 var piSpec = Spec{
 	Name:           "pi",
 	DisplayName:    "Pi",
@@ -25,8 +18,6 @@ var piSpec = Spec{
 	FallbackPath:   "/opt/homebrew/bin/pi",
 	State:          StateSidecar,
 	Models: ModelPolicy{
-		Worker: piWorkerGPTModel,
-		Master: piMasterGPTModel,
 		// Pi qualifies models with its own provider naming, so catalog ids
 		// are offered under the provider prefix its defaults use.
 		Sources: []ModelSource{{Catalog: "openai", Prefix: "openai-codex/"}},
@@ -61,12 +52,10 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 	if opts.Role == RoleMaster && opts.SystemBrief != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(opts.SystemBrief)
 	}
-	if model := resolveModel(opts, p.spec.Models.Worker, p.spec.Models.Master); model != "" {
-		cmd += " --model " + config.ShellQuote(model)
+	if opts.Model != "" {
+		cmd += " --model " + config.ShellQuote(opts.Model)
 	}
-	if opts.ReasoningEffort == "" {
-		cmd += " --thinking " + piDefaultReasoningEffort
-	} else {
+	if opts.ReasoningEffort != "" {
 		cmd += " --thinking " + config.ShellQuote(opts.ReasoningEffort)
 	}
 	if opts.ResumeID != "" {

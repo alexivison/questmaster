@@ -378,8 +378,9 @@ func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {
 }
 
 // mutateRoleDefaultSet persists a default model and/or reasoning effort for
-// one agent+role pair. Sending both fields empty clears the override, the
-// same "empty clears" convention mutateRecolor's repo scope uses.
+// one agent+role pair. Settings is the sole source of a default, so at least
+// one field is required — there is no hardcoded fallback left to clear back
+// to, and this call never deletes a persisted entry.
 func (s *Server) mutateRoleDefaultSet(payload mutationPayload) (any, error) {
 	agentName, err := requiredValue("agent", payload.Agent)
 	if err != nil {
@@ -391,29 +392,32 @@ func (s *Server) mutateRoleDefaultSet(payload mutationPayload) (any, error) {
 	}
 
 	role := strings.ToLower(strings.TrimSpace(payload.Role))
-	var sessionRole agent.SessionRole
 	switch role {
-	case "worker":
-		sessionRole = agent.RoleWorker
-	case "master":
-		sessionRole = agent.RoleMaster
+	case "worker", "master", "standalone":
 	default:
-		return nil, fmt.Errorf("role is required (want worker or master)")
+		return nil, fmt.Errorf("role is required (want master, standalone or worker)")
 	}
 
 	model := strings.TrimSpace(payload.Model)
 	reasoningEffort := strings.TrimSpace(payload.ReasoningEffort)
+	if model == "" && reasoningEffort == "" {
+		return nil, fmt.Errorf("model or reasoning_effort is required")
+	}
+
+	store := state.NewRoleDefaultsStore(s.mutationStore().Root())
 	if reasoningEffort != "" {
 		validationModel := model
 		if validationModel == "" {
-			validationModel = agent.DefaultModelFor(agentName, sessionRole)
+			if existing, ok, _ := store.Get(agentName, role); ok {
+				validationModel = existing.Model
+			}
 		}
 		if err := agent.ValidateReasoningEffort(agentName, validationModel, reasoningEffort); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := state.NewRoleDefaultsStore(s.mutationStore().Root()).Set(agentName, role, state.RoleDefault{
+	if err := store.Set(agentName, role, state.RoleDefault{
 		Model:           model,
 		ReasoningEffort: reasoningEffort,
 	}); err != nil {

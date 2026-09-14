@@ -476,8 +476,22 @@ private final class SettingsPreviewModelClient: ServeModelSuggesting {
         refresh: Bool,
         completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
     ) {
+        // The worker row previews "not configured" (an empty default with no
+        // matching option) so that state gets a design-review look here, not
+        // just a runtime discovery; every other role previews a configured
+        // default.
+        guard role != "worker" else {
+            completion(.success(ModelSuggestionResponse(
+                models: [SessionModelOption(id: "\(agent)-\(role)-preview", label: "\(agent)-\(role)-preview", note: "")],
+                defaultModel: ""
+            )))
+            return
+        }
         let model = "\(agent)-\(role)-preview"
-        completion(.success(ModelSuggestionResponse(models: [SessionModelOption(id: model, label: model, note: "")], defaultModel: model)))
+        completion(.success(ModelSuggestionResponse(
+            models: [SessionModelOption(id: model, label: model, note: "")],
+            defaultModel: model
+        )))
     }
 }
 
@@ -488,6 +502,10 @@ private final class SettingsPreviewEffortClient: ServeReasoningEffortSuggesting 
         model: String,
         completion: @escaping (Result<ReasoningEffortSuggestionResponse, Error>) -> Void
     ) {
+        guard role != "worker" else {
+            completion(.success(ReasoningEffortSuggestionResponse(efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "")))
+            return
+        }
         completion(.success(ReasoningEffortSuggestionResponse(efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "xhigh")))
     }
 }

@@ -111,7 +111,7 @@ struct NewSessionRootView: View {
         ModalSelectRow(
             label: "Model",
             labelWidth: Metrics.rowLabelWidth,
-            title: state.model.selectedModelOption.label,
+            title: state.model.selectedModelOption?.label ?? "Not configured",
             note: modelNote,
             swatchColor: nil,
             focused: state.model.focusedField == .model,
@@ -167,7 +167,7 @@ struct NewSessionRootView: View {
                     )
                     .alignmentGuide(.effortMarker) { $0[VerticalAlignment.center] }
             }
-            Text(state.model.selectedEffortOption.label)
+            Text(state.model.selectedEffortOption?.label ?? "Not configured")
                 .font(AppFonts.modalHelperLarge.swiftUI)
                 .italic()
                 .foregroundStyle(AppPalette.dim.swiftUI)
@@ -271,18 +271,18 @@ struct NewSessionRootView: View {
         state.model.submitting ? "Creating session…" : ""
     }
 
-    /// The model row's hint: the title already shows the concrete default id
-    /// once resolved, so this only needs to say what kind of value it is —
-    /// the role default, or the resolved model's own annotation (vendor name
-    /// or "recent") once one is picked. The `r`/`e` shortcuts are surfaced
-    /// only while the row itself is focused, where they're actually live.
+    /// The model row's hint: the title already shows the selected model id,
+    /// so this only needs to say what kind of value it is — that nothing is
+    /// configured for this role and the harness decides on its own, or the
+    /// selected model's own annotation (vendor name or "recent") once one is
+    /// picked. The `r`/`e` shortcuts are surfaced only while the row itself
+    /// is focused, where they're actually live.
     private var modelNote: String {
-        let option = state.model.selectedModelOption
         let base: String
-        if option.isDefault {
-            base = option.note.isEmpty ? "whatever the harness picks for this role" : "the default for this role"
-        } else {
+        if let option = state.model.selectedModelOption {
             base = option.note.isEmpty ? "passed to the harness as-is" : option.note
+        } else {
+            base = "uses whatever Settings has configured for this role"
         }
         guard state.model.focusedField == .model else {
             return base

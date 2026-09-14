@@ -53,6 +53,9 @@ enum LogicSelfTests {
         ("testNewSessionEffortKeyCyclesWhileModelFocused", testNewSessionEffortKeyCyclesWhileModelFocused),
         ("testConnectWithRetryRetriesUntilConnectSucceeds", testConnectWithRetryRetriesUntilConnectSucceeds),
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
+        ("testSettingsConfirmWaitsForEveryPendingSaveBeforeDismissing", testSettingsConfirmWaitsForEveryPendingSaveBeforeDismissing),
+        ("testSettingsConfirmKeepsSheetOpenAndShowsErrorOnSaveFailure", testSettingsConfirmKeepsSheetOpenAndShowsErrorOnSaveFailure),
+        ("testSettingsConfirmSendsOnlyDirtyRowsAndLeavesUntouchedOnesAlone", testSettingsConfirmSendsOnlyDirtyRowsAndLeavesUntouchedOnesAlone),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1469,14 +1472,10 @@ enum LogicSelfTests {
             "resolved models should reach the picker"
         )
         try expect(
-            model.state.model.selectedModelOption.isDefault,
-            "the default entry stays selected until the user picks a model"
+            model.state.model.selectedModelOption == nil,
+            "nothing should be selected until the user picks a model, since the resolved default isn't in this list"
         )
-        try expect(model.state.model.selectedModel.isEmpty, "the default entry sends no model override")
-        try expect(
-            model.state.model.modelOptions.first?.note == "sonnet",
-            "the default entry should be annotated with the harness role default"
-        )
+        try expect(model.state.model.selectedModel.isEmpty, "an unselected model sends no override")
 
         // Cycle the model select onto a real model, then change the agent.
         model.state.model.focusedField = .model
@@ -1519,9 +1518,9 @@ enum LogicSelfTests {
         model.present()
         drainMainQueue()
 
-        // A failed resolve is not the user's problem: the default entry alone
-        // still starts a session on the harness's own model.
-        try expect(model.state.model.modelOptions.count == 1, "a failed resolve should leave only the default entry")
+        // A failed resolve is not the user's problem: no options at all
+        // still starts a session with no model override.
+        try expect(model.state.model.modelOptions.isEmpty, "a failed resolve should leave no options")
         try expect(model.state.model.selectedModel.isEmpty, "a failed resolve should send no model override")
         try expect(model.state.model.errorMessage == nil, "a failed resolve should not raise a form error")
     }
@@ -1639,16 +1638,12 @@ enum LogicSelfTests {
             "resolved efforts should reach the picker"
         )
         try expect(
-            model.state.model.selectedEffortOption.isDefault,
-            "the default entry stays selected until the user picks a level"
+            model.state.model.selectedReasoningEffort == "xhigh",
+            "the resolved default should seed the selection, since it's a member of the resolved list"
         )
         try expect(
-            model.state.model.selectedEffortOption.label == "xhigh",
-            "the default entry should show the concrete applied level"
-        )
-        try expect(
-            !model.state.model.effortOptions.contains(where: { $0.id == "xhigh" }),
-            "the level matching the default must not be repeated as a concrete entry"
+            model.state.model.effortOptions.contains(where: { $0.id == "xhigh" }),
+            "levels are never filtered or deduped against the default"
         )
 
         // Cycling onto a real model (still the same agent/role) must
@@ -1673,10 +1668,10 @@ enum LogicSelfTests {
         model.present()
         drainMainQueue()
 
-        // No client at all is the same shape as a failed resolve: the default
-        // entry alone still starts a session on the harness's own effort.
-        try expect(model.state.model.effortOptions.count == 1, "no client should leave only the default entry")
-        try expect(model.state.model.selectedReasoningEffort.isEmpty, "the default entry should send no effort override")
+        // No client at all is the same shape as a failed resolve: no options
+        // at all still starts a session with no effort override.
+        try expect(model.state.model.effortOptions.isEmpty, "no client should leave no options")
+        try expect(model.state.model.selectedReasoningEffort.isEmpty, "an unresolved picker should send no effort override")
     }
 
     // The app-launched qm serve can take a few seconds to bind its socket
@@ -1734,7 +1729,7 @@ enum LogicSelfTests {
 
         model.present()
         drainMainQueue()
-        try expect(model.state.model.selectedEffortOption.isDefault, "precondition: default effort selected")
+        try expect(model.state.model.selectedEffortOption == nil, "precondition: nothing selected, since xhigh isn't in this resolved list")
 
         try expect(
             model.handle(try keyEvent("e", keyCode: 14)),
@@ -1768,6 +1763,115 @@ enum LogicSelfTests {
                 onSuccess: { _ in }
             ),
             dismiss: {}
+        )
+    }
+
+    // Guards the confirm()/dismiss() race: dismissing must wait for every
+    // in-flight role_default.set save, not fire the moment the sends go out.
+    private static func testSettingsConfirmWaitsForEveryPendingSaveBeforeDismissing() throws {
+        let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)), deferCompletions: true)
+        var dismissed = false
+        let model = settingsSheetModel(mutationClient: mutationClient, dismiss: { dismissed = true })
+        model.state = RoleDefaultsSettingsModel(agents: ["claude"])
+        makeEveryRowDirty(in: model)
+
+        model.confirm()
+        let rowCount = model.state.rows.count
+        try expect(rowCount == 3, "sanity: one agent should produce 3 rows")
+        try expect(mutationClient.sentRequests.count == rowCount, "confirm should send one save per dirty row")
+        try expect(!dismissed, "confirm should not dismiss before any save has completed")
+
+        for index in 0..<(rowCount - 1) {
+            mutationClient.fireCompletion(forRequestAt: index)
+        }
+        drainMainQueue()
+        try expect(!dismissed, "confirm should not dismiss until every row's save has completed")
+
+        mutationClient.fireCompletion(forRequestAt: rowCount - 1)
+        drainMainQueue()
+        try expect(dismissed, "confirm should dismiss once every row's save has completed")
+    }
+
+    // A validation failure (e.g. a stale reasoning effort sent alongside a
+    // just-changed model) must not be swallowed by an immediate dismiss —
+    // the user needs to see it and the sheet must stay open to retry.
+    private static func testSettingsConfirmKeepsSheetOpenAndShowsErrorOnSaveFailure() throws {
+        let mutationClient = StubMutationClient(result: .failure(StubMutationError()))
+        var dismissed = false
+        let model = settingsSheetModel(mutationClient: mutationClient, dismiss: { dismissed = true })
+        model.state = RoleDefaultsSettingsModel(agents: ["claude"])
+        makeEveryRowDirty(in: model)
+
+        model.confirm()
+        drainMainQueue()
+
+        try expect(!dismissed, "a failed save must not dismiss the sheet")
+        try expect(model.errorMessage != nil, "a failed save must surface an error instead of silently dropping it")
+    }
+
+    // Guards the fix for confirming Settings without touching a row silently
+    // clearing its already-configured default: dirty-tracking means an
+    // untouched row — configured or not — is never resent at all, so it can
+    // never be silently cleared or recreated. A touched row still sends its
+    // new selection.
+    private static func testSettingsConfirmSendsOnlyDirtyRowsAndLeavesUntouchedOnesAlone() throws {
+        let modelClient = StubModelClient(
+            models: ["claude": [
+                SessionModelOption(id: "claude-opus-9-unreleased", label: "claude-opus-9-unreleased"),
+                SessionModelOption(id: "sonnet", label: "sonnet"),
+            ]],
+            defaults: ["claude": "claude-opus-9-unreleased"]
+        )
+        let effortClient = StubReasoningEffortClient(
+            efforts: ["claude": ["low", "high"]],
+            defaults: ["claude": "low"]
+        )
+        let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)))
+        let model = settingsSheetModel(mutationClient: mutationClient, modelClient: modelClient, effortClient: effortClient)
+
+        model.present()
+        drainMainQueue()
+        model.confirm()
+        drainMainQueue()
+        try expect(mutationClient.sentRequests.isEmpty, "confirming without touching anything must send nothing at all")
+
+        model.focus(role: "master", field: .model)
+        model.state.cycleFocusedValue(1)
+        model.confirm()
+        drainMainQueue()
+
+        try expect(mutationClient.sentRequests.count == 1, "only the one row that actually changed should be sent")
+        guard let sent = mutationClient.sentRequests.first(where: { $0.data["agent"] == "claude" && $0.data["role"] == "master" }) else {
+            throw TestFailure("expected the dirty row's role_default.set for claude/master")
+        }
+        try expect(sent.data["model"] == "sonnet", "the touched row should send its new selection")
+        try expect(sent.data["reasoning_effort"] == "low", "the untouched sibling field still sends its current (persisted) value")
+    }
+
+    /// Resolves every row in `model.state` onto a plain option and cycles its
+    /// model field once, marking it dirty — used to give `confirm()` a
+    /// deterministic, non-empty set of rows to actually send.
+    private static func makeEveryRowDirty(in model: SettingsSheetModel) {
+        for role in RoleDefaultsSettingsModel.roles {
+            model.state.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "", agent: "claude", role: role)
+            model.focus(role: role, field: .model)
+            model.state.cycleFocusedValue(1)
+        }
+    }
+
+    private static func settingsSheetModel(
+        mutationClient: ServeMutationSending,
+        modelClient: ServeModelSuggesting? = nil,
+        effortClient: ServeReasoningEffortSuggesting? = nil,
+        dismiss: @escaping () -> Void = {}
+    ) -> SettingsSheetModel {
+        SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: mutationClient,
+                modelClient: modelClient,
+                effortClient: effortClient
+            ),
+            dismiss: dismiss
         )
     }
 
@@ -1835,13 +1939,36 @@ enum LogicSelfTests {
 
     private final class StubMutationClient: ServeMutationSending {
         let result: Result<ServeMutationAck, Error>
+        private let deferCompletions: Bool
+        private(set) var sentRequests: [ServeMutationRequest] = []
+        private var pendingCompletions: [() -> Void] = []
 
-        init(result: Result<ServeMutationAck, Error>) {
+        init(result: Result<ServeMutationAck, Error>, deferCompletions: Bool = false) {
             self.result = result
+            self.deferCompletions = deferCompletions
         }
 
         func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
-            completion(result)
+            sentRequests.append(request)
+            let result = self.result
+            let fire: () -> Void = { completion(result) }
+            guard deferCompletions else {
+                fire()
+                return
+            }
+            pendingCompletions.append(fire)
+        }
+
+        /// Fires one deferred completion by the index of the request it
+        /// belongs to (0-based, matching `sentRequests`) — mirrors
+        /// StubModelClient's own deferred-completion helper.
+        func fireCompletion(forRequestAt index: Int) {
+            guard pendingCompletions.indices.contains(index) else {
+                return
+            }
+            let fire = pendingCompletions[index]
+            pendingCompletions[index] = { () -> Void in }
+            fire()
         }
     }
 

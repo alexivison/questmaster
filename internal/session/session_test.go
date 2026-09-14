@@ -629,13 +629,14 @@ func TestStart_RecordsExplicitModelButNotRoleDefault(t *testing.T) {
 // TestStart_AppliesPersistedRoleDefault guards the launch-time resolution
 // order: explicit opts win, then a persisted state.RoleDefaultsStore entry,
 // then the harness's hardcoded ModelPolicy. It must apply to any provider,
-// not just Codex.
+// not just Codex. A plain Start (no Master/MasterID) launches standalone, so
+// the seed goes into the standalone bucket, not worker's.
 func TestStart_AppliesPersistedRoleDefault(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 5401 }
 
-	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("claude", "worker", state.RoleDefault{
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("claude", "standalone", state.RoleDefault{
 		Model:           "claude-opus-9-unreleased",
 		ReasoningEffort: "low",
 	}); err != nil {
@@ -661,6 +662,49 @@ func TestStart_AppliesPersistedRoleDefault(t *testing.T) {
 	}
 }
 
+// TestStart_WorkerRoleDefaultDoesNotApplyToStandalone guards the fix for
+// standalone silently sharing the worker bucket: a persisted worker default
+// must not affect a plain standalone launch, and a persisted standalone
+// default must not affect a real worker launch.
+func TestStart_WorkerRoleDefaultDoesNotApplyToStandalone(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	svc.Now = func() int64 { return 5405 }
+	createTestManifest(t, svc.Store, "qm-master", "master", t.TempDir(), "master")
+
+	defaults := state.NewRoleDefaultsStore(svc.Store.Root())
+	if err := defaults.Set("claude", "worker", state.RoleDefault{Model: "worker-only-model"}); err != nil {
+		t.Fatalf("seed worker role default: %v", err)
+	}
+	if err := defaults.Set("claude", "standalone", state.RoleDefault{Model: "standalone-only-model"}); err != nil {
+		t.Fatalf("seed standalone role default: %v", err)
+	}
+
+	standalone, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("start standalone: %v", err)
+	}
+	m, err := svc.Store.Read(standalone.SessionID)
+	if err != nil {
+		t.Fatalf("read standalone manifest: %v", err)
+	}
+	if got := manifestAgentModel(m.Agents, "primary"); got != "standalone-only-model" {
+		t.Fatalf("standalone primary model = %q, want its own persisted default, not the worker bucket's", got)
+	}
+
+	worker, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), MasterID: "qm-master"})
+	if err != nil {
+		t.Fatalf("start worker: %v", err)
+	}
+	m, err = svc.Store.Read(worker.SessionID)
+	if err != nil {
+		t.Fatalf("read worker manifest: %v", err)
+	}
+	if got := manifestAgentModel(m.Agents, "primary"); got != "worker-only-model" {
+		t.Fatalf("worker primary model = %q, want its own persisted default, not the standalone bucket's", got)
+	}
+}
+
 // TestStart_ExplicitModelOverridesPersistedRoleDefault guards precedence: an
 // explicit --model/--reasoning-effort must still win over a persisted default.
 func TestStart_ExplicitModelOverridesPersistedRoleDefault(t *testing.T) {
@@ -668,7 +712,7 @@ func TestStart_ExplicitModelOverridesPersistedRoleDefault(t *testing.T) {
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 5402 }
 
-	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("claude", "worker", state.RoleDefault{
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("claude", "standalone", state.RoleDefault{
 		Model: "claude-opus-9-unreleased",
 	}); err != nil {
 		t.Fatalf("seed role default: %v", err)
@@ -712,7 +756,7 @@ func TestStart_CodexReasoningEffortValidatesAgainstPersistedModel(t *testing.T) 
 	}
 	svc.Registry = registry
 
-	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("codex", "worker", state.RoleDefault{Model: "gpt-5.4"}); err != nil {
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("codex", "standalone", state.RoleDefault{Model: "gpt-5.4"}); err != nil {
 		t.Fatalf("seed role default: %v", err)
 	}
 
@@ -737,7 +781,7 @@ func TestContinue_KeepsOriginallyResolvedPersistedDefaultAfterItChanges(t *testi
 	svc.Now = func() int64 { return 5404 }
 
 	defaults := state.NewRoleDefaultsStore(svc.Store.Root())
-	if err := defaults.Set("claude", "worker", state.RoleDefault{Model: "claude-opus-9-unreleased", ReasoningEffort: "low"}); err != nil {
+	if err := defaults.Set("claude", "standalone", state.RoleDefault{Model: "claude-opus-9-unreleased", ReasoningEffort: "low"}); err != nil {
 		t.Fatalf("seed role default: %v", err)
 	}
 
@@ -747,7 +791,7 @@ func TestContinue_KeepsOriginallyResolvedPersistedDefaultAfterItChanges(t *testi
 	}
 
 	// The user changes the persisted default after this session already launched.
-	if err := defaults.Set("claude", "worker", state.RoleDefault{Model: "sonnet", ReasoningEffort: "high"}); err != nil {
+	if err := defaults.Set("claude", "standalone", state.RoleDefault{Model: "sonnet", ReasoningEffort: "high"}); err != nil {
 		t.Fatalf("change role default: %v", err)
 	}
 
@@ -1725,8 +1769,10 @@ func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
 	}
 }
 
-// Spawn threads the default worker model (and any --model override) all the way
-// through SpawnOpts → StartOpts → CmdOpts → the launched claude command.
+// Spawn threads a persisted role default model (and any --model override) all
+// the way through SpawnOpts → StartOpts → CmdOpts → the launched claude
+// command. There is no hardcoded fallback anymore, so the "default" case
+// seeds one via state.RoleDefaultsStore first.
 func TestSpawn_WorkerModelDefaultAndOverride(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
@@ -1735,6 +1781,9 @@ func TestSpawn_WorkerModelDefaultAndOverride(t *testing.T) {
 
 	cwd := t.TempDir()
 	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("claude", "worker", state.RoleDefault{Model: "sonnet"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
 
 	defaultTask := "run the default model worker"
 	if _, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "w1", Prompt: defaultTask}); err != nil {
@@ -1746,15 +1795,17 @@ func TestSpawn_WorkerModelDefaultAndOverride(t *testing.T) {
 	}
 
 	if def := launchContaining(runner.calls, defaultTask); !strings.Contains(def, "--model 'sonnet'") {
-		t.Fatalf("default worker should pin the role default model, got %q", def)
+		t.Fatalf("default worker should pin the persisted role default model, got %q", def)
 	}
 	if over := launchContaining(runner.calls, overrideTask); !strings.Contains(over, "--model 'opus'") {
 		t.Fatalf("--model override should thread through spawn, got %q", over)
 	}
 }
 
-// Spawn threads the default worker reasoning effort (and any override) all the
-// way through SpawnOpts → StartOpts → CmdOpts → the launched Claude command.
+// Spawn threads a persisted role default reasoning effort (and any override)
+// all the way through SpawnOpts → StartOpts → CmdOpts → the launched Claude
+// command. There is no hardcoded fallback anymore, so the "default" case
+// seeds one via state.RoleDefaultsStore first.
 func TestSpawn_WorkerReasoningEffortDefaultAndOverride(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
@@ -1763,6 +1814,9 @@ func TestSpawn_WorkerReasoningEffortDefaultAndOverride(t *testing.T) {
 
 	cwd := t.TempDir()
 	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("claude", "worker", state.RoleDefault{ReasoningEffort: "xhigh"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
 
 	defaultTask := "use the default reasoning effort"
 	if _, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: "w1", Prompt: defaultTask}); err != nil {
@@ -1773,8 +1827,8 @@ func TestSpawn_WorkerReasoningEffortDefaultAndOverride(t *testing.T) {
 		t.Fatalf("spawn override: %v", err)
 	}
 
-	if def := launchContaining(runner.calls, defaultTask); !strings.Contains(def, "--effort xhigh") {
-		t.Fatalf("default worker should keep xhigh reasoning, got %q", def)
+	if def := launchContaining(runner.calls, defaultTask); !strings.Contains(def, "--effort 'xhigh'") {
+		t.Fatalf("default worker should keep the persisted xhigh reasoning, got %q", def)
 	}
 	if over := launchContaining(runner.calls, overrideTask); !strings.Contains(over, "--effort 'high'") {
 		t.Fatalf("--reasoning-effort override should thread through spawn, got %q", over)
@@ -2230,7 +2284,7 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	}
 	registry, err := agent.NewRegistry(&agent.Config{
 		Agents: map[string]agent.AgentConfig{
-			"opencode": {CLI: opencodeCLI, Model: "provider/model"},
+			"opencode": {CLI: opencodeCLI},
 		},
 		Roles: agent.RolesConfig{
 			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
@@ -2247,6 +2301,7 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 		Cwd:       t.TempDir(),
 		ResumeIDs: map[string]string{"opencode": resumeID},
 		Prompt:    "inspect state",
+		Model:     "provider/model",
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -2325,7 +2380,7 @@ func TestStart_OpenCodeReasoningEffortRejectsOldVersion(t *testing.T) {
 	}
 	svc.Registry = registry
 
-	if _, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), ReasoningEffort: "high"}); err == nil || !strings.Contains(err.Error(), "requires 1.17.15+") {
+	if _, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Model: "openai/gpt-5.4", ReasoningEffort: "high"}); err == nil || !strings.Contains(err.Error(), "requires 1.17.15+") {
 		t.Fatalf("Start(OpenCode 1.17.11, reasoning effort) = %v", err)
 	}
 	if len(runner.sessions) != 0 {
@@ -2353,6 +2408,9 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	svc.Registry = registry
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("opencode", "standalone", state.RoleDefault{Model: "openai/gpt-5.6-terra"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
 
 	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Prompt: "inspect state", ReasoningEffort: "high"})
 	if err != nil {
@@ -2676,6 +2734,9 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 	svc.Registry = registry
 	cwd := t.TempDir()
 	createTestManifest(t, svc.Store, "qm-master", "master", cwd, "master")
+	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("codex", "worker", state.RoleDefault{Model: "gpt-5.6-terra"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
 
 	for _, effort := range []string{"max", "ultra"} {
 		task := "default " + effort
@@ -2871,7 +2932,7 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 	}
 	registry, err := agent.NewRegistry(&agent.Config{
 		Agents: map[string]agent.AgentConfig{
-			"opencode": {CLI: opencodeCLI, Model: "provider/model"},
+			"opencode": {CLI: opencodeCLI},
 		},
 		Roles: agent.RolesConfig{
 			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},

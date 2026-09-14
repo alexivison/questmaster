@@ -39,6 +39,10 @@ enum Token {
         static let section: CGFloat = 12
         /// Standard content inset for list rows and headers (was `14`).
         static let content: CGFloat = 14
+        /// Gap between distinct top-level groups (e.g. Settings' Master/
+        /// Standalone/Worker blocks) — a clear step up from `content`, which
+        /// spaces items within one group.
+        static let groupGap: CGFloat = 24
     }
 
     enum Size {
