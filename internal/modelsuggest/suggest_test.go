@@ -201,6 +201,33 @@ func TestQueryBackfillsAPersistedDefaultMissingFromEveryOtherSource(t *testing.T
 	}
 }
 
+// TestQueryBackfillsAPersistedDefaultPastTheRankingLimit guards the same
+// backfill against a second way it can go missing: a full dynamic list that
+// already meets Limit before the default is even considered, which would
+// otherwise get truncated away right after being appended.
+func TestQueryBackfillsAPersistedDefaultPastTheRankingLimit(t *testing.T) {
+	t.Parallel()
+
+	store := seedStore(t, []state.AgentManifest{
+		{Name: "claude", Role: "primary", Model: "claude-opus-5"},
+		{Name: "claude", Role: "primary", Model: "claude-sonnet-5"},
+	})
+	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "master", state.RoleDefault{Model: "claude-opus-9-unreleased"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+	probe := func(context.Context) ([]string, error) {
+		return nil, fmt.Errorf("opencode binary not found")
+	}
+	got := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleMaster, Probe: probe, Store: store, Limit: 2})
+
+	if got.Default != "claude-opus-9-unreleased" {
+		t.Fatalf("default = %q, want the persisted override", got.Default)
+	}
+	if !containsID(got.Models, "claude-opus-9-unreleased") {
+		t.Fatalf("models %v missing the persisted override — truncation must not drop it", ids(got.Models))
+	}
+}
+
 func TestQueryLeadsWithRecentlyLaunchedModels(t *testing.T) {
 	t.Parallel()
 

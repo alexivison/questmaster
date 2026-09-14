@@ -10,6 +10,7 @@ struct RoleDefaultsLogicTests {
         effortSelectSeedsOntoAPersistedDefaultOnFirstResolveOnly()
         configuredRowCanNeverCycleBackToNotConfigured()
         rowDirtyTrackingReflectsUnsavedChanges()
+        markSavedBaselinesOnSentValuesNotTheLiveSelection()
         settingRowOptionsOnlyAffectsThatRow()
         focusNavigationStaysWithinTheActiveTab()
         moveTabSwitchesAgentAndResetsFocus()
@@ -134,11 +135,37 @@ struct RoleDefaultsLogicTests {
         expect(row.isEffortDirty && row.isDirty, "changing the effort selection should mark the row dirty")
         expect(!row.isModelDirty, "the model field itself did not change")
 
-        row.markSaved()
+        row.markSaved(model: row.selectedModel, reasoningEffort: row.selectedReasoningEffort)
         expect(!row.isDirty, "markSaved should reset the baseline once a save actually lands")
 
         row.cycleModel(1)
         expect(row.isModelDirty && row.isDirty, "changing the model after a save should register as newly dirty")
+    }
+
+    // Guards a real bug: the user can keep editing while a role_default.set
+    // save is still in flight. markSaved must baseline onto the values that
+    // were actually sent, not the row's current live selection — otherwise a
+    // newer, never-sent edit gets silently stamped "already saved" the
+    // instant an earlier save's ack arrives, and is then lost when the sheet
+    // dismisses without ever resending it.
+    private static func markSavedBaselinesOnSentValuesNotTheLiveSelection() {
+        var row = RoleDefaultRow(agent: "claude", role: "worker")
+        row.setModelOptions(
+            [SessionModelOption(id: "opus", label: "opus"), SessionModelOption(id: "sonnet", label: "sonnet")],
+            defaultModel: "opus"
+        )
+        let sentModel = row.selectedModel
+        expect(sentModel == "opus", "sanity: opus is what a confirm() at this point would have sent")
+
+        // The user cycles again before that send's ack arrives.
+        row.cycleModel(1)
+        expect(row.selectedModel == "sonnet", "sanity: the row now shows a newer, unsent choice")
+
+        // The in-flight save for the *old* value ("opus") now completes.
+        row.markSaved(model: sentModel, reasoningEffort: row.selectedReasoningEffort)
+
+        expect(row.isModelDirty && row.isDirty, "the newer edit must still read as dirty so it gets sent, not silently dropped")
+        expect(row.selectedModel == "sonnet", "the newer edit itself must be untouched by the stale save's completion")
     }
 
     private static func settingRowOptionsOnlyAffectsThatRow() {

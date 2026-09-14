@@ -402,6 +402,16 @@ final class SettingsSheetModel: ObservableObject {
             return
         }
         errorMessage = nil
+        sendDirtyRows()
+    }
+
+    /// Sends every currently-dirty row, or dismisses if there's nothing left
+    /// to send. Called both by `confirm()` and, once a round of saves
+    /// finishes, by `saveCompleted()` — the user can keep editing while a
+    /// save is in flight, so a fresh edit made during that window must still
+    /// get sent (and its own row re-checked) before the sheet actually
+    /// closes, rather than being silently discarded on dismiss.
+    private func sendDirtyRows() {
         let dirtyRows = state.rows.filter(\.isDirty)
         guard !dirtyRows.isEmpty else {
             disappear()
@@ -487,7 +497,7 @@ final class SettingsSheetModel: ObservableObject {
                     }
                     switch result {
                     case .success:
-                        self.state.markSaved(agent: agent, role: role)
+                        self.state.markSaved(agent: agent, role: role, model: model, reasoningEffort: reasoningEffort)
                     case .failure(let error):
                         self.errorMessage = error.localizedDescription
                     }
@@ -500,14 +510,16 @@ final class SettingsSheetModel: ObservableObject {
         }
     }
 
-    /// Closes out one row's save; once every row from the current `confirm()`
-    /// has reported back with no error, the sheet actually dismisses.
+    /// Closes out one row's save; once every row from the current round has
+    /// reported back with no error, re-checks for dirty rows rather than
+    /// dismissing outright — an edit made while that round's saves were
+    /// still in flight must still get sent (see `sendDirtyRows`), not
+    /// silently discarded by an immediate dismiss.
     private func saveCompleted() {
         pendingSaves -= 1
         guard pendingSaves == 0, errorMessage == nil else {
             return
         }
-        disappear()
-        dismiss()
+        sendDirtyRows()
     }
 }

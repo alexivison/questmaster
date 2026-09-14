@@ -139,12 +139,15 @@ public struct RoleDefaultRow: Equatable {
         )
     }
 
-    /// Marks the row's current selection as the new saved baseline — call
-    /// once its `role_default.set` save actually lands, so a later confirm()
-    /// doesn't re-send an already-persisted change.
-    public mutating func markSaved() {
-        savedModelIndexAtResolve = selectedModelIndex
-        savedEffortIndexAtResolve = selectedEffortIndex
+    /// Marks the values actually persisted by a `role_default.set` save as
+    /// the new saved baseline. Takes the values that were sent — not the
+    /// row's current live selection — because the user can keep editing
+    /// while that save is still in flight; baselining the live selection
+    /// would silently mark a newer, never-sent edit as "already saved" the
+    /// instant the earlier save's ack arrives.
+    public mutating func markSaved(model: String, reasoningEffort: String) {
+        savedModelIndexAtResolve = model.isEmpty ? nil : modelOptions.firstIndex(where: { $0.id == model })
+        savedEffortIndexAtResolve = reasoningEffort.isEmpty ? nil : effortOptions.firstIndex(where: { $0.id == reasoningEffort })
     }
 }
 
@@ -208,13 +211,13 @@ public struct RoleDefaultsSettingsModel: Equatable {
         rows[index].setEffortOptions(levels, defaultLevel: defaultLevel)
     }
 
-    /// Marks one row's current selection as its new saved baseline — call
-    /// once that row's `role_default.set` save actually lands.
-    public mutating func markSaved(agent: String, role: String) {
+    /// Marks the values actually persisted by one row's `role_default.set`
+    /// save as its new saved baseline — call once that save actually lands.
+    public mutating func markSaved(agent: String, role: String, model: String, reasoningEffort: String) {
         guard let index = index(agent: agent, role: role) else {
             return
         }
-        rows[index].markSaved()
+        rows[index].markSaved(model: model, reasoningEffort: reasoningEffort)
     }
 
     /// Moves focus by `delta` steps across the active tab's fields (model and

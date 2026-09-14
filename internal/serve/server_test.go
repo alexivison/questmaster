@@ -1268,8 +1268,9 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 		t.Fatalf("models = %#v, want the recent model plus the backfilled persisted default", data["models"])
 	}
 
-	// limit is honored: it must actually cap the response, not just decode
-	// without error.
+	// limit caps the ranked, dynamic part of the list, but the persisted
+	// default always survives past it (it's backfilled after truncation) —
+	// so limit=1 here still yields 2: the one ranked entry plus the default.
 	writeRequest(t, enc, map[string]any{
 		"id":     "models-limit",
 		"method": "models",
@@ -1281,8 +1282,8 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 		t.Fatalf("models limit data = %#v, want object", limited.Data)
 	}
 	limitedModels, ok := limitedData["models"].([]any)
-	if !ok || len(limitedModels) != 1 {
-		t.Fatalf("models with limit=1 = %#v, want exactly one entry", limitedData["models"])
+	if !ok || len(limitedModels) != 2 {
+		t.Fatalf("models with limit=1 = %#v, want the one ranked entry plus the backfilled default", limitedData["models"])
 	}
 
 	// query filters the list: a substring that matches nothing must yield no
@@ -1766,6 +1767,67 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 	}
 	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "standalone"); err != nil || !ok || def.Model != "sonnet" {
 		t.Fatalf("claude standalone default = %+v ok=%v err=%v, want sonnet persisted separately from worker", def, ok, err)
+	}
+
+	cancel()
+	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+// TestServerRoleDefaultSetMutationMergesPartialUpdates guards a real bug:
+// Set() replaces the whole persisted record, so a caller that sends only
+// reasoning_effort (or only model) must not silently wipe the other,
+// already-configured field. mutateRoleDefaultSet's own reasoning-effort
+// validation already falls back to the persisted model when none is given —
+// the write must honor that same merge, not just the validation.
+func TestServerRoleDefaultSetMutationMergesPartialUpdates(t *testing.T) {
+	env := seedServeFixture(t)
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	srv := &Server{
+		SocketPath:     socketPath,
+		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval:  time.Hour,
+		MutationRunner: &recordingMutationRunner{},
+	}
+	errc := serveInBackground(t, ctx, srv, socketPath)
+
+	sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-set-full",
+		"method": "role_default.set",
+		"data": map[string]any{
+			"agent":            "codex",
+			"role":             "master",
+			"model":            "gpt-5.6-sol",
+			"reasoning_effort": "high",
+		},
+	})
+
+	effortOnlyResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-set-effort-only",
+		"method": "role_default.set",
+		"data":   map[string]any{"agent": "codex", "role": "master", "reasoning_effort": "max"},
+	})
+	if !envelopeContains(effortOnlyResp, `"model":"gpt-5.6-sol"`) {
+		t.Fatalf("role_default.set effort-only response = %#v, want the persisted model still reported", effortOnlyResp)
+	}
+	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("codex", "master"); err != nil || !ok || def.Model != "gpt-5.6-sol" || def.ReasoningEffort != "max" {
+		t.Fatalf("codex master after effort-only update: def=%+v ok=%v err=%v, want model unaffected and effort updated", def, ok, err)
+	}
+
+	modelOnlyResp := sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-set-model-only",
+		"method": "role_default.set",
+		"data":   map[string]any{"agent": "codex", "role": "master", "model": "gpt-5.6-terra"},
+	})
+	if !envelopeContains(modelOnlyResp, `"reasoning_effort":"max"`) {
+		t.Fatalf("role_default.set model-only response = %#v, want the persisted effort still reported", modelOnlyResp)
+	}
+	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("codex", "master"); err != nil || !ok || def.Model != "gpt-5.6-terra" || def.ReasoningEffort != "max" {
+		t.Fatalf("codex master after model-only update: def=%+v ok=%v err=%v, want effort unaffected and model updated", def, ok, err)
 	}
 
 	cancel()

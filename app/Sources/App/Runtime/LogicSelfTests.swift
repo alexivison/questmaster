@@ -56,6 +56,7 @@ enum LogicSelfTests {
         ("testSettingsConfirmWaitsForEveryPendingSaveBeforeDismissing", testSettingsConfirmWaitsForEveryPendingSaveBeforeDismissing),
         ("testSettingsConfirmKeepsSheetOpenAndShowsErrorOnSaveFailure", testSettingsConfirmKeepsSheetOpenAndShowsErrorOnSaveFailure),
         ("testSettingsConfirmSendsOnlyDirtyRowsAndLeavesUntouchedOnesAlone", testSettingsConfirmSendsOnlyDirtyRowsAndLeavesUntouchedOnesAlone),
+        ("testSettingsConfirmResendsAnEditMadeWhileASaveWasInFlight", testSettingsConfirmResendsAnEditMadeWhileASaveWasInFlight),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1846,6 +1847,53 @@ enum LogicSelfTests {
         }
         try expect(sent.data["model"] == "sonnet", "the touched row should send its new selection")
         try expect(sent.data["reasoning_effort"] == "low", "the untouched sibling field still sends its current (persisted) value")
+    }
+
+    // Guards a real bug found in review: the user can keep editing while a
+    // role_default.set save is still in flight. The sheet must not let a
+    // stale save's ack silently mark a newer, never-sent edit as "clean,"
+    // and must not dismiss until that newer edit has actually been sent too.
+    private static func testSettingsConfirmResendsAnEditMadeWhileASaveWasInFlight() throws {
+        let modelClient = StubModelClient(
+            models: ["claude": [
+                SessionModelOption(id: "opus", label: "opus"),
+                SessionModelOption(id: "sonnet", label: "sonnet"),
+                SessionModelOption(id: "haiku", label: "haiku"),
+            ]],
+            defaults: ["claude": "opus"]
+        )
+        let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)), deferCompletions: true)
+        var dismissed = false
+        let model = settingsSheetModel(mutationClient: mutationClient, modelClient: modelClient, dismiss: { dismissed = true })
+        model.state = RoleDefaultsSettingsModel(agents: ["claude"])
+
+        model.present()
+        drainMainQueue()
+        try expect(model.state.rows[0].selectedModel == "opus", "sanity: seeded onto the persisted default")
+
+        model.focus(role: "master", field: .model)
+        model.state.cycleFocusedValue(1)
+        try expect(model.state.rows[0].selectedModel == "sonnet", "sanity: cycled to a new value")
+
+        model.confirm()
+        try expect(mutationClient.sentRequests.count == 1, "confirm should send the one dirty row")
+        try expect(mutationClient.sentRequests[0].data["model"] == "sonnet", "should send the value selected at confirm time")
+
+        // The user keeps editing while that save is still in flight.
+        model.state.cycleFocusedValue(1)
+        try expect(model.state.rows[0].selectedModel == "haiku", "sanity: a newer, unsent edit")
+
+        // The in-flight save for "sonnet" now completes.
+        mutationClient.fireCompletion(forRequestAt: 0)
+        drainMainQueue()
+
+        try expect(!dismissed, "a newer edit made during the save must keep the sheet open")
+        try expect(mutationClient.sentRequests.count == 2, "the newer edit must get sent too, not silently dropped")
+        try expect(mutationClient.sentRequests[1].data["model"] == "haiku", "the second send should carry the newer edit")
+
+        mutationClient.fireCompletion(forRequestAt: 1)
+        drainMainQueue()
+        try expect(dismissed, "once nothing is left dirty, the sheet should finally dismiss")
     }
 
     /// Resolves every row in `model.state` onto a plain option and cycles its

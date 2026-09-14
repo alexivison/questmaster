@@ -184,18 +184,26 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	// Harness ids the catalog knows nothing about still belong in the list:
 	// the harness is the authority on what it can run.
 	collector.addAll(harnessOnlyModels(harnessIDs, collector))
-	// A persisted override isn't guaranteed to be independently present in
-	// recents/catalog/harness-enumeration (e.g. a freshly-typed or
-	// not-yet-launched model id) — back it in explicitly so a genuinely
-	// configured row can never misrender as unconfigured just because
-	// nothing else happened to surface it. add()'s id-dedup makes this a
-	// no-op when a richer entry already supplies the same id.
-	if result.Default != "" {
-		collector.add(Model{ID: result.Default, Label: result.Default, Note: "your configured default"})
-	}
 
 	if len(collector.models) > limit {
 		collector.models = collector.models[:limit]
+	}
+	// A persisted override isn't guaranteed to survive the ranking above —
+	// it might not be independently present in recents/catalog/harness
+	// enumeration at all (e.g. a freshly-typed or not-yet-launched model
+	// id), or a full dynamic list may have pushed it past the limit. Back
+	// it in explicitly, past the limit if necessary, so a genuinely
+	// configured row can never misrender as unconfigured. Checked against
+	// the already-truncated list (not collector.seen, which still marks ids
+	// sliced off above as "present"), and still subject to the active query
+	// — an active search narrows the list same as for any other entry, and
+	// Suggestions.Default (reported separately, above) already tells the
+	// caller what's configured regardless of whether it matches the search.
+	if result.Default != "" && !containsModelID(collector.models, result.Default) {
+		defaultModel := Model{ID: result.Default, Label: result.Default, Note: "your configured default"}
+		if collector.matches(defaultModel) {
+			collector.models = append(collector.models, defaultModel)
+		}
 	}
 	result.Models = collector.models
 	return result
@@ -252,6 +260,18 @@ func (c *modelCollector) add(model Model) {
 	}
 	c.seen[model.ID] = true
 	c.models = append(c.models, model)
+}
+
+// containsModelID reports whether models already includes id — used after
+// truncating to the ranking limit, where modelCollector's own seen map is no
+// longer trustworthy (it still marks ids sliced off the list as "present").
+func containsModelID(models []Model, id string) bool {
+	for _, model := range models {
+		if model.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *modelCollector) matches(model Model) bool {

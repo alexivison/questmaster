@@ -404,15 +404,22 @@ func (s *Server) mutateRoleDefaultSet(payload mutationPayload) (any, error) {
 		return nil, fmt.Errorf("model or reasoning_effort is required")
 	}
 
+	// Set() replaces the whole persisted record, so a caller that only means
+	// to touch one field must not have the other silently wiped: a blank
+	// field here means "leave whatever is already persisted for it," not
+	// "clear it" (there is no clear-an-existing-field pathway at all — see
+	// the doc comment above).
 	store := state.NewRoleDefaultsStore(s.mutationStore().Root())
+	existing, hasExisting, _ := store.Get(agentName, role)
+	if model == "" && hasExisting {
+		model = existing.Model
+	}
+	if reasoningEffort == "" && hasExisting {
+		reasoningEffort = existing.ReasoningEffort
+	}
+
 	if reasoningEffort != "" {
-		validationModel := model
-		if validationModel == "" {
-			if existing, ok, _ := store.Get(agentName, role); ok {
-				validationModel = existing.Model
-			}
-		}
-		if err := agent.ValidateReasoningEffort(agentName, validationModel, reasoningEffort); err != nil {
+		if err := agent.ValidateReasoningEffort(agentName, model, reasoningEffort); err != nil {
 			return nil, err
 		}
 	}
