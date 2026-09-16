@@ -31,6 +31,12 @@ ln -sf "$(go env GOPATH)/bin/questmaster" ~/.local/bin/qm
 qm version
 ```
 
+On macOS with Questmaster.app installed, `./app/Scripts/build-app.sh` symlinks
+`~/.local/bin/questmaster` to the app's bundled `qm` after each build, so the
+global CLI always matches the app. Don't run a separate `go install` into
+that name afterward — it overwrites the symlink with a binary that stops
+tracking the app.
+
 From a source checkout:
 
 ```sh
