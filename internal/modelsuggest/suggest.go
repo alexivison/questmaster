@@ -52,17 +52,18 @@ type Model struct {
 // Suggestions is the model data served to native clients and to
 // `questmaster models`.
 //
-// Default is the persisted role-defaults override's model, or "" when
-// nothing is configured for this agent+role — Settings is the only source of
-// a default, so there is no other value to fall back to. It is reported
-// rather than listed so clients can label their own "default" entry without
-// repeating an id.
+// Default and DefaultReasoningEffort are the persisted role-defaults
+// override's model and reasoning effort, or "" when nothing is configured for
+// this agent+role — Settings is the only source of a default, so there is no
+// other value to fall back to. Each is reported rather than listed so clients
+// can label their own "default" entry without repeating a value.
 type Suggestions struct {
-	Agent   string  `json:"agent"`
-	Role    string  `json:"role"`
-	Default string  `json:"default"`
-	Models  []Model `json:"models"`
-	Source  string  `json:"source"`
+	Agent                  string  `json:"agent"`
+	Role                   string  `json:"role"`
+	Default                string  `json:"default"`
+	DefaultReasoningEffort string  `json:"default_reasoning_effort"`
+	Models                 []Model `json:"models"`
+	Source                 string  `json:"source"`
 }
 
 // Options controls one suggestion query against already-resolved sources.
@@ -162,6 +163,7 @@ func Query(ctx context.Context, opts Options) Suggestions {
 	if opts.Store != nil {
 		if def, ok, _ := state.NewRoleDefaultsStore(opts.Store.Root()).Get(agentName, agent.RoleDefaultsKey(opts.Role)); ok {
 			result.Default = def.Model
+			result.DefaultReasoningEffort = def.ReasoningEffort
 		}
 	}
 

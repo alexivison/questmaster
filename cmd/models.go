@@ -100,8 +100,9 @@ func parseModelsRoleFlag(value string) (agent.SessionRole, error) {
 
 func writeModelsText(cmd *cobra.Command, suggestions modelsuggest.Suggestions) {
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "%s (%s) · default: %s · source: %s\n",
-		suggestions.Agent, suggestions.Role, defaultLabel(suggestions.Default), suggestions.Source)
+	fmt.Fprintf(out, "%s (%s) · default: %s · reasoning: %s · source: %s\n",
+		suggestions.Agent, suggestions.Role, defaultLabel(suggestions.Default),
+		defaultLabel(suggestions.DefaultReasoningEffort), suggestions.Source)
 	if len(suggestions.Models) == 0 {
 		fmt.Fprintln(out, "  no models resolved — pass any id the harness understands")
 		return

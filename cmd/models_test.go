@@ -35,7 +35,7 @@ func TestModelsCmdJSONReportsRoleDefault(t *testing.T) {
 	store := setupStore(t)
 	runner := idleRunner()
 
-	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "master", state.RoleDefault{Model: "opus"}); err != nil {
+	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "master", state.RoleDefault{Model: "opus", ReasoningEffort: "high"}); err != nil {
 		t.Fatalf("seed role default: %v", err)
 	}
 
@@ -50,6 +50,9 @@ func TestModelsCmdJSONReportsRoleDefault(t *testing.T) {
 	}
 	if got.Default != "opus" {
 		t.Errorf("default = %q, want the persisted role default opus", got.Default)
+	}
+	if got.DefaultReasoningEffort != "high" {
+		t.Errorf("default reasoning effort = %q, want the persisted role default high", got.DefaultReasoningEffort)
 	}
 	if !slices.ContainsFunc(got.Models, func(m modelsuggest.Model) bool { return m.ID == "opus" }) {
 		t.Errorf("models = %v, want the persisted default backfilled as a selectable option", got.Models)
@@ -71,12 +74,19 @@ func TestModelsCmdTextAndRecents(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
+	if err := state.NewRoleDefaultsStore(store.Root()).Set("codex", "standalone", state.RoleDefault{Model: "gpt-9-unreleased", ReasoningEffort: "xhigh"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+
 	out := runCmd(t, store, runner, "models", "codex", "--text")
 	if !strings.Contains(out, "codex (standalone)") {
 		t.Errorf("text output missing the header:\n%s", out)
 	}
 	if !strings.Contains(out, "gpt-9-unreleased") {
 		t.Errorf("text output missing the recent model:\n%s", out)
+	}
+	if !strings.Contains(out, "reasoning: xhigh") {
+		t.Errorf("text output missing the default reasoning effort:\n%s", out)
 	}
 }
 
