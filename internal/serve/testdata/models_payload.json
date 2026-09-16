@@ -2,6 +2,7 @@
   "agent": "claude",
   "role": "standalone",
   "default": "sonnet",
+  "default_reasoning_effort": "",
   "models": [
     {
       "id": "opus",

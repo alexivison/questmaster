@@ -201,6 +201,24 @@ func TestQueryBackfillsAPersistedDefaultMissingFromEveryOtherSource(t *testing.T
 	}
 }
 
+// TestQueryReportsThePersistedDefaultReasoningEffort guards the CLI/app's
+// only way to discover a role's configured reasoning-effort default:
+// Settings persists it alongside the model in the same RoleDefault row, and
+// Query must surface both, not just the model.
+func TestQueryReportsThePersistedDefaultReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	store := seedStore(t, nil)
+	if err := state.NewRoleDefaultsStore(store.Root()).Set("codex", "worker", state.RoleDefault{Model: "gpt-5.6-luna", ReasoningEffort: "xhigh"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+	got := Query(context.Background(), Options{Agent: "codex", Role: agent.RoleWorker, Store: store})
+
+	if got.DefaultReasoningEffort != "xhigh" {
+		t.Fatalf("default reasoning effort = %q, want the persisted override", got.DefaultReasoningEffort)
+	}
+}
+
 // TestQueryBackfillsAPersistedDefaultPastTheRankingLimit guards the same
 // backfill against a second way it can go missing: a full dynamic list that
 // already meets Limit before the default is even considered, which would
