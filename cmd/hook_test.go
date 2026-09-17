@@ -282,6 +282,42 @@ func TestHookClaudeStartingSetsState(t *testing.T) {
 	}
 }
 
+func TestHookClaudeStrayStartingDoesNotRegressWorkingPane(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "claude", "starting", "qm-abc", nil)
+	runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{"prompt": "do the thing"})
+	if got := rec.lastState.Panes["primary"].State; got != "working" {
+		t.Fatalf("setup: pane state = %q, want working", got)
+	}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", nil)
+	if stderr != "" {
+		t.Errorf("stderr: %q", stderr)
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "working" {
+		t.Errorf("stray SessionStart regressed pane state to %q, want working", got)
+	}
+}
+
+func TestHookClaudeStartingAllowedAfterStopped(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "claude", State: "stopped", LastKind: "SessionEnd"},
+		},
+	}
+
+	stderr := runHookWithStdin(r, "claude", "starting", "qm-abc", nil)
+	if stderr != "" {
+		t.Errorf("stderr: %q", stderr)
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "starting" {
+		t.Errorf("genuine resume: pane state = %q, want starting", got)
+	}
+}
+
 func TestHookClaudeUserPromptSubmit(t *testing.T) {
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{
@@ -1718,6 +1754,46 @@ func TestHookCodexEndToEnd(t *testing.T) {
 		if ev.Agent != "codex" {
 			t.Errorf("event agent: %+v", ev)
 		}
+	}
+}
+
+func TestHookCodexStrayStartingDoesNotRegressWorkingPane(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "codex", "starting", "qm-abc", nil)
+	runHookWithStdin(r, "codex", "working", "qm-abc", map[string]interface{}{"prompt": "do the thing"})
+	if got := rec.lastState.Panes["primary"].State; got != "working" {
+		t.Fatalf("setup: pane state = %q, want working", got)
+	}
+
+	// Codex re-fires SessionStart mid-task (e.g. around compaction/reconnect);
+	// it must not flap an active pane back to "starting".
+	stderr := runHookWithStdin(r, "codex", "starting", "qm-abc", nil)
+	if stderr != "" {
+		t.Errorf("stderr: %q", stderr)
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "working" {
+		t.Errorf("stray SessionStart regressed pane state to %q, want working", got)
+	}
+}
+
+func TestHookCodexStartingAllowedAfterDone(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "codex", State: "done", LastKind: "Stop"},
+		},
+	}
+
+	// A genuine resume of a finished session must still be able to move the
+	// pane off "done" — continue.go doesn't reset PaneState.State on resume.
+	stderr := runHookWithStdin(r, "codex", "starting", "qm-abc", nil)
+	if stderr != "" {
+		t.Errorf("stderr: %q", stderr)
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "starting" {
+		t.Errorf("genuine resume: pane state = %q, want starting", got)
 	}
 }
 

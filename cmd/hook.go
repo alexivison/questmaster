@@ -240,6 +240,25 @@ func decodeClaude(data []byte) claudePayload {
 	return p
 }
 
+// suppressSpuriousStartingRegression drops a "starting" transition when the
+// pane is already mid-session. Codex (and, less often, Claude) re-fires its
+// SessionStart hook well after the real session start — e.g. around
+// compaction/reconnect — which would otherwise flap an active pane's pill
+// back to "Starting…". Only working/blocked count as "already mid-session"
+// here: "", "starting", "done" and "stopped" must still let "starting"
+// through, since a resumed session's PaneState.State carries over from
+// before the resume (continue.go doesn't reset it) and a genuine resume's
+// SessionStart has to be able to move it off "done"/"stopped".
+func suppressSpuriousStartingRegression(setState, prevState string) string {
+	if setState != "starting" {
+		return setState
+	}
+	if prevState == "working" || prevState == "blocked" {
+		return ""
+	}
+	return setState
+}
+
 func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
 	payload := decodeClaude(opts.stdin)
 	now := r.Now().UTC()
@@ -427,6 +446,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			setState = ""
 			setActivity = ""
 		}
+		setState = suppressSpuriousStartingRegression(setState, prev.State)
 
 		if setState != "" {
 			pane.State = setState
@@ -856,6 +876,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		clearStaleQuestionActivity := opts.action == "tool_end" &&
 			isCodexRequestUserInputTool(pane.Tool) &&
 			strings.HasPrefix(pane.Activity, "Question: ")
+		setState = suppressSpuriousStartingRegression(setState, prev.State)
 
 		if setState != "" {
 			pane.State = setState
