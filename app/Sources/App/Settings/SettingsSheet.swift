@@ -48,12 +48,8 @@ struct SettingsSheetView: View {
     var body: some View {
         ModalSheetScaffold(
             title: "Settings",
-            footerText: "[ ] tab · ←→/hl change value · ⌃j/⌃k move · esc cancel · ⏎ done",
-            errorMessage: model.errorMessage,
-            cancelLabel: "Cancel",
-            onCancel: { model.cancel() },
-            primaryLabel: "Done",
-            onPrimary: { model.confirm() }
+            footerText: "[ ] tab · ←→/hl change value · ⌃j/⌃k move · esc close",
+            errorMessage: model.errorMessage
         ) {
             HStack(alignment: .top, spacing: Token.Spacing.content) {
                 sidebar
@@ -291,11 +287,6 @@ final class SettingsSheetModel: ObservableObject {
     /// clobber a newer one — mirrors NewSessionSheetModel's request-ID guard.
     private var modelRequestIDs: [Int]
     private var effortRequestIDs: [Int]
-    /// Counts `role_default.set` sends still in flight from the current
-    /// `confirm()` call, so the sheet can wait for all of them (and surface
-    /// any failure) before tearing itself down — dismissing immediately would
-    /// otherwise race the async sends and silently drop a validation error.
-    private var pendingSaves = 0
 
     init(presentation: SettingsSheetPresentation, dismiss: @escaping () -> Void) {
         mutationClient = presentation.mutationClient
@@ -343,11 +334,7 @@ final class SettingsSheetModel: ObservableObject {
         let control = flags.contains(.control)
         let option = flags.contains(.option)
         if Keymap.NewSession.cancel.matches(event.keyCode) {
-            cancel()
-            return true
-        }
-        if Keymap.NewSession.create.matches(chars) {
-            confirm()
+            close()
             return true
         }
         if event.modifierFlags.contains(.command) {
@@ -384,47 +371,18 @@ final class SettingsSheetModel: ObservableObject {
         return false
     }
 
-    /// Discards every change made in this sheet session — nothing selected
-    /// since the sheet opened is persisted.
-    func cancel() {
+    /// Closes the sheet. Every change already applies the moment it's made,
+    /// so there's no separate commit/discard step left — closing never waits
+    /// on an in-flight save. A save that fails after the sheet is gone has
+    /// nowhere left to show its error; that's an accepted tradeoff of
+    /// applying live instead of batching behind a confirm step.
+    func close() {
         disappear()
         dismiss()
     }
 
-    /// Persists only the rows that actually changed, then closes once every
-    /// save has finished. An untouched row — configured or not — is never
-    /// resent, so confirming can never silently clear or recreate it. A
-    /// failed save keeps the sheet open with the error shown instead of
-    /// dismissing regardless — dismissing unconditionally would otherwise
-    /// look like a successful save when it wasn't.
-    func confirm() {
-        guard pendingSaves == 0 else {
-            return
-        }
-        errorMessage = nil
-        sendDirtyRows()
-    }
-
-    /// Sends every currently-dirty row, or dismisses if there's nothing left
-    /// to send. Called both by `confirm()` and, once a round of saves
-    /// finishes, by `saveCompleted()` — the user can keep editing while a
-    /// save is in flight, so a fresh edit made during that window must still
-    /// get sent (and its own row re-checked) before the sheet actually
-    /// closes, rather than being silently discarded on dismiss.
-    private func sendDirtyRows() {
-        let dirtyRows = state.rows.filter(\.isDirty)
-        guard !dirtyRows.isEmpty else {
-            disappear()
-            dismiss()
-            return
-        }
-        pendingSaves = dirtyRows.count
-        for row in dirtyRows {
-            sendRoleDefault(agent: row.agent, role: row.role, model: row.selectedModel, reasoningEffort: row.selectedReasoningEffort)
-        }
-    }
-
-    /// Cycles whichever field currently has focus. Changing the model
+    /// Cycles whichever field currently has focus and, if that actually
+    /// changed the row's value, sends it immediately. Changing the model
     /// invalidates the effort list (valid levels can depend on the model), so
     /// only that case re-fetches; cycling the effort itself needs no refetch.
     private func cycleFocusedValue(_ delta: Int) {
@@ -432,10 +390,20 @@ final class SettingsSheetModel: ObservableObject {
             return
         }
         let field = state.focusedField
+        let previousRow = state.rows[rowIndex]
         state.cycleFocusedValue(delta)
         if field == .model {
             requestEffortSuggestions(rowIndex: rowIndex)
         }
+        let row = state.rows[rowIndex]
+        // Guards against sending both fields empty (which the backend
+        // rejects) when a cycle press lands before this row's options have
+        // resolved and produces no real change.
+        guard row.selectedModel != previousRow.selectedModel || row.selectedReasoningEffort != previousRow.selectedReasoningEffort else {
+            return
+        }
+        errorMessage = nil
+        sendRoleDefault(agent: row.agent, role: row.role, model: row.selectedModel, reasoningEffort: row.selectedReasoningEffort)
     }
 
     private func requestModelSuggestions(rowIndex: Int) {
@@ -501,25 +469,10 @@ final class SettingsSheetModel: ObservableObject {
                     case .failure(let error):
                         self.errorMessage = error.localizedDescription
                     }
-                    self.saveCompleted()
                 }
             }
         } catch {
             errorMessage = error.localizedDescription
-            saveCompleted()
         }
-    }
-
-    /// Closes out one row's save; once every row from the current round has
-    /// reported back with no error, re-checks for dirty rows rather than
-    /// dismissing outright — an edit made while that round's saves were
-    /// still in flight must still get sent (see `sendDirtyRows`), not
-    /// silently discarded by an immediate dismiss.
-    private func saveCompleted() {
-        pendingSaves -= 1
-        guard pendingSaves == 0, errorMessage == nil else {
-            return
-        }
-        sendDirtyRows()
     }
 }
