@@ -53,10 +53,10 @@ enum LogicSelfTests {
         ("testNewSessionEffortKeyCyclesWhileModelFocused", testNewSessionEffortKeyCyclesWhileModelFocused),
         ("testConnectWithRetryRetriesUntilConnectSucceeds", testConnectWithRetryRetriesUntilConnectSucceeds),
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
-        ("testSettingsConfirmWaitsForEveryPendingSaveBeforeDismissing", testSettingsConfirmWaitsForEveryPendingSaveBeforeDismissing),
-        ("testSettingsConfirmKeepsSheetOpenAndShowsErrorOnSaveFailure", testSettingsConfirmKeepsSheetOpenAndShowsErrorOnSaveFailure),
-        ("testSettingsConfirmSendsOnlyDirtyRowsAndLeavesUntouchedOnesAlone", testSettingsConfirmSendsOnlyDirtyRowsAndLeavesUntouchedOnesAlone),
-        ("testSettingsConfirmResendsAnEditMadeWhileASaveWasInFlight", testSettingsConfirmResendsAnEditMadeWhileASaveWasInFlight),
+        ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
+        ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
+        ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
+        ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1768,61 +1768,15 @@ enum LogicSelfTests {
         )
     }
 
-    // Guards the confirm()/dismiss() race: dismissing must wait for every
-    // in-flight role_default.set save, not fire the moment the sends go out.
-    private static func testSettingsConfirmWaitsForEveryPendingSaveBeforeDismissing() throws {
-        let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)), deferCompletions: true)
-        var dismissed = false
-        let model = settingsSheetModel(mutationClient: mutationClient, dismiss: { dismissed = true })
-        model.state = RoleDefaultsSettingsModel(agents: ["claude"])
-        makeEveryRowDirty(in: model)
-
-        model.confirm()
-        let rowCount = model.state.rows.count
-        try expect(rowCount == 3, "sanity: one agent should produce 3 rows")
-        try expect(mutationClient.sentRequests.count == rowCount, "confirm should send one save per dirty row")
-        try expect(!dismissed, "confirm should not dismiss before any save has completed")
-
-        for index in 0..<(rowCount - 1) {
-            mutationClient.fireCompletion(forRequestAt: index)
-        }
-        drainMainQueue()
-        try expect(!dismissed, "confirm should not dismiss until every row's save has completed")
-
-        mutationClient.fireCompletion(forRequestAt: rowCount - 1)
-        drainMainQueue()
-        try expect(dismissed, "confirm should dismiss once every row's save has completed")
-    }
-
-    // A validation failure (e.g. a stale reasoning effort sent alongside a
-    // just-changed model) must not be swallowed by an immediate dismiss —
-    // the user needs to see it and the sheet must stay open to retry.
-    private static func testSettingsConfirmKeepsSheetOpenAndShowsErrorOnSaveFailure() throws {
-        let mutationClient = StubMutationClient(result: .failure(StubMutationError()))
-        var dismissed = false
-        let model = settingsSheetModel(mutationClient: mutationClient, dismiss: { dismissed = true })
-        model.state = RoleDefaultsSettingsModel(agents: ["claude"])
-        makeEveryRowDirty(in: model)
-
-        model.confirm()
-        drainMainQueue()
-
-        try expect(!dismissed, "a failed save must not dismiss the sheet")
-        try expect(model.errorMessage != nil, "a failed save must surface an error instead of silently dropping it")
-    }
-
-    // Guards the fix for confirming Settings without touching a row silently
-    // clearing its already-configured default: dirty-tracking means an
-    // untouched row — configured or not — is never resent at all, so it can
-    // never be silently cleared or recreated. A touched row still sends its
-    // new selection.
-    private static func testSettingsConfirmSendsOnlyDirtyRowsAndLeavesUntouchedOnesAlone() throws {
+    // Guards the live-apply contract: cycling a value sends its
+    // role_default.set the moment it changes, with no confirm/done step.
+    private static func testSettingsCyclingAFieldSendsItsRoleDefaultImmediately() throws {
         let modelClient = StubModelClient(
             models: ["claude": [
-                SessionModelOption(id: "claude-opus-9-unreleased", label: "claude-opus-9-unreleased"),
+                SessionModelOption(id: "opus", label: "opus"),
                 SessionModelOption(id: "sonnet", label: "sonnet"),
             ]],
-            defaults: ["claude": "claude-opus-9-unreleased"]
+            defaults: ["claude": "opus"]
         )
         let effortClient = StubReasoningEffortClient(
             efforts: ["claude": ["low", "high"]],
@@ -1830,36 +1784,31 @@ enum LogicSelfTests {
         )
         let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)))
         let model = settingsSheetModel(mutationClient: mutationClient, modelClient: modelClient, effortClient: effortClient)
+        model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
         drainMainQueue()
-        model.confirm()
-        drainMainQueue()
-        try expect(mutationClient.sentRequests.isEmpty, "confirming without touching anything must send nothing at all")
+        try expect(mutationClient.sentRequests.isEmpty, "resolving options alone must send nothing")
 
         model.focus(role: "master", field: .model)
-        model.state.cycleFocusedValue(1)
-        model.confirm()
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
         drainMainQueue()
 
-        try expect(mutationClient.sentRequests.count == 1, "only the one row that actually changed should be sent")
-        guard let sent = mutationClient.sentRequests.first(where: { $0.data["agent"] == "claude" && $0.data["role"] == "master" }) else {
-            throw TestFailure("expected the dirty row's role_default.set for claude/master")
+        try expect(mutationClient.sentRequests.count == 1, "cycling a value should send its role_default.set immediately")
+        guard let sent = mutationClient.sentRequests.first else {
+            throw TestFailure("expected a role_default.set send")
         }
-        try expect(sent.data["model"] == "sonnet", "the touched row should send its new selection")
-        try expect(sent.data["reasoning_effort"] == "low", "the untouched sibling field still sends its current (persisted) value")
+        try expect(sent.data["agent"] == "claude" && sent.data["role"] == "master", "should send the row that was actually cycled")
+        try expect(sent.data["model"] == "sonnet", "should send the newly cycled value")
     }
 
-    // Guards a real bug found in review: the user can keep editing while a
-    // role_default.set save is still in flight. The sheet must not let a
-    // stale save's ack silently mark a newer, never-sent edit as "clean,"
-    // and must not dismiss until that newer edit has actually been sent too.
-    private static func testSettingsConfirmResendsAnEditMadeWhileASaveWasInFlight() throws {
+    // With no Done button left, closing the sheet must never block on
+    // whatever role_default.set sends are still in flight.
+    private static func testSettingsCloseDoesNotWaitForInFlightSaves() throws {
         let modelClient = StubModelClient(
             models: ["claude": [
                 SessionModelOption(id: "opus", label: "opus"),
                 SessionModelOption(id: "sonnet", label: "sonnet"),
-                SessionModelOption(id: "haiku", label: "haiku"),
             ]],
             defaults: ["claude": "opus"]
         )
@@ -1870,42 +1819,80 @@ enum LogicSelfTests {
 
         model.present()
         drainMainQueue()
+        model.focus(role: "master", field: .model)
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        try expect(mutationClient.sentRequests.count == 1, "sanity: cycling sent one save that's still in flight")
+        try expect(!dismissed, "sanity: not dismissed yet")
+
+        try expect(model.handle(try keyEvent("\u{1B}", keyCode: 53)), "esc should be handled")
+        try expect(dismissed, "esc should close the sheet immediately, without waiting on the in-flight save")
+    }
+
+    // A failed save must surface an error instead of silently dropping it,
+    // and must not get marked as saved (or the app would show a value the
+    // backend never actually persisted).
+    private static func testSettingsFailedSaveSurfacesErrorMessage() throws {
+        let modelClient = StubModelClient(
+            models: ["claude": [
+                SessionModelOption(id: "opus", label: "opus"),
+                SessionModelOption(id: "sonnet", label: "sonnet"),
+            ]],
+            defaults: ["claude": "opus"]
+        )
+        let mutationClient = StubMutationClient(result: .failure(StubMutationError()))
+        let model = settingsSheetModel(mutationClient: mutationClient, modelClient: modelClient)
+        model.state = RoleDefaultsSettingsModel(agents: ["claude"])
+
+        model.present()
+        drainMainQueue()
+        model.focus(role: "master", field: .model)
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        drainMainQueue()
+
+        try expect(model.errorMessage != nil, "a failed save must surface an error instead of silently dropping it")
+        try expect(model.state.rows[0].isDirty, "a failed save must not get marked as saved")
+    }
+
+    // Guards a real bug found in review: the user can keep editing while a
+    // role_default.set save is still in flight. Firing an independent send on
+    // every cycle (instead of batching behind a confirm step) means a newer
+    // edit is never silently dropped, regardless of the order acks land in.
+    private static func testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight() throws {
+        let modelClient = StubModelClient(
+            models: ["claude": [
+                SessionModelOption(id: "opus", label: "opus"),
+                SessionModelOption(id: "sonnet", label: "sonnet"),
+                SessionModelOption(id: "haiku", label: "haiku"),
+            ]],
+            defaults: ["claude": "opus"]
+        )
+        let mutationClient = StubMutationClient(result: .success(ServeMutationAck(data: nil)), deferCompletions: true)
+        let model = settingsSheetModel(mutationClient: mutationClient, modelClient: modelClient)
+        model.state = RoleDefaultsSettingsModel(agents: ["claude"])
+
+        model.present()
+        drainMainQueue()
         try expect(model.state.rows[0].selectedModel == "opus", "sanity: seeded onto the persisted default")
 
         model.focus(role: "master", field: .model)
-        model.state.cycleFocusedValue(1)
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle to the next model")
         try expect(model.state.rows[0].selectedModel == "sonnet", "sanity: cycled to a new value")
-
-        model.confirm()
-        try expect(mutationClient.sentRequests.count == 1, "confirm should send the one dirty row")
-        try expect(mutationClient.sentRequests[0].data["model"] == "sonnet", "should send the value selected at confirm time")
+        try expect(mutationClient.sentRequests.count == 1, "cycling should send immediately")
+        try expect(mutationClient.sentRequests[0].data["model"] == "sonnet", "should send the value just cycled to")
 
         // The user keeps editing while that save is still in flight.
-        model.state.cycleFocusedValue(1)
-        try expect(model.state.rows[0].selectedModel == "haiku", "sanity: a newer, unsent edit")
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle again before the first save acks")
+        try expect(model.state.rows[0].selectedModel == "haiku", "sanity: a newer, independently-sent edit")
+        try expect(mutationClient.sentRequests.count == 2, "the newer edit must be sent too, not silently dropped")
+        try expect(mutationClient.sentRequests[1].data["model"] == "haiku", "the second send should carry the newer value")
 
-        // The in-flight save for "sonnet" now completes.
+        // Acks land out of order: the newer send's ack arrives first.
+        mutationClient.fireCompletion(forRequestAt: 1)
+        drainMainQueue()
         mutationClient.fireCompletion(forRequestAt: 0)
         drainMainQueue()
 
-        try expect(!dismissed, "a newer edit made during the save must keep the sheet open")
-        try expect(mutationClient.sentRequests.count == 2, "the newer edit must get sent too, not silently dropped")
-        try expect(mutationClient.sentRequests[1].data["model"] == "haiku", "the second send should carry the newer edit")
-
-        mutationClient.fireCompletion(forRequestAt: 1)
-        drainMainQueue()
-        try expect(dismissed, "once nothing is left dirty, the sheet should finally dismiss")
-    }
-
-    /// Resolves every row in `model.state` onto a plain option and cycles its
-    /// model field once, marking it dirty — used to give `confirm()` a
-    /// deterministic, non-empty set of rows to actually send.
-    private static func makeEveryRowDirty(in model: SettingsSheetModel) {
-        for role in RoleDefaultsSettingsModel.roles {
-            model.state.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "", agent: "claude", role: role)
-            model.focus(role: role, field: .model)
-            model.state.cycleFocusedValue(1)
-        }
+        try expect(model.errorMessage == nil, "both saves succeeding should leave no error")
     }
 
     private static func settingsSheetModel(
