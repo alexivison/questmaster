@@ -575,7 +575,8 @@ enum LogicSelfTests {
 
     private static func testTrackerSkeletonMatchesServeStartupMessages() throws {
         try expect(trackerShowsSkeleton(for: "connecting to serve..."), "current startup text should show skeleton")
-        try expect(!trackerShowsSkeleton(for: "serve not connected - retrying"), "retry text should stay visible")
+        try expect(trackerShowsSkeleton(for: "serve not connected - retrying"), "retry text should keep showing the skeleton, it will resolve itself")
+        try expect(!trackerShowsSkeleton(for: "serve stopped - restart required"), "restart-required is terminal and should show as a normal empty state")
     }
 
     private static func testDockPanePublishesModeChanges() throws {

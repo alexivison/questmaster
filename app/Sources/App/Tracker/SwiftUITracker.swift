@@ -8,7 +8,9 @@ private enum TrackerSwiftUITiming {
 
 func isServeStartingMessage(_ message: String?) -> Bool {
     let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return normalized == "starting qm serve..." || normalized == "connecting to serve..."
+    return normalized == "starting qm serve..."
+        || normalized == "connecting to serve..."
+        || normalized == "serve not connected - retrying"
 }
 
 final class TrackerKeyboardBridge {
