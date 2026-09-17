@@ -11,9 +11,7 @@ final class MenuController {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(commandMenuItem(Keymap.Command.settings, action: actions.openSettings, target: target))
-        let openGhosttyConfigItem = NSMenuItem(title: "Open Ghostty Config", action: actions.openGhosttyConfig, keyEquivalent: "")
-        openGhosttyConfigItem.target = target
-        appMenu.addItem(openGhosttyConfigItem)
+        appMenu.addItem(commandMenuItem(Keymap.Command.openGhosttyConfig, action: actions.openGhosttyConfig, target: target))
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(commandMenuItem(Keymap.Command.quitQuestmaster, action: #selector(NSApplication.terminate(_:))))
         appItem.submenu = appMenu
