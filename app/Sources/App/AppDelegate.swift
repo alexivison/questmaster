@@ -164,6 +164,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 openNewSession: #selector(openNewSession),
                 openNewQuest: #selector(openNewQuest),
                 openSettings: #selector(openSettings),
+                openGhosttyConfig: #selector(openGhosttyConfig),
                 openNewTerminal: #selector(openNewTerminal),
                 openNewMasterSession: #selector(openNewMasterSession),
                 editFocusedSession: #selector(editFocusedSession),
@@ -657,6 +658,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             modelClient: modelSuggestionClient,
             effortClient: reasoningEffortSuggestionClient
         )
+    }
+
+    @objc private func openGhosttyConfig() {
+        let configPath = (NSHomeDirectory() as NSString).appendingPathComponent(".config/ghostty/config")
+        NSWorkspace.shared.open(URL(fileURLWithPath: configPath))
     }
 
     @objc private func openNewQuest() {
