@@ -586,9 +586,18 @@ func TestSend_Success(t *testing.T) {
 func TestSend_VerifiesCommandArgs(t *testing.T) {
 	t.Parallel()
 
+	var textSentAt time.Time
+	var enterDelay time.Duration
 	m := newMock(func(_ context.Context, args ...string) (string, error) {
 		if args[0] == "display-message" {
 			return "0", nil
+		}
+		if args[0] == "send-keys" {
+			if args[len(args)-1] == "Enter" {
+				enterDelay = time.Since(textSentAt)
+			} else {
+				textSentAt = time.Now()
+			}
 		}
 		return "", nil
 	})
@@ -612,6 +621,9 @@ func TestSend_VerifiesCommandArgs(t *testing.T) {
 	enterCall := m.calls[2]
 	if enterCall.args[len(enterCall.args)-1] != "Enter" {
 		t.Errorf("enter call: got %v", enterCall.args)
+	}
+	if enterDelay < 120*time.Millisecond {
+		t.Errorf("Enter followed text after %s; Codex can treat it as pasted newline within 120ms", enterDelay)
 	}
 }
 
