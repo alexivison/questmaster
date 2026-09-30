@@ -195,26 +195,8 @@ enum AppFonts {
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
     static let settingsSectionTitle = NSFont.systemFont(ofSize: 14.5, weight: .semibold)
 
-    /// Tracker nameplate typography: the installed SF Compact variable font pinned to Figma's
-    /// weights (458 regular, 790 bold), falling back to the system font when it is missing.
-    static let trackerTitle = sfCompact(italic: false, weight: 458, size: 12)
-    static let trackerSnippet = sfCompact(italic: true, weight: 458, size: 12)
     /// Tracker section titles: the serif of `sectionTitle`, a step larger.
     static let trackerSectionTitle = NSFont.systemFont(ofSize: 12, weight: .semibold).serif
-    static let trackerTimer = sfCompact(italic: true, weight: 458, size: 10)
-    static let trackerCount = sfCompact(italic: false, weight: 790, size: 13)
-
-    private static func sfCompact(italic: Bool, weight: Int, size: CGFloat) -> NSFont {
-        let name = italic ? "SFCompact-RegularItalic" : "SFCompact-Regular"
-        guard let base = NSFont(name: name, size: size) else {
-            let fallback = NSFont.systemFont(ofSize: size, weight: weight > 600 ? .bold : .regular)
-            return italic ? fallback.italic : fallback
-        }
-        let weightAxis = 0x7767_6874 // 'wght'
-        let attributes: [CFString: Any] = [kCTFontVariationAttribute: [weightAxis: weight]]
-        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
-        return CTFontCreateCopyWithAttributes(base, size, nil, descriptor) as NSFont
-    }
 }
 
 extension NSFont {

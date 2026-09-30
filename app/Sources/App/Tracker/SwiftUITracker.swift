@@ -1114,7 +1114,7 @@ private struct TrackerWorkerSummaryPill: View {
 
     private var countText: some View {
         Text(label)
-            .font(AppFonts.trackerCount.swiftUI)
+            .font(AppFonts.monoBold.swiftUI)
             .foregroundStyle(AppPalette.muted.swiftUI)
     }
 
@@ -1152,7 +1152,9 @@ private enum TrackerNameplateRole: Equatable {
     static let barX: CGFloat = 23
     static let barSize = CGSize(width: 129, height: 12)
     /// Where the collapsed-worker pills start, just right of the bar.
+    /// The first pill's distance from the bar's right end, and the pills' distance under the plate's lower edge.
     static let pillsGap: CGFloat = 2
+    static let pillsDrop: CGFloat = 4
     static let pillsOriginX = barX + barSize.width + pillsGap
 
     init(_ session: TrackerSession) {
@@ -1177,9 +1179,16 @@ private enum TrackerNameplateRole: Equatable {
         }
     }
     var plateSize: CGSize { CGSize(width: width, height: isWorker ? TrackerListMetrics.workerPlateHeight : rowHeight) }
-    var portraitSide: CGFloat { isWorker ? 44 : 56 }
-    /// The portrait keeps a 4pt gap to the plate's circle (6pt left of the shield, whose crest leaves 10pt below).
-    var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 6 : 4, y: 4) }
+    var portraitSide: CGFloat {
+        switch self {
+        case .standalone: 56
+        case .master: 55
+        case .worker: 44
+        }
+    }
+    /// The portrait keeps a 4pt gap to the plate's circle. The master's 55pt disc cannot centre on whole points;
+    /// (7, 4) keeps its edges on pixel boundaries and puts its centre within a quarter point of the shield circle's.
+    var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 7 : 4, y: 4) }
     var stripHeight: CGFloat { Self.stripHeight }
     /// The strip stack, centred on the plate's bar (the part right of the portrait); its right edge stays
     /// inside the plate's notch.
@@ -1197,9 +1206,8 @@ private enum TrackerNameplateRole: Equatable {
     /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
     var barOrigin: CGPoint { CGPoint(x: Self.barX, y: isMaster ? 45 : 46) }
     var barCenterY: CGFloat { barOrigin.y + Self.barSize.height / 2 }
-    /// The collapsed-worker pills hang below the plate's lower edge (the Figma plate body ends at y 34),
-    /// as far under it as the first pill is from the bar's right end.
-    var pillsOriginY: CGFloat { (34 * plateScale + Self.pillsGap).rounded(.up) }
+    /// The collapsed-worker pills hang below the plate's lower edge (the Figma plate body ends at y 34).
+    var pillsOriginY: CGFloat { (34 * plateScale + Self.pillsDrop).rounded(.up) }
     /// The worker's duration tag hangs from the plate's lower edge.
     var tagOriginY: CGFloat { plateSize.height - 5 }
     var bottomGemCenter: CGPoint { CGPoint(x: 34, y: rowHeight - 6) }
@@ -1589,11 +1597,10 @@ private struct TrackerElapsedTimer: View {
             let duration = TrackerRenderer.durationLabel(for: session, now: context.date)
             if !duration.isEmpty {
                 Text(duration)
-                    .font(AppFonts.trackerTimer.swiftUI)
+                    .font(AppFonts.monoSmall.swiftUI)
                     .foregroundStyle(AppPalette.bright.swiftUI)
                     .lineLimit(1)
                     .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
-                    .padding(.bottom, 1)
                     .frame(height: TrackerNameplateRole.barSize.height)
                     .offset(x: 84, y: role.barOrigin.y)
             }
@@ -1620,7 +1627,7 @@ private struct TrackerWorkerTimerTag: View {
     private func tag(_ text: String) -> some View {
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: 4, bottomTrailingRadius: 4)
         return Text(text)
-            .font(AppFonts.trackerTimer.swiftUI)
+            .font(AppFonts.monoSmall.swiftUI)
             .foregroundStyle(AppPalette.dim.swiftUI)
             .lineLimit(1)
             .padding(.bottom, 1)
@@ -1763,7 +1770,7 @@ private struct TrackerSessionRowContent: View {
         VStack(spacing: -TrackerNameplateRole.stripOverlap) {
             strip {
                 Text(title)
-                    .font(AppFonts.trackerTitle.swiftUI)
+                    .font(AppFonts.itemTitle.swiftUI)
                     .foregroundStyle((isSelected ? AppPalette.bright : AppPalette.text).swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -1772,10 +1779,13 @@ private struct TrackerSessionRowContent: View {
             if !snippet.isEmpty {
                 strip {
                     Text(snippet)
-                        .font(AppFonts.trackerSnippet.swiftUI)
+                        .font(AppFonts.monoSmall.swiftUI)
+                        .italic()
                         .foregroundStyle(AppPalette.muted.swiftUI)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        // The mono face's caps sit half a point high in the line box.
+                        .padding(.top, 1)
                 }
             }
         }
