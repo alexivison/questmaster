@@ -33,7 +33,7 @@ enum RenderPreview {
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 580), to: "\(outputDir)/tracker.png")
-        for role in ["standalone", "master", "worker", "collapsed", "overflow"] {
+        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
@@ -70,10 +70,13 @@ enum RenderPreview {
 
     /// One row of the Figma "Tracker Item" variants with the same strings, for side-by-side comparison.
     @MainActor
-    private static func nameplateFixtureView(role: String) -> some View {
+    private static func nameplateFixtureView(role fixture: String) -> some View {
+        let fixtureParts = fixture.split(separator: "-").map(String.init)
+        let role = fixtureParts[0]
+        let displayColor = fixtureParts.count > 1 ? fixtureParts[1] : "lime"
         let title = "Skills Improvements and stuff that ge..."
         func session(_ id: String, role: String, agent: String = "codex", state: String = "working", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
-            TrackerSession(id: id, title: title, repoName: "Title", displayColor: "lime", agent: agent, role: role, state: state, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
+            TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
         }
         let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
         var sessions: [TrackerSession]
@@ -97,7 +100,7 @@ enum RenderPreview {
         let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "standalone", state: "active", snippet: "")
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
             TrackerRepo(id: "cursor", name: "Cursor", color: "blue", sessions: [cursorRow]),
-            TrackerRepo(id: "title", name: "Title", color: "lime", sessions: sessions),
+            TrackerRepo(id: "title", name: "Title", color: displayColor, sessions: sessions),
         ])))
         return TrackerRootView(
             store: store,

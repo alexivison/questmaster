@@ -1058,7 +1058,11 @@ private struct TrackerWorkerSummaryPill: View {
     private static let iconSide: CGFloat = 6
     private static let capsuleWidth: CGFloat = 21
     private static let capsuleOverlap: CGFloat = 7
-    private static let countCenterX: CGFloat = 17
+    private static let width = badgeSide + capsuleWidth - capsuleOverlap
+    // Figma centres the count's glyph ink on (17, 5.67); the font's metrics draw the ink
+    // `countInkDrop` below the text's layout centre.
+    private static let countInkDrop: CGFloat = 0.66
+    private static let countPosition = CGPoint(x: 17, y: 5.67 - countInkDrop)
 
     let badge: Badge
     let label: String
@@ -1068,39 +1072,47 @@ private struct TrackerWorkerSummaryPill: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            capsuleShape
-                .fill(AppPalette.hoverBackground.swiftUI)
-                .overlay(capsuleShape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
-                .frame(width: Self.capsuleWidth, height: Self.badgeSide)
-                .offset(x: Self.badgeSide - Self.capsuleOverlap)
-            Text(label)
-                .font(AppFonts.trackerCount.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-                .position(x: Self.countCenterX, y: Self.badgeSide / 2)
-            badgeView
+        switch badge {
+        case .group(let group):
+            ZStack(alignment: .leading) {
+                capsuleShape
+                    .fill(AppPalette.hoverBackground.swiftUI)
+                    .overlay(capsuleShape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
+                    .frame(width: Self.capsuleWidth, height: Self.badgeSide)
+                    .offset(x: Self.badgeSide - Self.capsuleOverlap)
+                countText
+                    .position(Self.countPosition)
+                groupBadge(group)
+            }
+            .frame(width: Self.width, height: Self.badgeSide)
+        case .overflow:
+            let shape = RoundedRectangle(cornerRadius: Self.badgeSide / 2)
+            countText
+                .offset(y: -Self.countInkDrop)
+                .frame(width: Self.width, height: Self.badgeSide)
+                .background(shape.fill(AppPalette.hoverBackground.swiftUI))
+                .overlay(shape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
         }
-        .frame(width: Self.badgeSide + Self.capsuleWidth - Self.capsuleOverlap, height: Self.badgeSide)
+    }
+
+    private var countText: some View {
+        Text(label)
+            .font(AppFonts.trackerCount.swiftUI)
+            .foregroundStyle(AppPalette.muted.swiftUI)
     }
 
     // Same ring treatment as the individual worker row the pill stands in for.
-    private var badgeView: some View {
+    private func groupBadge(_ group: TrackerWorkerSummary.Group) -> some View {
         ZStack {
-            Circle().fill(AppPalette.window.swiftUI)
-            switch badge {
-            case .group(let group):
-                TrackerStatusRing(kind: group.status, color: group.color, restingColor: AppPalette.lineSoft)
-                    .frame(width: Self.badgeSide - 1, height: Self.badgeSide - 1)
-                if let image = TrackerAgentMark.image(for: group.agent.rawValue, side: Self.iconSide) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: Self.iconSide, height: Self.iconSide)
-                        .clipShape(Circle())
-                }
-            case .overflow:
-                Circle()
-                    .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
+            Circle().fill(AppPalette.item.swiftUI)
+            TrackerStatusRing(kind: group.status, color: group.color, restingColor: AppPalette.lineSoft)
+                .frame(width: Self.badgeSide, height: Self.badgeSide)
+            if let image = TrackerAgentMark.image(for: group.agent.rawValue, side: Self.iconSide) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: Self.iconSide, height: Self.iconSide)
+                    .clipShape(Circle())
             }
         }
         .frame(width: Self.badgeSide, height: Self.badgeSide)
@@ -1441,8 +1453,7 @@ private struct TrackerNameplateBackground: View {
                 TrackerDiamond(color: color)
                     .position(x: 25, y: 47)
                 TrackerDiamond(color: color)
-                    .rotationEffect(.degrees(90))
-                    .position(x: role.width - 7, y: 18)
+                    .position(x: role.width - 5, y: 18)
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
@@ -1469,8 +1480,8 @@ private struct TrackerNameplateBackground: View {
     }
 }
 
-/// The small gem on the master shield: a 4x4 triangle pointing down (the right-edge gem is
-/// rotated to point left), solid dark repo shade with a faint lift on its flat edge.
+/// The small gem on the master shield: a 4x4 diamond that fades from a highlight near the repo
+/// color at its upper centre to the dark repo shade at its rim.
 struct TrackerDiamond: View {
     private static let side: CGFloat = 4
 
@@ -1479,10 +1490,10 @@ struct TrackerDiamond: View {
     var body: some View {
         TrackerGemShape()
             .fill(RadialGradient(
-                colors: [TrackerNameplateColor.barShade(color, stop: 0.5).swiftUI, TrackerNameplateColor.diamond(color).swiftUI],
-                center: .top,
+                colors: [TrackerNameplateColor.barShade(color, stop: 0.25).swiftUI, TrackerNameplateColor.diamond(color).swiftUI],
+                center: UnitPoint(x: 0.5, y: 0.25),
                 startRadius: 0,
-                endRadius: 2
+                endRadius: Self.side * 0.45
             ))
             .frame(width: Self.side, height: Self.side)
     }
@@ -1491,9 +1502,10 @@ struct TrackerDiamond: View {
 private struct TrackerGemShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
         path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
         path.closeSubpath()
         return path
     }
@@ -1705,7 +1717,6 @@ private struct TrackerAgentMark: View {
     let shortcutNumber: Int?
     let portraitSide: CGFloat
 
-    private var ringSide: CGFloat { portraitSide - 1 }
     private var iconSide: CGFloat { portraitSide * 0.615 }
 
     private var roleKind: SessionRoleKind {
@@ -1739,11 +1750,11 @@ private struct TrackerAgentMark: View {
         .frame(width: portraitSide, height: portraitSide)
     }
 
-    // The ring views stroke centered on their frame; inset by half the stroke
-    // so the 1pt ring sits inside the portrait edge, as in Figma.
+    // The ring views stroke inside their frame, so the 1pt ring sits on the portrait edge
+    // and never lands on a half-point origin that would snap off-center.
     private var statusFrame: some View {
         TrackerStatusRing(kind: status.kind, color: status.color, restingColor: inactiveRingColor)
-            .frame(width: ringSide, height: ringSide)
+            .frame(width: portraitSide, height: portraitSide)
     }
 
     @ViewBuilder
@@ -1862,7 +1873,7 @@ private struct TrackerStatusRing: View {
 
     private func staticRing(_ ringColor: NSColor) -> some View {
         Circle()
-            .stroke(ringColor.swiftUI, lineWidth: 1)
+            .strokeBorder(ringColor.swiftUI, lineWidth: 1)
             .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
     }
 }
@@ -1876,7 +1887,7 @@ private struct TrackerWorkingIconRing: View {
             .overlay {
                 if !reduceMotion {
                     Circle()
-                        .stroke(highlight, lineWidth: 1)
+                        .strokeBorder(highlight, lineWidth: 1)
                         .rotationEffect(.degrees(highlightRotation))
                         .mask(ringMask)
                 }
@@ -1891,12 +1902,12 @@ private struct TrackerWorkingIconRing: View {
 
     private var ring: some View {
         Circle()
-            .stroke(AppPalette.masterRole.swiftUI, lineWidth: 1)
+            .strokeBorder(AppPalette.masterRole.swiftUI, lineWidth: 1)
     }
 
     private var ringMask: some View {
         Circle()
-            .stroke(.white, lineWidth: 1)
+            .strokeBorder(.white, lineWidth: 1)
     }
 
     private var highlight: AngularGradient {
@@ -1935,7 +1946,7 @@ private struct TrackerWorkingIconPulse: View {
 
     var body: some View {
         Circle()
-            .stroke(color.swiftUI, lineWidth: 1)
+            .strokeBorder(color.swiftUI, lineWidth: 1)
             .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
             .shadow(color: color.withAlphaComponent(0.55).swiftUI, radius: 0.75)
             .padding(Self.glowInset)
@@ -2001,7 +2012,7 @@ private struct TrackerDoneIconPulse: View {
 
     private func ring(_ ringColor: NSColor) -> some View {
         Circle()
-            .stroke(ringColor.swiftUI, lineWidth: 1)
+            .strokeBorder(ringColor.swiftUI, lineWidth: 1)
             .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
             .shadow(color: ringColor.withAlphaComponent(0.55).swiftUI, radius: 0.75)
     }
