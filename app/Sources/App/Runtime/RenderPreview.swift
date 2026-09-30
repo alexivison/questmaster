@@ -31,6 +31,7 @@ enum RenderPreview {
         render(newSessionView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
+        renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 580), to: "\(outputDir)/tracker.png")
         for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped"] {
@@ -48,6 +49,33 @@ enum RenderPreview {
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         print("RenderPreview: done")
         exit(0)
+    }
+
+    /// The whole window shell (tracker column, terminal, dock) laid out by the real split view,
+    /// without a titlebar (the render window is borderless).
+    @MainActor
+    private static func shellView(size: CGSize) -> NSView {
+        let store = trackerPreviewStore()
+        let tracker = TrackerKeyboardHostingView(rootView: TrackerRootView(
+            store: store,
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        ))
+        let terminalBody = NSView()
+        terminalBody.wantsLayer = true
+        terminalBody.layer?.backgroundColor = AppPalette.terminal.cgColor
+        let terminalModel = TerminalChromeModel(sessionChip: .init(title: "Design quest progression data model", id: "qm-0123", agent: "codex"))
+        let splitView = MainSplitView(frame: NSRect(origin: .zero, size: size))
+        splitView.wantsLayer = true
+        splitView.layer?.backgroundColor = AppPalette.window.cgColor
+        splitView.addArrangedSubview(TrackerShellView(body: tracker))
+        splitView.addArrangedSubview(TerminalShellView(body: terminalBody, model: terminalModel))
+        splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
+        splitView.sendTerminalToBack()
+        splitView.trackerVisible = true
+        splitView.setDockVisible(true, animated: false)
+        splitView.applyCanonicalLayout()
+        return splitView
     }
 
     @MainActor
@@ -474,7 +502,16 @@ enum RenderPreview {
         }
         let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
         let rootView = autoHeight ? AnyView(view.frame(width: size.width)) : AnyView(view.frame(width: size.width, height: size.height))
-        let hostingView = NSHostingView(rootView: rootView)
+        renderView(NSHostingView(rootView: rootView), size: size, autoHeight: autoHeight, to: path)
+    }
+
+    @MainActor
+    private static func renderView(_ hostingView: NSView, size: CGSize, autoHeight: Bool = false, to path: String) {
+        let environment = ProcessInfo.processInfo.environment
+        if let only = environment["RENDER_ONLY"], !only.split(separator: ",").contains(where: { path.hasSuffix("/\($0).png") }) {
+            return
+        }
+        let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
         hostingView.frame = NSRect(origin: .zero, size: size)
 
         let window = ScaledRenderWindow(backingScale: scale,

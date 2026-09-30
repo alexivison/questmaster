@@ -67,16 +67,19 @@ private func layoutSideCardOrnaments(in container: NSView, ornaments: NSView) {
     ])
 }
 
+/// The tracker column has no chrome: no title bar, border or background, only the window
+/// background behind the list and enough top inset to keep the window controls clear of it.
 final class TrackerShellView: NSView {
     init(body: NSView) {
         super.init(frame: .zero)
-        let topBar = FirstMouseHostingView(rootView: TrackerTopBar())
-        layoutTopBarAndBody(
-            in: self,
-            topBar: topBar,
-            body: body,
-            topBarHeight: ShellMetrics.dockTopBarHeight
-        )
+        body.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(body)
+        NSLayoutConstraint.activate([
+            body.topAnchor.constraint(equalTo: topAnchor, constant: ShellMetrics.trackerTopInset),
+            body.leadingAnchor.constraint(equalTo: leadingAnchor),
+            body.trailingAnchor.constraint(equalTo: trailingAnchor),
+            body.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
     @available(*, unavailable)
