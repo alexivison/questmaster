@@ -3,12 +3,12 @@ import QuestmasterCore
 
 struct TrackerRendererTests {
     static func run() {
-        statusClassificationEmitsNeedsInputRing()
+        statusClassificationEmitsNeedsInput()
         statusClassificationTreatsOpenCodePermissionAsNeedsInput()
         statusClassificationTreatsOpenCodeSessionErrorAsError()
-        statusClassificationKeepsErrorSquareDistinctFromBlockedCircle()
-        statusClassificationSpinsOnlyForWorking()
-        statusClassificationHidesActiveShellBadge()
+        statusClassificationKeepsErrorDistinctFromBlocked()
+        statusClassificationLabelsStartingAsIdle()
+        statusClassificationKeepsStoppedShellsResumable()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
@@ -25,13 +25,12 @@ struct TrackerRendererTests {
         print("TrackerRendererTests: all tests passed")
     }
 
-    private static func statusClassificationEmitsNeedsInputRing() {
+    private static func statusClassificationEmitsNeedsInput() {
         let session = trackerSession(id: "needs", state: "blocked", lastKind: "waiting_for_user")
 
         let status = TrackerStatusClassifier.classify(session)
 
         expect(status.kind == .needsInput, "needs-input state classified as \(status.kind)")
-        expect(status.indicatorAffordance == .ring, "needs-input affordance was \(status.indicatorAffordance)")
     }
 
     private static func statusClassificationTreatsOpenCodePermissionAsNeedsInput() {
@@ -40,7 +39,6 @@ struct TrackerRendererTests {
         let status = TrackerStatusClassifier.classify(session)
 
         expect(status.kind == .needsInput, "OpenCode permission classified as \(status.kind)")
-        expect(status.indicatorAffordance == .ring, "OpenCode permission affordance was \(status.indicatorAffordance)")
     }
 
     private static func statusClassificationTreatsOpenCodeSessionErrorAsError() {
@@ -49,51 +47,29 @@ struct TrackerRendererTests {
         let status = TrackerStatusClassifier.classify(session)
 
         expect(status.kind == .error, "OpenCode session.error classified as \(status.kind)")
-        expect(status.indicatorAffordance == .square, "OpenCode session.error affordance was \(status.indicatorAffordance)")
     }
 
-    private static func statusClassificationKeepsErrorSquareDistinctFromBlockedCircle() {
+    private static func statusClassificationKeepsErrorDistinctFromBlocked() {
         let error = TrackerStatusClassifier.classify(trackerSession(id: "error", state: "error"))
         let blocked = TrackerStatusClassifier.classify(trackerSession(id: "blocked", state: "blocked"))
 
         expect(error.kind == .error, "error state classified as \(error.kind)")
-        expect(error.indicatorAffordance == .square, "error affordance was \(error.indicatorAffordance)")
         expect(blocked.kind == .blocked, "blocked state classified as \(blocked.kind)")
-        expect(blocked.indicatorAffordance == .circle, "blocked affordance was \(blocked.indicatorAffordance)")
-        expect(error.indicatorAffordance != blocked.indicatorAffordance, "error and blocked affordances were not distinct")
     }
 
-    private static func statusClassificationSpinsOnlyForWorking() {
-        let working = TrackerStatusClassifier.classify(trackerSession(id: "working", state: "working"))
+    private static func statusClassificationLabelsStartingAsIdle() {
         let starting = TrackerStatusClassifier.classify(trackerSession(id: "starting", state: "starting"))
-        let checking = TrackerStatusClassifier.classify(trackerSession(id: "checking", state: "checking"))
-        let idle = TrackerStatusClassifier.classify(trackerSession(id: "idle", state: "idle"))
 
-        expect(working.indicatorAffordance == .spinner, "working should spin")
-        expect(starting.indicatorAffordance == .circle, "starting should be steady")
+        expect(starting.kind == .idle, "starting classified as \(starting.kind)")
         expect(starting.label == "idle (started)", "starting label was \(starting.label)")
-        expect(checking.indicatorAffordance == .circle, "checking should be steady")
-        expect(idle.indicatorAffordance == .circle, "idle should be steady")
     }
 
-    private static func statusClassificationHidesActiveShellBadge() {
-        let shell = TrackerStatusClassifier.classify(trackerSession(id: "shell", state: "unknown", agent: ""))
-        let explicitShell = TrackerStatusClassifier.classify(trackerSession(id: "shell-agent", state: "", agent: "shell"))
-        let staleDoneShell = TrackerStatusClassifier.classify(trackerSession(id: "done-shell", state: "done", agent: ""))
-        let staleStoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "active-stopped-shell", state: "stopped", agent: ""))
+    private static func statusClassificationKeepsStoppedShellsResumable() {
         let stoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "stopped-shell", state: "unknown", lifecycle: "stopped", agent: ""))
         let exitedShell = TrackerStatusClassifier.classify(trackerSession(id: "exited-shell", state: "done", lifecycle: "exited", agent: ""))
-        let agent = TrackerStatusClassifier.classify(trackerSession(id: "agent", state: "unknown", agent: "codex"))
 
-        expect(!shell.showsBadge, "active unknown shell should hide badge")
-        expect(!explicitShell.showsBadge, "explicit shell should hide badge")
-        expect(!staleDoneShell.showsBadge, "active shell with stale done state should hide badge")
-        expect(!staleStoppedShell.showsBadge, "active shell with stale stopped state should hide badge")
-        expect(stoppedShell.showsBadge, "stopped shell should keep badge")
         expect(stoppedShell.kind == .stopped, "stopped shell should remain resumable")
-        expect(exitedShell.showsBadge, "exited shell should keep badge")
         expect(exitedShell.kind == .stopped, "exited shell should remain resumable")
-        expect(agent.showsBadge, "agent sessions should keep unknown badge")
     }
 
     private static func selectionMovementWraps() {

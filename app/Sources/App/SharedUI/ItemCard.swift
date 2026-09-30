@@ -8,7 +8,7 @@ struct ItemCardShape: View {
     /// Vertical gap between adjacent cards.
     static let verticalMargin: CGFloat = 3.5
     /// Padding from the card's own edge to its content (icon/checkbox/text).
-    /// Shared by Tracker, Quest, and Artifact rows so their internal spacing
+    /// Shared by Quest and Artifact rows so their internal spacing
     /// matches exactly — callers should use this instead of a local literal.
     static let contentPadding: CGFloat = 12
     /// Trailing content padding. `ListRow`'s `leadingInset` clears the card's
@@ -17,7 +17,7 @@ struct ItemCardShape: View {
     /// to land on the same visual gap as the leading edge.
     static var trailingContentPadding: CGFloat { contentPadding + Token.Spacing.card }
     /// Gap between a row's leading icon/checkbox and its title/text block.
-    /// Shared by Tracker, Quest, and Artifact rows.
+    /// Shared by Quest and Artifact rows.
     static let iconLabelGap: CGFloat = 9
     private static let cornerRadius: CGFloat = Token.Radius.card
 

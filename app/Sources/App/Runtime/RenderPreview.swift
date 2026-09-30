@@ -32,13 +32,10 @@ enum RenderPreview {
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
-        render(trackerView(), size: CGSize(width: 300, height: 540), to: "\(outputDir)/tracker.png")
+        render(trackerView(), size: CGSize(width: 300, height: 580), to: "\(outputDir)/tracker.png")
         for role in ["standalone", "master", "worker", "collapsed"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
-        render(workerSummaryPreviewView(), size: CGSize(width: 300, height: 60), to: "\(outputDir)/tracker-worker-summary.png")
-        render(collapsedMasterPreviewView(), size: CGSize(width: 300, height: 390), to: "\(outputDir)/tracker-collapsed-master.png")
-        render(trackerGradientComparisonView(referencePath: "\(outputDir)/tracker-mockup-crop.png"), size: CGSize(width: 620, height: 670), to: "\(outputDir)/tracker-gradient-comparison.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -49,7 +46,6 @@ enum RenderPreview {
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
-        printGradientColorTable()
         print("RenderPreview: done")
         exit(0)
     }
@@ -110,18 +106,8 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func collapsedMasterPreviewView() -> some View {
-        TrackerRootView(
-            store: trackerPreviewStore(collapsedMasterIDs: ["root-2"]),
-            newSessionPresenter: NewSessionSheetPresenter(),
-            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
-        )
-        .background(AppPalette.window.swiftUI)
-    }
-
-    @MainActor
-    private static func trackerPreviewStore(collapsedMasterIDs: Set<String> = []) -> RuntimeStore {
-        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "root-1", collapsedMasterIDs: collapsedMasterIDs)
+    private static func trackerPreviewStore() -> RuntimeStore {
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "root-1")
         let root1 = TrackerSession(
             id: "root-1",
             title: "Refine shell aliases for faster navigation",
@@ -201,109 +187,24 @@ enum RenderPreview {
             state: "needs-input",
             snippet: "Choose whether to keep the new adapter"
         )
+        let root5 = TrackerSession(
+            id: "root-5",
+            title: "Handle malformed capture files",
+            repoName: "Scry",
+            displayColor: "magenta",
+            agent: "claude",
+            role: "standalone",
+            state: "blocked",
+            snippet: "Adapter crashed while parsing",
+            lastKind: "session.error"
+        )
         let repos = [
             TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: [root1, root3]),
             TrackerRepo(id: "questmaster", name: "Questmaster", color: "yellow", sessions: [root2, worker, worker2, worker3]),
-            TrackerRepo(id: "scry", name: "Scry", color: "magenta", sessions: [root4]),
+            TrackerRepo(id: "scry", name: "Scry", color: "magenta", sessions: [root4, root5]),
         ]
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: repos)))
         return store
-    }
-
-    @MainActor
-    private static func workerSummaryPreviewView() -> some View {
-        let store = RuntimeStore(sourceLabel: "preview")
-        let master = TrackerSession(
-            id: "root-1",
-            title: "Sample session — refactor auth flow",
-            repoName: "sample-repo",
-            displayColor: "blue",
-            agent: "codex",
-            role: "master",
-            state: "working",
-            snippet: "Sample snippet text for preview layout",
-            workerCount: 3
-        )
-        let workerWorking = TrackerSession(
-            id: "worker-1",
-            title: "Sample worker — fix flaky test",
-            repoName: "sample-repo",
-            displayColor: "blue",
-            agent: "codex",
-            role: "worker",
-            state: "working",
-            snippet: "Bash: rg -n \"sampleQuery\" src/",
-            parentID: "root-1"
-        )
-        let workerIdle = TrackerSession(
-            id: "worker-2",
-            title: "Sample worker — awaiting review",
-            repoName: "sample-repo",
-            displayColor: "blue",
-            agent: "codex",
-            role: "worker",
-            state: "idle",
-            snippet: "Idle",
-            parentID: "root-1"
-        )
-        let workerBlocked = TrackerSession(
-            id: "worker-3",
-            title: "Sample worker — review connector geometry",
-            repoName: "sample-repo",
-            displayColor: "blue",
-            agent: "pi",
-            role: "worker",
-            state: "blocked",
-            snippet: "Connector inspection complete",
-            parentID: "root-1"
-        )
-        let repo = TrackerRepo(id: "sample-repo", name: "sample-repo", color: "blue", sessions: [master, workerWorking, workerIdle, workerBlocked])
-        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [repo])))
-        let workers = TrackerRenderer.tracker(store.snapshot).first!.groups.first!.workers
-        return TrackerWorkerSummaryRow(workers: workers)
-            .background(AppPalette.panel.swiftUI)
-    }
-
-    private static func trackerGradientComparisonView(referencePath: String) -> some View {
-        let samples = ["lime", "yellow", "magenta"].compactMap { name in
-            AppPalette.displayColorName(name).map { (name, $0) }
-        }
-        return HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("MOCKUP CROP")
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                if let image = NSImage(contentsOfFile: referencePath) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 300, height: 620)
-                        .clipped()
-                }
-            }
-            VStack(alignment: .leading, spacing: 18) {
-                Text("RENDERED BARS")
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                ForEach(samples, id: \.0) { name, color in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(name.uppercased())
-                            .font(AppFonts.monoSmall.swiftUI)
-                            .foregroundStyle(AppPalette.muted.swiftUI)
-                        HStack(spacing: 10) {
-                            TrackerColorBar(color: color, strokeColor: AppPalette.line, isWorking: false)
-                            Rectangle()
-                                .fill(TrackerNameplateColor.diamond(color).swiftUI)
-                                .frame(width: 4, height: 4)
-                                .rotationEffect(.degrees(45))
-                        }
-                    }
-                }
-            }
-            .frame(width: 280, alignment: .leading)
-        }
-        .padding(10)
-        .background(AppPalette.window.swiftUI)
     }
 
     private static func trackerColorGalleryView() -> some View {
@@ -319,10 +220,7 @@ enum RenderPreview {
                         .foregroundStyle(AppPalette.muted.swiftUI)
                         .frame(width: 108, alignment: .leading)
                     TrackerColorBar(color: color, strokeColor: AppPalette.line, isWorking: false)
-                    Rectangle()
-                        .fill(TrackerNameplateColor.diamond(color).swiftUI)
-                        .frame(width: 4, height: 4)
-                        .rotationEffect(.degrees(45))
+                    TrackerDiamond(color: color)
                 }
                 .frame(height: 13)
             }
@@ -330,32 +228,6 @@ enum RenderPreview {
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.window.swiftUI)
-    }
-
-    private static func printGradientColorTable() {
-        for name in ["lime", "yellow", "magenta"] {
-            guard let color = AppPalette.displayColorName(name) else { continue }
-            let stops: [(String, NSColor)] = [
-                ("0", color),
-                ("0.5", TrackerNameplateColor.barShade(color, stop: 0.5)),
-                ("0.75", TrackerNameplateColor.barShade(color, stop: 0.75)),
-                ("1", TrackerNameplateColor.barShade(color, stop: 1)),
-                ("diamond", TrackerNameplateColor.diamond(color)),
-            ]
-            for (label, shade) in stops {
-                print("Tracker shade \(name) \(label): \(rgbHex(shade))")
-            }
-        }
-    }
-
-    private static func rgbHex(_ color: NSColor) -> String {
-        let rgb = color.usingColorSpace(.deviceRGB) ?? color
-        return String(
-            format: "#%02X%02X%02X",
-            Int((rgb.redComponent * 255).rounded()),
-            Int((rgb.greenComponent * 255).rounded()),
-            Int((rgb.blueComponent * 255).rounded())
-        )
     }
 
     private static func dockTopBarView(route: ArtifactDockRoute) -> some View {
@@ -614,18 +486,22 @@ enum RenderPreview {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
 
-        guard let bitmap = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(hostingView.bounds.width * scale),
-            pixelsHigh: Int(hostingView.bounds.height * scale),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else {
+        // A device-RGB bitmap keeps palette values exact at any scale; 1x keeps the system-default snapshot.
+        let snapshot = scale == 1
+            ? hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds)
+            : NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(hostingView.bounds.width * scale),
+                pixelsHigh: Int(hostingView.bounds.height * scale),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        guard let bitmap = snapshot else {
             print("RenderPreview: failed to create bitmap for \(path)")
             return
         }

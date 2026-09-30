@@ -1040,66 +1040,52 @@ private enum TrackerWorkerSummary {
 }
 
 private struct TrackerWorkerSummaryPill: View {
-    fileprivate static let badgeSide: CGFloat = 16
-    private static let iconSide: CGFloat = 12
-    private static let pillHeight: CGFloat = 16
-    private static let leadingRadius: CGFloat = Token.Radius.card
-    private static let trailingRadius: CGFloat = Token.Radius.segment
+    private static let badgeSide: CGFloat = 12
+    private static let iconSide: CGFloat = 6
+    private static let capsuleWidth: CGFloat = 21
+    private static let capsuleOverlap: CGFloat = 7
+    private static let countCenterX: CGFloat = 17
 
     let agent: AgentKind
     let status: TrackerStatusKind
     let color: NSColor
     let count: Int
 
-    private var backgroundShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: Self.leadingRadius,
-            bottomLeadingRadius: Self.leadingRadius,
-            bottomTrailingRadius: Self.trailingRadius,
-            topTrailingRadius: Self.trailingRadius
-        )
+    private var capsuleShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(bottomTrailingRadius: Self.badgeSide / 2, topTrailingRadius: Self.badgeSide / 2)
     }
 
     var body: some View {
-        HStack(spacing: Token.Spacing.inline) {
-            ZStack {
-                ring
-                    .frame(width: Self.badgeSide, height: Self.badgeSide)
-                if let image = TrackerAgentMark.image(for: agent.rawValue) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: Self.iconSide, height: Self.iconSide)
-                        .clipShape(Circle())
-                }
-            }
-            Text("\(count)")
-                .font(AppFonts.monoBold.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-        }
-        .padding(.trailing, Token.Spacing.inline)
-        .frame(height: Self.pillHeight)
-        .background(
-            backgroundShape
+        ZStack(alignment: .leading) {
+            capsuleShape
                 .fill(AppPalette.hoverBackground.swiftUI)
-                .overlay(backgroundShape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
-        )
+                .overlay(capsuleShape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
+                .frame(width: Self.capsuleWidth, height: Self.badgeSide)
+                .offset(x: Self.badgeSide - Self.capsuleOverlap)
+            Text("\(count)")
+                .font(TrackerNameplateFont.bold(size: 10))
+                .foregroundStyle(AppPalette.muted.swiftUI)
+                .position(x: Self.countCenterX, y: Self.badgeSide / 2)
+            badge
+        }
+        .frame(width: Self.badgeSide + Self.capsuleWidth - Self.capsuleOverlap, height: Self.badgeSide)
     }
 
-    // Mirrors TrackerAgentMark.statusFrame's per-kind ring treatment (same
-    // animated views, worker-role constants) so a collapsed pill animates
-    // exactly like the individual worker row it stands in for.
-    @ViewBuilder
-    private var ring: some View {
-        switch status {
-        case .working:
-            TrackerWorkingIconRing()
-        case .blocked:
-            TrackerWorkingIconPulse(color: color)
-        case .done, .idle, .stopped, .needsInput, .error:
-            Circle()
-                .stroke(AppPalette.lineSoft.swiftUI, lineWidth: 1)
+    // Same ring treatment as the individual worker row the pill stands in for.
+    private var badge: some View {
+        ZStack {
+            Circle().fill(AppPalette.window.swiftUI)
+            TrackerStatusRing(kind: status, color: color, restingColor: AppPalette.lineSoft)
+                .frame(width: Self.badgeSide - 1, height: Self.badgeSide - 1)
+            if let image = TrackerAgentMark.image(for: agent.rawValue, side: Self.iconSide) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: Self.iconSide, height: Self.iconSide)
+                    .clipShape(Circle())
+            }
         }
+        .frame(width: Self.badgeSide, height: Self.badgeSide)
     }
 }
 
@@ -1302,97 +1288,111 @@ enum TrackerNameplateColor {
     }
 }
 
+/// The working pulse only ever touches `TrackerColorBarPulse`: the gradient and the rim are
+/// rasterized once (`drawingGroup`) and reused while the pulse animates.
 struct TrackerColorBar: View {
     private static let size = CGSize(width: 129, height: 10)
     private static let diamondReach: CGFloat = 2.0.squareRoot()
-    private let color: NSColor
-    private let strokeColor: NSColor
-    private let isWorking: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = 0.0
+    let color: NSColor
+    let strokeColor: NSColor
+    let isWorking: Bool
 
-    init(color: NSColor, strokeColor: NSColor, isWorking: Bool) {
-        self.color = color
-        self.strokeColor = strokeColor
-        self.isWorking = isWorking
-    }
-
-    private var animationID: Int {
-        isWorking ? (reduceMotion ? 1 : 2) : 0
-    }
-
-    var body: some View {
-        let shape = UnevenRoundedRectangle(
+    private var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
             topLeadingRadius: 0,
             bottomLeadingRadius: 24,
             bottomTrailingRadius: 6,
             topTrailingRadius: 6
         )
+    }
+
+    var body: some View {
         ZStack {
-            Canvas { context, size in
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let gradient = Gradient(stops: [
-                    .init(color: color.swiftUI, location: 0),
-                    .init(color: TrackerNameplateColor.barShade(color, stop: 0.5).swiftUI, location: 0.5),
-                    .init(color: TrackerNameplateColor.barShade(color, stop: 0.75).swiftUI, location: 0.75),
-                    .init(color: TrackerNameplateColor.barShade(color, stop: 1).swiftUI, location: 1),
-                ])
-                // Diamond gradient: t = |dx|/reachX + |dy|/reachY, which is linear inside each
-                // quadrant along w / |w|^2 with w = (1/reachX, 1/reachY). Figma's handles
-                // sit sqrt(2) x the bar's half extents (fitted to the exported bar pixels).
-                let inverseHalf = CGPoint(x: 1 / (Self.diamondReach * center.x), y: 1 / (Self.diamondReach * center.y))
-                let squaredLength = inverseHalf.x * inverseHalf.x + inverseHalf.y * inverseHalf.y
-                let reach = CGPoint(x: inverseHalf.x / squaredLength, y: inverseHalf.y / squaredLength)
-                for corner in [
-                    CGPoint.zero,
-                    CGPoint(x: size.width, y: 0),
-                    CGPoint(x: 0, y: size.height),
-                    CGPoint(x: size.width, y: size.height),
-                ] {
-                    let quadrant = CGRect(
-                        x: min(center.x, corner.x),
-                        y: min(center.y, corner.y),
-                        width: abs(center.x - corner.x),
-                        height: abs(center.y - corner.y)
-                    )
-                    let end = CGPoint(
-                        x: center.x + (corner.x < center.x ? -reach.x : reach.x),
-                        y: center.y + (corner.y < center.y ? -reach.y : reach.y)
-                    )
-                    var path = Path()
-                    path.addRect(quadrant.insetBy(dx: -0.5, dy: -0.5))
-                    context.fill(path, with: .linearGradient(gradient, startPoint: center, endPoint: end))
-                }
-            }
-            .overlay {
-                if isWorking {
-                    shape.fill(color.swiftUI)
-                        .blendMode(.plusLighter)
-                        .opacity(pulse * 0.65)
-                }
-            }
-            .clipShape(shape)
+            gradient
+                .drawingGroup()
+            TrackerColorBarPulse(color: color, isWorking: isWorking, shape: shape)
         }
+        .clipShape(shape)
         .frame(width: Self.size.width, height: Self.size.height)
-        .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 1, opacity: 0.5))
-        .overlay(shape.strokeBorder(strokeColor.swiftUI, lineWidth: 1))
-        .task(id: animationID) {
-            guard isWorking else {
-                pulse = 0
-                return
+        .overlay {
+            ZStack {
+                TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 1, opacity: 0.5)
+                shape.strokeBorder(strokeColor.swiftUI, lineWidth: 1)
             }
-            guard !reduceMotion else {
-                pulse = 0.5
-                return
-            }
-            while !Task.isCancelled {
-                withAnimation(.easeInOut(duration: 1.1)) { pulse = 0.9 }
-                try? await Task.sleep(for: .seconds(1.1))
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 1.1)) { pulse = 0 }
-                try? await Task.sleep(for: .seconds(1.1))
+            .drawingGroup()
+        }
+    }
+
+    private var gradient: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let stops = Gradient(stops: [
+                .init(color: color.swiftUI, location: 0),
+                .init(color: TrackerNameplateColor.barShade(color, stop: 0.5).swiftUI, location: 0.5),
+                .init(color: TrackerNameplateColor.barShade(color, stop: 0.75).swiftUI, location: 0.75),
+                .init(color: TrackerNameplateColor.barShade(color, stop: 1).swiftUI, location: 1),
+            ])
+            // Diamond gradient: t = |dx|/reachX + |dy|/reachY, which is linear inside each
+            // quadrant along w / |w|^2 with w = (1/reachX, 1/reachY). Figma's handles
+            // sit sqrt(2) x the bar's half extents (fitted to the exported bar pixels).
+            let inverseHalf = CGPoint(x: 1 / (Self.diamondReach * center.x), y: 1 / (Self.diamondReach * center.y))
+            let squaredLength = inverseHalf.x * inverseHalf.x + inverseHalf.y * inverseHalf.y
+            let reach = CGPoint(x: inverseHalf.x / squaredLength, y: inverseHalf.y / squaredLength)
+            for corner in [
+                CGPoint.zero,
+                CGPoint(x: size.width, y: 0),
+                CGPoint(x: 0, y: size.height),
+                CGPoint(x: size.width, y: size.height),
+            ] {
+                let quadrant = CGRect(
+                    x: min(center.x, corner.x),
+                    y: min(center.y, corner.y),
+                    width: abs(center.x - corner.x),
+                    height: abs(center.y - corner.y)
+                )
+                let end = CGPoint(
+                    x: center.x + (corner.x < center.x ? -reach.x : reach.x),
+                    y: center.y + (corner.y < center.y ? -reach.y : reach.y)
+                )
+                var path = Path()
+                path.addRect(quadrant.insetBy(dx: -0.5, dy: -0.5))
+                context.fill(path, with: .linearGradient(stops, startPoint: center, endPoint: end))
             }
         }
+    }
+}
+
+/// Today's accent-bar pulse: the repo color lifted with plusLighter while the session works.
+/// Driven by a 15fps timeline instead of a display-rate animation, so the redraw cost the
+/// terminal shares the main thread with stays small; the lift eases 0 to 0.9 and back every 2.2s.
+private struct TrackerColorBarPulse: View {
+    private static let framesPerSecond = 15.0
+    private static let period: TimeInterval = 2.2
+    private static let peakLift = 0.9
+    private static let reducedMotionLift = 0.5
+    private static let liftOpacity = 0.65
+
+    let color: NSColor
+    let isWorking: Bool
+    let shape: UnevenRoundedRectangle
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start = Date.now
+
+    var body: some View {
+        if isWorking && reduceMotion {
+            lift(Self.reducedMotionLift)
+        } else if isWorking {
+            TimelineView(.periodic(from: start, by: 1 / Self.framesPerSecond)) { context in
+                let phase = context.date.timeIntervalSince(start) / Self.period
+                lift(Self.peakLift * (1 - cos(phase * 2 * .pi)) / 2)
+            }
+        }
+    }
+
+    private func lift(_ amount: Double) -> some View {
+        shape.fill(color.swiftUI)
+            .blendMode(.plusLighter)
+            .opacity(amount * Self.liftOpacity)
     }
 }
 
@@ -1423,7 +1423,8 @@ private struct TrackerNameplateBackground: View {
                 TrackerDiamond(color: color)
                     .position(x: 25, y: 47)
                 TrackerDiamond(color: color)
-                    .position(x: role.width - 5, y: 18)
+                    .rotationEffect(.degrees(90))
+                    .position(x: role.width - 7, y: 18)
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
@@ -1438,49 +1439,65 @@ private struct TrackerNameplateBackground: View {
             .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: 3, blur: 1, opacity: 0.25))
             .overlay(TrackerPlateShape(path: role.plateOutline).stroke(outlineColor.swiftUI, lineWidth: isRecoloring ? 2 : 1))
             .frame(width: role.plateSize.width, height: role.plateSize.height, alignment: .topLeading)
+            .drawingGroup()
     }
 }
 
-/// The small gem on the master shield: repo color darkened at the rim, lighter at the center.
-private struct TrackerDiamond: View {
-    private static let side: CGFloat = 4 / 2.0.squareRoot()
+/// The small gem on the master shield: a 4x4 triangle pointing down (the right-edge gem is
+/// rotated to point left), solid dark repo shade with a faint lift on its flat edge.
+struct TrackerDiamond: View {
+    private static let side: CGFloat = 4
 
     let color: NSColor
 
     var body: some View {
-        Rectangle()
+        TrackerGemShape()
             .fill(RadialGradient(
                 colors: [TrackerNameplateColor.barShade(color, stop: 0.5).swiftUI, TrackerNameplateColor.diamond(color).swiftUI],
-                center: .center,
+                center: .top,
                 startRadius: 0,
-                endRadius: Self.side
+                endRadius: 2
             ))
             .frame(width: Self.side, height: Self.side)
-            .rotationEffect(.degrees(45))
-            .shadow(color: .black.opacity(0.5), radius: 0.5, y: 0.5)
+    }
+}
+
+private struct TrackerGemShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.closeSubpath()
+        return path
     }
 }
 
 private enum TrackerNameplateFont {
     private static let weightAxis = 0x7767_6874 // 'wght'
-    private static let figmaWeight = 458
+    private static let figmaRegularWeight = 458
+    private static let figmaBoldWeight = 790
 
     static func regular(size: CGFloat) -> Font {
-        font(name: "SFCompact-Regular", size: size, fallback: .system(size: size))
+        font(name: "SFCompact-Regular", weight: figmaRegularWeight, size: size, fallback: .system(size: size))
     }
 
     static func italic(size: CGFloat) -> Font {
-        font(name: "SFCompact-RegularItalic", size: size, fallback: .system(size: size).italic())
+        font(name: "SFCompact-RegularItalic", weight: figmaRegularWeight, size: size, fallback: .system(size: size).italic())
+    }
+
+    static func bold(size: CGFloat) -> Font {
+        font(name: "SFCompact-Regular", weight: figmaBoldWeight, size: size, fallback: .system(size: size, weight: .bold))
     }
 
     // The installed SF Compact is a variable font; pin it to the weight Figma uses.
-    private static func font(name: String, size: CGFloat, fallback: Font) -> Font {
+    private static func font(name: String, weight: Int, size: CGFloat, fallback: Font) -> Font {
         guard let base = NSFont(name: name, size: size) else {
             return fallback
         }
-        let variation = NSFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String)
-        let descriptor = base.fontDescriptor.addingAttributes([variation: [weightAxis: figmaWeight]])
-        return Font(NSFont(descriptor: descriptor, size: size) ?? base)
+        let attributes: [CFString: Any] = [kCTFontVariationAttribute: [weightAxis: weight]]
+        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
+        return Font(CTFontCreateCopyWithAttributes(base, size, nil, descriptor))
     }
 }
 
@@ -1634,7 +1651,7 @@ private struct TrackerSessionRowContent: View {
             }
             if role.isMaster && !collapsedWorkers.isEmpty {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
-                    .offset(x: 150, y: 35)
+                    .offset(x: 150, y: 37)
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
@@ -1643,19 +1660,12 @@ private struct TrackerSessionRowContent: View {
     private var textStrips: some View {
         VStack(spacing: -TrackerNameplateRole.stripOverlap) {
             strip {
-                HStack(spacing: 0) {
-                    Text(title)
-                        .font(TrackerNameplateFont.regular(size: 10))
-                        .foregroundStyle(AppPalette.bright.swiftUI)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
-                    Spacer(minLength: 4)
-                    if rendered.status.showsBadge {
-                        TrackerStatusBadge(status: rendered.status)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
+                Text(title)
+                    .font(TrackerNameplateFont.regular(size: 10))
+                    .foregroundStyle(AppPalette.bright.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
             }
             if !snippet.isEmpty {
                 strip {
@@ -1682,6 +1692,7 @@ private struct TrackerSessionRowContent: View {
                 shape.fill(AppPalette.panel.swiftUI)
                     .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 0.5, opacity: 0.5))
                     .overlay(shape.strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
+                    .drawingGroup()
             }
     }
 }
@@ -1706,6 +1717,7 @@ private struct TrackerAgentMark: View {
             Circle()
                 .fill(AppPalette.window.swiftUI)
                 .overlay(TrackerInnerShadow(outer: Circle(), hole: Circle().inset(by: 2), blur: 0.5, opacity: 0.5))
+                .drawingGroup()
             statusGlow
             if let image = Self.image(for: agent, side: iconSide, tint: AppPalette.muted) {
                 Image(nsImage: image)
@@ -1729,24 +1741,9 @@ private struct TrackerAgentMark: View {
 
     // The ring views stroke centered on their frame; inset by half the stroke
     // so the 1pt ring sits inside the portrait edge, as in Figma.
-    @ViewBuilder
     private var statusFrame: some View {
-        switch status.kind {
-        case .working:
-            TrackerWorkingIconRing()
-                .frame(width: ringSide, height: ringSide)
-        case .blocked:
-            TrackerWorkingIconPulse(color: status.color)
-                .frame(width: ringSide, height: ringSide)
-        case .done:
-            TrackerDoneIconPulse(color: status.color, restingColor: inactiveRingColor)
-                .frame(width: ringSide, height: ringSide)
-        case .idle, .stopped, .needsInput, .error:
-            Circle()
-                .stroke(inactiveRingColor.swiftUI, lineWidth: 1)
-                .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
-                .frame(width: ringSide, height: ringSide)
-        }
+        TrackerStatusRing(kind: status.kind, color: status.color, restingColor: inactiveRingColor)
+            .frame(width: ringSide, height: ringSide)
     }
 
     @ViewBuilder
@@ -1840,65 +1837,31 @@ private struct TrackerAgentMark: View {
     }
 }
 
-private struct TrackerStatusBadge: View {
-    let status: TrackerStatusStyle
+/// The 1pt portrait ring. It is the nameplate's only status indicator.
+private struct TrackerStatusRing: View {
+    let kind: TrackerStatusKind
+    let color: NSColor
+    let restingColor: NSColor
 
     var body: some View {
-        TrackerStatusIndicator(status: status)
-            .id(status.kind)
-            .transition(.identity)
-    }
-}
-
-/// Shared stroke width for tracker status borders.
-private let trackerStatusBorderWidth: CGFloat = 1.3
-
-private struct TrackerStatusIndicator: View {
-    let status: TrackerStatusStyle
-
-    var body: some View {
-        ZStack {
-            switch status.kind {
-            case .working, .blocked, .done, .idle, .stopped:
-                // Slot stays reserved but empty. working, blocked, and done
-                // carry their signal on the agent icon. Stopped
-                // dims the whole card instead (see TrackerSessionRow.body);
-                // idle just has no indicator at all. Reserving the slot
-                // either way means the title row never reflows switching
-                // between kinds.
-                EmptyView()
-            default:
-                indicatorShape
-            }
+        switch kind {
+        case .working:
+            TrackerWorkingIconRing()
+        case .blocked:
+            TrackerWorkingIconPulse(color: color)
+        case .done:
+            TrackerDoneIconPulse(color: color, restingColor: restingColor)
+        case .needsInput, .error:
+            staticRing(color)
+        case .idle, .stopped:
+            staticRing(restingColor)
         }
-        .frame(width: 12, height: 12)
     }
 
-    @ViewBuilder
-    private var indicatorShape: some View {
-        ZStack {
-            switch status.indicatorAffordance {
-            case .ring:
-                Circle()
-                    .stroke(status.color.withAlphaComponent(0.55).swiftUI, lineWidth: 2)
-                    .frame(width: 12, height: 12)
-                Circle()
-                    .fill(status.color.swiftUI)
-                    .frame(width: 8, height: 8)
-            case .square:
-                RoundedRectangle(cornerRadius: Token.Radius.dot)
-                    .fill(status.color.swiftUI)
-                    .frame(width: 8, height: 8)
-            case .spinner, .circle, .roundedSquare:
-                // Every kind that produces these affordances (working,
-                // idle/blocked/done, stopped respectively) is intercepted by
-                // the switch above before reaching here. Kept explicit
-                // (rather than a `default:`) so this switch still fails to
-                // build if Core ever adds a new affordance case.
-                EmptyView()
-            }
-        }
-        .frame(width: 12, height: 12)
+    private func staticRing(_ ringColor: NSColor) -> some View {
+        Circle()
+            .stroke(ringColor.swiftUI, lineWidth: 1)
+            .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
     }
 }
 

@@ -8,14 +8,6 @@ struct TrackerStatusStyle {
     var kind: TrackerStatusKind {
         classification.kind
     }
-
-    var indicatorAffordance: TrackerStatusIndicatorAffordance {
-        classification.indicatorAffordance
-    }
-
-    var showsBadge: Bool {
-        classification.showsBadge
-    }
 }
 
 struct TrackerRenderedSession {
