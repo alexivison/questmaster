@@ -1821,10 +1821,10 @@ private struct TrackerSessionRowContent: View {
 
     private func strip<Content: View>(height: CGFloat, @ViewBuilder _ content: () -> Content) -> some View {
         let shape = role.stripShape
-        return content()
+        return WholePointCentered { content() }
             .padding(.leading, role.stripLeadingPadding)
             .padding(.trailing, TrackerNameplateRole.stripTrailingPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity)
             .frame(height: height)
             .background {
                 shape.fill(AppPalette.panel.swiftUI)
@@ -1832,6 +1832,20 @@ private struct TrackerSessionRowContent: View {
                     .drawingGroup()
                     .overlay(shape.strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
             }
+    }
+}
+
+/// Centres its child horizontally with a whole-point origin, so text starts on a pixel edge on a 1x display.
+private struct WholePointCentered: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let size = subviews[0].sizeThatFits(proposal)
+        return CGSize(width: proposal.width ?? size.width, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let size = subviews[0].sizeThatFits(ProposedViewSize(width: bounds.width, height: bounds.height))
+        let x = bounds.minX + ((bounds.width - size.width) / 2).rounded(.down)
+        subviews[0].place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 
