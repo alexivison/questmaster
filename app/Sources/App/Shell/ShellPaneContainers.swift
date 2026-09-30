@@ -68,11 +68,8 @@ private func layoutSideCardOrnaments(in container: NSView, ornaments: NSView) {
 }
 
 final class TrackerShellView: NSView {
-    private let ornaments = NonInteractiveHostingView(rootView: SideCardOrnaments())
-
     init(body: NSView) {
         super.init(frame: .zero)
-        configureSideCard(self)
         let topBar = FirstMouseHostingView(rootView: TrackerTopBar())
         layoutTopBarAndBody(
             in: self,
@@ -80,17 +77,11 @@ final class TrackerShellView: NSView {
             body: body,
             topBarHeight: ShellMetrics.dockTopBarHeight
         )
-        layoutSideCardOrnaments(in: self, ornaments: ornaments)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    func setRegionActive(_ active: Bool) {
-        layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoftSubtle).cgColor
-        ornaments.rootView = SideCardOrnaments(active: active)
     }
 }
 

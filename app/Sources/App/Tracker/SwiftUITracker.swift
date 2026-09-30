@@ -318,8 +318,8 @@ struct TrackerRootView: View {
                         TrackerEmptyState(message: emptyMessage)
                     }
                 } else {
-                    SectionedList(selectedID: selectedID, footerHeight: TrackerListMetrics.endOrnamentSize.height) {
-                        ForEach(Array(repos.enumerated()), id: \.offset) { _, repo in
+                    SectionedList(selectedID: selectedID) {
+                        ForEach(Array(repos.enumerated()), id: \.offset) { index, repo in
                             TrackerRepoSection(
                                 repo: repo,
                                 selectedID: selectedID,
@@ -332,15 +332,15 @@ struct TrackerRootView: View {
                                 onEditSession: presentEditSession(_:),
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
+                            .padding(.horizontal, TrackerListMetrics.sidePadding)
+                            .padding(.top, index == 0 ? TrackerListMetrics.verticalPadding : TrackerListMetrics.sectionSpacing)
+                            .padding(.bottom, index == repos.count - 1 ? TrackerListMetrics.verticalPadding : 0)
                         }
-                    } footer: {
-                        TrackerEndOrnament()
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(AppPalette.panel.swiftUI)
     }
 
     private func select(_ id: String) {
@@ -873,53 +873,97 @@ private struct TrackerRepoSection: View {
     var onToggleWorkersCollapsed: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionHeader(
-                title: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name,
-                color: repo.color,
-                topInset: 8,
-                bottomInset: 8
-            )
+        VStack(alignment: .leading, spacing: TrackerListMetrics.itemSpacing) {
+            TrackerRepoSectionHeader(title: repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name)
 
-            ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
+            VStack(alignment: .leading, spacing: TrackerListMetrics.itemSpacing) {
+                ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
                 let isCollapsed = collapsedMasterIDs.contains(group.root.session.id)
-                TrackerSessionRow(
-                    rendered: group.root,
-                    selectedID: selectedID,
-                    currentTerminalSessionID: currentTerminalSessionID,
-                    shortcutNumber: shortcutNumbers[group.root.session.id],
-                    commandLongPressIsActive: commandLongPressIsActive,
-                    hasWorkers: !group.workers.isEmpty,
-                    isWorkersCollapsed: isCollapsed,
-                    onSelect: onSelect,
-                    onActivate: onActivate,
-                    onEditSession: onEditSession,
-                    onToggleWorkersCollapsed: onToggleWorkersCollapsed
-                )
-                if isCollapsed {
-                    TrackerWorkerSummaryRow(workers: group.workers)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
-                    ForEach(group.workers, id: \.session.id) { worker in
+                    if group.workers.isEmpty || isCollapsed {
                         TrackerSessionRow(
-                            rendered: worker,
+                            rendered: group.root,
                             selectedID: selectedID,
                             currentTerminalSessionID: currentTerminalSessionID,
-                            shortcutNumber: shortcutNumbers[worker.session.id],
+                            shortcutNumber: shortcutNumbers[group.root.session.id],
                             commandLongPressIsActive: commandLongPressIsActive,
-                            hasWorkers: false,
-                            isWorkersCollapsed: false,
+                            hasWorkers: !group.workers.isEmpty,
+                            isWorkersCollapsed: isCollapsed,
+                            collapsedWorkers: isCollapsed ? group.workers : [],
                             onSelect: onSelect,
                             onActivate: onActivate,
                             onEditSession: onEditSession,
-                            onToggleWorkersCollapsed: { _ in }
+                            onToggleWorkersCollapsed: onToggleWorkersCollapsed
                         )
+                    } else {
+                        VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
+                            TrackerSessionRow(
+                                rendered: group.root,
+                                selectedID: selectedID,
+                                currentTerminalSessionID: currentTerminalSessionID,
+                                shortcutNumber: shortcutNumbers[group.root.session.id],
+                                commandLongPressIsActive: commandLongPressIsActive,
+                                hasWorkers: true,
+                                isWorkersCollapsed: false,
+                                onSelect: onSelect,
+                                onActivate: onActivate,
+                                onEditSession: onEditSession,
+                                onToggleWorkersCollapsed: onToggleWorkersCollapsed
+                            )
+                            ForEach(group.workers, id: \.session.id) { worker in
+                                TrackerSessionRow(
+                                    rendered: worker,
+                                    selectedID: selectedID,
+                                    currentTerminalSessionID: currentTerminalSessionID,
+                                    shortcutNumber: shortcutNumbers[worker.session.id],
+                                    commandLongPressIsActive: commandLongPressIsActive,
+                                    hasWorkers: false,
+                                    isWorkersCollapsed: false,
+                                    onSelect: onSelect,
+                                    onActivate: onActivate,
+                                    onEditSession: onEditSession,
+                                    onToggleWorkersCollapsed: { _ in }
+                                )
+                            }
+                        }
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(-1)
                 }
             }
         }
+    }
+}
+
+private struct TrackerRepoSectionHeader: View {
+    private static let filigree = AppSymbolStyle.resourceImage(
+        name: "tracker-section-filigree",
+        fileExtension: "svg",
+        subdirectory: "Ornaments",
+        canvasSize: NSSize(width: 59, height: 17)
+    )
+
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title)
+                .font(TrackerNameplateFont.regular(size: 12))
+                .foregroundStyle(AppPalette.bright.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            ZStack(alignment: .trailing) {
+                Rectangle()
+                    .fill(AppPalette.lineSoftSubtle.swiftUI)
+                    .frame(height: 1)
+                if let image = Self.filigree {
+                    Image(nsImage: image)
+                        .frame(width: 59, height: 17)
+                        .shadow(color: .black.opacity(0.8), radius: 2, y: 1)
+                }
+            }
+            .frame(height: 17)
+        }
+        .frame(height: 17)
     }
 }
 
@@ -927,24 +971,15 @@ private struct TrackerRepoSection: View {
 /// (agent, status) combination among its workers, each showing the agent's
 /// logo, a ring colored by that status, and a count.
 struct TrackerWorkerSummaryRow: View {
-    private static let interPillGap: CGFloat = 4
-    // Pulls the pill row up so it overlaps the master card's bottom border by
-    // ~4pt instead of sitting below it with a gap; tuned by rendering the
-    // real composited scene (see RenderPreview.collapsedMasterPreviewView).
-    private static let masterOverlap: CGFloat = -9
-
     let workers: [TrackerRenderedSession]
 
     var body: some View {
         if !workers.isEmpty {
-            HStack(spacing: Self.interPillGap) {
+            HStack(spacing: 4) {
                 ForEach(Array(TrackerWorkerSummary.groups(for: workers).enumerated()), id: \.offset) { _, group in
                     TrackerWorkerSummaryPill(agent: group.agent, status: group.status, color: group.color, count: group.count)
                 }
             }
-            .padding(.top, Self.masterOverlap)
-            .padding(.leading, TrackerListMetrics.trackerAgentVisualCenterX - TrackerWorkerSummaryPill.badgeSide / 2)
-            .padding(.bottom, ItemCardShape.verticalMargin)
         }
     }
 }
@@ -1068,22 +1103,426 @@ private struct TrackerWorkerSummaryPill: View {
     }
 }
 
-private struct TrackerEndOrnament: View {
-    private static let image = AppSymbolStyle.resourceImage(
-        name: "tracker-end-ornament",
-        fileExtension: "svg",
-        subdirectory: "Ornaments",
-        canvasSize: TrackerListMetrics.endOrnamentSize,
-        tintColor: AppPalette.controlBorder
-    )
+private enum TrackerNameplateRole: Equatable {
+    case standalone
+    case master
+    case worker
+
+    init(_ session: TrackerSession) {
+        switch SessionRoleKind(role: session.role) {
+        case .master:
+            self = .master
+        case .worker:
+            self = .worker
+        case .standalone, .tmux, .orphan:
+            self = .standalone
+        }
+    }
+
+    var isWorker: Bool { self == .worker }
+    var isMaster: Bool { self == .master }
+    var width: CGFloat { isWorker ? TrackerListMetrics.workerPlateWidth : TrackerListMetrics.rootPlateWidth }
+    var rowHeight: CGFloat {
+        switch self {
+        case .standalone: TrackerListMetrics.standaloneRowHeight
+        case .master: TrackerListMetrics.masterRowHeight
+        case .worker: TrackerListMetrics.workerRowHeight
+        }
+    }
+    var plateHeight: CGFloat { isWorker ? TrackerListMetrics.workerPlateHeight : rowHeight }
+    var plateTop: CGFloat { (rowHeight - plateHeight) / 2 }
+    var titleStripX: CGFloat { isWorker ? 23 : 22 }
+    var titleStripWidth: CGFloat {
+        switch self {
+        case .standalone: 250
+        case .master: 247
+        case .worker: 231
+        }
+    }
+    var titleLeadingPadding: CGFloat { isWorker ? 13 : 25 }
+    var portraitX: CGFloat { isMaster ? 5 : 3 }
+}
+
+private struct TrackerPlateShape: Shape {
+    let role: TrackerNameplateRole
+
+    func path(in rect: CGRect) -> Path {
+        let baseWidth: CGFloat = role.isWorker ? 257 : 280
+        let baseHeight = role.plateHeight
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(
+                x: rect.minX + x * rect.width / baseWidth,
+                y: rect.minY + y * rect.height / baseHeight
+            )
+        }
+
+        var path = Path()
+        switch role {
+        case .standalone:
+            path.move(to: point(22.96, 0))
+            path.addCurve(to: point(34.3049, 3), control1: point(27.0867, 0), control2: point(30.9585, 1.0911))
+            path.addLine(to: point(270.823, 3))
+            path.addCurve(to: point(272.402, 3.4502), control1: point(271.381, 3), control2: point(271.928, 3.1558))
+            path.addLine(to: point(276.016, 6.6953))
+            path.addCurve(to: point(276.848, 7.4658), control1: point(276.34, 6.8966), control2: point(276.622, 7.1584))
+            path.addLine(to: point(279.416, 9.9561))
+            path.addCurve(to: point(280, 11.7363), control1: point(279.795, 10.4716), control2: point(280, 11.0959))
+            path.addLine(to: point(280, 25.2637))
+            path.addCurve(to: point(279.416, 27.0439), control1: point(280, 25.9041), control2: point(279.795, 26.5284))
+            path.addLine(to: point(276.848, 29.5342))
+            path.addCurve(to: point(276.016, 30.3047), control1: point(276.622, 29.8416), control2: point(276.34, 30.1035))
+            path.addLine(to: point(272.402, 33.5498))
+            path.addCurve(to: point(270.823, 34), control1: point(271.928, 33.8442), control2: point(271.381, 34))
+            path.addLine(to: point(43.1285, 34))
+            path.addCurve(to: point(22.9603, 46), control1: point(39.2344, 41.1493), control2: point(31.6631, 46))
+            path.addCurve(to: point(0, 23), control1: point(10.2797, 46), control2: point(0, 35.7025))
+            path.addCurve(to: point(22.96, 0), control1: point(0, 10.2975), control2: point(10.2797, 0))
+        case .master:
+            path.move(to: point(25.0015, 0))
+            path.addCurve(to: point(38.5924, 3), control1: point(25.0191, 0.0033), control2: point(29.2272, 0.7833))
+            path.addLine(to: point(271.029, 3))
+            path.addCurve(to: point(275, 8.75), control1: point(272.008, 6.8181), control2: point(272.97, 7.6))
+            path.addLine(to: point(278.001, 9.5))
+            path.addLine(to: point(280.001, 18.5))
+            path.addLine(to: point(278.001, 27))
+            path.addCurve(to: point(275, 28.25), control1: point(278.001, 25.8284), control2: point(278, 25.8284))
+            path.addCurve(to: point(271.029, 34), control1: point(272.01, 30.6637), control2: point(271.035, 33.9775))
+            path.addLine(to: point(44.4263, 34))
+            path.addCurve(to: point(25.0006, 51), control1: point(39.7633, 42.6751), control2: point(30.5397, 47.8527))
+            path.addCurve(to: point(3.483, 28.7334), control1: point(18.4213, 47.2617), control2: point(6.6415, 40.6598))
+            path.addCurve(to: point(0.0152, 5.7969), control1: point(-0.4141, 14.0156), control2: point(0.0119, 5.859))
+            path.addCurve(to: point(25.0015, 0), control1: point(3.0379, 4.9803), control2: point(11.6627, 2.9395))
+        case .worker:
+            path.move(to: point(28.9313, 2.9189))
+            path.addCurve(to: point(18.7126, 0), control1: point(25.9934, 1.0732), control2: point(22.4834, 0))
+            path.addCurve(to: point(18.7126, 36), control1: point(8.3779, 0), control2: point(0, 8.0589))
+            path.addCurve(to: point(28.9313, 33.0811), control1: point(0, 27.9411), control2: point(8.3779, 36))
+            path.addLine(to: point(34.3908, 33.0811))
+            path.addLine(to: point(250.931, 33.0811))
+            path.addCurve(to: point(257, 27.2432), control1: point(254.283, 33.0811), control2: point(257, 30.4674))
+            path.addLine(to: point(257, 8.7568))
+            path.addCurve(to: point(250.931, 2.9189), control1: point(257, 5.5326), control2: point(254.283, 2.9189))
+            path.closeSubpath()
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct TrackerTextStripShape: Shape {
+    let role: TrackerNameplateRole
+
+    func path(in rect: CGRect) -> Path {
+        UnevenRoundedRectangle(
+            topLeadingRadius: role.isWorker ? 0 : 6,
+            bottomLeadingRadius: role.isWorker ? 0 : 6,
+            bottomTrailingRadius: role.isWorker ? 3 : 6,
+            topTrailingRadius: role.isWorker ? 3 : 6
+        ).path(in: rect)
+    }
+}
+
+enum TrackerNameplateColor {
+    static func barShade(_ color: NSColor, stop: CGFloat) -> NSColor {
+        shade(color, stop: stop, diamond: false)
+    }
+
+    static func diamond(_ color: NSColor) -> NSColor {
+        shade(color, stop: 1, diamond: true)
+    }
+
+    private static func shade(_ color: NSColor, stop: CGFloat, diamond: Bool) -> NSColor {
+        let rgb = color.usingColorSpace(.deviceRGB) ?? color
+        let red = rgb.redComponent
+        let green = rgb.greenComponent
+        let blue = rgb.blueComponent
+        let maximum = max(red, green, blue)
+        let minimum = min(red, green, blue)
+        let lightness = (maximum + minimum) / 2
+        let difference = maximum - minimum
+        let saturation = difference == 0 ? 0 : difference / (1 - abs(2 * lightness - 1))
+        var hue: CGFloat = 0
+        if difference != 0 {
+            if maximum == red {
+                hue = (green - blue) / difference + (green < blue ? 6 : 0)
+            } else if maximum == green {
+                hue = (blue - red) / difference + 2
+            } else {
+                hue = (red - green) / difference + 4
+            }
+            hue /= 6
+        }
+
+        let isGreen = green > red && red > blue
+        let isWarm = red > green && green > blue
+        let isMagenta = red > green && blue > green
+        let darkenAmount = min(1, max(0, stop))
+        let lightnessScale: CGFloat
+        if diamond {
+            lightnessScale = isGreen ? 0.4 : (isWarm ? 0.521 : (isMagenta ? 0.466 : 0.47))
+        } else {
+            lightnessScale = 1 - 0.52 * darkenAmount
+        }
+        let saturationScale: CGFloat
+        let progress = darkenAmount - 0.5
+        if diamond && isGreen {
+            saturationScale = 0.745
+        } else if diamond && isWarm {
+            saturationScale = 1.48
+        } else if diamond && isMagenta {
+            saturationScale = 1.063
+        } else if isGreen {
+            saturationScale = 0.735 - 0.107 * progress + 0.175 * progress * progress
+        } else if isWarm {
+            saturationScale = 1.014 + 0.425 * progress + 0.83 * progress * progress
+        } else if isMagenta {
+            saturationScale = 0.673 + 0.392 * progress + 0.722 * progress * progress
+        } else {
+            saturationScale = 1
+        }
+
+        if isWarm || (diamond && isGreen) {
+            let hueShift = diamond ? (isWarm ? 1 : 1.68) : 3.4 * darkenAmount
+            hue = (hue - hueShift / 360 + 1).truncatingRemainder(dividingBy: 1)
+        }
+        return hslColor(
+            hue: hue,
+            saturation: min(1, max(0, saturation * saturationScale)),
+            lightness: min(1, max(0, lightness * lightnessScale)),
+            alpha: rgb.alphaComponent
+        )
+    }
+
+    private static func hslColor(hue: CGFloat, saturation: CGFloat, lightness: CGFloat, alpha: CGFloat) -> NSColor {
+        let chroma = (1 - abs(2 * lightness - 1)) * saturation
+        let section = hue * 6
+        let second = chroma * (1 - abs(section.truncatingRemainder(dividingBy: 2) - 1))
+        let (red, green, blue): (CGFloat, CGFloat, CGFloat)
+        switch section {
+        case 0..<1: (red, green, blue) = (chroma, second, 0)
+        case 1..<2: (red, green, blue) = (second, chroma, 0)
+        case 2..<3: (red, green, blue) = (0, chroma, second)
+        case 3..<4: (red, green, blue) = (0, second, chroma)
+        case 4..<5: (red, green, blue) = (second, 0, chroma)
+        default: (red, green, blue) = (chroma, 0, second)
+        }
+        let offset = lightness - chroma / 2
+        return NSColor(
+            red: red + offset,
+            green: green + offset,
+            blue: blue + offset,
+            alpha: alpha
+        )
+    }
+}
+
+struct TrackerColorBar: View {
+    private static let size = CGSize(width: 129, height: 10)
+    private let color: NSColor
+    private let strokeColor: NSColor
+    private let isWorking: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = 0.0
+
+    init(color: NSColor, strokeColor: NSColor, isWorking: Bool) {
+        self.color = color
+        self.strokeColor = strokeColor
+        self.isWorking = isWorking
+    }
+
+    private var animationID: Int {
+        isWorking ? (reduceMotion ? 1 : 2) : 0
+    }
 
     var body: some View {
-        if let image = Self.image {
-            Image(nsImage: image)
-                .frame(width: TrackerListMetrics.endOrnamentSize.width, height: TrackerListMetrics.endOrnamentSize.height)
-                .frame(maxWidth: .infinity)
-                .allowsHitTesting(false)
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 24,
+            bottomTrailingRadius: 6,
+            topTrailingRadius: 6
+        )
+        ZStack {
+            Canvas { context, size in
+                let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                let gradient = Gradient(stops: [
+                    .init(color: color.swiftUI, location: 0),
+                    .init(color: TrackerNameplateColor.barShade(color, stop: 0.5).swiftUI, location: 0.5),
+                    .init(color: TrackerNameplateColor.barShade(color, stop: 0.75).swiftUI, location: 0.75),
+                    .init(color: TrackerNameplateColor.barShade(color, stop: 1).swiftUI, location: 1),
+                ])
+                for corner in [
+                    CGPoint.zero,
+                    CGPoint(x: size.width, y: 0),
+                    CGPoint(x: 0, y: size.height),
+                    CGPoint(x: size.width, y: size.height),
+                ] {
+                    let quadrant = CGRect(
+                        x: min(center.x, corner.x),
+                        y: min(center.y, corner.y),
+                        width: abs(center.x - corner.x),
+                        height: abs(center.y - corner.y)
+                    )
+                    var path = Path()
+                    path.addRect(quadrant.insetBy(dx: -0.5, dy: -0.5))
+                    context.fill(path, with: .linearGradient(gradient, startPoint: center, endPoint: corner))
+                }
+            }
+            .overlay {
+                if isWorking {
+                    shape.fill(color.swiftUI)
+                        .blendMode(.plusLighter)
+                        .opacity(pulse * 0.65)
+                }
+            }
+            .clipShape(shape)
         }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .overlay(shape.stroke(strokeColor.swiftUI, lineWidth: 1))
+        .task(id: animationID) {
+            guard isWorking else {
+                pulse = 0
+                return
+            }
+            guard !reduceMotion else {
+                pulse = 0.5
+                return
+            }
+            while !Task.isCancelled {
+                withAnimation(.easeInOut(duration: 1.1)) { pulse = 0.9 }
+                try? await Task.sleep(for: .seconds(1.1))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 1.1)) { pulse = 0 }
+                try? await Task.sleep(for: .seconds(1.1))
+            }
+        }
+    }
+}
+
+private struct TrackerNameplateBackground: View {
+    let role: TrackerNameplateRole
+    let color: NSColor
+    let selected: Bool
+    let hovered: Bool
+    let attached: Bool
+    let isRecoloring: Bool
+    let isWorking: Bool
+
+    private var strokeColor: NSColor {
+        if isRecoloring { return AppPalette.hoverBackground }
+        if attached { return AppPalette.brassActive }
+        if selected || hovered { return AppPalette.dim }
+        return AppPalette.line
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            plate
+            if !role.isWorker {
+                TrackerColorBar(
+                    color: color,
+                    strokeColor: attached && !isRecoloring ? AppPalette.brassActive : AppPalette.line,
+                    isWorking: isWorking
+                )
+                .offset(x: 19, y: 33)
+            }
+            if role.isMaster {
+                let diamond = TrackerNameplateColor.diamond(color).swiftUI
+                Rectangle()
+                    .fill(diamond)
+                    .frame(width: 4, height: 4)
+                    .rotationEffect(.degrees(45))
+                    .offset(x: 23, y: 45)
+                Rectangle()
+                    .fill(diamond)
+                    .frame(width: 4, height: 4)
+                    .rotationEffect(.degrees(45))
+                    .offset(x: role.width - 7, y: 16)
+            }
+        }
+        .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
+        .padding(.trailing, TrackerListMetrics.sidePadding)
+        .shadow(color: attached && !isRecoloring ? .black.opacity(0.3) : .clear, radius: 2, x: 0, y: 4)
+    }
+
+    private var plate: some View {
+        let shape = TrackerPlateShape(role: role)
+        return shape
+            .fill(AppPalette.item.swiftUI)
+            .overlay {
+                shape.stroke(.black.opacity(0.25), lineWidth: 1)
+                    .blur(radius: 2)
+                    .offset(y: -3)
+                    .clipShape(shape)
+            }
+            .overlay {
+                shape.stroke(.black.opacity(0.25), lineWidth: 1)
+                    .blur(radius: 2)
+                    .offset(y: 3)
+                    .clipShape(shape)
+            }
+            .overlay(shape.stroke(strokeColor.swiftUI, lineWidth: isRecoloring ? 2 : 1))
+            .frame(width: role.width, height: role.plateHeight)
+            .offset(y: role.plateTop)
+    }
+}
+
+private enum TrackerNameplateFont {
+    static func regular(size: CGFloat) -> Font {
+        let font = NSFont(name: "SFCompact-Regular", size: size) ?? NSFont.systemFont(ofSize: size)
+        return .custom(font.fontName, size: size)
+    }
+
+    static func italic(size: CGFloat) -> Font {
+        let font = NSFont(name: "SFCompact-RegularItalic", size: size) ?? NSFont.systemFont(ofSize: size).italic
+        return .custom(font.fontName, size: size)
+    }
+}
+
+private struct TrackerElapsedTimer: View {
+    let session: TrackerSession
+    let isWorker: Bool
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
+            let duration = TrackerRenderer.durationLabel(for: session, now: context.date)
+            if !duration.isEmpty {
+                Text(displayDuration(duration))
+                    .font(TrackerNameplateFont.italic(size: 8))
+                    .foregroundStyle((isWorker ? AppPalette.dim : AppPalette.bright).swiftUI)
+                    .lineLimit(1)
+                    .shadow(color: isWorker ? .clear : .black.opacity(0.25), radius: 1, y: 1)
+                    .padding(.horizontal, isWorker ? 10 : 0)
+                    .padding(.vertical, isWorker ? 2 : 0)
+                    .background {
+                        if isWorker {
+                            UnevenRoundedRectangle(
+                                topLeadingRadius: 0,
+                                bottomLeadingRadius: 3,
+                                bottomTrailingRadius: 3,
+                                topTrailingRadius: 0
+                            )
+                            .fill(AppPalette.panel.swiftUI)
+                            .overlay {
+                                UnevenRoundedRectangle(
+                                    topLeadingRadius: 0,
+                                    bottomLeadingRadius: 3,
+                                    bottomTrailingRadius: 3,
+                                    topTrailingRadius: 0
+                                )
+                                .stroke(AppPalette.line.swiftUI, lineWidth: 1)
+                            }
+                        }
+                    }
+                    .offset(x: isWorker ? 41 : 70, y: isWorker ? 32 : 38)
+            }
+        }
+    }
+
+    private func displayDuration(_ value: String) -> String {
+        guard isWorker, let separator = value.firstIndex(of: ":"), value[..<separator].count == 1 else {
+            return value
+        }
+        return "0" + value
     }
 }
 
@@ -1095,254 +1534,148 @@ private struct TrackerSessionRow: View {
     let commandLongPressIsActive: Bool
     let hasWorkers: Bool
     let isWorkersCollapsed: Bool
+    var collapsedWorkers: [TrackerRenderedSession] = []
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
     var onEditSession: (TrackerSession) -> Void
     var onToggleWorkersCollapsed: (String) -> Void
 
     private var session: TrackerSession { rendered.session }
+    private var role: TrackerNameplateRole { TrackerNameplateRole(session) }
     private var isSelected: Bool { selectedID == session.id }
     private var isCurrentTerminalSession: Bool { currentTerminalSessionID == session.id }
-    private var cornerOrnament: ItemCardCornerOrnament? {
-        switch SessionRoleKind(role: session.role) {
-        case .master:
-            return .master
-        case .standalone:
-            return .standalone
-        case .worker, .tmux, .orphan:
-            return nil
-        }
-    }
-    private var showsWorkersCollapseMenuItem: Bool {
-        hasWorkers && SessionRoleKind(role: session.role) == .master
-    }
+    private var showsWorkersCollapseMenuItem: Bool { hasWorkers && role.isMaster }
 
     var body: some View {
         ListRow(
             selected: isSelected,
-            leadingInset: contentInset,
+            leadingInset: TrackerListMetrics.sidePadding + (role.isWorker ? TrackerListMetrics.workerIndent : 0),
             onTap: {
                 onSelect(session.id)
                 onActivate(session)
             },
-            leadingDecoration: { leadingDecoration },
+            leadingDecoration: { EmptyView() },
             background: { selected, hovered in
-                // Recolor edit swaps the card's own selection glow and hover
-                // border for a neutral border, so the mode is obvious
-                // without competing with the color preview shown at the
-                // gutter/repo title.
-                let isRecoloring = rendered.recolorEditHint != nil
-                ItemCardShape(
-                    selected: !isRecoloring && selected,
-                    hovered: !isRecoloring && hovered,
-                    extraLeadingInset: cardExtraLeadingInset,
-                    cornerOrnament: cornerOrnament,
-                    accentColor: rendered.depth == 0 ? rendered.groupColor : nil,
-                    accentIsWorking: rendered.depth == 0 && rendered.status.kind == .working,
-                    isCurrentTerminalSession: !isRecoloring && isCurrentTerminalSession
+                TrackerNameplateBackground(
+                    role: role,
+                    color: rendered.groupColor,
+                    selected: selected,
+                    hovered: hovered,
+                    attached: isCurrentTerminalSession,
+                    isRecoloring: rendered.recolorEditHint != nil,
+                    isWorking: rendered.status.kind == .working
                 )
             },
             content: {
                 TrackerSessionRowContent(
                     rendered: rendered,
-                    selected: isSelected,
+                    role: role,
                     shortcutNumber: commandLongPressIsActive ? shortcutNumber : nil,
-                    showSessionID: commandLongPressIsActive
+                    showSessionID: commandLongPressIsActive,
+                    collapsedWorkers: collapsedWorkers
                 )
             }
         )
-            .overlay {
-                if rendered.recolorEditHint != nil {
-                    // Neutral border, not the live preview color — the color
-                    // itself previews at the gutter/repo title; this border
-                    // only marks the row as being edited.
-                    cardBorder(color: AppPalette.hoverBackground, lineWidth: 2)
-                } else if rendered.status.kind == .needsInput {
-                    cardBorder(color: AppPalette.trackerNeedsInput, lineWidth: trackerStatusBorderWidth)
+        .opacity(rendered.status.kind == .stopped ? 0.65 : 1)
+        .help(shortcutTooltip)
+        .contextMenu {
+            Button("Edit Session…") {
+                onEditSession(session)
+            }
+            if showsWorkersCollapseMenuItem {
+                Button(isWorkersCollapsed ? "Expand Workers" : "Collapse Workers") {
+                    onToggleWorkersCollapsed(session.id)
                 }
             }
-            // Stopped sessions dim the whole card (not just the retired
-            // indicator dot) -- there's nothing running to point at, so the
-            // signal is "this one's at rest," not a specific colored cue.
-            .opacity(rendered.status.kind == .stopped ? 0.65 : 1)
-            .help(shortcutTooltip)
-            .contextMenu {
-                Button("Edit Session…") {
-                    onEditSession(session)
-                }
-                if showsWorkersCollapseMenuItem {
-                    Button(isWorkersCollapsed ? "Expand Workers" : "Collapse Workers") {
-                        onToggleWorkersCollapsed(session.id)
-                    }
-                }
-            }
-            .id(session.id)
-    }
-
-    @ViewBuilder
-    private var leadingDecoration: some View {
-        if rendered.depth > 0 {
-            GeometryReader { proxy in
-                let markerY = TrackerListMetrics.workerConnectorMarkerY(in: proxy.size.height)
-                let lineColor = AppPalette.line.swiftUI
-                ZStack(alignment: .topLeading) {
-                    TrackerWorkerConnectorShape(isLastSibling: rendered.isLastSibling)
-                        .stroke(
-                            lineColor,
-                            style: StrokeStyle(lineWidth: Token.Size.divider, lineCap: .square)
-                        )
-                    TrackerWorkerConnectorMarker()
-                        .fill(lineColor)
-                        .frame(
-                            width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
-                            height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
-                        )
-                        .position(
-                            x: TrackerListMetrics.workerSpineOffset,
-                            y: markerY
-                        )
-                }
-            }
-                .frame(width: TrackerListMetrics.workerContentInset)
         }
+        .id(session.id)
     }
 
-    private var contentInset: CGFloat {
-        rendered.depth == 0 ? TrackerListMetrics.rootContentInset : TrackerListMetrics.workerContentInset
-    }
-
-    // How much further left of the card's usual margin the connector needs —
-    // zero at the top level, since there's no connector to clear there.
-    private var cardExtraLeadingInset: CGFloat {
-        rendered.depth == 0 ? 0 : TrackerListMetrics.workerContentInset - Token.Spacing.card
-    }
-
-    private func cardBorder(color: NSColor, lineWidth: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: Token.Radius.card)
-            .stroke(color.swiftUI, lineWidth: lineWidth)
-            .itemCardMargins(extraLeadingInset: cardExtraLeadingInset)
-    }
-
-    // Empty string suppresses the tooltip for rows past the first nine.
     private var shortcutTooltip: String {
-        guard let shortcutNumber else {
-            return ""
-        }
+        guard let shortcutNumber else { return "" }
         return "Switch to session \(shortcutNumber)  \(Keymap.Command.selectSession[shortcutNumber - 1].displayGlyph)"
     }
 }
 
 private struct TrackerSessionRowContent: View {
     let rendered: TrackerRenderedSession
-    let selected: Bool
+    let role: TrackerNameplateRole
     let shortcutNumber: Int?
     let showSessionID: Bool
+    let collapsedWorkers: [TrackerRenderedSession]
 
-    private var session: TrackerSession {
-        rendered.session
-    }
-
-    private var title: String {
-        if showSessionID {
-            return session.id
-        }
-        return session.title.isEmpty ? session.id : session.title
-    }
-
-    private var titleFont: Font {
-        (session.isCurrent ? AppFonts.itemTitleEmphasized : AppFonts.itemTitle).swiftUI
-    }
-
-    private var titleColor: Color {
-        (selected ? AppPalette.bright : AppPalette.text).swiftUI
-    }
-
-    private var snippet: String {
-        TrackerRenderer.snippet(for: session)
-    }
-
-    private var metadata: String {
-        TrackerRenderer.metadata(for: session)
-    }
-
-    private var isMinimalRow: Bool {
-        snippet.isEmpty && metadata.isEmpty
-    }
+    private var session: TrackerSession { rendered.session }
+    private var title: String { showSessionID ? session.id : (session.title.isEmpty ? session.id : session.title) }
+    private var snippet: String { TrackerRenderer.snippet(for: session) }
 
     var body: some View {
-        HStack(alignment: isMinimalRow ? .center : .top, spacing: TrackerListMetrics.topLevelAgentGap) {
-            TrackerAgentMark(agent: session.agent, role: session.role, status: rendered.status, shortcutNumber: shortcutNumber)
-                .padding(.top, isMinimalRow ? 0 : TrackerListMetrics.trackerTitleTopInset)
-
-            VStack(alignment: .leading, spacing: 2) {
-                titleRow
-                snippetRow
-                metadataRow
-            }
-            .padding(.top, isMinimalRow ? 0 : TrackerListMetrics.trackerTitleTopInset)
-            .padding(.bottom, isMinimalRow ? 0 : ItemCardShape.contentPadding)
-            .frame(
-                maxWidth: .infinity,
-                minHeight: isMinimalRow ? TrackerListMetrics.minimumSessionContentHeight : 0,
-                alignment: isMinimalRow ? .leading : .topLeading
+        ZStack(alignment: .topLeading) {
+            textStrips
+                .offset(x: role.titleStripX, y: snippet.isEmpty ? 0 : (role.isWorker ? 5.5 : 6))
+            TrackerAgentMark(
+                agent: session.agent,
+                role: session.role,
+                status: rendered.status,
+                shortcutNumber: shortcutNumber,
+                isWorker: role.isWorker
             )
-        }
-        .padding(.vertical, isMinimalRow ? ItemCardShape.contentPadding : 0)
-        .padding(.leading, ItemCardShape.contentPadding)
-        .padding(.trailing, ItemCardShape.trailingContentPadding)
-    }
-
-    private var titleRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Text(title)
-                .font(titleFont)
-                .foregroundStyle(titleColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
-
-            Spacer(minLength: 8)
-
-            if rendered.status.showsBadge {
-                TrackerStatusBadge(
-                    status: rendered.status,
-                    session: session
-                )
-                .fixedSize(horizontal: true, vertical: false)
+            .offset(x: role.portraitX, y: 3)
+            if rendered.status.kind == .working {
+                TrackerElapsedTimer(session: session, isWorker: role.isWorker)
+            }
+            if role.isMaster && !collapsedWorkers.isEmpty {
+                TrackerWorkerSummaryRow(workers: collapsedWorkers)
+                    .offset(x: 150, y: 37)
             }
         }
-        .frame(minHeight: TrackerListMetrics.trackerTitleRowMinimumHeight, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
     }
 
-    @ViewBuilder
-    private var snippetRow: some View {
-        if !snippet.isEmpty {
-            snippetText(snippet)
+    private var textStrips: some View {
+        VStack(alignment: .leading, spacing: -1) {
+            HStack(spacing: 0) {
+                Text(title)
+                    .font(TrackerNameplateFont.regular(size: 10))
+                    .foregroundStyle(AppPalette.bright.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
+                Spacer(minLength: 4)
+                if rendered.status.showsBadge {
+                    TrackerStatusBadge(status: rendered.status)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            .padding(.leading, role.titleLeadingPadding)
+            .padding(.trailing, 10)
+            .padding(.vertical, 3)
+            .background(stripBackground)
+
+            if !snippet.isEmpty {
+                Text(snippet)
+                    .font(TrackerNameplateFont.italic(size: 10))
+                    .foregroundStyle(AppPalette.muted.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.leading, role.titleLeadingPadding)
+                    .padding(.trailing, 10)
+                    .padding(.vertical, 3)
+                    .background(stripBackground)
+            }
         }
+        .frame(width: role.titleStripWidth, height: role.rowHeight, alignment: snippet.isEmpty ? .center : .topLeading)
     }
 
-    private func snippetText(_ text: String) -> some View {
-        Text(text)
-            .font(AppFonts.monoSmall.swiftUI)
-            .italic()
-            .foregroundStyle(AppPalette.muted.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
-    }
-
-    @ViewBuilder
-    private var metadataRow: some View {
-        if !metadata.isEmpty {
-            Text(metadata)
-                .font(AppFonts.monoSmall.swiftUI)
-                // Dimmer than the shared AppPalette.dim token (which the
-                // duration label and corner bolts also use) -- same hue,
-                // just faded further, kept local to this one call site.
-                .foregroundStyle(AppPalette.dim.withAlphaComponent(0.65).swiftUI)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
+    private var stripBackground: some View {
+        TrackerTextStripShape(role: role)
+            .fill(AppPalette.panel.swiftUI)
+            .overlay {
+                TrackerTextStripShape(role: role)
+                    .stroke(.black.opacity(0.5), lineWidth: 2)
+                    .blur(radius: 1)
+                    .padding(2)
+            }
+            .overlay(TrackerTextStripShape(role: role).stroke(AppPalette.line.swiftUI, lineWidth: 1))
     }
 }
 
@@ -1351,6 +1684,10 @@ private struct TrackerAgentMark: View {
     let role: String
     let status: TrackerStatusStyle
     let shortcutNumber: Int?
+    let isWorker: Bool
+
+    private var portraitSide: CGFloat { isWorker ? 30 : 40 }
+    private var iconSide: CGFloat { portraitSide / 2 }
 
     private var roleKind: SessionRoleKind {
         SessionRoleKind(role: role)
@@ -1358,29 +1695,33 @@ private struct TrackerAgentMark: View {
 
     var body: some View {
         ZStack {
+            Circle()
+                .fill(AppPalette.window.swiftUI)
+                .overlay {
+                    Circle()
+                        .stroke(.black.opacity(0.5), lineWidth: 1)
+                        .blur(radius: 0.5)
+                        .clipShape(Circle())
+                }
             statusGlow
-            if let image = Self.image(for: agent) {
+            if let image = Self.image(for: agent, side: iconSide) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+                    .frame(width: iconSide, height: iconSide)
                     .clipShape(Circle())
             }
             if let shortcutNumber {
                 Circle()
                     .fill(AppPalette.window.withAlphaComponent(0.86).swiftUI)
-                    .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+                    .frame(width: iconSide, height: iconSide)
                 Text("\(shortcutNumber)")
                     .font(AppFonts.monoBold.swiftUI)
                     .foregroundStyle(AppPalette.bright.swiftUI)
             }
             statusFrame
         }
-        .frame(
-            width: TrackerAgentGlyphMetrics.columnWidth,
-            height: TrackerListMetrics.trackerAgentFrameHeight,
-            alignment: .center
-        )
+        .frame(width: portraitSide, height: portraitSide)
     }
 
     @ViewBuilder
@@ -1388,18 +1729,18 @@ private struct TrackerAgentMark: View {
         switch status.kind {
         case .working:
             TrackerWorkingIconRing()
-                .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+                .frame(width: portraitSide, height: portraitSide)
         case .blocked:
             TrackerWorkingIconPulse(color: status.color)
-                .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+                .frame(width: portraitSide, height: portraitSide)
         case .done:
             TrackerDoneIconPulse(color: status.color, restingColor: inactiveRingColor)
-                .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+                .frame(width: portraitSide, height: portraitSide)
         case .idle, .stopped, .needsInput, .error:
             Circle()
                 .stroke(inactiveRingColor.swiftUI, lineWidth: 1)
                 .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
-                .frame(width: TrackerAgentGlyphMetrics.frameSide, height: TrackerAgentGlyphMetrics.frameSide)
+                .frame(width: portraitSide, height: portraitSide)
         }
     }
 
@@ -1409,7 +1750,7 @@ private struct TrackerAgentMark: View {
         case .blocked:
             Circle()
                 .fill(status.color.swiftUI.opacity(0.12))
-                .frame(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+                .frame(width: iconSide, height: iconSide)
                 .blur(radius: 3)
         case .working, .idle, .stopped, .needsInput, .error, .done:
             EmptyView()
@@ -1425,8 +1766,8 @@ private struct TrackerAgentMark: View {
         }
     }
 
-    fileprivate static func image(for agentName: String) -> NSImage? {
-        let canvasSize = NSSize(width: TrackerAgentGlyphMetrics.iconSide, height: TrackerAgentGlyphMetrics.iconSide)
+    fileprivate static func image(for agentName: String, side: CGFloat = 12) -> NSImage? {
+        let canvasSize = NSSize(width: side, height: side)
         switch AgentKind(name: agentName) {
         case .claude:
             return AppSymbolStyle.resourceImage(
@@ -1455,7 +1796,7 @@ private struct TrackerAgentMark: View {
             }
             return AppSymbolStyle.glyphImage(
                 "□",
-                font: NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold),
+                font: NSFont.systemFont(ofSize: side * 0.58, weight: .semibold),
                 color: AppPalette.bright,
                 canvasSize: canvasSize
             )
@@ -1470,14 +1811,14 @@ private struct TrackerAgentMark: View {
             }
             return AppSymbolStyle.glyphImage(
                 "π",
-                font: NSFont.systemFont(ofSize: TrackerAgentGlyphMetrics.glyphPointSize, weight: .semibold),
+                font: NSFont.systemFont(ofSize: side * 0.58, weight: .semibold),
                 color: AppPalette.pi,
                 canvasSize: canvasSize
             )
         case .shell:
             return AppSymbolStyle.image(
                 name: "apple.terminal",
-                pointSize: TrackerAgentGlyphMetrics.glyphPointSize,
+                pointSize: side * 0.58,
                 weight: .medium,
                 color: AppPalette.muted,
                 canvasSize: canvasSize
@@ -1496,31 +1837,11 @@ private struct TrackerAgentMark: View {
 
 private struct TrackerStatusBadge: View {
     let status: TrackerStatusStyle
-    let session: TrackerSession
 
     var body: some View {
-        HStack(alignment: .center, spacing: 5) {
-            TrackerStatusIndicator(status: status)
-                .id(status.kind)
-                // No cross-fade between status stages — the change snaps and the
-                // dot pop / done echo carry the transition.
-                .transition(.identity)
-
-            if status.kind == .working {
-                // The only per-second datum in the tracker. Scoping the 1s
-                // timeline here (instead of around the whole pane) means an
-                // idle tracker schedules no periodic re-render at all.
-                TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
-                    let duration = TrackerRenderer.durationLabel(for: session, now: context.date)
-                    if !duration.isEmpty {
-                        Text(duration)
-                            .font(AppFonts.monoSmall.swiftUI)
-                            .foregroundStyle(AppPalette.dim.swiftUI)
-                            .lineLimit(1)
-                    }
-                }
-            }
-        }
+        TrackerStatusIndicator(status: status)
+            .id(status.kind)
+            .transition(.identity)
     }
 }
 
@@ -1753,7 +2074,6 @@ private struct TrackerSkeletonPlaceholder: View {
         .padding(.trailing, Token.Spacing.content)
         .padding(.bottom, Token.Spacing.content)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(AppPalette.panel.swiftUI)
         .onAppear {
             guard !reduceMotion else {
                 pulse = true
@@ -1782,21 +2102,6 @@ private struct TrackerSkeletonPlaceholder: View {
             .fill(AppPalette.dim.swiftUI)
             .opacity(pulseOpacity)
             .frame(width: width, height: height)
-    }
-}
-
-private struct TrackerWorkerConnectorShape: Shape {
-    let isLastSibling: Bool
-
-    func path(in rect: CGRect) -> Path {
-        let markerY = TrackerListMetrics.workerConnectorMarkerY(in: rect.height)
-        var path = Path()
-        path.move(to: CGPoint(x: TrackerListMetrics.workerSpineOffset, y: -ItemCardShape.verticalMargin))
-        path.addLine(to: CGPoint(
-            x: TrackerListMetrics.workerSpineOffset,
-            y: isLastSibling ? markerY : rect.maxY
-        ))
-        return path
     }
 }
 

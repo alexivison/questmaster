@@ -305,15 +305,12 @@ public struct TrackerSession: Decodable, Equatable {
             return nil
         }
         let totalSeconds = milliseconds / 1000
-        let minutes = totalSeconds / 60
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds / 60) % 60
         let seconds = totalSeconds % 60
-        if minutes >= 60 {
-            return "\(minutes / 60)h\(minutes % 60)m"
-        }
-        if minutes > 0 {
-            return "\(minutes)m\(seconds)s"
-        }
-        return "\(seconds)s"
+        let minuteText = minutes < 10 ? "0\(minutes)" : "\(minutes)"
+        let secondText = seconds < 10 ? "0\(seconds)" : "\(seconds)"
+        return "\(hours):\(minuteText):\(secondText)"
     }
 
     private static let fractionalInstantFormatter: ISO8601DateFormatter = {

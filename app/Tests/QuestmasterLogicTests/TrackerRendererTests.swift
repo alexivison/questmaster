@@ -361,9 +361,7 @@ struct TrackerRendererTests {
         )
 
         expect(TrackerRowText.snippet(for: shell).isEmpty, "shell snippet should be visually empty")
-        expect(TrackerRowText.metadata(for: shell, homePath: "/Users/test").isEmpty, "shell metadata should be hidden")
         expect(TrackerRowText.snippet(for: agent) == "second", "agent snippet should use latest activity")
-        expect(TrackerRowText.metadata(for: agent, homePath: "/Users/test") == "~/repo", "agent metadata should keep worktree path")
     }
 
     private static func shellSessionsGroupAsUngroupedUntilAgentAdopts() {

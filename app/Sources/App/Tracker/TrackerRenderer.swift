@@ -71,10 +71,6 @@ enum TrackerRenderer {
         return TrackerStatusStyle(classification: classification, color: color(for: classification.kind))
     }
 
-    static func metadata(for session: TrackerSession) -> String {
-        TrackerRowText.metadata(for: session)
-    }
-
     static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
         guard status(for: session).kind == .working else {
             return ""

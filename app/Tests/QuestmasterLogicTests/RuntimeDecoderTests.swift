@@ -63,13 +63,13 @@ struct RuntimeDecoderTests {
             expect(session.lastKind == "waiting_for_user", "last_kind did not decode")
             expect(session.parentID == "parent-1", "parent_id did not decode")
             expect(session.workerCount == 3, "worker_count did not decode")
-            expect(session.duration == "2m5s", "elapsed_ms should format initial duration")
+            expect(session.duration == "0:02:05", "elapsed_ms should format initial duration")
             expect(session.isCurrent, "is_current did not decode")
 
             guard let now = ISO8601DateFormatter().date(from: "2026-06-19T04:22:10Z") else {
                 fail("failed to build fixed clock")
             }
-            expect(session.duration(at: now) == "2m10s", "elapsed_since should tick duration from fixed date")
+            expect(session.duration(at: now) == "0:02:10", "elapsed_since should tick duration from fixed date")
         } catch {
             fail("tracker session canonical decode threw \(error)")
         }
