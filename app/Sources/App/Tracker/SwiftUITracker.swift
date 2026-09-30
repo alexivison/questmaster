@@ -1176,8 +1176,11 @@ private enum TrackerNameplateRole: Equatable {
         }
     }
     var plateSize: CGSize { CGSize(width: width, height: isWorker ? TrackerListMetrics.workerPlateHeight : rowHeight) }
-    var portraitSide: CGFloat { isWorker ? 36 : 48 }
-    var portraitOrigin: CGPoint { CGPoint(x: (isMaster ? 6 : 4) + Self.room, y: 4 + Self.room) }
+    private static let portraitGrows = TrackerNameplateRoom.portraitGrows
+    /// Whether the room goes around the portrait (it keeps its size) or into it (it grows with the plate).
+    private static let portraitInset: CGFloat = portraitGrows ? 0 : room
+    var portraitSide: CGFloat { (isWorker ? 36 : 48) + (Self.portraitGrows ? 2 * Self.room : 0) }
+    var portraitOrigin: CGPoint { CGPoint(x: (isMaster ? 6 : 4) + Self.portraitInset, y: 4 + Self.portraitInset) }
     var stripHeight: CGFloat { Self.stripHeight }
     /// The Figma plate's bar (the part right of the portrait) spans y 3...34 in every variant but
     /// the worker's (2.92...33.08); these are its scaled centre and lower edge.
@@ -1190,7 +1193,7 @@ private enum TrackerNameplateRole: Equatable {
         case .master: (x, rightInsetAtFigma) = (27, 10)
         case .worker: (x, rightInsetAtFigma) = (28, 3)
         }
-        let left = x + Self.room
+        let left = x + (Self.portraitGrows ? 2 * Self.room : Self.room)
         let right = (rightInsetAtFigma * plateScale).rounded()
         return CGRect(
             x: left,

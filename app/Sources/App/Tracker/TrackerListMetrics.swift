@@ -12,6 +12,16 @@ enum TrackerNameplateRoom {
         #endif
         return 0
     }()
+
+    /// Debug comparison only (QM_NAMEPLATE_PORTRAIT_GROWS=1): the portrait grows by twice the room
+    /// instead of staying its size, keeping its gap to the plate's circle.
+    static let portraitGrows: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["QM_NAMEPLATE_PORTRAIT_GROWS"] == "1"
+        #else
+        return false
+        #endif
+    }()
 }
 
 enum TrackerListMetrics {
