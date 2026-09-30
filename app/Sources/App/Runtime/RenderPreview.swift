@@ -565,6 +565,23 @@ enum RenderPreview {
         renderView(NSHostingView(rootView: rootView), size: size, autoHeight: autoHeight, to: path)
     }
 
+    @MainActor private static var didWarmUp = false
+
+    /// The first off-screen window in the process lays its content out about 7pt narrow (the tracker
+    /// list renders clipped when it is the only fixture); showing a throwaway window first avoids it.
+    @MainActor
+    private static func warmUpFirstWindow() {
+        guard !didWarmUp else { return }
+        didWarmUp = true
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 10, height: 10),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.orderFrontRegardless()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        window.close()
+    }
+
     @MainActor
     private static func renderView(_ hostingView: NSView, size: CGSize, autoHeight: Bool = false, to path: String) {
         let environment = ProcessInfo.processInfo.environment
@@ -572,6 +589,7 @@ enum RenderPreview {
             return
         }
         let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
+        warmUpFirstWindow()
         hostingView.frame = NSRect(origin: .zero, size: size)
 
         let window = ScaledRenderWindow(backingScale: scale,

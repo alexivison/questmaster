@@ -1072,8 +1072,8 @@ private struct TrackerWorkerSummaryPill: View {
     private static let capsuleWidth: CGFloat = 27
     private static let capsuleOverlap: CGFloat = 10
     fileprivate static let width = badgeSide + capsuleWidth - capsuleOverlap
-    // The count's glyph ink is centred on the capsule's height, 7pt right of its middle so it sits in the
-    // part the circle leaves visible.
+    // The count's glyph ink is centred on the capsule's height and on the part right of the circle, inside
+    // the capsule's border (x 18 to 34).
     private static let countPosition = CGPoint(x: 26, y: badgeSide / 2)
 
     let badge: Badge
