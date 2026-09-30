@@ -1576,7 +1576,7 @@ private struct TrackerNameplateBackground: View {
                 .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: -3, blur: 1, opacity: 0.25))
                 .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: 3, blur: 1, opacity: 0.25))
                 .drawingGroup()
-            shape.stroke(outlineColor.swiftUI, lineWidth: isRecoloring ? 2 : 1)
+            shape.stroke(outlineColor.swiftUI, lineWidth: isRecoloring ? 2 : 1.5)
         }
         .frame(width: role.plateSize.width, height: role.plateSize.height, alignment: .topLeading)
     }
