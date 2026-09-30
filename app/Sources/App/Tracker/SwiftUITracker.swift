@@ -1147,12 +1147,12 @@ private enum TrackerNameplateRole: Equatable {
     static let stripOverlap: CGFloat = 1
     static let stripStackHeight: CGFloat = 2 * stripHeight - stripOverlap
     static let stripTrailingPadding: CGFloat = 12
-    /// The colour bar and what is placed relative to it (the same in every role that has one).
-    static let barOrigin = CGPoint(x: 23, y: 40)
+    static let room = TrackerNameplateRoom.value
+    /// The colour bar's size and left edge (the same in every role that has one); its top depends on the plate.
+    static let barX: CGFloat = 23
     static let barSize = CGSize(width: 129, height: 12)
-    static let barCenterY = barOrigin.y + barSize.height / 2
     /// Where the collapsed-worker pills start, just right of the bar.
-    static let pillsOriginX = barOrigin.x + barSize.width + 2
+    static let pillsOriginX = barX + barSize.width + 2
 
     init(_ session: TrackerSession) {
         switch SessionRoleKind(role: session.role) {
@@ -1177,18 +1177,35 @@ private enum TrackerNameplateRole: Equatable {
     }
     var plateSize: CGSize { CGSize(width: width, height: isWorker ? TrackerListMetrics.workerPlateHeight : rowHeight) }
     var portraitSide: CGFloat { isWorker ? 36 : 48 }
-    var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 6 : 4, y: 4) }
+    var portraitOrigin: CGPoint { CGPoint(x: (isMaster ? 6 : 4) + Self.room, y: 4 + Self.room) }
     var stripHeight: CGFloat { Self.stripHeight }
+    /// The Figma plate's bar (the part right of the portrait) spans y 3...34 in every variant but
+    /// the worker's (2.92...33.08); these are its scaled centre and lower edge.
+    private var barCenter: CGFloat { (isWorker ? 18 : 18.5) * plateScale }
     var stripStackFrame: CGRect {
         let x: CGFloat
-        let rightInset: CGFloat
+        let rightInsetAtFigma: CGFloat
         switch self {
-        case .standalone: (x, rightInset) = (26, 10)
-        case .master: (x, rightInset) = (27, 12)
-        case .worker: (x, rightInset) = (28, 4)
+        case .standalone: (x, rightInsetAtFigma) = (26, 8)
+        case .master: (x, rightInsetAtFigma) = (27, 10)
+        case .worker: (x, rightInsetAtFigma) = (28, 3)
         }
-        return CGRect(x: x, y: 7, width: width - rightInset - x, height: Self.stripStackHeight)
+        let left = x + Self.room
+        let right = (rightInsetAtFigma * plateScale).rounded()
+        return CGRect(
+            x: left,
+            y: (barCenter - Self.stripStackHeight / 2).rounded(),
+            width: width - right - left,
+            height: Self.stripStackHeight
+        )
     }
+    /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
+    var barOrigin: CGPoint { CGPoint(x: Self.barX, y: floor((isWorker ? 33.08 : 34) * plateScale) - 1) }
+    var barCenterY: CGFloat { barOrigin.y + Self.barSize.height / 2 }
+    /// The worker's duration tag hangs from the plate's lower edge.
+    var tagOriginY: CGFloat { plateSize.height - 5 }
+    var bottomGemCenter: CGPoint { CGPoint(x: (25 * plateScale).rounded(), y: rowHeight - 6) }
+    var rightGemCenter: CGPoint { CGPoint(x: width - (5 * plateScale).rounded(), y: (18 * plateScale).rounded()) }
     var stripLeadingPadding: CGFloat { isWorker ? 16 : 30 }
     var stripShape: UnevenRoundedRectangle {
         let leadingRadius: CGFloat = isWorker ? 0 : 7
@@ -1495,17 +1512,17 @@ private struct TrackerNameplateBackground: View {
         ZStack(alignment: .topLeading) {
             if !role.isWorker {
                 TrackerColorBar(color: color, strokeColor: outlineColor, isWorking: isWorking)
-                    .offset(x: TrackerNameplateRole.barOrigin.x, y: TrackerNameplateRole.barOrigin.y)
+                    .offset(x: role.barOrigin.x, y: role.barOrigin.y)
             }
             plate
             if role.isWorker && isWorking {
-                TrackerWorkerTimerTag(session: session, outlineColor: outlineColor)
+                TrackerWorkerTimerTag(session: session, role: role, outlineColor: outlineColor)
             }
             if role.isMaster {
                 TrackerDiamond(color: color)
-                    .position(x: 30, y: 56)
+                    .position(role.bottomGemCenter)
                 TrackerDiamond(color: color, highlight: UnitPoint(x: 0.75, y: 0.5))
-                    .position(x: role.width - 6, y: 22)
+                    .position(role.rightGemCenter)
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
@@ -1567,6 +1584,7 @@ private struct TrackerGemShape: Shape {
 /// The master/standalone duration, lying over the colour bar.
 private struct TrackerElapsedTimer: View {
     let session: TrackerSession
+    let role: TrackerNameplateRole
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
@@ -1579,7 +1597,7 @@ private struct TrackerElapsedTimer: View {
                     .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
                     .padding(.bottom, 1)
                     .frame(height: TrackerNameplateRole.barSize.height)
-                    .offset(x: 84, y: TrackerNameplateRole.barOrigin.y)
+                    .offset(x: 84, y: role.barOrigin.y)
             }
         }
     }
@@ -1589,6 +1607,7 @@ private struct TrackerElapsedTimer: View {
 /// the plate's outline colour, so a highlighted or attached worker reads as one unit.
 private struct TrackerWorkerTimerTag: View {
     let session: TrackerSession
+    let role: TrackerNameplateRole
     let outlineColor: NSColor
 
     var body: some View {
@@ -1615,7 +1634,7 @@ private struct TrackerWorkerTimerTag: View {
                     .overlay(shape.strokeBorder(outlineColor.swiftUI, lineWidth: 1))
                     .drawingGroup()
             }
-            .offset(x: 49, y: 39)
+            .offset(x: 49, y: role.tagOriginY)
     }
 
     private func displayDuration(_ value: String) -> String {
@@ -1729,13 +1748,13 @@ private struct TrackerSessionRowContent: View {
             )
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
             if rendered.status.kind == .working && !role.isWorker {
-                TrackerElapsedTimer(session: session)
+                TrackerElapsedTimer(session: session, role: role)
             }
             if role.isMaster && !collapsedWorkers.isEmpty {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
                     .offset(
                         x: TrackerNameplateRole.pillsOriginX,
-                        y: TrackerNameplateRole.barCenterY - TrackerWorkerSummaryPill.badgeSide / 2
+                        y: role.barCenterY - TrackerWorkerSummaryPill.badgeSide / 2
                     )
             }
         }
@@ -2177,8 +2196,8 @@ private struct TrackerSkeletonPlaceholder: View {
             skeletonPlaceholder(Circle(), width: role.portraitSide, height: role.portraitSide)
                 .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
             if !role.isWorker {
-                skeletonBar(width: TrackerNameplateRole.barSize.width - (stripsX - TrackerNameplateRole.barOrigin.x), height: TrackerNameplateRole.barSize.height, radius: 5)
-                    .offset(x: stripsX, y: TrackerNameplateRole.barOrigin.y)
+                skeletonBar(width: TrackerNameplateRole.barSize.width - (stripsX - TrackerNameplateRole.barX), height: TrackerNameplateRole.barSize.height, radius: 5)
+                    .offset(x: stripsX, y: role.barOrigin.y)
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)

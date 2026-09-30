@@ -32,6 +32,7 @@ enum RenderPreview {
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
+        render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
@@ -85,6 +86,37 @@ enum RenderPreview {
             model: TerminalChromeModel(sessionChip: .init(title: "Session title that stretches the frame", id: "qm-0123", agent: "codex")),
             onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
         )
+    }
+
+    /// A list with a standalone, a shell row, a master with workers and a collapsed master with pills.
+    @MainActor
+    private static func breathingListView() -> some View {
+        func session(_ id: String, title: String, repo: String, color: String, agent: String = "codex", role: String = "standalone", state: String = "working", snippet: String, parentID: String = "", workers: Int = 0) -> TrackerSession {
+            TrackerSession(id: id, title: title, repoName: repo, displayColor: color, agent: agent, role: role, state: state, snippet: snippet, parentID: parentID, workerCount: workers, elapsedSeedMS: 5_420_000)
+        }
+        let cursor = session("c", title: "Refine shell aliases for faster navigation", repo: "Dotfiles", color: "lime", snippet: "Implement request routing and recovery")
+        let shell = TrackerSession(id: "s", title: "Local shell", repoName: "Dotfiles", displayColor: "lime", agent: "shell", role: "standalone", state: "active", snippet: "")
+        let master = session("m", title: "Design quest progression data model", repo: "Questmaster", color: "yellow", role: "master", snippet: "Update onboarding docs and reference", workers: 2)
+        let workerA = session("m1", title: "Add worker grouping to renderer", repo: "Questmaster", color: "yellow", role: "worker", snippet: "Bash: rg -n sampleQuery src/", parentID: "m")
+        let workerB = session("m2", title: "Review collapsed worker badges", repo: "Questmaster", color: "yellow", agent: "claude", role: "worker", state: "blocked", snippet: "Waiting for permission to edit files", parentID: "m")
+        let collapsed = session("k", title: "Trace parser slowdown in large logs", repo: "Scry", color: "magenta", agent: "claude", role: "master", snippet: "Profiled tokenization on long captures", workers: 3)
+        let kids = [
+            session("k1", title: "One", repo: "Scry", color: "magenta", role: "worker", snippet: "a", parentID: "k"),
+            session("k2", title: "Two", repo: "Scry", color: "magenta", role: "worker", snippet: "a", parentID: "k"),
+            session("k3", title: "Three", repo: "Scry", color: "magenta", agent: "claude", role: "worker", state: "idle", snippet: "a", parentID: "k"),
+        ]
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", collapsedMasterIDs: ["k"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: [cursor, shell]),
+            TrackerRepo(id: "questmaster", name: "Questmaster", color: "yellow", sessions: [master, workerA, workerB]),
+            TrackerRepo(id: "scry", name: "Scry", color: "magenta", sessions: [collapsed] + kids),
+        ])))
+        return TrackerRootView(
+            store: store,
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
     }
 
     @MainActor
