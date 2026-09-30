@@ -1136,8 +1136,9 @@ private struct TrackerWorkerSummaryPill: View {
     }
 }
 
-/// Nameplate geometry in whole points: the Figma layout grown for 12pt text, with every size and
-/// position rounded so strips, rings and borders land on pixel edges on a 1x display.
+/// Nameplate geometry in whole points: the Figma layout grown for 12pt text, with room around the
+/// portrait and strips, and every size and position rounded so strips, rings and borders land on
+/// pixel edges on a 1x display.
 private enum TrackerNameplateRole: Equatable {
     case standalone
     case master
@@ -1147,7 +1148,6 @@ private enum TrackerNameplateRole: Equatable {
     static let stripOverlap: CGFloat = 1
     static let stripStackHeight: CGFloat = 2 * stripHeight - stripOverlap
     static let stripTrailingPadding: CGFloat = 12
-    static let room = TrackerNameplateRoom.value
     /// The colour bar's size and left edge (the same in every role that has one); its top depends on the plate.
     static let barX: CGFloat = 23
     static let barSize = CGSize(width: 129, height: 12)
@@ -1176,39 +1176,30 @@ private enum TrackerNameplateRole: Equatable {
         }
     }
     var plateSize: CGSize { CGSize(width: width, height: isWorker ? TrackerListMetrics.workerPlateHeight : rowHeight) }
-    private static let portraitGrows = TrackerNameplateRoom.portraitGrows
-    /// Whether the room goes around the portrait (it keeps its size) or into it (it grows with the plate).
-    private static let portraitInset: CGFloat = portraitGrows ? 0 : room
-    var portraitSide: CGFloat { (isWorker ? 36 : 48) + (Self.portraitGrows ? 2 * Self.room : 0) }
-    var portraitOrigin: CGPoint { CGPoint(x: (isMaster ? 6 : 4) + Self.portraitInset, y: 4 + Self.portraitInset) }
+    var portraitSide: CGFloat { isWorker ? 44 : 56 }
+    /// The portrait keeps a 4pt gap to the plate's circle (6pt left of the shield, whose crest leaves 10pt below).
+    var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 6 : 4, y: 4) }
     var stripHeight: CGFloat { Self.stripHeight }
-    /// The Figma plate's bar (the part right of the portrait) spans y 3...34 in every variant but
-    /// the worker's (2.92...33.08); these are its scaled centre and lower edge.
-    private var barCenter: CGFloat { (isWorker ? 18 : 18.5) * plateScale }
+    /// The strip stack, centred on the plate's bar (the part right of the portrait); its right edge stays
+    /// inside the plate's notch.
     var stripStackFrame: CGRect {
         let x: CGFloat
-        let rightInsetAtFigma: CGFloat
+        let y: CGFloat
+        let rightInset: CGFloat
         switch self {
-        case .standalone: (x, rightInsetAtFigma) = (26, 8)
-        case .master: (x, rightInsetAtFigma) = (27, 10)
-        case .worker: (x, rightInsetAtFigma) = (28, 3)
+        case .standalone: (x, y, rightInset) = (34, 10, 11)
+        case .master: (x, y, rightInset) = (35, 10, 14)
+        case .worker: (x, y, rightInset) = (36, 11, 4)
         }
-        let left = x + (Self.portraitGrows ? 2 * Self.room : Self.room)
-        let right = (rightInsetAtFigma * plateScale).rounded()
-        return CGRect(
-            x: left,
-            y: (barCenter - Self.stripStackHeight / 2).rounded(),
-            width: width - right - left,
-            height: Self.stripStackHeight
-        )
+        return CGRect(x: x, y: y, width: width - rightInset - x, height: Self.stripStackHeight)
     }
     /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
-    var barOrigin: CGPoint { CGPoint(x: Self.barX, y: floor((isWorker ? 33.08 : 34) * plateScale) - 1) }
+    var barOrigin: CGPoint { CGPoint(x: Self.barX, y: isMaster ? 45 : 46) }
     var barCenterY: CGFloat { barOrigin.y + Self.barSize.height / 2 }
     /// The worker's duration tag hangs from the plate's lower edge.
     var tagOriginY: CGFloat { plateSize.height - 5 }
-    var bottomGemCenter: CGPoint { CGPoint(x: (25 * plateScale).rounded(), y: rowHeight - 6) }
-    var rightGemCenter: CGPoint { CGPoint(x: width - (5 * plateScale).rounded(), y: (18 * plateScale).rounded()) }
+    var bottomGemCenter: CGPoint { CGPoint(x: 34, y: rowHeight - 6) }
+    var rightGemCenter: CGPoint { CGPoint(x: width - 7, y: 25) }
     var stripLeadingPadding: CGFloat { isWorker ? 16 : 30 }
     var stripShape: UnevenRoundedRectangle {
         let leadingRadius: CGFloat = isWorker ? 0 : 7
