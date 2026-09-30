@@ -957,7 +957,6 @@ private struct TrackerRepoSectionHeader: View {
                     }
                 }
         }
-        .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
     }
 }
 
