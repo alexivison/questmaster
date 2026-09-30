@@ -36,7 +36,7 @@ enum RenderPreview {
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
-        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "standalone-selected-error", "master-selected-error", "worker-selected-error"] {
+        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "standalone-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")

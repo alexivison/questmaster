@@ -1531,8 +1531,9 @@ private struct TrackerNameplateBackground: View {
 
     private var outlineColor: NSColor {
         if isRecoloring { return AppPalette.hoverBackground }
+        if selected { return AppPalette.dim }
         if attached { return AppPalette.brassActive }
-        if selected || hovered { return AppPalette.dim }
+        if hovered { return AppPalette.dim }
         return AppPalette.line
     }
 
