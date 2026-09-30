@@ -156,3 +156,31 @@ enum TrackerPlatePaths {
     }()
 
 }
+
+extension Path {
+    /// Scales the path by `scale` while keeping its width: the leading and trailing end zones
+    /// grow with the scale and the middle stretches to fill the rest.
+    func nameplateScaled(_ scale: CGFloat, width: CGFloat, leadingZone: CGFloat, trailingZone: CGFloat) -> Path {
+        guard scale != 1 else { return self }
+        let middleStart = leadingZone * scale
+        let middleEnd = width - trailingZone * scale
+        func x(_ value: CGFloat) -> CGFloat {
+            if value <= leadingZone { return value * scale }
+            if value >= width - trailingZone { return width - (width - value) * scale }
+            let progress = (value - leadingZone) / (width - trailingZone - leadingZone)
+            return middleStart + progress * (middleEnd - middleStart)
+        }
+        func point(_ value: CGPoint) -> CGPoint { CGPoint(x: x(value.x), y: value.y * scale) }
+        var result = Path()
+        forEach { element in
+            switch element {
+            case .move(let to): result.move(to: point(to))
+            case .line(let to): result.addLine(to: point(to))
+            case .quadCurve(let to, let control): result.addQuadCurve(to: point(to), control: point(control))
+            case .curve(let to, let control1, let control2): result.addCurve(to: point(to), control1: point(control1), control2: point(control2))
+            case .closeSubpath: result.closeSubpath()
+            }
+        }
+        return result
+    }
+}

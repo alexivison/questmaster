@@ -197,10 +197,10 @@ enum AppFonts {
 
     /// Tracker nameplate typography: the installed SF Compact variable font pinned to Figma's
     /// weights (458 regular, 790 bold), falling back to the system font when it is missing.
-    static let trackerTitle = sfCompact(italic: false, weight: 458, size: 10)
-    static let trackerSnippet = sfCompact(italic: true, weight: 458, size: 10)
-    static let trackerSectionTitle = sfCompact(italic: false, weight: 458, size: 12)
-    static let trackerTimer = sfCompact(italic: true, weight: 458, size: 8)
+    static let trackerTitle = sfCompact(italic: false, weight: 458, size: 10 * TrackerNameplateScale.value)
+    static let trackerSnippet = sfCompact(italic: true, weight: 458, size: 10 * TrackerNameplateScale.value)
+    static let trackerSectionTitle = sfCompact(italic: false, weight: 458, size: 12 * TrackerNameplateScale.value)
+    static let trackerTimer = sfCompact(italic: true, weight: 458, size: 8 * TrackerNameplateScale.value)
     static let trackerCount = sfCompact(italic: false, weight: 790, size: 10)
 
     private static func sfCompact(italic: Bool, weight: Int, size: CGFloat) -> NSFont {
