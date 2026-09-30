@@ -1231,17 +1231,24 @@ private enum TrackerNameplateRole: Equatable {
     private func scaled(_ path: Path) -> Path {
         path.nameplateScaled(plateScale, width: width, leadingZone: plateZones.leading, trailingZone: plateZones.trailing)
     }
-    var plateFill: Path {
+    /// A master showing collapsed-worker pills grows a lip along its lower edge, so the bar and the
+    /// pills sit inside the plate with the same margin the pills leave everywhere else.
+    static let lipExtra: CGFloat = 16
+    private func withLip(_ path: Path, _ lip: Bool) -> Path {
+        guard lip, isMaster else { return path }
+        return path.nameplateLip(extra: Self.lipExtra, pivotY: 26, rampFrom: 60, rampTo: 84)
+    }
+    func plateFill(lip: Bool) -> Path {
         switch self {
         case .standalone: scaled(TrackerPlatePaths.standaloneFill)
-        case .master: scaled(TrackerPlatePaths.masterFill)
+        case .master: withLip(scaled(TrackerPlatePaths.masterFill), lip)
         case .worker: scaled(TrackerPlatePaths.workerFill)
         }
     }
-    var plateOutline: Path {
+    func plateOutline(lip: Bool) -> Path {
         switch self {
         case .standalone: scaled(TrackerPlatePaths.standaloneOutline)
-        case .master: scaled(TrackerPlatePaths.masterOutline)
+        case .master: withLip(scaled(TrackerPlatePaths.masterOutline), lip)
         case .worker: scaled(TrackerPlatePaths.workerOutline)
         }
     }
@@ -1494,6 +1501,8 @@ private struct TrackerNameplateBackground: View {
     let isRecoloring: Bool
     let isWorking: Bool
     let session: TrackerSession
+    /// Whether collapsed-worker pills hang under the bar (masters only).
+    let hasPills: Bool
 
     private var outlineColor: NSColor {
         if isRecoloring { return AppPalette.hoverBackground }
@@ -1504,11 +1513,14 @@ private struct TrackerNameplateBackground: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if !role.isWorker {
-                TrackerColorBar(color: color, strokeColor: outlineColor, isWorking: isWorking)
-                    .offset(x: role.barOrigin.x, y: role.barOrigin.y)
+            // Normally the bar hangs from under the plate's lower edge; with a lip the plate encloses it.
+            if !role.isWorker && !hasPills {
+                colorBar
             }
             plate
+            if !role.isWorker && hasPills {
+                colorBar
+            }
             if role.isWorker && isWorking {
                 TrackerWorkerTimerTag(session: session, role: role, outlineColor: outlineColor)
             }
@@ -1522,6 +1534,11 @@ private struct TrackerNameplateBackground: View {
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
     }
 
+    private var colorBar: some View {
+        TrackerColorBar(color: color, strokeColor: outlineColor, isWorking: isWorking)
+            .offset(x: role.barOrigin.x, y: role.barOrigin.y)
+    }
+
     @ViewBuilder
     private var plate: some View {
         if attached && !isRecoloring {
@@ -1532,12 +1549,12 @@ private struct TrackerNameplateBackground: View {
     }
 
     private var flatPlate: some View {
-        let shape = TrackerPlateShape(path: role.plateFill)
+        let shape = TrackerPlateShape(path: role.plateFill(lip: hasPills))
         return shape
             .fill(AppPalette.item.swiftUI)
             .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: -3, blur: 1, opacity: 0.25))
             .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: 3, blur: 1, opacity: 0.25))
-            .overlay(TrackerPlateShape(path: role.plateOutline).stroke(outlineColor.swiftUI, lineWidth: isRecoloring ? 2 : 1))
+            .overlay(TrackerPlateShape(path: role.plateOutline(lip: hasPills)).stroke(outlineColor.swiftUI, lineWidth: isRecoloring ? 2 : 1))
             .frame(width: role.plateSize.width, height: role.plateSize.height, alignment: .topLeading)
             .drawingGroup()
     }
@@ -1678,7 +1695,8 @@ private struct TrackerSessionRow: View {
                     attached: isCurrentTerminalSession,
                     isRecoloring: rendered.recolorEditHint != nil,
                     isWorking: rendered.status.kind == .working,
-                    session: session
+                    session: session,
+                    hasPills: role.isMaster && !collapsedWorkers.isEmpty
                 )
                 .padding(.leading, leadingInset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
