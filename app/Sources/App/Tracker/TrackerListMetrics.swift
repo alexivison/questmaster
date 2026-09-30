@@ -1,16 +1,10 @@
 import AppKit
 
 /// Grows the nameplate text and every Figma dimension that frames it (rows, plates, strips,
-/// portraits, bar) by one factor, keeping the tracker width. 1 is the Figma size.
+/// portraits, bar height) by one factor, keeping the tracker width. 1 is the Figma size; the
+/// shipped size is 12pt title/subtitle.
 enum TrackerNameplateScale {
-    static let value: CGFloat = {
-        #if DEBUG
-        if let override = ProcessInfo.processInfo.environment["QM_NAMEPLATE_SCALE"], let value = Double(override) {
-            return CGFloat(value)
-        }
-        #endif
-        return 1
-    }()
+    static let value: CGFloat = 1.2
 }
 
 enum TrackerListMetrics {
