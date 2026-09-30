@@ -1086,12 +1086,17 @@ private struct TrackerWorkerSummaryPill: View {
             }
             .frame(width: Self.width, height: Self.badgeSide)
         case .overflow:
-            let shape = RoundedRectangle(cornerRadius: Self.badgeSide / 2)
-            countText
-                .offset(y: -Self.countInkDrop)
-                .frame(width: Self.width, height: Self.badgeSide)
-                .background(shape.fill(AppPalette.hoverBackground.swiftUI))
+            let shape = UnevenRoundedRectangle(
+                topLeadingRadius: Self.badgeSide / 2,
+                bottomLeadingRadius: Self.badgeSide / 2,
+                bottomTrailingRadius: Self.badgeSide / 2,
+                topTrailingRadius: Self.badgeSide / 2
+            )
+            shape
+                .fill(AppPalette.hoverBackground.swiftUI)
                 .overlay(shape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
+                .frame(width: Self.width, height: Self.badgeSide)
+                .overlay(countText.offset(y: -Self.countInkDrop))
         }
     }
 
@@ -1452,7 +1457,7 @@ private struct TrackerNameplateBackground: View {
             if role.isMaster {
                 TrackerDiamond(color: color)
                     .position(x: 25, y: 47)
-                TrackerDiamond(color: color)
+                TrackerDiamond(color: color, highlight: UnitPoint(x: 0.75, y: 0.5))
                     .position(x: role.width - 5, y: 18)
             }
         }
@@ -1481,17 +1486,18 @@ private struct TrackerNameplateBackground: View {
 }
 
 /// The small gem on the master shield: a 4x4 diamond that fades from a highlight near the repo
-/// color at its upper centre to the dark repo shade at its rim.
+/// color, on the side that faces outward, to the dark repo shade at its rim.
 struct TrackerDiamond: View {
     private static let side: CGFloat = 4
 
     let color: NSColor
+    var highlight = UnitPoint(x: 0.5, y: 0.25)
 
     var body: some View {
         TrackerGemShape()
             .fill(RadialGradient(
                 colors: [TrackerNameplateColor.barShade(color, stop: 0.25).swiftUI, TrackerNameplateColor.diamond(color).swiftUI],
-                center: UnitPoint(x: 0.5, y: 0.25),
+                center: highlight,
                 startRadius: 0,
                 endRadius: Self.side * 0.45
             ))
@@ -1613,6 +1619,7 @@ private struct TrackerSessionRow: View {
                 )
             }
         )
+        .compositingGroup()
         .opacity(rendered.status.kind == .stopped ? 0.65 : 1)
         .help(shortcutTooltip)
         .contextMenu {

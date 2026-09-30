@@ -33,7 +33,7 @@ enum RenderPreview {
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 580), to: "\(outputDir)/tracker.png")
-        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta"] {
+        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
@@ -75,8 +75,8 @@ enum RenderPreview {
         let role = fixtureParts[0]
         let displayColor = fixtureParts.count > 1 ? fixtureParts[1] : "lime"
         let title = "Skills Improvements and stuff that ge..."
-        func session(_ id: String, role: String, agent: String = "codex", state: String = "working", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
-            TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
+        func session(_ id: String, role: String, agent: String = "codex", state: String = "working", lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
+            TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
         }
         let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
         var sessions: [TrackerSession]
@@ -87,6 +87,8 @@ enum RenderPreview {
             sessions = [session("a", role: "master", snippet: snippet)]
         case "worker":
             sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: snippet, parentID: "a", elapsed: 1_825_000)]
+        case "stopped":
+            sessions = [session("a", role: "standalone", state: "stopped", lifecycle: "stopped", snippet: snippet)]
         default:
             sessions = [session("a", role: "master", snippet: snippet)]
             let fourGroups = [("codex", "working"), ("codex", "working"), ("claude", "working"), ("claude", "working"), ("codex", "idle"), ("codex", "idle"), ("claude", "idle"), ("claude", "idle")]
