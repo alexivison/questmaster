@@ -32,9 +32,10 @@ enum RenderPreview {
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
+        render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 580), to: "\(outputDir)/tracker.png")
-        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped"] {
+        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
@@ -87,6 +88,18 @@ enum RenderPreview {
     }
 
     @MainActor
+    private static func skeletonView() -> some View {
+        let store = RuntimeStore(sourceLabel: "preview")
+        store.apply(.serveUnavailable("connecting to serve..."))
+        return TrackerRootView(
+            store: store,
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    @MainActor
     private static func trackerView() -> some View {
         TrackerRootView(
             store: trackerPreviewStore(),
@@ -101,7 +114,11 @@ enum RenderPreview {
     private static func nameplateFixtureView(role fixture: String) -> some View {
         let fixtureParts = fixture.split(separator: "-").map(String.init)
         let role = fixtureParts[0]
-        let displayColor = fixtureParts.count > 1 ? fixtureParts[1] : "lime"
+        // Suffixes: a display color, and the row states "selected" (keyboard cursor, no throwaway
+        // cursor row above), "attached" (open in the terminal) and "unfocused" (focus is elsewhere).
+        let flags = Set(fixtureParts.dropFirst())
+        let displayColor = ["yellow", "magenta"].first(where: flags.contains) ?? "lime"
+        let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
         let title = "Skills Improvements and stuff that ge..."
         func session(_ id: String, role: String, agent: String = "codex", state: String = "working", lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
             TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
@@ -125,15 +142,26 @@ enum RenderPreview {
                 sessions.append(session("w\(index)", role: "worker", agent: pill.0, state: pill.1, snippet: snippet, parentID: "a"))
             }
         }
-        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", collapsedMasterIDs: role == "collapsed" || role == "overflow" ? ["a"] : [])
+        let highlightedID = sessions.last?.id ?? ""
+        if flags.contains("selected") {
+            sessions[sessions.count - 1].isCurrent = true
+        }
+        let store = RuntimeStore(
+            sourceLabel: "preview",
+            currentTerminalSessionID: flags.contains("attached") ? highlightedID : "none",
+            collapsedMasterIDs: role == "collapsed" || role == "overflow" ? ["a"] : []
+        )
         // The first row is the keyboard cursor, so park a throwaway row above the fixture.
         let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "standalone", state: "active", snippet: "")
-        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
-            TrackerRepo(id: "cursor", name: "Cursor", color: "blue", sessions: [cursorRow]),
-            TrackerRepo(id: "title", name: "Title", color: displayColor, sessions: sessions),
-        ])))
+        var repos = [TrackerRepo(id: "title", name: "Title", color: displayColor, sessions: sessions)]
+        if !highlightsFixtureRow {
+            repos.insert(TrackerRepo(id: "cursor", name: "Cursor", color: "blue", sessions: [cursorRow]), at: 0)
+        }
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: repos)))
+        let focusedRegion: FocusRegion = flags.contains("unfocused") ? .terminal : .tracker
         return TrackerRootView(
             store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: focusedRegion)),
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
