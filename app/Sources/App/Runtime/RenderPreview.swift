@@ -33,7 +33,7 @@ enum RenderPreview {
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 580), to: "\(outputDir)/tracker.png")
-        for role in ["standalone", "master", "worker", "collapsed"] {
+        for role in ["standalone", "master", "worker", "collapsed", "overflow"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
@@ -86,11 +86,13 @@ enum RenderPreview {
             sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: snippet, parentID: "a", elapsed: 1_825_000)]
         default:
             sessions = [session("a", role: "master", snippet: snippet)]
-            for (index, pill) in [("codex", "working"), ("codex", "working"), ("claude", "working"), ("claude", "working"), ("codex", "idle"), ("codex", "idle"), ("claude", "idle"), ("claude", "idle")].enumerated() {
+            let fourGroups = [("codex", "working"), ("codex", "working"), ("claude", "working"), ("claude", "working"), ("codex", "idle"), ("codex", "idle"), ("claude", "idle"), ("claude", "idle")]
+            let sixGroups = fourGroups + [("pi", "blocked"), ("pi", "blocked"), ("opencode", "idle"), ("claude", "needs-input"), ("codex", "error")]
+            for (index, pill) in (role == "overflow" ? sixGroups : fourGroups).enumerated() {
                 sessions.append(session("w\(index)", role: "worker", agent: pill.0, state: pill.1, snippet: snippet, parentID: "a"))
             }
         }
-        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", collapsedMasterIDs: role == "collapsed" ? ["a"] : [])
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", collapsedMasterIDs: role == "collapsed" || role == "overflow" ? ["a"] : [])
         // The first row is the keyboard cursor, so park a throwaway row above the fixture.
         let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "standalone", state: "active", snippet: "")
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [

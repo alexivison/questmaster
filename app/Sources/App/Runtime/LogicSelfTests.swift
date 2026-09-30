@@ -25,6 +25,7 @@ enum LogicSelfTests {
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
+        ("testWorkerSummaryCapsPillsAtFourWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtFourWithHiddenWorkerCount),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
@@ -155,6 +156,52 @@ enum LogicSelfTests {
 
         try expect(freshColor.isEqual(AppPalette.muted), "fresh shell should use muted accent")
         try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
+    }
+
+    private static func testWorkerSummaryCapsPillsAtFourWithHiddenWorkerCount() throws {
+        func pills(_ workers: [(agent: String, state: String)]) throws -> [TrackerWorkerSummary.Pill] {
+            let master = TrackerSession(id: "master", title: "Master", repoName: "Preview", role: "master")
+            let sessions = [master] + workers.enumerated().map { index, worker in
+                TrackerSession(
+                    id: "worker-\(index)",
+                    title: "Worker \(index)",
+                    repoName: "Preview",
+                    agent: worker.agent,
+                    role: "worker",
+                    state: worker.state,
+                    parentID: master.id
+                )
+            }
+            var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+            snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "preview", name: "Preview", sessions: sessions)])
+            guard let group = TrackerRenderer.tracker(snapshot).first?.groups.first else {
+                throw TestFailure("tracker renderer should keep the master group")
+            }
+            return TrackerWorkerSummary.pills(for: group.workers)
+        }
+
+        let fourGroups = try pills([("codex", "working"), ("codex", "idle"), ("claude", "working"), ("claude", "idle"), ("claude", "idle")])
+        try expect(fourGroups.count == 4, "four groups should show four pills, got \(fourGroups.count)")
+        try expect(fourGroups.allSatisfy { if case .group = $0 { true } else { false } }, "four groups should not overflow")
+
+        let sixGroups = try pills([
+            ("codex", "working"), ("codex", "working"), ("codex", "idle"),
+            ("claude", "working"), ("claude", "idle"), ("claude", "idle"), ("claude", "idle"),
+            ("pi", "blocked"), ("opencode", "idle"),
+        ])
+        try expect(sixGroups.count == 4, "six groups should collapse to four pills, got \(sixGroups.count)")
+        var shownWorkers = 0
+        for pill in sixGroups.prefix(3) {
+            guard case .group(let group) = pill else {
+                throw TestFailure("the first three pills should be groups")
+            }
+            shownWorkers += group.count
+        }
+        guard case .overflow(let hiddenWorkers) = sixGroups[3] else {
+            throw TestFailure("the fourth pill should be the overflow pill")
+        }
+        try expect(hiddenWorkers == 9 - shownWorkers, "overflow should count hidden workers (\(9 - shownWorkers)), got \(hiddenWorkers)")
+        try expect(hiddenWorkers > 2, "overflow counts workers, not groups (3 groups are hidden), got \(hiddenWorkers)")
     }
 
     private static func testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs() throws {

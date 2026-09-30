@@ -955,27 +955,50 @@ private struct TrackerRepoSectionHeader: View {
 
 /// Replaces a collapsed master's worker rows: one pill per distinct
 /// (agent, status) combination among its workers, each showing the agent's
-/// logo, a ring colored by that status, and a count.
+/// logo, a ring colored by that status, and a count. Past four groups, the
+/// first three show and a "+N" pill counts the workers in the rest.
 struct TrackerWorkerSummaryRow: View {
     let workers: [TrackerRenderedSession]
 
     var body: some View {
         if !workers.isEmpty {
             HStack(spacing: 4) {
-                ForEach(Array(TrackerWorkerSummary.groups(for: workers).enumerated()), id: \.offset) { _, group in
-                    TrackerWorkerSummaryPill(agent: group.agent, status: group.status, color: group.color, count: group.count)
+                ForEach(Array(TrackerWorkerSummary.pills(for: workers).enumerated()), id: \.offset) { _, pill in
+                    switch pill {
+                    case .group(let group):
+                        TrackerWorkerSummaryPill(badge: .group(group), label: "\(group.count)")
+                    case .overflow(let hiddenWorkers):
+                        TrackerWorkerSummaryPill(badge: .overflow, label: "+\(hiddenWorkers)")
+                    }
                 }
             }
         }
     }
 }
 
-private enum TrackerWorkerSummary {
+enum TrackerWorkerSummary {
+    static let maxPills = 4
+
+    enum Pill {
+        case group(Group)
+        case overflow(hiddenWorkers: Int)
+    }
+
     struct Group {
         let agent: AgentKind
         let status: TrackerStatusKind
         let color: NSColor
         var count: Int
+    }
+
+    static func pills(for workers: [TrackerRenderedSession]) -> [Pill] {
+        let groups = groups(for: workers)
+        guard groups.count > maxPills else {
+            return groups.map(Pill.group)
+        }
+        let shown = groups.prefix(maxPills - 1).map(Pill.group)
+        let hiddenWorkers = groups.dropFirst(maxPills - 1).reduce(0) { $0 + $1.count }
+        return shown + [.overflow(hiddenWorkers: hiddenWorkers)]
     }
 
     /// Groups workers by (agent, status), sorted by agent display order then
@@ -1026,16 +1049,19 @@ private enum TrackerWorkerSummary {
 }
 
 private struct TrackerWorkerSummaryPill: View {
+    enum Badge {
+        case group(TrackerWorkerSummary.Group)
+        case overflow
+    }
+
     private static let badgeSide: CGFloat = 12
     private static let iconSide: CGFloat = 6
     private static let capsuleWidth: CGFloat = 21
     private static let capsuleOverlap: CGFloat = 7
     private static let countCenterX: CGFloat = 17
 
-    let agent: AgentKind
-    let status: TrackerStatusKind
-    let color: NSColor
-    let count: Int
+    let badge: Badge
+    let label: String
 
     private var capsuleShape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(bottomTrailingRadius: Self.badgeSide / 2, topTrailingRadius: Self.badgeSide / 2)
@@ -1048,27 +1074,33 @@ private struct TrackerWorkerSummaryPill: View {
                 .overlay(capsuleShape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
                 .frame(width: Self.capsuleWidth, height: Self.badgeSide)
                 .offset(x: Self.badgeSide - Self.capsuleOverlap)
-            Text("\(count)")
+            Text(label)
                 .font(AppFonts.trackerCount.swiftUI)
                 .foregroundStyle(AppPalette.muted.swiftUI)
                 .position(x: Self.countCenterX, y: Self.badgeSide / 2)
-            badge
+            badgeView
         }
         .frame(width: Self.badgeSide + Self.capsuleWidth - Self.capsuleOverlap, height: Self.badgeSide)
     }
 
     // Same ring treatment as the individual worker row the pill stands in for.
-    private var badge: some View {
+    private var badgeView: some View {
         ZStack {
             Circle().fill(AppPalette.window.swiftUI)
-            TrackerStatusRing(kind: status, color: color, restingColor: AppPalette.lineSoft)
-                .frame(width: Self.badgeSide - 1, height: Self.badgeSide - 1)
-            if let image = TrackerAgentMark.image(for: agent.rawValue, side: Self.iconSide) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: Self.iconSide, height: Self.iconSide)
-                    .clipShape(Circle())
+            switch badge {
+            case .group(let group):
+                TrackerStatusRing(kind: group.status, color: group.color, restingColor: AppPalette.lineSoft)
+                    .frame(width: Self.badgeSide - 1, height: Self.badgeSide - 1)
+                if let image = TrackerAgentMark.image(for: group.agent.rawValue, side: Self.iconSide) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: Self.iconSide, height: Self.iconSide)
+                        .clipShape(Circle())
+                }
+            case .overflow:
+                Circle()
+                    .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
             }
         }
         .frame(width: Self.badgeSide, height: Self.badgeSide)
@@ -1819,7 +1851,9 @@ private struct TrackerStatusRing: View {
             TrackerWorkingIconPulse(color: color)
         case .done:
             TrackerDoneIconPulse(color: color, restingColor: restingColor)
-        case .needsInput, .error:
+        case .needsInput:
+            TrackerWorkingIconPulse(color: color, breathing: .needsInput)
+        case .error:
             staticRing(color)
         case .idle, .stopped:
             staticRing(restingColor)
@@ -1880,24 +1914,37 @@ private struct TrackerWorkingIconRing: View {
     }
 }
 
+/// A ring that fades between two opacities on randomized legs. The rasterized ring is static;
+/// only its opacity animates, and the animated state lives in this view alone.
 private struct TrackerWorkingIconPulse: View {
+    struct Breathing {
+        let lowAlpha: Double
+        let peakAlphaRange: ClosedRange<Double>
+        let legDurationRange: ClosedRange<TimeInterval>
+
+        static let blocked = Breathing(lowAlpha: 0.95, peakAlphaRange: 0.95...1, legDurationRange: 1.1...1.6)
+        static let needsInput = Breathing(lowAlpha: 0.4, peakAlphaRange: 0.9...1, legDurationRange: 1.8...2.4)
+    }
+
+    private static let glowInset: CGFloat = 3
+
     let color: NSColor
+    var breathing: Breathing = .blocked
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var alpha: Double = 0.65
-
-    private let lowAlpha: Double = 0.95
-    private let peakAlphaRange: ClosedRange<Double> = 0.95...1
-    private let legDurationRange: ClosedRange<TimeInterval> = 1.1...1.6
 
     var body: some View {
         Circle()
             .stroke(color.swiftUI, lineWidth: 1)
             .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
             .shadow(color: color.withAlphaComponent(0.55).swiftUI, radius: 0.75)
+            .padding(Self.glowInset)
+            .drawingGroup()
+            .padding(-Self.glowInset)
             .opacity(alpha)
             .task {
                 guard !reduceMotion else {
-                    alpha = peakAlphaRange.upperBound
+                    alpha = breathing.peakAlphaRange.upperBound
                     return
                 }
                 await runBreatheLoop()
@@ -1907,16 +1954,16 @@ private struct TrackerWorkingIconPulse: View {
     @MainActor
     private func runBreatheLoop() async {
         while !Task.isCancelled {
-            let riseDuration = Double.random(in: legDurationRange)
+            let riseDuration = Double.random(in: breathing.legDurationRange)
             withAnimation(.easeInOut(duration: riseDuration)) {
-                alpha = Double.random(in: peakAlphaRange)
+                alpha = Double.random(in: breathing.peakAlphaRange)
             }
             try? await Task.sleep(for: .seconds(riseDuration))
             guard !Task.isCancelled else { return }
 
-            let fallDuration = Double.random(in: legDurationRange)
+            let fallDuration = Double.random(in: breathing.legDurationRange)
             withAnimation(.easeInOut(duration: fallDuration)) {
-                alpha = lowAlpha
+                alpha = breathing.lowAlpha
             }
             try? await Task.sleep(for: .seconds(fallDuration))
         }
