@@ -1152,7 +1152,8 @@ private enum TrackerNameplateRole: Equatable {
     static let barX: CGFloat = 23
     static let barSize = CGSize(width: 129, height: 12)
     /// Where the collapsed-worker pills start, just right of the bar.
-    static let pillsOriginX = barX + barSize.width + 2
+    static let pillsGap: CGFloat = 2
+    static let pillsOriginX = barX + barSize.width + pillsGap
 
     init(_ session: TrackerSession) {
         switch SessionRoleKind(role: session.role) {
@@ -1196,6 +1197,9 @@ private enum TrackerNameplateRole: Equatable {
     /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
     var barOrigin: CGPoint { CGPoint(x: Self.barX, y: isMaster ? 45 : 46) }
     var barCenterY: CGFloat { barOrigin.y + Self.barSize.height / 2 }
+    /// The collapsed-worker pills hang below the plate's lower edge (the Figma plate body ends at y 34),
+    /// as far under it as the first pill is from the bar's right end.
+    var pillsOriginY: CGFloat { (34 * plateScale + Self.pillsGap).rounded(.up) }
     /// The worker's duration tag hangs from the plate's lower edge.
     var tagOriginY: CGFloat { plateSize.height - 5 }
     var bottomGemCenter: CGPoint { CGPoint(x: 34, y: rowHeight - 6) }
@@ -1748,7 +1752,7 @@ private struct TrackerSessionRowContent: View {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
                     .offset(
                         x: TrackerNameplateRole.pillsOriginX,
-                        y: role.barCenterY - TrackerWorkerSummaryPill.badgeSide / 2
+                        y: role.pillsOriginY
                     )
             }
         }
