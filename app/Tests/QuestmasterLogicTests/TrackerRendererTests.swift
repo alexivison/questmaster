@@ -7,8 +7,11 @@ struct TrackerRendererTests {
         statusClassificationTreatsOpenCodePermissionAsNeedsInput()
         statusClassificationTreatsOpenCodeSessionErrorAsError()
         statusClassificationKeepsErrorDistinctFromBlocked()
+        statusClassificationMapsWorkingToWorking()
         statusClassificationLabelsStartingAsIdle()
+        statusClassificationKeepsActiveShellIdleDespiteStaleState()
         statusClassificationKeepsStoppedShellsResumable()
+        elapsedFormatShowsHoursAndTwoDigitMinutes()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
@@ -57,11 +60,29 @@ struct TrackerRendererTests {
         expect(blocked.kind == .blocked, "blocked state classified as \(blocked.kind)")
     }
 
+    private static func statusClassificationMapsWorkingToWorking() {
+        let working = TrackerStatusClassifier.classify(trackerSession(id: "working", state: "working"))
+
+        expect(working.kind == .working, "working state classified as \(working.kind)")
+        expect(working.label == "working", "working label was \(working.label)")
+    }
+
     private static func statusClassificationLabelsStartingAsIdle() {
         let starting = TrackerStatusClassifier.classify(trackerSession(id: "starting", state: "starting"))
 
         expect(starting.kind == .idle, "starting classified as \(starting.kind)")
         expect(starting.label == "idle (started)", "starting label was \(starting.label)")
+    }
+
+    private static func statusClassificationKeepsActiveShellIdleDespiteStaleState() {
+        for agent in ["", "shell"] {
+            for staleState in ["stopped", "exited", "done", "unknown"] {
+                let shell = TrackerStatusClassifier.classify(trackerSession(id: "shell", state: staleState, agent: agent))
+
+                expect(shell.kind == .idle, "active shell (agent \"\(agent)\") with stale \(staleState) state classified as \(shell.kind)")
+                expect(shell.label == "active", "active shell (agent \"\(agent)\") with stale \(staleState) state was labeled \(shell.label)")
+            }
+        }
     }
 
     private static func statusClassificationKeepsStoppedShellsResumable() {
@@ -70,6 +91,23 @@ struct TrackerRendererTests {
 
         expect(stoppedShell.kind == .stopped, "stopped shell should remain resumable")
         expect(exitedShell.kind == .stopped, "exited shell should remain resumable")
+    }
+
+    private static func elapsedFormatShowsHoursAndTwoDigitMinutes() {
+        let cases: [(milliseconds: Int, expected: String)] = [
+            (5_420_000, "1:30:20"),
+            (1_825_000, "0:30:25"),
+            (45_000, "0:00:45"),
+            (3_599_000, "0:59:59"),
+            (3_600_000, "1:00:00"),
+            (36_000_000, "10:00:00"),
+        ]
+        for testCase in cases {
+            let formatted = TrackerSession.formatElapsed(testCase.milliseconds)
+            expect(formatted == testCase.expected, "\(testCase.milliseconds)ms formatted as \(formatted ?? "nil"), expected \(testCase.expected)")
+        }
+        expect(TrackerSession.formatElapsed(nil) == nil, "a missing elapsed time should have no label")
+        expect(TrackerSession.formatElapsed(0) == nil, "a zero elapsed time should have no label")
     }
 
     private static func selectionMovementWraps() {

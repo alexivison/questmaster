@@ -878,8 +878,8 @@ private struct TrackerRepoSection: View {
 
             VStack(alignment: .leading, spacing: TrackerListMetrics.itemSpacing) {
                 ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                let isCollapsed = collapsedMasterIDs.contains(group.root.session.id)
-                    if group.workers.isEmpty || isCollapsed {
+                    let isCollapsed = collapsedMasterIDs.contains(group.root.session.id)
+                    VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
                         TrackerSessionRow(
                             rendered: group.root,
                             selectedID: selectedID,
@@ -894,21 +894,7 @@ private struct TrackerRepoSection: View {
                             onEditSession: onEditSession,
                             onToggleWorkersCollapsed: onToggleWorkersCollapsed
                         )
-                    } else {
-                        VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
-                            TrackerSessionRow(
-                                rendered: group.root,
-                                selectedID: selectedID,
-                                currentTerminalSessionID: currentTerminalSessionID,
-                                shortcutNumber: shortcutNumbers[group.root.session.id],
-                                commandLongPressIsActive: commandLongPressIsActive,
-                                hasWorkers: true,
-                                isWorkersCollapsed: false,
-                                onSelect: onSelect,
-                                onActivate: onActivate,
-                                onEditSession: onEditSession,
-                                onToggleWorkersCollapsed: onToggleWorkersCollapsed
-                            )
+                        if !isCollapsed {
                             ForEach(group.workers, id: \.session.id) { worker in
                                 TrackerSessionRow(
                                     rendered: worker,
@@ -923,9 +909,9 @@ private struct TrackerRepoSection: View {
                                     onEditSession: onEditSession,
                                     onToggleWorkersCollapsed: { _ in }
                                 )
+                                .transition(.move(edge: .top).combined(with: .opacity))
                             }
                         }
-                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
             }
@@ -948,7 +934,7 @@ private struct TrackerRepoSectionHeader: View {
     var body: some View {
         HStack(spacing: 5) {
             Text(title)
-                .font(TrackerNameplateFont.regular(size: 12))
+                .font(AppFonts.trackerSectionTitle.swiftUI)
                 .foregroundStyle(AppPalette.bright.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -1063,7 +1049,7 @@ private struct TrackerWorkerSummaryPill: View {
                 .frame(width: Self.capsuleWidth, height: Self.badgeSide)
                 .offset(x: Self.badgeSide - Self.capsuleOverlap)
             Text("\(count)")
-                .font(TrackerNameplateFont.bold(size: 10))
+                .font(AppFonts.trackerCount.swiftUI)
                 .foregroundStyle(AppPalette.muted.swiftUI)
                 .position(x: Self.countCenterX, y: Self.badgeSide / 2)
             badge
@@ -1428,10 +1414,18 @@ private struct TrackerNameplateBackground: View {
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
-        .shadow(color: attached && !isRecoloring ? .black.opacity(0.3) : .clear, radius: 2, x: 0, y: 4)
     }
 
+    @ViewBuilder
     private var plate: some View {
+        if attached && !isRecoloring {
+            flatPlate.shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 4)
+        } else {
+            flatPlate
+        }
+    }
+
+    private var flatPlate: some View {
         let shape = TrackerPlateShape(path: role.plateFill)
         return shape
             .fill(AppPalette.item.swiftUI)
@@ -1473,34 +1467,6 @@ private struct TrackerGemShape: Shape {
     }
 }
 
-private enum TrackerNameplateFont {
-    private static let weightAxis = 0x7767_6874 // 'wght'
-    private static let figmaRegularWeight = 458
-    private static let figmaBoldWeight = 790
-
-    static func regular(size: CGFloat) -> Font {
-        font(name: "SFCompact-Regular", weight: figmaRegularWeight, size: size, fallback: .system(size: size))
-    }
-
-    static func italic(size: CGFloat) -> Font {
-        font(name: "SFCompact-RegularItalic", weight: figmaRegularWeight, size: size, fallback: .system(size: size).italic())
-    }
-
-    static func bold(size: CGFloat) -> Font {
-        font(name: "SFCompact-Regular", weight: figmaBoldWeight, size: size, fallback: .system(size: size, weight: .bold))
-    }
-
-    // The installed SF Compact is a variable font; pin it to the weight Figma uses.
-    private static func font(name: String, weight: Int, size: CGFloat, fallback: Font) -> Font {
-        guard let base = NSFont(name: name, size: size) else {
-            return fallback
-        }
-        let attributes: [CFString: Any] = [kCTFontVariationAttribute: [weightAxis: weight]]
-        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
-        return Font(CTFontCreateCopyWithAttributes(base, size, nil, descriptor))
-    }
-}
-
 private struct TrackerElapsedTimer: View {
     let session: TrackerSession
     let isWorker: Bool
@@ -1513,7 +1479,7 @@ private struct TrackerElapsedTimer: View {
                     workerTag(displayDuration(duration))
                 } else {
                     Text(duration)
-                        .font(TrackerNameplateFont.italic(size: 8))
+                        .font(AppFonts.trackerTimer.swiftUI)
                         .foregroundStyle(AppPalette.bright.swiftUI)
                         .lineLimit(1)
                         .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
@@ -1527,7 +1493,7 @@ private struct TrackerElapsedTimer: View {
     private func workerTag(_ text: String) -> some View {
         let shape = UnevenRoundedRectangle(bottomLeadingRadius: 3, bottomTrailingRadius: 3)
         return Text(text)
-            .font(TrackerNameplateFont.italic(size: 8))
+            .font(AppFonts.trackerTimer.swiftUI)
             .foregroundStyle(AppPalette.dim.swiftUI)
             .lineLimit(1)
             .padding(.horizontal, 10)
@@ -1536,6 +1502,7 @@ private struct TrackerElapsedTimer: View {
                 shape.fill(AppPalette.panel.swiftUI)
                     .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 0.5, opacity: 0.5))
                     .overlay(shape.strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
+                    .drawingGroup()
             }
             .offset(x: 41, y: 32)
     }
@@ -1595,6 +1562,7 @@ private struct TrackerSessionRow: View {
                 TrackerSessionRowContent(
                     rendered: rendered,
                     role: role,
+                    isSelected: isSelected,
                     shortcutNumber: commandLongPressIsActive ? shortcutNumber : nil,
                     showSessionID: commandLongPressIsActive,
                     collapsedWorkers: collapsedWorkers
@@ -1625,6 +1593,7 @@ private struct TrackerSessionRow: View {
 private struct TrackerSessionRowContent: View {
     let rendered: TrackerRenderedSession
     let role: TrackerNameplateRole
+    let isSelected: Bool
     let shortcutNumber: Int?
     let showSessionID: Bool
     let collapsedWorkers: [TrackerRenderedSession]
@@ -1643,7 +1612,7 @@ private struct TrackerSessionRowContent: View {
                 role: session.role,
                 status: rendered.status,
                 shortcutNumber: shortcutNumber,
-                isWorker: role.isWorker
+                portraitSide: role.portraitSide
             )
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
             if rendered.status.kind == .working {
@@ -1661,8 +1630,8 @@ private struct TrackerSessionRowContent: View {
         VStack(spacing: -TrackerNameplateRole.stripOverlap) {
             strip {
                 Text(title)
-                    .font(TrackerNameplateFont.regular(size: 10))
-                    .foregroundStyle(AppPalette.bright.swiftUI)
+                    .font(AppFonts.trackerTitle.swiftUI)
+                    .foregroundStyle((isSelected ? AppPalette.bright : AppPalette.text).swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
@@ -1670,7 +1639,7 @@ private struct TrackerSessionRowContent: View {
             if !snippet.isEmpty {
                 strip {
                     Text(snippet)
-                        .font(TrackerNameplateFont.italic(size: 10))
+                        .font(AppFonts.trackerSnippet.swiftUI)
                         .foregroundStyle(AppPalette.muted.swiftUI)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -1702,9 +1671,8 @@ private struct TrackerAgentMark: View {
     let role: String
     let status: TrackerStatusStyle
     let shortcutNumber: Int?
-    let isWorker: Bool
+    let portraitSide: CGFloat
 
-    private var portraitSide: CGFloat { isWorker ? 30 : 40 }
     private var ringSide: CGFloat { portraitSide - 1 }
     private var iconSide: CGFloat { portraitSide * 0.615 }
 
@@ -2070,21 +2038,5 @@ private struct TrackerSkeletonPlaceholder: View {
             .fill(AppPalette.dim.swiftUI)
             .opacity(pulseOpacity)
             .frame(width: width, height: height)
-    }
-}
-
-/// The small diamond marking where a worker branches off its master's
-/// connector spine. Not private: NewSessionRootView reuses it for the same
-/// "this value hangs off that one" relationship between the Model and
-/// Effort rows.
-struct TrackerWorkerConnectorMarker: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
-        path.closeSubpath()
-        return path
     }
 }

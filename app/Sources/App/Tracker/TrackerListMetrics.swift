@@ -7,7 +7,6 @@ enum TrackerListMetrics {
     static let itemSpacing: CGFloat = 10
     static let masterBlockSpacing: CGFloat = 5
     static let workerIndent: CGFloat = 23
-    static let workerConnectorMarkerHalfWidth: CGFloat = 2.6
     static let rootPlateWidth: CGFloat = 280
     static let workerPlateWidth: CGFloat = 257
     static let standaloneRowHeight: CGFloat = 46

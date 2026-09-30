@@ -184,9 +184,6 @@ enum AppFonts {
     static let modalHelperLarge = NSFont.systemFont(ofSize: 13).serif
     /// Card-style list row titles (Tracker sessions, quests, artifacts).
     static let itemTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
-    /// `itemTitle` for the row that additionally needs its own emphasis (e.g. the
-    /// tracker session currently attached in the terminal).
-    static let itemTitleEmphasized = NSFont.systemFont(ofSize: 12.5, weight: .bold)
     /// Artifact rows alone use display typography; tracker titles keep `itemTitle`.
     static let artifactTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold).serif
     static let dockTabTitle = NSFont.systemFont(ofSize: 12, weight: .semibold).serif
@@ -197,6 +194,26 @@ enum AppFonts {
     /// The Settings sheet's per-role group titles (Master/Standalone/Worker) —
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
     static let settingsSectionTitle = NSFont.systemFont(ofSize: 14.5, weight: .semibold)
+
+    /// Tracker nameplate typography: the installed SF Compact variable font pinned to Figma's
+    /// weights (458 regular, 790 bold), falling back to the system font when it is missing.
+    static let trackerTitle = sfCompact(italic: false, weight: 458, size: 10)
+    static let trackerSnippet = sfCompact(italic: true, weight: 458, size: 10)
+    static let trackerSectionTitle = sfCompact(italic: false, weight: 458, size: 12)
+    static let trackerTimer = sfCompact(italic: true, weight: 458, size: 8)
+    static let trackerCount = sfCompact(italic: false, weight: 790, size: 10)
+
+    private static func sfCompact(italic: Bool, weight: Int, size: CGFloat) -> NSFont {
+        let name = italic ? "SFCompact-RegularItalic" : "SFCompact-Regular"
+        guard let base = NSFont(name: name, size: size) else {
+            let fallback = NSFont.systemFont(ofSize: size, weight: weight > 600 ? .bold : .regular)
+            return italic ? fallback.italic : fallback
+        }
+        let weightAxis = 0x7767_6874 // 'wght'
+        let attributes: [CFString: Any] = [kCTFontVariationAttribute: [weightAxis: weight]]
+        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
+        return CTFontCreateCopyWithAttributes(base, size, nil, descriptor) as NSFont
+    }
 }
 
 extension NSFont {
