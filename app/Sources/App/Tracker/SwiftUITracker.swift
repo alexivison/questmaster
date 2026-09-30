@@ -941,7 +941,7 @@ private struct TrackerRepoSectionHeader: View {
         HStack(spacing: 5) {
             Text(title)
                 .font(AppFonts.trackerSectionTitle.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 // The serif's cap height sits 0.67pt above the line box's centre; nudge it onto the rule.
@@ -957,7 +957,7 @@ private struct TrackerRepoSectionHeader: View {
                     }
                 }
         }
-        .shadow(color: .black.opacity(0.8), radius: 2, y: 1)
+        .shadow(color: .black.opacity(0.4), radius: 2, y: 1)
     }
 }
 
@@ -1067,14 +1067,14 @@ private struct TrackerWorkerSummaryPill: View {
         case overflow
     }
 
-    fileprivate static let badgeSide: CGFloat = 16
-    private static let iconSide: CGFloat = 12
-    private static let capsuleWidth: CGFloat = 28
-    private static let capsuleOverlap: CGFloat = 9
+    fileprivate static let badgeSide: CGFloat = 18
+    private static let iconSide: CGFloat = 14
+    private static let capsuleWidth: CGFloat = 27
+    private static let capsuleOverlap: CGFloat = 10
     fileprivate static let width = badgeSide + capsuleWidth - capsuleOverlap
     // The count's glyph ink is centred on the capsule's height, 7pt right of its middle so it sits in the
     // part the circle leaves visible.
-    private static let countPosition = CGPoint(x: 23, y: badgeSide / 2)
+    private static let countPosition = CGPoint(x: 26, y: badgeSide / 2)
 
     let badge: Badge
     let label: String
@@ -1157,7 +1157,7 @@ private enum TrackerNameplateRole: Equatable {
     /// Where the collapsed-worker pills start, just right of the bar.
     /// The first pill's distance from the bar's right end, and the pills' distance under the plate's lower edge.
     static let pillsGap: CGFloat = 2
-    static let pillsDrop: CGFloat = 4
+    static let pillsDrop: CGFloat = 5
     static let pillsOriginX = barX + barSize.width + pillsGap
 
     init(_ session: TrackerSession) {
