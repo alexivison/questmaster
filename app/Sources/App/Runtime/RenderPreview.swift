@@ -6,6 +6,18 @@ import SwiftUI
 /// can be pixel-checked without a running GUI session. Not for shipping —
 /// gated behind DEBUG, same as LogicSelfTests.
 #if DEBUG
+/// An off-screen window that reports a fixed backing scale so text and layers rasterize at RENDER_SCALE.
+private final class ScaledRenderWindow: NSWindow {
+    private let renderScale: CGFloat
+
+    init(backingScale: CGFloat, contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
+        renderScale = backingScale
+        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
+    }
+
+    override var backingScaleFactor: CGFloat { renderScale }
+}
+
 enum RenderPreview {
     @MainActor
     static func runIfRequested() -> Bool {
@@ -21,6 +33,9 @@ enum RenderPreview {
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 540), to: "\(outputDir)/tracker.png")
+        for role in ["standalone", "master", "worker", "collapsed"] {
+            render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
+        }
         render(workerSummaryPreviewView(), size: CGSize(width: 300, height: 60), to: "\(outputDir)/tracker-worker-summary.png")
         render(collapsedMasterPreviewView(), size: CGSize(width: 300, height: 390), to: "\(outputDir)/tracker-collapsed-master.png")
         render(trackerGradientComparisonView(referencePath: "\(outputDir)/tracker-mockup-crop.png"), size: CGSize(width: 620, height: 670), to: "\(outputDir)/tracker-gradient-comparison.png")
@@ -51,6 +66,43 @@ enum RenderPreview {
     private static func trackerView() -> some View {
         TrackerRootView(
             store: trackerPreviewStore(),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// One row of the Figma "Tracker Item" variants with the same strings, for side-by-side comparison.
+    @MainActor
+    private static func nameplateFixtureView(role: String) -> some View {
+        let title = "Skills Improvements and stuff that ge..."
+        func session(_ id: String, role: String, agent: String = "codex", state: String = "working", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
+            TrackerSession(id: id, title: title, repoName: "Title", displayColor: "lime", agent: agent, role: role, state: state, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
+        }
+        let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
+        var sessions: [TrackerSession]
+        switch role {
+        case "standalone":
+            sessions = [session("a", role: "standalone", snippet: snippet)]
+        case "master":
+            sessions = [session("a", role: "master", snippet: snippet)]
+        case "worker":
+            sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: snippet, parentID: "a", elapsed: 1_825_000)]
+        default:
+            sessions = [session("a", role: "master", snippet: snippet)]
+            for (index, pill) in [("codex", "working"), ("codex", "working"), ("claude", "working"), ("claude", "working"), ("codex", "idle"), ("codex", "idle"), ("claude", "idle"), ("claude", "idle")].enumerated() {
+                sessions.append(session("w\(index)", role: "worker", agent: pill.0, state: pill.1, snippet: snippet, parentID: "a"))
+            }
+        }
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", collapsedMasterIDs: role == "collapsed" ? ["a"] : [])
+        // The first row is the keyboard cursor, so park a throwaway row above the fixture.
+        let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "standalone", state: "active", snippet: "")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "cursor", name: "Cursor", color: "blue", sessions: [cursorRow]),
+            TrackerRepo(id: "title", name: "Title", color: "lime", sessions: sessions),
+        ])))
+        return TrackerRootView(
+            store: store,
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
@@ -537,11 +589,16 @@ enum RenderPreview {
         // opaque placeholder. A real (off-screen-positioned) window + the
         // classic AppKit view-snapshot API handles them properly since the
         // views get an actual window/layer to draw into.
+        let environment = ProcessInfo.processInfo.environment
+        if let only = environment["RENDER_ONLY"], !only.split(separator: ",").contains(where: { path.hasSuffix("/\($0).png") }) {
+            return
+        }
+        let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
         let rootView = autoHeight ? AnyView(view.frame(width: size.width)) : AnyView(view.frame(width: size.width, height: size.height))
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = NSRect(origin: .zero, size: size)
 
-        let window = NSWindow(
+        let window = ScaledRenderWindow(backingScale: scale,
             contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: size),
             styleMask: [.borderless],
             backing: .buffered,
@@ -549,7 +606,7 @@ enum RenderPreview {
         )
         window.contentView = hostingView
         window.orderFrontRegardless()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        RunLoop.current.run(until: Date().addingTimeInterval(Double(environment["RENDER_SETTLE"] ?? "") ?? 0.8))
 
         if autoHeight {
             let fitting = hostingView.fittingSize
@@ -557,10 +614,22 @@ enum RenderPreview {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
 
-        guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(hostingView.bounds.width * scale),
+            pixelsHigh: Int(hostingView.bounds.height * scale),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
             print("RenderPreview: failed to create bitmap for \(path)")
             return
         }
+        bitmap.size = hostingView.bounds.size
         hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
         window.orderOut(nil)
 
