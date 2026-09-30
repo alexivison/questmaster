@@ -1144,9 +1144,12 @@ private enum TrackerNameplateRole: Equatable {
     case master
     case worker
 
-    static let stripHeight: CGFloat = 16
+    /// The title strip is a point taller than the snippet strip: 12pt caps span nine pixel rows, which
+    /// only centre in an odd inner height, while the 11pt mono snippet's eight rows centre in an even one.
+    static let titleStripHeight: CGFloat = 17
+    static let snippetStripHeight: CGFloat = 16
     static let stripOverlap: CGFloat = 1
-    static let stripStackHeight: CGFloat = 2 * stripHeight - stripOverlap
+    static let stripStackHeight: CGFloat = titleStripHeight + snippetStripHeight - stripOverlap
     static let stripTrailingPadding: CGFloat = 12
     /// The colour bar's size and left edge (the same in every role that has one); its top depends on the plate.
     static let barX: CGFloat = 23
@@ -1189,7 +1192,6 @@ private enum TrackerNameplateRole: Equatable {
     /// The portrait keeps a 4pt gap to the plate's circle. The master's 55pt disc cannot centre on whole points;
     /// (7, 4) keeps its edges on pixel boundaries and puts its centre within a quarter point of the shield circle's.
     var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 7 : 4, y: 4) }
-    var stripHeight: CGFloat { Self.stripHeight }
     /// The strip stack, centred on the plate's bar (the part right of the portrait); its right edge stays
     /// inside the plate's notch.
     var stripStackFrame: CGRect {
@@ -1199,17 +1201,17 @@ private enum TrackerNameplateRole: Equatable {
         switch self {
         case .standalone: (x, y, rightInset) = (34, 10, 11)
         case .master: (x, y, rightInset) = (35, 10, 14)
-        case .worker: (x, y, rightInset) = (36, 11, 4)
+        case .worker: (x, y, rightInset) = (36, 10, 4)
         }
         return CGRect(x: x, y: y, width: width - rightInset - x, height: Self.stripStackHeight)
     }
     /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
-    var barOrigin: CGPoint { CGPoint(x: Self.barX, y: isMaster ? 45 : 46) }
+    var barOrigin: CGPoint { CGPoint(x: Self.barX, y: plateBottomEdge - 1) }
     var barCenterY: CGFloat { barOrigin.y + Self.barSize.height / 2 }
     /// The collapsed-worker pills hang below the plate's lower edge (the Figma plate body ends at y 34).
-    var pillsOriginY: CGFloat { (34 * plateScale + Self.pillsDrop).rounded(.up) }
+    var pillsOriginY: CGFloat { plateBottomEdge + Self.pillsDrop }
     /// The worker's duration tag hangs from the plate's lower edge.
-    var tagOriginY: CGFloat { plateSize.height - 5 }
+    var tagOriginY: CGFloat { plateBottomEdge - 1 }
     var bottomGemCenter: CGPoint { CGPoint(x: 34, y: rowHeight - 6) }
     var rightGemCenter: CGPoint { CGPoint(x: width - 7, y: 25) }
     var stripLeadingPadding: CGFloat { isWorker ? 16 : 30 }
@@ -1240,22 +1242,45 @@ private enum TrackerNameplateRole: Equatable {
         case .worker: plateSize.height / 36
         }
     }
-    private func scaled(_ path: Path) -> Path {
-        path.nameplateScaled(plateScale, width: width, leadingZone: plateZones.leading, trailingZone: plateZones.trailing)
-    }
-    var plateFill: Path {
+    /// Where the plate body's straight top and bottom edges land (outer edge, whole points), so the
+    /// 1pt border's centre line sits on half points and stays crisp.
+    private var plateEdges: (top: CGFloat, bottom: CGFloat) {
         switch self {
-        case .standalone: scaled(TrackerPlatePaths.standaloneFill)
-        case .master: scaled(TrackerPlatePaths.masterFill)
-        case .worker: scaled(TrackerPlatePaths.workerFill)
+        case .standalone: (4, 47)
+        case .master: (4, 47)
+        case .worker: (4, 48)
         }
     }
+    /// The plate's lower edge; the colour bar hangs from it and the pills sit under it.
+    var plateBottomEdge: CGFloat { plateEdges.bottom }
+    /// The plate outline (the border's centre line); it is both filled and stroked, so the plate's
+    /// outer edge is exactly half a point outside it however the row is scaled.
     var plateOutline: Path {
+        let source: Path
+        let figmaEdges: (top: CGFloat, bottom: CGFloat, first: CGFloat, last: CGFloat)
         switch self {
-        case .standalone: scaled(TrackerPlatePaths.standaloneOutline)
-        case .master: scaled(TrackerPlatePaths.masterOutline)
-        case .worker: scaled(TrackerPlatePaths.workerOutline)
+        case .standalone:
+            source = TrackerPlatePaths.standaloneOutline
+            figmaEdges = (3.5, 33.5, 0.5, 45.5)
+        case .master:
+            source = TrackerPlatePaths.masterOutline
+            figmaEdges = (3.5, 33.5, 0.51, 50.42)
+        case .worker:
+            source = TrackerPlatePaths.workerOutline
+            figmaEdges = (3.42, 32.58, 0.5, 35.5)
         }
+        return source.nameplateScaled(
+            xScale: plateScale,
+            width: width,
+            leadingZone: plateZones.leading,
+            trailingZone: plateZones.trailing,
+            yAnchors: [
+                (figmaEdges.first, 0.5),
+                (figmaEdges.top, plateEdges.top + 0.5),
+                (figmaEdges.bottom, plateEdges.bottom - 0.5),
+                (figmaEdges.last, plateSize.height - 0.5),
+            ]
+        )
     }
 }
 
@@ -1416,12 +1441,10 @@ struct TrackerColorBar: View {
         .clipShape(shape)
         .frame(width: Self.size.width, height: Self.size.height)
         .overlay {
-            ZStack {
-                TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 1, opacity: 0.5)
-                shape.strokeBorder(strokeColor.swiftUI, lineWidth: 1)
-            }
-            .drawingGroup()
+            TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 1, opacity: 0.5)
+                .drawingGroup()
         }
+        .overlay(shape.strokeBorder(strokeColor.swiftUI, lineWidth: 1))
     }
 
     private var gradient: some View {
@@ -1543,15 +1566,19 @@ private struct TrackerNameplateBackground: View {
         }
     }
 
+    /// The cached fill and shadows sit under a live-drawn border, so the plate's curves are stroked and
+    /// antialiased by the normal renderer at the display's scale rather than baked into a texture.
     private var flatPlate: some View {
-        let shape = TrackerPlateShape(path: role.plateFill)
-        return shape
-            .fill(AppPalette.item.swiftUI)
-            .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: -3, blur: 1, opacity: 0.25))
-            .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: 3, blur: 1, opacity: 0.25))
-            .overlay(TrackerPlateShape(path: role.plateOutline).stroke(outlineColor.swiftUI, lineWidth: isRecoloring ? 2 : 1))
-            .frame(width: role.plateSize.width, height: role.plateSize.height, alignment: .topLeading)
-            .drawingGroup()
+        let shape = TrackerPlateShape(path: role.plateOutline)
+        return ZStack {
+            shape
+                .fill(AppPalette.item.swiftUI)
+                .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: -3, blur: 1, opacity: 0.25))
+                .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: 3, blur: 1, opacity: 0.25))
+                .drawingGroup()
+            shape.stroke(outlineColor.swiftUI, lineWidth: isRecoloring ? 2 : 1)
+        }
+        .frame(width: role.plateSize.width, height: role.plateSize.height, alignment: .topLeading)
     }
 }
 
@@ -1636,8 +1663,8 @@ private struct TrackerWorkerTimerTag: View {
             .background {
                 shape.fill(AppPalette.panel.swiftUI)
                     .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 0.5, opacity: 0.5))
-                    .overlay(shape.strokeBorder(outlineColor.swiftUI, lineWidth: 1))
                     .drawingGroup()
+                    .overlay(shape.strokeBorder(outlineColor.swiftUI, lineWidth: 1))
             }
             .offset(x: 49, y: role.tagOriginY)
     }
@@ -1768,42 +1795,43 @@ private struct TrackerSessionRowContent: View {
 
     private var textStrips: some View {
         VStack(spacing: -TrackerNameplateRole.stripOverlap) {
-            strip {
+            strip(height: TrackerNameplateRole.titleStripHeight) {
                 Text(title)
-                    .font(AppFonts.itemTitle.swiftUI)
+                    .font(AppFonts.trackerTitle.swiftUI)
                     .foregroundStyle((isSelected ? AppPalette.bright : AppPalette.text).swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
             }
             if !snippet.isEmpty {
-                strip {
+                strip(height: TrackerNameplateRole.snippetStripHeight) {
                     Text(snippet)
                         .font(AppFonts.monoSmall.swiftUI)
                         .italic()
                         .foregroundStyle(AppPalette.muted.swiftUI)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        // The mono face's caps sit half a point high in the line box.
-                        .padding(.top, 1)
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // A lone title strip sits a whole number of points from the stack's top (an odd leftover
+        // would put its borders on half pixels).
+        .padding(.top, snippet.isEmpty ? (TrackerNameplateRole.stripStackHeight - TrackerNameplateRole.titleStripHeight - 1) / 2 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func strip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    private func strip<Content: View>(height: CGFloat, @ViewBuilder _ content: () -> Content) -> some View {
         let shape = role.stripShape
         return content()
             .padding(.leading, role.stripLeadingPadding)
             .padding(.trailing, TrackerNameplateRole.stripTrailingPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: role.stripHeight)
+            .frame(height: height)
             .background {
                 shape.fill(AppPalette.panel.swiftUI)
                     .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 0.5, opacity: 0.5))
-                    .overlay(shape.strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
                     .drawingGroup()
+                    .overlay(shape.strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
             }
     }
 }
@@ -2143,7 +2171,6 @@ private struct TrackerEmptyState: View {
 /// A dim outline of the tracker: section headers with their rule, then nameplate-shaped
 /// placeholders (portrait, title and subtitle strips, colour bar) with workers smaller and indented.
 private struct TrackerSkeletonPlaceholder: View {
-    private static let stripHeight = TrackerNameplateRole.stripHeight
     private static let ruleHeight: CGFloat = 1
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -2197,10 +2224,10 @@ private struct TrackerSkeletonPlaceholder: View {
     private func plate(role: TrackerNameplateRole, titleWidth: CGFloat, subtitleWidth: CGFloat) -> some View {
         let stripsX = role.portraitOrigin.x + role.portraitSide + 5
         return ZStack(alignment: .topLeading) {
-            skeletonBar(width: titleWidth, height: Self.stripHeight, radius: 6)
+            skeletonBar(width: titleWidth, height: TrackerNameplateRole.titleStripHeight, radius: 6)
                 .offset(x: stripsX, y: role.stripStackFrame.minY)
-            skeletonBar(width: subtitleWidth, height: Self.stripHeight, radius: 6)
-                .offset(x: stripsX, y: role.stripStackFrame.minY + Self.stripHeight)
+            skeletonBar(width: subtitleWidth, height: TrackerNameplateRole.snippetStripHeight, radius: 6)
+                .offset(x: stripsX, y: role.stripStackFrame.minY + TrackerNameplateRole.titleStripHeight)
             skeletonPlaceholder(Circle(), width: role.portraitSide, height: role.portraitSide)
                 .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
             if !role.isWorker {

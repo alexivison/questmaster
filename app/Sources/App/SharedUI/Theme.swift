@@ -195,6 +195,8 @@ enum AppFonts {
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
     static let settingsSectionTitle = NSFont.systemFont(ofSize: 14.5, weight: .semibold)
 
+    /// Tracker row titles: `itemTitle` at 12pt (the shared 12.5pt lands its caps on half rows).
+    static let trackerTitle = NSFont.systemFont(ofSize: 12, weight: .semibold)
     /// Tracker section titles: the serif of `sectionTitle`, a step larger.
     static let trackerSectionTitle = NSFont.systemFont(ofSize: 12, weight: .semibold).serif
 }

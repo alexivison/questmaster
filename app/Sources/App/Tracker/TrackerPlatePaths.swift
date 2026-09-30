@@ -1,33 +1,9 @@
 import SwiftUI
 
-/// Plate silhouettes taken from the Figma "Tracker Item" variants: the filled
-/// shape and the 1px outline path, both in the variant's own coordinates
+/// Plate outline paths taken from the Figma "Tracker Item" variants: the centre line of the 1px
+/// border, inset half a point from the plate's edge, in the variant's own coordinates
 /// (standalone 280x46, master 280x51, worker 257x36).
 enum TrackerPlatePaths {
-    static let standaloneFill: Path = {
-        var path = Path()
-        path.move(to: CGPoint(x: 22.9603, y: 0))
-        path.addCurve(to: CGPoint(x: 34.3049, y: 3), control1: CGPoint(x: 27.0867, y: 0), control2: CGPoint(x: 30.9585, y: 1.09111))
-        path.addLine(to: CGPoint(x: 270.823, y: 3))
-        path.addCurve(to: CGPoint(x: 272.402, y: 3.4502), control1: CGPoint(x: 271.381, y: 3), control2: CGPoint(x: 271.928, y: 3.15581))
-        path.addLine(to: CGPoint(x: 276.016, y: 6.69531))
-        path.addCurve(to: CGPoint(x: 276.848, y: 7.46582), control1: CGPoint(x: 276.34, y: 6.89655), control2: CGPoint(x: 276.622, y: 7.15842))
-        path.addLine(to: CGPoint(x: 279.416, y: 9.95605))
-        path.addCurve(to: CGPoint(x: 280, y: 11.7363), control1: CGPoint(x: 279.795, y: 10.4716), control2: CGPoint(x: 280, y: 11.0959))
-        path.addLine(to: CGPoint(x: 280, y: 25.2637))
-        path.addCurve(to: CGPoint(x: 279.416, y: 27.0439), control1: CGPoint(x: 280, y: 25.9041), control2: CGPoint(x: 279.795, y: 26.5284))
-        path.addLine(to: CGPoint(x: 276.848, y: 29.5342))
-        path.addCurve(to: CGPoint(x: 276.016, y: 30.3047), control1: CGPoint(x: 276.622, y: 29.8416), control2: CGPoint(x: 276.34, y: 30.1035))
-        path.addLine(to: CGPoint(x: 272.402, y: 33.5498))
-        path.addCurve(to: CGPoint(x: 270.823, y: 34), control1: CGPoint(x: 271.928, y: 33.8442), control2: CGPoint(x: 271.381, y: 34))
-        path.addLine(to: CGPoint(x: 43.1285, y: 34))
-        path.addCurve(to: CGPoint(x: 22.9603, y: 46), control1: CGPoint(x: 39.2344, y: 41.1493), control2: CGPoint(x: 31.6631, y: 46))
-        path.addCurve(to: CGPoint(x: 0, y: 23), control1: CGPoint(x: 10.2797, y: 46), control2: CGPoint(x: 0, y: 35.7025))
-        path.addCurve(to: CGPoint(x: 22.9603, y: 0), control1: CGPoint(x: 0, y: 10.2975), control2: CGPoint(x: 10.2797, y: 0))
-        path.closeSubpath()
-        return path
-    }()
-
     static let standaloneOutline: Path = {
         var path = Path()
         path.move(to: CGPoint(x: 22.96, y: 0.5))
@@ -59,28 +35,6 @@ enum TrackerPlatePaths {
         path.addCurve(to: CGPoint(x: 22.96, y: 45.5), control1: CGPoint(x: 38.8792, y: 40.7561), control2: CGPoint(x: 31.4721, y: 45.5))
         path.addCurve(to: CGPoint(x: 0.5, y: 23), control1: CGPoint(x: 10.5565, y: 45.4998), control2: CGPoint(x: 0.5, y: 35.4271))
         path.addCurve(to: CGPoint(x: 22.96, y: 0.5), control1: CGPoint(x: 0.5, y: 10.5729), control2: CGPoint(x: 10.5565, y: 0.500171))
-        path.closeSubpath()
-        return path
-    }()
-
-    static let masterFill: Path = {
-        var path = Path()
-        path.move(to: CGPoint(x: 25.0015, y: 0))
-        path.addCurve(to: CGPoint(x: 38.3375, y: 2.93945), control1: CGPoint(x: 25.0191, y: 0.00325476), control2: CGPoint(x: 29.2272, y: 0.783266))
-        path.addCurve(to: CGPoint(x: 38.5924, y: 3), control1: CGPoint(x: 38.423, y: 2.95969), control2: CGPoint(x: 38.5079, y: 2.98001))
-        path.addLine(to: CGPoint(x: 271.029, y: 3))
-        path.addCurve(to: CGPoint(x: 275, y: 8.75), control1: CGPoint(x: 271.035, y: 3.02272), control2: CGPoint(x: 272.008, y: 6.81812))
-        path.addCurve(to: CGPoint(x: 278.001, y: 9.5), control1: CGPoint(x: 277.996, y: 10.6846), control2: CGPoint(x: 278.001, y: 9.50264))
-        path.addLine(to: CGPoint(x: 280.001, y: 18.5))
-        path.addLine(to: CGPoint(x: 278.001, y: 27))
-        path.addCurve(to: CGPoint(x: 275, y: 28.25), control1: CGPoint(x: 278.001, y: 27), control2: CGPoint(x: 278, y: 25.8284))
-        path.addCurve(to: CGPoint(x: 271.029, y: 34), control1: CGPoint(x: 272.01, y: 30.6637), control2: CGPoint(x: 271.035, y: 33.9775))
-        path.addLine(to: CGPoint(x: 44.4263, y: 34))
-        path.addCurve(to: CGPoint(x: 25.0006, y: 51), control1: CGPoint(x: 39.7633, y: 42.6751), control2: CGPoint(x: 30.5397, y: 47.8527))
-        path.addCurve(to: CGPoint(x: 3.48297, y: 28.7334), control1: CGPoint(x: 18.4213, y: 47.2617), control2: CGPoint(x: 6.6415, y: 40.6598))
-        path.addCurve(to: CGPoint(x: 0.0152011, y: 5.79688), control1: CGPoint(x: -0.414114, y: 14.0156), control2: CGPoint(x: 0.0118908, y: 5.85898))
-        path.addCurve(to: CGPoint(x: 11.6627, y: 2.93945), control1: CGPoint(x: 0.0152011, y: 5.79688), control2: CGPoint(x: 3.03792, y: 4.98033))
-        path.addCurve(to: CGPoint(x: 25.0015, y: 0), control1: CGPoint(x: 20.7948, y: 0.778729), control2: CGPoint(x: 25.0015, y: 0))
         path.closeSubpath()
         return path
     }()
@@ -119,24 +73,6 @@ enum TrackerPlatePaths {
         return path
     }()
 
-    static let workerFill: Path = {
-        var path = Path()
-        path.move(to: CGPoint(x: 28.9313, y: 2.91892))
-        path.addCurve(to: CGPoint(x: 18.7126, y: 0), control1: CGPoint(x: 25.9934, y: 1.07324), control2: CGPoint(x: 22.4834, y: 0))
-        path.addCurve(to: CGPoint(x: 0, y: 18), control1: CGPoint(x: 8.37794, y: 0), control2: CGPoint(x: 0, y: 8.05887))
-        path.addCurve(to: CGPoint(x: 18.7126, y: 36), control1: CGPoint(x: 0, y: 27.9411), control2: CGPoint(x: 8.37794, y: 36))
-        path.addCurve(to: CGPoint(x: 28.9313, y: 33.0811), control1: CGPoint(x: 22.4834, y: 36), control2: CGPoint(x: 25.9934, y: 34.9268))
-        path.addLine(to: CGPoint(x: 34.3908, y: 33.0811))
-        path.addLine(to: CGPoint(x: 121.379, y: 33.0811))
-        path.addLine(to: CGPoint(x: 250.931, y: 33.0811))
-        path.addCurve(to: CGPoint(x: 257, y: 27.2432), control1: CGPoint(x: 254.283, y: 33.0811), control2: CGPoint(x: 257, y: 30.4674))
-        path.addLine(to: CGPoint(x: 257, y: 8.75676))
-        path.addCurve(to: CGPoint(x: 250.931, y: 2.91892), control1: CGPoint(x: 257, y: 5.53261), control2: CGPoint(x: 254.283, y: 2.91892))
-        path.addLine(to: CGPoint(x: 28.9313, y: 2.91892))
-        path.closeSubpath()
-        return path
-    }()
-
     static let workerOutline: Path = {
         var path = Path()
         path.move(to: CGPoint(x: 18.7129, y: 0.5))
@@ -158,19 +94,38 @@ enum TrackerPlatePaths {
 }
 
 extension Path {
-    /// Scales the path by `scale` while keeping its width: the leading and trailing end zones
-    /// grow with the scale and the middle stretches to fill the rest.
-    func nameplateScaled(_ scale: CGFloat, width: CGFloat, leadingZone: CGFloat, trailingZone: CGFloat) -> Path {
-        guard scale != 1 else { return self }
-        let middleStart = leadingZone * scale
-        let middleEnd = width - trailingZone * scale
+    /// Grows a plate outline for a taller row while keeping its width, on the pixel grid.
+    ///
+    /// `xScale` grows the leading and trailing end zones (the circle or shield end and the notch)
+    /// and the middle stretches to fill the rest; the leftmost centre line stays at 0.5 and the
+    /// rightmost at `width - 0.5`. `yAnchors` pairs Figma y values with output y values and is
+    /// interpolated linearly, so the straight top and bottom edges can be placed on half points
+    /// (a 1pt stroke centred there covers exactly two whole pixel rows' worth of one row).
+    func nameplateScaled(
+        xScale: CGFloat,
+        width: CGFloat,
+        leadingZone: CGFloat,
+        trailingZone: CGFloat,
+        yAnchors: [(from: CGFloat, to: CGFloat)]
+    ) -> Path {
+        let rightEdge = width - 0.5
+        let middleStart = 0.5 + (leadingZone - 0.5) * xScale
+        let middleEnd = rightEdge - (rightEdge - (width - trailingZone)) * xScale
         func x(_ value: CGFloat) -> CGFloat {
-            if value <= leadingZone { return value * scale }
-            if value >= width - trailingZone { return width - (width - value) * scale }
+            if value <= leadingZone { return 0.5 + (value - 0.5) * xScale }
+            if value >= width - trailingZone { return rightEdge - (rightEdge - value) * xScale }
             let progress = (value - leadingZone) / (width - trailingZone - leadingZone)
             return middleStart + progress * (middleEnd - middleStart)
         }
-        func point(_ value: CGPoint) -> CGPoint { CGPoint(x: x(value.x), y: value.y * scale) }
+        func y(_ value: CGFloat) -> CGFloat {
+            for index in 1..<yAnchors.count where value <= yAnchors[index].from || index == yAnchors.count - 1 {
+                let low = yAnchors[index - 1]
+                let high = yAnchors[index]
+                return low.to + (value - low.from) / (high.from - low.from) * (high.to - low.to)
+            }
+            return value
+        }
+        func point(_ value: CGPoint) -> CGPoint { CGPoint(x: x(value.x), y: y(value.y)) }
         var result = Path()
         forEach { element in
             switch element {
