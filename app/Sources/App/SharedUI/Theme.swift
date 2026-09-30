@@ -166,9 +166,16 @@ enum AppPalette {
 }
 
 enum AppFonts {
-    static let mono = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
-    static let monoSmall = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-    static let monoBold = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .semibold)
+    // The tracker follows the user's Ghostty font-family at Questmaster's own sizes and weights,
+    // falling back to the system fonts when Ghostty sets none or the family is not installed.
+    static let mono = monospaced(size: 12.5, weight: .regular)
+    static let monoSmall = monospaced(size: 11, weight: .regular)
+    static let monoBold = monospaced(size: 12.5, weight: .semibold)
+
+    private static func monospaced(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        GhosttyFontFamily.font(size: size, weight: weight) ?? .monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
     static let terminal = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static let body = NSFont.systemFont(ofSize: 13)
     static let bodyBold = NSFont.systemFont(ofSize: 13, weight: .semibold)
@@ -195,10 +202,12 @@ enum AppFonts {
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
     static let settingsSectionTitle = NSFont.systemFont(ofSize: 14.5, weight: .semibold)
 
-    /// Tracker row titles: `itemTitle` at 12pt (the shared 12.5pt lands its caps on half rows).
-    static let trackerTitle = NSFont.systemFont(ofSize: 12, weight: .semibold)
-    /// Tracker section titles: the serif of `sectionTitle`, a step larger.
-    static let trackerSectionTitle = NSFont.systemFont(ofSize: 12, weight: .semibold).serif
+    /// Tracker row titles at 12pt (the shared 12.5pt `itemTitle` lands its caps on half rows): the Ghostty font.
+    static let trackerTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
+        ?? .systemFont(ofSize: 12, weight: .semibold)
+    /// Tracker section titles: the Ghostty font, else the serif of `sectionTitle`.
+    static let trackerSectionTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
+        ?? NSFont.systemFont(ofSize: 12, weight: .semibold).serif
 }
 
 extension NSFont {

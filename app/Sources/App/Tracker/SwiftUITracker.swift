@@ -1657,9 +1657,8 @@ private struct TrackerWorkerTimerTag: View {
             .font(AppFonts.monoSmall.swiftUI)
             .foregroundStyle(AppPalette.dim.swiftUI)
             .lineLimit(1)
-            .padding(.bottom, 1)
             .padding(.horizontal, 12)
-            .frame(height: 11)
+            .frame(height: 12)
             .background {
                 shape.fill(AppPalette.panel.swiftUI)
                     .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 0.5, opacity: 0.5))
