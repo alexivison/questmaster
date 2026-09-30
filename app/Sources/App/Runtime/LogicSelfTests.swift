@@ -25,7 +25,7 @@ enum LogicSelfTests {
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
-        ("testWorkerSummaryCapsPillsAtFourWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtFourWithHiddenWorkerCount),
+        ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
@@ -158,7 +158,7 @@ enum LogicSelfTests {
         try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
     }
 
-    private static func testWorkerSummaryCapsPillsAtFourWithHiddenWorkerCount() throws {
+    private static func testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount() throws {
         func pills(_ workers: [(agent: String, state: String)]) throws -> [TrackerWorkerSummary.Pill] {
             let master = TrackerSession(id: "master", title: "Master", repoName: "Preview", role: "master")
             let sessions = [master] + workers.enumerated().map { index, worker in
@@ -180,28 +180,33 @@ enum LogicSelfTests {
             return TrackerWorkerSummary.pills(for: group.workers)
         }
 
-        let fourGroups = try pills([("codex", "working"), ("codex", "idle"), ("claude", "working"), ("claude", "idle"), ("claude", "idle")])
-        try expect(fourGroups.count == 4, "four groups should show four pills, got \(fourGroups.count)")
-        try expect(fourGroups.allSatisfy { if case .group = $0 { true } else { false } }, "four groups should not overflow")
+        // Distinct (agent, status) groups, the first with two workers and the rest with one.
+        let distinctGroups: [(agent: String, state: String)] = [
+            ("codex", "working"), ("codex", "idle"), ("claude", "working"), ("claude", "idle"),
+            ("pi", "blocked"), ("opencode", "idle"), ("pi", "working"), ("opencode", "working"),
+        ]
+        let fit = TrackerWorkerSummary.maxPills
+        try expect(fit >= 2 && fit < distinctGroups.count, "pill capacity should be a small positive number, got \(fit)")
 
-        let sixGroups = try pills([
-            ("codex", "working"), ("codex", "working"), ("codex", "idle"),
-            ("claude", "working"), ("claude", "idle"), ("claude", "idle"), ("claude", "idle"),
-            ("pi", "blocked"), ("opencode", "idle"),
-        ])
-        try expect(sixGroups.count == 4, "six groups should collapse to four pills, got \(sixGroups.count)")
+        let fitting = try pills(Array(distinctGroups.prefix(fit)))
+        try expect(fitting.count == fit, "\(fit) groups should show \(fit) pills, got \(fitting.count)")
+        try expect(fitting.allSatisfy { if case .group = $0 { true } else { false } }, "groups that fit should not overflow")
+
+        let crowded = Array(distinctGroups.prefix(fit + 3)) + [distinctGroups[0]]
+        let overflowing = try pills(crowded)
+        try expect(overflowing.count == fit, "more groups than fit should show \(fit) pills, got \(overflowing.count)")
         var shownWorkers = 0
-        for pill in sixGroups.prefix(3) {
+        for pill in overflowing.prefix(fit - 1) {
             guard case .group(let group) = pill else {
-                throw TestFailure("the first three pills should be groups")
+                throw TestFailure("the first \(fit - 1) pills should be groups")
             }
             shownWorkers += group.count
         }
-        guard case .overflow(let hiddenWorkers) = sixGroups[3] else {
-            throw TestFailure("the fourth pill should be the overflow pill")
+        guard case .overflow(let hiddenWorkers) = overflowing[fit - 1] else {
+            throw TestFailure("the last pill should be the overflow pill")
         }
-        try expect(hiddenWorkers == 9 - shownWorkers, "overflow should count hidden workers (\(9 - shownWorkers)), got \(hiddenWorkers)")
-        try expect(hiddenWorkers > 2, "overflow counts workers, not groups (3 groups are hidden), got \(hiddenWorkers)")
+        try expect(hiddenWorkers == crowded.count - shownWorkers, "overflow should count hidden workers (\(crowded.count - shownWorkers)), got \(hiddenWorkers)")
+        try expect(hiddenWorkers >= 4, "at least the four hidden groups should be counted, got \(hiddenWorkers)")
     }
 
     private static func testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs() throws {

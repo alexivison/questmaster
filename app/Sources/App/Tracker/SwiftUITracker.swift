@@ -944,6 +944,8 @@ private struct TrackerRepoSectionHeader: View {
                 .foregroundStyle(AppPalette.bright.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                // The serif's cap height sits 0.67pt above the line box's centre; nudge it onto the rule.
+                .offset(y: 0.5)
 
             Rectangle()
                 .fill(AppPalette.lineSoftSubtle.swiftUI)
@@ -961,14 +963,14 @@ private struct TrackerRepoSectionHeader: View {
 
 /// Replaces a collapsed master's worker rows: one pill per distinct
 /// (agent, status) combination among its workers, each showing the agent's
-/// logo, a ring colored by that status, and a count. Past four groups, the
-/// first three show and a "+N" pill counts the workers in the rest.
+/// logo, a ring colored by that status, and a count. Past what fits, the
+/// first (fit - 1) show and a "+N" pill counts the workers in the rest.
 struct TrackerWorkerSummaryRow: View {
     let workers: [TrackerRenderedSession]
 
     var body: some View {
         if !workers.isEmpty {
-            HStack(spacing: 4) {
+            HStack(spacing: TrackerWorkerSummary.pillGap) {
                 ForEach(Array(TrackerWorkerSummary.pills(for: workers).enumerated()), id: \.offset) { _, pill in
                     switch pill {
                     case .group(let group):
@@ -983,7 +985,12 @@ struct TrackerWorkerSummaryRow: View {
 }
 
 enum TrackerWorkerSummary {
-    static let maxPills = 4
+    static let pillGap: CGFloat = 4
+    /// How many pills fit between the colour bar and the plate's right notch.
+    static let maxPills = Int(
+        (TrackerListMetrics.rootPlateWidth - 12 - TrackerNameplateRole.pillsOriginX + pillGap)
+            / (TrackerWorkerSummaryPill.width + pillGap)
+    )
 
     enum Pill {
         case group(Group)
@@ -1060,15 +1067,14 @@ private struct TrackerWorkerSummaryPill: View {
         case overflow
     }
 
-    private static let badgeSide: CGFloat = 12
-    private static let iconSide: CGFloat = 6
-    private static let capsuleWidth: CGFloat = 21
-    private static let capsuleOverlap: CGFloat = 7
-    private static let width = badgeSide + capsuleWidth - capsuleOverlap
-    // Figma centres the count's glyph ink on (17, 5.67); the font's metrics draw the ink
-    // `countInkDrop` below the text's layout centre.
-    private static let countInkDrop: CGFloat = 0.66
-    private static let countPosition = CGPoint(x: 17, y: 5.67 - countInkDrop)
+    fileprivate static let badgeSide: CGFloat = 16
+    private static let iconSide: CGFloat = 12
+    private static let capsuleWidth: CGFloat = 28
+    private static let capsuleOverlap: CGFloat = 9
+    fileprivate static let width = badgeSide + capsuleWidth - capsuleOverlap
+    // The count's glyph ink is centred on the capsule's height, 7pt right of its middle so it sits in the
+    // part the circle leaves visible.
+    private static let countPosition = CGPoint(x: 23, y: badgeSide / 2)
 
     let badge: Badge
     let label: String
@@ -1102,7 +1108,7 @@ private struct TrackerWorkerSummaryPill: View {
                 .fill(AppPalette.hoverBackground.swiftUI)
                 .overlay(shape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
                 .frame(width: Self.width, height: Self.badgeSide)
-                .overlay(countText.offset(y: -Self.countInkDrop))
+                .overlay(countText)
         }
     }
 
@@ -1130,16 +1136,23 @@ private struct TrackerWorkerSummaryPill: View {
     }
 }
 
+/// Nameplate geometry in whole points: the Figma layout grown for 12pt text, with every size and
+/// position rounded so strips, rings and borders land on pixel edges on a 1x display.
 private enum TrackerNameplateRole: Equatable {
     case standalone
     case master
     case worker
 
-    static let scale = TrackerNameplateScale.value
-    private static let stripHeight: CGFloat = 13 * scale
-    static let stripOverlap: CGFloat = 1 * scale
+    static let stripHeight: CGFloat = 16
+    static let stripOverlap: CGFloat = 1
     static let stripStackHeight: CGFloat = 2 * stripHeight - stripOverlap
-    static let stripTrailingPadding: CGFloat = 10 * scale
+    static let stripTrailingPadding: CGFloat = 12
+    /// The colour bar and what is placed relative to it (the same in every role that has one).
+    static let barOrigin = CGPoint(x: 23, y: 40)
+    static let barSize = CGSize(width: 129, height: 12)
+    static let barCenterY = barOrigin.y + barSize.height / 2
+    /// Where the collapsed-worker pills start, just right of the bar.
+    static let pillsOriginX = barOrigin.x + barSize.width + 2
 
     init(_ session: TrackerSession) {
         switch SessionRoleKind(role: session.role) {
@@ -1163,31 +1176,23 @@ private enum TrackerNameplateRole: Equatable {
         }
     }
     var plateSize: CGSize { CGSize(width: width, height: isWorker ? TrackerListMetrics.workerPlateHeight : rowHeight) }
-    var portraitSide: CGFloat { (isWorker ? 30 : 40) * Self.scale }
-    var portraitOrigin: CGPoint { CGPoint(x: (isMaster ? 5 : 3) * Self.scale, y: 3 * Self.scale) }
+    var portraitSide: CGFloat { isWorker ? 36 : 48 }
+    var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 6 : 4, y: 4) }
     var stripHeight: CGFloat { Self.stripHeight }
-    /// Strip stack origin and the gap between its right edge and the plate's, all at Figma size.
-    private var stripMetrics: (x: CGFloat, y: CGFloat, rightInset: CGFloat) {
-        switch self {
-        case .standalone: (22, 6, 8)
-        case .master: (22.63, 6.08, 10)
-        case .worker: (23, 5.5, 3)
-        }
-    }
     var stripStackFrame: CGRect {
-        let metrics = stripMetrics
-        let x = metrics.x * Self.scale
-        return CGRect(
-            x: x,
-            y: metrics.y * Self.scale,
-            width: width - metrics.rightInset * Self.scale - x,
-            height: Self.stripStackHeight
-        )
+        let x: CGFloat
+        let rightInset: CGFloat
+        switch self {
+        case .standalone: (x, rightInset) = (26, 10)
+        case .master: (x, rightInset) = (27, 12)
+        case .worker: (x, rightInset) = (28, 4)
+        }
+        return CGRect(x: x, y: 7, width: width - rightInset - x, height: Self.stripStackHeight)
     }
-    var stripLeadingPadding: CGFloat { (isWorker ? 13 : 25) * Self.scale }
+    var stripLeadingPadding: CGFloat { isWorker ? 16 : 30 }
     var stripShape: UnevenRoundedRectangle {
-        let leadingRadius: CGFloat = isWorker ? 0 : 6 * Self.scale
-        let trailingRadius: CGFloat = isWorker ? 3 * Self.scale : 6 * Self.scale
+        let leadingRadius: CGFloat = isWorker ? 0 : 7
+        let trailingRadius: CGFloat = isWorker ? 4 : 7
         return UnevenRoundedRectangle(
             topLeadingRadius: leadingRadius,
             bottomLeadingRadius: leadingRadius,
@@ -1195,7 +1200,8 @@ private enum TrackerNameplateRole: Equatable {
             topTrailingRadius: trailingRadius
         )
     }
-    /// The Figma path's end zones (the circle/shield end and the notch), which grow with the scale.
+    /// The Figma plate path's end zones (the circle/shield end and the notch), which grow with the
+    /// plate; the middle stretches so the path keeps the row width.
     private var plateZones: (leading: CGFloat, trailing: CGFloat) {
         switch self {
         case .standalone: (44, 10)
@@ -1203,8 +1209,16 @@ private enum TrackerNameplateRole: Equatable {
         case .worker: (35, 7)
         }
     }
+    /// The plate's height over the Figma variant's height (46, 51 and 36).
+    private var plateScale: CGFloat {
+        switch self {
+        case .standalone: plateSize.height / 46
+        case .master: plateSize.height / 51
+        case .worker: plateSize.height / 36
+        }
+    }
     private func scaled(_ path: Path) -> Path {
-        path.nameplateScaled(Self.scale, width: width, leadingZone: plateZones.leading, trailingZone: plateZones.trailing)
+        path.nameplateScaled(plateScale, width: width, leadingZone: plateZones.leading, trailingZone: plateZones.trailing)
     }
     var plateFill: Path {
         switch self {
@@ -1220,9 +1234,6 @@ private enum TrackerNameplateRole: Equatable {
         case .worker: scaled(TrackerPlatePaths.workerOutline)
         }
     }
-    /// Where the colour bar sits, and how far it reaches (for what lies to its right).
-    static let barOrigin = CGPoint(x: 19 * scale, y: 33 * scale)
-    static let barSize = CGSize(width: 129, height: 10 * scale)
 }
 
 /// A fixed Figma path drawn at its own coordinates (the plates are never resized).
@@ -1367,9 +1378,9 @@ struct TrackerColorBar: View {
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
             topLeadingRadius: 0,
-            bottomLeadingRadius: 24 * TrackerNameplateRole.scale,
-            bottomTrailingRadius: 6 * TrackerNameplateRole.scale,
-            topTrailingRadius: 6 * TrackerNameplateRole.scale
+            bottomLeadingRadius: 29,
+            bottomTrailingRadius: 7,
+            topTrailingRadius: 7
         )
     }
 
@@ -1492,9 +1503,9 @@ private struct TrackerNameplateBackground: View {
             }
             if role.isMaster {
                 TrackerDiamond(color: color)
-                    .position(x: 25 * TrackerNameplateRole.scale, y: 47 * TrackerNameplateRole.scale)
+                    .position(x: 30, y: 56)
                 TrackerDiamond(color: color, highlight: UnitPoint(x: 0.75, y: 0.5))
-                    .position(x: role.width - 5 * TrackerNameplateRole.scale, y: 18 * TrackerNameplateRole.scale)
+                    .position(x: role.width - 6, y: 22)
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
@@ -1524,7 +1535,7 @@ private struct TrackerNameplateBackground: View {
 /// The small gem on the master shield: a 4x4 diamond that fades from a highlight near the repo
 /// color, on the side that faces outward, to the dark repo shade at its rim.
 struct TrackerDiamond: View {
-    private static let side: CGFloat = 4 * TrackerNameplateRole.scale
+    private static let side: CGFloat = 5
 
     let color: NSColor
     var highlight = UnitPoint(x: 0.5, y: 0.25)
@@ -1566,8 +1577,9 @@ private struct TrackerElapsedTimer: View {
                     .foregroundStyle(AppPalette.bright.swiftUI)
                     .lineLimit(1)
                     .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
-                    .frame(height: 10 * TrackerNameplateRole.scale)
-                    .offset(x: 70 * TrackerNameplateRole.scale, y: 33 * TrackerNameplateRole.scale)
+                    .padding(.bottom, 1)
+                    .frame(height: TrackerNameplateRole.barSize.height)
+                    .offset(x: 84, y: TrackerNameplateRole.barOrigin.y)
             }
         }
     }
@@ -1589,20 +1601,21 @@ private struct TrackerWorkerTimerTag: View {
     }
 
     private func tag(_ text: String) -> some View {
-        let shape = UnevenRoundedRectangle(bottomLeadingRadius: 3 * TrackerNameplateRole.scale, bottomTrailingRadius: 3 * TrackerNameplateRole.scale)
+        let shape = UnevenRoundedRectangle(bottomLeadingRadius: 4, bottomTrailingRadius: 4)
         return Text(text)
             .font(AppFonts.trackerTimer.swiftUI)
             .foregroundStyle(AppPalette.dim.swiftUI)
             .lineLimit(1)
-            .padding(.horizontal, 10 * TrackerNameplateRole.scale)
-            .frame(height: 9 * TrackerNameplateRole.scale)
+            .padding(.bottom, 1)
+            .padding(.horizontal, 12)
+            .frame(height: 11)
             .background {
                 shape.fill(AppPalette.panel.swiftUI)
                     .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 0.5, opacity: 0.5))
                     .overlay(shape.strokeBorder(outlineColor.swiftUI, lineWidth: 1))
                     .drawingGroup()
             }
-            .offset(x: 41 * TrackerNameplateRole.scale, y: 32 * TrackerNameplateRole.scale)
+            .offset(x: 49, y: 39)
     }
 
     private func displayDuration(_ value: String) -> String {
@@ -1721,8 +1734,8 @@ private struct TrackerSessionRowContent: View {
             if role.isMaster && !collapsedWorkers.isEmpty {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
                     .offset(
-                        x: TrackerNameplateRole.barOrigin.x + TrackerNameplateRole.barSize.width + 2,
-                        y: 43 * TrackerNameplateRole.scale - 6
+                        x: TrackerNameplateRole.pillsOriginX,
+                        y: TrackerNameplateRole.barCenterY - TrackerWorkerSummaryPill.badgeSide / 2
                     )
             }
         }
@@ -1755,7 +1768,6 @@ private struct TrackerSessionRowContent: View {
     private func strip<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let shape = role.stripShape
         return content()
-            .padding(.bottom, 1 * TrackerNameplateRole.scale)
             .padding(.leading, role.stripLeadingPadding)
             .padding(.trailing, TrackerNameplateRole.stripTrailingPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2104,7 +2116,7 @@ private struct TrackerEmptyState: View {
 /// A dim outline of the tracker: section headers with their rule, then nameplate-shaped
 /// placeholders (portrait, title and subtitle strips, colour bar) with workers smaller and indented.
 private struct TrackerSkeletonPlaceholder: View {
-    private static let stripHeight: CGFloat = 13
+    private static let stripHeight = TrackerNameplateRole.stripHeight
     private static let ruleHeight: CGFloat = 1
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

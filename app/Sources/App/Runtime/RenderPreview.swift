@@ -35,7 +35,7 @@ enum RenderPreview {
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
-        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached"] {
+        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "standalone-selected-error", "master-selected-error", "worker-selected-error"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
@@ -120,7 +120,7 @@ enum RenderPreview {
         let displayColor = ["yellow", "magenta"].first(where: flags.contains) ?? "lime"
         let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
         let title = "Skills Improvements and stuff that ge..."
-        func session(_ id: String, role: String, agent: String = "codex", state: String = "working", lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
+        func session(_ id: String, role: String, agent: String = "codex", state: String = flags.contains("error") ? "error" : "working", lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
             TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
         }
         let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
@@ -136,9 +136,9 @@ enum RenderPreview {
             sessions = [session("a", role: "standalone", state: "stopped", lifecycle: "stopped", snippet: snippet)]
         default:
             sessions = [session("a", role: "master", snippet: snippet)]
-            let fourGroups = [("codex", "working"), ("codex", "working"), ("claude", "working"), ("claude", "working"), ("codex", "idle"), ("codex", "idle"), ("claude", "idle"), ("claude", "idle")]
-            let sixGroups = fourGroups + [("pi", "blocked"), ("pi", "blocked"), ("opencode", "idle"), ("claude", "needs-input"), ("codex", "error")]
-            for (index, pill) in (role == "overflow" ? sixGroups : fourGroups).enumerated() {
+            let twoGroups = [("codex", "working"), ("codex", "working"), ("claude", "idle"), ("claude", "idle")]
+            let sixGroups = twoGroups + [("codex", "idle"), ("codex", "idle"), ("claude", "working"), ("pi", "blocked"), ("pi", "blocked"), ("opencode", "idle"), ("claude", "needs-input"), ("codex", "error")]
+            for (index, pill) in (role.hasPrefix("overflow") ? sixGroups : twoGroups).enumerated() {
                 sessions.append(session("w\(index)", role: "worker", agent: pill.0, state: pill.1, snippet: snippet, parentID: "a"))
             }
         }
