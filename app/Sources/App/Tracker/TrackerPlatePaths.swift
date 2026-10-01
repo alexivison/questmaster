@@ -91,8 +91,8 @@ enum TrackerPlatePaths {
     ]
 
     /// The plate outline: the cap spans `capHeight` from the top of the row, and the bar's straight
-    /// edges sit at `barTop` and `barBottom`. The master's shield is centred on the bar so its two
-    /// joins land inside it.
+    /// edges sit at `barTop` and `barBottom`. The master's bar edges must enclose the shield's two joins
+    /// (4 and 38 in the SVG, times the cap's scale).
     static func plate(_ kind: Kind, capHeight: CGFloat, barTop: CGFloat, barBottom: CGFloat) -> Path {
         switch kind {
         case .standalone, .worker:
@@ -101,9 +101,7 @@ enum TrackerPlatePaths {
             return cap.union(bar)
         case .master:
             let scale = capHeight / shieldSVGHeight
-            let svgBarMiddle = (masterEnd.svgTop + masterEnd.svgBottom) / 2
-            let offsetY = (barTop + barBottom) / 2 - svgBarMiddle * scale
-            let transform = CGAffineTransform(translationX: 0, y: offsetY).scaledBy(x: scale, y: scale)
+            let transform = CGAffineTransform(scaleX: scale, y: scale)
             var shield = Path()
             shield.move(to: shieldBottomJoin)
             shieldElements.forEach { append($0, to: &shield) }

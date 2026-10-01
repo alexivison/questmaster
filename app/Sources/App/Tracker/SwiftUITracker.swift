@@ -1181,39 +1181,48 @@ private enum TrackerNameplateRole: Equatable {
         case .worker: TrackerListMetrics.workerRowHeight
         }
     }
-    var plateSize: CGSize { CGSize(width: width, height: isWorker ? TrackerListMetrics.workerPlateHeight : rowHeight) }
-    var portraitSide: CGFloat {
+    /// The cap (circle or shield) wraps the portrait with the v2 SVG's rim, 3pt on every role.
+    var plateSize: CGSize {
         switch self {
-        case .standalone: 56
-        case .master: 55
-        case .worker: 44
+        case .standalone: CGSize(width: width, height: TrackerListMetrics.standaloneCapHeight)
+        case .master: CGSize(width: width, height: TrackerListMetrics.masterCapHeight)
+        case .worker: CGSize(width: width, height: TrackerListMetrics.workerCapHeight)
         }
     }
-    /// The portrait keeps a 4pt gap to the plate's circle. The master's 55pt disc cannot centre on whole points;
-    /// (7, 4) keeps its edges on pixel boundaries and puts its centre within a quarter point of the shield circle's.
-    var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 7 : 4, y: 4) }
-    /// The strip stack, centred on the plate's bar (the part right of the portrait); its right edge stays
-    /// inside the plate's notch.
-    var stripStackFrame: CGRect {
-        let x: CGFloat
-        let y: CGFloat
-        let rightInset: CGFloat
+    var portraitSide: CGFloat {
         switch self {
-        case .standalone: (x, y, rightInset) = (34, 10, 11)
-        case .master: (x, y, rightInset) = (35, 10, 14)
-        case .worker: (x, y, rightInset) = (36, 10, 4)
+        case .standalone: 44
+        case .master: 43
+        case .worker: 35
         }
+    }
+    /// The portrait sits 3pt inside the cap's edge; the shield's centre lands within half a point of the disc's.
+    var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 5 : 3, y: 3) }
+    /// The strip stack, centred on the plate's bar with its text a few points right of the portrait; its
+    /// right edge stays inside the plate's notch.
+    var stripStackFrame: CGRect {
+        let rightInset: CGFloat
+        let portraitGap: CGFloat
+        switch self {
+        case .standalone: (rightInset, portraitGap) = (11, 4)
+        case .master: (rightInset, portraitGap) = (14, 3)
+        case .worker: (rightInset, portraitGap) = (4, 4)
+        }
+        let x = portraitOrigin.x + portraitSide + portraitGap - stripLeadingPadding
+        let y = (plateEdges.top + plateEdges.bottom - Self.stripStackHeight) / 2
         return CGRect(x: x, y: y, width: width - rightInset - x, height: Self.stripStackHeight)
     }
     /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
     var barOrigin: CGPoint { CGPoint(x: Self.barX, y: plateBottomEdge - 1) }
     var barCenterY: CGFloat { barOrigin.y + Self.barSize.height / 2 }
-    /// The collapsed-worker pills hang below the plate's lower edge (the Figma plate body ends at y 34).
-    var pillsOriginY: CGFloat { rowHeight - TrackerWorkerSummaryPill.badgeSide }
+    /// The collapsed-worker pills hang below the plate's lower edge, which makes a master row with pills
+    /// taller than the shield.
+    var pillsOriginY: CGFloat { plateBottomEdge + Self.pillsDrop }
+    var pillsRowHeight: CGFloat { pillsOriginY + TrackerWorkerSummaryPill.badgeSide }
     /// The worker's duration tag hangs from the plate's lower edge.
     var tagOriginY: CGFloat { plateBottomEdge - 1 }
-    var bottomGemCenter: CGPoint { CGPoint(x: 34, y: rowHeight - 6) }
-    var rightGemCenter: CGPoint { CGPoint(x: width - 7, y: 25) }
+    var bottomGemCenter: CGPoint { CGPoint(x: 26, y: rowHeight - 5) }
+    var rightGemCenter: CGPoint { CGPoint(x: width - 7, y: (plateEdges.top + plateEdges.bottom) / 2 - 1) }
     var stripLeadingPadding: CGFloat { isWorker ? 16 : 30 }
     var stripShape: UnevenRoundedRectangle {
         let leadingRadius: CGFloat = isWorker ? 0 : 7
@@ -1229,9 +1238,9 @@ private enum TrackerNameplateRole: Equatable {
     /// bar-to-plate proportion.
     private var plateEdges: (top: CGFloat, bottom: CGFloat) {
         switch self {
-        case .standalone: (4, 51)
-        case .master: (5, 52)
-        case .worker: (3, 49)
+        case .standalone: (3, 41)
+        case .master: (4, 42)
+        case .worker: (3, 39)
         }
     }
     /// The plate's lower edge; the colour bar hangs from it and the pills sit under it.
@@ -1791,7 +1800,7 @@ private struct TrackerSessionRowContent: View {
             if rendered.status.kind == .working && !role.isWorker {
                 TrackerElapsedTimer(session: session, role: role)
             }
-            if role.isMaster && !collapsedWorkers.isEmpty {
+            if showsPills {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
                     .offset(
                         x: TrackerNameplateRole.pillsOriginX,
@@ -1799,8 +1808,10 @@ private struct TrackerSessionRowContent: View {
                     )
             }
         }
-        .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
+        .frame(width: role.width, height: showsPills ? role.pillsRowHeight : role.rowHeight, alignment: .topLeading)
     }
+
+    private var showsPills: Bool { role.isMaster && !collapsedWorkers.isEmpty }
 
     private var textStrips: some View {
         VStack(spacing: -TrackerNameplateRole.stripOverlap) {
