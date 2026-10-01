@@ -1504,9 +1504,12 @@ final class TrackerPulseClock {
     func subscribe() {
         subscribers += 1
         guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 1 / Self.framesPerSecond, repeats: true) { [weak self] _ in
+        // Common modes keep the pulses running while the user scrolls the list or drags a split.
+        let timer = Timer(timeInterval: 1 / Self.framesPerSecond, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.time = Date.now.timeIntervalSinceReferenceDate }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     func unsubscribe() {
