@@ -1151,6 +1151,9 @@ private enum TrackerNameplateRole: Equatable {
     static let stripOverlap: CGFloat = 1
     static let stripStackHeight: CGFloat = titleStripHeight + snippetStripHeight - stripOverlap
     static let stripTrailingPadding: CGFloat = 12
+    /// Breathing room between the portrait and the text, and (above and below the strips) between the
+    /// strips and the plate's edge; the right end keeps the same distance from the strip corners.
+    static let portraitTextGap: CGFloat = 5
     /// The colour bar's size and left edge (the same in every role that has one); its top depends on the plate.
     static let barX: CGFloat = 23
     static let barSize = CGSize(width: 129, height: 12)
@@ -1174,14 +1177,9 @@ private enum TrackerNameplateRole: Equatable {
     var isWorker: Bool { self == .worker }
     var isMaster: Bool { self == .master }
     var width: CGFloat { isWorker ? TrackerListMetrics.workerPlateWidth : TrackerListMetrics.rootPlateWidth }
-    var rowHeight: CGFloat {
-        switch self {
-        case .standalone: TrackerListMetrics.standaloneRowHeight
-        case .master: TrackerListMetrics.masterRowHeight
-        case .worker: TrackerListMetrics.workerRowHeight
-        }
-    }
-    /// The cap (circle or shield) wraps the portrait with the v2 SVG's rim, 3pt on every role.
+    /// Tall enough for the cap and for what hangs from the bar: the colour bar, or the worker's tag.
+    var rowHeight: CGFloat { max(plateSize.height, plateEdges.bottom + Self.barSize.height - 1) }
+    /// The cap (circle or shield) wraps the portrait and sticks out past the 42pt bar by 2 to 9pt, as in the v2 SVGs.
     var plateSize: CGSize {
         switch self {
         case .standalone: CGSize(width: width, height: TrackerListMetrics.standaloneCapHeight)
@@ -1196,19 +1194,24 @@ private enum TrackerNameplateRole: Equatable {
         case .worker: 35
         }
     }
-    /// The portrait sits 3pt inside the cap's edge; the shield's centre lands within half a point of the disc's.
-    var portraitOrigin: CGPoint { CGPoint(x: isMaster ? 5 : 3, y: 3) }
+    /// The portrait sits inside the cap's rim; the master's shield centre lands within half a point of the disc's.
+    var portraitOrigin: CGPoint {
+        switch self {
+        case .standalone: CGPoint(x: 5, y: 5)
+        case .master: CGPoint(x: 8, y: 6)
+        case .worker: CGPoint(x: 6, y: 6)
+        }
+    }
     /// The strip stack, centred on the plate's bar with its text a few points right of the portrait; its
     /// right edge stays inside the plate's notch.
     var stripStackFrame: CGRect {
         let rightInset: CGFloat
-        let portraitGap: CGFloat
         switch self {
-        case .standalone: (rightInset, portraitGap) = (11, 4)
-        case .master: (rightInset, portraitGap) = (14, 3)
-        case .worker: (rightInset, portraitGap) = (4, 4)
+        case .standalone: rightInset = 6
+        case .master: rightInset = 9
+        case .worker: rightInset = 5
         }
-        let x = portraitOrigin.x + portraitSide + portraitGap - stripLeadingPadding
+        let x = portraitOrigin.x + portraitSide + Self.portraitTextGap - stripLeadingPadding
         let y = (plateEdges.top + plateEdges.bottom - Self.stripStackHeight) / 2
         return CGRect(x: x, y: y, width: width - rightInset - x, height: Self.stripStackHeight)
     }
@@ -1221,8 +1224,8 @@ private enum TrackerNameplateRole: Equatable {
     var pillsRowHeight: CGFloat { pillsOriginY + TrackerWorkerSummaryPill.badgeSide }
     /// The worker's duration tag hangs from the plate's lower edge.
     var tagOriginY: CGFloat { plateBottomEdge - 1 }
-    var bottomGemCenter: CGPoint { CGPoint(x: 26, y: rowHeight - 5) }
-    var rightGemCenter: CGPoint { CGPoint(x: width - 7, y: (plateEdges.top + plateEdges.bottom) / 2 - 1) }
+    var bottomGemCenter: CGPoint { CGPoint(x: TrackerPlatePaths.shieldCenterX(capHeight: plateSize.height).rounded(), y: plateSize.height - 5) }
+    var rightGemCenter: CGPoint { CGPoint(x: width - 4.5, y: (plateEdges.top + plateEdges.bottom) / 2 - 1) }
     var stripLeadingPadding: CGFloat { isWorker ? 16 : 30 }
     var stripShape: UnevenRoundedRectangle {
         let leadingRadius: CGFloat = isWorker ? 0 : 7
@@ -1234,13 +1237,13 @@ private enum TrackerNameplateRole: Equatable {
             topTrailingRadius: trailingRadius
         )
     }
-    /// Where the bar's straight top and bottom edges land (whole points, outer edge), from the v2 plate's
-    /// bar-to-plate proportion.
+    /// Where the bar's straight top and bottom edges land (whole points, outer edge): 42pt tall, which is
+    /// the 32pt strip stack with 5pt above and below.
     private var plateEdges: (top: CGFloat, bottom: CGFloat) {
         switch self {
-        case .standalone: (3, 41)
-        case .master: (4, 42)
-        case .worker: (3, 39)
+        case .standalone: (3, 45)
+        case .master: (4, 46)
+        case .worker: (3, 45)
         }
     }
     /// The plate's lower edge; the colour bar hangs from it and the pills sit under it.

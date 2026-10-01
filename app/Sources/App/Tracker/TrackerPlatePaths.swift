@@ -90,6 +90,8 @@ enum TrackerPlatePaths {
         .curve(to: CGPoint(x: 42.7759, y: 4), control1: CGPoint(x: 40.0248, y: 3.33875), control2: CGPoint(x: 41.498, y: 3.69138)),
     ]
 
+    static func shieldCenterX(capHeight: CGFloat) -> CGFloat { shieldSVGCenterX * capHeight / shieldSVGHeight }
+
     /// The plate outline: the cap spans `capHeight` from the top of the row, and the bar's straight
     /// edges sit at `barTop` and `barBottom`. The master's bar edges must enclose the shield's two joins
     /// (4 and 38 in the SVG, times the cap's scale).
