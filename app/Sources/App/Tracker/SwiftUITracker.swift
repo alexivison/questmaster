@@ -1192,8 +1192,8 @@ private enum TrackerNameplateRole: Equatable {
     var capSize: CGSize { isMaster ? CGSize(width: TrackerListMetrics.masterCapWidth, height: plateSize.height) : CGSize(width: plateSize.height, height: plateSize.height) }
     var portraitSide: CGFloat {
         switch self {
-        case .standalone: 44
-        case .master: 44
+        case .standalone: 48
+        case .master: 48
         case .worker: 37
         }
     }
@@ -1202,7 +1202,7 @@ private enum TrackerNameplateRole: Equatable {
     var portraitOrigin: CGPoint {
         switch self {
         case .standalone: CGPoint(x: 5, y: 5)
-        case .master: CGPoint(x: 8, y: 4)
+        case .master: CGPoint(x: 8, y: 5)
         case .worker: CGPoint(x: 5, y: 5)
         }
     }
@@ -1261,8 +1261,8 @@ private enum TrackerNameplateRole: Equatable {
     /// the 32pt strip stack with 5pt above and below.
     private var plateEdges: (top: CGFloat, bottom: CGFloat) {
         switch self {
-        case .standalone: (3, 45)
-        case .master: (2, 44)
+        case .standalone: (5, 47)
+        case .master: (5, 47)
         case .worker: (0, 42)
         }
     }
