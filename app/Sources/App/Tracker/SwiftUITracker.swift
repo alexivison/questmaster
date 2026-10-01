@@ -1179,7 +1179,7 @@ private enum TrackerNameplateRole: Equatable {
     var width: CGFloat { isWorker ? TrackerListMetrics.workerPlateWidth : TrackerListMetrics.rootPlateWidth }
     /// Tall enough for the cap and for what hangs from the bar: the colour bar, or the worker's tag.
     var rowHeight: CGFloat { max(plateSize.height, plateEdges.bottom + Self.barSize.height - 1) }
-    /// The cap (circle or shield) wraps the portrait with the 5pt rim and sticks out past the 42pt bar, as in the v2 SVGs.
+    /// The cap (circle or shield) wraps the portrait and sticks out past the 42pt bar, as in the v2 SVGs.
     var plateSize: CGSize {
         switch self {
         case .standalone: CGSize(width: width, height: TrackerListMetrics.standaloneCapHeight)
@@ -1194,12 +1194,12 @@ private enum TrackerNameplateRole: Equatable {
         case .worker: 37
         }
     }
-    /// The portrait sits 5pt inside the cap on every role: the circles' rim is exactly 5, and the shield is
-    /// scaled and the disc placed so its tightest sides (left and top) are 5 as well.
+    /// The portrait sits 5pt inside the circles; the master's shield keeps the v2 SVG's proportions, so its
+    /// rim is thinner (3pt above the disc) and its centre lands within half a point of the SVG's.
     var portraitOrigin: CGPoint {
         switch self {
         case .standalone: CGPoint(x: 5, y: 5)
-        case .master: CGPoint(x: 9, y: 7)
+        case .master: CGPoint(x: 5, y: 3)
         case .worker: CGPoint(x: 5, y: 5)
         }
     }
@@ -1243,8 +1243,8 @@ private enum TrackerNameplateRole: Equatable {
     private var plateEdges: (top: CGFloat, bottom: CGFloat) {
         switch self {
         case .standalone: (5, 47)
-        case .master: (6, 48)
-        case .worker: (3, 45)
+        case .master: (3, 45)
+        case .worker: (0, 42)
         }
     }
     /// The plate's lower edge; the colour bar hangs from it and the pills sit under it.
@@ -1406,6 +1406,7 @@ enum TrackerNameplateColor {
 /// rasterized once (`drawingGroup`) and reused while the pulse animates.
 struct TrackerColorBar: View {
     private static let size = TrackerNameplateRole.barSize
+    private static let borderWidth: CGFloat = 1.5
     private static let diamondReach: CGFloat = 2.0.squareRoot()
     let color: NSColor
     let strokeColor: NSColor
@@ -1432,7 +1433,7 @@ struct TrackerColorBar: View {
             TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 1, opacity: 0.5)
                 .drawingGroup()
         }
-        .overlay(shape.strokeBorder(strokeColor.swiftUI, lineWidth: 1))
+        .overlay(shape.strokeBorder(strokeColor.swiftUI, lineWidth: Self.borderWidth))
     }
 
     private var gradient: some View {
@@ -1679,7 +1680,7 @@ private struct TrackerWorkerTimerTag: View {
                 shape.fill(AppPalette.panel.swiftUI)
                     .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 0.5, opacity: 0.5))
                     .drawingGroup()
-                    .overlay(shape.strokeBorder(outlineColor.swiftUI, lineWidth: 1))
+                    .overlay(shape.strokeBorder(outlineColor.swiftUI, lineWidth: 1.5))
             }
             .offset(x: 49, y: role.tagOriginY)
     }
