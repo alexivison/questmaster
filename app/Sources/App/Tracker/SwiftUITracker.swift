@@ -1154,6 +1154,7 @@ private enum TrackerNameplateRole: Equatable {
     /// Breathing room between the portrait and the text, and (above and below the strips) between the
     /// strips and the plate's edge; the right end keeps the same distance from the strip corners.
     static let portraitTextGap: CGFloat = 5
+    static let workerStripLeadingRadius: CGFloat = 8
     /// The colour bar's size and left edge (the same in every role that has one); its top depends on the plate.
     static let barX: CGFloat = 23
     static let barSize = CGSize(width: 129, height: 12)
@@ -1201,7 +1202,7 @@ private enum TrackerNameplateRole: Equatable {
     var portraitOrigin: CGPoint {
         switch self {
         case .standalone: CGPoint(x: 5, y: 5)
-        case .master: CGPoint(x: 6, y: 3)
+        case .master: CGPoint(x: 8, y: 3)
         case .worker: CGPoint(x: 5, y: 5)
         }
     }
@@ -1214,18 +1215,19 @@ private enum TrackerNameplateRole: Equatable {
         case .master: rightInset = 9
         case .worker: rightInset = 5
         }
-        let x = portraitOrigin.x + portraitSide + Self.portraitTextGap - stripLeadingPadding
         let y = (plateEdges.top + plateEdges.bottom - Self.stripStackHeight) / 2
-        return CGRect(x: x, y: y, width: width - rightInset - x, height: Self.stripStackHeight)
+        return CGRect(x: stripStackX, y: y, width: width - rightInset - stripStackX, height: Self.stripStackHeight)
+    }
+    /// Where the text starts: a few points right of the portrait.
+    private var stripTextX: CGFloat { portraitOrigin.x + portraitSide + Self.portraitTextGap }
+    /// The strips run under the portrait. The worker's strip top is level with the portrait's top, so its
+    /// hidden left end is a rounded end whose arc is tangent to the disc's top and lies inside the disc;
+    /// the standalone's and master's strips start a fixed padding before the text.
+    private var stripStackX: CGFloat {
+        isWorker ? portraitOrigin.x + portraitSide / 2 - Self.workerStripLeadingRadius : stripTextX - 30
     }
     /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
     var barOrigin: CGPoint { CGPoint(x: Self.barX, y: plateBottomEdge - 1) }
-    /// The portrait and its rim. The strips run under it, so they are cut away inside this circle and
-    /// nothing of them shows beside the portrait.
-    var portraitRim: CGRect {
-        let reach = portraitSide / 2 + Self.portraitTextGap
-        return CGRect(x: portraitOrigin.x + portraitSide / 2 - reach, y: portraitOrigin.y + portraitSide / 2 - reach, width: 2 * reach, height: 2 * reach)
-    }
     /// The part of the colour bar in view, between the cap's edge at the bar's mid-height and the bar's
     /// inner right edge (inside its border). The timer centres here; the x origin is a whole point.
     var barVisibleArea: CGRect {
@@ -1244,9 +1246,9 @@ private enum TrackerNameplateRole: Equatable {
     var tagOriginY: CGFloat { plateBottomEdge - 1 }
     var bottomGemCenter: CGPoint { CGPoint(x: TrackerPlatePaths.shieldCenterX(capWidth: capSize.width), y: plateSize.height - 5) }
     var rightGemCenter: CGPoint { CGPoint(x: width - 4.5, y: (plateEdges.top + plateEdges.bottom) / 2 - 1) }
-    var stripLeadingPadding: CGFloat { isWorker ? 16 : 30 }
+    var stripLeadingPadding: CGFloat { stripTextX - stripStackX }
     var stripShape: UnevenRoundedRectangle {
-        let leadingRadius: CGFloat = isWorker ? 0 : 7
+        let leadingRadius: CGFloat = isWorker ? Self.workerStripLeadingRadius : 7
         let trailingRadius: CGFloat = isWorker ? 4 : 7
         return UnevenRoundedRectangle(
             topLeadingRadius: leadingRadius,
@@ -1294,18 +1296,6 @@ private struct TrackerPlateShape: Shape {
     let path: Path
 
     func path(in rect: CGRect) -> Path { path }
-}
-
-/// Everything in `rect` except `circle`, for even-odd filling.
-private struct TrackerOutsideCircle: Shape {
-    let circle: CGRect
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.addRect(rect)
-        path.addEllipse(in: circle)
-        return path
-    }
 }
 
 /// The inverse of `hole` within `rect`, for even-odd filling.
@@ -1832,13 +1822,9 @@ private struct TrackerSessionRowContent: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            ZStack(alignment: .topLeading) {
-                textStrips
-                    .frame(width: role.stripStackFrame.width, height: role.stripStackFrame.height)
-                    .offset(x: role.stripStackFrame.minX, y: role.stripStackFrame.minY)
-            }
-            .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
-            .mask(TrackerOutsideCircle(circle: role.portraitRim).fill(style: FillStyle(eoFill: true)))
+            textStrips
+                .frame(width: role.stripStackFrame.width, height: role.stripStackFrame.height)
+                .offset(x: role.stripStackFrame.minX, y: role.stripStackFrame.minY)
             TrackerAgentMark(
                 agent: session.agent,
                 status: rendered.status,
