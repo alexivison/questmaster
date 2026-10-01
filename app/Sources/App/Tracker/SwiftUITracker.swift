@@ -1795,7 +1795,6 @@ private struct TrackerSessionRowContent: View {
                 .offset(x: role.stripStackFrame.minX, y: role.stripStackFrame.minY)
             TrackerAgentMark(
                 agent: session.agent,
-                role: session.role,
                 status: rendered.status,
                 shortcutNumber: shortcutNumber,
                 portraitSide: role.portraitSide
@@ -1876,7 +1875,6 @@ private struct WholePointCentered: Layout {
 
 private struct TrackerAgentMark: View {
     let agent: String
-    let role: String
     let status: TrackerStatusStyle
     let shortcutNumber: Int?
     let portraitSide: CGFloat
@@ -1884,14 +1882,10 @@ private struct TrackerAgentMark: View {
     private static let ringWidth: CGFloat = 1.5
     private var iconSide: CGFloat { portraitSide * 0.615 }
 
-    private var roleKind: SessionRoleKind {
-        SessionRoleKind(role: role)
-    }
-
     var body: some View {
         ZStack {
             Circle()
-                .fill(AppPalette.window.swiftUI)
+                .fill(AppPalette.panel.swiftUI)
                 .overlay(TrackerInnerShadow(outer: Circle(), hole: Circle().inset(by: 2), blur: 0.5, opacity: 0.5))
                 .drawingGroup()
             statusGlow
@@ -1918,7 +1912,7 @@ private struct TrackerAgentMark: View {
     // The ring views stroke inside their frame, so the ring sits on the portrait edge
     // and never lands on a half-point origin that would snap off-center.
     private var statusFrame: some View {
-        TrackerStatusRing(kind: status.kind, color: status.color, restingColor: inactiveRingColor, lineWidth: Self.ringWidth)
+        TrackerStatusRing(kind: status.kind, color: status.color, restingColor: AppPalette.line, lineWidth: Self.ringWidth)
             .frame(width: portraitSide, height: portraitSide)
     }
 
@@ -1932,15 +1926,6 @@ private struct TrackerAgentMark: View {
                 .blur(radius: 3)
         case .working, .idle, .stopped, .needsInput, .error, .done:
             EmptyView()
-        }
-    }
-
-    private var inactiveRingColor: NSColor {
-        switch roleKind {
-        case .master, .standalone:
-            return AppPalette.trackerRoleOrnament
-        case .worker, .tmux, .orphan:
-            return AppPalette.lineSoft
         }
     }
 
