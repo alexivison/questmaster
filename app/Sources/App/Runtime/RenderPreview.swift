@@ -445,7 +445,7 @@ enum RenderPreview {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let filename = lightDocument ? "light-artifact.html" : "dark-artifact.html"
         let url = directory.appendingPathComponent(filename)
-        let colors = lightDocument ? ("#f7f0de", "#302820") : ("#22272e", "#d8dee9")
+        let colors = lightDocument ? ("#f7f0de", "#302820") : ("#22272e", "#c4d0dc")
         let document = """
         <!doctype html><html><head><style>
         body { margin: 0; padding: 20px; background: \(colors.0); color: \(colors.1); font: 15px -apple-system; }

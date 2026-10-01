@@ -15,11 +15,11 @@ enum AppPalette {
     static let controlFill = item
     static let controlBorder = NSColor(hex: 0x768390)
     static let activeControlBorder = controlBorder
-    static let activeText = NSColor(hex: 0xe6edf3)
-    static let text = NSColor(hex: 0xd8dee9)
-    static let bright = NSColor(hex: 0xf2f5f8)
+    static let activeText = NSColor(hex: 0xcdd9e5)
+    static let text = NSColor(hex: 0xc4d0dc)
+    static let bright = activeText
     static let muted = NSColor(hex: 0xadbac7)
-    static let dim = NSColor(hex: 0x9da7b1)
+    static let dim = NSColor(hex: 0x8d9aa8)
     /// Reuses the existing `lineSoftSubtle` shade (one step lighter than
     /// `item`, already part of this palette) as a selected row's fill --
     /// subtle on purpose, and so selection still reads even when a status
