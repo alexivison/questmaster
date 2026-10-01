@@ -10,30 +10,13 @@ public enum TrackerStatusKind {
     case error
 }
 
-public enum TrackerStatusIndicatorAffordance {
-    case spinner
-    case circle
-    case ring
-    case square
-    case roundedSquare
-}
-
 public struct TrackerStatusClassification {
     public let kind: TrackerStatusKind
     public let label: String
-    public let indicatorAffordance: TrackerStatusIndicatorAffordance
-    public let showsBadge: Bool
 
-    public init(
-        kind: TrackerStatusKind,
-        label: String,
-        indicatorAffordance: TrackerStatusIndicatorAffordance,
-        showsBadge: Bool = true
-    ) {
+    public init(kind: TrackerStatusKind, label: String) {
         self.kind = kind
         self.label = label
-        self.indicatorAffordance = indicatorAffordance
-        self.showsBadge = showsBadge
     }
 }
 
@@ -48,39 +31,38 @@ public enum TrackerStatusClassifier {
             || rawLifecycle == "exited"
             || (!isActiveShell && (rawState == "stopped" || rawState == "exited")) {
             let label = rawLifecycle == "exited" || rawState == "exited" ? "exited - continue" : "stopped - continue"
-            return TrackerStatusClassification(kind: .stopped, label: label, indicatorAffordance: .roundedSquare)
+            return TrackerStatusClassification(kind: .stopped, label: label)
         }
         if isActiveShell {
-            return TrackerStatusClassification(kind: .idle, label: "active", indicatorAffordance: .circle, showsBadge: false)
+            return TrackerStatusClassification(kind: .idle, label: "active")
         }
         if isErrorKind(lastKind) {
-            return TrackerStatusClassification(kind: .error, label: "error", indicatorAffordance: .square)
+            return TrackerStatusClassification(kind: .error, label: "error")
         }
         if isNeedsInputState(rawState) || isNeedsInputKind(lastKind) {
-            return TrackerStatusClassification(kind: .needsInput, label: "needs input", indicatorAffordance: .ring)
+            return TrackerStatusClassification(kind: .needsInput, label: "needs input")
         }
 
         switch rawState {
         case "working":
-            return TrackerStatusClassification(kind: .working, label: rawState.isEmpty ? "working" : rawState, indicatorAffordance: .spinner)
+            return TrackerStatusClassification(kind: .working, label: rawState.isEmpty ? "working" : rawState)
         case "starting":
-            return TrackerStatusClassification(kind: .idle, label: "idle (started)", indicatorAffordance: .circle)
+            return TrackerStatusClassification(kind: .idle, label: "idle (started)")
         case "checking":
-            return TrackerStatusClassification(kind: .idle, label: "checking", indicatorAffordance: .circle)
+            return TrackerStatusClassification(kind: .idle, label: "checking")
         case "blocked":
-            return TrackerStatusClassification(kind: .blocked, label: "blocked", indicatorAffordance: .circle)
+            return TrackerStatusClassification(kind: .blocked, label: "blocked")
         case "error", "failed", "fail":
-            return TrackerStatusClassification(kind: .error, label: "error", indicatorAffordance: .square)
+            return TrackerStatusClassification(kind: .error, label: "error")
         case "done", "pass", "passed", "ok":
-            return TrackerStatusClassification(kind: .done, label: "done", indicatorAffordance: .circle)
+            return TrackerStatusClassification(kind: .done, label: "done")
         case "active", "unknown", "":
             return TrackerStatusClassification(
                 kind: .idle,
-                label: rawLifecycle == "active" ? "active" : "idle",
-                indicatorAffordance: .circle
+                label: rawLifecycle == "active" ? "active" : "idle"
             )
         default:
-            return TrackerStatusClassification(kind: .idle, label: rawState, indicatorAffordance: .circle)
+            return TrackerStatusClassification(kind: .idle, label: rawState)
         }
     }
 

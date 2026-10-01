@@ -22,7 +22,7 @@ struct ContractFixtureTests {
         expect(session.repoColor == "green", "tracker repo color did not decode")
         expect(session.displayColor == "violet", "tracker display color did not decode")
         expect(session.workerCount == 1, "tracker worker count did not decode")
-        expect(session.duration == "2m0s", "tracker elapsed_ms did not decode")
+        expect(session.duration == "0:02:00", "tracker elapsed_ms did not decode")
         expect(session.artifacts.first?.label == "Plan", "tracker artifact did not decode")
         expect(session.artifacts.count == 3, "row artifact count should stay scoped to qm-demo")
         expect(Set(session.artifacts.map(\.kind)) == Set(["html", "markdown", "image"]), "tracker artifact kinds did not decode")

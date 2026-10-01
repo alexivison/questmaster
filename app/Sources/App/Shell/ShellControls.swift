@@ -9,6 +9,8 @@ import QuestmasterCore
 enum ShellMetrics {
     static let topBarHeight: CGFloat = 52
     static let dockTopBarHeight: CGFloat = 40
+    /// Empty space above the first tracker header, matching the mockup's spacing.
+    static let trackerTopInset: CGFloat = 25
     static let dockViewerLeadingLineExtension: CGFloat = 56
     static let sideCardTopBarHorizontalInset: CGFloat = 8
     static let sideCardOrnamentSide: CGFloat = 32

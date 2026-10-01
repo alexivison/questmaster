@@ -6,7 +6,6 @@ final class ShellFocusCoordinator {
     private let navigation: NavigationStore
     private let window: () -> NSWindow?
     private let splitView: () -> MainSplitView?
-    private let trackerShell: () -> TrackerShellView?
     private let terminalShell: () -> TerminalShellView?
     private let dockShell: () -> DockShellView?
     private let trackerHosting: () -> NSView?
@@ -19,7 +18,6 @@ final class ShellFocusCoordinator {
         navigation: NavigationStore,
         window: @escaping () -> NSWindow?,
         splitView: @escaping () -> MainSplitView?,
-        trackerShell: @escaping () -> TrackerShellView?,
         terminalShell: @escaping () -> TerminalShellView?,
         dockShell: @escaping () -> DockShellView?,
         trackerHosting: @escaping () -> NSView?,
@@ -31,7 +29,6 @@ final class ShellFocusCoordinator {
         self.navigation = navigation
         self.window = window
         self.splitView = splitView
-        self.trackerShell = trackerShell
         self.terminalShell = terminalShell
         self.dockShell = dockShell
         self.trackerHosting = trackerHosting
@@ -83,7 +80,6 @@ final class ShellFocusCoordinator {
     func applyNavigationState(animateDockVisibility: Bool = true) {
         splitView()?.trackerVisible = navigation.trackerVisible
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
-        trackerShell()?.setRegionActive(navigation.focusedRegion == .tracker)
         dockShell()?.setRegionActive(navigation.focusedRegion == .dock)
         terminalShell()?.update(navigation: navigation.state, session: selectedSessionChip())
         updateDockTabs()

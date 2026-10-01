@@ -159,11 +159,11 @@ struct NewSessionRootView: View {
                 Rectangle()
                     .fill(connectorColor)
                     .frame(width: Token.Size.divider, height: 12)
-                TrackerWorkerConnectorMarker()
+                DiamondShape()
                     .fill(connectorColor)
                     .frame(
-                        width: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2,
-                        height: TrackerListMetrics.workerConnectorMarkerHalfWidth * 2
+                        width: EffortConnectorMarker.side,
+                        height: EffortConnectorMarker.side
                     )
                     .alignmentGuide(.effortMarker) { $0[VerticalAlignment.center] }
             }
@@ -417,4 +417,10 @@ private struct EffortMarkerAlignment: AlignmentID {
 
 private extension VerticalAlignment {
     static let effortMarker = VerticalAlignment(EffortMarkerAlignment.self)
+}
+
+/// The small diamond where the effort connector meets its value, marking that the
+/// value hangs off the Model row above it.
+private enum EffortConnectorMarker {
+    static let side: CGFloat = 5.2
 }

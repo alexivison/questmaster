@@ -8,22 +8,12 @@ struct TrackerStatusStyle {
     var kind: TrackerStatusKind {
         classification.kind
     }
-
-    var indicatorAffordance: TrackerStatusIndicatorAffordance {
-        classification.indicatorAffordance
-    }
-
-    var showsBadge: Bool {
-        classification.showsBadge
-    }
 }
 
 struct TrackerRenderedSession {
     let session: TrackerSession
     let status: TrackerStatusStyle
     let groupColor: NSColor
-    let depth: Int
-    let isLastSibling: Bool
     let recolorEditHint: String?
 }
 
@@ -69,10 +59,6 @@ enum TrackerRenderer {
     static func status(for session: TrackerSession) -> TrackerStatusStyle {
         let classification = TrackerStatusClassifier.classify(session)
         return TrackerStatusStyle(classification: classification, color: color(for: classification.kind))
-    }
-
-    static func metadata(for session: TrackerSession) -> String {
-        TrackerRowText.metadata(for: session)
     }
 
     static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
@@ -138,13 +124,11 @@ enum TrackerRenderer {
             repoIsUngrouped: repoIsUngrouped,
             recolorPreview: recolorPreview
         )
-        let renderedWorkers = workers.enumerated().map { index, worker in
+        let renderedWorkers = workers.map { worker in
             TrackerRenderedSession(
                 session: worker,
                 status: status(for: worker),
                 groupColor: groupColor,
-                depth: 1,
-                isLastSibling: index == workers.count - 1,
                 recolorEditHint: recolorEditHint(for: worker, recolorPreview: recolorPreview)
             )
         }
@@ -153,8 +137,6 @@ enum TrackerRenderer {
                 session: session,
                 status: status(for: session),
                 groupColor: groupColor,
-                depth: 0,
-                isLastSibling: false,
                 recolorEditHint: recolorEditHint(for: session, recolorPreview: recolorPreview)
             ),
             workers: renderedWorkers
