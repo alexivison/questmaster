@@ -78,6 +78,11 @@ enum TrackerPlatePaths {
     /// bottom point and over the top to the bar's top. Its hidden right side is the closing line, which
     /// sits inside the bar.
     private static let shieldBottomJoin = CGPoint(x: 41.7954, y: 38)
+    private static let shieldTopJoin = CGPoint(x: 42.7759, y: 4)
+    /// The curves' directions at the joins, heading into the bar.
+    private static let shieldBottomTangent = CGPoint(x: 41.7954 - 36.8318, y: 38 - 44.3221)
+    private static let shieldTopTangent = CGPoint(x: 42.7759 - 41.498, y: 4 - 3.69138)
+    private static let shieldJoinDepth: CGFloat = 1
     private static let shieldSVGHeight: CGFloat = 51
     private static let shieldSVGCenterX: CGFloat = 25
     private static let shieldElements: [Path.Element] = [
@@ -93,8 +98,7 @@ enum TrackerPlatePaths {
     static func shieldCenterX(capHeight: CGFloat) -> CGFloat { shieldSVGCenterX * capHeight / shieldSVGHeight }
 
     /// The plate outline: the cap spans `capHeight` from the top of the row, and the bar's straight
-    /// edges sit at `barTop` and `barBottom`. The master's bar edges must enclose the shield's two joins
-    /// (4 and 38 in the SVG, times the cap's scale).
+    /// edges sit at `barTop` and `barBottom`.
     static func plate(_ kind: Kind, capHeight: CGFloat, barTop: CGFloat, barBottom: CGFloat) -> Path {
         switch kind {
         case .standalone, .worker:
@@ -103,14 +107,33 @@ enum TrackerPlatePaths {
             return cap.union(bar)
         case .master:
             let scale = capHeight / shieldSVGHeight
-            let transform = CGAffineTransform(scaleX: scale, y: scale)
-            var shield = Path()
-            shield.move(to: shieldBottomJoin)
-            shieldElements.forEach { append($0, to: &shield) }
-            shield.closeSubpath()
+            let shield = shield(innerTop: (barTop + shieldJoinDepth) / scale, innerBottom: (barBottom - shieldJoinDepth) / scale)
             let bar = bar(end: masterEnd, left: shieldSVGCenterX * scale, top: barTop, bottom: barBottom)
-            return shield.applying(transform).union(bar)
+            return shield.applying(CGAffineTransform(scaleX: scale, y: scale)).union(bar)
         }
+    }
+
+    /// The shield in the SVG's coordinates. A shield scaled up past the bar's height has its joins outside
+    /// the bar, so each join is extended along its curve's tangent until it is `shieldJoinDepth` inside the
+    /// bar (`innerTop` and `innerBottom`, in SVG units), and the closing line joins the two ends.
+    private static func shield(innerTop: CGFloat, innerBottom: CGFloat) -> Path {
+        var bottomEnd = shieldBottomJoin
+        if shieldBottomJoin.y > innerBottom {
+            let steps = (shieldBottomJoin.y - innerBottom) / -shieldBottomTangent.y
+            bottomEnd = CGPoint(x: shieldBottomJoin.x + shieldBottomTangent.x * steps, y: innerBottom)
+        }
+        var topEnd = shieldTopJoin
+        if shieldTopJoin.y < innerTop {
+            let steps = (innerTop - shieldTopJoin.y) / shieldTopTangent.y
+            topEnd = CGPoint(x: shieldTopJoin.x + shieldTopTangent.x * steps, y: innerTop)
+        }
+        var path = Path()
+        path.move(to: bottomEnd)
+        path.addLine(to: shieldBottomJoin)
+        shieldElements.forEach { append($0, to: &path) }
+        path.addLine(to: topEnd)
+        path.closeSubpath()
+        return path
     }
 
     private static func bar(end: BarEnd, left: CGFloat, top: CGFloat, bottom: CGFloat) -> Path {

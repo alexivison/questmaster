@@ -9,7 +9,7 @@ enum TrackerListMetrics {
     static let workerIndent: CGFloat = 23
     static let rootPlateWidth: CGFloat = 280
     static let workerPlateWidth: CGFloat = 257
-    static let standaloneCapHeight: CGFloat = 54
-    static let masterCapHeight: CGFloat = 60
+    static let standaloneCapHeight: CGFloat = 58
+    static let masterCapHeight: CGFloat = 66
     static let workerCapHeight: CGFloat = 47
 }

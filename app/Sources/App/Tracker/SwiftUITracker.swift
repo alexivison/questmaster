@@ -1179,7 +1179,7 @@ private enum TrackerNameplateRole: Equatable {
     var width: CGFloat { isWorker ? TrackerListMetrics.workerPlateWidth : TrackerListMetrics.rootPlateWidth }
     /// Tall enough for the cap and for what hangs from the bar: the colour bar, or the worker's tag.
     var rowHeight: CGFloat { max(plateSize.height, plateEdges.bottom + Self.barSize.height - 1) }
-    /// The cap (circle or shield) wraps the portrait and sticks out past the 42pt bar by 2 to 9pt, as in the v2 SVGs.
+    /// The cap (circle or shield) wraps the portrait with the 5pt rim and sticks out past the 42pt bar, as in the v2 SVGs.
     var plateSize: CGSize {
         switch self {
         case .standalone: CGSize(width: width, height: TrackerListMetrics.standaloneCapHeight)
@@ -1189,17 +1189,18 @@ private enum TrackerNameplateRole: Equatable {
     }
     var portraitSide: CGFloat {
         switch self {
-        case .standalone: 44
-        case .master: 43
-        case .worker: 35
+        case .standalone: 48
+        case .master: 47
+        case .worker: 37
         }
     }
-    /// The portrait sits inside the cap's rim; the master's shield centre lands within half a point of the disc's.
+    /// The portrait sits 5pt inside the cap on every role: the circles' rim is exactly 5, and the shield is
+    /// scaled and the disc placed so its tightest sides (left and top) are 5 as well.
     var portraitOrigin: CGPoint {
         switch self {
         case .standalone: CGPoint(x: 5, y: 5)
-        case .master: CGPoint(x: 8, y: 6)
-        case .worker: CGPoint(x: 6, y: 6)
+        case .master: CGPoint(x: 9, y: 7)
+        case .worker: CGPoint(x: 5, y: 5)
         }
     }
     /// The strip stack, centred on the plate's bar with its text a few points right of the portrait; its
@@ -1241,8 +1242,8 @@ private enum TrackerNameplateRole: Equatable {
     /// the 32pt strip stack with 5pt above and below.
     private var plateEdges: (top: CGFloat, bottom: CGFloat) {
         switch self {
-        case .standalone: (3, 45)
-        case .master: (4, 46)
+        case .standalone: (5, 47)
+        case .master: (6, 48)
         case .worker: (3, 45)
         }
     }
@@ -1880,6 +1881,7 @@ private struct TrackerAgentMark: View {
     let shortcutNumber: Int?
     let portraitSide: CGFloat
 
+    private static let ringWidth: CGFloat = 1.5
     private var iconSide: CGFloat { portraitSide * 0.615 }
 
     private var roleKind: SessionRoleKind {
@@ -1913,10 +1915,10 @@ private struct TrackerAgentMark: View {
         .frame(width: portraitSide, height: portraitSide)
     }
 
-    // The ring views stroke inside their frame, so the 1pt ring sits on the portrait edge
+    // The ring views stroke inside their frame, so the ring sits on the portrait edge
     // and never lands on a half-point origin that would snap off-center.
     private var statusFrame: some View {
-        TrackerStatusRing(kind: status.kind, color: status.color, restingColor: inactiveRingColor)
+        TrackerStatusRing(kind: status.kind, color: status.color, restingColor: inactiveRingColor, lineWidth: Self.ringWidth)
             .frame(width: portraitSide, height: portraitSide)
     }
 
@@ -2011,22 +2013,23 @@ private struct TrackerAgentMark: View {
     }
 }
 
-/// The 1pt portrait ring. It is the nameplate's only status indicator.
+/// The portrait ring. It is the nameplate's only status indicator.
 private struct TrackerStatusRing: View {
     let kind: TrackerStatusKind
     let color: NSColor
     let restingColor: NSColor
+    var lineWidth: CGFloat = 1
 
     var body: some View {
         switch kind {
         case .working:
-            TrackerWorkingIconRing()
+            TrackerWorkingIconRing(lineWidth: lineWidth)
         case .blocked:
-            TrackerWorkingIconPulse(color: color)
+            TrackerWorkingIconPulse(color: color, lineWidth: lineWidth)
         case .done:
-            TrackerDoneIconPulse(color: color, restingColor: restingColor)
+            TrackerDoneIconPulse(color: color, restingColor: restingColor, lineWidth: lineWidth)
         case .needsInput:
-            TrackerWorkingIconPulse(color: color, breathing: .needsInput)
+            TrackerWorkingIconPulse(color: color, lineWidth: lineWidth, breathing: .needsInput)
         case .error:
             staticRing(color)
         case .idle, .stopped:
@@ -2036,12 +2039,13 @@ private struct TrackerStatusRing: View {
 
     private func staticRing(_ ringColor: NSColor) -> some View {
         Circle()
-            .strokeBorder(ringColor.swiftUI, lineWidth: 1)
+            .strokeBorder(ringColor.swiftUI, lineWidth: lineWidth)
             .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
     }
 }
 
 private struct TrackerWorkingIconRing: View {
+    let lineWidth: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var highlightRotation = 0.0
 
@@ -2050,7 +2054,7 @@ private struct TrackerWorkingIconRing: View {
             .overlay {
                 if !reduceMotion {
                     Circle()
-                        .strokeBorder(highlight, lineWidth: 1)
+                        .strokeBorder(highlight, lineWidth: lineWidth)
                         .rotationEffect(.degrees(highlightRotation))
                         .mask(ringMask)
                 }
@@ -2065,12 +2069,12 @@ private struct TrackerWorkingIconRing: View {
 
     private var ring: some View {
         Circle()
-            .strokeBorder(AppPalette.masterRole.swiftUI, lineWidth: 1)
+            .strokeBorder(AppPalette.masterRole.swiftUI, lineWidth: lineWidth)
     }
 
     private var ringMask: some View {
         Circle()
-            .strokeBorder(.white, lineWidth: 1)
+            .strokeBorder(.white, lineWidth: lineWidth)
     }
 
     private var highlight: AngularGradient {
@@ -2108,12 +2112,13 @@ private struct TrackerWorkingIconPulse: View {
     private static let glowInset: CGFloat = 3
 
     let color: NSColor
+    let lineWidth: CGFloat
     var breathing: Breathing = .blocked
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Circle()
-            .strokeBorder(color.swiftUI, lineWidth: 1)
+            .strokeBorder(color.swiftUI, lineWidth: lineWidth)
             .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
             .shadow(color: color.withAlphaComponent(0.55).swiftUI, radius: 0.75)
             .padding(Self.glowInset)
@@ -2127,6 +2132,7 @@ private struct TrackerWorkingIconPulse: View {
 private struct TrackerDoneIconPulse: View {
     let color: NSColor
     let restingColor: NSColor
+    let lineWidth: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var didPulse = false
 
@@ -2155,7 +2161,7 @@ private struct TrackerDoneIconPulse: View {
 
     private func ring(_ ringColor: NSColor) -> some View {
         Circle()
-            .strokeBorder(ringColor.swiftUI, lineWidth: 1)
+            .strokeBorder(ringColor.swiftUI, lineWidth: lineWidth)
             .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
             .shadow(color: ringColor.withAlphaComponent(0.55).swiftUI, radius: 0.75)
     }
