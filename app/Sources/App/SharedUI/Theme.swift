@@ -166,8 +166,9 @@ enum AppPalette {
 }
 
 enum AppFonts {
-    // The tracker follows the user's Ghostty font-family at Questmaster's own sizes and weights,
-    // falling back to the system fonts when Ghostty sets none or the family is not installed.
+    // The monospaced fonts (snippets, timers, pill counts, filter fields, session chips, dock rows and the
+    // new-session sheet) follow the user's Ghostty font-family at Questmaster's own sizes and weights,
+    // falling back to the system mono when Ghostty sets none or the family is not installed.
     static let mono = monospaced(size: 12.5, weight: .regular)
     static let monoSmall = monospaced(size: 11, weight: .regular)
     static let monoBold = monospaced(size: 12.5, weight: .semibold)

@@ -159,7 +159,7 @@ struct NewSessionRootView: View {
                 Rectangle()
                     .fill(connectorColor)
                     .frame(width: Token.Size.divider, height: 12)
-                EffortConnectorMarker()
+                DiamondShape()
                     .fill(connectorColor)
                     .frame(
                         width: EffortConnectorMarker.side,
@@ -421,16 +421,6 @@ private extension VerticalAlignment {
 
 /// The small diamond where the effort connector meets its value, marking that the
 /// value hangs off the Model row above it.
-private struct EffortConnectorMarker: Shape {
+private enum EffortConnectorMarker {
     static let side: CGFloat = 5.2
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
-        path.closeSubpath()
-        return path
-    }
 }

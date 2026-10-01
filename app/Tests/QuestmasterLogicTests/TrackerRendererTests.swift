@@ -12,6 +12,7 @@ struct TrackerRendererTests {
         statusClassificationKeepsActiveShellIdleDespiteStaleState()
         statusClassificationKeepsStoppedShellsResumable()
         elapsedFormatShowsHoursAndTwoDigitMinutes()
+        workerTagPadsHoursToTwoDigits()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
@@ -91,6 +92,19 @@ struct TrackerRendererTests {
 
         expect(stoppedShell.kind == .stopped, "stopped shell should remain resumable")
         expect(exitedShell.kind == .stopped, "exited shell should remain resumable")
+    }
+
+    private static func workerTagPadsHoursToTwoDigits() {
+        let cases: [(duration: String, expected: String)] = [
+            ("0:05:12", "00:05:12"),
+            ("1:30:20", "01:30:20"),
+            ("10:00:00", "10:00:00"),
+            ("", ""),
+        ]
+        for testCase in cases {
+            let padded = TrackerSession.paddedHours(testCase.duration)
+            expect(padded == testCase.expected, "\(testCase.duration) padded as \(padded), expected \(testCase.expected)")
+        }
     }
 
     private static func elapsedFormatShowsHoursAndTwoDigitMinutes() {

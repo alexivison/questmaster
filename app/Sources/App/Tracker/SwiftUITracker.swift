@@ -916,6 +916,7 @@ private struct TrackerRepoSection: View {
                                     onToggleWorkersCollapsed: { _ in }
                                 )
                                 .transition(.move(edge: .top).combined(with: .opacity))
+                                .zIndex(-1)
                             }
                         }
                     }
@@ -1255,29 +1256,32 @@ private enum TrackerNameplateRole: Equatable {
     /// The plate outline (the border's centre line); it is both filled and stroked, so the plate's
     /// outer edge is exactly half a point outside it however the row is scaled.
     var plateOutline: Path {
-        let source: Path
-        let figmaEdges: (top: CGFloat, bottom: CGFloat, first: CGFloat, last: CGFloat)
         switch self {
-        case .standalone:
-            source = TrackerPlatePaths.standaloneOutline
-            figmaEdges = (3.5, 33.5, 0.5, 45.5)
-        case .master:
-            source = TrackerPlatePaths.masterOutline
-            figmaEdges = (3.5, 33.5, 0.51, 50.42)
-        case .worker:
-            source = TrackerPlatePaths.workerOutline
-            figmaEdges = (3.42, 32.58, 0.5, 35.5)
+        case .standalone: Self.standaloneOutline
+        case .master: Self.masterOutline
+        case .worker: Self.workerOutline
         }
-        return source.nameplateScaled(
-            xScale: plateScale,
-            width: width,
-            leadingZone: plateZones.leading,
-            trailingZone: plateZones.trailing,
+    }
+
+    private static let standaloneOutline = scaledOutline(of: .standalone, source: TrackerPlatePaths.standaloneOutline, figmaEdges: (3.5, 33.5, 0.5, 45.5))
+    private static let masterOutline = scaledOutline(of: .master, source: TrackerPlatePaths.masterOutline, figmaEdges: (3.5, 33.5, 0.51, 50.42))
+    private static let workerOutline = scaledOutline(of: .worker, source: TrackerPlatePaths.workerOutline, figmaEdges: (3.42, 32.58, 0.5, 35.5))
+
+    private static func scaledOutline(
+        of role: TrackerNameplateRole,
+        source: Path,
+        figmaEdges: (top: CGFloat, bottom: CGFloat, first: CGFloat, last: CGFloat)
+    ) -> Path {
+        source.nameplateScaled(
+            xScale: role.plateScale,
+            width: role.width,
+            leadingZone: role.plateZones.leading,
+            trailingZone: role.plateZones.trailing,
             yAnchors: [
                 (figmaEdges.first, 0.5),
-                (figmaEdges.top, plateEdges.top + 0.5),
-                (figmaEdges.bottom, plateEdges.bottom - 0.5),
-                (figmaEdges.last, plateSize.height - 0.5),
+                (figmaEdges.top, role.plateEdges.top + 0.5),
+                (figmaEdges.bottom, role.plateEdges.bottom - 0.5),
+                (figmaEdges.last, role.plateSize.height - 0.5),
             ]
         )
     }
@@ -1485,11 +1489,48 @@ struct TrackerColorBar: View {
     }
 }
 
-/// Today's accent-bar pulse: the repo color lifted with plusLighter while the session works.
-/// Driven by a 15fps timeline instead of a display-rate animation, so the redraw cost the
-/// terminal shares the main thread with stays small; the lift eases 0 to 0.9 and back every 2.2s.
-private struct TrackerColorBarPulse: View {
+/// One low-rate clock for every pulsing bar and ring in the list. Views that read `time` redraw at
+/// 15fps instead of at display rate, and the single timer runs only while some view is on screen and
+/// animating, so the redraw cost the terminal shares the main thread with stays small and flat.
+@MainActor @Observable
+final class TrackerPulseClock {
+    static let shared = TrackerPulseClock()
     private static let framesPerSecond = 15.0
+
+    private(set) var time: TimeInterval = Date.now.timeIntervalSinceReferenceDate
+    @ObservationIgnored private var subscribers = 0
+    @ObservationIgnored private var timer: Timer?
+
+    func subscribe() {
+        subscribers += 1
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 1 / Self.framesPerSecond, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.time = Date.now.timeIntervalSinceReferenceDate }
+        }
+    }
+
+    func unsubscribe() {
+        subscribers = max(0, subscribers - 1)
+        guard subscribers == 0 else { return }
+        timer?.invalidate()
+        timer = nil
+    }
+}
+
+/// A view that reads the shared pulse clock only while it is on screen and motion is allowed.
+private struct TrackerPulseSubscription: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { if isActive { TrackerPulseClock.shared.subscribe() } }
+            .onDisappear { if isActive { TrackerPulseClock.shared.unsubscribe() } }
+    }
+}
+
+/// Today's accent-bar pulse: the repo color lifted with plusLighter while the session works;
+/// the lift eases 0 to 0.9 and back every 2.2s on the shared clock.
+private struct TrackerColorBarPulse: View {
     private static let period: TimeInterval = 2.2
     private static let peakLift = 0.9
     private static let reducedMotionLift = 0.5
@@ -1499,16 +1540,14 @@ private struct TrackerColorBarPulse: View {
     let isWorking: Bool
     let shape: UnevenRoundedRectangle
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var start = Date.now
 
     var body: some View {
         if isWorking && reduceMotion {
             lift(Self.reducedMotionLift)
         } else if isWorking {
-            TimelineView(.periodic(from: start, by: 1 / Self.framesPerSecond)) { context in
-                let phase = context.date.timeIntervalSince(start) / Self.period
-                lift(Self.peakLift * (1 - cos(phase * 2 * .pi)) / 2)
-            }
+            let phase = TrackerPulseClock.shared.time / Self.period
+            lift(Self.peakLift * (1 - cos(phase * 2 * .pi)) / 2)
+                .modifier(TrackerPulseSubscription(isActive: true))
         }
     }
 
@@ -1591,7 +1630,7 @@ struct TrackerDiamond: View {
     var highlight = UnitPoint(x: 0.5, y: 0.25)
 
     var body: some View {
-        TrackerGemShape()
+        DiamondShape()
             .fill(RadialGradient(
                 colors: [TrackerNameplateColor.barShade(color, stop: 0.25).swiftUI, TrackerNameplateColor.diamond(color).swiftUI],
                 center: highlight,
@@ -1599,18 +1638,6 @@ struct TrackerDiamond: View {
                 endRadius: Self.side * 0.45
             ))
             .frame(width: Self.side, height: Self.side)
-    }
-}
-
-private struct TrackerGemShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -1646,7 +1673,7 @@ private struct TrackerWorkerTimerTag: View {
         TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
             let duration = TrackerRenderer.durationLabel(for: session, now: context.date)
             if !duration.isEmpty {
-                tag(displayDuration(duration))
+                tag(TrackerSession.paddedHours(duration))
             }
         }
     }
@@ -1666,13 +1693,6 @@ private struct TrackerWorkerTimerTag: View {
                     .overlay(shape.strokeBorder(outlineColor.swiftUI, lineWidth: 1))
             }
             .offset(x: 49, y: role.tagOriginY)
-    }
-
-    private func displayDuration(_ value: String) -> String {
-        guard let separator = value.firstIndex(of: ":"), value[..<separator].count == 1 else {
-            return value
-        }
-        return "0" + value
     }
 }
 
@@ -1731,9 +1751,9 @@ private struct TrackerSessionRow: View {
                 )
             }
         )
-        .compositingGroup()
-        .opacity(rendered.status.kind == .stopped ? 0.65 : 1)
+        .modifier(TrackerStoppedDimming(isStopped: rendered.status.kind == .stopped))
         .help(shortcutTooltip)
+        .accessibilityLabel("\(session.title.isEmpty ? session.id : session.title), \(rendered.status.classification.label)")
         .contextMenu {
             Button("Edit Session…") {
                 onEditSession(session)
@@ -1750,6 +1770,20 @@ private struct TrackerSessionRow: View {
     private var shortcutTooltip: String {
         guard let shortcutNumber else { return "" }
         return "Switch to session \(shortcutNumber)  \(Keymap.Command.selectSession[shortcutNumber - 1].displayGlyph)"
+    }
+}
+
+/// Dims a stopped row after compositing it, so the plate and its contents fade as one. Other rows
+/// stay out of an offscreen group, which would re-composite the whole row on every ring and bar frame.
+private struct TrackerStoppedDimming: ViewModifier {
+    let isStopped: Bool
+
+    func body(content: Content) -> some View {
+        if isStopped {
+            content.compositingGroup().opacity(0.65)
+        } else {
+            content
+        }
     }
 }
 
@@ -2064,16 +2098,21 @@ private struct TrackerWorkingIconRing: View {
     }
 }
 
-/// A ring that fades between two opacities on randomized legs. The rasterized ring is static;
-/// only its opacity animates, and the animated state lives in this view alone.
+/// A ring that breathes between two opacities on the shared pulse clock. The rasterized ring is
+/// static; only its opacity changes.
 private struct TrackerWorkingIconPulse: View {
     struct Breathing {
         let lowAlpha: Double
-        let peakAlphaRange: ClosedRange<Double>
-        let legDurationRange: ClosedRange<TimeInterval>
+        let peakAlpha: Double
+        let period: TimeInterval
 
-        static let blocked = Breathing(lowAlpha: 0.95, peakAlphaRange: 0.95...1, legDurationRange: 1.1...1.6)
-        static let needsInput = Breathing(lowAlpha: 0.4, peakAlphaRange: 0.9...1, legDurationRange: 1.8...2.4)
+        static let blocked = Breathing(lowAlpha: 0.95, peakAlpha: 1, period: 2.7)
+        static let needsInput = Breathing(lowAlpha: 0.4, peakAlpha: 1, period: 4.2)
+
+        func alpha(at time: TimeInterval) -> Double {
+            let phase = time / period
+            return lowAlpha + (peakAlpha - lowAlpha) * (1 - cos(phase * 2 * .pi)) / 2
+        }
     }
 
     private static let glowInset: CGFloat = 3
@@ -2081,7 +2120,6 @@ private struct TrackerWorkingIconPulse: View {
     let color: NSColor
     var breathing: Breathing = .blocked
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var alpha: Double = 0.65
 
     var body: some View {
         Circle()
@@ -2091,32 +2129,8 @@ private struct TrackerWorkingIconPulse: View {
             .padding(Self.glowInset)
             .drawingGroup()
             .padding(-Self.glowInset)
-            .opacity(alpha)
-            .task {
-                guard !reduceMotion else {
-                    alpha = breathing.peakAlphaRange.upperBound
-                    return
-                }
-                await runBreatheLoop()
-            }
-    }
-
-    @MainActor
-    private func runBreatheLoop() async {
-        while !Task.isCancelled {
-            let riseDuration = Double.random(in: breathing.legDurationRange)
-            withAnimation(.easeInOut(duration: riseDuration)) {
-                alpha = Double.random(in: breathing.peakAlphaRange)
-            }
-            try? await Task.sleep(for: .seconds(riseDuration))
-            guard !Task.isCancelled else { return }
-
-            let fallDuration = Double.random(in: breathing.legDurationRange)
-            withAnimation(.easeInOut(duration: fallDuration)) {
-                alpha = breathing.lowAlpha
-            }
-            try? await Task.sleep(for: .seconds(fallDuration))
-        }
+            .opacity(reduceMotion ? breathing.peakAlpha : breathing.alpha(at: TrackerPulseClock.shared.time))
+            .modifier(TrackerPulseSubscription(isActive: !reduceMotion))
     }
 }
 
