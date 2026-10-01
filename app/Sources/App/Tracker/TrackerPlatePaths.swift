@@ -74,26 +74,26 @@ enum TrackerPlatePaths {
         ]
     )
 
-    /// The master shield's left run in the SVG's coordinates, from the bottom of the bar round the
-    /// bottom point and over the top to the bar's top. Its hidden right side is the closing line, which
-    /// sits inside the bar.
-    private static let shieldBottomJoin = CGPoint(x: 41.7954, y: 38)
-    private static let shieldTopJoin = CGPoint(x: 42.7759, y: 4)
+    /// The master shield from the v3 SVG (54 wide, 53 tall, symmetric about x 27, tip at (27, 53)), in the
+    /// SVG's coordinates: the run from the bottom of the bar round the tip and over the top to the bar's
+    /// top. Its hidden right side is the closing line, which sits inside the bar.
+    private static let shieldBottomJoin = CGPoint(x: 46.2801, y: 38)
+    private static let shieldTopJoin = CGPoint(x: 45.5194, y: 4)
     /// The curves' directions at the joins, heading into the bar.
-    private static let shieldBottomTangent = CGPoint(x: 41.7954 - 36.8318, y: 38 - 44.3221)
-    private static let shieldTopTangent = CGPoint(x: 42.7759 - 41.498, y: 4 - 3.69138)
+    private static let shieldBottomTangent = CGPoint(x: 46.2801 - 40.9373, y: 38 - 45.4324)
+    private static let shieldTopTangent = CGPoint(x: 45.5194 - 44.3028, y: 4 - 3.71825)
     private static let shieldJoinDepth: CGFloat = 1
-    private static let shieldSVGHeight: CGFloat = 51
-    private static let shieldSVGCenterX: CGFloat = 25
-    private static let shieldSVGWidth: CGFloat = 50
+    private static let shieldSVGHeight: CGFloat = 53
+    private static let shieldSVGCenterX: CGFloat = 27
+    private static let shieldSVGWidth: CGFloat = 54
     private static let shieldElements: [Path.Element] = [
-        .curve(to: CGPoint(x: 25.0005, y: 51), control1: CGPoint(x: 36.8318, y: 44.3221), control2: CGPoint(x: 29.6294, y: 48.3699)),
-        .curve(to: CGPoint(x: 3.48387, y: 28.7334), control1: CGPoint(x: 18.4213, y: 47.2617), control2: CGPoint(x: 6.64246, y: 40.6597)),
-        .curve(to: CGPoint(x: 0.0151154, y: 5.79688), control1: CGPoint(x: -0.412952, y: 14.0166), control2: CGPoint(x: 0.0117466, y: 5.8601)),
-        .curve(to: CGPoint(x: 11.6626, y: 2.93945), control1: CGPoint(x: 0.0151154, y: 5.79688), control2: CGPoint(x: 3.03801, y: 4.9803)),
-        .curve(to: CGPoint(x: 25.0014, y: 0), control1: CGPoint(x: 20.7602, y: 0.786895), control2: CGPoint(x: 24.9698, y: 0.00586913)),
-        .curve(to: CGPoint(x: 38.3374, y: 2.93945), control1: CGPoint(x: 25.0014, y: 0), control2: CGPoint(x: 29.2082, y: 0.778784)),
-        .curve(to: CGPoint(x: 42.7759, y: 4), control1: CGPoint(x: 40.0248, y: 3.33875), control2: CGPoint(x: 41.498, y: 3.69138)),
+        .curve(to: CGPoint(x: 26.9998, y: 53), control1: CGPoint(x: 40.9373, y: 45.4324), control2: CGPoint(x: 32.367, y: 50.0655)),
+        .curve(to: CGPoint(x: 3.76155, y: 29.8594), control1: CGPoint(x: 19.8942, y: 49.1151), control2: CGPoint(x: 7.17265, y: 42.2537)),
+        .curve(to: CGPoint(x: 0.0164325, y: 6.02344), control1: CGPoint(x: -0.463313, y: 14.5061), control2: CGPoint(x: 0.0164325, y: 6.02344)),
+        .curve(to: CGPoint(x: 12.5955, y: 3.05469), control1: CGPoint(x: 0.0503875, y: 6.01462), control2: CGPoint(x: 3.32937, y: 5.16455)),
+        .curve(to: CGPoint(x: 27.0008, y: 0), control1: CGPoint(x: 22.4005, y: 0.822364), control2: CGPoint(x: 26.948, y: 0.00941334)),
+        .curve(to: CGPoint(x: 41.4041, y: 3.05469), control1: CGPoint(x: 27.0008, y: 0), control2: CGPoint(x: 31.5444, y: 0.809252)),
+        .curve(to: CGPoint(x: 45.5194, y: 4), control1: CGPoint(x: 42.9352, y: 3.40331), control2: CGPoint(x: 44.3028, y: 3.71825)),
     ]
 
     static func shieldCenterX(capWidth: CGFloat) -> CGFloat { shieldSVGCenterX * capWidth / shieldSVGWidth }
