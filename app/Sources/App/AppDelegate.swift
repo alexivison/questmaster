@@ -121,7 +121,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             navigation: navigation,
             window: { [weak self] in self?.shellHandles?.window },
             splitView: { [weak self] in self?.shellHandles?.splitView },
-            trackerShell: { [weak self] in self?.shellHandles?.trackerShell },
             terminalShell: { [weak self] in self?.shellHandles?.terminalShell },
             dockShell: { [weak self] in self?.shellHandles?.dockShell },
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },

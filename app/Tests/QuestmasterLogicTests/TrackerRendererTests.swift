@@ -3,12 +3,16 @@ import QuestmasterCore
 
 struct TrackerRendererTests {
     static func run() {
-        statusClassificationEmitsNeedsInputRing()
+        statusClassificationEmitsNeedsInput()
         statusClassificationTreatsOpenCodePermissionAsNeedsInput()
         statusClassificationTreatsOpenCodeSessionErrorAsError()
-        statusClassificationKeepsErrorSquareDistinctFromBlockedCircle()
-        statusClassificationSpinsOnlyForWorking()
-        statusClassificationHidesActiveShellBadge()
+        statusClassificationKeepsErrorDistinctFromBlocked()
+        statusClassificationMapsWorkingToWorking()
+        statusClassificationLabelsStartingAsIdle()
+        statusClassificationKeepsActiveShellIdleDespiteStaleState()
+        statusClassificationKeepsStoppedShellsResumable()
+        elapsedFormatShowsHoursAndTwoDigitMinutes()
+        workerTagPadsHoursToTwoDigits()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
@@ -25,13 +29,12 @@ struct TrackerRendererTests {
         print("TrackerRendererTests: all tests passed")
     }
 
-    private static func statusClassificationEmitsNeedsInputRing() {
+    private static func statusClassificationEmitsNeedsInput() {
         let session = trackerSession(id: "needs", state: "blocked", lastKind: "waiting_for_user")
 
         let status = TrackerStatusClassifier.classify(session)
 
         expect(status.kind == .needsInput, "needs-input state classified as \(status.kind)")
-        expect(status.indicatorAffordance == .ring, "needs-input affordance was \(status.indicatorAffordance)")
     }
 
     private static func statusClassificationTreatsOpenCodePermissionAsNeedsInput() {
@@ -40,7 +43,6 @@ struct TrackerRendererTests {
         let status = TrackerStatusClassifier.classify(session)
 
         expect(status.kind == .needsInput, "OpenCode permission classified as \(status.kind)")
-        expect(status.indicatorAffordance == .ring, "OpenCode permission affordance was \(status.indicatorAffordance)")
     }
 
     private static func statusClassificationTreatsOpenCodeSessionErrorAsError() {
@@ -49,51 +51,77 @@ struct TrackerRendererTests {
         let status = TrackerStatusClassifier.classify(session)
 
         expect(status.kind == .error, "OpenCode session.error classified as \(status.kind)")
-        expect(status.indicatorAffordance == .square, "OpenCode session.error affordance was \(status.indicatorAffordance)")
     }
 
-    private static func statusClassificationKeepsErrorSquareDistinctFromBlockedCircle() {
+    private static func statusClassificationKeepsErrorDistinctFromBlocked() {
         let error = TrackerStatusClassifier.classify(trackerSession(id: "error", state: "error"))
         let blocked = TrackerStatusClassifier.classify(trackerSession(id: "blocked", state: "blocked"))
 
         expect(error.kind == .error, "error state classified as \(error.kind)")
-        expect(error.indicatorAffordance == .square, "error affordance was \(error.indicatorAffordance)")
         expect(blocked.kind == .blocked, "blocked state classified as \(blocked.kind)")
-        expect(blocked.indicatorAffordance == .circle, "blocked affordance was \(blocked.indicatorAffordance)")
-        expect(error.indicatorAffordance != blocked.indicatorAffordance, "error and blocked affordances were not distinct")
     }
 
-    private static func statusClassificationSpinsOnlyForWorking() {
+    private static func statusClassificationMapsWorkingToWorking() {
         let working = TrackerStatusClassifier.classify(trackerSession(id: "working", state: "working"))
-        let starting = TrackerStatusClassifier.classify(trackerSession(id: "starting", state: "starting"))
-        let checking = TrackerStatusClassifier.classify(trackerSession(id: "checking", state: "checking"))
-        let idle = TrackerStatusClassifier.classify(trackerSession(id: "idle", state: "idle"))
 
-        expect(working.indicatorAffordance == .spinner, "working should spin")
-        expect(starting.indicatorAffordance == .circle, "starting should be steady")
-        expect(starting.label == "idle (started)", "starting label was \(starting.label)")
-        expect(checking.indicatorAffordance == .circle, "checking should be steady")
-        expect(idle.indicatorAffordance == .circle, "idle should be steady")
+        expect(working.kind == .working, "working state classified as \(working.kind)")
+        expect(working.label == "working", "working label was \(working.label)")
     }
 
-    private static func statusClassificationHidesActiveShellBadge() {
-        let shell = TrackerStatusClassifier.classify(trackerSession(id: "shell", state: "unknown", agent: ""))
-        let explicitShell = TrackerStatusClassifier.classify(trackerSession(id: "shell-agent", state: "", agent: "shell"))
-        let staleDoneShell = TrackerStatusClassifier.classify(trackerSession(id: "done-shell", state: "done", agent: ""))
-        let staleStoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "active-stopped-shell", state: "stopped", agent: ""))
+    private static func statusClassificationLabelsStartingAsIdle() {
+        let starting = TrackerStatusClassifier.classify(trackerSession(id: "starting", state: "starting"))
+
+        expect(starting.kind == .idle, "starting classified as \(starting.kind)")
+        expect(starting.label == "idle (started)", "starting label was \(starting.label)")
+    }
+
+    private static func statusClassificationKeepsActiveShellIdleDespiteStaleState() {
+        for agent in ["", "shell"] {
+            for staleState in ["stopped", "exited", "done", "unknown"] {
+                let shell = TrackerStatusClassifier.classify(trackerSession(id: "shell", state: staleState, agent: agent))
+
+                expect(shell.kind == .idle, "active shell (agent \"\(agent)\") with stale \(staleState) state classified as \(shell.kind)")
+                expect(shell.label == "active", "active shell (agent \"\(agent)\") with stale \(staleState) state was labeled \(shell.label)")
+            }
+        }
+    }
+
+    private static func statusClassificationKeepsStoppedShellsResumable() {
         let stoppedShell = TrackerStatusClassifier.classify(trackerSession(id: "stopped-shell", state: "unknown", lifecycle: "stopped", agent: ""))
         let exitedShell = TrackerStatusClassifier.classify(trackerSession(id: "exited-shell", state: "done", lifecycle: "exited", agent: ""))
-        let agent = TrackerStatusClassifier.classify(trackerSession(id: "agent", state: "unknown", agent: "codex"))
 
-        expect(!shell.showsBadge, "active unknown shell should hide badge")
-        expect(!explicitShell.showsBadge, "explicit shell should hide badge")
-        expect(!staleDoneShell.showsBadge, "active shell with stale done state should hide badge")
-        expect(!staleStoppedShell.showsBadge, "active shell with stale stopped state should hide badge")
-        expect(stoppedShell.showsBadge, "stopped shell should keep badge")
         expect(stoppedShell.kind == .stopped, "stopped shell should remain resumable")
-        expect(exitedShell.showsBadge, "exited shell should keep badge")
         expect(exitedShell.kind == .stopped, "exited shell should remain resumable")
-        expect(agent.showsBadge, "agent sessions should keep unknown badge")
+    }
+
+    private static func workerTagPadsHoursToTwoDigits() {
+        let cases: [(duration: String, expected: String)] = [
+            ("0:05:12", "00:05:12"),
+            ("1:30:20", "01:30:20"),
+            ("10:00:00", "10:00:00"),
+            ("", ""),
+        ]
+        for testCase in cases {
+            let padded = TrackerSession.paddedHours(testCase.duration)
+            expect(padded == testCase.expected, "\(testCase.duration) padded as \(padded), expected \(testCase.expected)")
+        }
+    }
+
+    private static func elapsedFormatShowsHoursAndTwoDigitMinutes() {
+        let cases: [(milliseconds: Int, expected: String)] = [
+            (5_420_000, "1:30:20"),
+            (1_825_000, "0:30:25"),
+            (45_000, "0:00:45"),
+            (3_599_000, "0:59:59"),
+            (3_600_000, "1:00:00"),
+            (36_000_000, "10:00:00"),
+        ]
+        for testCase in cases {
+            let formatted = TrackerSession.formatElapsed(testCase.milliseconds)
+            expect(formatted == testCase.expected, "\(testCase.milliseconds)ms formatted as \(formatted ?? "nil"), expected \(testCase.expected)")
+        }
+        expect(TrackerSession.formatElapsed(nil) == nil, "a missing elapsed time should have no label")
+        expect(TrackerSession.formatElapsed(0) == nil, "a zero elapsed time should have no label")
     }
 
     private static func selectionMovementWraps() {
@@ -361,9 +389,7 @@ struct TrackerRendererTests {
         )
 
         expect(TrackerRowText.snippet(for: shell).isEmpty, "shell snippet should be visually empty")
-        expect(TrackerRowText.metadata(for: shell, homePath: "/Users/test").isEmpty, "shell metadata should be hidden")
         expect(TrackerRowText.snippet(for: agent) == "second", "agent snippet should use latest activity")
-        expect(TrackerRowText.metadata(for: agent, homePath: "/Users/test") == "~/repo", "agent metadata should keep worktree path")
     }
 
     private static func shellSessionsGroupAsUngroupedUntilAgentAdopts() {

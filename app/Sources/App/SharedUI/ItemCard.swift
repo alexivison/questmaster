@@ -1,21 +1,14 @@
 import AppKit
 import SwiftUI
 
-enum ItemCardCornerOrnament {
-    case master
-    case standalone
-}
-
 /// Shared card chrome for list rows that read as a bordered, riveted card:
-/// Tracker sessions, quests, and artifacts. `extraLeadingInset` reserves room
-/// for whatever a caller draws to the left of the card (a worker connector
-/// line, a select-mode checkbox) so that decoration renders outside the card
-/// bounds instead of a negative offset.
+/// quests, artifacts, and settings. `extraLeadingInset` reserves room for
+/// decorations callers draw to the left of the card.
 struct ItemCardShape: View {
     /// Vertical gap between adjacent cards.
     static let verticalMargin: CGFloat = 3.5
     /// Padding from the card's own edge to its content (icon/checkbox/text).
-    /// Shared by Tracker, Quest, and Artifact rows so their internal spacing
+    /// Shared by Quest and Artifact rows so their internal spacing
     /// matches exactly — callers should use this instead of a local literal.
     static let contentPadding: CGFloat = 12
     /// Trailing content padding. `ListRow`'s `leadingInset` clears the card's
@@ -24,29 +17,13 @@ struct ItemCardShape: View {
     /// to land on the same visual gap as the leading edge.
     static var trailingContentPadding: CGFloat { contentPadding + Token.Spacing.card }
     /// Gap between a row's leading icon/checkbox and its title/text block.
-    /// Shared by Tracker, Quest, and Artifact rows.
+    /// Shared by Quest and Artifact rows.
     static let iconLabelGap: CGFloat = 9
-    private static let accentBarMaximumHeight: CGFloat = 32
-    private static let accentBarWidth: CGFloat = 7
-    private static let idleCarvingDepth = 0.35
-    private static let peakCarvingDepth = 0.9
-
     private static let cornerRadius: CGFloat = Token.Radius.card
 
     var selected: Bool
     var hovered: Bool = false
     var extraLeadingInset: CGFloat = 0
-    var cornerOrnament: ItemCardCornerOrnament? = nil
-    /// Colored accent bars along the card's edges (repo/group color for Tracker).
-    var accentColor: NSColor? = nil
-    var accentIsWorking = false
-    /// Marks the card as the session currently attached to the terminal —
-    /// independent of `selected`, which tracks keyboard/click focus and can
-    /// point at a different row while arrow-key browsing the list.
-    var isCurrentTerminalSession = false
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var accentCarvingDepth = Self.idleCarvingDepth
 
     private var isHighlighted: Bool { hovered || selected }
 
@@ -54,108 +31,17 @@ struct ItemCardShape: View {
         isHighlighted ? AppPalette.hoverBorder : AppPalette.lineSoft
     }
 
-    // Reserved for the terminal-attached row, independent of selection --
-    // selection is a border-color cue (see borderColor above), so it still
-    // reads even while arrow-key browsing lands on a different row.
-    private var fillColor: NSColor {
-        isCurrentTerminalSession ? AppPalette.selection : AppPalette.item
-    }
-
     var body: some View {
         RoundedRectangle(cornerRadius: Self.cornerRadius)
-            .fill(fillColor.swiftUI)
+            .fill(AppPalette.item.swiftUI)
             .overlay(bezel)
-            .overlay(alignment: .leading) { accentBar(offset: -3, isTrailing: false) }
-            .overlay(alignment: .trailing) { accentBar(offset: 3, isTrailing: true) }
             .overlay(
                 RoundedRectangle(cornerRadius: Self.cornerRadius)
                     .strokeBorder(borderColor.swiftUI, lineWidth: 1)
             )
-            .overlay {
-                if cornerOrnament == nil {
-                    CornerBolts()
-                }
-            }
+            .overlay { CornerBolts() }
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-            .shadow(color: shadowColor, radius: 5, y: 2.5)
-            .task(id: accentCarvingTaskID) {
-                await pulseAccentCarving()
-            }
-            .overlay { cornerOrnaments }
             .itemCardMargins(extraLeadingInset: extraLeadingInset)
-    }
-
-    // The lift shadow is exclusive to the terminal-attached row -- selection
-    // is a border-color cue (see borderColor above), elevation means "this is
-    // what's in the terminal," full stop, regardless of keyboard/click focus.
-    private var shadowColor: Color {
-        isCurrentTerminalSession ? .black.opacity(0.55) : .clear
-    }
-
-    @ViewBuilder
-    private func accentBar(offset: CGFloat, isTrailing: Bool) -> some View {
-        if let accentColor {
-            let colorLift = accentIsWorking
-                ? max(0, (accentCarvingDepth - Self.idleCarvingDepth) / (Self.peakCarvingDepth - Self.idleCarvingDepth))
-                : 0
-            Capsule()
-                .fill(accentColor.swiftUI)
-                .overlay {
-                    if colorLift > 0 {
-                        Capsule()
-                            .fill(accentColor.swiftUI)
-                            .blendMode(.plusLighter)
-                            .opacity(colorLift * 0.65)
-                    }
-                }
-                .overlay {
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(0.1 + accentCarvingDepth * 0.25),
-                                    .clear,
-                                    .black.opacity(0.24 + accentCarvingDepth * 0.4),
-                                ],
-                                startPoint: isTrailing ? .trailing : .leading,
-                                endPoint: isTrailing ? .leading : .trailing
-                            )
-                        )
-                }
-                .frame(height: Self.accentBarMaximumHeight)
-                .frame(width: Self.accentBarWidth)
-                .offset(x: offset)
-        }
-    }
-
-    private var accentCarvingTaskID: Int {
-        guard accentIsWorking else {
-            return 0
-        }
-        return reduceMotion ? 1 : 2
-    }
-
-    @MainActor
-    private func pulseAccentCarving() async {
-        guard accentIsWorking else {
-            accentCarvingDepth = Self.idleCarvingDepth
-            return
-        }
-        guard !reduceMotion else {
-            accentCarvingDepth = 0.5
-            return
-        }
-        while !Task.isCancelled {
-            withAnimation(.easeInOut(duration: 1.1)) {
-                accentCarvingDepth = Self.peakCarvingDepth
-            }
-            try? await Task.sleep(for: .seconds(1.1))
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 1.1)) {
-                accentCarvingDepth = Self.idleCarvingDepth
-            }
-            try? await Task.sleep(for: .seconds(1.1))
-        }
     }
 
     /// A light-top/dark-bottom bezel — the cue that reads as a raised,
@@ -172,68 +58,6 @@ struct ItemCardShape: View {
             )
     }
 
-    @ViewBuilder
-    private var cornerOrnaments: some View {
-        if let cornerOrnament {
-            ItemCardCornerOrnaments(style: cornerOrnament)
-        }
-    }
-}
-
-private struct ItemCardCornerOrnaments: View {
-    let style: ItemCardCornerOrnament
-
-    private static let masterImage = AppSymbolStyle.resourceImage(
-        name: "master-corner-ornament",
-        fileExtension: "svg",
-        subdirectory: "Ornaments",
-        canvasSize: NSSize(width: 15, height: 15),
-        tintColor: AppPalette.brassActive
-    )
-    private static let standaloneImage = AppSymbolStyle.resourceImage(
-        name: "standalone-corner-ornament",
-        fileExtension: "svg",
-        subdirectory: "Ornaments",
-        canvasSize: NSSize(width: 12, height: 12),
-        tintColor: AppPalette.dim.withAlphaComponent(0.65)
-    )
-
-    private var image: NSImage? {
-        switch style {
-        case .master:
-            return Self.masterImage
-        case .standalone:
-            return Self.standaloneImage
-        }
-    }
-
-    var body: some View {
-        ZStack {
-            ornament(alignment: .topLeading)
-            ornament(alignment: .topTrailing, flippedHorizontally: true)
-            ornament(alignment: .bottomLeading, flippedVertically: true)
-            ornament(alignment: .bottomTrailing, flippedHorizontally: true, flippedVertically: true)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private func ornament(
-        alignment: Alignment,
-        flippedHorizontally: Bool = false,
-        flippedVertically: Bool = false
-    ) -> some View {
-        if let image {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: image.size.width, height: image.size.height)
-                .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
-                .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
-        }
-    }
 }
 
 extension View {

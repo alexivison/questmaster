@@ -45,21 +45,6 @@ final class DockChromeModel {
     }
 }
 
-struct TrackerTopBar: View {
-    var body: some View {
-        sideCardTopBarTitle("Sessions")
-            .frame(maxWidth: .infinity)
-            .padding(.leading, ShellMetrics.sideCardTopBarHorizontalInset)
-            .padding(.trailing, ShellMetrics.sideCardTopBarHorizontalInset)
-            .frame(maxWidth: .infinity)
-            .frame(height: ShellMetrics.dockTopBarHeight)
-            .background(AppPalette.panel.swiftUI)
-            // The pane sits under the full-size-content titlebar; ignore its safe area
-            // so the bar fills its frame instead of being inset downward.
-            .ignoresSafeArea()
-    }
-}
-
 struct TerminalTopBar: View {
     let model: TerminalChromeModel
     let onNewSession: () -> Void

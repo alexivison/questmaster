@@ -132,10 +132,8 @@ struct SettingsSheetView: View {
     }
 }
 
-/// A sidebar section entry, styled as the same riveted `ItemCardShape` card
-/// every Tracker/Quest/Artifact row uses — `cornerOrnament: nil` gives it the
-/// plain corner-bolt dots a Tracker worker row shows (master/standalone rows
-/// are the ones that swap those dots for a fancier ornament image).
+/// A sidebar section entry, styled as the same riveted `ItemCardShape` card the
+/// Quest and Artifact rows use.
 private struct SettingsSidebarItem: View {
     let title: String
     let symbolName: String

@@ -166,9 +166,17 @@ enum AppPalette {
 }
 
 enum AppFonts {
-    static let mono = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
-    static let monoSmall = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-    static let monoBold = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .semibold)
+    // The monospaced fonts (snippets, timers, pill counts, filter fields, session chips, dock rows and the
+    // new-session sheet) follow the user's Ghostty font-family at Questmaster's own sizes and weights,
+    // falling back to the system mono when Ghostty sets none or the family is not installed.
+    static let mono = monospaced(size: 12.5, weight: .regular)
+    static let monoSmall = monospaced(size: 11, weight: .regular)
+    static let monoBold = monospaced(size: 12.5, weight: .semibold)
+
+    private static func monospaced(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        GhosttyFontFamily.font(size: size, weight: weight) ?? .monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
     static let terminal = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static let body = NSFont.systemFont(ofSize: 13)
     static let bodyBold = NSFont.systemFont(ofSize: 13, weight: .semibold)
@@ -184,9 +192,6 @@ enum AppFonts {
     static let modalHelperLarge = NSFont.systemFont(ofSize: 13).serif
     /// Card-style list row titles (Tracker sessions, quests, artifacts).
     static let itemTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
-    /// `itemTitle` for the row that additionally needs its own emphasis (e.g. the
-    /// tracker session currently attached in the terminal).
-    static let itemTitleEmphasized = NSFont.systemFont(ofSize: 12.5, weight: .bold)
     /// Artifact rows alone use display typography; tracker titles keep `itemTitle`.
     static let artifactTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold).serif
     static let dockTabTitle = NSFont.systemFont(ofSize: 12, weight: .semibold).serif
@@ -197,6 +202,13 @@ enum AppFonts {
     /// The Settings sheet's per-role group titles (Master/Standalone/Worker) —
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
     static let settingsSectionTitle = NSFont.systemFont(ofSize: 14.5, weight: .semibold)
+
+    /// Tracker row titles at 12pt (the shared 12.5pt `itemTitle` lands its caps on half rows): the Ghostty font.
+    static let trackerTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
+        ?? .systemFont(ofSize: 12, weight: .semibold)
+    /// Tracker section titles: the Ghostty font, else the serif of `sectionTitle`.
+    static let trackerSectionTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
+        ?? NSFont.systemFont(ofSize: 12, weight: .semibold).serif
 }
 
 extension NSFont {

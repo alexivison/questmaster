@@ -5,7 +5,6 @@ enum QuestmasterLogicTests {
         TrackerRendererTests.run()
         TrackerRecolorLogicTests.run()
         TrackerCommandStateTests.run()
-        TrackerEndOrnamentVisibilityTests.run()
         MutationRequestTests.run()
         NavigationLogicTests.run()
         ShellSplitLayoutTests.run()
@@ -28,6 +27,7 @@ enum QuestmasterLogicTests {
         QuestCoreTests.run()
         ShellChromeTests.run()
         CaffeineStateTests.run()
+        GhosttyConfigParserTests.run()
         TerminalDetachSignalTests.run()
 
         let packageRoot = try findPackageRoot()

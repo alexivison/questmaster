@@ -2,32 +2,12 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-private struct SectionedListContentHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
-private struct SectionedListViewportHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
-struct SectionedList<Content: View, Footer: View>: View {
+struct SectionedList<Content: View>: View {
     let selectedID: String?
     var scrollOnAppear = false
     var scrollOnSelectionChange = true
     var scrollTargetID: String?
-    let footerHeight: CGFloat
     private let content: () -> Content
-    private let footer: () -> Footer
-    @State private var contentHeight: CGFloat = 0
-    @State private var viewportHeight: CGFloat = 0
     @State private var scrollDebounceTask: Task<Void, Never>?
 
     init(
@@ -35,17 +15,13 @@ struct SectionedList<Content: View, Footer: View>: View {
         scrollOnAppear: Bool = false,
         scrollOnSelectionChange: Bool = true,
         scrollTargetID: String? = nil,
-        footerHeight: CGFloat,
-        @ViewBuilder content: @escaping () -> Content,
-        @ViewBuilder footer: @escaping () -> Footer
+        @ViewBuilder content: @escaping () -> Content
     ) {
         self.selectedID = selectedID
         self.scrollOnAppear = scrollOnAppear
         self.scrollOnSelectionChange = scrollOnSelectionChange
         self.scrollTargetID = scrollTargetID
-        self.footerHeight = footerHeight
         self.content = content
-        self.footer = footer
     }
 
     var body: some View {
@@ -56,24 +32,9 @@ struct SectionedList<Content: View, Footer: View>: View {
                 }
                 .padding(.bottom, 5)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(key: SectionedListContentHeightKey.self, value: proxy.size.height)
-                    }
-                }
                 .background(SectionedListScrollerHider())
-                if showsFooter {
-                    footer()
-                }
             }
             .scrollIndicators(.hidden)
-            .background {
-                GeometryReader { proxy in
-                    Color.clear.preference(key: SectionedListViewportHeightKey.self, value: proxy.size.height)
-                }
-            }
-            .onPreferenceChange(SectionedListContentHeightKey.self) { contentHeight = $0 }
-            .onPreferenceChange(SectionedListViewportHeightKey.self) { viewportHeight = $0 }
             .onAppear {
                 guard scrollOnAppear else {
                     return
@@ -117,16 +78,6 @@ struct SectionedList<Content: View, Footer: View>: View {
         proxy.scrollTo(id, anchor: .center)
     }
 
-    private var showsFooter: Bool {
-        guard footerHeight > 0 else {
-            return false
-        }
-        return TrackerEndOrnamentVisibility.shows(
-            contentHeight: contentHeight,
-            viewportHeight: viewportHeight,
-            ornamentHeight: footerHeight
-        )
-    }
 }
 
 private struct SectionedListScrollerHider: NSViewRepresentable {
@@ -162,26 +113,6 @@ func hideScroller(on scrollView: NSScrollView) {
     scrollView.contentInsets = NSEdgeInsetsZero
     scrollView.scrollerInsets = NSEdgeInsetsZero
     scrollView.perform(NSSelectorFromString("tile"))
-}
-
-extension SectionedList where Footer == EmptyView {
-    init(
-        selectedID: String?,
-        scrollOnAppear: Bool = false,
-        scrollOnSelectionChange: Bool = true,
-        scrollTargetID: String? = nil,
-        @ViewBuilder content: @escaping () -> Content
-    ) {
-        self.init(
-            selectedID: selectedID,
-            scrollOnAppear: scrollOnAppear,
-            scrollOnSelectionChange: scrollOnSelectionChange,
-            scrollTargetID: scrollTargetID,
-            footerHeight: 0,
-            content: content,
-            footer: { EmptyView() }
-        )
-    }
 }
 
 struct SectionHeader: View {
