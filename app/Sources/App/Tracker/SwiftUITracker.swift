@@ -1338,6 +1338,18 @@ enum TrackerNameplateColor {
         shade(color, stop: 1, diamond: true)
     }
 
+    /// The accent bar ships at 90% of the repo/display color's brightness (picked 2026-10-02): full
+    /// saturation read as too loud against the flat terminal chrome. Hue and saturation are untouched.
+    static func barLightness(_ color: NSColor) -> NSColor {
+        let rgb = color.usingColorSpace(.deviceRGB) ?? color
+        return NSColor(
+            hue: rgb.hueComponent,
+            saturation: rgb.saturationComponent,
+            brightness: rgb.brightnessComponent * 0.90,
+            alpha: rgb.alphaComponent
+        )
+    }
+
     private static func shade(_ color: NSColor, stop: CGFloat, diamond: Bool) -> NSColor {
         let rgb = color.usingColorSpace(.deviceRGB) ?? color
         let red = rgb.redComponent
@@ -1539,10 +1551,10 @@ private struct TrackerPulseSubscription: ViewModifier {
 }
 
 /// Today's accent-bar pulse: the repo color lifted with plusLighter while the session works;
-/// the lift eases 0 to 0.9 and back every 2.2s on the shared clock.
+/// the lift eases 0 to 0.5 and back every 2.2s on the shared clock.
 private struct TrackerColorBarPulse: View {
     private static let period: TimeInterval = 2.2
-    private static let peakLift = 0.9
+    private static let peakLift = 0.5
     private static let reducedMotionLift = 0.5
     private static let liftOpacity = 0.65
 
@@ -1589,7 +1601,7 @@ private struct TrackerNameplateBackground: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             if !role.isWorker {
-                TrackerColorBar(color: color, strokeColor: outlineColor, isWorking: isWorking)
+                TrackerColorBar(color: TrackerNameplateColor.barLightness(color), strokeColor: outlineColor, isWorking: isWorking)
                     .offset(x: role.barOrigin.x, y: role.barOrigin.y)
             }
             flatPlate
@@ -1604,18 +1616,15 @@ private struct TrackerNameplateBackground: View {
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
-        .modifier(TrackerAttachedShadow(isActive: attached && !isRecoloring))
     }
 
-    /// The cached fill and shadows sit under a live-drawn border, so the plate's curves are stroked and
+    /// The cached fill sits under a live-drawn border, so the plate's curves are stroked and
     /// antialiased by the normal renderer at the display's scale rather than baked into a texture.
     private var flatPlate: some View {
         let shape = TrackerPlateShape(path: role.plateOutline)
         return ZStack {
             shape
                 .fill(AppPalette.item.swiftUI)
-                .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: -3, blur: 1, opacity: 0.25))
-                .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: 3, blur: 1, opacity: 0.25))
                 .drawingGroup()
             shape.stroke(outlineColor.swiftUI, lineWidth: 2 * (isRecoloring ? 2 : 1.5))
                 .clipShape(shape)
@@ -1781,21 +1790,6 @@ private struct TrackerSessionRow: View {
     }
 }
 
-/// Casts one drop shadow for the whole plate group (plate, colour bar, tag, gems), so the parts read as
-/// a single element. Other rows stay out of an offscreen group, which would re-composite the whole
-/// plate on every colour-bar pulse frame.
-private struct TrackerAttachedShadow: ViewModifier {
-    let isActive: Bool
-
-    func body(content: Content) -> some View {
-        if isActive {
-            content.compositingGroup().shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 4)
-        } else {
-            content
-        }
-    }
-}
-
 /// Dims a stopped row after compositing it, so the plate and its contents fade as one. Other rows
 /// stay out of an offscreen group, which would re-composite the whole row on every ring and bar frame.
 private struct TrackerStoppedDimming: ViewModifier {
@@ -1858,7 +1852,6 @@ private struct TrackerSessionRowContent: View {
                     .foregroundStyle((isSelected ? AppPalette.bright : AppPalette.text).swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
             }
             if !snippet.isEmpty {
                 strip(height: TrackerNameplateRole.snippetStripHeight) {
@@ -1886,7 +1879,6 @@ private struct TrackerSessionRowContent: View {
             .frame(height: height)
             .background {
                 shape.fill(AppPalette.panel.swiftUI)
-                    .overlay(TrackerInnerShadow(outer: shape, hole: shape.inset(by: 2), blur: 0.5, opacity: 0.5))
                     .drawingGroup()
                     .overlay(shape.strokeBorder(AppPalette.line.swiftUI, lineWidth: 1))
             }
@@ -1920,7 +1912,6 @@ private struct TrackerAgentMark: View {
         ZStack {
             Circle()
                 .fill(AppPalette.panel.swiftUI)
-                .overlay(TrackerInnerShadow(outer: Circle(), hole: Circle().inset(by: 2), blur: 0.5, opacity: 0.5))
                 .drawingGroup()
             statusGlow
             if let image = Self.image(for: agent, side: iconSide, tint: AppPalette.muted) {
