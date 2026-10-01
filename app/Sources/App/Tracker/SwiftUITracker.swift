@@ -1209,7 +1209,7 @@ private enum TrackerNameplateRole: Equatable {
     var barOrigin: CGPoint { CGPoint(x: Self.barX, y: plateBottomEdge - 1) }
     var barCenterY: CGFloat { barOrigin.y + Self.barSize.height / 2 }
     /// The collapsed-worker pills hang below the plate's lower edge (the Figma plate body ends at y 34).
-    var pillsOriginY: CGFloat { plateBottomEdge + Self.pillsDrop }
+    var pillsOriginY: CGFloat { rowHeight - TrackerWorkerSummaryPill.badgeSide }
     /// The worker's duration tag hangs from the plate's lower edge.
     var tagOriginY: CGFloat { plateBottomEdge - 1 }
     var bottomGemCenter: CGPoint { CGPoint(x: 34, y: rowHeight - 6) }
@@ -1225,36 +1225,18 @@ private enum TrackerNameplateRole: Equatable {
             topTrailingRadius: trailingRadius
         )
     }
-    /// The Figma plate path's end zones (the circle/shield end and the notch), which grow with the
-    /// plate; the middle stretches so the path keeps the row width.
-    private var plateZones: (leading: CGFloat, trailing: CGFloat) {
-        switch self {
-        case .standalone: (44, 10)
-        case .master: (45, 10)
-        case .worker: (35, 7)
-        }
-    }
-    /// The plate's height over the Figma variant's height (46, 51 and 36).
-    private var plateScale: CGFloat {
-        switch self {
-        case .standalone: plateSize.height / 46
-        case .master: plateSize.height / 51
-        case .worker: plateSize.height / 36
-        }
-    }
-    /// Where the plate body's straight top and bottom edges land (outer edge, whole points), so the
-    /// 1pt border's centre line sits on half points and stays crisp.
+    /// Where the bar's straight top and bottom edges land (whole points, outer edge), from the v2 plate's
+    /// bar-to-plate proportion.
     private var plateEdges: (top: CGFloat, bottom: CGFloat) {
         switch self {
-        case .standalone: (4, 47)
-        case .master: (4, 47)
-        case .worker: (4, 48)
+        case .standalone: (4, 51)
+        case .master: (5, 52)
+        case .worker: (3, 49)
         }
     }
     /// The plate's lower edge; the colour bar hangs from it and the pills sit under it.
     var plateBottomEdge: CGFloat { plateEdges.bottom }
-    /// The plate outline (the border's centre line); it is both filled and stroked, so the plate's
-    /// outer edge is exactly half a point outside it however the row is scaled.
+    /// The plate outline: cap and bar unioned, an outer outline the border is stroked inside.
     var plateOutline: Path {
         switch self {
         case .standalone: Self.standaloneOutline
@@ -1263,31 +1245,21 @@ private enum TrackerNameplateRole: Equatable {
         }
     }
 
-    private static let standaloneOutline = scaledOutline(of: .standalone, source: TrackerPlatePaths.standaloneOutline, figmaEdges: (3.5, 33.5, 0.5, 45.5))
-    private static let masterOutline = scaledOutline(of: .master, source: TrackerPlatePaths.masterOutline, figmaEdges: (3.5, 33.5, 0.51, 50.42))
-    private static let workerOutline = scaledOutline(of: .worker, source: TrackerPlatePaths.workerOutline, figmaEdges: (3.42, 32.58, 0.5, 35.5))
+    private static let standaloneOutline = outline(of: .standalone, kind: .standalone)
+    private static let masterOutline = outline(of: .master, kind: .master)
+    private static let workerOutline = outline(of: .worker, kind: .worker)
 
-    private static func scaledOutline(
-        of role: TrackerNameplateRole,
-        source: Path,
-        figmaEdges: (top: CGFloat, bottom: CGFloat, first: CGFloat, last: CGFloat)
-    ) -> Path {
-        source.nameplateScaled(
-            xScale: role.plateScale,
-            width: role.width,
-            leadingZone: role.plateZones.leading,
-            trailingZone: role.plateZones.trailing,
-            yAnchors: [
-                (figmaEdges.first, 0.5),
-                (figmaEdges.top, role.plateEdges.top + 0.5),
-                (figmaEdges.bottom, role.plateEdges.bottom - 0.5),
-                (figmaEdges.last, role.plateSize.height - 0.5),
-            ]
+    private static func outline(of role: TrackerNameplateRole, kind: TrackerPlatePaths.Kind) -> Path {
+        TrackerPlatePaths.plate(
+            kind,
+            capHeight: role.plateSize.height,
+            barTop: role.plateEdges.top,
+            barBottom: role.plateEdges.bottom
         )
     }
 }
 
-/// A fixed Figma path drawn at its own coordinates (the plates are never resized).
+/// A fixed plate path drawn at its own coordinates (the plates are never resized).
 private struct TrackerPlateShape: Shape {
     let path: Path
 
@@ -1618,7 +1590,8 @@ private struct TrackerNameplateBackground: View {
                 .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: -3, blur: 1, opacity: 0.25))
                 .overlay(TrackerInnerShadow(outer: shape, hole: shape, offsetY: 3, blur: 1, opacity: 0.25))
                 .drawingGroup()
-            shape.stroke(outlineColor.swiftUI, lineWidth: isRecoloring ? 2 : 1.5)
+            shape.stroke(outlineColor.swiftUI, lineWidth: 2 * (isRecoloring ? 2 : 1.5))
+                .clipShape(shape)
         }
         .frame(width: role.plateSize.width, height: role.plateSize.height, alignment: .topLeading)
     }
