@@ -85,6 +85,7 @@ enum TrackerPlatePaths {
     private static let shieldJoinDepth: CGFloat = 1
     private static let shieldSVGHeight: CGFloat = 51
     private static let shieldSVGCenterX: CGFloat = 25
+    private static let shieldSVGWidth: CGFloat = 50
     private static let shieldElements: [Path.Element] = [
         .curve(to: CGPoint(x: 25.0005, y: 51), control1: CGPoint(x: 36.8318, y: 44.3221), control2: CGPoint(x: 29.6294, y: 48.3699)),
         .curve(to: CGPoint(x: 3.48387, y: 28.7334), control1: CGPoint(x: 18.4213, y: 47.2617), control2: CGPoint(x: 6.64246, y: 40.6597)),
@@ -95,21 +96,23 @@ enum TrackerPlatePaths {
         .curve(to: CGPoint(x: 42.7759, y: 4), control1: CGPoint(x: 40.0248, y: 3.33875), control2: CGPoint(x: 41.498, y: 3.69138)),
     ]
 
-    static func shieldCenterX(capHeight: CGFloat) -> CGFloat { shieldSVGCenterX * capHeight / shieldSVGHeight }
+    static func shieldCenterX(capWidth: CGFloat) -> CGFloat { shieldSVGCenterX * capWidth / shieldSVGWidth }
 
-    /// The plate outline: the cap spans `capHeight` from the top of the row, and the bar's straight
-    /// edges sit at `barTop` and `barBottom`.
-    static func plate(_ kind: Kind, capHeight: CGFloat, barTop: CGFloat, barBottom: CGFloat) -> Path {
+    /// The plate outline: the cap spans `capSize` from the top left of the row (a circle takes the height
+    /// as its diameter; the master's shield is stretched to the width and height separately), and the
+    /// bar's straight edges sit at `barTop` and `barBottom`.
+    static func plate(_ kind: Kind, capSize: CGSize, barTop: CGFloat, barBottom: CGFloat) -> Path {
         switch kind {
         case .standalone, .worker:
-            let cap = Path(ellipseIn: CGRect(x: 0, y: 0, width: capHeight, height: capHeight))
-            let bar = bar(end: kind == .worker ? workerEnd : standaloneEnd, left: capHeight / 2, top: barTop, bottom: barBottom)
+            let cap = Path(ellipseIn: CGRect(origin: .zero, size: CGSize(width: capSize.height, height: capSize.height)))
+            let bar = bar(end: kind == .worker ? workerEnd : standaloneEnd, left: capSize.height / 2, top: barTop, bottom: barBottom)
             return cap.union(bar)
         case .master:
-            let scale = capHeight / shieldSVGHeight
-            let shield = shield(innerTop: (barTop + shieldJoinDepth) / scale, innerBottom: (barBottom - shieldJoinDepth) / scale)
-            let bar = bar(end: masterEnd, left: shieldSVGCenterX * scale, top: barTop, bottom: barBottom)
-            return shield.applying(CGAffineTransform(scaleX: scale, y: scale)).union(bar)
+            let scaleX = capSize.width / shieldSVGWidth
+            let scaleY = capSize.height / shieldSVGHeight
+            let shield = shield(innerTop: (barTop + shieldJoinDepth) / scaleY, innerBottom: (barBottom - shieldJoinDepth) / scaleY)
+            let bar = bar(end: masterEnd, left: shieldSVGCenterX * scaleX, top: barTop, bottom: barBottom)
+            return shield.applying(CGAffineTransform(scaleX: scaleX, y: scaleY)).union(bar)
         }
     }
 

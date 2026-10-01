@@ -1187,6 +1187,8 @@ private enum TrackerNameplateRole: Equatable {
         case .worker: CGSize(width: width, height: TrackerListMetrics.workerCapHeight)
         }
     }
+    /// The cap's own size: a circle for the standalone and the worker, the master's shield stretched wider.
+    var capSize: CGSize { isMaster ? CGSize(width: TrackerListMetrics.masterCapWidth, height: plateSize.height) : CGSize(width: plateSize.height, height: plateSize.height) }
     var portraitSide: CGFloat {
         switch self {
         case .standalone: 48
@@ -1199,7 +1201,7 @@ private enum TrackerNameplateRole: Equatable {
     var portraitOrigin: CGPoint {
         switch self {
         case .standalone: CGPoint(x: 5, y: 5)
-        case .master: CGPoint(x: 5, y: 3)
+        case .master: CGPoint(x: 6, y: 3)
         case .worker: CGPoint(x: 5, y: 5)
         }
     }
@@ -1218,6 +1220,21 @@ private enum TrackerNameplateRole: Equatable {
     }
     /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
     var barOrigin: CGPoint { CGPoint(x: Self.barX, y: plateBottomEdge - 1) }
+    /// The portrait and its rim. The strips run under it, so they are cut away inside this circle and
+    /// nothing of them shows beside the portrait.
+    var portraitRim: CGRect {
+        let reach = portraitSide / 2 + Self.portraitTextGap
+        return CGRect(x: portraitOrigin.x + portraitSide / 2 - reach, y: portraitOrigin.y + portraitSide / 2 - reach, width: 2 * reach, height: 2 * reach)
+    }
+    /// The part of the colour bar in view, between the cap's edge at the bar's mid-height and the bar's
+    /// inner right edge (inside its border). The timer centres here; the x origin is a whole point.
+    var barVisibleArea: CGRect {
+        let y = barCenterY
+        var capEdge = (portraitOrigin.x + portraitSide / 2).rounded(.down)
+        while plateOutline.contains(CGPoint(x: capEdge + 1, y: y)) { capEdge += 1 }
+        let right = Self.barX + Self.barSize.width - TrackerColorBar.borderWidth
+        return CGRect(x: capEdge, y: barOrigin.y, width: right - capEdge, height: Self.barSize.height)
+    }
     var barCenterY: CGFloat { barOrigin.y + Self.barSize.height / 2 }
     /// The collapsed-worker pills hang below the plate's lower edge, which makes a master row with pills
     /// taller than the shield.
@@ -1225,7 +1242,7 @@ private enum TrackerNameplateRole: Equatable {
     var pillsRowHeight: CGFloat { pillsOriginY + TrackerWorkerSummaryPill.badgeSide }
     /// The worker's duration tag hangs from the plate's lower edge.
     var tagOriginY: CGFloat { plateBottomEdge - 1 }
-    var bottomGemCenter: CGPoint { CGPoint(x: TrackerPlatePaths.shieldCenterX(capHeight: plateSize.height).rounded(), y: plateSize.height - 5) }
+    var bottomGemCenter: CGPoint { CGPoint(x: TrackerPlatePaths.shieldCenterX(capWidth: capSize.width), y: plateSize.height - 5) }
     var rightGemCenter: CGPoint { CGPoint(x: width - 4.5, y: (plateEdges.top + plateEdges.bottom) / 2 - 1) }
     var stripLeadingPadding: CGFloat { isWorker ? 16 : 30 }
     var stripShape: UnevenRoundedRectangle {
@@ -1265,7 +1282,7 @@ private enum TrackerNameplateRole: Equatable {
     private static func outline(of role: TrackerNameplateRole, kind: TrackerPlatePaths.Kind) -> Path {
         TrackerPlatePaths.plate(
             kind,
-            capHeight: role.plateSize.height,
+            capSize: role.capSize,
             barTop: role.plateEdges.top,
             barBottom: role.plateEdges.bottom
         )
@@ -1277,6 +1294,18 @@ private struct TrackerPlateShape: Shape {
     let path: Path
 
     func path(in rect: CGRect) -> Path { path }
+}
+
+/// Everything in `rect` except `circle`, for even-odd filling.
+private struct TrackerOutsideCircle: Shape {
+    let circle: CGRect
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRect(rect)
+        path.addEllipse(in: circle)
+        return path
+    }
 }
 
 /// The inverse of `hole` within `rect`, for even-odd filling.
@@ -1406,7 +1435,7 @@ enum TrackerNameplateColor {
 /// rasterized once (`drawingGroup`) and reused while the pulse animates.
 struct TrackerColorBar: View {
     private static let size = TrackerNameplateRole.barSize
-    private static let borderWidth: CGFloat = 1.5
+    static let borderWidth: CGFloat = 1.5
     private static let diamondReach: CGFloat = 2.0.squareRoot()
     let color: NSColor
     let strokeColor: NSColor
@@ -1571,7 +1600,7 @@ private struct TrackerNameplateBackground: View {
                 TrackerColorBar(color: color, strokeColor: outlineColor, isWorking: isWorking)
                     .offset(x: role.barOrigin.x, y: role.barOrigin.y)
             }
-            plate
+            flatPlate
             if role.isWorker && isWorking {
                 TrackerWorkerTimerTag(session: session, role: role, outlineColor: outlineColor)
             }
@@ -1583,15 +1612,7 @@ private struct TrackerNameplateBackground: View {
             }
         }
         .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
-    }
-
-    @ViewBuilder
-    private var plate: some View {
-        if attached && !isRecoloring {
-            flatPlate.shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 4)
-        } else {
-            flatPlate
-        }
+        .modifier(TrackerAttachedShadow(isActive: attached && !isRecoloring))
     }
 
     /// The cached fill and shadows sit under a live-drawn border, so the plate's curves are stroked and
@@ -1633,6 +1654,9 @@ struct TrackerDiamond: View {
 
 /// The master/standalone duration, lying over the colour bar.
 private struct TrackerElapsedTimer: View {
+    /// A little stronger than the titles' shadow so the digits hold up on bright bars like yellow and lime.
+    private static let shadowOpacity = 0.4
+
     let session: TrackerSession
     let role: TrackerNameplateRole
 
@@ -1640,13 +1664,15 @@ private struct TrackerElapsedTimer: View {
         TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
             let duration = TrackerRenderer.durationLabel(for: session, now: context.date)
             if !duration.isEmpty {
-                Text(duration)
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.bright.swiftUI)
-                    .lineLimit(1)
-                    .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
-                    .frame(height: TrackerNameplateRole.barSize.height)
-                    .offset(x: 84, y: role.barOrigin.y)
+                WholePointCentered {
+                    Text(duration)
+                        .font(AppFonts.monoSmall.swiftUI)
+                        .foregroundStyle(AppPalette.bright.swiftUI)
+                        .lineLimit(1)
+                        .shadow(color: .black.opacity(Self.shadowOpacity), radius: 1, y: 1)
+                }
+                .frame(width: role.barVisibleArea.width, height: TrackerNameplateRole.barSize.height)
+                .offset(x: role.barVisibleArea.minX, y: role.barOrigin.y)
             }
         }
     }
@@ -1763,6 +1789,21 @@ private struct TrackerSessionRow: View {
     }
 }
 
+/// Casts one drop shadow for the whole plate group (plate, colour bar, tag, gems), so the parts read as
+/// a single element. Other rows stay out of an offscreen group, which would re-composite the whole
+/// plate on every colour-bar pulse frame.
+private struct TrackerAttachedShadow: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.compositingGroup().shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 4)
+        } else {
+            content
+        }
+    }
+}
+
 /// Dims a stopped row after compositing it, so the plate and its contents fade as one. Other rows
 /// stay out of an offscreen group, which would re-composite the whole row on every ring and bar frame.
 private struct TrackerStoppedDimming: ViewModifier {
@@ -1791,9 +1832,13 @@ private struct TrackerSessionRowContent: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            textStrips
-                .frame(width: role.stripStackFrame.width, height: role.stripStackFrame.height)
-                .offset(x: role.stripStackFrame.minX, y: role.stripStackFrame.minY)
+            ZStack(alignment: .topLeading) {
+                textStrips
+                    .frame(width: role.stripStackFrame.width, height: role.stripStackFrame.height)
+                    .offset(x: role.stripStackFrame.minX, y: role.stripStackFrame.minY)
+            }
+            .frame(width: role.width, height: role.rowHeight, alignment: .topLeading)
+            .mask(TrackerOutsideCircle(circle: role.portraitRim).fill(style: FillStyle(eoFill: true)))
             TrackerAgentMark(
                 agent: session.agent,
                 status: rendered.status,
