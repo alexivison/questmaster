@@ -1155,6 +1155,7 @@ private enum TrackerNameplateRole: Equatable {
     /// strips and the plate's edge; the right end keeps the same distance from the strip corners.
     static let portraitTextGap: CGFloat = 5
     static let workerStripLeadingRadius: CGFloat = 8
+    static let workerStripApexInset: CGFloat = 2
     /// The colour bar's size and left edge (the same in every role that has one); its top depends on the plate.
     static let barX: CGFloat = 23
     static let barSize = CGSize(width: 129, height: 12)
@@ -1221,10 +1222,11 @@ private enum TrackerNameplateRole: Equatable {
     /// Where the text starts: a few points right of the portrait.
     private var stripTextX: CGFloat { portraitOrigin.x + portraitSide + Self.portraitTextGap }
     /// The strips run under the portrait. The worker's strip top is level with the portrait's top, so its
-    /// hidden left end is a rounded end whose arc is tangent to the disc's top and lies inside the disc;
+    /// hidden left end is a rounded end whose arc touches the strip's top edge 2pt right of the disc's top
+    /// and lies inside the disc and its ring, with nothing showing left of the disc's top;
     /// the standalone's and master's strips start a fixed padding before the text.
     private var stripStackX: CGFloat {
-        isWorker ? portraitOrigin.x + portraitSide / 2 - Self.workerStripLeadingRadius : stripTextX - 30
+        isWorker ? portraitOrigin.x + portraitSide / 2 + Self.workerStripApexInset - Self.workerStripLeadingRadius : stripTextX - 30
     }
     /// The colour bar hangs from the plate's lower edge, overlapping it by a point.
     var barOrigin: CGPoint { CGPoint(x: Self.barX, y: plateBottomEdge - 1) }
