@@ -5,7 +5,9 @@ struct ShellSplitLayoutTests {
     private static let metrics = ShellSplitLayoutMetrics(
         sideCardInset: 8,
         dockDividerHitWidth: 7,
-        trackerMaxWidth: 300
+        trackerMaxWidth: 300,
+        trackerLeadingInset: 10,
+        trackerTrailingGap: 0
     )
 
     static func run() {
@@ -27,8 +29,8 @@ struct ShellSplitLayoutTests {
             dockWidthMode: .standard
         )
 
-        expect(layout.trackerFrame == ShellSplitRect(x: 8, y: 8, width: 300, height: 884), "tracker frame mismatch")
-        expect(layout.terminalFrame == ShellSplitRect(x: 316, y: 0, width: 547, height: 900), "terminal frame mismatch")
+        expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 884), "tracker frame mismatch")
+        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 0, width: 553, height: 900), "terminal frame mismatch")
         expect(layout.dockFrame == ShellSplitRect(x: 871, y: 8, width: 641, height: 884), "dock frame mismatch")
         expect(layout.secondDividerFrame == ShellSplitRect(x: 868, y: 8, width: 7, height: 884), "dock divider frame mismatch")
         expect(layout.dockFrame.isWholePoint, "dock frame should be whole-point aligned")
@@ -43,8 +45,8 @@ struct ShellSplitLayoutTests {
             dockWidthMode: .standard
         )
 
-        expect(layout.trackerFrame == ShellSplitRect(x: 8, y: 8, width: 300, height: 884), "hidden-dock tracker mismatch")
-        expect(layout.terminalFrame == ShellSplitRect(x: 316, y: 0, width: 1204, height: 900), "hidden-dock terminal mismatch")
+        expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 884), "hidden-dock tracker mismatch")
+        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 0, width: 1210, height: 900), "hidden-dock terminal mismatch")
         expect(layout.dockFrame == ShellSplitRect(x: 1520, y: 8, width: 0, height: 884), "hidden dock frame mismatch")
         expect(layout.secondDividerFrame == ShellSplitRect(x: 1520, y: 8, width: 0, height: 884), "hidden divider mismatch")
     }
@@ -74,7 +76,7 @@ struct ShellSplitLayoutTests {
 
         expect(layout.dockWidth == DockWidthPreference.compactWidth, "compact dock width mismatch")
         expect(layout.dockFrame.width == DockWidthPreference.compactWidth, "compact dock frame width mismatch")
-        expect(layout.terminalFrame.width == 788, "compact terminal width mismatch")
+        expect(layout.terminalFrame.width == 794, "compact terminal width mismatch")
     }
 
     private static func dockResizeClampsFromDragDelta() {
@@ -96,7 +98,7 @@ struct ShellSplitLayoutTests {
             trackerVisible: true,
             dockVisible: true
         )
-        expect(clamped == 828, "negative delta should clamp to max dock width, got \(clamped)")
+        expect(clamped == 834, "negative delta should clamp to max dock width, got \(clamped)")
     }
 
     private static func zeroWidthDoesNotProduceLayout() {

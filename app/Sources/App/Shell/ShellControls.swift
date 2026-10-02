@@ -25,10 +25,17 @@ enum ShellMetrics {
     static let modalOrnamentInset: CGFloat = 10
     static let sideCardInset = Token.Spacing.card
     static let sideCardCornerRadius = Token.Radius.card
+    /// Window edge to the tracker plates and plates to the terminal pane add up to the same 20pt as
+    /// Ghostty's own `window-padding-x` against the terminal's other three sides (2026-10-02): the
+    /// tracker now sits flush against the terminal, so Ghostty's padding alone makes up that side.
+    static let trackerLeadingInset = Token.Spacing.element
+    static let trackerTrailingGap: CGFloat = 0
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
         dockDividerHitWidth: 7,
-        trackerMaxWidth: 300
+        trackerMaxWidth: 300,
+        trackerLeadingInset: Double(trackerLeadingInset),
+        trackerTrailingGap: Double(trackerTrailingGap)
     )
 }
 

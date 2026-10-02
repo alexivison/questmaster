@@ -6,14 +6,29 @@ public enum RightDockWidthMode: Equatable {
 }
 
 public struct ShellSplitLayoutMetrics: Equatable {
+    /// Vertical inset for the tracker/dock side cards, and the horizontal gap on the dock's two
+    /// sides (terminal-to-dock, dock-to-window-edge). The tracker's own horizontal gaps are
+    /// `trackerLeadingInset`/`trackerTrailingGap` below, so its two sides can differ from the dock's.
     public let sideCardInset: Double
     public let dockDividerHitWidth: Double
     public let trackerMaxWidth: Double
+    /// Window edge to the tracker plates.
+    public let trackerLeadingInset: Double
+    /// Tracker plates to the terminal pane.
+    public let trackerTrailingGap: Double
 
-    public init(sideCardInset: Double, dockDividerHitWidth: Double, trackerMaxWidth: Double) {
+    public init(
+        sideCardInset: Double,
+        dockDividerHitWidth: Double,
+        trackerMaxWidth: Double,
+        trackerLeadingInset: Double,
+        trackerTrailingGap: Double
+    ) {
         self.sideCardInset = sideCardInset
         self.dockDividerHitWidth = dockDividerHitWidth
         self.trackerMaxWidth = trackerMaxWidth
+        self.trackerLeadingInset = trackerLeadingInset
+        self.trackerTrailingGap = trackerTrailingGap
     }
 }
 
@@ -121,12 +136,12 @@ public enum ShellSplitLayoutPlanner {
         let firstDividerFrame: ShellSplitRect
         if trackerVisible {
             trackerFrame = ShellSplitRect(
-                x: metrics.sideCardInset,
+                x: metrics.trackerLeadingInset,
                 y: sideCardY,
                 width: trackerWidth,
                 height: sideCardHeight
             )
-            x = trackerFrame.maxX + metrics.sideCardInset
+            x = trackerFrame.maxX + metrics.trackerTrailingGap
             firstDividerFrame = ShellSplitRect(x: trackerFrame.maxX, y: sideCardY, width: 0, height: sideCardHeight)
         } else {
             trackerFrame = ShellSplitRect(x: 0, y: sideCardY, width: 0, height: sideCardHeight)
@@ -197,7 +212,7 @@ public enum ShellSplitLayoutPlanner {
         trackerVisible: Bool,
         dockVisible: Bool
     ) -> Double {
-        let trackerInsets = trackerVisible ? metrics.sideCardInset * 2 : 0
+        let trackerInsets = trackerVisible ? metrics.trackerLeadingInset + metrics.trackerTrailingGap : 0
         let dockInsets = dockVisible ? metrics.sideCardInset * 2 : 0
         return trackerInsets + dockInsets
     }
