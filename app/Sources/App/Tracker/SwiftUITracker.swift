@@ -1435,12 +1435,13 @@ enum TrackerNameplateColor {
     }
 }
 
-/// The working pulse only ever touches `TrackerColorBarPulse`: the gradient and the rim are
-/// rasterized once (`drawingGroup`) and reused while the pulse animates.
 struct TrackerColorBar: View {
     private static let size = TrackerNameplateRole.barSize
     static let borderWidth: CGFloat = 1.5
-    private static let diamondReach: CGFloat = 2.0.squareRoot()
+    /// Flat fill stop: the flat fill read too dark at the old average-matching stop (2026-10-02).
+    /// The gradient's midpoint (0.5) over-corrected — some hues jumped 30-80% brighter instead of
+    /// "a bit" — so this sits a notch past it instead.
+    private static let fillStop: CGFloat = 0.6
     let color: NSColor
     let strokeColor: NSColor
     let isWorking: Bool
@@ -1456,8 +1457,7 @@ struct TrackerColorBar: View {
 
     var body: some View {
         ZStack {
-            gradient
-                .drawingGroup()
+            shape.fill(TrackerNameplateColor.barShade(color, stop: Self.fillStop).swiftUI)
             TrackerColorBarPulse(color: color, isWorking: isWorking, shape: shape)
         }
         .clipShape(shape)
@@ -1467,44 +1467,6 @@ struct TrackerColorBar: View {
                 .drawingGroup()
         }
         .overlay(shape.strokeBorder(strokeColor.swiftUI, lineWidth: Self.borderWidth))
-    }
-
-    private var gradient: some View {
-        Canvas { context, size in
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let stops = Gradient(stops: [
-                .init(color: color.swiftUI, location: 0),
-                .init(color: TrackerNameplateColor.barShade(color, stop: 0.5).swiftUI, location: 0.5),
-                .init(color: TrackerNameplateColor.barShade(color, stop: 0.75).swiftUI, location: 0.75),
-                .init(color: TrackerNameplateColor.barShade(color, stop: 1).swiftUI, location: 1),
-            ])
-            // Diamond gradient: t = |dx|/reachX + |dy|/reachY, which is linear inside each
-            // quadrant along w / |w|^2 with w = (1/reachX, 1/reachY). Figma's handles
-            // sit sqrt(2) x the bar's half extents (fitted to the exported bar pixels).
-            let inverseHalf = CGPoint(x: 1 / (Self.diamondReach * center.x), y: 1 / (Self.diamondReach * center.y))
-            let squaredLength = inverseHalf.x * inverseHalf.x + inverseHalf.y * inverseHalf.y
-            let reach = CGPoint(x: inverseHalf.x / squaredLength, y: inverseHalf.y / squaredLength)
-            for corner in [
-                CGPoint.zero,
-                CGPoint(x: size.width, y: 0),
-                CGPoint(x: 0, y: size.height),
-                CGPoint(x: size.width, y: size.height),
-            ] {
-                let quadrant = CGRect(
-                    x: min(center.x, corner.x),
-                    y: min(center.y, corner.y),
-                    width: abs(center.x - corner.x),
-                    height: abs(center.y - corner.y)
-                )
-                let end = CGPoint(
-                    x: center.x + (corner.x < center.x ? -reach.x : reach.x),
-                    y: center.y + (corner.y < center.y ? -reach.y : reach.y)
-                )
-                var path = Path()
-                path.addRect(quadrant.insetBy(dx: -0.5, dy: -0.5))
-                context.fill(path, with: .linearGradient(stops, startPoint: center, endPoint: end))
-            }
-        }
     }
 }
 
