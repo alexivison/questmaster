@@ -76,7 +76,7 @@ func TestClaudeNativeWritesFrameWithoutTmux(t *testing.T) {
 	}
 	select {
 	case frame := <-received:
-		if frame.Message.Content != "<cross-session-message from-name=\"Questmaster\">\nhello\n</cross-session-message>" || len(sent) != 0 {
+		if frame.Message.Content != "<cross-session-message from-name=\"Questmaster\">\n[FROM:external] hello\n</cross-session-message>" || len(sent) != 0 {
 			t.Fatalf("frame = %+v, tmux = %v", frame, sent)
 		}
 	case <-time.After(time.Second):
@@ -118,10 +118,14 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	args, err := os.ReadFile(argsPath)
-	if err != nil || string(args) != "queue --thread thread-123 --message=hello\nworld\n" {
+	if err != nil || string(args) != "queue --thread thread-123 --message=[FROM:external] hello\nworld\n" {
 		t.Fatalf("queue args = %q, err = %v", args, err)
 	}
-	if err := svc.Relay(t.Context(), "qm-codex-native", "-leading"); err != nil {
+	m, err := store.Read("qm-codex-native")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.deliverCodex(t.Context(), m, "-leading"); err != nil {
 		t.Fatal(err)
 	}
 	args, err = os.ReadFile(argsPath)
@@ -214,7 +218,7 @@ func TestClaudeInboundProjectRestriction(t *testing.T) {
 	if err := svc.Relay(t.Context(), "qm-restricted-claude", "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if len(sent) != 1 || sent[0] != "hello" {
+	if len(sent) != 1 || sent[0] != "[FROM:external] hello" {
 		t.Fatalf("restricted Claude tmux fallback = %v", sent)
 	}
 }
@@ -245,7 +249,7 @@ func TestClaudeUndecidableSettingsUseTmux(t *testing.T) {
 			if err := svc.Relay(t.Context(), "qm-claude-settings", "hello"); err != nil {
 				t.Fatal(err)
 			}
-			if len(sent) != 1 || sent[0] != "hello" {
+			if len(sent) != 1 || sent[0] != "[FROM:external] hello" {
 				t.Fatalf("Claude tmux fallback = %v", sent)
 			}
 		})
@@ -292,7 +296,7 @@ func TestPiReceiptIsUnconfirmedAndNeverRetried(t *testing.T) {
 	if err := svc.Relay(t.Context(), id, message); err != nil {
 		t.Fatal(err)
 	}
-	if <-got != message || len(sent) != 0 {
+	if <-got != "[FROM:external] "+message || len(sent) != 0 {
 		t.Fatalf("Pi native message or tmux fallback wrong: %v", sent)
 	}
 	svc.dial = func(context.Context, string, string) (net.Conn, error) {

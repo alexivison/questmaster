@@ -375,8 +375,8 @@ func TestRelay_Success(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if sent[0] != "hello worker" {
-		t.Fatalf("expected 'hello worker', got %q", sent[0])
+	if sent[0] != "[FROM:external] hello worker" {
+		t.Fatalf("expected external prefix, got %q", sent[0])
 	}
 }
 
@@ -473,8 +473,8 @@ func TestRelay_OpenCodeAllowsIdleHookState(t *testing.T) {
 	if err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
 		t.Fatalf("relay: %v", err)
 	}
-	if len(sent) == 0 || sent[0] != "hello worker" {
-		t.Fatalf("sent = %v, want hello worker", sent)
+	if len(sent) == 0 || sent[0] != "[FROM:external] hello worker" {
+		t.Fatalf("sent = %v, want external prefix", sent)
 	}
 }
 
@@ -491,8 +491,8 @@ func TestRelay_OpenCodeAllowsFreshDoneHookState(t *testing.T) {
 	if err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
 		t.Fatalf("relay: %v", err)
 	}
-	if len(sent) == 0 || sent[0] != "hello worker" {
-		t.Fatalf("sent = %v, want hello worker", sent)
+	if len(sent) == 0 || sent[0] != "[FROM:external] hello worker" {
+		t.Fatalf("sent = %v, want external prefix", sent)
 	}
 }
 
@@ -511,8 +511,14 @@ func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "Read and follow the instructions in ") {
-		t.Fatalf("expected file pointer, got %q", sent[0])
+	if !strings.HasPrefix(sent[0], "[FROM:external] Message available at ") || strings.Contains(sent[0], "Act on them") {
+		t.Fatalf("expected neutral external pointer, got %q", sent[0])
+	}
+	path := relayFilePathFromPointer(t, sent[0])
+	t.Cleanup(func() { os.Remove(path) })
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(content), "[FROM:external] ") {
+		t.Fatalf("external file content = %q, err = %v", content, err)
 	}
 }
 
@@ -545,6 +551,28 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(content), "[MASTER:qm-master] ") {
 		t.Fatalf("expected file content provenance prefix, got %q", string(content))
+	}
+}
+
+func TestRelayFrom_PeerFilePointerIsNeutral(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createManifest(t, store, "qm-peer", "peer", "master")
+	createWorkerManifest(t, store, "qm-worker", "qm-master")
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	if err := svc.RelayFrom(t.Context(), "qm-peer", "qm-worker", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "[FROM:qm-peer] Message available at ") || strings.Contains(sent[0], "Act on them") {
+		t.Fatalf("peer pointer = %v", sent)
+	}
+	path := relayFilePathFromPointer(t, sent[0])
+	t.Cleanup(func() { os.Remove(path) })
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(content), "[FROM:qm-peer] ") {
+		t.Fatalf("peer file content = %q, err = %v", content, err)
 	}
 }
 
@@ -704,6 +732,27 @@ func TestBroadcastFrom_OnlyActualChildrenGetMasterPrefix(t *testing.T) {
 	if result.Delivered != 2 || len(sent) != 2 || sent[0] != "[MASTER:qm-master] hello" || sent[1] != "[FROM:qm-master] hello" {
 		t.Fatalf("result = %+v, sent = %v", result, sent)
 	}
+}
+
+func TestBroadcastFrom_UnrelatedWorkerGetsNeutralPointer(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createManifest(t, store, "qm-other", "other", "master")
+	createWorkerManifest(t, store, "qm-unrelated", "qm-other")
+	if err := store.AddWorker("qm-master", "qm-unrelated"); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	if _, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "[FROM:qm-master] Message available at ") || strings.Contains(sent[0], "Act on them") {
+		t.Fatalf("unrelated broadcast pointer = %v", sent)
+	}
+	path := relayFilePathFromPointer(t, sent[0])
+	t.Cleanup(func() { os.Remove(path) })
 }
 
 func TestBroadcastFrom_NoWorkers(t *testing.T) {

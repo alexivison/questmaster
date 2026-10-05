@@ -42,7 +42,7 @@ type WorkerInfo struct {
 	Title     string `json:"title"`
 }
 
-// Relay sends a message to a worker's primary pane.
+// Relay sends an unattributed external message to a session's primary pane.
 func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 	if err := s.validateRelayTarget(workerID); err != nil {
 		return err
@@ -59,7 +59,8 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 		return fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
 	}
 
-	return s.deliver(ctx, workerID, target, message, relayPointer, "")
+	const prefix = "[FROM:external] "
+	return s.deliver(ctx, workerID, target, prefix+message, peerPointer, prefix)
 }
 
 // RelayFrom sends a message to a worker's primary pane with sender provenance.
@@ -88,7 +89,11 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	}
 
 	prefix := recipientPrefix(senderID, sender, recipient)
-	return s.deliver(ctx, targetID, target, prefix+message, relayPointer, prefix)
+	pointer := peerPointer
+	if strings.HasPrefix(prefix, "[MASTER:") {
+		pointer = relayPointer
+	}
+	return s.deliver(ctx, targetID, target, prefix+message, pointer, prefix)
 }
 
 func (s *Service) deliver(ctx context.Context, sessionID, target, message string, pointer func(string) string, pointerPrefix string) error {
@@ -207,7 +212,11 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 			continue
 		}
 		prefix := recipientPrefix(senderID, sender, recipient)
-		if err := s.deliver(ctx, wid, target, prefix+message, relayPointer, prefix); err != nil {
+		pointer := peerPointer
+		if strings.HasPrefix(prefix, "[MASTER:") {
+			pointer = relayPointer
+		}
+		if err := s.deliver(ctx, wid, target, prefix+message, pointer, prefix); err != nil {
 			errs = append(errs, fmt.Errorf("send to %q: %w", wid, err))
 			continue
 		}
@@ -379,6 +388,10 @@ func writeRelayFile(content string) (string, error) {
 // to open the file and act on its contents.
 func relayPointer(path string) string {
 	return "Read and follow the instructions in " + path + ". Act on them now, then report back with results."
+}
+
+func peerPointer(path string) string {
+	return "Message available at " + path + ". Read it if relevant."
 }
 
 func senderPrefix(senderID string) string {
