@@ -337,7 +337,7 @@ func TestReadCmd_MissingArgs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReportCmd_Success(t *testing.T) {
-	t.Parallel()
+	t.Setenv("QUESTMASTER_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "qm-w1", "qm-master")
@@ -365,6 +365,7 @@ func TestReportCmd_MissingArgs(t *testing.T) {
 }
 
 func TestReportCmd_ReadsMessageFileFromStdin(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "qm-w1", "qm-master")

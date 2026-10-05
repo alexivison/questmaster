@@ -10,8 +10,9 @@ import (
 func newBroadcastCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var messageFile string
 	cmd := &cobra.Command{
-		Use:   "broadcast [master-id] [message]",
-		Short: "Broadcast a message to all workers of a master session",
+		Use:    "broadcast [master-id] [message]",
+		Short:  "Broadcast a message to all workers of a master session",
+		Hidden: true,
 		Long: `Broadcast a message to all workers of a master session.
 
 If master-id is omitted, discovers the current tmux session and validates

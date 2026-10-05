@@ -10,9 +10,10 @@ import (
 func newRelayCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var messageFile string
 	cmd := &cobra.Command{
-		Use:   "relay <worker-id> [message]",
-		Short: "Send a message to a worker's primary pane",
-		Args:  cobra.RangeArgs(1, 2),
+		Use:    "relay <worker-id> [message]",
+		Short:  "Send a message to a worker's primary pane",
+		Hidden: true,
+		Args:   cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			msg, err := messageFromArgsAndFile(cmd, args[1:], messageFile)
 			if err != nil {

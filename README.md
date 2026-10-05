@@ -52,8 +52,9 @@ These commands are intended for scripts, agents, and backend debugging. For norm
 questmaster start "fix-login-flow"
 questmaster start --master --primary codex "release-triage"
 questmaster spawn qm-master123 "smoke-test-worker" --prompt "Investigate the failing smoke test"
-questmaster relay qm-worker123 "Try a smaller test case."
-questmaster report "done: fixed parser edge case; regression test passes"
+questmaster send qm-worker123 "Try a smaller test case."
+questmaster send master "done: fixed parser edge case; regression test passes"
+questmaster send all "Please report your current status."
 ```
 
 Inspect state:
@@ -79,7 +80,13 @@ Claude and Codex use shell-script hooks merged into their native config. Pi uses
 an out-of-band activity sidecar; `questmaster hooks install pi` writes its
 version marker and messaging extension under the `$PI_HOME` or `~/.pi` dirs.
 
-Relay, broadcast, and report use native delivery for live Claude, Codex, and Pi
+`send` takes a session ID for a direct message, `master` to report to the
+current worker's parent, or `all` to broadcast from the current master.
+`--message-file <path>` and `--message-file -` supply file or stdin input.
+The older `relay`, `report`, and `broadcast` commands remain callable for
+existing integrations.
+
+Messaging uses native delivery for live Claude, Codex, and Pi
 sessions when available. Codex success means its daemon queued the message, not
 that the recipient processed it. Pi steers the current turn and its receipt is
 unconfirmed. Claude's socket has no delivery receipt. OpenCode keeps its tmux

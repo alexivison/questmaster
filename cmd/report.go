@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -10,8 +12,9 @@ import (
 func newReportCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var messageFile string
 	cmd := &cobra.Command{
-		Use:   "report [session-id] [message]",
-		Short: "Report back to the master session (worker → master)",
+		Use:    "report [session-id] [message]",
+		Short:  "Report back to the master session (worker → master)",
+		Hidden: true,
 		Long: `Report back to the master session from a worker.
 
 If session-id is omitted, discovers the current tmux session.`,
@@ -28,6 +31,8 @@ If session-id is omitted, discovers the current tmux session.`,
 					return err
 				}
 				sessionID = id
+			} else if current, discoveryErr := discoverSession(ctx, client); discoveryErr == nil && current != sessionID {
+				return fmt.Errorf("report session id %q does not match current session %q; use send <recipient> for direct messages", sessionID, current)
 			}
 
 			svc := message.NewService(store, client)
