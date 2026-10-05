@@ -157,3 +157,16 @@ func TestSendExplicitSessionIDIsRecipient(t *testing.T) {
 		t.Fatalf("direct payloads = %v", runner.sends)
 	}
 }
+
+func TestSendStandaloneDirectUsesFromPrefix(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-standalone")
+	store := setupStore(t)
+	createManifest(t, store, "qm-standalone", "standalone", "/tmp", "")
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-worker", "qm-master")
+	runner := newSendCaptureRunner("qm-worker")
+	runCmd(t, store, runner, "send", "qm-worker", "hello")
+	if len(runner.sends) != 1 || runner.sends[0] != "[FROM:qm-standalone] hello" {
+		t.Fatalf("standalone payloads = %v", runner.sends)
+	}
+}

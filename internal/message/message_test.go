@@ -405,13 +405,17 @@ func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
 	store := setupStore(t)
 	createManifest(t, store, "qm-parent", "parent", "master")
 	createManifest(t, store, "qm-other-master", "other master", "master")
+	createManifest(t, store, "qm-standalone", "standalone", "")
 	createWorkerManifest(t, store, "qm-worker", "qm-parent")
+	createWorkerManifest(t, store, "qm-child-parent", "qm-parent")
+	createWorkerManifest(t, store, "qm-nested", "qm-child-parent")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	for _, tc := range []struct{ sender, want string }{
 		{"qm-parent", "[MASTER:qm-parent] hello"},
 		{"qm-other-master", "[FROM:qm-other-master] hello"},
+		{"qm-standalone", "[FROM:qm-standalone] hello"},
 	} {
 		if err := svc.RelayFrom(t.Context(), tc.sender, "qm-worker", "hello"); err != nil {
 			t.Fatal(err)
@@ -419,6 +423,21 @@ func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
 		if got := sent[len(sent)-1]; got != tc.want {
 			t.Fatalf("sender %s: got %q, want %q", tc.sender, got, tc.want)
 		}
+	}
+	if err := svc.RelayFrom(t.Context(), "qm-child-parent", "qm-nested", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sent[len(sent)-1]; got != "[FROM:qm-child-parent] hello" {
+		t.Fatalf("worker sender with child was treated as master: %q", got)
+	}
+	if err := store.Update("qm-worker", func(m *state.Manifest) { m.SessionType = "master" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RelayFrom(t.Context(), "qm-parent", "qm-worker", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sent[len(sent)-1]; got != "[FROM:qm-parent] hello" {
+		t.Fatalf("promoted child was treated as worker: %q", got)
 	}
 }
 
@@ -1151,6 +1170,24 @@ func TestReport_Success(t *testing.T) {
 	expected := "[WORKER:qm-w1] done: fixed the bug"
 	if sent[0] != expected {
 		t.Fatalf("expected %q, got %q", expected, sent[0])
+	}
+}
+
+func TestReport_PromotedChildUsesFromPrefix(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-child", "qm-master")
+	if err := store.Update("qm-child", func(m *state.Manifest) { m.SessionType = "master" }); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	if err := svc.Report(t.Context(), "qm-child", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 || sent[0] != "[FROM:qm-child] hello" {
+		t.Fatalf("promoted child payloads = %v", sent)
 	}
 }
 

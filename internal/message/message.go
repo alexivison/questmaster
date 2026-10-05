@@ -74,6 +74,7 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	if err != nil {
 		return fmt.Errorf("read recipient manifest: %w", err)
 	}
+	sender, _ := s.store.Read(senderID)
 	if err := s.client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
 		return err
 	}
@@ -86,7 +87,7 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 		return fmt.Errorf("resolve primary pane in %q: %w", targetID, err)
 	}
 
-	prefix := recipientPrefix(senderID, recipient)
+	prefix := recipientPrefix(senderID, sender, recipient)
 	return s.deliver(ctx, targetID, target, prefix+message, relayPointer, prefix)
 }
 
@@ -169,7 +170,8 @@ func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message
 		return BroadcastResult{}, nil
 	}
 
-	return s.broadcastTo(ctx, workers, senderID, message)
+	sender, _ := s.store.Read(senderID)
+	return s.broadcastTo(ctx, workers, senderID, sender, message)
 }
 
 // broadcastTo delivers a logical message to every live worker,
@@ -178,7 +180,7 @@ func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message
 // be resolved, whose send fails, or whose liveness check hits a transport error
 // are surfaced via the returned error so a zero- or partial-delivery broadcast is
 // never silent — matching the error-returning behavior of Relay.
-func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID, message string) (BroadcastResult, error) {
+func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID string, sender state.Manifest, message string) (BroadcastResult, error) {
 	result := BroadcastResult{Registered: len(workers)}
 	var errs []error
 	for _, wid := range workers {
@@ -204,7 +206,7 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID, m
 			errs = append(errs, fmt.Errorf("resolve primary pane in %q: %w", wid, err))
 			continue
 		}
-		prefix := recipientPrefix(senderID, recipient)
+		prefix := recipientPrefix(senderID, sender, recipient)
 		if err := s.deliver(ctx, wid, target, prefix+message, relayPointer, prefix); err != nil {
 			errs = append(errs, fmt.Errorf("send to %q: %w", wid, err))
 			continue
@@ -287,7 +289,10 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		return fmt.Errorf("resolve primary pane in master %q: %w", parent, err)
 	}
 
-	prefix := "[WORKER:" + sessionID + "] "
+	prefix := senderPrefix(sessionID)
+	if m.SessionType != "master" {
+		prefix = "[WORKER:" + sessionID + "] "
+	}
 	return s.deliver(ctx, parent, target, prefix+message, reportPointer, prefix)
 }
 
@@ -380,8 +385,8 @@ func senderPrefix(senderID string) string {
 	return "[FROM:" + senderID + "] "
 }
 
-func recipientPrefix(senderID string, recipient state.Manifest) string {
-	if recipient.ExtraString("parent_session") == senderID {
+func recipientPrefix(senderID string, sender, recipient state.Manifest) string {
+	if sender.SessionType == "master" && recipient.SessionType != "master" && recipient.ExtraString("parent_session") == senderID {
 		return "[MASTER:" + senderID + "] "
 	}
 	return senderPrefix(senderID)
