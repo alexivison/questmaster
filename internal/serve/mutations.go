@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -91,8 +92,8 @@ type mutationPayload struct {
 type mutationHandler func(*Server, context.Context, Request, mutationPayload) (any, error)
 
 // Mutation execution has three deliberately separate models:
-// 1. in-process display mutations that call core packages directly,
-// 2. re-execed qm commands for session lifecycle and messaging mutations,
+// 1. in-process mutations that call core packages directly,
+// 2. re-execed qm commands for session lifecycle and direct messaging,
 // 3. direct tmux calls for focus/switch behavior that must not spawn qm.
 // New methods should pick one model explicitly instead of crossing layers.
 var mutationRegistry = map[string]mutationHandler{
@@ -200,19 +201,27 @@ func mutateRelay(s *Server, ctx context.Context, _ Request, payload mutationPayl
 	if err != nil {
 		return nil, err
 	}
-	return s.runCommandJSON(ctx, []string{"relay", workerID, "--message-file", "-"}, []byte(message))
+	return s.runCommandJSON(ctx, []string{"send", workerID, "--message-file", "-"}, []byte(message))
 }
 
 func mutateBroadcast(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
-	args := []string{"broadcast", "--message-file", "-"}
-	if masterID := strings.TrimSpace(payload.MasterID); masterID != "" {
-		args = append(args, "--", masterID)
-	}
-	message, err := requiredValue("message", payload.Message)
+	masterID, err := requiredValue("master_id", payload.MasterID)
 	if err != nil {
 		return nil, err
 	}
-	return s.runCommandJSON(ctx, args, []byte(message))
+	msg, err := requiredValue("message", payload.Message)
+	if err != nil {
+		return nil, err
+	}
+	result, err := message.NewService(s.Snapshotter.store, s.Snapshotter.tmuxClient).BroadcastFrom(ctx, masterID, masterID, msg)
+	if err != nil {
+		return nil, err
+	}
+	return struct {
+		MasterID   string `json:"master_id"`
+		Registered int    `json:"registered"`
+		Delivered  int    `json:"delivered"`
+	}{masterID, result.Registered, result.Delivered}, nil
 }
 
 func mutateDelete(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {

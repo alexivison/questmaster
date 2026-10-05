@@ -853,18 +853,8 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"method": "relay",
 				"data":   map[string]any{"worker_id": "qm-worker", "message": "investigate"},
 			},
-			wantArgs:  []string{"relay", "qm-worker", "--message-file", "-"},
+			wantArgs:  []string{"send", "qm-worker", "--message-file", "-"},
 			wantStdin: "investigate",
-		},
-		{
-			name: "broadcast",
-			request: map[string]any{
-				"id":     "broadcast",
-				"method": "broadcast",
-				"data":   map[string]any{"master_id": "qm-master", "message": "take stock"},
-			},
-			wantArgs:  []string{"broadcast", "--message-file", "-", "--", "qm-master"},
-			wantStdin: "take stock",
 		},
 		{
 			name: "delete",
@@ -1033,6 +1023,32 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 	cancel()
 	if err := <-errc; err != nil {
 		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestBroadcastMutationUsesExplicitMasterWithoutLegacyCLI(t *testing.T) {
+	env := seedServeFixture(t)
+	runner := &recordingMutationRunner{}
+	srv := &Server{
+		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, nil),
+		MutationRunner: runner,
+	}
+	got, err := mutateBroadcast(srv, t.Context(), Request{}, mutationPayload{MasterID: "qm-demo", Message: "hello"})
+	if err != nil {
+		t.Fatalf("broadcast mutation: %v", err)
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"master_id":"qm-demo","registered":0,"delivered":0}` {
+		t.Fatalf("broadcast response = %s", raw)
+	}
+	if len(runner.Commands()) != 0 {
+		t.Fatalf("broadcast re-executed a CLI command: %v", runner.Commands())
+	}
+	if _, err := mutateBroadcast(srv, t.Context(), Request{}, mutationPayload{Message: "hello"}); err == nil || !strings.Contains(err.Error(), "master_id is required") {
+		t.Fatalf("missing master error = %v", err)
 	}
 }
 

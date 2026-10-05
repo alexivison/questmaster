@@ -14,6 +14,12 @@ func TestSendIsMessagingHelpPath(t *testing.T) {
 	if !strings.Contains(help, "  send ") || strings.Contains(help, "  relay ") || strings.Contains(help, "  report ") || strings.Contains(help, "  broadcast ") {
 		t.Fatalf("messaging command help = %q", help)
 	}
+	for _, old := range []string{"relay", "report", "broadcast"} {
+		_, err := runCmdErr(t, setupStore(t), messagingRunner(), old, "qm-target", "hello")
+		if err == nil || !strings.Contains(err.Error(), "unknown command") {
+			t.Fatalf("legacy command %q error = %v", old, err)
+		}
+	}
 }
 
 func TestSendDirectPreservesSender(t *testing.T) {
@@ -82,18 +88,72 @@ func TestSendReadsMessageFile(t *testing.T) {
 	}
 }
 
-func TestReportRejectsDifferentExplicitSessionInWorker(t *testing.T) {
+func TestSendRejectsInvalidRoutes(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "qm-worker")
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "qm-worker", "qm-master")
 	runner := newSendCaptureRunner("qm-master")
-	_, err := runCmdErr(t, store, runner, "report", "qm-master", "done")
-	if err == nil || !strings.Contains(err.Error(), "does not match current session") || len(runner.sends) != 0 {
-		t.Fatalf("report mismatch error = %v, sends = %v", err, runner.sends)
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"missing recipient", []string{"send"}, "accepts between 1 and 2 arg"},
+		{"missing message", []string{"send", "master"}, "message is required"},
+		{"duplicate message", []string{"send", "master", "inline", "--message-file", "-"}, "only one of message or --message-file"},
+		{"worker broadcast", []string{"send", "all", "hello"}, "not a master"},
+		{"invalid ID", []string{"send", "bad-id", "hello"}, "invalid worker id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := runCmdErr(t, store, runner, tc.args...)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("send %v error = %v, want %q", tc.args, err, tc.want)
+			}
+		})
 	}
-	runCmd(t, store, runner, "report", "qm-worker", "done")
-	if len(runner.sends) != 1 || runner.sends[0] != "[WORKER:qm-worker] done" {
-		t.Fatalf("matching legacy report payloads = %v", runner.sends)
+	if len(runner.sends) != 0 {
+		t.Fatalf("rejected sends delivered: %v", runner.sends)
+	}
+}
+
+func TestSendMasterRequiresWorker(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-master")
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	_, err := runCmdErr(t, store, newSendCaptureRunner("qm-master"), "send", "master", "hello")
+	if err == nil || !strings.Contains(err.Error(), "has no parent_session") {
+		t.Fatalf("non-worker report error = %v", err)
+	}
+}
+
+func TestSendFileInputForMasterAndAll(t *testing.T) {
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-worker", "qm-master")
+	path := filepath.Join(t.TempDir(), "message.txt")
+	if err := os.WriteFile(path, []byte("from file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := newSendCaptureRunner("qm-master", "qm-worker")
+	t.Setenv("QUESTMASTER_SESSION", "qm-worker")
+	runCmd(t, store, runner, "send", "master", "--message-file", path)
+	t.Setenv("QUESTMASTER_SESSION", "qm-master")
+	runCmd(t, store, runner, "send", "all", "--message-file", path)
+	if len(runner.sends) != 2 || runner.sends[0] != "[WORKER:qm-worker] from file" || runner.sends[1] != "[FROM:qm-master] from file" {
+		t.Fatalf("file route payloads = %v", runner.sends)
+	}
+}
+
+func TestSendExplicitSessionIDIsRecipient(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-worker")
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-worker", "qm-master")
+	createWorkerManifest(t, store, "qm-other", "qm-master")
+	runner := newSendCaptureRunner("qm-other")
+	runCmd(t, store, runner, "send", "qm-other", "done")
+	if len(runner.sends) != 1 || runner.sends[0] != "[FROM:qm-worker] done" {
+		t.Fatalf("direct payloads = %v", runner.sends)
 	}
 }
