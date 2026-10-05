@@ -46,7 +46,7 @@ func TestSendMasterAndParentIDUseReportAttribution(t *testing.T) {
 			t.Fatalf("send %s output = %q", recipient, out)
 		}
 	}
-	if len(runner.sends) != 2 || runner.sends[0] != "[WORKER:qm-worker] done" || runner.sends[1] != runner.sends[0] {
+	if len(runner.sends) != 2 || runner.sends[0] != "[FROM:qm-worker] done" || runner.sends[1] != runner.sends[0] {
 		t.Fatalf("report payloads = %v", runner.sends)
 	}
 }
@@ -140,7 +140,7 @@ func TestSendFileInputForMasterAndAll(t *testing.T) {
 	runCmd(t, store, runner, "send", "master", "--message-file", path)
 	t.Setenv("QUESTMASTER_SESSION", "qm-master")
 	runCmd(t, store, runner, "send", "all", "--message-file", path)
-	if len(runner.sends) != 2 || runner.sends[0] != "[WORKER:qm-worker] from file" || runner.sends[1] != "[FROM:qm-master] from file" {
+	if len(runner.sends) != 2 || runner.sends[0] != "[FROM:qm-worker] from file" || runner.sends[1] != "[FROM:qm-master] from file" {
 		t.Fatalf("file route payloads = %v", runner.sends)
 	}
 }

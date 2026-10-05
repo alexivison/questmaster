@@ -263,7 +263,7 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 }
 
 // Report sends a report-back message from a worker to its master's primary pane.
-// Formats as [WORKER:<sessionID>] <message> per the worker report-back contract.
+// Uses the same sender prefix as direct messages.
 func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	m, err := s.store.Read(sessionID)
 	if err != nil {
@@ -294,7 +294,7 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		return fmt.Errorf("resolve primary pane in master %q: %w", parent, err)
 	}
 
-	prefix := fmt.Sprintf("[WORKER:%s] ", sessionID)
+	prefix := senderPrefix(sessionID)
 	return s.deliver(ctx, parent, target, prefix+message, reportPointer, prefix)
 }
 

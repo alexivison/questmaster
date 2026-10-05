@@ -1121,7 +1121,7 @@ func TestReport_Success(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	expected := "[WORKER:qm-w1] done: fixed the bug"
+	expected := "[FROM:qm-w1] done: fixed the bug"
 	if sent[0] != expected {
 		t.Fatalf("expected %q, got %q", expected, sent[0])
 	}
@@ -1180,8 +1180,8 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "[WORKER:qm-w1] ") {
-		t.Fatalf("expected [WORKER:] prefix, got %q", sent[0])
+	if !strings.HasPrefix(sent[0], "[FROM:qm-w1] ") {
+		t.Fatalf("expected [FROM:] prefix, got %q", sent[0])
 	}
 	if strings.Contains(sent[0], "Act on them") || strings.Contains(sent[0], "follow the instructions") {
 		t.Fatalf("worker-report pointer must not be imperative, got %q", sent[0])
@@ -1192,7 +1192,7 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// B2: Report file content must include worker prefix
+// B2: Report file content must include sender prefix
 // ---------------------------------------------------------------------------
 
 func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
@@ -1213,7 +1213,7 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 	}
 
 	// Extract file path from pointer message. The pointer reads:
-	// "[WORKER:qm-w1] Worker report available at <path>. Read it to see the results."
+	// "[FROM:qm-w1] Worker report available at <path>. Read it to see the results."
 	const marker = " at "
 	idx := strings.Index(sent[0], marker)
 	if idx < 0 {
@@ -1232,9 +1232,9 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 		t.Fatalf("read relay file: %v", err)
 	}
 
-	// The file content must include the worker prefix so the receiver knows the sender.
-	if !strings.Contains(string(content), "[WORKER:qm-w1]") {
-		t.Errorf("relay file must contain worker prefix, got: %s", string(content)[:min(100, len(content))])
+	// The file content must include the sender prefix so the receiver knows the sender.
+	if !strings.Contains(string(content), "[FROM:qm-w1]") {
+		t.Errorf("relay file must contain sender prefix, got: %s", string(content)[:min(100, len(content))])
 	}
 }
 
