@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,12 +17,14 @@ import (
 
 func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message string) error {
 	thread := m.ExtraString("codex_thread_id")
-	if thread == "" {
-		for _, agent := range m.Agents {
-			if agent.Role == primaryRole && agent.Name == "codex" {
+	binary := ""
+	for _, agent := range m.Agents {
+		if agent.Role == primaryRole && agent.Name == "codex" {
+			binary = agent.CLI
+			if thread == "" {
 				thread = agent.ResumeID
-				break
 			}
+			break
 		}
 	}
 	if thread == "" {
@@ -29,7 +33,28 @@ func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message st
 	if state.SanitizeResumeID(thread) != thread {
 		return fmt.Errorf("invalid Codex thread id")
 	}
-	binary, err := exec.LookPath("codex")
+	if binary == "" {
+		return fmt.Errorf("%w: Codex binary missing from target manifest", errNativeUnavailable)
+	}
+	if !filepath.IsAbs(binary) {
+		if strings.ContainsRune(binary, os.PathSeparator) {
+			binary = filepath.Join(m.Cwd, binary)
+		} else {
+			name := binary
+			binary = ""
+			for _, dir := range filepath.SplitList(m.AgentPath) {
+				candidate := filepath.Join(dir, name)
+				if !filepath.IsAbs(candidate) {
+					candidate = filepath.Join(m.Cwd, candidate)
+				}
+				if _, err := exec.LookPath(candidate); err == nil {
+					binary = candidate
+					break
+				}
+			}
+		}
+	}
+	binary, err := exec.LookPath(binary)
 	if err != nil {
 		return fmt.Errorf("%w: Codex binary unavailable: %v", errNativeUnavailable, err)
 	}

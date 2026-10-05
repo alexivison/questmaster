@@ -99,7 +99,19 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	decoyDir := t.TempDir()
+	decoyPath := filepath.Join(decoyDir, "called")
+	decoy := "#!/bin/sh\nprintf '%s\\n' \"$*\" > '" + decoyPath + "'\nif [ \"$1\" = app-server ]; then printf '{\"status\":\"running\"}\\n'; else printf 'Queued message decoy for thread thread-123\\n'; fi\n"
+	if err := os.WriteFile(filepath.Join(decoyDir, "codex"), []byte(decoy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update("qm-codex-native", func(m *state.Manifest) {
+		m.Agents[0].CLI = filepath.Join(bin, "codex")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", decoyDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("CODEX_BIN", filepath.Join(decoyDir, "codex"))
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	if err := svc.Relay(t.Context(), "qm-codex-native", "hello\nworld"); err != nil {
@@ -111,6 +123,27 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 	}
 	if len(sent) != 0 {
 		t.Fatalf("queued input also reached tmux: %v", sent)
+	}
+	if _, err := os.Stat(decoyPath); !os.IsNotExist(err) {
+		t.Fatalf("relay invoked PATH/CODEX_BIN decoy: %v", err)
+	}
+	if err := store.Update("qm-codex-native", func(m *state.Manifest) {
+		m.Agents[0].CLI = "codex"
+		m.AgentPath = bin
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(argsPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Relay(t.Context(), "qm-codex-native", "bare name"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(argsPath); err != nil {
+		t.Fatalf("target AgentPath binary was not used: %v", err)
+	}
+	if _, err := os.Stat(decoyPath); !os.IsNotExist(err) {
+		t.Fatalf("bare CLI invoked PATH decoy: %v", err)
 	}
 	t.Setenv("CODEX_QUEUE_FAIL", "1")
 	if err := svc.Relay(t.Context(), "qm-codex-native", "again"); err == nil {
