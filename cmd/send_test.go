@@ -29,7 +29,7 @@ func TestSendDirectPreservesSender(t *testing.T) {
 	createWorkerManifest(t, store, "qm-worker", "qm-master")
 	runner := newSendCaptureRunner("qm-worker")
 	out := runCmd(t, store, runner, "send", "qm-worker", "hello")
-	if !strings.Contains(out, `"recipient": "qm-worker"`) || len(runner.sends) != 1 || runner.sends[0] != "[FROM:qm-master] hello" {
+	if !strings.Contains(out, `"recipient": "qm-worker"`) || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
 		t.Fatalf("send output = %q, payloads = %v", out, runner.sends)
 	}
 }
@@ -46,7 +46,7 @@ func TestSendMasterAndParentIDUseReportAttribution(t *testing.T) {
 			t.Fatalf("send %s output = %q", recipient, out)
 		}
 	}
-	if len(runner.sends) != 2 || runner.sends[0] != "[FROM:qm-worker] done" || runner.sends[1] != runner.sends[0] {
+	if len(runner.sends) != 2 || runner.sends[0] != "[WORKER:qm-worker] done" || runner.sends[1] != runner.sends[0] {
 		t.Fatalf("report payloads = %v", runner.sends)
 	}
 }
@@ -62,7 +62,7 @@ func TestSendAllBroadcastsFromMaster(t *testing.T) {
 	if !strings.Contains(out, `"registered": 2`) || !strings.Contains(out, `"submitted": 2`) {
 		t.Fatalf("broadcast output = %q", out)
 	}
-	if len(runner.sends) != 2 || runner.sends[0] != "[FROM:qm-master] hello" || runner.sends[1] != runner.sends[0] {
+	if len(runner.sends) != 2 || runner.sends[0] != "[MASTER:qm-master] hello" || runner.sends[1] != runner.sends[0] {
 		t.Fatalf("broadcast payloads = %v", runner.sends)
 	}
 }
@@ -78,12 +78,12 @@ func TestSendReadsMessageFile(t *testing.T) {
 	}
 	runner := newSendCaptureRunner("qm-worker")
 	runCmd(t, store, runner, "send", "qm-worker", "--message-file", path)
-	if len(runner.sends) != 1 || runner.sends[0] != "[FROM:qm-master] from file" {
+	if len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] from file" {
 		t.Fatalf("file payloads = %v", runner.sends)
 	}
 	runner.sends = nil
 	runCmdInput(t, store, runner, strings.NewReader("from stdin"), "send", "qm-worker", "--message-file", "-")
-	if len(runner.sends) != 1 || runner.sends[0] != "[FROM:qm-master] from stdin" {
+	if len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] from stdin" {
 		t.Fatalf("stdin payloads = %v", runner.sends)
 	}
 }
@@ -140,7 +140,7 @@ func TestSendFileInputForMasterAndAll(t *testing.T) {
 	runCmd(t, store, runner, "send", "master", "--message-file", path)
 	t.Setenv("QUESTMASTER_SESSION", "qm-master")
 	runCmd(t, store, runner, "send", "all", "--message-file", path)
-	if len(runner.sends) != 2 || runner.sends[0] != "[FROM:qm-worker] from file" || runner.sends[1] != "[FROM:qm-master] from file" {
+	if len(runner.sends) != 2 || runner.sends[0] != "[WORKER:qm-worker] from file" || runner.sends[1] != "[MASTER:qm-master] from file" {
 		t.Fatalf("file route payloads = %v", runner.sends)
 	}
 }

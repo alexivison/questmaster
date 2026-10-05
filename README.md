@@ -83,6 +83,9 @@ version marker and messaging extension under the `$PI_HOME` or `~/.pi` dirs.
 `send` takes a session ID for a direct message, `master` to report to the
 current worker's parent, or `all` to broadcast from the current master.
 `--message-file <path>` and `--message-file -` supply file or stdin input.
+Messages between a worker and its recorded parent use `[MASTER:<id>]` or
+`[WORKER:<id>]`; other direct messages use `[FROM:<id>]`. These prefixes identify
+the sender and relationship recorded by Questmaster, not model receipt.
 
 Messaging uses native delivery for live Claude, Codex, and Pi
 sessions when available. Codex success means its daemon queued the message, not

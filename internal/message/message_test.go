@@ -400,6 +400,28 @@ func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
 	}
 }
 
+func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-parent", "parent", "master")
+	createManifest(t, store, "qm-other-master", "other master", "master")
+	createWorkerManifest(t, store, "qm-worker", "qm-parent")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	for _, tc := range []struct{ sender, want string }{
+		{"qm-parent", "[MASTER:qm-parent] hello"},
+		{"qm-other-master", "[FROM:qm-other-master] hello"},
+	} {
+		if err := svc.RelayFrom(t.Context(), tc.sender, "qm-worker", "hello"); err != nil {
+			t.Fatal(err)
+		}
+		if got := sent[len(sent)-1]; got != tc.want {
+			t.Fatalf("sender %s: got %q, want %q", tc.sender, got, tc.want)
+		}
+	}
+}
+
 func TestRelay_OpenCodeRequiresIdleHookState(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -478,7 +500,8 @@ func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-w1", "worker1", "worker")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -490,7 +513,7 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "[FROM:qm-master] Read and follow the instructions in ") {
+	if !strings.HasPrefix(sent[0], "[MASTER:qm-master] Read and follow the instructions in ") {
 		t.Fatalf("expected prefixed file pointer, got %q", sent[0])
 	}
 
@@ -501,7 +524,7 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read relay file: %v", err)
 	}
-	if !strings.HasPrefix(string(content), "[FROM:qm-master] ") {
+	if !strings.HasPrefix(string(content), "[MASTER:qm-master] ") {
 		t.Fatalf("expected file content provenance prefix, got %q", string(content))
 	}
 }
@@ -642,6 +665,28 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 	}
 }
 
+func TestBroadcastFrom_OnlyActualChildrenGetMasterPrefix(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createManifest(t, store, "qm-other", "other", "master")
+	createWorkerManifest(t, store, "qm-child", "qm-master")
+	createWorkerManifest(t, store, "qm-unrelated", "qm-other")
+	if err := store.AddWorker("qm-master", "qm-unrelated"); err != nil {
+		t.Fatal(err)
+	}
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Delivered != 2 || len(sent) != 2 || sent[0] != "[MASTER:qm-master] hello" || sent[1] != "[FROM:qm-master] hello" {
+		t.Fatalf("result = %+v, sent = %v", result, sent)
+	}
+}
+
 func TestBroadcastFrom_NoWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -713,7 +758,7 @@ func TestBroadcastFrom_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if result.Delivered != 1 {
 		t.Fatalf("expected 1 send, got %d", result.Delivered)
 	}
-	if len(sent) == 0 || !strings.HasPrefix(sent[0], "[FROM:qm-master] Read and follow the instructions in ") {
+	if len(sent) == 0 || !strings.HasPrefix(sent[0], "[MASTER:qm-master] Read and follow the instructions in ") {
 		t.Fatalf("expected file pointer for large message, got %v", sent)
 	}
 }
@@ -1103,7 +1148,7 @@ func TestReport_Success(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	expected := "[FROM:qm-w1] done: fixed the bug"
+	expected := "[WORKER:qm-w1] done: fixed the bug"
 	if sent[0] != expected {
 		t.Fatalf("expected %q, got %q", expected, sent[0])
 	}
@@ -1162,8 +1207,8 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "[FROM:qm-w1] ") {
-		t.Fatalf("expected [FROM:] prefix, got %q", sent[0])
+	if !strings.HasPrefix(sent[0], "[WORKER:qm-w1] ") {
+		t.Fatalf("expected [WORKER:] prefix, got %q", sent[0])
 	}
 	if strings.Contains(sent[0], "Act on them") || strings.Contains(sent[0], "follow the instructions") {
 		t.Fatalf("worker-report pointer must not be imperative, got %q", sent[0])
@@ -1195,7 +1240,7 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 	}
 
 	// Extract file path from pointer message. The pointer reads:
-	// "[FROM:qm-w1] Worker report available at <path>. Read it to see the results."
+	// "[WORKER:qm-w1] Worker report available at <path>. Read it to see the results."
 	const marker = " at "
 	idx := strings.Index(sent[0], marker)
 	if idx < 0 {
@@ -1215,7 +1260,7 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 	}
 
 	// The file content must include the sender prefix so the receiver knows the sender.
-	if !strings.Contains(string(content), "[FROM:qm-w1]") {
+	if !strings.Contains(string(content), "[WORKER:qm-w1]") {
 		t.Errorf("relay file must contain sender prefix, got: %s", string(content)[:min(100, len(content))])
 	}
 }
