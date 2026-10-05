@@ -89,8 +89,9 @@ sessions when available. Codex success means its daemon queued the message, not
 that the recipient processed it. Pi steers the current turn and its receipt is
 unconfirmed. Claude's socket has no delivery receipt: `submitted: true` can
 coexist with Claude holding the message if its effective `crossSessionInbound`
-policy does not accept it. New Questmaster Claude launches set `accept`, but
-older, adopted, or managed-policy sessions may differ. OpenCode keeps its tmux
+policy does not accept it. New Questmaster Claude launches set `accept`; older
+or adopted sessions may need an effective `accept` setting or a restart, while
+managed policy can still restrict delivery. OpenCode keeps its tmux
 path and requires idle or done hook state. A native send that may have written
 bytes is never retried through tmux.
 
