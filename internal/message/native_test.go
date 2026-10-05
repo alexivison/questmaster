@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/coder/websocket"
 )
 
 func TestClaudeNativeWritesFrameWithoutTmux(t *testing.T) {
@@ -209,14 +211,12 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 			setPrimaryAgent(t, store, "qm-codex-steer", "codex")
 			bin := t.TempDir()
 			tracePath := filepath.Join(bin, "trace")
+			if err := os.WriteFile(tracePath, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			socket, requests := startCodexTestDaemon(t, tt.mode)
 			script := "#!/bin/sh\n" +
-				"if [ \"$1\" = app-server ] && [ \"$2\" = daemon ]; then printf '{\"status\":\"running\",\"socketPath\":\"/tmp/codex.sock\"}\\n'; exit 0; fi\n" +
-				"if [ \"$1\" = app-server ] && [ \"$2\" = proxy ]; then while IFS= read -r line; do printf '%s\\n' \"$line\" >> '" + tracePath + "'; case \"$line\" in " +
-				"*'\"method\":\"initialize\"'*) printf '{\"id\":1,\"result\":{}}\\n' ;; " +
-				"*'\"method\":\"thread/resume\"'*) printf '{\"id\":2,\"result\":{}}\\n' ;; " +
-				"*'\"method\":\"thread/turns/list\"'*) if [ \"$CODEX_STEER_MODE\" = inactive ]; then printf '{\"id\":3,\"result\":{\"data\":[{\"id\":\"turn-1\",\"status\":\"completed\"}]}}\\n'; else printf '{\"id\":3,\"result\":{\"data\":[{\"id\":\"turn-1\",\"status\":\"inProgress\"}]}}\\n'; fi ;; " +
-				"*'\"method\":\"turn/steer\"'*) if [ \"$CODEX_STEER_MODE\" = uncertain ]; then exit 0; elif [ \"$CODEX_STEER_MODE\" = rejected ]; then printf '{\"id\":4,\"error\":{\"code\":-32600,\"message\":\"no active turn to steer\"}}\\n'; else printf '{\"id\":4,\"result\":{\"turnId\":\"turn-1\"}}\\n'; fi ;; " +
-				"esac; done; exit 0; fi\n" +
+				"if [ \"$1\" = app-server ] && [ \"$2\" = daemon ]; then printf '{\"status\":\"running\",\"socketPath\":\"%s\"}\\n' \"$CODEX_TEST_SOCKET\"; exit 0; fi\n" +
 				"printf 'queue %s\\n' \"$*\" >> '" + tracePath + "'; printf 'Queued message msg-1 for thread thread-123\\n'\n"
 			codex := filepath.Join(bin, "codex")
 			if err := os.WriteFile(codex, []byte(script), 0o755); err != nil {
@@ -229,6 +229,7 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("CODEX_STEER_MODE", tt.mode)
+			t.Setenv("CODEX_TEST_SOCKET", socket)
 			var sent []string
 			svc := newService(store, idleAndSendRunner(&sent))
 			svc.Steer = true
@@ -241,14 +242,29 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 			text := string(trace)
-			if strings.Contains(text, `"method":"turn/steer"`) != tt.wantSteer {
-				t.Fatalf("steer request presence = %v, trace %q", strings.Contains(text, `"method":"turn/steer"`), text)
-			}
 			if strings.Contains(text, "queue --thread thread-123") != tt.wantQueue {
 				t.Fatalf("queue presence = %v, trace %q", strings.Contains(text, "queue --thread thread-123"), text)
 			}
-			if tt.wantSteer && (!strings.Contains(text, `"expectedTurnId":"turn-1"`) || !strings.Contains(text, `"text":"[FROM:external] hello"`)) {
-				t.Fatalf("steer request lost turn id or sender prefix: %q", text)
+			methods := map[string]map[string]any{}
+			for len(requests) > 0 {
+				request := <-requests
+				if request.JSONRPC != "2.0" {
+					t.Fatalf("%s request used JSON-RPC version %q", request.Method, request.JSONRPC)
+				}
+				methods[request.Method] = request.Params
+			}
+			if _, ok := methods["turn/steer"]; ok != tt.wantSteer {
+				t.Fatalf("steer request presence = %v, methods %v", ok, methods)
+			}
+			if tt.wantSteer {
+				params := methods["turn/steer"]
+				if params["expectedTurnId"] != "turn-1" {
+					t.Fatalf("steer expectedTurnId = %v", params["expectedTurnId"])
+				}
+				input, ok := params["input"].([]any)
+				if !ok || len(input) != 1 || input[0].(map[string]any)["text"] != "[FROM:external] hello" {
+					t.Fatalf("steer input lost sender prefix: %v", params["input"])
+				}
 			}
 			if tt.wantQueue && !strings.Contains(text, "--message=[FROM:external] hello") {
 				t.Fatalf("queue fallback lost sender prefix: %q", text)
@@ -258,6 +274,80 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 			}
 		})
 	}
+}
+
+type codexTestRPCRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID     json.RawMessage `json:"id"`
+	Method string          `json:"method"`
+	Params map[string]any  `json:"params"`
+}
+
+func startCodexTestDaemon(t *testing.T, mode string) (string, <-chan codexTestRPCRequest) {
+	t.Helper()
+	socket := filepath.Join("/tmp", "qm-codex-"+strconv.Itoa(os.Getpid())+"-"+strconv.FormatInt(time.Now().UnixNano(), 10)+".sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := make(chan codexTestRPCRequest, 8)
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			_, data, err := conn.Read(r.Context())
+			if err != nil {
+				return
+			}
+			var request codexTestRPCRequest
+			if err := json.Unmarshal(data, &request); err != nil {
+				return
+			}
+			if request.Method == "initialized" {
+				continue
+			}
+			requests <- request
+			var result any
+			var rpcError any
+			switch request.Method {
+			case "initialize", "thread/resume":
+				result = map[string]any{}
+			case "thread/turns/list":
+				status := "inProgress"
+				if mode == "inactive" {
+					status = "completed"
+				}
+				result = map[string]any{"data": []map[string]string{{"id": "turn-1", "status": status}}}
+			case "turn/steer":
+				if mode == "uncertain" {
+					return
+				}
+				if mode == "rejected" {
+					rpcError = map[string]any{"code": -32600, "message": "no active turn to steer"}
+				} else {
+					result = map[string]string{"turnId": "turn-1"}
+				}
+			default:
+				return
+			}
+			payload := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(request.ID)}
+			if rpcError != nil {
+				payload["error"] = rpcError
+			} else {
+				payload["result"] = result
+			}
+			payloadBytes, marshalErr := json.Marshal(payload)
+			if marshalErr != nil || conn.Write(r.Context(), websocket.MessageText, payloadBytes) != nil {
+				return
+			}
+		}
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close(); _ = listener.Close() })
+	return socket, requests
 }
 
 func TestClaudeInboundProjectRestriction(t *testing.T) {

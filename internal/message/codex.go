@@ -3,13 +3,13 @@
 package message
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/coder/websocket"
 )
 
 var codexQueueTimeout = 10 * time.Second
@@ -83,7 +84,7 @@ func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message st
 	}
 	if s.Steer && daemon.SocketPath != "" {
 		steerCtx, steerCancel := context.WithTimeout(ctx, codexSteerTimeout)
-		steered, err := codexSteer(steerCtx, binary, daemon.SocketPath, thread, message)
+		steered, err := codexSteer(steerCtx, daemon.SocketPath, thread, message)
 		steerCancel()
 		if err != nil {
 			return fmt.Errorf("Codex steer: %w", err)
@@ -119,34 +120,27 @@ type codexRPCError struct {
 func (e *codexRPCError) Error() string { return e.Message }
 
 type codexRPCClient struct {
-	input   io.WriteCloser
-	output  *bufio.Scanner
+	ctx     context.Context
+	conn    *websocket.Conn
 	request int
 }
 
-func codexSteer(ctx context.Context, binary, socket, thread, message string) (bool, error) {
-	cmd := exec.CommandContext(ctx, binary, "app-server", "proxy", "--sock", socket)
-	cmd.Stderr = io.Discard
-	stdout, err := cmd.StdoutPipe()
+func codexSteer(ctx context.Context, socket, thread, message string) (bool, error) {
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
+		},
+	}
+	defer transport.CloseIdleConnections()
+	conn, _, err := websocket.Dial(ctx, "ws://localhost/", &websocket.DialOptions{
+		HTTPClient: &http.Client{Transport: transport},
+	})
 	if err != nil {
 		return false, nil
 	}
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return false, nil
-	}
-	if err := cmd.Start(); err != nil {
-		return false, nil
-	}
-	defer func() {
-		_ = stdin.Close()
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	}()
-
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64<<10), codexRPCFrameLimit)
-	rpc := codexRPCClient{input: stdin, output: scanner}
+	defer conn.CloseNow()
+	conn.SetReadLimit(codexRPCFrameLimit)
+	rpc := codexRPCClient{ctx: ctx, conn: conn}
 	if _, err := rpc.call("initialize", map[string]any{
 		"clientInfo":   map[string]any{"name": "questmaster", "title": "Questmaster", "version": "1"},
 		"capabilities": map[string]any{"experimentalApi": true, "requestAttestation": false},
@@ -208,13 +202,20 @@ func (c *codexRPCClient) call(method string, params any) (json.RawMessage, error
 	if err := c.write(map[string]any{"id": id, "method": method, "params": params}); err != nil {
 		return nil, err
 	}
-	for c.output.Scan() {
+	for {
+		messageType, data, err := c.conn.Read(c.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read Codex app-server response: %w", err)
+		}
+		if messageType != websocket.MessageText {
+			continue
+		}
 		var response struct {
 			ID     json.RawMessage `json:"id"`
 			Result json.RawMessage `json:"result"`
 			Error  *codexRPCError  `json:"error"`
 		}
-		if err := json.Unmarshal(c.output.Bytes(), &response); err != nil {
+		if err := json.Unmarshal(data, &response); err != nil {
 			return nil, fmt.Errorf("decode Codex app-server response: %w", err)
 		}
 		if !bytes.Equal(bytes.TrimSpace(response.ID), []byte(strconv.Itoa(id))) {
@@ -225,19 +226,15 @@ func (c *codexRPCClient) call(method string, params any) (json.RawMessage, error
 		}
 		return response.Result, nil
 	}
-	if err := c.output.Err(); err != nil {
-		return nil, fmt.Errorf("read Codex app-server response: %w", err)
-	}
-	return nil, io.EOF
 }
 
-func (c *codexRPCClient) write(message any) error {
+func (c *codexRPCClient) write(message map[string]any) error {
+	message["jsonrpc"] = "2.0"
 	data, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("encode Codex app-server request: %w", err)
 	}
-	data = append(data, '\n')
-	if _, err := c.input.Write(data); err != nil {
+	if err := c.conn.Write(c.ctx, websocket.MessageText, data); err != nil {
 		return fmt.Errorf("write Codex app-server request: %w", err)
 	}
 	return nil
