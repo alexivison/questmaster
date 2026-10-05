@@ -299,10 +299,12 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	}
 
 	prefix := senderPrefix(sessionID)
+	pointer := peerPointer
 	if m.SessionType != "master" {
 		prefix = "[WORKER:" + sessionID + "] "
+		pointer = reportPointer
 	}
-	return s.deliver(ctx, parent, target, prefix+message, reportPointer, prefix)
+	return s.deliver(ctx, parent, target, prefix+message, pointer, prefix)
 }
 
 // Workers returns status information for all workers of a master session.

@@ -1238,6 +1238,18 @@ func TestReport_PromotedChildUsesFromPrefix(t *testing.T) {
 	if len(sent) != 1 || sent[0] != "[FROM:qm-child] hello" {
 		t.Fatalf("promoted child payloads = %v", sent)
 	}
+	if err := svc.Report(t.Context(), "qm-child", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 2 || !strings.HasPrefix(sent[1], "[FROM:qm-child] Message available at ") || strings.Contains(sent[1], "Worker report") {
+		t.Fatalf("promoted child pointer = %v", sent)
+	}
+	path := relayFilePathFromPointer(t, sent[1])
+	t.Cleanup(func() { os.Remove(path) })
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(content), "[FROM:qm-child] ") {
+		t.Fatalf("promoted child file = %q, err = %v", content, err)
+	}
 }
 
 func TestReport_NoParentSession(t *testing.T) {
