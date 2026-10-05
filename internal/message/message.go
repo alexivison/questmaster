@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -26,6 +27,7 @@ const primaryRole = "primary"
 type Service struct {
 	store  *state.Store
 	client *tmux.Client
+	dial   func(context.Context, string, string) (net.Conn, error)
 }
 
 // NewService creates a messaging service.
@@ -40,7 +42,7 @@ type WorkerInfo struct {
 	Title     string `json:"title"`
 }
 
-// Relay sends a message to a worker's primary pane.
+// Relay sends an unattributed external message to a session's primary pane.
 func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 	if err := s.validateRelayTarget(workerID); err != nil {
 		return err
@@ -57,12 +59,8 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 		return fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
 	}
 
-	msg, _, err := prepareMessage(message)
-	if err != nil {
-		return err
-	}
-	result := s.client.Send(ctx, target, msg)
-	return result.Err
+	const prefix = "[FROM:external] "
+	return s.deliver(ctx, workerID, target, prefix+message, peerPointer, prefix)
 }
 
 // RelayFrom sends a message to a worker's primary pane with sender provenance.
@@ -73,6 +71,11 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	if err := s.validateRelayTarget(targetID); err != nil {
 		return err
 	}
+	recipient, err := s.store.Read(targetID)
+	if err != nil {
+		return fmt.Errorf("read recipient manifest: %w", err)
+	}
+	sender, _ := s.store.Read(senderID)
 	if err := s.client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
 		return err
 	}
@@ -85,12 +88,32 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 		return fmt.Errorf("resolve primary pane in %q: %w", targetID, err)
 	}
 
-	msg, _, err := prepareProvenancedMessage(senderID, message)
+	prefix := recipientPrefix(senderID, sender, recipient)
+	pointer := peerPointer
+	if strings.HasPrefix(prefix, "[MASTER:") {
+		pointer = relayPointer
+	}
+	return s.deliver(ctx, targetID, target, prefix+message, pointer, prefix)
+}
+
+func (s *Service) deliver(ctx context.Context, sessionID, target, message string, pointer func(string) string, pointerPrefix string) error {
+	m, err := s.store.Read(sessionID)
+	if err != nil {
+		return fmt.Errorf("read recipient manifest: %w", err)
+	}
+	if err := s.nativeDeliver(ctx, sessionID, m, target, message); err == nil {
+		return nil
+	} else if !errors.Is(err, errNativeUnavailable) {
+		return err
+	}
+	msg, indirected, err := prepareMessageWith(message, pointer)
 	if err != nil {
 		return err
 	}
-	result := s.client.Send(ctx, target, msg)
-	return result.Err
+	if indirected {
+		msg = pointerPrefix + msg
+	}
+	return s.client.Send(ctx, target, msg).Err
 }
 
 func (s *Service) validateRelayTarget(workerID string) error {
@@ -135,28 +158,7 @@ func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
 // BroadcastResult distinguishes "no registered workers" from "registered but none reachable."
 type BroadcastResult struct {
 	Registered int // total workers in manifest
-	Delivered  int // workers that received the message
-}
-
-// Broadcast sends a message to all workers of a master session.
-func (s *Service) Broadcast(ctx context.Context, masterID, message string) (BroadcastResult, error) {
-	m, err := s.store.Read(masterID)
-	if err != nil {
-		return BroadcastResult{}, fmt.Errorf("get workers: %w", err)
-	}
-	if err := rejectPlainSession(m, masterID); err != nil {
-		return BroadcastResult{}, err
-	}
-	workers := m.Workers
-	if len(workers) == 0 {
-		return BroadcastResult{}, nil
-	}
-
-	msg, _, err := prepareMessage(message)
-	if err != nil {
-		return BroadcastResult{}, err
-	}
-	return s.broadcastTo(ctx, workers, msg)
+	Delivered  int // workers whose local transport accepted the message
 }
 
 // BroadcastFrom sends a message with sender provenance to all workers of a master session.
@@ -173,20 +175,17 @@ func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message
 		return BroadcastResult{}, nil
 	}
 
-	msg, _, err := prepareProvenancedMessage(senderID, message)
-	if err != nil {
-		return BroadcastResult{}, err
-	}
-	return s.broadcastTo(ctx, workers, msg)
+	sender, _ := s.store.Read(senderID)
+	return s.broadcastTo(ctx, workers, senderID, sender, message)
 }
 
-// broadcastTo delivers an already-prepared message to every live worker,
+// broadcastTo delivers a logical message to every live worker,
 // aggregating per-worker failures. Dead workers (no tmux session) are a
 // legitimate state and skipped silently. Live workers whose primary pane cannot
 // be resolved, whose send fails, or whose liveness check hits a transport error
 // are surfaced via the returned error so a zero- or partial-delivery broadcast is
 // never silent — matching the error-returning behavior of Relay.
-func (s *Service) broadcastTo(ctx context.Context, workers []string, msg string) (BroadcastResult, error) {
+func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID string, sender state.Manifest, message string) (BroadcastResult, error) {
 	result := BroadcastResult{Registered: len(workers)}
 	var errs []error
 	for _, wid := range workers {
@@ -202,13 +201,23 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, msg string)
 			errs = append(errs, err)
 			continue
 		}
+		recipient, err := s.store.Read(wid)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("read recipient manifest %s: %w", wid, err))
+			continue
+		}
 		target, err := s.client.ResolveRole(ctx, wid, primaryRole, tmux.WindowWorkspace)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("resolve primary pane in %q: %w", wid, err))
 			continue
 		}
-		if sr := s.client.Send(ctx, target, msg); sr.Err != nil {
-			errs = append(errs, fmt.Errorf("send to %q: %w", wid, sr.Err))
+		prefix := recipientPrefix(senderID, sender, recipient)
+		pointer := peerPointer
+		if strings.HasPrefix(prefix, "[MASTER:") {
+			pointer = relayPointer
+		}
+		if err := s.deliver(ctx, wid, target, prefix+message, pointer, prefix); err != nil {
+			errs = append(errs, fmt.Errorf("send to %q: %w", wid, err))
 			continue
 		}
 		result.Delivered++
@@ -259,7 +268,6 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 }
 
 // Report sends a report-back message from a worker to its master's primary pane.
-// Formats as [WORKER:<sessionID>] <message> per the worker report-back contract.
 func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	m, err := s.store.Read(sessionID)
 	if err != nil {
@@ -290,18 +298,13 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		return fmt.Errorf("resolve primary pane in master %q: %w", parent, err)
 	}
 
-	prefix := fmt.Sprintf("[WORKER:%s] ", sessionID)
-	msg, indirected, err := prepareMessageWith(prefix+message, reportPointer)
-	if err != nil {
-		return err
+	prefix := senderPrefix(sessionID)
+	pointer := peerPointer
+	if m.SessionType != "master" {
+		prefix = "[WORKER:" + sessionID + "] "
+		pointer = reportPointer
 	}
-	// For file-indirected messages, the prefix is inside the file but also
-	// needs to be visible in the pane so the master can identify the sender.
-	if indirected {
-		msg = prefix + msg
-	}
-	result := s.client.Send(ctx, target, msg)
-	return result.Err
+	return s.deliver(ctx, parent, target, prefix+message, pointer, prefix)
 }
 
 // Workers returns status information for all workers of a master session.
@@ -389,8 +392,19 @@ func relayPointer(path string) string {
 	return "Read and follow the instructions in " + path + ". Act on them now, then report back with results."
 }
 
+func peerPointer(path string) string {
+	return "Message available at " + path + ". Read it if relevant."
+}
+
 func senderPrefix(senderID string) string {
 	return "[FROM:" + senderID + "] "
+}
+
+func recipientPrefix(senderID string, sender, recipient state.Manifest) string {
+	if sender.SessionType == "master" && recipient.SessionType != "master" && recipient.ExtraString("parent_session") == senderID {
+		return "[MASTER:" + senderID + "] "
+	}
+	return senderPrefix(senderID)
 }
 
 // reportPointer returns the pointer message for a relay file sent
@@ -400,32 +414,8 @@ func reportPointer(path string) string {
 	return "Worker report available at " + path + ". Read it to see the results."
 }
 
-func prepareProvenancedMessage(senderID, message string) (msg string, indirected bool, err error) {
-	prefix := senderPrefix(senderID)
-	msg, indirected, err = prepareMessageWith(prefix+message, relayPointer)
-	if err != nil {
-		return "", false, err
-	}
-	if indirected {
-		msg = prefix + msg
-	}
-	return msg, indirected, nil
-}
-
-// prepareMessage applies file indirection if needed, returning the message to send
-// and whether indirection was applied. Uses the imperative relayPointer — suitable
-// for master→worker dispatch. Use prepareMessageWith for other directions.
-//
-// Large messages are written to /tmp/qm-relay-*.md temp files. These files are
-// the only copy of the message body and cannot be safely reaped on a timer (the
-// receiver may not process input for extended periods during long tool runs).
-// Files accumulate in /tmp and are cleaned by the OS on reboot.
-func prepareMessage(msg string) (string, bool, error) {
-	return prepareMessageWith(msg, relayPointer)
-}
-
-// prepareMessageWith behaves like prepareMessage but lets the caller supply the
-// pointer phrasing (e.g. reportPointer for worker→master reports).
+// prepareMessageWith writes large tmux messages to temp files. The receiver
+// may read them after a long tool run, so the OS cleans them up on reboot.
 func prepareMessageWith(msg string, pointer func(string) string) (string, bool, error) {
 	if !needsFileIndirection(msg) {
 		return msg, false, nil

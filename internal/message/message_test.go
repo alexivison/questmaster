@@ -375,8 +375,8 @@ func TestRelay_Success(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if sent[0] != "hello worker" {
-		t.Fatalf("expected 'hello worker', got %q", sent[0])
+	if sent[0] != "[FROM:external] hello worker" {
+		t.Fatalf("expected external prefix, got %q", sent[0])
 	}
 }
 
@@ -397,6 +397,47 @@ func TestRelayFrom_PrefixesInlineMessage(t *testing.T) {
 	expected := "[FROM:qm-master] hello worker"
 	if sent[0] != expected {
 		t.Fatalf("expected %q, got %q", expected, sent[0])
+	}
+}
+
+func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-parent", "parent", "master")
+	createManifest(t, store, "qm-other-master", "other master", "master")
+	createManifest(t, store, "qm-standalone", "standalone", "")
+	createWorkerManifest(t, store, "qm-worker", "qm-parent")
+	createWorkerManifest(t, store, "qm-child-parent", "qm-parent")
+	createWorkerManifest(t, store, "qm-nested", "qm-child-parent")
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	for _, tc := range []struct{ sender, want string }{
+		{"qm-parent", "[MASTER:qm-parent] hello"},
+		{"qm-other-master", "[FROM:qm-other-master] hello"},
+		{"qm-standalone", "[FROM:qm-standalone] hello"},
+	} {
+		if err := svc.RelayFrom(t.Context(), tc.sender, "qm-worker", "hello"); err != nil {
+			t.Fatal(err)
+		}
+		if got := sent[len(sent)-1]; got != tc.want {
+			t.Fatalf("sender %s: got %q, want %q", tc.sender, got, tc.want)
+		}
+	}
+	if err := svc.RelayFrom(t.Context(), "qm-child-parent", "qm-nested", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sent[len(sent)-1]; got != "[FROM:qm-child-parent] hello" {
+		t.Fatalf("worker sender with child was treated as master: %q", got)
+	}
+	if err := store.Update("qm-worker", func(m *state.Manifest) { m.SessionType = "master" }); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RelayFrom(t.Context(), "qm-parent", "qm-worker", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if got := sent[len(sent)-1]; got != "[FROM:qm-parent] hello" {
+		t.Fatalf("promoted child was treated as worker: %q", got)
 	}
 }
 
@@ -432,8 +473,8 @@ func TestRelay_OpenCodeAllowsIdleHookState(t *testing.T) {
 	if err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
 		t.Fatalf("relay: %v", err)
 	}
-	if len(sent) == 0 || sent[0] != "hello worker" {
-		t.Fatalf("sent = %v, want hello worker", sent)
+	if len(sent) == 0 || sent[0] != "[FROM:external] hello worker" {
+		t.Fatalf("sent = %v, want external prefix", sent)
 	}
 }
 
@@ -450,8 +491,8 @@ func TestRelay_OpenCodeAllowsFreshDoneHookState(t *testing.T) {
 	if err := svc.Relay(t.Context(), sessionID, "hello worker"); err != nil {
 		t.Fatalf("relay: %v", err)
 	}
-	if len(sent) == 0 || sent[0] != "hello worker" {
-		t.Fatalf("sent = %v, want hello worker", sent)
+	if len(sent) == 0 || sent[0] != "[FROM:external] hello worker" {
+		t.Fatalf("sent = %v, want external prefix", sent)
 	}
 }
 
@@ -470,15 +511,22 @@ func TestRelay_LargeMessage_UsesFileIndirection(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "Read and follow the instructions in ") {
-		t.Fatalf("expected file pointer, got %q", sent[0])
+	if !strings.HasPrefix(sent[0], "[FROM:external] Message available at ") || strings.Contains(sent[0], "Act on them") {
+		t.Fatalf("expected neutral external pointer, got %q", sent[0])
+	}
+	path := relayFilePathFromPointer(t, sent[0])
+	t.Cleanup(func() { os.Remove(path) })
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(content), "[FROM:external] ") {
+		t.Fatalf("external file content = %q, err = %v", content, err)
 	}
 }
 
 func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-w1", "worker1", "worker")
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
@@ -490,7 +538,7 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	if len(sent) == 0 {
 		t.Fatal("expected send-keys call")
 	}
-	if !strings.HasPrefix(sent[0], "[FROM:qm-master] Read and follow the instructions in ") {
+	if !strings.HasPrefix(sent[0], "[MASTER:qm-master] Read and follow the instructions in ") {
 		t.Fatalf("expected prefixed file pointer, got %q", sent[0])
 	}
 
@@ -501,8 +549,30 @@ func TestRelayFrom_LargeMessage_PrefixesPointerAndFileContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read relay file: %v", err)
 	}
-	if !strings.HasPrefix(string(content), "[FROM:qm-master] ") {
+	if !strings.HasPrefix(string(content), "[MASTER:qm-master] ") {
 		t.Fatalf("expected file content provenance prefix, got %q", string(content))
+	}
+}
+
+func TestRelayFrom_PeerFilePointerIsNeutral(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createManifest(t, store, "qm-peer", "peer", "master")
+	createWorkerManifest(t, store, "qm-worker", "qm-master")
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	if err := svc.RelayFrom(t.Context(), "qm-peer", "qm-worker", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "[FROM:qm-peer] Message available at ") || strings.Contains(sent[0], "Act on them") {
+		t.Fatalf("peer pointer = %v", sent)
+	}
+	path := relayFilePathFromPointer(t, sent[0])
+	t.Cleanup(func() { os.Remove(path) })
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(content), "[FROM:qm-peer] ") {
+		t.Fatalf("peer file content = %q, err = %v", content, err)
 	}
 }
 
@@ -590,7 +660,7 @@ func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
 		"broadcast": func(t *testing.T, store *state.Store, svc *Service) error {
 			t.Helper()
 			createPlainManifest(t, store, "qm-plain", "plain")
-			_, err := svc.Broadcast(t.Context(), "qm-plain", "hello")
+			_, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-plain", "hello")
 			return err
 		},
 		"report": func(t *testing.T, store *state.Store, svc *Service) error {
@@ -619,24 +689,6 @@ func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
 // Broadcast tests
 // ---------------------------------------------------------------------------
 
-func TestBroadcast_SendsToAllWorkers(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	createManifest(t, store, "qm-master", "master", "master")
-	createWorkerManifest(t, store, "qm-w1", "qm-master")
-	createWorkerManifest(t, store, "qm-w2", "qm-master")
-
-	var sent []string
-	svc := newService(store, idleAndSendRunner(&sent))
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello all")
-	if err != nil {
-		t.Fatalf("broadcast: %v", err)
-	}
-	if result.Delivered != 2 {
-		t.Fatalf("expected 2 sends, got %d", result.Delivered)
-	}
-}
-
 func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -660,13 +712,56 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 	}
 }
 
-func TestBroadcast_NoWorkers(t *testing.T) {
+func TestBroadcastFrom_OnlyActualChildrenGetMasterPrefix(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createManifest(t, store, "qm-other", "other", "master")
+	createWorkerManifest(t, store, "qm-child", "qm-master")
+	createWorkerManifest(t, store, "qm-unrelated", "qm-other")
+	if err := store.AddWorker("qm-master", "qm-unrelated"); err != nil {
+		t.Fatal(err)
+	}
+
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Delivered != 2 || len(sent) != 2 || sent[0] != "[MASTER:qm-master] hello" || sent[1] != "[FROM:qm-master] hello" {
+		t.Fatalf("result = %+v, sent = %v", result, sent)
+	}
+}
+
+func TestBroadcastFrom_UnrelatedWorkerGetsNeutralPointer(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createManifest(t, store, "qm-other", "other", "master")
+	createWorkerManifest(t, store, "qm-unrelated", "qm-other")
+	if err := store.AddWorker("qm-master", "qm-unrelated"); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	if _, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 || !strings.HasPrefix(sent[0], "[FROM:qm-master] Message available at ") || strings.Contains(sent[0], "Act on them") {
+		t.Fatalf("unrelated broadcast pointer = %v", sent)
+	}
+	path := relayFilePathFromPointer(t, sent[0])
+	t.Cleanup(func() { os.Remove(path) })
+}
+
+func TestBroadcastFrom_NoWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
 
 	svc := newService(store, idleAndSendRunner(new([]string)))
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
@@ -675,7 +770,7 @@ func TestBroadcast_NoWorkers(t *testing.T) {
 	}
 }
 
-func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
+func TestBroadcastFrom_SkipsDeadWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
@@ -703,7 +798,7 @@ func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
@@ -715,7 +810,7 @@ func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 	}
 }
 
-func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
+func TestBroadcastFrom_LargeMessage_UsesFileIndirection(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
@@ -724,14 +819,14 @@ func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	result, err := svc.Broadcast(t.Context(), "qm-master", long)
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", long)
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
 	if result.Delivered != 1 {
 		t.Fatalf("expected 1 send, got %d", result.Delivered)
 	}
-	if len(sent) == 0 || !strings.HasPrefix(sent[0], "Read and follow the instructions in ") {
+	if len(sent) == 0 || !strings.HasPrefix(sent[0], "[MASTER:qm-master] Read and follow the instructions in ") {
 		t.Fatalf("expected file pointer for large message, got %v", sent)
 	}
 }
@@ -741,7 +836,7 @@ func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
 // only incremented on success, transportErr only set on HasSession errors), so a
 // zero-delivery broadcast returned (Delivered:0, err:nil) — silent, exactly the
 // reported TUI symptom.
-func TestBroadcast_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
+func TestBroadcastFrom_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
@@ -762,7 +857,7 @@ func TestBroadcast_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 	}}
 	svc := newService(store, runner)
 
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if result.Delivered != 0 {
 		t.Fatalf("expected 0 delivered when send fails, got %d", result.Delivered)
 	}
@@ -773,7 +868,7 @@ func TestBroadcast_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 
 // Regression: a live worker whose primary pane cannot be resolved must surface an
 // error. Previously ResolveRole failures were silently `continue`d.
-func TestBroadcast_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
+func TestBroadcastFrom_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
@@ -790,7 +885,7 @@ func TestBroadcast_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
 	}}
 	svc := newService(store, runner)
 
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if result.Delivered != 0 {
 		t.Fatalf("expected 0 delivered when pane resolution fails, got %d", result.Delivered)
 	}
@@ -1127,6 +1222,36 @@ func TestReport_Success(t *testing.T) {
 	}
 }
 
+func TestReport_PromotedChildUsesFromPrefix(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "master")
+	createWorkerManifest(t, store, "qm-child", "qm-master")
+	if err := store.Update("qm-child", func(m *state.Manifest) { m.SessionType = "master" }); err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	svc := newService(store, idleAndSendRunner(&sent))
+	if err := svc.Report(t.Context(), "qm-child", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 || sent[0] != "[FROM:qm-child] hello" {
+		t.Fatalf("promoted child payloads = %v", sent)
+	}
+	if err := svc.Report(t.Context(), "qm-child", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 2 || !strings.HasPrefix(sent[1], "[FROM:qm-child] Message available at ") || strings.Contains(sent[1], "Worker report") {
+		t.Fatalf("promoted child pointer = %v", sent)
+	}
+	path := relayFilePathFromPointer(t, sent[1])
+	t.Cleanup(func() { os.Remove(path) })
+	content, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(content), "[FROM:qm-child] ") {
+		t.Fatalf("promoted child file = %q, err = %v", content, err)
+	}
+}
+
 func TestReport_NoParentSession(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -1192,7 +1317,7 @@ func TestReport_LargeMessage_UsesFileIndirection(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// B2: Report file content must include worker prefix
+// B2: Report file content must include sender prefix
 // ---------------------------------------------------------------------------
 
 func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
@@ -1232,9 +1357,9 @@ func TestReport_LargeMessage_FileContentIncludesPrefix(t *testing.T) {
 		t.Fatalf("read relay file: %v", err)
 	}
 
-	// The file content must include the worker prefix so the receiver knows the sender.
+	// The file content must include the sender prefix so the receiver knows the sender.
 	if !strings.Contains(string(content), "[WORKER:qm-w1]") {
-		t.Errorf("relay file must contain worker prefix, got: %s", string(content)[:min(100, len(content))])
+		t.Errorf("relay file must contain sender prefix, got: %s", string(content)[:min(100, len(content))])
 	}
 }
 
@@ -1279,10 +1404,10 @@ func TestWorkers_TmuxErrorNotMaskedAsStopped(t *testing.T) {
 	}
 }
 
-// W1: Broadcast() silently skips workers on tmux transport errors.
+// W1: BroadcastFrom() silently skips workers on tmux transport errors.
 // A transport error (connection refused, socket timeout) is different from
 // "session not found" — it should be surfaced, not silently swallowed.
-func TestBroadcast_TmuxTransportError(t *testing.T) {
+func TestBroadcastFrom_TmuxTransportError(t *testing.T) {
 	t.Parallel()
 
 	store := setupStore(t)
@@ -1298,9 +1423,9 @@ func TestBroadcast_TmuxTransportError(t *testing.T) {
 
 	svc := newService(store, runner)
 
-	_, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	_, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if err == nil {
-		t.Error("Broadcast should propagate tmux transport errors, not silently skip workers")
+		t.Error("BroadcastFrom should propagate tmux transport errors, not silently skip workers")
 	}
 }
 

@@ -58,7 +58,6 @@ func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []
 type mutationPayload struct {
 	ID              string         `json:"id"`
 	SessionID       string         `json:"session_id"`
-	WorkerID        string         `json:"worker_id"`
 	TargetID        string         `json:"target_id"`
 	MasterID        string         `json:"master_id"`
 	Name            string         `json:"name"`
@@ -91,15 +90,13 @@ type mutationPayload struct {
 type mutationHandler func(*Server, context.Context, Request, mutationPayload) (any, error)
 
 // Mutation execution has three deliberately separate models:
-// 1. in-process display mutations that call core packages directly,
-// 2. re-execed qm commands for session lifecycle and messaging mutations,
+// 1. in-process mutations that call core packages directly,
+// 2. re-execed qm commands for session lifecycle,
 // 3. direct tmux calls for focus/switch behavior that must not spawn qm.
 // New methods should pick one model explicitly instead of crossing layers.
 var mutationRegistry = map[string]mutationHandler{
-	"relay":     mutateRelay,
-	"broadcast": mutateBroadcast,
-	"delete":    mutateDelete,
-	"continue":  mutateContinue,
+	"delete":   mutateDelete,
+	"continue": mutateContinue,
 	"spawn": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
 		return s.mutateSpawn(ctx, req, payload)
 	},
@@ -189,30 +186,6 @@ func decodeMutationPayload(raw json.RawMessage) (mutationPayload, error) {
 		return mutationPayload{}, fmt.Errorf("decode mutation data: %w", err)
 	}
 	return payload, nil
-}
-
-func mutateRelay(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
-	workerID, err := requiredFirst("worker_id", payload.WorkerID, payload.TargetID, payload.SessionID, payload.ID)
-	if err != nil {
-		return nil, err
-	}
-	message, err := requiredValue("message", payload.Message)
-	if err != nil {
-		return nil, err
-	}
-	return s.runCommandJSON(ctx, []string{"relay", workerID, "--message-file", "-"}, []byte(message))
-}
-
-func mutateBroadcast(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
-	args := []string{"broadcast", "--message-file", "-"}
-	if masterID := strings.TrimSpace(payload.MasterID); masterID != "" {
-		args = append(args, "--", masterID)
-	}
-	message, err := requiredValue("message", payload.Message)
-	if err != nil {
-		return nil, err
-	}
-	return s.runCommandJSON(ctx, args, []byte(message))
 }
 
 func mutateDelete(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {

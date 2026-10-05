@@ -7,7 +7,7 @@ import (
 	"github.com/alexivison/questmaster/internal/config"
 )
 
-const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false}`
+const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false,"crossSessionInbound":"accept"}`
 
 var claudeSpec = Spec{
 	Name:           "claude",
