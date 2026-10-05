@@ -1197,6 +1197,37 @@ func TestContinue_StoppedWorkerIdentifiesParentMaster(t *testing.T) {
 	}
 }
 
+func TestContinue_PromotedWorkerUsesMasterPrompt(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-parent", "parent", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-child", "child", cwd, "")
+	if err := svc.Store.Update("qm-child", func(m *state.Manifest) { m.SetExtra("parent_session", "qm-parent") }); err != nil {
+		t.Fatal(err)
+	}
+	runner.sessions["qm-child"] = true
+	runner.paneRoles["qm-child:0.1"] = "primary"
+	if err := svc.Promote(t.Context(), "qm-child"); err != nil {
+		t.Fatal(err)
+	}
+	if !runner.hasSendText("qm-child:0.1", promotedMasterRoleMessage) {
+		t.Fatal("promoted master did not receive role update")
+	}
+	runner.sessions["qm-child"] = false
+	result, err := svc.Continue(t.Context(), "qm-child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Master {
+		t.Fatal("continued promoted session is not a master")
+	}
+	launch := findLaunchArgContaining(runner, agent.NewClaude(agent.AgentConfig{}).MasterPrompt())
+	if launch == "" || strings.Contains(launch, "Your parent master session ID") || strings.Contains(launch, "[MASTER:qm-parent]") {
+		t.Fatalf("promoted master has stale worker guidance: %q", launch)
+	}
+}
+
 func TestContinue_StoppedMaster(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
