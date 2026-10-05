@@ -590,7 +590,7 @@ func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
 		"broadcast": func(t *testing.T, store *state.Store, svc *Service) error {
 			t.Helper()
 			createPlainManifest(t, store, "qm-plain", "plain")
-			_, err := svc.Broadcast(t.Context(), "qm-plain", "hello")
+			_, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-plain", "hello")
 			return err
 		},
 		"report": func(t *testing.T, store *state.Store, svc *Service) error {
@@ -619,24 +619,6 @@ func TestAgentOnlyCommandsRejectPlainTerminalSessions(t *testing.T) {
 // Broadcast tests
 // ---------------------------------------------------------------------------
 
-func TestBroadcast_SendsToAllWorkers(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	createManifest(t, store, "qm-master", "master", "master")
-	createWorkerManifest(t, store, "qm-w1", "qm-master")
-	createWorkerManifest(t, store, "qm-w2", "qm-master")
-
-	var sent []string
-	svc := newService(store, idleAndSendRunner(&sent))
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello all")
-	if err != nil {
-		t.Fatalf("broadcast: %v", err)
-	}
-	if result.Delivered != 2 {
-		t.Fatalf("expected 2 sends, got %d", result.Delivered)
-	}
-}
-
 func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -660,13 +642,13 @@ func TestBroadcastFrom_PrefixesDeliveredText(t *testing.T) {
 	}
 }
 
-func TestBroadcast_NoWorkers(t *testing.T) {
+func TestBroadcastFrom_NoWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
 
 	svc := newService(store, idleAndSendRunner(new([]string)))
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
@@ -675,7 +657,7 @@ func TestBroadcast_NoWorkers(t *testing.T) {
 	}
 }
 
-func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
+func TestBroadcastFrom_SkipsDeadWorkers(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
@@ -703,7 +685,7 @@ func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
@@ -715,7 +697,7 @@ func TestBroadcast_SkipsDeadWorkers(t *testing.T) {
 	}
 }
 
-func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
+func TestBroadcastFrom_LargeMessage_UsesFileIndirection(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
@@ -724,14 +706,14 @@ func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	long := strings.Repeat("x", LargeMessageThreshold+1)
-	result, err := svc.Broadcast(t.Context(), "qm-master", long)
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", long)
 	if err != nil {
 		t.Fatalf("broadcast: %v", err)
 	}
 	if result.Delivered != 1 {
 		t.Fatalf("expected 1 send, got %d", result.Delivered)
 	}
-	if len(sent) == 0 || !strings.HasPrefix(sent[0], "Read and follow the instructions in ") {
+	if len(sent) == 0 || !strings.HasPrefix(sent[0], "[FROM:qm-master] Read and follow the instructions in ") {
 		t.Fatalf("expected file pointer for large message, got %v", sent)
 	}
 }
@@ -741,7 +723,7 @@ func TestBroadcast_LargeMessage_UsesFileIndirection(t *testing.T) {
 // only incremented on success, transportErr only set on HasSession errors), so a
 // zero-delivery broadcast returned (Delivered:0, err:nil) — silent, exactly the
 // reported TUI symptom.
-func TestBroadcast_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
+func TestBroadcastFrom_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
@@ -762,7 +744,7 @@ func TestBroadcast_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 	}}
 	svc := newService(store, runner)
 
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if result.Delivered != 0 {
 		t.Fatalf("expected 0 delivered when send fails, got %d", result.Delivered)
 	}
@@ -773,7 +755,7 @@ func TestBroadcast_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 
 // Regression: a live worker whose primary pane cannot be resolved must surface an
 // error. Previously ResolveRole failures were silently `continue`d.
-func TestBroadcast_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
+func TestBroadcastFrom_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
@@ -790,7 +772,7 @@ func TestBroadcast_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
 	}}
 	svc := newService(store, runner)
 
-	result, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	result, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if result.Delivered != 0 {
 		t.Fatalf("expected 0 delivered when pane resolution fails, got %d", result.Delivered)
 	}
@@ -1279,10 +1261,10 @@ func TestWorkers_TmuxErrorNotMaskedAsStopped(t *testing.T) {
 	}
 }
 
-// W1: Broadcast() silently skips workers on tmux transport errors.
+// W1: BroadcastFrom() silently skips workers on tmux transport errors.
 // A transport error (connection refused, socket timeout) is different from
 // "session not found" — it should be surfaced, not silently swallowed.
-func TestBroadcast_TmuxTransportError(t *testing.T) {
+func TestBroadcastFrom_TmuxTransportError(t *testing.T) {
 	t.Parallel()
 
 	store := setupStore(t)
@@ -1298,9 +1280,9 @@ func TestBroadcast_TmuxTransportError(t *testing.T) {
 
 	svc := newService(store, runner)
 
-	_, err := svc.Broadcast(t.Context(), "qm-master", "hello")
+	_, err := svc.BroadcastFrom(t.Context(), "qm-master", "qm-master", "hello")
 	if err == nil {
-		t.Error("Broadcast should propagate tmux transport errors, not silently skip workers")
+		t.Error("BroadcastFrom should propagate tmux transport errors, not silently skip workers")
 	}
 }
 

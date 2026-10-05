@@ -150,23 +150,6 @@ type BroadcastResult struct {
 	Delivered  int // workers whose local transport accepted the message
 }
 
-// Broadcast sends a message to all workers of a master session.
-func (s *Service) Broadcast(ctx context.Context, masterID, message string) (BroadcastResult, error) {
-	m, err := s.store.Read(masterID)
-	if err != nil {
-		return BroadcastResult{}, fmt.Errorf("get workers: %w", err)
-	}
-	if err := rejectPlainSession(m, masterID); err != nil {
-		return BroadcastResult{}, err
-	}
-	workers := m.Workers
-	if len(workers) == 0 {
-		return BroadcastResult{}, nil
-	}
-
-	return s.broadcastTo(ctx, workers, message, "")
-}
-
 // BroadcastFrom sends a message with sender provenance to all workers of a master session.
 func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message string) (BroadcastResult, error) {
 	m, err := s.store.Read(masterID)
