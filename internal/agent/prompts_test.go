@@ -113,6 +113,8 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 				"questmaster help",
 				"questmaster <command> --help",
 				"questmaster promote <session-id>",
+				"add --steer for a mid-turn correction",
+				"queues if the daemon is running but no active turn can be steered",
 				"Use sub-agents for explicit sub-agent requests",
 				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
 			} {

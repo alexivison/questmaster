@@ -53,6 +53,7 @@ questmaster start "fix-login-flow"
 questmaster start --master --primary codex "release-triage"
 questmaster spawn qm-master123 "smoke-test-worker" --prompt "Investigate the failing smoke test"
 questmaster send qm-worker123 "Try a smaller test case."
+questmaster send --steer qm-worker123 "Also check the edge case already in progress."
 questmaster send master "done: fixed parser edge case; regression test passes"
 questmaster send all "Please report your current status."
 ```
@@ -89,10 +90,18 @@ Messages between a worker and its recorded parent use `[MASTER:<id>]` or
 routing relationship, not model receipt.
 
 Messaging uses native delivery for live Claude, Codex, and Pi
-sessions when available. Codex success means its daemon queued the message, not
-that the recipient processed it. Pi steers the current turn and its receipt is
-unconfirmed. Claude's socket has no delivery receipt: `submitted: true` can
-coexist with Claude holding the message if its effective `crossSessionInbound`
+sessions when available. With its daemon running, Codex messages use its
+durable queue by default; if the daemon is unavailable, the existing tmux
+fallback applies. With `--steer`, Questmaster asks Codex app-server to add the
+message to an active regular turn; if the daemon is running but no active turn
+can be steered, it falls back to the durable queue. If a steer request may
+have been accepted but its response is lost, the command returns an error and
+does not retry through the queue or tmux. A successful queue or steer request
+does not establish that the recipient processed the message. For Claude, Pi,
+OpenCode, and tmux targets,
+`--steer` keeps the existing transport behavior. Pi steers the current turn and
+its receipt is unconfirmed. Claude's socket has no delivery receipt:
+`submitted: true` can coexist with Claude holding the message if its effective `crossSessionInbound`
 policy does not accept it. New Questmaster Claude launches set `accept`; older
 or adopted sessions may need an effective `accept` setting or a restart, while
 managed policy can still restrict delivery. OpenCode keeps its tmux

@@ -190,6 +190,76 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 	}
 }
 
+func TestCodexSteerAndQueueFallback(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		mode      string
+		wantSteer bool
+		wantQueue bool
+		wantError bool
+	}{
+		{name: "active turn", mode: "active", wantSteer: true},
+		{name: "no active turn queues", mode: "inactive", wantQueue: true},
+		{name: "turn ended before steer queues", mode: "rejected", wantSteer: true, wantQueue: true},
+		{name: "uncertain acceptance is not retried", mode: "uncertain", wantSteer: true, wantError: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := setupStore(t)
+			createManifest(t, store, "qm-codex-steer", "worker", "worker")
+			setPrimaryAgent(t, store, "qm-codex-steer", "codex")
+			bin := t.TempDir()
+			tracePath := filepath.Join(bin, "trace")
+			script := "#!/bin/sh\n" +
+				"if [ \"$1\" = app-server ] && [ \"$2\" = daemon ]; then printf '{\"status\":\"running\",\"socketPath\":\"/tmp/codex.sock\"}\\n'; exit 0; fi\n" +
+				"if [ \"$1\" = app-server ] && [ \"$2\" = proxy ]; then while IFS= read -r line; do printf '%s\\n' \"$line\" >> '" + tracePath + "'; case \"$line\" in " +
+				"*'\"method\":\"initialize\"'*) printf '{\"id\":1,\"result\":{}}\\n' ;; " +
+				"*'\"method\":\"thread/resume\"'*) printf '{\"id\":2,\"result\":{}}\\n' ;; " +
+				"*'\"method\":\"thread/turns/list\"'*) if [ \"$CODEX_STEER_MODE\" = inactive ]; then printf '{\"id\":3,\"result\":{\"data\":[{\"id\":\"turn-1\",\"status\":\"completed\"}]}}\\n'; else printf '{\"id\":3,\"result\":{\"data\":[{\"id\":\"turn-1\",\"status\":\"inProgress\"}]}}\\n'; fi ;; " +
+				"*'\"method\":\"turn/steer\"'*) if [ \"$CODEX_STEER_MODE\" = uncertain ]; then exit 0; elif [ \"$CODEX_STEER_MODE\" = rejected ]; then printf '{\"id\":4,\"error\":{\"code\":-32600,\"message\":\"no active turn to steer\"}}\\n'; else printf '{\"id\":4,\"result\":{\"turnId\":\"turn-1\"}}\\n'; fi ;; " +
+				"esac; done; exit 0; fi\n" +
+				"printf 'queue %s\\n' \"$*\" >> '" + tracePath + "'; printf 'Queued message msg-1 for thread thread-123\\n'\n"
+			codex := filepath.Join(bin, "codex")
+			if err := os.WriteFile(codex, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Update("qm-codex-steer", func(m *state.Manifest) {
+				m.Agents[0].CLI = codex
+				m.Extra = map[string]json.RawMessage{"codex_thread_id": json.RawMessage(`"thread-123"`)}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CODEX_STEER_MODE", tt.mode)
+			var sent []string
+			svc := newService(store, idleAndSendRunner(&sent))
+			svc.Steer = true
+			err := svc.Relay(t.Context(), "qm-codex-steer", "hello")
+			if (err != nil) != tt.wantError {
+				t.Fatalf("Relay error = %v, wantError %v", err, tt.wantError)
+			}
+			trace, err := os.ReadFile(tracePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(trace)
+			if strings.Contains(text, `"method":"turn/steer"`) != tt.wantSteer {
+				t.Fatalf("steer request presence = %v, trace %q", strings.Contains(text, `"method":"turn/steer"`), text)
+			}
+			if strings.Contains(text, "queue --thread thread-123") != tt.wantQueue {
+				t.Fatalf("queue presence = %v, trace %q", strings.Contains(text, "queue --thread thread-123"), text)
+			}
+			if tt.wantSteer && (!strings.Contains(text, `"expectedTurnId":"turn-1"`) || !strings.Contains(text, `"text":"[FROM:external] hello"`)) {
+				t.Fatalf("steer request lost turn id or sender prefix: %q", text)
+			}
+			if tt.wantQueue && !strings.Contains(text, "--message=[FROM:external] hello") {
+				t.Fatalf("queue fallback lost sender prefix: %q", text)
+			}
+			if len(sent) != 0 {
+				t.Fatalf("native Codex send retried through tmux: %v", sent)
+			}
+		})
+	}
+}
+
 func TestClaudeInboundProjectRestriction(t *testing.T) {
 	root := t.TempDir()
 	child := filepath.Join(root, "sub")

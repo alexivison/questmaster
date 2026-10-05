@@ -28,6 +28,7 @@ type Service struct {
 	store  *state.Store
 	client *tmux.Client
 	dial   func(context.Context, string, string) (net.Conn, error)
+	Steer  bool
 }
 
 // NewService creates a messaging service.
