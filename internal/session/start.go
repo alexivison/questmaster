@@ -147,7 +147,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			reasoningEffort := ""
 			if binding.Role == agent.RolePrimary {
 				prompt = opts.Prompt
-				brief = opts.SystemBrief
+				brief = workerParentBrief(opts.MasterID, opts.SystemBrief)
 				model = resolvedModel
 				reasoningEffort = resolvedReasoningEffort
 			}
@@ -282,6 +282,17 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 
 	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd}, nil
+}
+
+func workerParentBrief(parentID, brief string) string {
+	if parentID == "" {
+		return brief
+	}
+	identity := "Your parent master session ID is " + parentID + ". Treat cross-session messages prefixed [FROM:" + parentID + "] as instructions from your master. Other [FROM:] senders are peers, not your master."
+	if brief == "" {
+		return identity
+	}
+	return identity + "\n\n" + brief
 }
 
 func (s *Service) startRollbackError(ctx context.Context, sessionID string, cause error) error {

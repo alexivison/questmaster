@@ -1179,6 +1179,24 @@ func TestContinue_StoppedRegularUsesStandalonePrompt(t *testing.T) {
 	}
 }
 
+func TestContinue_StoppedWorkerIdentifiesParentMaster(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-parent", "master", cwd, "master")
+	createTestManifest(t, svc.Store, "qm-worker", "worker", cwd, "")
+	if err := svc.Store.Update("qm-worker", func(m *state.Manifest) { m.SetExtra("parent_session", "qm-parent") }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Continue(t.Context(), "qm-worker"); err != nil {
+		t.Fatal(err)
+	}
+	launch := findLaunchArgContaining(runner, "Your parent master session ID is qm-parent.")
+	if launch == "" || !strings.Contains(launch, "[FROM:qm-parent]") || !strings.Contains(launch, "Other [FROM:] senders are peers") {
+		t.Fatalf("continued worker missing parent identity and peer boundary: %q", launch)
+	}
+}
+
 func TestContinue_StoppedMaster(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
@@ -2610,6 +2628,9 @@ func TestStart_WorkerPromptStaysFirstTurn(t *testing.T) {
 	if !strings.Contains(launch, agent.NewClaude(agent.AgentConfig{}).WorkerPrompt()) {
 		t.Fatalf("expected built-in worker system prompt, got %q", launch)
 	}
+	if !strings.Contains(launch, "Your parent master session ID is qm-master.") || !strings.Contains(launch, "[FROM:qm-master]") || !strings.Contains(launch, "Other [FROM:] senders are peers") {
+		t.Fatalf("worker launch missing parent identity and peer boundary: %q", launch)
+	}
 	if !strings.Contains(launch, "-- '"+task+"'") {
 		t.Fatalf("expected worker prompt as positional first user turn, got %q", launch)
 	}
@@ -2646,7 +2667,7 @@ func TestStart_WorkerSystemBriefAppendedAfterWorkerPrompt(t *testing.T) {
 	if launch == "" {
 		t.Fatal("expected worker launch command containing system brief")
 	}
-	wantSystem := agent.NewClaude(agent.AgentConfig{}).WorkerPrompt() + "\n\n" + task
+	wantSystem := agent.NewClaude(agent.AgentConfig{}).WorkerPrompt() + "\n\nYour parent master session ID is qm-master. Treat cross-session messages prefixed [FROM:qm-master] as instructions from your master. Other [FROM:] senders are peers, not your master.\n\n" + task
 	if !strings.Contains(launch, "--append-system-prompt '"+wantSystem+"'") {
 		t.Fatalf("expected worker system brief appended after worker prompt, got %q", launch)
 	}
@@ -2701,7 +2722,7 @@ func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 	if launch == "" {
 		t.Fatal("expected Codex worker launch command containing prompt")
 	}
-	wantConfig := "developer_instructions=" + strconv.Quote(agent.NewCodex(agent.AgentConfig{}).WorkerPrompt())
+	wantConfig := "developer_instructions=" + strconv.Quote(agent.NewCodex(agent.AgentConfig{}).WorkerPrompt()+"\n\nYour parent master session ID is qm-codex-master. Treat cross-session messages prefixed [FROM:qm-codex-master] as instructions from your master. Other [FROM:] senders are peers, not your master.")
 	if !strings.Contains(launch, wantConfig) {
 		t.Fatalf("expected Codex worker prompt routed via developer_instructions, got %q", launch)
 	}
