@@ -51,7 +51,7 @@ func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.M
 	switch primaryAgentName(m) {
 	case "claude":
 		if restricted, err := claudeInboundRestricted(m.Cwd); err != nil {
-			return err
+			return fmt.Errorf("%w: %v", errNativeUnavailable, err)
 		} else if restricted {
 			return fmt.Errorf("%w: Claude project settings restrict inbound messages", errNativeUnavailable)
 		}

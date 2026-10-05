@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
-	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -59,7 +58,6 @@ func (selfMutationCommandRunner) RunMutationCommand(ctx context.Context, args []
 type mutationPayload struct {
 	ID              string         `json:"id"`
 	SessionID       string         `json:"session_id"`
-	WorkerID        string         `json:"worker_id"`
 	TargetID        string         `json:"target_id"`
 	MasterID        string         `json:"master_id"`
 	Name            string         `json:"name"`
@@ -93,14 +91,12 @@ type mutationHandler func(*Server, context.Context, Request, mutationPayload) (a
 
 // Mutation execution has three deliberately separate models:
 // 1. in-process mutations that call core packages directly,
-// 2. re-execed qm commands for session lifecycle and direct messaging,
+// 2. re-execed qm commands for session lifecycle,
 // 3. direct tmux calls for focus/switch behavior that must not spawn qm.
 // New methods should pick one model explicitly instead of crossing layers.
 var mutationRegistry = map[string]mutationHandler{
-	"relay":     mutateRelay,
-	"broadcast": mutateBroadcast,
-	"delete":    mutateDelete,
-	"continue":  mutateContinue,
+	"delete":   mutateDelete,
+	"continue": mutateContinue,
 	"spawn": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
 		return s.mutateSpawn(ctx, req, payload)
 	},
@@ -190,38 +186,6 @@ func decodeMutationPayload(raw json.RawMessage) (mutationPayload, error) {
 		return mutationPayload{}, fmt.Errorf("decode mutation data: %w", err)
 	}
 	return payload, nil
-}
-
-func mutateRelay(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
-	workerID, err := requiredFirst("worker_id", payload.WorkerID, payload.TargetID, payload.SessionID, payload.ID)
-	if err != nil {
-		return nil, err
-	}
-	message, err := requiredValue("message", payload.Message)
-	if err != nil {
-		return nil, err
-	}
-	return s.runCommandJSON(ctx, []string{"send", workerID, "--message-file", "-"}, []byte(message))
-}
-
-func mutateBroadcast(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
-	masterID, err := requiredValue("master_id", payload.MasterID)
-	if err != nil {
-		return nil, err
-	}
-	msg, err := requiredValue("message", payload.Message)
-	if err != nil {
-		return nil, err
-	}
-	result, err := message.NewService(s.Snapshotter.store, s.Snapshotter.tmuxClient).BroadcastFrom(ctx, masterID, masterID, msg)
-	if err != nil {
-		return nil, err
-	}
-	return struct {
-		MasterID   string `json:"master_id"`
-		Registered int    `json:"registered"`
-		Delivered  int    `json:"delivered"`
-	}{masterID, result.Registered, result.Delivered}, nil
 }
 
 func mutateDelete(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {

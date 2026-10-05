@@ -1,4 +1,4 @@
-import { chmod, lstat, unlink } from "node:fs/promises";
+import { chmod, lstat } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 
@@ -14,19 +14,7 @@ export default function (pi: ExtensionAPI) {
 	if (typeof pi.sendUserMessage !== "function") return;
 
 	let server: Server | undefined;
-	let socketPath = "";
 	const connections = new Set<Socket>();
-
-	async function removeOwnedSocket(path: string): Promise<boolean> {
-		try {
-			const info = await lstat(path);
-			if (!info.isSocket() || info.uid !== process.getuid() || (info.mode & 0o777) !== 0o600) return false;
-			await unlink(path);
-			return true;
-		} catch (error: unknown) {
-			return (error as NodeJS.ErrnoException).code === "ENOENT";
-		}
-	}
 
 	async function stop(): Promise<void> {
 		const active = server;
@@ -34,8 +22,6 @@ export default function (pi: ExtensionAPI) {
 		for (const connection of connections) connection.destroy();
 		connections.clear();
 		if (active) await new Promise<void>((resolve) => active.close(() => resolve()));
-		if (socketPath) await removeOwnedSocket(socketPath);
-		socketPath = "";
 	}
 
 	function parseRequest(line: Buffer): Request | undefined {
@@ -87,28 +73,28 @@ export default function (pi: ExtensionAPI) {
 		const runtimeDir = join("/tmp", sessionID);
 		try {
 			const runtime = await lstat(runtimeDir);
-		if (!runtime.isDirectory() || runtime.uid !== process.getuid() || (runtime.mode & 0o022) !== 0) return;
+			if (!runtime.isDirectory() || runtime.uid !== process.getuid() || (runtime.mode & 0o022) !== 0) return;
 		} catch {
 			return;
 		}
-		socketPath = join("/tmp", sessionID, "pi.sock");
-		if (!(await removeOwnedSocket(socketPath))) return;
+		const socketPath = join("/tmp", sessionID, "pi.sock");
 		const next = createServer(handle);
-		next.on("error", () => { void removeOwnedSocket(socketPath); });
+		next.on("error", () => {});
 		const oldUmask = process.umask(0o077);
 		try {
 			await new Promise<void>((resolve, reject) => {
 				next.once("error", reject);
 				next.listen(socketPath, resolve);
 			});
+		} catch {
+			return;
 		} finally {
 			process.umask(oldUmask);
 		}
 		try {
 			await chmod(socketPath, 0o600);
 		} catch {
-			next.close();
-			await removeOwnedSocket(socketPath);
+			await new Promise<void>((resolve) => next.close(() => resolve()));
 			return;
 		}
 		server = next;

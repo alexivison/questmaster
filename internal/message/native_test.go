@@ -95,7 +95,7 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 	}
 	bin := t.TempDir()
 	argsPath := filepath.Join(bin, "args")
-	script := "#!/bin/sh\nif [ \"$1\" = app-server ]; then printf '{\"status\":\"running\"}\\n'; exit 0; fi\nprintf '%s\\n' \"$*\" > '" + argsPath + "'\nif [ \"$CODEX_QUEUE_FAIL\" = 1 ]; then exit 1; fi\nprintf 'Queued message msg-1 for thread thread-123\\n'\n"
+	script := "#!/bin/sh\nif [ \"$1\" = app-server ]; then printf '{\"status\":\"running\"}\\n'; exit 0; fi\nprintf '%s\\n' \"$*\" > '" + argsPath + "'\nif [ \"$CODEX_QUEUE_HANG\" = 1 ]; then exec sleep 5; fi\nif [ \"$CODEX_QUEUE_FAIL\" = 1 ]; then exit 1; fi\nprintf 'Queued message msg-1 for thread thread-123\\n'\n"
 	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -118,8 +118,15 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	args, err := os.ReadFile(argsPath)
-	if err != nil || string(args) != "queue --thread thread-123 --message hello\nworld\n" {
+	if err != nil || string(args) != "queue --thread thread-123 --message=hello\nworld\n" {
 		t.Fatalf("queue args = %q, err = %v", args, err)
+	}
+	if err := svc.Relay(t.Context(), "qm-codex-native", "-leading"); err != nil {
+		t.Fatal(err)
+	}
+	args, err = os.ReadFile(argsPath)
+	if err != nil || string(args) != "queue --thread thread-123 --message=-leading\n" {
+		t.Fatalf("leading-dash queue args = %q, err = %v", args, err)
 	}
 	if len(sent) != 0 {
 		t.Fatalf("queued input also reached tmux: %v", sent)
@@ -152,6 +159,19 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 	if len(sent) != 0 {
 		t.Fatalf("failed queue retried through tmux: %v", sent)
 	}
+	t.Setenv("CODEX_QUEUE_FAIL", "")
+	t.Setenv("CODEX_QUEUE_HANG", "1")
+	previousTimeout := codexQueueTimeout
+	codexQueueTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { codexQueueTimeout = previousTimeout })
+	started := time.Now()
+	if err := svc.Relay(t.Context(), "qm-codex-native", "hang"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("hung queue error = %v, want deadline exceeded", err)
+	}
+	if time.Since(started) > time.Second || len(sent) != 0 {
+		t.Fatalf("hung queue blocked or retried through tmux: elapsed %s, tmux %v", time.Since(started), sent)
+	}
+	t.Setenv("CODEX_QUEUE_HANG", "")
 	if err := os.Remove(argsPath); err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +216,39 @@ func TestClaudeInboundProjectRestriction(t *testing.T) {
 	}
 	if len(sent) != 1 || sent[0] != "hello" {
 		t.Fatalf("restricted Claude tmux fallback = %v", sent)
+	}
+}
+
+func TestClaudeUndecidableSettingsUseTmux(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(string) error
+	}{
+		{"malformed", func(path string) error { return os.WriteFile(path, []byte(`{"crossSessionInbound":`), 0o600) }},
+		{"unreadable", func(path string) error { return os.Mkdir(path, 0o700) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cwd := t.TempDir()
+			if err := os.Mkdir(filepath.Join(cwd, ".claude"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.setup(filepath.Join(cwd, ".claude", "settings.json")); err != nil {
+				t.Fatal(err)
+			}
+			store := setupStore(t)
+			createManifest(t, store, "qm-claude-settings", "claude", "worker")
+			if err := store.Update("qm-claude-settings", func(m *state.Manifest) { m.Cwd = cwd }); err != nil {
+				t.Fatal(err)
+			}
+			var sent []string
+			svc := newService(store, idleAndSendRunner(&sent))
+			if err := svc.Relay(t.Context(), "qm-claude-settings", "hello"); err != nil {
+				t.Fatal(err)
+			}
+			if len(sent) != 1 || sent[0] != "hello" {
+				t.Fatalf("Claude tmux fallback = %v", sent)
+			}
+		})
 	}
 }
 

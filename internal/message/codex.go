@@ -15,6 +15,8 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
+var codexQueueTimeout = 10 * time.Second
+
 func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message string) error {
 	thread := m.ExtraString("codex_thread_id")
 	binary := ""
@@ -70,8 +72,13 @@ func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message st
 	if json.Unmarshal(version, &daemon) != nil || daemon.Status != "running" {
 		return fmt.Errorf("%w: Codex daemon is not running", errNativeUnavailable)
 	}
-	output, err := exec.CommandContext(ctx, binary, "queue", "--thread", thread, "--message", message).CombinedOutput()
+	queueCtx, queueCancel := context.WithTimeout(ctx, codexQueueTimeout)
+	defer queueCancel()
+	output, err := exec.CommandContext(queueCtx, binary, "queue", "--thread", thread, "--message="+message).CombinedOutput()
 	if err != nil {
+		if queueCtx.Err() != nil {
+			return fmt.Errorf("Codex queue: %w", queueCtx.Err())
+		}
 		return fmt.Errorf("Codex queue failed: %w: %s", err, strings.TrimSpace(string(output)))
 	}
 	if !strings.HasPrefix(string(output), "Queued message ") {
