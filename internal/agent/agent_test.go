@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const wantClaudeDisableTipsArg = "--settings '{\"spinnerTipsEnabled\":false}'"
+const wantClaudeDisableTipsArg = "--settings '{\"spinnerTipsEnabled\":false,\"crossSessionInbound\":\"accept\"}'"
 
 func TestNewRegistry_DefaultConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

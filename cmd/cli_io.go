@@ -60,25 +60,3 @@ func messageFromArgsAndFile(cmd *cobra.Command, args []string, messageFile strin
 		return args[0], nil
 	}
 }
-
-func optionalTargetAndMessage(cmd *cobra.Command, args []string, messageFile string) (target, msg string, err error) {
-	fileSet := cmd.Flags().Changed("message-file")
-	if fileSet {
-		if len(args) > 1 {
-			return "", "", fmt.Errorf("message accepts only one of message or --message-file")
-		}
-		if len(args) == 1 {
-			target = args[0]
-		}
-		msg, err = readFileOrStdin(cmd, messageFile, "message")
-		return target, msg, err
-	}
-	switch len(args) {
-	case 1:
-		return "", args[0], nil
-	case 2:
-		return args[0], args[1], nil
-	default:
-		return "", "", fmt.Errorf("message is required (pass it as an argument or with --message-file)")
-	}
-}

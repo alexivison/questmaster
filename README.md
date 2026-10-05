@@ -52,8 +52,9 @@ These commands are intended for scripts, agents, and backend debugging. For norm
 questmaster start "fix-login-flow"
 questmaster start --master --primary codex "release-triage"
 questmaster spawn qm-master123 "smoke-test-worker" --prompt "Investigate the failing smoke test"
-questmaster relay qm-worker123 "Try a smaller test case."
-questmaster report "done: fixed parser edge case; regression test passes"
+questmaster send qm-worker123 "Try a smaller test case."
+questmaster send master "done: fixed parser edge case; regression test passes"
+questmaster send all "Please report your current status."
 ```
 
 Inspect state:
@@ -76,8 +77,27 @@ questmaster hooks install
 ```
 
 Claude and Codex use shell-script hooks merged into their native config. Pi uses
-an out-of-band activity sidecar; `questmaster hooks install pi` writes the
-current version marker under the `$PI_HOME` or `~/.pi` extension dirs.
+an out-of-band activity sidecar; `questmaster hooks install pi` writes its
+version marker and messaging extension under the `$PI_HOME` or `~/.pi` dirs.
+
+`send` takes a session ID for a direct message, `master` to report to the
+current worker's parent, or `all` to broadcast from the current master.
+`--message-file <path>` and `--message-file -` supply file or stdin input.
+Messages between a worker and its recorded parent use `[MASTER:<id>]` or
+`[WORKER:<id>]`; other direct messages use `[FROM:<id>]`. External sends use
+`[FROM:external]`, which carries no session identity. Prefixes describe the
+routing relationship, not model receipt.
+
+Messaging uses native delivery for live Claude, Codex, and Pi
+sessions when available. Codex success means its daemon queued the message, not
+that the recipient processed it. Pi steers the current turn and its receipt is
+unconfirmed. Claude's socket has no delivery receipt: `submitted: true` can
+coexist with Claude holding the message if its effective `crossSessionInbound`
+policy does not accept it. New Questmaster Claude launches set `accept`; older
+or adopted sessions may need an effective `accept` setting or a restart, while
+managed policy can still restrict delivery. OpenCode keeps its tmux
+path and requires idle or done hook state. A native send that may have written
+bytes is never retried through tmux.
 
 OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
 Questmaster writes its OpenCode plugin and role agents under

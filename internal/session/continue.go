@@ -107,12 +107,17 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 			}
 
 			launchAgents[role] = provider
+			brief := ""
+			if role == agent.RolePrimary && agentRole == agent.RoleWorker {
+				brief = workerParentBrief(m.ExtraString("parent_session"), "")
+			}
 			agentCmds[role] = provider.BuildCmd(agent.CmdOpts{
 				Binary:          cli,
 				AgentPath:       agentPath,
 				ResumeID:        resumeID,
 				Title:           m.Title,
 				Role:            agentRole,
+				SystemBrief:     brief,
 				Continuing:      true,
 				Model:           agentState.Model,
 				ReasoningEffort: agentState.ReasoningEffort,

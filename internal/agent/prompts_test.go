@@ -92,6 +92,16 @@ func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
 	}
 }
 
+func TestSessionPromptsUseSendForMessaging(t *testing.T) {
+	if !strings.Contains(masterPromptWithGuide(), `questmaster send <worker-id> "message"`) ||
+		!strings.Contains(masterPromptWithGuide(), `questmaster send all "message"`) {
+		t.Fatal("master prompt must use send for direct and broadcast messages")
+	}
+	if !strings.Contains(workerPrompt, `questmaster send master "<result>"`) {
+		t.Fatal("worker prompt must use send master for reports")
+	}
+}
+
 func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 	for name, got := range map[string]string{
 		"master":     masterPromptWithGuide(),

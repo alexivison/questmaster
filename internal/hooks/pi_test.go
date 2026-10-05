@@ -1,11 +1,34 @@
 package hooks
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestPiMessagingSocketOwnership(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is unavailable")
+	}
+	if err := exec.Command(node, "--experimental-strip-types", "-e", "").Run(); err != nil {
+		t.Skip("Node TypeScript type stripping is unavailable")
+	}
+	extension, err := filepath.Abs(filepath.Join("assets", "questmaster-pi-messaging.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_socket_ownership.mjs"), extension).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Pi socket ownership check: %v\n%s", err, out)
+	}
+}
 
 func newTestPiInstaller(t *testing.T) *PiInstaller {
 	t.Helper()
@@ -30,6 +53,10 @@ func TestPiInstallIsIdempotent(t *testing.T) {
 	}
 	if got := p.Status(); got.Status != StatusCurrent {
 		t.Fatalf("post-install status: %+v", got)
+	}
+	extension, err := os.ReadFile(p.extensionPath())
+	if err != nil || !strings.Contains(string(extension), `deliverAs: "steer"`) {
+		t.Fatalf("messaging extension = %q, err = %v", extension, err)
 	}
 
 	if err := p.Install(); err != nil {
@@ -89,6 +116,9 @@ func TestPiUninstallRemovesMarker(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("marker still present at %s (err=%v)", path, err)
 		}
+	}
+	if _, err := os.Stat(p.extensionPath()); !os.IsNotExist(err) {
+		t.Errorf("messaging extension still present: %v", err)
 	}
 	if got := p.Status(); got.Status != StatusNotInstalled {
 		t.Fatalf("post-uninstall status: %+v", got)

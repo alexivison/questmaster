@@ -847,26 +847,6 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 		wantStdin string
 	}{
 		{
-			name: "relay",
-			request: map[string]any{
-				"id":     "relay",
-				"method": "relay",
-				"data":   map[string]any{"worker_id": "qm-worker", "message": "investigate"},
-			},
-			wantArgs:  []string{"relay", "qm-worker", "--message-file", "-"},
-			wantStdin: "investigate",
-		},
-		{
-			name: "broadcast",
-			request: map[string]any{
-				"id":     "broadcast",
-				"method": "broadcast",
-				"data":   map[string]any{"master_id": "qm-master", "message": "take stock"},
-			},
-			wantArgs:  []string{"broadcast", "--message-file", "-", "--", "qm-master"},
-			wantStdin: "take stock",
-		},
-		{
 			name: "delete",
 			request: map[string]any{
 				"id":     "delete",
@@ -1049,7 +1029,7 @@ func TestMutationMethodRegistryDrivesRouting(t *testing.T) {
 			t.Fatalf("registered mutation method %q is not routed through mutation. prefix", method)
 		}
 	}
-	for _, method := range []string{"mutate", "unknown", "mutation.unknown", "tracker"} {
+	for _, method := range []string{"mutate", "unknown", "mutation.unknown", "tracker", "relay", "broadcast", "mutation.relay", "mutation.broadcast"} {
 		if isMutationMethod(method) {
 			t.Fatalf("unregistered method %q routed as mutation", method)
 		}
@@ -1899,34 +1879,6 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	})
 	if blank.OK == nil || *blank.OK || !strings.Contains(blank.Error, "title is required") {
 		t.Fatalf("blank rename response = %#v, want title validation error", blank)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
-func TestServerMutationValidationErrorEnvelope(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := tempSocketPath(t)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-	}
-	errc := serveInBackground(t, ctx, srv, socketPath)
-
-	got := sendRawMutation(t, socketPath, map[string]any{
-		"id":     "bad",
-		"method": "relay",
-		"data":   map[string]any{"worker_id": "qm-worker"},
-	})
-	if got.Type != "response" || got.OK == nil || *got.OK || !strings.Contains(got.Error, "message is required") {
-		t.Fatalf("validation response = %#v, want message required error", got)
 	}
 
 	cancel()
