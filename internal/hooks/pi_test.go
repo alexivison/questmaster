@@ -31,6 +31,10 @@ func TestPiInstallIsIdempotent(t *testing.T) {
 	if got := p.Status(); got.Status != StatusCurrent {
 		t.Fatalf("post-install status: %+v", got)
 	}
+	extension, err := os.ReadFile(p.extensionPath())
+	if err != nil || !strings.Contains(string(extension), `deliverAs: "steer"`) {
+		t.Fatalf("messaging extension = %q, err = %v", extension, err)
+	}
 
 	if err := p.Install(); err != nil {
 		t.Fatalf("second install: %v", err)
@@ -89,6 +93,9 @@ func TestPiUninstallRemovesMarker(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Errorf("marker still present at %s (err=%v)", path, err)
 		}
+	}
+	if _, err := os.Stat(p.extensionPath()); !os.IsNotExist(err) {
+		t.Errorf("messaging extension still present: %v", err)
 	}
 	if got := p.Status(); got.Status != StatusNotInstalled {
 		t.Fatalf("post-uninstall status: %+v", got)

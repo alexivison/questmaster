@@ -76,8 +76,15 @@ questmaster hooks install
 ```
 
 Claude and Codex use shell-script hooks merged into their native config. Pi uses
-an out-of-band activity sidecar; `questmaster hooks install pi` writes the
-current version marker under the `$PI_HOME` or `~/.pi` extension dirs.
+an out-of-band activity sidecar; `questmaster hooks install pi` writes its
+version marker and messaging extension under the `$PI_HOME` or `~/.pi` dirs.
+
+Relay, broadcast, and report use native delivery for live Claude, Codex, and Pi
+sessions when available. Codex success means its daemon queued the message, not
+that the recipient processed it. Pi steers the current turn and its receipt is
+unconfirmed. Claude's socket has no delivery receipt. OpenCode keeps its tmux
+path and requires idle or done hook state. A native send that may have written
+bytes is never retried through tmux.
 
 OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
 Questmaster writes its OpenCode plugin and role agents under

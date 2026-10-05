@@ -1,12 +1,16 @@
 package hooks
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+//go:embed assets/questmaster-pi-messaging.ts
+var piMessagingExtension string
 
 // QuestmasterSidecarVersion is the marker version emitted by the Pi
 // activity-sidecar contract that shells out to `questmaster hook pi`.
@@ -55,7 +59,10 @@ func (p *PiInstaller) InstallWithOptions(opts InstallOptions) error {
 		}
 		return nil
 	}
-	return atomicWrite(p.markerPath(), []byte(QuestmasterSidecarVersion))
+	if err := atomicWrite(p.markerPath(), []byte(QuestmasterSidecarVersion)); err != nil {
+		return err
+	}
+	return atomicWrite(p.extensionPath(), []byte(piMessagingExtension))
 }
 
 // Uninstall implements Installer.
@@ -71,6 +78,9 @@ func (p *PiInstaller) Uninstall() error {
 	}
 	if firstErr != nil {
 		return fmt.Errorf("remove pi marker: %w", firstErr)
+	}
+	if err := os.Remove(p.extensionPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove Pi messaging extension: %w", err)
 	}
 	return nil
 }
@@ -90,11 +100,22 @@ func (p *PiInstaller) Status() Report {
 		}
 		version := strings.TrimSpace(string(data))
 		if version == QuestmasterSidecarVersion {
+			extension, err := os.ReadFile(p.extensionPath())
+			if err != nil || string(extension) != piMessagingExtension {
+				return Report{Agent: "pi", Status: StatusOutdated, Detail: "messaging extension missing or modified"}
+			}
 			return Report{Agent: "pi", Status: StatusCurrent}
 		}
 		return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker version %q != %q", version, QuestmasterSidecarVersion)}
 	}
 	return Report{Agent: "pi", Status: StatusNotInstalled}
+}
+
+func (p *PiInstaller) extensionPath() string {
+	if dir := os.Getenv("PI_CODING_AGENT_DIR"); dir != "" {
+		return filepath.Join(dir, "extensions", "questmaster-messaging.ts")
+	}
+	return filepath.Join(p.Home, "agent", "extensions", "questmaster-messaging.ts")
 }
 
 func (p *PiInstaller) markerPath() string {
