@@ -1,5 +1,5 @@
-import { chmod, lstat } from "node:fs/promises";
-import { createServer, type Server, type Socket } from "node:net";
+import { chmod, lstat, unlink } from "node:fs/promises";
+import { connect, createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -15,6 +15,32 @@ export default function (pi: ExtensionAPI) {
 
 	let server: Server | undefined;
 	const connections = new Set<Socket>();
+
+	async function clearStaleSocket(path: string): Promise<boolean> {
+		let before;
+		try {
+			before = await lstat(path);
+		} catch (error: unknown) {
+			return (error as NodeJS.ErrnoException).code === "ENOENT";
+		}
+		if (!before.isSocket() || before.uid !== process.getuid() || ![0o600, 0o700].includes(before.mode & 0o777)) return false;
+		const stale = await new Promise<boolean>((resolve) => {
+			const probe = connect(path);
+			probe.setTimeout(250);
+			probe.once("connect", () => { probe.destroy(); resolve(false); });
+			probe.once("timeout", () => { probe.destroy(); resolve(false); });
+			probe.once("error", (error: NodeJS.ErrnoException) => { resolve(error.code === "ECONNREFUSED" || error.code === "ENOENT"); });
+		});
+		if (!stale) return false;
+		try {
+			const after = await lstat(path);
+			if (after.dev !== before.dev || after.ino !== before.ino) return false;
+			await unlink(path);
+			return true;
+		} catch (error: unknown) {
+			return (error as NodeJS.ErrnoException).code === "ENOENT";
+		}
+	}
 
 	async function stop(): Promise<void> {
 		const active = server;
@@ -78,6 +104,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		const socketPath = join("/tmp", sessionID, "pi.sock");
+		if (!(await clearStaleSocket(socketPath))) return;
 		const next = createServer(handle);
 		next.on("error", () => {});
 		const oldUmask = process.umask(0o077);
