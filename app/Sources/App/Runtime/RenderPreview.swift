@@ -105,7 +105,7 @@ enum RenderPreview {
             session("k2", title: "Two", repo: "Scry", color: "magenta", role: "worker", snippet: "a", parentID: "k"),
             session("k3", title: "Three", repo: "Scry", color: "magenta", agent: "claude", role: "worker", state: "idle", snippet: "a", parentID: "k"),
         ]
-        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", collapsedMasterIDs: ["k"])
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["m"])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
             TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: [cursor, shell]),
             TrackerRepo(id: "questmaster", name: "Questmaster", color: "yellow", sessions: [master, workerA, workerB]),
@@ -181,7 +181,7 @@ enum RenderPreview {
         let store = RuntimeStore(
             sourceLabel: "preview",
             currentTerminalSessionID: flags.contains("attached") ? highlightedID : "none",
-            collapsedMasterIDs: role == "collapsed" || role == "overflow" ? ["a"] : []
+            expandedMasterIDs: role == "collapsed" || role == "overflow" ? [] : ["a"]
         )
         // The first row is the keyboard cursor, so park a throwaway row above the fixture.
         let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "standalone", state: "active", snippet: "")
