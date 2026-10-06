@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -514,6 +515,60 @@ func TestCodexBuildCmd(t *testing.T) {
 	}
 }
 
+func expectedCodexBuildCmd(agentPath, binary, args string) string {
+	quotedBinary := configShellQuote(binary)
+	return "export PATH=" + configShellQuote(agentPath) + "; if " + quotedBinary + " app-server daemon start >/dev/null 2>&1; then set -- --remote unix://; else set --; fi; exec " + quotedBinary + " \"$@\" " + args
+}
+
+func TestCodexBuildCmdStartsDaemonOrFallsBackToLocalCLI(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		daemonFail string
+		remote     bool
+	}{
+		{name: "remote when managed daemon starts", remote: true},
+		{name: "local TUI when managed daemon start fails", daemonFail: "1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			binDir := t.TempDir()
+			trace := filepath.Join(binDir, "trace")
+			cli := filepath.Join(binDir, "codex")
+			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + trace + "'\nif [ \"$1\" = app-server ]; then exit \"${CODEX_DAEMON_FAIL:-0}\"; fi\n"
+			if err := os.WriteFile(cli, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CODEX_DAEMON_FAIL", tt.daemonFail)
+
+			command := NewCodex(AgentConfig{}).BuildCmd(CmdOpts{
+				Binary:    cli,
+				AgentPath: binDir,
+				ResumeID:  "thread-1",
+				Prompt:    "continue the task",
+				Role:      RoleWorker,
+			})
+			if err := exec.Command("sh", "-c", command).Run(); err != nil {
+				t.Fatalf("launch command: %v", err)
+			}
+			calls, err := os.ReadFile(trace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+			if len(lines) != 2 || lines[0] != "app-server daemon start" {
+				t.Fatalf("Codex calls = %q, want daemon start then TUI launch", lines)
+			}
+			if strings.Contains(lines[1], "--remote unix://") != tt.remote {
+				t.Fatalf("TUI launch remote flag presence = %v, want %v: %q", strings.Contains(lines[1], "--remote unix://"), tt.remote, lines[1])
+			}
+			for _, want := range []string{"--dangerously-bypass-approvals-and-sandbox", "resume thread-1", "continue the task"} {
+				if !strings.Contains(lines[1], want) {
+					t.Fatalf("TUI launch missing %q: %q", want, lines[1])
+				}
+			}
+		})
+	}
+}
+
 func TestCodexBuildCmd_ExtendedReasoningEffort(t *testing.T) {
 	t.Parallel()
 
@@ -532,9 +587,10 @@ func TestCodexBuildCmd_ExtendedReasoningEffort(t *testing.T) {
 			Model:           tt.model,
 			ReasoningEffort: tt.effort,
 		})
-		want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --remote unix:// --model '" + tt.model + "' -c " +
+		args := "--dangerously-bypass-approvals-and-sandbox --model '" + tt.model + "' -c " +
 			configShellQuote("model_reasoning_effort="+strconv.Quote(tt.effort)) + " -c " +
 			configShellQuote("developer_instructions="+strconv.Quote(codex.WorkerPrompt()))
+		want := expectedCodexBuildCmd("/tmp/bin:/usr/bin", "/opt/homebrew/bin/codex", args)
 		if got != want {
 			t.Fatalf("BuildCmd(%s) = %q, want %q", tt.effort, got, want)
 		}
@@ -636,9 +692,10 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --remote unix:// -c " +
+	args := "--dangerously-bypass-approvals-and-sandbox -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
 		" -- 'triage the backlog'"
+	want := expectedCodexBuildCmd("/tmp/bin:/usr/bin", "/opt/homebrew/bin/codex", args)
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}

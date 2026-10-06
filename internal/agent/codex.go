@@ -39,23 +39,24 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 		binary = c.Binary()
 	}
 
-	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox --remote unix://",
-		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
+	args := "--dangerously-bypass-approvals-and-sandbox"
 	if opts.Model != "" {
-		cmd += " --model " + config.ShellQuote(opts.Model)
+		args += " --model " + config.ShellQuote(opts.Model)
 	}
 	if opts.ReasoningEffort != "" {
-		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(opts.ReasoningEffort))
+		args += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(opts.ReasoningEffort))
 	}
 	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
-		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))
+		args += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))
 	}
 	if opts.ResumeID != "" {
-		cmd += " resume " + config.ShellQuote(opts.ResumeID)
+		args += " resume " + config.ShellQuote(opts.ResumeID)
 	}
 	if opts.Prompt != "" {
-		cmd += " -- " + config.ShellQuote(opts.Prompt)
+		args += " -- " + config.ShellQuote(opts.Prompt)
 	}
-	return cmd
+	quotedBinary := config.ShellQuote(binary)
+	return fmt.Sprintf("export PATH=%s; if %s app-server daemon start >/dev/null 2>&1; then set -- --remote unix://; else set --; fi; exec %s \"$@\" %s",
+		config.ShellQuote(opts.AgentPath), quotedBinary, quotedBinary, args)
 }

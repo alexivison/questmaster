@@ -23,7 +23,8 @@ Use the default Codex queue when a message can wait for the next turn; use
 --steer to ask the app-server to add input to the active turn of a Codex TUI
 launched or continued by Questmaster. Older or externally launched Codex
 sessions use the durable queue. If there is no active turn or steering is
-unsupported, --steer falls back to that queue. With --steer, delivery_mode
+unsupported, --steer falls back to that queue. If the Codex daemon is
+unavailable, the existing tmux fallback applies. With --steer, delivery_mode
 reports the selected transport, not model receipt.
 Use --message-file <path> or --message-file - for file or stdin input.
 
