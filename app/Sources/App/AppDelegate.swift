@@ -123,10 +123,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             splitView: { [weak self] in self?.shellHandles?.splitView },
             terminalShell: { [weak self] in self?.shellHandles?.terminalShell },
             dockShell: { [weak self] in self?.shellHandles?.dockShell },
+            footerShell: { [weak self] in self?.shellHandles?.footerShell },
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
             selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
+            selectedSessionContext: { [weak self] in self?.selectedSessionContext() ?? (nil, [], nil) },
             updateDockTabs: { [weak self] in self?.updateDockTabs() }
         )
         runtimeConnectionController = RuntimeConnectionController(
@@ -177,6 +179,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 widenDock: #selector(widenDock),
                 narrowDock: #selector(narrowDock),
                 toggleCaffeine: #selector(toggleCaffeine),
+                selectWorkerStrip: #selector(selectWorkerStrip),
                 toggleAllWorkersCollapsed: #selector(toggleAllWorkersCollapsed),
                 copySessionID: #selector(copySessionID),
                 focusRegionLeft: #selector(focusRegionLeft),
@@ -237,14 +240,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
         }
         handles.dockView.onFocusRequested = { [weak self] in self?.focusCoordinator.focus(.dock) }
-        handles.terminalShell.onNewSession = { [weak self] in self?.openNewSession() }
-        handles.terminalShell.onShowTracker = { [weak self] in self?.toggleTracker() }
-        handles.terminalShell.onHideTracker = { [weak self] in self?.hideTracker() }
-        handles.terminalShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
-        handles.terminalShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
-        handles.terminalShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
-        handles.terminalShell.onOpenSettings = { [weak self] in self?.openSettings() }
-        handles.terminalShell.onCopySessionID = { [weak self] _ in self?.toastPresenter.show("Copied session ID") }
+        handles.footerShell.onNewSession = { [weak self] in self?.openNewSession() }
+        handles.footerShell.onShowTracker = { [weak self] in self?.toggleTracker() }
+        handles.footerShell.onHideTracker = { [weak self] in self?.hideTracker() }
+        handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
+        handles.footerShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
+        handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
+        handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
+        handles.footerShell.onCopySessionID = { [weak self] sessionID in self?.copySessionIDToPasteboard(sessionID) }
+        handles.footerShell.onAttachWorker = { [weak self] sessionID in self?.attachSession(sessionID) }
+        handles.footerShell.onEscape = { [weak self] in self?.focusCoordinator.focusTerminal() }
         handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
         handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockShell.onCopyArtifactPath = { [weak self] in
@@ -401,6 +406,40 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// The action bar's session-panel variant and worker strip both key off the selected
+    /// session's role — resolved once here from the same flat session list `selectedSessionChip`
+    /// reads, so both stay consistent with each other.
+    private func selectedSessionContext() -> (role: SessionRoleKind?, workers: [TrackerSession], highlightedWorkerID: String?) {
+        let sessions = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
+        guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
+              let selected = sessions.first(where: { $0.id == sessionID }) else {
+            return (nil, [], nil)
+        }
+        let resolution = ActionBarWorkerStripResolver.resolve(selectedSessionID: selected.id, sessions: sessions)
+        return (SessionRoleKind(role: selected.role), resolution.workers, resolution.highlightedWorkerID)
+    }
+
+    /// Attaches the terminal to `sessionID` — the same path a tracker row click or a Cmd+1..9
+    /// menu selection uses (`selectTrackerSession`), reused here for a worker-pill click/Enter.
+    private func attachSession(_ sessionID: String) {
+        guard let window = shellHandles?.window else {
+            return
+        }
+        let rows = TrackerSessionShortcuts.selectableSessions(
+            TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot)),
+            expandedMasterIDs: runtimeStore.expandedMasterIDs
+        )
+        var commandState = TrackerCommandState()
+        guard let effects = commandState.effects(
+            for: .activate(openedID: sessionID),
+            rows: rows,
+            currentTerminalSessionID: runtimeStore.currentTerminalSessionID
+        ) else {
+            return
+        }
+        makeTrackerEffectExecutor(window: window).execute(effects)
+    }
+
     @objc private func focusTerminal() {
         focusCoordinator.focusTerminal()
     }
@@ -479,9 +518,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func selectTrackerSession(_ sender: NSMenuItem) {
-        guard let window = shellHandles?.window else {
-            return
-        }
         let rows = TrackerSessionShortcuts.selectableSessions(
             TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot)),
             expandedMasterIDs: runtimeStore.expandedMasterIDs
@@ -489,20 +525,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let sessionID = TrackerSessionShortcuts.sessionID(atPosition: sender.tag, in: rows) else {
             return
         }
-        // A fresh TrackerCommandState mirrors the tracker view's own click-to-activate path
-        // (TrackerRootView.activate): .activate(openedID:) resolves the target session
-        // directly, so the empty selectedID here is never consulted. This keeps continue-if-
-        // stopped / focus-if-current parity with a mouse click without lifting the view's
-        // @State into AppDelegate.
-        var commandState = TrackerCommandState()
-        guard let effects = commandState.effects(
-            for: .activate(openedID: sessionID),
-            rows: rows,
-            currentTerminalSessionID: runtimeStore.currentTerminalSessionID
-        ) else {
-            return
-        }
-        makeTrackerEffectExecutor(window: window).execute(effects)
+        // attachSession mirrors the tracker view's own click-to-activate path
+        // (TrackerRootView.activate): .activate(openedID:) resolves the target session directly,
+        // keeping continue-if-stopped / focus-if-current parity with a mouse click.
+        attachSession(sessionID)
+    }
+
+    @objc private func selectWorkerStrip() {
+        shellHandles?.footerShell.focusWorkerStrip()
     }
 
     @objc private func deleteFocusedSession() {

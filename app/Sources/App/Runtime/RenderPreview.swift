@@ -34,8 +34,13 @@ enum RenderPreview {
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
-        render(terminalTopBarView(), size: CGSize(width: 700, height: ShellMetrics.topBarHeight), to: "\(outputDir)/terminal-top-bar.png")
         render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
+        for fixture in ["master-3", "worker-8-start", "worker-8-middle", "worker-8-end", "standalone", "none"] {
+            render(actionBarFooterView(fixture: fixture), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-\(fixture).png")
+        }
+        render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.plateZoneHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
+        render(actionBarFooterView(fixture: "worker-8-middle", stripFocused: true), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-strip-focused.png")
+        renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900)), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
         for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "standalone-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
@@ -66,12 +71,11 @@ enum RenderPreview {
         let terminalBody = NSView()
         terminalBody.wantsLayer = true
         terminalBody.layer?.backgroundColor = AppPalette.terminal.cgColor
-        let terminalModel = TerminalChromeModel(sessionChip: .init(title: "Design quest progression data model", id: "qm-0123", agent: "codex"))
         let splitView = MainSplitView(frame: NSRect(origin: .zero, size: size))
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
         splitView.addArrangedSubview(TrackerShellView(body: tracker))
-        splitView.addArrangedSubview(TerminalShellView(body: terminalBody, model: terminalModel))
+        splitView.addArrangedSubview(TerminalShellView(body: terminalBody, dragHandleHeight: 0))
         splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
         splitView.sendTerminalToBack()
         splitView.trackerVisible = true
@@ -80,11 +84,93 @@ enum RenderPreview {
         return splitView
     }
 
+    /// The full window shell with the action bar footer, for judging the window-centred
+    /// placement: tracker and dock both open, footer pinned under all three panes.
     @MainActor
-    private static func terminalTopBarView() -> some View {
-        TerminalTopBar(
-            model: TerminalChromeModel(sessionChip: .init(title: "Session title that stretches the frame", id: "qm-0123", agent: "codex")),
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
+    private static func shellWithFooterView(size: CGSize) -> NSView {
+        let splitSize = CGSize(width: size.width, height: size.height - ActionBarMetrics.footerHeight)
+        let splitView = shellView(size: splitSize) as! MainSplitView
+        let footer = ActionBarShellView()
+        footer.update(
+            navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: true, dockVisible: true),
+            session: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
+            role: .master,
+            workers: actionBarFixtureWorkers(count: 3),
+            highlightedWorkerID: nil,
+            dockContentMode: .artifacts
+        )
+        return ShellRootContainerView(splitView: splitView, footer: footer)
+    }
+
+    private static func actionBarFixtureWorkers(count: Int) -> [TrackerSession] {
+        let agents = ["codex", "claude", "pi", "opencode"]
+        let titles = ["Fix A", "Fix something longer than this", "Fix B", "Fix something else entirely", "Skill Improvements", "Review error paths", "Polish the footer", "Ship it"]
+        return (0..<count).map { index in
+            TrackerSession(
+                id: "worker-\(index + 1)",
+                title: titles[index % titles.count],
+                repoName: "Questmaster",
+                displayColor: "yellow",
+                agent: agents[index % agents.count],
+                role: "worker",
+                state: "working",
+                snippet: "",
+                parentID: "root-2"
+            )
+        }
+    }
+
+    /// `fixture` selects one of the Verify checklist's footer scenarios: a master with 3 workers,
+    /// one with 8 (scrolled to the strip's start/middle/end, matching the brief's worked
+    /// example), a standalone session, and no session at all.
+    @MainActor
+    private static func actionBarFooterView(fixture: String, stripFocused: Bool = false) -> some View {
+        let model = ActionBarFooterModel()
+        switch fixture {
+        case "master-3":
+            model.sessionChip = SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex")
+            model.sessionRole = .master
+            model.workers = actionBarFixtureWorkers(count: 3)
+        case "worker-8-start", "worker-8-middle", "worker-8-end":
+            let workers = actionBarFixtureWorkers(count: 8)
+            let selectedIndex = fixture == "worker-8-start" ? 0 : (fixture == "worker-8-middle" ? 6 : 7)
+            model.sessionChip = SelectedSessionChip(title: workers[selectedIndex].title, id: workers[selectedIndex].id, agent: workers[selectedIndex].agent)
+            model.sessionRole = .worker
+            model.workers = workers
+            model.highlightedWorkerID = workers[selectedIndex].id
+            let offset = fixture == "worker-8-start" ? 0 : (fixture == "worker-8-middle" ? 1 : 2)
+            model.workerStripState = ActionBarWorkerStripState(
+                isFocused: stripFocused,
+                selectedIndex: stripFocused ? selectedIndex : nil,
+                scrollOffset: offset
+            )
+        case "standalone":
+            model.sessionChip = SelectedSessionChip(title: "Refine shell aliases for faster navigation", id: "root-1", agent: "codex")
+            model.sessionRole = .standalone
+        default:
+            break
+        }
+        return ActionBarFooterView(
+            model: model,
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
+            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }, onAttachWorker: { _ in }
+        )
+    }
+
+    /// The slot bar with Caffeine active and the Artifacts dock open (Artifacts slot active too).
+    @MainActor
+    private static func actionBarSlotsView() -> some View {
+        let model = ActionBarFooterModel(
+            navigation: AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true),
+            sessionChip: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
+            sessionRole: .master,
+            caffeineActive: true,
+            dockContentMode: .artifacts
+        )
+        return ActionBarFooterView(
+            model: model,
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
+            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }, onAttachWorker: { _ in }
         )
     }
 
