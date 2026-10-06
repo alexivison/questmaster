@@ -127,7 +127,7 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.deliverCodex(t.Context(), m, "-leading"); err != nil {
+	if _, err := svc.deliverCodexWithMode(t.Context(), m, "-leading"); err != nil {
 		t.Fatal(err)
 	}
 	args, err = os.ReadFile(argsPath)

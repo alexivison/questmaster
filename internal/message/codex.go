@@ -26,11 +26,6 @@ var codexSteerTimeout = 10 * time.Second
 
 const codexRPCFrameLimit = 4 << 20
 
-func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message string) error {
-	_, err := s.deliverCodexWithMode(ctx, m, message)
-	return err
-}
-
 func (s *Service) deliverCodexWithMode(ctx context.Context, m state.Manifest, message string) (DeliveryMode, error) {
 	thread := m.ExtraString("codex_thread_id")
 	binary := ""
