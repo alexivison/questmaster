@@ -484,7 +484,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let rows = TrackerSessionShortcuts.selectableSessions(
             TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot)),
-            collapsedMasterIDs: runtimeStore.collapsedMasterIDs
+            expandedMasterIDs: runtimeStore.expandedMasterIDs
         )
         guard let sessionID = TrackerSessionShortcuts.sessionID(atPosition: sender.tag, in: rows) else {
             return

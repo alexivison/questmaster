@@ -332,7 +332,7 @@ struct TrackerRootView: View {
                                 currentTerminalSessionID: store.currentTerminalSessionID,
                                 shortcutNumbers: shortcutNumbers,
                                 commandLongPressIsActive: commandLongPressIsActive,
-                                collapsedMasterIDs: store.collapsedMasterIDs,
+                                expandedMasterIDs: store.expandedMasterIDs,
                                 onSelect: select(_:),
                                 onActivate: activate(_:),
                                 onEditSession: presentEditSession(_:),
@@ -375,7 +375,7 @@ struct TrackerRootView: View {
     private func selectableRows(in repos: [TrackerRenderedRepo]) -> [TrackerSession] {
         TrackerSessionShortcuts.selectableSessions(
             TrackerRenderer.flatSessions(in: repos),
-            collapsedMasterIDs: store.collapsedMasterIDs
+            expandedMasterIDs: store.expandedMasterIDs
         )
     }
 
@@ -872,7 +872,7 @@ private struct TrackerRepoSection: View {
     let currentTerminalSessionID: String?
     let shortcutNumbers: [String: Int]
     let commandLongPressIsActive: Bool
-    let collapsedMasterIDs: Set<String>
+    let expandedMasterIDs: Set<String>
     var onSelect: (String) -> Void
     var onActivate: (TrackerSession) -> Void
     var onEditSession: (TrackerSession) -> Void
@@ -884,7 +884,7 @@ private struct TrackerRepoSection: View {
 
             VStack(alignment: .leading, spacing: TrackerListMetrics.itemSpacing) {
                 ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
-                    let isCollapsed = collapsedMasterIDs.contains(group.root.session.id)
+                    let isCollapsed = !expandedMasterIDs.contains(group.root.session.id)
                     VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
                         TrackerSessionRow(
                             rendered: group.root,

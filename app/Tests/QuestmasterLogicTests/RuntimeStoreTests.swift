@@ -19,6 +19,7 @@ struct RuntimeStoreTests {
         expect(store.snapshot.sourceLabel == "label", "source label not stored")
         expect(store.currentTerminalSessionID == "qm-1", "terminal id not stored")
         expect(store.snapshot.tick == 0, "fresh snapshot should start at tick 0")
+        expect(store.expandedMasterIDs.isEmpty, "worker rows should start collapsed")
     }
 
     private static func applyMergesUpdateAndNotifies() {
@@ -92,36 +93,36 @@ struct RuntimeStoreTests {
     }
 
     private static func toggleWorkersCollapsedFlipsMembershipAndNotifies() {
-        let store = RuntimeStore(sourceLabel: "label", collapsedMasterIDs: ["master-1"])
+        let store = RuntimeStore(sourceLabel: "label", expandedMasterIDs: ["master-1"])
         var notifications = 0
         let token = store.observe { notifications += 1 }
 
         store.toggleWorkersCollapsed(for: "master-2")
-        expect(store.collapsedMasterIDs == ["master-1", "master-2"], "toggling an uncollapsed master should collapse it")
+        expect(store.expandedMasterIDs == ["master-1", "master-2"], "toggling a collapsed master should expand it")
         expect(notifications == 1, "toggle should notify")
 
         store.toggleWorkersCollapsed(for: "master-1")
-        expect(store.collapsedMasterIDs == ["master-2"], "toggling a collapsed master should expand it")
+        expect(store.expandedMasterIDs == ["master-2"], "toggling an expanded master should collapse it")
         expect(notifications == 2, "second toggle should notify again")
         token.cancel()
     }
 
     private static func toggleAllWorkersCollapsedTogglesTogetherAndNotifiesOnce() {
-        let store = RuntimeStore(sourceLabel: "label", collapsedMasterIDs: ["master-1", "other-master"])
+        let store = RuntimeStore(sourceLabel: "label", expandedMasterIDs: ["master-1", "other-master"])
         var notifications = 0
         let token = store.observe { notifications += 1 }
 
-        // master-1 is collapsed but master-2/master-3 aren't -> a partial selection collapses all of them.
+        // master-1 is expanded but master-2/master-3 aren't -> a partial selection collapses all of them.
         store.toggleAllWorkersCollapsed(masterIDs: ["master-1", "master-2", "master-3"])
-        expect(store.collapsedMasterIDs == ["master-1", "master-2", "master-3", "other-master"], "a partial selection should collapse every given id")
+        expect(store.expandedMasterIDs == ["other-master"], "a partial selection should collapse every given id")
         expect(notifications == 1, "toggle should notify only once, not per id")
 
         // Now all three are collapsed -> the toggle flips to expanding all of them.
         store.toggleAllWorkersCollapsed(masterIDs: ["master-1", "master-2", "master-3"])
-        expect(store.collapsedMasterIDs == ["other-master"], "an all-collapsed selection should expand every given id")
+        expect(store.expandedMasterIDs == ["master-1", "master-2", "master-3", "other-master"], "an all-collapsed selection should expand every given id")
         expect(notifications == 2, "second toggle should notify again")
 
-        expect(store.collapsedMasterIDs.contains("other-master"), "a master outside the given ids should be left alone by either direction")
+        expect(store.expandedMasterIDs.contains("other-master"), "a master outside the given ids should be left alone by either direction")
         token.cancel()
     }
 

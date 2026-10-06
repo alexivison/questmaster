@@ -6,7 +6,9 @@ struct TrackerSessionShortcutsTests {
         sessionIDAtPositionRespectsBounds()
         sessionIDAtPositionOnEmptyListReturnsNil()
         numbersByIDMatchesFlatOrderAndCapsAtNine()
-        selectableSessionsHidesCollapsedWorkers()
+        selectableSessionsHidesWorkersByDefault()
+        selectableSessionsKeepsOrphanWorkers()
+        selectableSessionsShowsExpandedWorkers()
         sessionIDAtPositionMatchesNumbersByIDWhenCollapsed()
         print("TrackerSessionShortcutsTests: all tests passed")
     }
@@ -38,16 +40,27 @@ struct TrackerSessionShortcutsTests {
     // Group C regression: a worker hidden by its master's collapse toggle must be excluded
     // from both the badge numbering (SwiftUI tracker) and the Cmd+1..9 lookup (AppDelegate),
     // or the two drift out of sync.
-    private static func selectableSessionsHidesCollapsedWorkers() {
-        let sessions = makeMasterWithWorkers()
-        let selectable = TrackerSessionShortcuts.selectableSessions(sessions, collapsedMasterIDs: ["master-1"])
+    private static func selectableSessionsHidesWorkersByDefault() {
+        let selectable = TrackerSessionShortcuts.selectableSessions(makeMasterWithWorkers(), expandedMasterIDs: [])
+        expect(selectable.map(\.id) == ["master-1", "root-2"], "workers should be hidden until their master is expanded")
+    }
 
-        expect(selectable.map(\.id) == ["master-1", "root-2"], "collapsed worker rows should be excluded: got \(selectable.map(\.id))")
+    private static func selectableSessionsKeepsOrphanWorkers() {
+        let worker = TrackerSession(id: "worker-1", title: "Worker", repoName: "repo", role: "worker", parentID: "missing")
+        let selectable = TrackerSessionShortcuts.selectableSessions([worker], expandedMasterIDs: [])
+        expect(selectable.map(\.id) == ["worker-1"], "a worker without a visible master should remain selectable")
+    }
+
+    private static func selectableSessionsShowsExpandedWorkers() {
+        let sessions = makeMasterWithWorkers()
+        let selectable = TrackerSessionShortcuts.selectableSessions(sessions, expandedMasterIDs: ["master-1"])
+
+        expect(selectable.map(\.id) == ["master-1", "worker-1", "root-2"], "expanded worker rows should be included: got \(selectable.map(\.id))")
     }
 
     private static func sessionIDAtPositionMatchesNumbersByIDWhenCollapsed() {
         let sessions = makeMasterWithWorkers()
-        let selectable = TrackerSessionShortcuts.selectableSessions(sessions, collapsedMasterIDs: ["master-1"])
+        let selectable = TrackerSessionShortcuts.selectableSessions(sessions, expandedMasterIDs: [])
         let numbers = TrackerSessionShortcuts.numbersByID(selectable)
 
         for (id, position) in numbers {

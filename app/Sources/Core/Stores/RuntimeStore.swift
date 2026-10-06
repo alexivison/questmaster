@@ -17,11 +17,11 @@ import Observation
 public final class RuntimeStore {
     public private(set) var snapshot: RuntimeSnapshot
     public private(set) var currentTerminalSessionID: String?
-    /// Master session IDs whose worker rows are collapsed in the tracker. Lives here (rather
+    /// Master session IDs whose worker rows are expanded in the tracker. Lives here (rather
     /// than as view-local `@State`) so both the SwiftUI tracker's badge numbering and
     /// AppDelegate's Cmd+1..9 lookup (`TrackerSessionShortcuts`) resolve "row N" from the same
     /// collapse-aware session list.
-    public private(set) var collapsedMasterIDs: Set<String>
+    public private(set) var expandedMasterIDs: Set<String>
 
     @ObservationIgnored
     private var observers: [ObjectIdentifier: () -> Void] = [:]
@@ -29,11 +29,11 @@ public final class RuntimeStore {
     public init(
         sourceLabel: String,
         currentTerminalSessionID: String? = nil,
-        collapsedMasterIDs: Set<String> = []
+        expandedMasterIDs: Set<String> = []
     ) {
         self.snapshot = RuntimeSnapshot.empty(sourceLabel: sourceLabel)
         self.currentTerminalSessionID = currentTerminalSessionID
-        self.collapsedMasterIDs = collapsedMasterIDs
+        self.expandedMasterIDs = expandedMasterIDs
     }
 
     public var quests: [QuestItem] {
@@ -72,10 +72,10 @@ public final class RuntimeStore {
 
     /// Toggles whether a master session's worker rows are collapsed.
     public func toggleWorkersCollapsed(for sessionID: String) {
-        if collapsedMasterIDs.contains(sessionID) {
-            collapsedMasterIDs.remove(sessionID)
+        if expandedMasterIDs.contains(sessionID) {
+            expandedMasterIDs.remove(sessionID)
         } else {
-            collapsedMasterIDs.insert(sessionID)
+            expandedMasterIDs.insert(sessionID)
         }
         notify()
     }
@@ -87,11 +87,11 @@ public final class RuntimeStore {
         guard !masterIDs.isEmpty else {
             return
         }
-        let allCollapsed = masterIDs.allSatisfy { collapsedMasterIDs.contains($0) }
+        let allCollapsed = masterIDs.allSatisfy { !expandedMasterIDs.contains($0) }
         if allCollapsed {
-            collapsedMasterIDs.subtract(masterIDs)
+            expandedMasterIDs.formUnion(masterIDs)
         } else {
-            collapsedMasterIDs.formUnion(masterIDs)
+            expandedMasterIDs.subtract(masterIDs)
         }
         notify()
     }
