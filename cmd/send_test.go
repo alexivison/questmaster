@@ -210,7 +210,7 @@ func TestSendExternalCannotForgeMasterPrefix(t *testing.T) {
 
 func TestSendHelpDocumentsSteer(t *testing.T) {
 	out := runCmd(t, setupStore(t), messagingRunner(), "send", "--help")
-	for _, want := range []string{"--steer", "active thread", "durable queue", "delivery_mode", "existing transport behavior"} {
+	for _, want := range []string{"--steer", "active turn", "durable queue", "delivery_mode", "existing transport behavior"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("send help missing %q:\n%s", want, out)
 		}

@@ -39,7 +39,7 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 		binary = c.Binary()
 	}
 
-	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox",
+	cmd := fmt.Sprintf("export PATH=%s; exec %s --dangerously-bypass-approvals-and-sandbox --remote unix://",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
 	if opts.Model != "" {
 		cmd += " --model " + config.ShellQuote(opts.Model)

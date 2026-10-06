@@ -2534,11 +2534,17 @@ func TestStart_CodexPrimaryRegistry(t *testing.T) {
 	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" {
 		t.Fatalf("primary agent: got %+v", m.Agents[0])
 	}
+	if got := m.ExtraString("codex_remote_app_server"); got != "unix://" {
+		t.Fatalf("Codex remote app-server marker = %q, want unix://", got)
+	}
 
 	foundPrimaryCmd := false
 	for _, call := range runner.calls {
 		if len(call.args) >= 1 && call.args[0] == "respawn-pane" && strings.Contains(call.args[len(call.args)-1], codexCLI) {
 			foundPrimaryCmd = true
+			if !strings.Contains(call.args[len(call.args)-1], "--remote unix://") {
+				t.Fatalf("primary Codex launch missing remote app-server: %q", call.args[len(call.args)-1])
+			}
 			break
 		}
 	}
@@ -3110,6 +3116,9 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" || m.Agents[0].CLI != codexCLI {
 		t.Fatalf("primary manifest agent: got %+v", m.Agents[0])
 	}
+	if got := m.ExtraString("codex_remote_app_server"); got != "unix://" {
+		t.Fatalf("resumed Codex remote app-server marker = %q, want unix://", got)
+	}
 
 	var sawCodexPrimary bool
 	for _, call := range runner.calls {
@@ -3122,6 +3131,9 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 		cmd := call.args[len(call.args)-1]
 		if strings.Contains(cmd, codexCLI) && strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") {
 			sawCodexPrimary = true
+			if !strings.Contains(cmd, "--remote unix://") {
+				t.Fatalf("resumed Codex launch missing remote app-server: %q", cmd)
+			}
 		}
 	}
 	if !sawCodexPrimary {

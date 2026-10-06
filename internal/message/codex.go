@@ -82,7 +82,7 @@ func (s *Service) deliverCodexWithMode(ctx context.Context, m state.Manifest, me
 	if json.Unmarshal(version, &daemon) != nil || daemon.Status != "running" {
 		return "", fmt.Errorf("%w: Codex daemon is not running", errNativeUnavailable)
 	}
-	if s.Steer && daemon.SocketPath != "" {
+	if s.Steer && m.ExtraString(state.CodexRemoteAppServerKey) == state.CodexRemoteAppServer && daemon.SocketPath != "" {
 		steerCtx, steerCancel := context.WithTimeout(ctx, codexSteerTimeout)
 		steered, err := codexSteer(steerCtx, daemon.SocketPath, thread, message)
 		steerCancel()
@@ -151,9 +151,6 @@ func codexSteer(ctx context.Context, socket, thread, message string) (bool, erro
 		return false, nil
 	}
 	if err := rpc.notify("initialized"); err != nil {
-		return false, nil
-	}
-	if _, err := rpc.call("thread/resume", map[string]any{"threadId": thread, "excludeTurns": true}); err != nil {
 		return false, nil
 	}
 	turns, err := rpc.call("thread/turns/list", map[string]any{

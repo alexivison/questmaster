@@ -20,10 +20,11 @@ func newSendCmd(store *state.Store, client *tmux.Client) *cobra.Command {
   questmaster send all "message"           Master broadcast to its workers
 
 Use the default Codex queue when a message can wait for the next turn; use
---steer to ask Codex app-server to steer a turn it can control. If it cannot
-control the active thread, --steer falls back to the durable queue. If the
-daemon is unavailable, the existing tmux fallback applies. With --steer,
-delivery_mode reports the selected transport, not model receipt.
+--steer to ask the app-server to add input to the active turn of a Codex TUI
+launched or continued by Questmaster. Older or externally launched Codex
+sessions use the durable queue. If there is no active turn or steering is
+unsupported, --steer falls back to that queue. With --steer, delivery_mode
+reports the selected transport, not model receipt.
 Use --message-file <path> or --message-file - for file or stdin input.
 
 For Claude, Pi, OpenCode, and tmux targets, --steer keeps the existing transport behavior.`,
@@ -92,6 +93,6 @@ For Claude, Pi, OpenCode, and tmux targets, --steer keeps the existing transport
 		},
 	}
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "read message from a file, or '-' for stdin")
-	cmd.Flags().BoolVar(&steer, "steer", false, "request Codex active-turn steering and report the selected route")
+	cmd.Flags().BoolVar(&steer, "steer", false, "request active-turn steering for Questmaster-launched Codex sessions")
 	return cmd
 }

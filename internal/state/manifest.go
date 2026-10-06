@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+const (
+	CodexRemoteAppServerKey = "codex_remote_app_server"
+	CodexRemoteAppServer    = "unix://"
+)
+
 // validResumeID matches the shape of all resume IDs Claude Code, Codex,
 // Pi, and OpenCode produce (UUIDs, ULIDs, dashed hex). Anything else — path separators,
 // glob metacharacters, null bytes, spaces — is blanked out at deserialize

@@ -196,16 +196,17 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
 		mode      string
+		remote    bool
 		wantSteer bool
 		wantQueue bool
 		wantError bool
 		wantMode  DeliveryMode
 	}{
-		{name: "active turn", mode: "active", wantSteer: true, wantMode: DeliveryCodexSteer},
-		{name: "no active turn queues", mode: "inactive", wantQueue: true, wantMode: DeliveryCodexQueue},
-		{name: "target TUI owns active writer", mode: "active_writer", wantQueue: true, wantMode: DeliveryCodexQueue},
-		{name: "turn ended before steer queues", mode: "rejected", wantSteer: true, wantQueue: true, wantMode: DeliveryCodexQueue},
-		{name: "uncertain acceptance is not retried", mode: "uncertain", wantSteer: true, wantError: true},
+		{name: "remote active turn", mode: "active", remote: true, wantSteer: true, wantMode: DeliveryCodexSteer},
+		{name: "remote no active turn queues", mode: "inactive", remote: true, wantQueue: true, wantMode: DeliveryCodexQueue},
+		{name: "legacy session uses queue", mode: "active", wantQueue: true, wantMode: DeliveryCodexQueue},
+		{name: "turn ended before steer queues", mode: "rejected", remote: true, wantSteer: true, wantQueue: true, wantMode: DeliveryCodexQueue},
+		{name: "uncertain acceptance is not retried", mode: "uncertain", remote: true, wantSteer: true, wantError: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := setupStore(t)
@@ -227,6 +228,9 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 			if err := store.Update("qm-codex-steer", func(m *state.Manifest) {
 				m.Agents[0].CLI = codex
 				m.Extra = map[string]json.RawMessage{"codex_thread_id": json.RawMessage(`"thread-123"`)}
+				if tt.remote {
+					m.SetExtra("codex_remote_app_server", "unix://")
+				}
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -260,6 +264,12 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 			}
 			if _, ok := methods["turn/steer"]; ok != tt.wantSteer {
 				t.Fatalf("steer request presence = %v, methods %v", ok, methods)
+			}
+			if !tt.remote && len(methods) != 0 {
+				t.Fatalf("legacy Codex session contacted app-server: %v", methods)
+			}
+			if _, ok := methods["thread/resume"]; ok {
+				t.Fatalf("steer route must not resume a thread owned by the TUI: methods %v", methods)
 			}
 			if tt.wantSteer {
 				params := methods["turn/steer"]
@@ -320,12 +330,6 @@ func startCodexTestDaemon(t *testing.T, mode string) (string, <-chan codexTestRP
 			switch request.Method {
 			case "initialize":
 				result = map[string]any{}
-			case "thread/resume":
-				if mode == "active_writer" {
-					rpcError = map[string]any{"code": -32600, "message": "thread already has an active writer"}
-				} else {
-					result = map[string]any{}
-				}
 			case "thread/turns/list":
 				status := "inProgress"
 				if mode == "inactive" {

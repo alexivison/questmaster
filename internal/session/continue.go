@@ -180,6 +180,9 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		if !shell {
 			m2.Agents = manifestAgents
 		}
+		if hasCodexPrimary(manifestAgents) {
+			m2.SetExtra(state.CodexRemoteAppServerKey, state.CodexRemoteAppServer)
+		}
 		m2.AgentPath = agentPath
 		for _, info := range agentResume {
 			if info.provider != nil {

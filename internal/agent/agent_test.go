@@ -490,6 +490,9 @@ func TestCodexBuildCmd(t *testing.T) {
 	if !strings.Contains(withResume, " resume 'thread-123'") {
 		t.Fatalf("BuildCmd(resume) missing resume subcommand: %q", withResume)
 	}
+	if !strings.Contains(withResume, "--remote unix://") {
+		t.Fatalf("BuildCmd(resume) missing remote app-server: %q", withResume)
+	}
 	if strings.Contains(withResume, "--resume") {
 		t.Fatalf("BuildCmd(resume) used --resume flag: %q", withResume)
 	}
@@ -502,6 +505,9 @@ func TestCodexBuildCmd(t *testing.T) {
 	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()))
 	if !strings.Contains(withoutResume, "-c "+wantConfig) {
 		t.Fatalf("BuildCmd(no resume) missing worker developer_instructions: %q", withoutResume)
+	}
+	if !strings.Contains(withoutResume, "--remote unix://") {
+		t.Fatalf("BuildCmd(no resume) missing remote app-server: %q", withoutResume)
 	}
 	if strings.Contains(withoutResume, " resume ") {
 		t.Fatalf("BuildCmd(no resume) should not include resume subcommand: %q", withoutResume)
@@ -526,7 +532,7 @@ func TestCodexBuildCmd_ExtendedReasoningEffort(t *testing.T) {
 			Model:           tt.model,
 			ReasoningEffort: tt.effort,
 		})
-		want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --model '" + tt.model + "' -c " +
+		want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --remote unix:// --model '" + tt.model + "' -c " +
 			configShellQuote("model_reasoning_effort="+strconv.Quote(tt.effort)) + " -c " +
 			configShellQuote("developer_instructions="+strconv.Quote(codex.WorkerPrompt()))
 		if got != want {
@@ -630,7 +636,7 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox -c " +
+	want := "export PATH='/tmp/bin:/usr/bin'; exec '/opt/homebrew/bin/codex' --dangerously-bypass-approvals-and-sandbox --remote unix:// -c " +
 		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
 		" -- 'triage the backlog'"
 	if got != want {

@@ -193,6 +193,9 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		AgentPath: agentPath,
 		Display:   s.startDisplayMetadata(opts),
 	}
+	if hasCodexPrimary(manifestAgents) {
+		m.SetExtra(state.CodexRemoteAppServerKey, state.CodexRemoteAppServer)
+	}
 	if opts.Master {
 		m.SessionType = "master"
 	}
@@ -282,6 +285,15 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 
 	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd}, nil
+}
+
+func hasCodexPrimary(agents []state.AgentManifest) bool {
+	for _, spec := range agents {
+		if spec.Name == "codex" && spec.Role == string(agent.RolePrimary) {
+			return true
+		}
+	}
+	return false
 }
 
 func workerParentBrief(parentID, brief string) string {
