@@ -56,8 +56,6 @@ func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.M
 			return fmt.Errorf("%w: Claude project settings restrict inbound messages", errNativeUnavailable)
 		}
 		return s.deliverClaude(ctx, target, message)
-	case "codex":
-		return s.deliverCodex(ctx, m, message)
 	case "pi":
 		return s.deliverPi(ctx, sessionID, message)
 	default:

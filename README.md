@@ -88,9 +88,8 @@ Messages between a worker and its recorded parent use `[MASTER:<id>]` or
 `[FROM:external]`, which carries no session identity. Prefixes describe the
 routing relationship, not model receipt.
 
-Messaging uses native delivery for live Claude, Codex, and Pi
-sessions when available. Codex success means its daemon queued the message, not
-that the recipient processed it. Pi steers the current turn and its receipt is
+Messaging uses native delivery for live Claude and Pi sessions when available.
+Codex sends through tmux. Pi steers the current turn and its receipt is
 unconfirmed. Claude's socket has no delivery receipt: `submitted: true` can
 coexist with Claude holding the message if its effective `crossSessionInbound`
 policy does not accept it. New Questmaster Claude launches set `accept`; older
