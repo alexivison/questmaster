@@ -1,74 +1,72 @@
 import AppKit
 
-/// Geometry for the action bar footer, measured from `action-bar.svg` /
-/// `session-panel-variants.svg` and snapped to a 5pt rhythm (0.5pt steps for sizes). The shield
-/// cap is simplified to a square, uniformly scaled up from the tracker's own 64×64 master shield,
-/// rather than re-deriving a new non-uniform shield bezier from this SVG's own (unscaled) shield
-/// path — see the PR description for the full list of simplifications against the source design.
+/// Geometry for the action bar footer. Per the first review round, these are the design's own
+/// literal coordinates (from `action-bar.svg`, 1:1 — the asset's 722×120 frame is drawn at its
+/// own scale, not rescaled), not an independently derived 5pt-rhythm grid. The plate shapes
+/// themselves are traced outlines (`ActionBarPlateOutlines`), not `TrackerPlatePaths` unions.
 enum ActionBarMetrics {
-    /// The whole footer, matching `action-bar.svg`'s 120pt-tall frame.
+    /// Matches `action-bar.svg`'s own frame (the dashed Figma border aside).
     static let footerHeight: CGFloat = 120
-    /// Vertical band the session panel + slot bar plate occupies, at the footer's top.
-    static let plateZoneHeight: CGFloat = 80
-    /// Gap between the plate zone and the worker strip row below it.
-    static let plateToStripGap: CGFloat = 10
-    /// The worker strip row, sized for its 20pt pills.
-    static let workerStripHeight: CGFloat = 30
+    static let plateWidth: CGFloat = 722
 
-    /// The plate's bar (title/ID strips + slots) straight top/bottom edges, within the plate zone.
-    static let barTop: CGFloat = 15
-    static let barBottom: CGFloat = 65
-    static var barHeight: CGFloat { barBottom - barTop }
+    /// The session panel's and slot bar's shared horizontal centreline (both plates' bars are
+    /// centred on it, as is the row of slot squares).
+    static let barCenterY: CGFloat = 46
 
-    static let portraitSide: CGFloat = 52
-    /// Both cap shapes centre the portrait at the same y, so switching session-panel variants
-    /// never moves the portrait — only the cap silhouette around it changes.
-    static let portraitTop: CGFloat = 14
-    static let masterCapSize = CGSize(width: 80, height: 80)
-    static let circleCapSize = CGSize(width: 62, height: 62)
-    static func portraitLeft(capWidth: CGFloat) -> CGFloat { (capWidth - portraitSide) / 2 }
+    static let portraitCenter = CGPoint(x: 58, y: 53)
+    static let portraitRadius: CGFloat = 26.25
+    static var portraitSide: CGFloat { portraitRadius * 2 }
 
-    /// Gap between the portrait and the title/ID text, matching the tracker nameplate's own.
-    static let portraitTextGap: CGFloat = 5
-    /// Fixed regardless of the session-panel variant, so the slot bar never shifts when the
-    /// selected session's role changes.
-    static let stripZoneX: CGFloat = masterCapSize.width + 5
-    static let titleIDStripWidth: CGFloat = 210
-    static let titleStripHeight: CGFloat = 17
-    static let idStripHeight: CGFloat = 16
-    static let stripOverlap: CGFloat = 1
+    /// Title/ID strips: they start at the same x as the portrait's own left edge — behind it —
+    /// per the review ("start behind the portrait"), not to its right.
+    static let stripX: CGFloat = 58.5
+    static let stripWidth: CGFloat = 242
+    static let titleStripY: CGFloat = 26.5
+    static let idStripY: CGFloat = 46.5
+    static let stripHeight: CGFloat = 19
     static let stripTrailingPadding: CGFloat = 12
-    static let stripLeadingPadding: CGFloat = 10
+    /// Where the strip's own text becomes visible past the portrait — the ID/title text centres
+    /// in `stripX + visibleInset ..< stripX + stripWidth`, not across the whole (partly hidden)
+    /// strip.
+    static var stripVisibleInset: CGFloat { portraitCenter.x + portraitRadius - stripX }
 
-    static let stripToSlotGap: CGFloat = 10
-    static var slotBarX: CGFloat { stripZoneX + titleIDStripWidth + stripToSlotGap }
     static let slotSize: CGFloat = 30
     static let slotIconSize: CGFloat = 20
+    static let slotTop: CGFloat = 31.5
     static let slotGroupGap: CGFloat = 20
     static let slotCount = 11
-    /// Index (0-based) of the slot that is followed by `slotGroupGap` instead of sitting flush
-    /// against its neighbour — between the two empty slots and the next three.
+    /// Index (0-based) of the slot followed by `slotGroupGap` instead of sitting flush against
+    /// its neighbour — between the two empty slots and the next three.
     static let slotGapAfterIndex = 5
-    static var slotBarWidth: CGFloat {
-        CGFloat(slotCount) * slotSize + slotGroupGap
-    }
-    static var slotBarRight: CGFloat { slotBarX + slotBarWidth }
-    static let trailingMargin: CGFloat = 15
-    static var plateWidth: CGFloat { slotBarRight + trailingMargin }
+    static let slotBarStartX: CGFloat = 331.5
 
     static func slotX(at index: Int) -> CGFloat {
-        let base = slotBarX + CGFloat(index) * slotSize
+        let base = slotBarStartX + CGFloat(index) * slotSize
         return index > slotGapAfterIndex ? base + slotGroupGap : base
     }
+
+    /// The worker strip row: pills start just past the session panel's portrait.
+    static let workerRowY: CGFloat = 80
+    static let workerRowHeight: CGFloat = 20
+    static let workerRowStartX: CGFloat = 81
 
     static let worker: WorkerPillMetrics = WorkerPillMetrics()
 
     struct WorkerPillMetrics {
         let portraitSide: CGFloat = 20
         let plateHeight: CGFloat = 14
-        let gap: CGFloat = 6
+        /// The plate's top sits a touch below the portrait's own top (matching the traced pill:
+        /// portrait y 80–100, plate y 80.5–94.5).
+        let plateTopInset: CGFloat = 0.5
+        /// The plate's left edge lands on the portrait's own centre, so the portrait covers the
+        /// plate's left half (traced: portrait centre x 91, plate left edge x 91.5).
+        var plateOverlap: CGFloat { portraitSide / 2 }
+        /// Clears the overlapping portrait before the title text starts.
+        let titleLeadingPadding: CGFloat = 10
         let titlePadding: CGFloat = 8
-        let pillGap: CGFloat = 8
+        /// Gap from one pill's plate to the next pill's portrait (traced: plate end 140.5, next
+        /// portrait left edge 146.5).
+        let interPillGap: CGFloat = 5.5
         /// How many pills fit across the plate's width at this pill sizing — a fixed fit count
         /// (not a per-frame text measurement) sized for the truncated-title worst case, so a
         /// short title doesn't make the strip claim it has room for one pill more than it does.
@@ -86,13 +84,20 @@ enum ActionBarMetrics {
         static let logo = AppPalette.muted
         /// `#454A50` → `AppPalette.line` (plate/slot/strip stroke).
         static let stroke = AppPalette.line
+        /// `#ADBAC7` → `AppPalette.muted` (the worker pill's title text).
+        static let pillText = AppPalette.muted
     }
 
-    /// `action-bar-button.svg`'s three slot fills, reusing existing palette tokens (these were
-    /// already in-palette, unlike the four `SourceColor` mappings above).
+    /// `action-bar-button.svg`'s slot fills, reusing existing palette tokens.
     enum SlotFill {
         static let normal = AppPalette.item
         static let empty = AppPalette.panel
         static let activeBorder = AppPalette.brassActive
+    }
+
+    /// The session panel's own fill (`#2D333B`) is lighter than the slot bar's (`#22272E`).
+    enum PlateFill {
+        static let sessionPanel = AppPalette.item
+        static let slotBar = AppPalette.panel
     }
 }

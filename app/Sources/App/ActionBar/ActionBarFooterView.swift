@@ -3,10 +3,11 @@ import QuestmasterCore
 import SwiftUI
 
 /// The RPG-style action bar footer: a full-width strip at the bottom of the window replacing the
-/// old `TerminalTopBar`, built the way the tracker builds its nameplates — shapes from the design's
-/// SVG paths, unioned at runtime (`TrackerPlatePaths.mainPlate`). See `ActionBarMetrics` for the
-/// geometry and the off-palette colour mapping, and `app/Sources/Core/ActionBar` for the pure
-/// worker-strip/truncation/keymap logic this view reads.
+/// old `TerminalTopBar`. Per the first review round, the session panel and slot bar are two
+/// separate, overlapping plates traced directly from the design's own SVGs
+/// (`ActionBarPlateOutlines`), not a single shape built from `TrackerPlatePaths`. See
+/// `ActionBarMetrics` for the rest of the geometry and the off-palette colour mapping, and
+/// `app/Sources/Core/ActionBar` for the pure worker-strip/truncation/keymap logic this view reads.
 
 private func tooltip(_ label: String, _ binding: Keymap.CommandBinding) -> String {
     "\(label)  \(binding.displayGlyph)"
@@ -58,8 +59,14 @@ struct ActionBarFooterView: View {
 
     var body: some View {
         let navState = model.navigation
-        VStack(alignment: .leading, spacing: ActionBarMetrics.plateToStripGap) {
-            plateZone(navState: navState)
+        ZStack(alignment: .topLeading) {
+            // The slot bar sits underneath; the session panel draws on top and overlaps its
+            // left end, matching the two-plate overlap in `action-bar.svg`.
+            ActionBarPlateShapeView(path: ActionBarPlateOutlines.slotBar, fill: ActionBarMetrics.PlateFill.slotBar)
+            ActionBarPlateShapeView(path: panelPath, fill: ActionBarMetrics.PlateFill.sessionPanel)
+            portrait
+            strips
+            slotBar(navState: navState)
             ActionBarWorkerStripView(
                 workers: model.workers,
                 highlightedWorkerID: model.highlightedWorkerID,
@@ -73,6 +80,7 @@ struct ActionBarFooterView: View {
                     )
                 }
             )
+            .offset(x: ActionBarMetrics.workerRowStartX, y: ActionBarMetrics.workerRowY)
         }
         .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .center)
@@ -80,24 +88,63 @@ struct ActionBarFooterView: View {
         .background(AppPalette.window.swiftUI)
     }
 
-    private func plateZone(navState: AppNavigationState) -> some View {
-        ZStack(alignment: .topLeading) {
-            ActionBarPlateBackground(variant: panelVariant)
-            ActionBarSessionPanelContent(
-                variant: panelVariant,
-                title: model.sessionChip?.title ?? "Terminal",
-                sessionID: model.sessionChip?.id ?? "",
-                agent: model.sessionChip?.agent ?? ""
-            )
-            .contentShape(Rectangle())
-            .onTapGesture { copySessionID() }
-            slotBar(navState: navState)
-        }
-        .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.plateZoneHeight, alignment: .topLeading)
-    }
-
     private var panelVariant: ActionBarSessionPanelVariant {
         ActionBarSessionPanelVariant(role: model.sessionRole)
+    }
+
+    private var panelPath: Path {
+        switch panelVariant {
+        case .master: ActionBarPlateOutlines.masterPanel
+        case .standalone: ActionBarPlateOutlines.standalonePanel
+        case .worker: ActionBarPlateOutlines.workerPanel
+        }
+    }
+
+    private var portrait: some View {
+        ZStack {
+            Circle().fill(AppPalette.panel.swiftUI)
+            if let image = TrackerAgentMark.image(
+                for: model.sessionChip?.agent ?? "",
+                side: ActionBarMetrics.portraitSide * 0.615,
+                tint: ActionBarMetrics.SourceColor.logo
+            ) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: ActionBarMetrics.portraitSide * 0.615, height: ActionBarMetrics.portraitSide * 0.615)
+                    .clipShape(Circle())
+            }
+            // A plain ring, no status colour — the user's call for the session panel portrait.
+            Circle().strokeBorder(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 1.5)
+        }
+        .frame(width: ActionBarMetrics.portraitSide, height: ActionBarMetrics.portraitSide)
+        .contentShape(Circle())
+        .onTapGesture(perform: copySessionID)
+        .offset(
+            x: ActionBarMetrics.portraitCenter.x - ActionBarMetrics.portraitRadius,
+            y: ActionBarMetrics.portraitCenter.y - ActionBarMetrics.portraitRadius
+        )
+    }
+
+    private var strips: some View {
+        Group {
+            strip(y: ActionBarMetrics.titleStripY) {
+                Text(model.sessionChip?.title ?? "Terminal")
+                    .font(AppFonts.trackerTitle.swiftUI)
+                    .foregroundStyle(ActionBarMetrics.SourceColor.title.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            strip(y: ActionBarMetrics.idStripY) {
+                Text(model.sessionChip?.id ?? "")
+                    .font(AppFonts.monoSmall.swiftUI)
+                    .foregroundStyle(AppPalette.dim.swiftUI)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: copySessionID)
     }
 
     private func copySessionID() {
@@ -107,10 +154,28 @@ struct ActionBarFooterView: View {
         onCopySessionID(id)
     }
 
+    private func strip<Content: View>(y: CGFloat, @ViewBuilder _ content: () -> Content) -> some View {
+        RoundedRectangle(cornerRadius: Token.Radius.hairline)
+            .fill(AppPalette.panel.swiftUI)
+            .overlay(RoundedRectangle(cornerRadius: Token.Radius.hairline).strokeBorder(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 1))
+            .frame(width: ActionBarMetrics.stripWidth, height: ActionBarMetrics.stripHeight)
+            .overlay(alignment: .leading) {
+                // The strip starts behind the portrait; its text centres in the part that's
+                // actually visible, not across the whole (partly hidden) strip.
+                content()
+                    .frame(
+                        width: ActionBarMetrics.stripWidth - ActionBarMetrics.stripVisibleInset - ActionBarMetrics.stripTrailingPadding,
+                        alignment: .center
+                    )
+                    .offset(x: ActionBarMetrics.stripVisibleInset)
+            }
+            .offset(x: ActionBarMetrics.stripX, y: y)
+    }
+
     private func slotBar(navState: AppNavigationState) -> some View {
         ForEach(Array(slots(navState: navState).enumerated()), id: \.offset) { index, slot in
             ActionBarSlotButton(slot: slot)
-                .offset(x: ActionBarMetrics.slotX(at: index), y: (ActionBarMetrics.barTop + ActionBarMetrics.barBottom - ActionBarMetrics.slotSize) / 2)
+                .offset(x: ActionBarMetrics.slotX(at: index), y: ActionBarMetrics.slotTop)
         }
     }
 
@@ -225,36 +290,14 @@ struct ActionBarSlotButton: View {
     }
 }
 
-/// The big plate's background fill + 1.5pt outer border, per the brief: "the outline around the
-/// main plate (session panel plus slot bar)".
-struct ActionBarPlateBackground: View {
-    let variant: ActionBarSessionPanelVariant
-
-    private var capKind: TrackerPlatePaths.Kind {
-        switch variant {
-        case .master: .master
-        case .standalone: .standalone
-        case .worker: .worker
-        }
-    }
-
-    private var capSize: CGSize {
-        variant == .master ? ActionBarMetrics.masterCapSize : ActionBarMetrics.circleCapSize
-    }
-
-    private var path: Path {
-        TrackerPlatePaths.mainPlate(
-            capKind: capKind,
-            capSize: capSize,
-            barTop: ActionBarMetrics.barTop,
-            barBottom: ActionBarMetrics.barBottom,
-            rightEdgeX: ActionBarMetrics.plateWidth
-        )
-    }
+/// Fills and 1.5pt-strokes a literal traced plate outline (`ActionBarPlateOutlines`).
+struct ActionBarPlateShapeView: View {
+    let path: Path
+    let fill: NSColor
 
     var body: some View {
         ActionBarPlateShape(path: path)
-            .fill(AppPalette.item.swiftUI)
+            .fill(fill.swiftUI)
             .overlay(ActionBarPlateShape(path: path).stroke(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 1.5))
     }
 }
@@ -262,76 +305,4 @@ struct ActionBarPlateBackground: View {
 private struct ActionBarPlateShape: Shape {
     let path: Path
     func path(in rect: CGRect) -> Path { path }
-}
-
-/// The portrait + title/ID strips, drawn over the plate background.
-struct ActionBarSessionPanelContent: View {
-    let variant: ActionBarSessionPanelVariant
-    let title: String
-    let sessionID: String
-    let agent: String
-
-    private var capWidth: CGFloat {
-        variant == .master ? ActionBarMetrics.masterCapSize.width : ActionBarMetrics.circleCapSize.width
-    }
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            portrait
-            strips
-        }
-    }
-
-    private var portrait: some View {
-        ZStack {
-            Circle().fill(AppPalette.panel.swiftUI)
-            if let image = TrackerAgentMark.image(for: agent, side: ActionBarMetrics.portraitSide * 0.615, tint: ActionBarMetrics.SourceColor.logo) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: ActionBarMetrics.portraitSide * 0.615, height: ActionBarMetrics.portraitSide * 0.615)
-                    .clipShape(Circle())
-            }
-            // A plain ring, no status colour — the user's call for the session panel portrait.
-            Circle().strokeBorder(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 1.5)
-        }
-        .frame(width: ActionBarMetrics.portraitSide, height: ActionBarMetrics.portraitSide)
-        .offset(x: ActionBarMetrics.portraitLeft(capWidth: capWidth), y: ActionBarMetrics.portraitTop)
-    }
-
-    private var strips: some View {
-        VStack(spacing: -ActionBarMetrics.stripOverlap) {
-            strip(height: ActionBarMetrics.titleStripHeight) {
-                Text(title)
-                    .font(AppFonts.trackerTitle.swiftUI)
-                    .foregroundStyle(ActionBarMetrics.SourceColor.title.swiftUI)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            strip(height: ActionBarMetrics.idStripHeight) {
-                Text(sessionID)
-                    .font(AppFonts.monoSmall.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        }
-        .frame(width: ActionBarMetrics.titleIDStripWidth)
-        .offset(
-            x: ActionBarMetrics.stripZoneX,
-            y: (ActionBarMetrics.barTop + ActionBarMetrics.barBottom - (ActionBarMetrics.titleStripHeight + ActionBarMetrics.idStripHeight - ActionBarMetrics.stripOverlap)) / 2
-        )
-    }
-
-    private func strip<Content: View>(height: CGFloat, @ViewBuilder _ content: () -> Content) -> some View {
-        RoundedRectangle(cornerRadius: Token.Radius.hairline)
-            .fill(AppPalette.panel.swiftUI)
-            .overlay(RoundedRectangle(cornerRadius: Token.Radius.hairline).strokeBorder(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 1))
-            .overlay(alignment: .leading) {
-                content()
-                    .padding(.leading, ActionBarMetrics.stripLeadingPadding)
-                    .padding(.trailing, ActionBarMetrics.stripTrailingPadding)
-            }
-            .frame(height: height)
-    }
 }
