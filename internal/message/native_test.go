@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
-	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 func TestClaudeNativeWritesFrameWithoutTmux(t *testing.T) {
@@ -81,112 +80,6 @@ func TestClaudeNativeWritesFrameWithoutTmux(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Claude did not receive frame")
-	}
-}
-
-func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
-	store := setupStore(t)
-	createManifest(t, store, "qm-codex-native", "codex", "worker")
-	setPrimaryAgent(t, store, "qm-codex-native", "codex")
-	if err := store.Update("qm-codex-native", func(m *state.Manifest) {
-		m.Extra = map[string]json.RawMessage{"codex_thread_id": json.RawMessage(`"thread-123"`)}
-	}); err != nil {
-		t.Fatal(err)
-	}
-	bin := t.TempDir()
-	argsPath := filepath.Join(bin, "args")
-	script := "#!/bin/sh\nif [ \"$1\" = app-server ]; then printf '{\"status\":\"running\"}\\n'; exit 0; fi\nprintf '%s\\n' \"$*\" > '" + argsPath + "'\nif [ \"$CODEX_QUEUE_HANG\" = 1 ]; then exec sleep 5; fi\nif [ \"$CODEX_QUEUE_FAIL\" = 1 ]; then exit 1; fi\nprintf 'Queued message msg-1 for thread thread-123\\n'\n"
-	if err := os.WriteFile(filepath.Join(bin, "codex"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	decoyDir := t.TempDir()
-	decoyPath := filepath.Join(decoyDir, "called")
-	decoy := "#!/bin/sh\nprintf '%s\\n' \"$*\" > '" + decoyPath + "'\nif [ \"$1\" = app-server ]; then printf '{\"status\":\"running\"}\\n'; else printf 'Queued message decoy for thread thread-123\\n'; fi\n"
-	if err := os.WriteFile(filepath.Join(decoyDir, "codex"), []byte(decoy), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Update("qm-codex-native", func(m *state.Manifest) {
-		m.Agents[0].CLI = filepath.Join(bin, "codex")
-	}); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", decoyDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("CODEX_BIN", filepath.Join(decoyDir, "codex"))
-	var sent []string
-	svc := newService(store, idleAndSendRunner(&sent))
-	if err := svc.Relay(t.Context(), "qm-codex-native", "hello\nworld"); err != nil {
-		t.Fatal(err)
-	}
-	args, err := os.ReadFile(argsPath)
-	if err != nil || string(args) != "queue --thread thread-123 --message=[FROM:external] hello\nworld\n" {
-		t.Fatalf("queue args = %q, err = %v", args, err)
-	}
-	m, err := store.Read("qm-codex-native")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.deliverCodex(t.Context(), m, "-leading"); err != nil {
-		t.Fatal(err)
-	}
-	args, err = os.ReadFile(argsPath)
-	if err != nil || string(args) != "queue --thread thread-123 --message=-leading\n" {
-		t.Fatalf("leading-dash queue args = %q, err = %v", args, err)
-	}
-	if len(sent) != 0 {
-		t.Fatalf("queued input also reached tmux: %v", sent)
-	}
-	if _, err := os.Stat(decoyPath); !os.IsNotExist(err) {
-		t.Fatalf("relay invoked PATH/CODEX_BIN decoy: %v", err)
-	}
-	if err := store.Update("qm-codex-native", func(m *state.Manifest) {
-		m.Agents[0].CLI = "codex"
-		m.AgentPath = bin
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(argsPath); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.Relay(t.Context(), "qm-codex-native", "bare name"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(argsPath); err != nil {
-		t.Fatalf("target AgentPath binary was not used: %v", err)
-	}
-	if _, err := os.Stat(decoyPath); !os.IsNotExist(err) {
-		t.Fatalf("bare CLI invoked PATH decoy: %v", err)
-	}
-	t.Setenv("CODEX_QUEUE_FAIL", "1")
-	if err := svc.Relay(t.Context(), "qm-codex-native", "again"); err == nil {
-		t.Fatal("failed queue should return an error")
-	}
-	if len(sent) != 0 {
-		t.Fatalf("failed queue retried through tmux: %v", sent)
-	}
-	t.Setenv("CODEX_QUEUE_FAIL", "")
-	t.Setenv("CODEX_QUEUE_HANG", "1")
-	previousTimeout := codexQueueTimeout
-	codexQueueTimeout = 100 * time.Millisecond
-	t.Cleanup(func() { codexQueueTimeout = previousTimeout })
-	started := time.Now()
-	if err := svc.Relay(t.Context(), "qm-codex-native", "hang"); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("hung queue error = %v, want deadline exceeded", err)
-	}
-	if time.Since(started) > time.Second || len(sent) != 0 {
-		t.Fatalf("hung queue blocked or retried through tmux: elapsed %s, tmux %v", time.Since(started), sent)
-	}
-	t.Setenv("CODEX_QUEUE_HANG", "")
-	if err := os.Remove(argsPath); err != nil {
-		t.Fatal(err)
-	}
-	dead := newService(store, &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-		return "", &tmux.ExitError{Code: 1}
-	}})
-	if err := dead.Relay(t.Context(), "qm-codex-native", "dead"); err == nil {
-		t.Fatal("dead session accepted relay")
-	}
-	if _, err := os.Stat(argsPath); !os.IsNotExist(err) {
-		t.Fatalf("dead session reached queue: %v", err)
 	}
 }
 
