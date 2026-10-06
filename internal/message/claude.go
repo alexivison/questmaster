@@ -47,21 +47,21 @@ type claudeMessageFrame struct {
 	Type      string `json:"type"`
 }
 
-func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.Manifest, target, message string) error {
+func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.Manifest, target, message string) (DeliveryMode, error) {
 	switch primaryAgentName(m) {
 	case "claude":
 		if restricted, err := claudeInboundRestricted(m.Cwd); err != nil {
-			return fmt.Errorf("%w: %v", errNativeUnavailable, err)
+			return "", fmt.Errorf("%w: %v", errNativeUnavailable, err)
 		} else if restricted {
-			return fmt.Errorf("%w: Claude project settings restrict inbound messages", errNativeUnavailable)
+			return "", fmt.Errorf("%w: Claude project settings restrict inbound messages", errNativeUnavailable)
 		}
-		return s.deliverClaude(ctx, target, message)
+		return DeliveryExisting, s.deliverClaude(ctx, target, message)
 	case "codex":
-		return s.deliverCodex(ctx, m, message)
+		return s.deliverCodexWithMode(ctx, m, message)
 	case "pi":
-		return s.deliverPi(ctx, sessionID, message)
+		return DeliveryExisting, s.deliverPi(ctx, sessionID, message)
 	default:
-		return errNativeUnavailable
+		return "", errNativeUnavailable
 	}
 }
 

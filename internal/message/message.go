@@ -31,6 +31,15 @@ type Service struct {
 	Steer  bool
 }
 
+// DeliveryMode names the local transport path used for a message.
+type DeliveryMode string
+
+const (
+	DeliveryCodexSteer DeliveryMode = "codex-steer"
+	DeliveryCodexQueue DeliveryMode = "codex-queue"
+	DeliveryExisting   DeliveryMode = "existing-transport"
+)
+
 // NewService creates a messaging service.
 func NewService(store *state.Store, client *tmux.Client) *Service {
 	return &Service{store: store, client: client}
@@ -45,48 +54,60 @@ type WorkerInfo struct {
 
 // Relay sends an unattributed external message to a session's primary pane.
 func (s *Service) Relay(ctx context.Context, workerID, message string) error {
+	_, err := s.RelayWithMode(ctx, workerID, message)
+	return err
+}
+
+// RelayWithMode sends an unattributed external message and reports the transport used.
+func (s *Service) RelayWithMode(ctx context.Context, workerID, message string) (DeliveryMode, error) {
 	if err := s.validateRelayTarget(workerID); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.ensureOpenCodeRelayReady(workerID); err != nil {
-		return err
+		return "", err
 	}
 
 	target, err := s.client.ResolveRole(ctx, workerID, primaryRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
+		return "", fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
 	}
 
 	const prefix = "[FROM:external] "
-	return s.deliver(ctx, workerID, target, prefix+message, peerPointer, prefix)
+	return s.deliverWithMode(ctx, workerID, target, prefix+message, peerPointer, prefix)
 }
 
 // RelayFrom sends a message to a worker's primary pane with sender provenance.
 func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message string) error {
+	_, err := s.RelayFromWithMode(ctx, senderID, targetID, message)
+	return err
+}
+
+// RelayFromWithMode sends an attributed message and reports the transport used.
+func (s *Service) RelayFromWithMode(ctx context.Context, senderID, targetID, message string) (DeliveryMode, error) {
 	if !state.IsValidSessionID(senderID) {
-		return fmt.Errorf("invalid sender id: %q", senderID)
+		return "", fmt.Errorf("invalid sender id: %q", senderID)
 	}
 	if err := s.validateRelayTarget(targetID); err != nil {
-		return err
+		return "", err
 	}
 	recipient, err := s.store.Read(targetID)
 	if err != nil {
-		return fmt.Errorf("read recipient manifest: %w", err)
+		return "", fmt.Errorf("read recipient manifest: %w", err)
 	}
 	sender, _ := s.store.Read(senderID)
 	if err := s.client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.ensureOpenCodeRelayReady(targetID); err != nil {
-		return err
+		return "", err
 	}
 
 	target, err := s.client.ResolveRole(ctx, targetID, primaryRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve primary pane in %q: %w", targetID, err)
+		return "", fmt.Errorf("resolve primary pane in %q: %w", targetID, err)
 	}
 
 	prefix := recipientPrefix(senderID, sender, recipient)
@@ -94,27 +115,27 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	if strings.HasPrefix(prefix, "[MASTER:") {
 		pointer = relayPointer
 	}
-	return s.deliver(ctx, targetID, target, prefix+message, pointer, prefix)
+	return s.deliverWithMode(ctx, targetID, target, prefix+message, pointer, prefix)
 }
 
-func (s *Service) deliver(ctx context.Context, sessionID, target, message string, pointer func(string) string, pointerPrefix string) error {
+func (s *Service) deliverWithMode(ctx context.Context, sessionID, target, message string, pointer func(string) string, pointerPrefix string) (DeliveryMode, error) {
 	m, err := s.store.Read(sessionID)
 	if err != nil {
-		return fmt.Errorf("read recipient manifest: %w", err)
+		return "", fmt.Errorf("read recipient manifest: %w", err)
 	}
-	if err := s.nativeDeliver(ctx, sessionID, m, target, message); err == nil {
-		return nil
+	if mode, err := s.nativeDeliver(ctx, sessionID, m, target, message); err == nil {
+		return mode, nil
 	} else if !errors.Is(err, errNativeUnavailable) {
-		return err
+		return "", err
 	}
 	msg, indirected, err := prepareMessageWith(message, pointer)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if indirected {
 		msg = pointerPrefix + msg
 	}
-	return s.client.Send(ctx, target, msg).Err
+	return DeliveryExisting, s.client.Send(ctx, target, msg).Err
 }
 
 func (s *Service) validateRelayTarget(workerID string) error {
@@ -158,8 +179,9 @@ func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
 
 // BroadcastResult distinguishes "no registered workers" from "registered but none reachable."
 type BroadcastResult struct {
-	Registered int // total workers in manifest
-	Delivered  int // workers whose local transport accepted the message
+	Registered    int                  // total workers in manifest
+	Delivered     int                  // workers whose local transport accepted the message
+	DeliveryModes map[DeliveryMode]int // populated when steer mode is enabled
 }
 
 // BroadcastFrom sends a message with sender provenance to all workers of a master session.
@@ -217,9 +239,16 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 		if strings.HasPrefix(prefix, "[MASTER:") {
 			pointer = relayPointer
 		}
-		if err := s.deliver(ctx, wid, target, prefix+message, pointer, prefix); err != nil {
+		mode, err := s.deliverWithMode(ctx, wid, target, prefix+message, pointer, prefix)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("send to %q: %w", wid, err))
 			continue
+		}
+		if s.Steer {
+			if result.DeliveryModes == nil {
+				result.DeliveryModes = make(map[DeliveryMode]int)
+			}
+			result.DeliveryModes[mode]++
 		}
 		result.Delivered++
 	}
@@ -270,33 +299,39 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 
 // Report sends a report-back message from a worker to its master's primary pane.
 func (s *Service) Report(ctx context.Context, sessionID, message string) error {
+	_, err := s.ReportWithMode(ctx, sessionID, message)
+	return err
+}
+
+// ReportWithMode sends a report to the parent and reports the transport used.
+func (s *Service) ReportWithMode(ctx context.Context, sessionID, message string) (DeliveryMode, error) {
 	m, err := s.store.Read(sessionID)
 	if err != nil {
-		return fmt.Errorf("read manifest: %w", err)
+		return "", fmt.Errorf("read manifest: %w", err)
 	}
 
 	parent := m.ExtraString("parent_session")
 	if parent == "" {
-		return fmt.Errorf("session %q has no parent_session — not a worker", sessionID)
+		return "", fmt.Errorf("session %q has no parent_session — not a worker", sessionID)
 	}
 	parentManifest, err := s.store.Read(parent)
 	if err != nil {
-		return fmt.Errorf("read parent manifest: %w", err)
+		return "", fmt.Errorf("read parent manifest: %w", err)
 	}
 	if err := rejectPlainSession(parentManifest, parent); err != nil {
-		return err
+		return "", err
 	}
 
 	if err := s.client.EnsureSessionRunning(ctx, parent, "master"); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.ensureOpenCodeRelayReady(parent); err != nil {
-		return err
+		return "", err
 	}
 
 	target, err := s.client.ResolveRole(ctx, parent, primaryRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve primary pane in master %q: %w", parent, err)
+		return "", fmt.Errorf("resolve primary pane in master %q: %w", parent, err)
 	}
 
 	prefix := senderPrefix(sessionID)
@@ -305,7 +340,7 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		prefix = "[WORKER:" + sessionID + "] "
 		pointer = reportPointer
 	}
-	return s.deliver(ctx, parent, target, prefix+message, pointer, prefix)
+	return s.deliverWithMode(ctx, parent, target, prefix+message, pointer, prefix)
 }
 
 // Workers returns status information for all workers of a master session.

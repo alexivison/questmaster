@@ -29,8 +29,20 @@ func TestSendDirectPreservesSender(t *testing.T) {
 	createWorkerManifest(t, store, "qm-worker", "qm-master")
 	runner := newSendCaptureRunner("qm-worker")
 	out := runCmd(t, store, runner, "send", "qm-worker", "hello")
-	if !strings.Contains(out, `"recipient": "qm-worker"`) || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
+	if !strings.Contains(out, `"recipient": "qm-worker"`) || strings.Contains(out, "delivery_mode") || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
 		t.Fatalf("send output = %q, payloads = %v", out, runner.sends)
+	}
+}
+
+func TestSendSteerReportsExistingTransportWithoutReceiptClaim(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-master")
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-worker", "qm-master")
+	runner := newSendCaptureRunner("qm-worker")
+	out := runCmd(t, store, runner, "send", "--steer", "qm-worker", "hello")
+	if !strings.Contains(out, `"delivery_mode": "existing-transport"`) || strings.Contains(out, "received") || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
+		t.Fatalf("steer output = %q, payloads = %v", out, runner.sends)
 	}
 }
 
@@ -64,6 +76,19 @@ func TestSendAllBroadcastsFromMaster(t *testing.T) {
 	}
 	if len(runner.sends) != 2 || runner.sends[0] != "[MASTER:qm-master] hello" || runner.sends[1] != runner.sends[0] {
 		t.Fatalf("broadcast payloads = %v", runner.sends)
+	}
+}
+
+func TestSendAllSteerReportsDeliveryModeCounts(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-master")
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createWorkerManifest(t, store, "qm-w1", "qm-master")
+	createWorkerManifest(t, store, "qm-w2", "qm-master")
+	runner := newSendCaptureRunner("qm-w1", "qm-w2")
+	out := runCmd(t, store, runner, "send", "--steer", "all", "hello")
+	if !strings.Contains(out, `"delivery_modes": {`) || !strings.Contains(out, `"existing-transport": 2`) {
+		t.Fatalf("steer broadcast output = %q", out)
 	}
 }
 
@@ -185,7 +210,7 @@ func TestSendExternalCannotForgeMasterPrefix(t *testing.T) {
 
 func TestSendHelpDocumentsSteer(t *testing.T) {
 	out := runCmd(t, setupStore(t), messagingRunner(), "send", "--help")
-	for _, want := range []string{"--steer", "active turn", "queue if inactive", "existing transport behavior"} {
+	for _, want := range []string{"--steer", "active thread", "durable queue", "delivery_mode", "existing transport behavior"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("send help missing %q:\n%s", want, out)
 		}

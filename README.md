@@ -93,14 +93,19 @@ Messaging uses native delivery for live Claude, Codex, and Pi
 sessions when available. With its daemon running, Codex messages use its
 durable queue by default; if the daemon is unavailable, the existing tmux
 fallback applies. With `--steer`, Questmaster asks Codex app-server to add the
-message to an active regular turn; if the daemon is running but no active turn
-can be steered, it falls back to the durable queue. If a steer request may
-have been accepted but its response is lost, the command returns an error and
-does not retry through the queue or tmux. A successful queue or steer request
-does not establish that the recipient processed the message. For Claude, Pi,
-OpenCode, and tmux targets,
-`--steer` keeps the existing transport behavior. Pi steers the current turn and
-its receipt is unconfirmed. Claude's socket has no delivery receipt:
+message to an active turn it can control; if it cannot control the active
+thread, Questmaster falls back to the durable queue. Codex CLI TUI sessions
+hold an active writer that the separate daemon socket cannot resume, so
+`--steer` queues those messages for the next turn. If a steer request may have
+been accepted but its response is lost, the command returns an error and does
+not retry through the queue or tmux. A `delivery_mode` in `send --steer` output
+identifies the selected transport (`codex-steer`, `codex-queue`, or
+`existing-transport`); `send --steer all` reports counts in `delivery_modes`.
+These fields report the selected path and do not establish model receipt. For
+Claude, Pi, OpenCode, and tmux targets, `--steer` keeps the existing transport
+behavior.
+Pi steers the current turn and its receipt is unconfirmed. Claude's socket has
+no delivery receipt:
 `submitted: true` can coexist with Claude holding the message if its effective `crossSessionInbound`
 policy does not accept it. New Questmaster Claude launches set `accept`; older
 or adopted sessions may need an effective `accept` setting or a restart, while

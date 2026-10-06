@@ -27,6 +27,11 @@ var codexSteerTimeout = 10 * time.Second
 const codexRPCFrameLimit = 4 << 20
 
 func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message string) error {
+	_, err := s.deliverCodexWithMode(ctx, m, message)
+	return err
+}
+
+func (s *Service) deliverCodexWithMode(ctx context.Context, m state.Manifest, message string) (DeliveryMode, error) {
 	thread := m.ExtraString("codex_thread_id")
 	binary := ""
 	for _, agent := range m.Agents {
@@ -39,13 +44,13 @@ func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message st
 		}
 	}
 	if thread == "" {
-		return fmt.Errorf("%w: Codex thread id missing", errNativeUnavailable)
+		return "", fmt.Errorf("%w: Codex thread id missing", errNativeUnavailable)
 	}
 	if state.SanitizeResumeID(thread) != thread {
-		return fmt.Errorf("invalid Codex thread id")
+		return "", fmt.Errorf("invalid Codex thread id")
 	}
 	if binary == "" {
-		return fmt.Errorf("%w: Codex binary missing from target manifest", errNativeUnavailable)
+		return "", fmt.Errorf("%w: Codex binary missing from target manifest", errNativeUnavailable)
 	}
 	if !filepath.IsAbs(binary) {
 		if strings.ContainsRune(binary, os.PathSeparator) {
@@ -67,33 +72,36 @@ func (s *Service) deliverCodex(ctx context.Context, m state.Manifest, message st
 	}
 	binary, err := exec.LookPath(binary)
 	if err != nil {
-		return fmt.Errorf("%w: Codex binary unavailable: %v", errNativeUnavailable, err)
+		return "", fmt.Errorf("%w: Codex binary unavailable: %v", errNativeUnavailable, err)
 	}
 	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	version, err := exec.CommandContext(checkCtx, binary, "app-server", "daemon", "version").Output()
 	if err != nil {
-		return fmt.Errorf("%w: Codex daemon unavailable: %v", errNativeUnavailable, err)
+		return "", fmt.Errorf("%w: Codex daemon unavailable: %v", errNativeUnavailable, err)
 	}
 	var daemon struct {
 		Status     string `json:"status"`
 		SocketPath string `json:"socketPath"`
 	}
 	if json.Unmarshal(version, &daemon) != nil || daemon.Status != "running" {
-		return fmt.Errorf("%w: Codex daemon is not running", errNativeUnavailable)
+		return "", fmt.Errorf("%w: Codex daemon is not running", errNativeUnavailable)
 	}
 	if s.Steer && daemon.SocketPath != "" {
 		steerCtx, steerCancel := context.WithTimeout(ctx, codexSteerTimeout)
 		steered, err := codexSteer(steerCtx, daemon.SocketPath, thread, message)
 		steerCancel()
 		if err != nil {
-			return fmt.Errorf("Codex steer: %w", err)
+			return "", fmt.Errorf("Codex steer: %w", err)
 		}
 		if steered {
-			return nil
+			return DeliveryCodexSteer, nil
 		}
 	}
-	return queueCodex(ctx, binary, thread, message)
+	if err := queueCodex(ctx, binary, thread, message); err != nil {
+		return "", err
+	}
+	return DeliveryCodexQueue, nil
 }
 
 func queueCodex(ctx context.Context, binary, thread, message string) error {

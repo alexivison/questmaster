@@ -199,10 +199,12 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 		wantSteer bool
 		wantQueue bool
 		wantError bool
+		wantMode  DeliveryMode
 	}{
-		{name: "active turn", mode: "active", wantSteer: true},
-		{name: "no active turn queues", mode: "inactive", wantQueue: true},
-		{name: "turn ended before steer queues", mode: "rejected", wantSteer: true, wantQueue: true},
+		{name: "active turn", mode: "active", wantSteer: true, wantMode: DeliveryCodexSteer},
+		{name: "no active turn queues", mode: "inactive", wantQueue: true, wantMode: DeliveryCodexQueue},
+		{name: "target TUI owns active writer", mode: "active_writer", wantQueue: true, wantMode: DeliveryCodexQueue},
+		{name: "turn ended before steer queues", mode: "rejected", wantSteer: true, wantQueue: true, wantMode: DeliveryCodexQueue},
 		{name: "uncertain acceptance is not retried", mode: "uncertain", wantSteer: true, wantError: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -233,9 +235,12 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 			var sent []string
 			svc := newService(store, idleAndSendRunner(&sent))
 			svc.Steer = true
-			err := svc.Relay(t.Context(), "qm-codex-steer", "hello")
+			deliveryMode, err := svc.RelayWithMode(t.Context(), "qm-codex-steer", "hello")
 			if (err != nil) != tt.wantError {
 				t.Fatalf("Relay error = %v, wantError %v", err, tt.wantError)
+			}
+			if deliveryMode != tt.wantMode {
+				t.Fatalf("delivery mode = %q, want %q", deliveryMode, tt.wantMode)
 			}
 			trace, err := os.ReadFile(tracePath)
 			if err != nil {
@@ -278,9 +283,9 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 
 type codexTestRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID     json.RawMessage `json:"id"`
-	Method string          `json:"method"`
-	Params map[string]any  `json:"params"`
+	ID      json.RawMessage `json:"id"`
+	Method  string          `json:"method"`
+	Params  map[string]any  `json:"params"`
 }
 
 func startCodexTestDaemon(t *testing.T, mode string) (string, <-chan codexTestRPCRequest) {
@@ -313,8 +318,14 @@ func startCodexTestDaemon(t *testing.T, mode string) (string, <-chan codexTestRP
 			var result any
 			var rpcError any
 			switch request.Method {
-			case "initialize", "thread/resume":
+			case "initialize":
 				result = map[string]any{}
+			case "thread/resume":
+				if mode == "active_writer" {
+					rpcError = map[string]any{"code": -32600, "message": "thread already has an active writer"}
+				} else {
+					result = map[string]any{}
+				}
 			case "thread/turns/list":
 				status := "inProgress"
 				if mode == "inactive" {

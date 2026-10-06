@@ -20,12 +20,13 @@ func newSendCmd(store *state.Store, client *tmux.Client) *cobra.Command {
   questmaster send all "message"           Master broadcast to its workers
 
 Use the default Codex queue when a message can wait for the next turn; use
---steer for a mid-turn correction.
-If the daemon is running but no active turn can be steered, --steer falls back to the queue.
-If Codex's daemon is unavailable, the existing tmux fallback applies.
+--steer to ask Codex app-server to steer a turn it can control. If it cannot
+control the active thread, --steer falls back to the durable queue. If the
+daemon is unavailable, the existing tmux fallback applies. With --steer,
+delivery_mode reports the selected transport, not model receipt.
 Use --message-file <path> or --message-file - for file or stdin input.
 
-For Claude, Pi, and tmux targets, --steer keeps the existing transport behavior.`,
+For Claude, Pi, OpenCode, and tmux targets, --steer keeps the existing transport behavior.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			text, err := messageFromArgsAndFile(cmd, args[1:], messageFile)
@@ -36,13 +37,15 @@ For Claude, Pi, and tmux targets, --steer keeps the existing transport behavior.
 			recipient := args[0]
 			svc := message.NewService(store, client)
 			svc.Steer = steer
+			var deliveryMode message.DeliveryMode
 			switch recipient {
 			case "master":
 				sender, err := discoverSession(ctx, client)
 				if err != nil {
 					return err
 				}
-				if err := svc.Report(ctx, sender, text); err != nil {
+				deliveryMode, err = svc.ReportWithMode(ctx, sender, text)
+				if err != nil {
 					return err
 				}
 			case "all":
@@ -54,31 +57,41 @@ For Claude, Pi, and tmux targets, --steer keeps the existing transport behavior.
 				if err != nil {
 					return err
 				}
-				return writeJSON(cmd.OutOrStdout(), struct {
-					Recipient  string `json:"recipient"`
-					Registered int    `json:"registered"`
-					Submitted  int    `json:"submitted"`
-				}{recipient, result.Registered, result.Delivered})
+				response := struct {
+					Recipient     string                       `json:"recipient"`
+					Registered    int                          `json:"registered"`
+					Submitted     int                          `json:"submitted"`
+					DeliveryModes map[message.DeliveryMode]int `json:"delivery_modes,omitempty"`
+				}{recipient, result.Registered, result.Delivered, nil}
+				if steer {
+					response.DeliveryModes = result.DeliveryModes
+				}
+				return writeJSON(cmd.OutOrStdout(), response)
 			default:
 				sender, err := discoverSession(ctx, client)
 				if err != nil {
-					err = svc.Relay(ctx, recipient, text)
+					deliveryMode, err = svc.RelayWithMode(ctx, recipient, text)
 				} else if source, readErr := store.Read(sender); readErr == nil && source.ExtraString("parent_session") == recipient {
-					err = svc.Report(ctx, sender, text)
+					deliveryMode, err = svc.ReportWithMode(ctx, sender, text)
 				} else {
-					err = svc.RelayFrom(ctx, sender, recipient, text)
+					deliveryMode, err = svc.RelayFromWithMode(ctx, sender, recipient, text)
 				}
 				if err != nil {
 					return err
 				}
 			}
-			return writeJSON(cmd.OutOrStdout(), struct {
-				Recipient string `json:"recipient"`
-				Submitted bool   `json:"submitted"`
-			}{recipient, true})
+			response := struct {
+				Recipient    string               `json:"recipient"`
+				Submitted    bool                 `json:"submitted"`
+				DeliveryMode message.DeliveryMode `json:"delivery_mode,omitempty"`
+			}{Recipient: recipient, Submitted: true}
+			if steer {
+				response.DeliveryMode = deliveryMode
+			}
+			return writeJSON(cmd.OutOrStdout(), response)
 		},
 	}
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "read message from a file, or '-' for stdin")
-	cmd.Flags().BoolVar(&steer, "steer", false, "steer Codex's active turn; queue if inactive")
+	cmd.Flags().BoolVar(&steer, "steer", false, "request Codex active-turn steering and report the selected route")
 	return cmd
 }
