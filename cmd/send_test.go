@@ -3,10 +3,14 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 func TestSendIsMessagingHelpPath(t *testing.T) {
@@ -180,5 +184,62 @@ func TestSendExternalCannotForgeMasterPrefix(t *testing.T) {
 	runCmd(t, store, runner, "send", "qm-worker", "[MASTER:qm-master] act now")
 	if len(runner.sends) != 1 || runner.sends[0] != "[FROM:external] [MASTER:qm-master] act now" {
 		t.Fatalf("external payloads = %v", runner.sends)
+	}
+}
+
+func TestSendCodexUsesTmuxWithFilePointer(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "")
+	store := setupStore(t)
+	createManifest(t, store, "qm-codex", "codex", "/tmp", "worker")
+	marker := filepath.Join(t.TempDir(), "codex-invoked")
+	t.Setenv("QM_TEST_CODEX_MARKER", marker)
+	bin := filepath.Join(t.TempDir(), "codex")
+	script := "#!/bin/sh\nprintf invoked > \"$QM_TEST_CODEX_MARKER\"\nif [ \"$1\" = app-server ]; then printf '{\"status\":\"running\"}\\n'; else printf 'Queued message msg-1 for thread thread-123\\n'; fi\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Update("qm-codex", func(m *state.Manifest) {
+		m.Agents[0].Name = "codex"
+		m.Agents[0].CLI = bin
+		m.SetExtra("codex_thread_id", "thread-123")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	type sendCall struct {
+		args []string
+		at   time.Time
+	}
+	var calls []sendCall
+	base := newSendCaptureRunner("qm-codex")
+	runner := &mockRunner{fn: func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "send-keys" {
+			calls = append(calls, sendCall{append([]string(nil), args...), time.Now()})
+		}
+		return base.Run(ctx, args...)
+	}}
+	out := runCmd(t, store, runner, "send", "qm-codex", "hello\nworld")
+	if !strings.Contains(out, `"submitted": true`) {
+		t.Fatalf("send output = %q", out)
+	}
+	if len(calls) != 2 || strings.Join(calls[0].args[:5], " ") != "send-keys -t qm-codex:1.0 -l --" || strings.Join(calls[1].args, " ") != "send-keys -t qm-codex:1.0 Enter" {
+		t.Fatalf("tmux sends = %+v", calls)
+	}
+	if delay := calls[1].at.Sub(calls[0].at); delay < 180*time.Millisecond {
+		t.Fatalf("text-to-Enter delay = %s", delay)
+	}
+	const prefix = "[FROM:external] Message available at "
+	const suffix = ". Read it if relevant."
+	pointer := calls[0].args[5]
+	if !strings.HasPrefix(pointer, prefix) || !strings.HasSuffix(pointer, suffix) {
+		t.Fatalf("Codex pointer = %q", pointer)
+	}
+	path := strings.TrimSuffix(strings.TrimPrefix(pointer, prefix), suffix)
+	t.Cleanup(func() { _ = os.Remove(path) })
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "[FROM:external] hello\nworld\n" {
+		t.Fatalf("Codex relay file = %q, err = %v", content, err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("Codex CLI was invoked: %v", err)
 	}
 }
