@@ -60,12 +60,13 @@ struct ActionBarFooterView: View {
     var body: some View {
         let navState = model.navigation
         ZStack(alignment: .topLeading) {
-            // The slot bar sits underneath; the session panel draws on top and overlaps its
-            // left end, matching the two-plate overlap in `action-bar.svg`.
+            // Stacking order, bottom to top: slot bar, session panel (overlapping its left end),
+            // the title/ID strips (which start behind the portrait), then the portrait itself —
+            // its ring and logo must stay fully visible over the strips, per the design.
             ActionBarPlateShapeView(path: ActionBarPlateOutlines.slotBar, fill: ActionBarMetrics.PlateFill.slotBar)
             ActionBarPlateShapeView(path: panelPath, fill: ActionBarMetrics.PlateFill.sessionPanel)
-            portrait
             strips
+            portrait
             slotBar(navState: navState)
             ActionBarWorkerStripView(
                 workers: model.workers,
