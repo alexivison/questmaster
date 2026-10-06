@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/alexivison/questmaster/internal/config"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 var codexSpec = Spec{
@@ -57,6 +58,44 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 		args += " -- " + config.ShellQuote(opts.Prompt)
 	}
 	quotedBinary := config.ShellQuote(binary)
-	return fmt.Sprintf("export PATH=%s; if %s app-server daemon start >/dev/null 2>&1; then set -- --remote unix://; else set --; fi; exec %s \"$@\" %s",
-		config.ShellQuote(opts.AgentPath), quotedBinary, quotedBinary, args)
+	return fmt.Sprintf(`export PATH=%s
+%s app-server daemon start >/dev/null 2>&1 || true
+set -- %s
+socket_path=""
+server_pid=""
+cleanup() {
+	if [ -n "$server_pid" ]; then
+		kill "$server_pid" 2>/dev/null
+		wait "$server_pid" 2>/dev/null
+	fi
+	if [ -n "$socket_path" ]; then /bin/rm -f "$socket_path"; fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if [ -n "${QUESTMASTER_SESSION:-}" ]; then
+	socket_path="/tmp/${QUESTMASTER_SESSION}/%s"
+	/bin/rm -f "$socket_path"
+	%s app-server --listen "unix://$socket_path" >/dev/null 2>&1 &
+	server_pid=$!
+	attempt=0
+	while [ ! -e "$socket_path" ] && kill -0 "$server_pid" 2>/dev/null && [ "$attempt" -lt 50 ]; do
+		/bin/sleep 0.1
+		attempt=$((attempt + 1))
+	done
+fi
+if [ -n "$server_pid" ] && [ -e "$socket_path" ] && kill -0 "$server_pid" 2>/dev/null; then
+	%s --remote "unix://$socket_path" "$@"
+else
+	if [ -n "$server_pid" ]; then
+		kill "$server_pid" 2>/dev/null
+		wait "$server_pid" 2>/dev/null
+		server_pid=""
+	fi
+	%s "$@"
+fi
+status=$?
+exit "$status"`,
+		config.ShellQuote(opts.AgentPath), quotedBinary, args, state.CodexAppServerSocketName, quotedBinary, quotedBinary, quotedBinary)
 }

@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/alexivison/questmaster/internal/config"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 const wantClaudeDisableTipsArg = "--settings '{\"spinnerTipsEnabled\":false,\"crossSessionInbound\":\"accept\"}'"
@@ -491,7 +494,7 @@ func TestCodexBuildCmd(t *testing.T) {
 	if !strings.Contains(withResume, " resume 'thread-123'") {
 		t.Fatalf("BuildCmd(resume) missing resume subcommand: %q", withResume)
 	}
-	if !strings.Contains(withResume, "--remote unix://") {
+	if !strings.Contains(withResume, `--remote "unix://$socket_path"`) {
 		t.Fatalf("BuildCmd(resume) missing remote app-server: %q", withResume)
 	}
 	if strings.Contains(withResume, "--resume") {
@@ -503,11 +506,11 @@ func TestCodexBuildCmd(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleWorker,
 	})
-	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()))
+	wantConfig := config.ShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()))
 	if !strings.Contains(withoutResume, "-c "+wantConfig) {
 		t.Fatalf("BuildCmd(no resume) missing worker developer_instructions: %q", withoutResume)
 	}
-	if !strings.Contains(withoutResume, "--remote unix://") {
+	if !strings.Contains(withoutResume, `--remote "unix://$socket_path"`) {
 		t.Fatalf("BuildCmd(no resume) missing remote app-server: %q", withoutResume)
 	}
 	if strings.Contains(withoutResume, " resume ") {
@@ -515,57 +518,82 @@ func TestCodexBuildCmd(t *testing.T) {
 	}
 }
 
-func expectedCodexBuildCmd(agentPath, binary, args string) string {
-	quotedBinary := configShellQuote(binary)
-	return "export PATH=" + configShellQuote(agentPath) + "; if " + quotedBinary + " app-server daemon start >/dev/null 2>&1; then set -- --remote unix://; else set --; fi; exec " + quotedBinary + " \"$@\" " + args
+func TestCodexBuildCmdUsesSessionEnvironmentForAppServer(t *testing.T) {
+	binDir := t.TempDir()
+	trace := filepath.Join(binDir, "trace")
+	cli := filepath.Join(binDir, "codex")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = app-server ] && [ \"$2\" = daemon ]; then exit 0; fi\n" +
+		"if [ \"$1\" = app-server ]; then printf 'server\\t%s\\t%s\\t%s\\t%s\\n' \"$QUESTMASTER_SESSION\" \"$QUESTMASTER_BIN\" \"$CODEX_TEST_UNRELATED\" \"$*\" >> \"$CODEX_TEST_TRACE\"; socket_path=${3#unix://}; : > \"$socket_path\"; exec /bin/sleep 10; fi\n" +
+		"printf 'tui\\t%s\\t%s\\t%s\\t%s\\n' \"$QUESTMASTER_SESSION\" \"$QUESTMASTER_BIN\" \"$CODEX_TEST_UNRELATED\" \"$*\" >> \"$CODEX_TEST_TRACE\"\n"
+	if err := os.WriteFile(cli, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessionID := "qm-codex-env-" + strconv.Itoa(os.Getpid())
+	runtimeDir := filepath.Join("/tmp", sessionID)
+	if err := os.RemoveAll(runtimeDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtimeDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	t.Setenv("QUESTMASTER_SESSION", sessionID)
+	t.Setenv("QUESTMASTER_BIN", "/tmp/qm-test-bin")
+	t.Setenv("CODEX_TEST_UNRELATED", "preserve-me")
+	t.Setenv("CODEX_TEST_TRACE", trace)
+
+	command := NewCodex(AgentConfig{}).BuildCmd(CmdOpts{Binary: cli, AgentPath: binDir, Role: RoleWorker})
+	out, err := exec.Command("sh", "-c", command).CombinedOutput()
+	if err != nil {
+		t.Fatalf("launch command: %v: %s", err, out)
+	}
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("Codex calls = %q, want session app-server start and TUI launch; shell trace: %s", lines, out)
+	}
+	socket := "unix://" + state.CodexAppServerSocketPath(sessionID)
+	for i, kind := range []string{"server", "tui"} {
+		fields := strings.Split(lines[i], "\t")
+		if len(fields) != 5 || fields[0] != kind || fields[1] != sessionID || fields[2] != "/tmp/qm-test-bin" || fields[3] != "preserve-me" {
+			t.Fatalf("%s environment = %q, want session %q, binary path, and preserved unrelated value", kind, fields, sessionID)
+		}
+		want := "app-server --listen " + socket
+		if kind == "tui" {
+			want = "--remote " + socket
+		}
+		if !strings.Contains(fields[4], want) {
+			t.Fatalf("%s args = %q, want %q", kind, fields[4], want)
+		}
+	}
+	if _, err := os.Stat(state.CodexAppServerSocketPath(sessionID)); !os.IsNotExist(err) {
+		t.Fatalf("session app-server socket remains after TUI exit: %v", err)
+	}
 }
-
-func TestCodexBuildCmdStartsDaemonOrFallsBackToLocalCLI(t *testing.T) {
-	for _, tt := range []struct {
-		name       string
-		daemonFail string
-		remote     bool
-	}{
-		{name: "remote when managed daemon starts", remote: true},
-		{name: "local TUI when managed daemon start fails", daemonFail: "1"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			binDir := t.TempDir()
-			trace := filepath.Join(binDir, "trace")
-			cli := filepath.Join(binDir, "codex")
-			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + trace + "'\nif [ \"$1\" = app-server ]; then exit \"${CODEX_DAEMON_FAIL:-0}\"; fi\n"
-			if err := os.WriteFile(cli, []byte(script), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("CODEX_DAEMON_FAIL", tt.daemonFail)
-
-			command := NewCodex(AgentConfig{}).BuildCmd(CmdOpts{
-				Binary:    cli,
-				AgentPath: binDir,
-				ResumeID:  "thread-1",
-				Prompt:    "continue the task",
-				Role:      RoleWorker,
-			})
-			if err := exec.Command("sh", "-c", command).Run(); err != nil {
-				t.Fatalf("launch command: %v", err)
-			}
-			calls, err := os.ReadFile(trace)
-			if err != nil {
-				t.Fatal(err)
-			}
-			lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
-			if len(lines) != 2 || lines[0] != "app-server daemon start" {
-				t.Fatalf("Codex calls = %q, want daemon start then TUI launch", lines)
-			}
-			if strings.Contains(lines[1], "--remote unix://") != tt.remote {
-				t.Fatalf("TUI launch remote flag presence = %v, want %v: %q", strings.Contains(lines[1], "--remote unix://"), tt.remote, lines[1])
-			}
-			for _, want := range []string{"--dangerously-bypass-approvals-and-sandbox", "resume thread-1", "continue the task"} {
-				if !strings.Contains(lines[1], want) {
-					t.Fatalf("TUI launch missing %q: %q", want, lines[1])
-				}
-			}
-		})
+func TestCodexBuildCmdFallsBackWhenSessionServerCannotStart(t *testing.T) {
+	binDir := t.TempDir()
+	trace := filepath.Join(binDir, "trace")
+	cli := filepath.Join(binDir, "codex")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + trace + "'\nif [ \"$1\" = app-server ]; then exit 1; fi\n"
+	if err := os.WriteFile(cli, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("QUESTMASTER_SESSION", "qm-codex-fallback")
+	command := NewCodex(AgentConfig{}).BuildCmd(CmdOpts{Binary: cli, AgentPath: binDir, Role: RoleWorker})
+	if err := exec.Command("sh", "-c", command).Run(); err != nil {
+		t.Fatalf("launch fallback command: %v", err)
+	}
+	calls, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+	if len(lines) != 3 || lines[0] != "app-server daemon start" || lines[1] != "app-server --listen unix:///tmp/qm-codex-fallback/"+state.CodexAppServerSocketName || strings.Contains(lines[2], "--remote") {
+		t.Fatalf("Codex calls = %q, want failed local app-server then ordinary TUI", lines)
 	}
 }
 
@@ -587,12 +615,14 @@ func TestCodexBuildCmd_ExtendedReasoningEffort(t *testing.T) {
 			Model:           tt.model,
 			ReasoningEffort: tt.effort,
 		})
-		args := "--dangerously-bypass-approvals-and-sandbox --model '" + tt.model + "' -c " +
-			configShellQuote("model_reasoning_effort="+strconv.Quote(tt.effort)) + " -c " +
-			configShellQuote("developer_instructions="+strconv.Quote(codex.WorkerPrompt()))
-		want := expectedCodexBuildCmd("/tmp/bin:/usr/bin", "/opt/homebrew/bin/codex", args)
-		if got != want {
-			t.Fatalf("BuildCmd(%s) = %q, want %q", tt.effort, got, want)
+		for _, want := range []string{
+			"--model '" + tt.model + "'",
+			"-c " + configShellQuote("model_reasoning_effort="+strconv.Quote(tt.effort)),
+			"-c " + config.ShellQuote("developer_instructions="+strconv.Quote(codex.WorkerPrompt())),
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("BuildCmd(%s) missing %q: %q", tt.effort, want, got)
+			}
 		}
 	}
 }
@@ -635,7 +665,7 @@ func TestCodexBuildCmd_WithPrompt(t *testing.T) {
 		Prompt:    "- inspect the workers",
 		Role:      RoleWorker,
 	})
-	if !strings.HasSuffix(got, " -- '- inspect the workers'") {
+	if !strings.Contains(got, " -- '- inspect the workers'") {
 		t.Fatalf("BuildCmd(prompt) = %q, want prompt suffix", got)
 	}
 }
@@ -652,11 +682,11 @@ func TestCodexBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 		SystemBrief: brief,
 		Role:        RoleWorker,
 	})
-	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()+"\n\n"+brief))
+	wantConfig := config.ShellQuote("developer_instructions=" + strconv.Quote(codex.WorkerPrompt()+"\n\n"+brief))
 	if !strings.Contains(got, "-c "+wantConfig) {
 		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
 	}
-	if !strings.HasSuffix(got, " -- 'tell the joke'") {
+	if !strings.Contains(got, " -- 'tell the joke'") {
 		t.Fatalf("BuildCmd() should keep the worker task as positional user turn: %q", got)
 	}
 }
@@ -673,11 +703,11 @@ func TestCodexBuildCmd_StandalonePromptAndSystemBrief(t *testing.T) {
 		SystemBrief: brief,
 		Role:        RoleStandalone,
 	})
-	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.StandalonePrompt()+"\n\n"+brief))
+	wantConfig := config.ShellQuote("developer_instructions=" + strconv.Quote(codex.StandalonePrompt()+"\n\n"+brief))
 	if !strings.Contains(got, "-c "+wantConfig) {
 		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
 	}
-	if !strings.HasSuffix(got, " -- 'inspect the sidebar'") {
+	if !strings.Contains(got, " -- 'inspect the sidebar'") {
 		t.Fatalf("BuildCmd() should keep the standalone task as positional user turn: %q", got)
 	}
 }
@@ -692,12 +722,13 @@ func TestCodexBuildCmd_Master(t *testing.T) {
 		Role:      RoleMaster,
 		Prompt:    "triage the backlog",
 	})
-	args := "--dangerously-bypass-approvals-and-sandbox -c " +
-		configShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())) +
-		" -- 'triage the backlog'"
-	want := expectedCodexBuildCmd("/tmp/bin:/usr/bin", "/opt/homebrew/bin/codex", args)
-	if got != want {
-		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
+	for _, want := range []string{
+		"-c " + config.ShellQuote("developer_instructions="+strconv.Quote(codex.MasterPrompt())),
+		" -- 'triage the backlog'",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("BuildCmd(master) missing %q: %q", want, got)
+		}
 	}
 	if strings.Contains(got, "Task: triage the backlog") {
 		t.Fatalf("BuildCmd(master) should not rewrite user prompt: %q", got)

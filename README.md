@@ -92,12 +92,13 @@ routing relationship, not model receipt.
 Messaging uses native delivery for live Claude, Codex, and Pi
 sessions when available. With its daemon running, Codex messages use its
 durable queue by default; if the daemon is unavailable, the existing tmux
-fallback applies. Questmaster-launched Codex sessions start the managed daemon
-if needed, then connect the TUI with `--remote unix://`; if daemon startup fails,
-Questmaster launches the regular local TUI so starting a session still works.
-The managed TUI lets `--steer` add input to its active turn. Older or externally
-launched Codex sessions use the durable queue. With no active turn, `--steer`
-also falls back to that queue. If a steer request may have
+fallback applies. Questmaster-launched Codex sessions start a per-session
+app-server with the matching session environment and connect the TUI to its Unix
+socket. If that server cannot start, Questmaster launches the regular local TUI
+so session startup still works. `--steer` can add input to the active turn on
+that per-session server. Older or externally launched Codex sessions, or a
+Questmaster session whose server is unavailable, use the durable queue. With no
+active turn, `--steer` also falls back to that queue. If a steer request may have
 been accepted but its response is lost, the command returns an error and does
 not retry through the queue or tmux. A `delivery_mode` in `send --steer` output
 identifies the selected transport (`codex-steer`, `codex-queue`, or

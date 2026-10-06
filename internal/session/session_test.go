@@ -2542,7 +2542,8 @@ func TestStart_CodexPrimaryRegistry(t *testing.T) {
 	for _, call := range runner.calls {
 		if len(call.args) >= 1 && call.args[0] == "respawn-pane" && strings.Contains(call.args[len(call.args)-1], codexCLI) {
 			foundPrimaryCmd = true
-			if !strings.Contains(call.args[len(call.args)-1], "--remote unix://") {
+			cmd := call.args[len(call.args)-1]
+			if !strings.Contains(cmd, `app-server --listen "unix://$socket_path"`) || !strings.Contains(cmd, `--remote "unix://$socket_path"`) {
 				t.Fatalf("primary Codex launch missing remote app-server: %q", call.args[len(call.args)-1])
 			}
 			break
@@ -2594,7 +2595,7 @@ func TestStart_CodexPrimaryMasterUsesDeveloperInstructions(t *testing.T) {
 			if !strings.Contains(cmd, wantConfig) {
 				t.Fatalf("master Codex command missing config %q in %q", wantConfig, cmd)
 			}
-			if !strings.HasSuffix(cmd, " -- 'triage the backlog'") {
+			if !strings.Contains(cmd, " -- 'triage the backlog'") {
 				t.Fatalf("master Codex command should keep user prompt unchanged: %q", cmd)
 			}
 			if strings.Contains(cmd, "Task: triage the backlog") {
@@ -2763,7 +2764,7 @@ func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 	if !strings.Contains(launch, wantConfig) {
 		t.Fatalf("expected Codex worker prompt routed via developer_instructions, got %q", launch)
 	}
-	if !strings.HasSuffix(launch, " -- '"+task+"'") {
+	if !strings.Contains(launch, " -- '"+task+"'") {
 		t.Fatalf("Codex worker prompt must remain the first user turn, got %q", launch)
 	}
 	if strings.Count(launch, task) != 1 {
@@ -3131,7 +3132,7 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 		cmd := call.args[len(call.args)-1]
 		if strings.Contains(cmd, codexCLI) && strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") {
 			sawCodexPrimary = true
-			if !strings.Contains(cmd, "--remote unix://") {
+			if !strings.Contains(cmd, `app-server --listen "unix://$socket_path"`) || !strings.Contains(cmd, `--remote "unix://$socket_path"`) {
 				t.Fatalf("resumed Codex launch missing remote app-server: %q", cmd)
 			}
 		}

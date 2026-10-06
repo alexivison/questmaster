@@ -69,22 +69,9 @@ func (s *Service) deliverCodexWithMode(ctx context.Context, m state.Manifest, me
 	if err != nil {
 		return "", fmt.Errorf("%w: Codex binary unavailable: %v", errNativeUnavailable, err)
 	}
-	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	version, err := exec.CommandContext(checkCtx, binary, "app-server", "daemon", "version").Output()
-	if err != nil {
-		return "", fmt.Errorf("%w: Codex daemon unavailable: %v", errNativeUnavailable, err)
-	}
-	var daemon struct {
-		Status     string `json:"status"`
-		SocketPath string `json:"socketPath"`
-	}
-	if json.Unmarshal(version, &daemon) != nil || daemon.Status != "running" {
-		return "", fmt.Errorf("%w: Codex daemon is not running", errNativeUnavailable)
-	}
-	if s.Steer && m.ExtraString(state.CodexRemoteAppServerKey) == state.CodexRemoteAppServer && daemon.SocketPath != "" {
+	if s.Steer && m.ExtraString(state.CodexRemoteAppServerKey) == state.CodexRemoteAppServer && state.IsValidSessionID(m.SessionID) {
 		steerCtx, steerCancel := context.WithTimeout(ctx, codexSteerTimeout)
-		steered, err := codexSteer(steerCtx, daemon.SocketPath, thread, message)
+		steered, err := codexSteer(steerCtx, state.CodexAppServerSocketPath(m.SessionID), thread, message)
 		steerCancel()
 		if err != nil {
 			return "", fmt.Errorf("Codex steer: %w", err)
@@ -92,6 +79,18 @@ func (s *Service) deliverCodexWithMode(ctx context.Context, m state.Manifest, me
 		if steered {
 			return DeliveryCodexSteer, nil
 		}
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	version, err := exec.CommandContext(checkCtx, binary, "app-server", "daemon", "version").Output()
+	if err != nil {
+		return "", fmt.Errorf("%w: Codex daemon unavailable: %v", errNativeUnavailable, err)
+	}
+	var daemon struct {
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(version, &daemon) != nil || daemon.Status != "running" {
+		return "", fmt.Errorf("%w: Codex daemon is not running", errNativeUnavailable)
 	}
 	if err := queueCodex(ctx, binary, thread, message); err != nil {
 		return "", err

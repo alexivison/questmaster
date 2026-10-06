@@ -6,15 +6,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"time"
 )
 
 const (
-	CodexRemoteAppServerKey = "codex_remote_app_server"
-	CodexRemoteAppServer    = "unix://"
+	CodexRemoteAppServerKey  = "codex_remote_app_server"
+	CodexRemoteAppServer     = "unix://"
+	CodexAppServerSocketName = "codex-app-server.sock"
 )
+
+func CodexAppServerSocketPath(sessionID string) string {
+	return filepath.Join("/tmp", sessionID, CodexAppServerSocketName)
+}
 
 // validResumeID matches the shape of all resume IDs Claude Code, Codex,
 // Pi, and OpenCode produce (UUIDs, ULIDs, dashed hex). Anything else — path separators,

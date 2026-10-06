@@ -193,39 +193,47 @@ func TestCodexQueueAcceptanceAndFailure(t *testing.T) {
 }
 
 func TestCodexSteerAndQueueFallback(t *testing.T) {
+	sessionID := "qm-codex-steer-" + strconv.Itoa(os.Getpid())
 	for _, tt := range []struct {
 		name      string
 		mode      string
 		remote    bool
+		server    bool
 		wantSteer bool
 		wantQueue bool
 		wantError bool
 		wantMode  DeliveryMode
 	}{
-		{name: "remote active turn", mode: "active", remote: true, wantSteer: true, wantMode: DeliveryCodexSteer},
-		{name: "remote no active turn queues", mode: "inactive", remote: true, wantQueue: true, wantMode: DeliveryCodexQueue},
+		{name: "remote active turn", mode: "active", remote: true, server: true, wantSteer: true, wantMode: DeliveryCodexSteer},
+		{name: "remote no active turn queues", mode: "inactive", remote: true, server: true, wantQueue: true, wantMode: DeliveryCodexQueue},
+		{name: "remote session without its server queues", mode: "active", remote: true, wantQueue: true, wantMode: DeliveryCodexQueue},
 		{name: "legacy session uses queue", mode: "active", wantQueue: true, wantMode: DeliveryCodexQueue},
-		{name: "turn ended before steer queues", mode: "rejected", remote: true, wantSteer: true, wantQueue: true, wantMode: DeliveryCodexQueue},
-		{name: "uncertain acceptance is not retried", mode: "uncertain", remote: true, wantSteer: true, wantError: true},
+		{name: "turn ended before steer queues", mode: "rejected", remote: true, server: true, wantSteer: true, wantQueue: true, wantMode: DeliveryCodexQueue},
+		{name: "uncertain acceptance is not retried", mode: "uncertain", remote: true, server: true, wantSteer: true, wantError: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := setupStore(t)
-			createManifest(t, store, "qm-codex-steer", "worker", "worker")
-			setPrimaryAgent(t, store, "qm-codex-steer", "codex")
+			createManifest(t, store, sessionID, "worker", "worker")
+			setPrimaryAgent(t, store, sessionID, "codex")
 			bin := t.TempDir()
 			tracePath := filepath.Join(bin, "trace")
 			if err := os.WriteFile(tracePath, nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			socket, requests := startCodexTestDaemon(t, tt.mode)
+			var requests <-chan codexTestRPCRequest
+			if tt.server {
+				requests = startCodexTestAppServer(t, sessionID, tt.mode)
+			} else {
+				requests = make(chan codexTestRPCRequest)
+			}
 			script := "#!/bin/sh\n" +
-				"if [ \"$1\" = app-server ] && [ \"$2\" = daemon ]; then printf '{\"status\":\"running\",\"socketPath\":\"%s\"}\\n' \"$CODEX_TEST_SOCKET\"; exit 0; fi\n" +
+				"if [ \"$1\" = app-server ]; then printf '{\"status\":\"running\"}\\n'; exit 0; fi\n" +
 				"printf 'queue %s\\n' \"$*\" >> '" + tracePath + "'; printf 'Queued message msg-1 for thread thread-123\\n'\n"
 			codex := filepath.Join(bin, "codex")
 			if err := os.WriteFile(codex, []byte(script), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.Update("qm-codex-steer", func(m *state.Manifest) {
+			if err := store.Update(sessionID, func(m *state.Manifest) {
 				m.Agents[0].CLI = codex
 				m.Extra = map[string]json.RawMessage{"codex_thread_id": json.RawMessage(`"thread-123"`)}
 				if tt.remote {
@@ -235,11 +243,10 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Setenv("CODEX_STEER_MODE", tt.mode)
-			t.Setenv("CODEX_TEST_SOCKET", socket)
 			var sent []string
 			svc := newService(store, idleAndSendRunner(&sent))
 			svc.Steer = true
-			deliveryMode, err := svc.RelayWithMode(t.Context(), "qm-codex-steer", "hello")
+			deliveryMode, err := svc.RelayWithMode(t.Context(), sessionID, "hello")
 			if (err != nil) != tt.wantError {
 				t.Fatalf("Relay error = %v, wantError %v", err, tt.wantError)
 			}
@@ -298,9 +305,15 @@ type codexTestRPCRequest struct {
 	Params  map[string]any  `json:"params"`
 }
 
-func startCodexTestDaemon(t *testing.T, mode string) (string, <-chan codexTestRPCRequest) {
+func startCodexTestAppServer(t *testing.T, sessionID, mode string) <-chan codexTestRPCRequest {
 	t.Helper()
-	socket := filepath.Join("/tmp", "qm-codex-"+strconv.Itoa(os.Getpid())+"-"+strconv.FormatInt(time.Now().UnixNano(), 10)+".sock")
+	socket := state.CodexAppServerSocketPath(sessionID)
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(socket); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -361,8 +374,12 @@ func startCodexTestDaemon(t *testing.T, mode string) (string, <-chan codexTestRP
 		}
 	})}
 	go func() { _ = server.Serve(listener) }()
-	t.Cleanup(func() { _ = server.Close(); _ = listener.Close() })
-	return socket, requests
+	t.Cleanup(func() {
+		_ = server.Close()
+		_ = listener.Close()
+		_ = os.RemoveAll(filepath.Dir(socket))
+	})
+	return requests
 }
 
 func TestClaudeInboundProjectRestriction(t *testing.T) {
