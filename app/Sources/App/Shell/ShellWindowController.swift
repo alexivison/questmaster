@@ -9,11 +9,11 @@ final class ShellWindowController {
         let trackerShell: TrackerShellView
         let terminalShell: TerminalShellView
         let dockShell: DockShellView
+        let footerShell: ActionBarShellView
         let trackerKeyboardBridge: TrackerKeyboardBridge
         let trackerHosting: NSView
         let dockView: SwiftUIDockPane
         let terminalHost: TerminalPaneHosting
-        let terminalChromeModel: TerminalChromeModel
         let dockChromeModel: DockChromeModel
         let trackerEffectExecutor: TrackerEffectExecutor
     }
@@ -63,7 +63,6 @@ final class ShellWindowController {
         window.center()
 
         let splitView = MainSplitView(frame: frame)
-        splitView.autoresizingMask = [.width, .height]
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
 
@@ -86,14 +85,11 @@ final class ShellWindowController {
             placeholderView: TerminalSkeletonHostingView(rootView: TerminalAttachSkeleton())
         )
 
-        let terminalChromeModel = TerminalChromeModel()
         let dockChromeModel = DockChromeModel()
         let trackerShell = TrackerShellView(body: trackerContent)
-        let terminalShell = TerminalShellView(
-            body: terminalHost.view,
-            model: terminalChromeModel
-        )
+        let terminalShell = TerminalShellView(body: terminalHost.view, dragHandleHeight: window.titlebarHeight)
         let dockShell = DockShellView(body: dockView, model: dockChromeModel)
+        let footerShell = ActionBarShellView()
 
         splitView.addArrangedSubview(trackerShell)
         splitView.addArrangedSubview(terminalShell)
@@ -101,7 +97,9 @@ final class ShellWindowController {
         splitView.sendTerminalToBack()
         splitView.trackerVisible = navigation.trackerVisible
         splitView.setDockVisible(navigation.dockVisible, animated: false)
-        window.contentView = splitView
+
+        let root = ShellRootContainerView(splitView: splitView, footer: footerShell)
+        window.contentView = root
 
         let handles = Handles(
             window: window,
@@ -109,11 +107,11 @@ final class ShellWindowController {
             trackerShell: trackerShell,
             terminalShell: terminalShell,
             dockShell: dockShell,
+            footerShell: footerShell,
             trackerKeyboardBridge: keyboardBridge,
             trackerHosting: trackerContent,
             dockView: dockView,
             terminalHost: terminalHost,
-            terminalChromeModel: terminalChromeModel,
             dockChromeModel: dockChromeModel,
             trackerEffectExecutor: trackerEffectExecutor
         )
@@ -130,7 +128,7 @@ final class ShellWindowController {
     }
 
     func updateCaffeine(_ active: Bool) {
-        handles?.terminalShell.updateCaffeine(active)
+        handles?.footerShell.updateCaffeine(active)
     }
 
 }

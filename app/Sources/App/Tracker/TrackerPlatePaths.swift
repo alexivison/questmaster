@@ -102,17 +102,47 @@ enum TrackerPlatePaths {
     /// as its diameter; the master's shield is stretched to the width and height separately), and the
     /// bar's straight edges sit at `barTop` and `barBottom`.
     static func plate(_ kind: Kind, capSize: CGSize, barTop: CGFloat, barBottom: CGFloat) -> Path {
+        cap(kind, capSize: capSize, barTop: barTop, barBottom: barBottom)
+            .union(bar(end: end(for: kind), left: left(for: kind, capSize: capSize), top: barTop, bottom: barBottom))
+    }
+
+    /// The action bar's single wide plate: a cap that varies with the selected session
+    /// (`capKind` — shield for a master, circle otherwise) joined to a bar placed at
+    /// `rightEdgeX`. Its right end reuses the master/standalone notch for those two kinds and
+    /// the worker's plain rounded end otherwise, the same grouping `session-panel-variants.svg`
+    /// draws. The tracker's own bar ends have their right edge baked into their coordinates
+    /// (they're sized for its two fixed plate widths), so this shifts them to land there instead.
+    static func mainPlate(capKind: Kind, capSize: CGSize, barTop: CGFloat, barBottom: CGFloat, rightEdgeX: CGFloat) -> Path {
+        let barEnd = end(for: capKind)
+        let rightShift = rightEdgeX - barEnd.bottomStart.x
+        return cap(capKind, capSize: capSize, barTop: barTop, barBottom: barBottom)
+            .union(bar(end: barEnd, left: left(for: capKind, capSize: capSize), top: barTop, bottom: barBottom, rightShift: rightShift))
+    }
+
+    private static func cap(_ kind: Kind, capSize: CGSize, barTop: CGFloat, barBottom: CGFloat) -> Path {
         switch kind {
         case .standalone, .worker:
-            let cap = Path(ellipseIn: CGRect(origin: .zero, size: CGSize(width: capSize.height, height: capSize.height)))
-            let bar = bar(end: kind == .worker ? workerEnd : standaloneEnd, left: capSize.height / 2, top: barTop, bottom: barBottom)
-            return cap.union(bar)
+            return Path(ellipseIn: CGRect(origin: .zero, size: CGSize(width: capSize.height, height: capSize.height)))
         case .master:
             let scaleX = capSize.width / shieldSVGWidth
             let scaleY = capSize.height / shieldSVGHeight
-            let shield = shield(innerTop: (barTop + shieldJoinDepth) / scaleY, innerBottom: (barBottom - shieldJoinDepth) / scaleY)
-            let bar = bar(end: masterEnd, left: shieldSVGCenterX * scaleX, top: barTop, bottom: barBottom)
-            return shield.applying(CGAffineTransform(scaleX: scaleX, y: scaleY)).union(bar)
+            let shieldPath = shield(innerTop: (barTop + shieldJoinDepth) / scaleY, innerBottom: (barBottom - shieldJoinDepth) / scaleY)
+            return shieldPath.applying(CGAffineTransform(scaleX: scaleX, y: scaleY))
+        }
+    }
+
+    private static func end(for kind: Kind) -> BarEnd {
+        switch kind {
+        case .standalone: standaloneEnd
+        case .master: masterEnd
+        case .worker: workerEnd
+        }
+    }
+
+    private static func left(for kind: Kind, capSize: CGSize) -> CGFloat {
+        switch kind {
+        case .standalone, .worker: capSize.height / 2
+        case .master: shieldCenterX(capWidth: capSize.width)
         }
     }
 
@@ -139,12 +169,15 @@ enum TrackerPlatePaths {
         return path
     }
 
-    private static func bar(end: BarEnd, left: CGFloat, top: CGFloat, bottom: CGFloat) -> Path {
-        func fromTop(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x, y: top + point.y - end.svgTop) }
-        func fromBottom(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x, y: bottom - (end.svgBottom - point.y)) }
+    /// `rightShift` translates the whole right-end shape horizontally — used by `mainPlate` to
+    /// place a bar end (whose x coordinates are otherwise fixed to the tracker's own plate
+    /// widths) at an arbitrary x. Defaults to 0, so `plate`'s existing output is unchanged.
+    private static func bar(end: BarEnd, left: CGFloat, top: CGFloat, bottom: CGFloat, rightShift: CGFloat = 0) -> Path {
+        func fromTop(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x + rightShift, y: top + point.y - end.svgTop) }
+        func fromBottom(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x + rightShift, y: bottom - (end.svgBottom - point.y)) }
         var path = Path()
         path.move(to: CGPoint(x: left, y: top))
-        path.addLine(to: CGPoint(x: end.topEdgeEndX, y: top))
+        path.addLine(to: CGPoint(x: end.topEdgeEndX + rightShift, y: top))
         end.topEnd.forEach { append($0, to: &path, mapping: fromTop) }
         path.addLine(to: fromBottom(end.bottomStart))
         end.bottomEnd.forEach { append($0, to: &path, mapping: fromBottom) }

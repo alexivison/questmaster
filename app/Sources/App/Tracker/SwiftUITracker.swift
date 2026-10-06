@@ -1861,7 +1861,9 @@ private struct WholePointCentered: Layout {
     }
 }
 
-private struct TrackerAgentMark: View {
+/// Not private: the action bar's session panel and worker pills reuse `image(for:side:tint:)`
+/// for the same per-agent mark the tracker draws, rather than re-deriving it.
+struct TrackerAgentMark: View {
     let agent: String
     let status: TrackerStatusStyle
     let shortcutNumber: Int?
@@ -1916,7 +1918,7 @@ private struct TrackerAgentMark: View {
         }
     }
 
-    fileprivate static func image(for agentName: String, side: CGFloat = 12, tint: NSColor = AppPalette.bright) -> NSImage? {
+    static func image(for agentName: String, side: CGFloat = 12, tint: NSColor = AppPalette.bright) -> NSImage? {
         let canvasSize = NSSize(width: side, height: side)
         switch AgentKind(name: agentName) {
         case .claude:

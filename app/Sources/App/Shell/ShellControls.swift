@@ -7,7 +7,6 @@ import QuestmasterCore
 /// `ShellChromeControls.swift`, `ShellTopBars.swift`, and `ShellStatusViews.swift`.
 
 enum ShellMetrics {
-    static let topBarHeight: CGFloat = 52
     static let dockTopBarHeight: CGFloat = 40
     /// Empty space above the first tracker header, matching the mockup's spacing.
     static let trackerTopInset: CGFloat = 25

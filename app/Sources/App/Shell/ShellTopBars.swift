@@ -3,34 +3,11 @@ import Observation
 import QuestmasterCore
 import SwiftUI
 
-/// SwiftUI top bars for the three shell panes plus the small `@Observable` models
-/// the AppKit wrappers push into. The wrappers (`ShellPaneContainers.swift`) keep their
-/// public update methods and write to these models; the views re-render reactively
-/// and forward taps through the wrapper's closures. Dock chrome decisions come from
-/// Core (`ShellChrome`); this layer only renders and routes events.
-
-/// Native hover tooltip text for a shortcut-bearing control: label, then the shortcut
-/// glyph, single-sourced from the Keymap binding so it can't drift from the real shortcut.
-private func tooltip(_ label: String, _ binding: Keymap.CommandBinding) -> String {
-    "\(label)  \(binding.displayGlyph)"
-}
-
-@Observable
-final class TerminalChromeModel {
-    var navigation: AppNavigationState
-    var sessionChip: SelectedSessionChip?
-    var caffeineActive: Bool
-
-    init(
-        navigation: AppNavigationState = AppNavigationState(),
-        sessionChip: SelectedSessionChip? = nil,
-        caffeineActive: Bool = false
-    ) {
-        self.navigation = navigation
-        self.sessionChip = sessionChip
-        self.caffeineActive = caffeineActive
-    }
-}
+/// SwiftUI top bar for the dock pane plus the small `@Observable` model the AppKit wrapper
+/// pushes into. The wrapper (`ShellPaneContainers.swift`) keeps its public update methods and
+/// writes to this model; the view re-renders reactively and forwards taps through the wrapper's
+/// closures. Dock chrome decisions come from Core (`ShellChrome`); this layer only renders and
+/// routes events. The terminal's own chrome is the action bar footer (`app/Sources/App/ActionBar`).
 
 @Observable
 final class DockChromeModel {
@@ -42,89 +19,6 @@ final class DockChromeModel {
         artifactTitle: nil
     )) {
         self.topBar = topBar
-    }
-}
-
-struct TerminalTopBar: View {
-    let model: TerminalChromeModel
-    let onNewSession: () -> Void
-    let onShowTracker: () -> Void
-    let onHideTracker: () -> Void
-    let onOpenArtifacts: () -> Void
-    let onOpenQuests: () -> Void
-    let onToggleCaffeine: () -> Void
-    let onOpenSettings: () -> Void
-    let onCopySessionID: (String) -> Void
-
-    var body: some View {
-        let navState = model.navigation
-        ZStack {
-            HStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    ChromeIconButton(
-                        symbolName: "plus.rectangle",
-                        accessibilityLabel: "New session",
-                        tooltip: tooltip("New Session", Keymap.Command.newSession),
-                        action: onNewSession
-                    )
-                    ChromeIconButton(
-                        symbolName: "sidebar.left",
-                        accessibilityLabel: navState.trackerVisible ? "Hide Tracker" : "Show Tracker",
-                        tooltip: tooltip(navState.trackerVisible ? "Hide Tracker" : "Show Tracker", Keymap.Command.toggleTracker)
-                    ) {
-                        if navState.trackerVisible {
-                            onHideTracker()
-                        } else {
-                            onShowTracker()
-                        }
-                    }
-                }
-                Spacer(minLength: 0)
-                HStack(spacing: 8) {
-                    CaffeineButton(
-                        isActive: model.caffeineActive,
-                        shortcutGlyph: Keymap.Command.toggleCaffeine.displayGlyph,
-                        action: onToggleCaffeine
-                    )
-                    if !navState.dockVisible {
-                        ChromeDivider()
-                        ChromeIconButton(
-                            symbolName: "doc.richtext",
-                            accessibilityLabel: "Open Artifacts",
-                            tooltip: tooltip("Open Artifacts", Keymap.Command.toggleDock)
-                        ) {
-                            onOpenArtifacts()
-                        }
-                        ChromeIconButton(
-                            symbolName: "checklist",
-                            accessibilityLabel: "Open Quests",
-                            tooltip: tooltip("Open Quests", Keymap.Command.toggleQuestDock)
-                        ) {
-                            onOpenQuests()
-                        }
-                    }
-                    ChromeDivider()
-                    ChromeIconButton(
-                        symbolName: "gearshape",
-                        accessibilityLabel: "Settings",
-                        tooltip: tooltip("Settings", Keymap.Command.settings),
-                        action: onOpenSettings
-                    )
-                }
-            }
-            ChromeSessionChip(
-                chip: model.sessionChip,
-                shortcutGlyph: Keymap.Command.copySessionID.displayGlyph,
-                onCopySessionID: onCopySessionID
-            )
-        }
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity)
-        .frame(height: ShellMetrics.topBarHeight)
-        .background(AppPalette.window.swiftUI)
-        // The terminal pane sits under the full-size-content titlebar; ignore its
-        // safe area so the bar fills its frame instead of being inset downward.
-        .ignoresSafeArea()
     }
 }
 

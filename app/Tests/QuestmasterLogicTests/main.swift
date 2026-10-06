@@ -27,6 +27,7 @@ enum QuestmasterLogicTests {
         QuestCoreTests.run()
         ShellChromeTests.run()
         CaffeineStateTests.run()
+        ActionBarWorkerStripTests.run()
         GhosttyConfigParserTests.run()
         TerminalDetachSignalTests.run()
 

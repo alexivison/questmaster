@@ -37,7 +37,7 @@ private func layoutTopBarAndBody(
     in container: NSView,
     topBar: NSView,
     body: NSView,
-    topBarHeight: CGFloat = ShellMetrics.topBarHeight
+    topBarHeight: CGFloat
 ) {
     topBar.translatesAutoresizingMaskIntoConstraints = false
     body.translatesAutoresizingMaskIntoConstraints = false
@@ -88,46 +88,48 @@ final class TrackerShellView: NSView {
     }
 }
 
-final class TerminalShellView: NSView {
-    private let model: TerminalChromeModel
-    private let messageOverlay: NSHostingView<TerminalMessageOverlay>
-    var onNewSession: (() -> Void)?
-    var onShowTracker: (() -> Void)?
-    var onHideTracker: (() -> Void)?
-    var onOpenArtifacts: (() -> Void)?
-    var onOpenQuests: (() -> Void)?
-    var onToggleCaffeine: (() -> Void)?
-    var onOpenSettings: (() -> Void)?
-    var onCopySessionID: ((String) -> Void)?
+/// A thin strip pinned to the top of the terminal pane that lets the window be dragged by its
+/// background, the way the removed header used to. With the header gone the terminal's own view
+/// now reaches the window's top edge, under the transparent titlebar; its own `mouseDown` (text
+/// selection) would otherwise swallow drags there, since `NSView.mouseDownCanMoveWindow` only
+/// kicks in when nothing else handles the event first.
+private final class WindowDragHandleView: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+}
 
-    init(
-        body: NSView,
-        model: TerminalChromeModel = TerminalChromeModel()
-    ) {
-        self.model = model
+final class TerminalShellView: NSView {
+    private let messageOverlay: NSHostingView<TerminalMessageOverlay>
+
+    init(body: NSView, dragHandleHeight: CGFloat) {
         messageOverlay = NSHostingView(rootView: TerminalMessageOverlay(title: "", detail: ""))
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = AppPalette.terminal.cgColor
 
-        let topBar = FirstMouseHostingView(rootView: TerminalTopBar(
-            model: model,
-            onNewSession: { [weak self] in self?.onNewSession?() },
-            onShowTracker: { [weak self] in self?.onShowTracker?() },
-            onHideTracker: { [weak self] in self?.onHideTracker?() },
-            onOpenArtifacts: { [weak self] in self?.onOpenArtifacts?() },
-            onOpenQuests: { [weak self] in self?.onOpenQuests?() },
-            onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() },
-            onOpenSettings: { [weak self] in self?.onOpenSettings?() },
-            onCopySessionID: { [weak self] sessionID in self?.onCopySessionID?(sessionID) }
-        ))
-        layoutTopBarAndBody(in: self, topBar: topBar, body: body)
+        body.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(body)
+        NSLayoutConstraint.activate([
+            body.topAnchor.constraint(equalTo: topAnchor),
+            body.leadingAnchor.constraint(equalTo: leadingAnchor),
+            body.trailingAnchor.constraint(equalTo: trailingAnchor),
+            body.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
+        let dragHandle = WindowDragHandleView()
+        dragHandle.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(dragHandle)
+        NSLayoutConstraint.activate([
+            dragHandle.topAnchor.constraint(equalTo: topAnchor),
+            dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dragHandle.trailingAnchor.constraint(equalTo: trailingAnchor),
+            dragHandle.heightAnchor.constraint(equalToConstant: dragHandleHeight),
+        ])
 
         messageOverlay.translatesAutoresizingMaskIntoConstraints = false
         messageOverlay.isHidden = true
         addSubview(messageOverlay)
         NSLayoutConstraint.activate([
-            messageOverlay.topAnchor.constraint(equalTo: topBar.bottomAnchor),
+            messageOverlay.topAnchor.constraint(equalTo: topAnchor),
             messageOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
             messageOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
             messageOverlay.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -137,19 +139,6 @@ final class TerminalShellView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    func update(navigation: AppNavigationState, session: SelectedSessionChip?) {
-        if model.navigation != navigation {
-            model.navigation = navigation
-        }
-        if model.sessionChip != session {
-            model.sessionChip = session
-        }
-    }
-
-    func updateCaffeine(_ active: Bool) {
-        model.caffeineActive = active
     }
 
     func showMessage(title: String, detail: String) {
