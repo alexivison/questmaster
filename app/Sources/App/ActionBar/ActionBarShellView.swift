@@ -7,6 +7,10 @@ import SwiftUI
 /// first-responder-accepting `NSHostingView` subclass with a `keyDown` override.
 private final class ActionBarKeyboardHostingView: NSHostingView<ActionBarFooterView> {
     var onKeyDown: ((NSEvent) -> Bool)?
+    /// Fires whenever this view actually gives up first responder — not just on Esc. Covers a
+    /// click elsewhere, the window losing key, or any other focus change, so the strip's
+    /// `isFocused` state can never drift from the real first responder.
+    var onResignFirstResponder: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -19,6 +23,14 @@ private final class ActionBarKeyboardHostingView: NSHostingView<ActionBarFooterV
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned {
+            onResignFirstResponder?()
+        }
+        return resigned
     }
 }
 
@@ -59,6 +71,7 @@ final class ActionBarShellView: NSView {
             onAttachWorker: { [weak self] sessionID in self?.onAttachWorker?(sessionID) }
         )
         hostingView.onKeyDown = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        hostingView.onResignFirstResponder = { [weak self] in self?.model.workerStripState.blur() }
 
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hostingView)
@@ -73,6 +86,19 @@ final class ActionBarShellView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The footer spans the full window width so its centred content never shifts when the dock
+    /// opens or closes, but at narrow windows or with a wide dock that leaves empty margin on
+    /// either side of the centred plate, over whatever the dock (now the full window height) is
+    /// doing there. Only the plate's own width should claim clicks — the margins must fall
+    /// through to it.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let contentX = (bounds.width - ActionBarMetrics.plateWidth) / 2
+        guard point.x >= contentX, point.x <= contentX + ActionBarMetrics.plateWidth else {
+            return nil
+        }
+        return super.hitTest(point)
     }
 
     func update(
@@ -126,10 +152,12 @@ final class ActionBarShellView: NSView {
             return true
         }
         if event.keyCode == 36 { // Enter
-            guard let index = model.workerStripState.selectedIndex, model.workers.indices.contains(index) else {
+            let (sessionID, newState) = model.workerStripState.attachTarget(in: model.workers)
+            guard let sessionID else {
                 return false
             }
-            onAttachWorker?(model.workers[index].id)
+            model.workerStripState = newState
+            onAttachWorker?(sessionID)
             return true
         }
         if chars == "h" {

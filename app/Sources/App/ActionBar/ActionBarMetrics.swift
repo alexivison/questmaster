@@ -1,19 +1,34 @@
 import AppKit
 
 /// Geometry for the action bar footer. Per the first review round, these are the design's own
-/// literal coordinates (from `action-bar.svg`, 1:1 — the asset's 722×120 frame is drawn at its
-/// own scale, not rescaled), not an independently derived 5pt-rhythm grid. The plate shapes
-/// themselves are traced outlines (`ActionBarPlateOutlines`), not `TrackerPlatePaths` unions.
+/// literal coordinates (from `action-bar.svg`, 1:1 — the asset's own scale, not rescaled), not an
+/// independently derived 5pt-rhythm grid. The plate shapes themselves are traced outlines
+/// (`ActionBarPlateOutlines`), not `TrackerPlatePaths` unions.
+///
+/// Per review round 3, the design's own 722×120 frame carries Figma padding the footer doesn't
+/// need: the user wants a 10pt gap from the footer's own top edge to the shield's topmost outer
+/// edge (stroke included), matching the 10pt Ghostty already adds below the terminal (so the
+/// *visual* gap above the footer matches the tracker's own 20pt side-padding gap). `verticalShift`
+/// moves every traced y-coordinate up by that removed padding — a translation, not a rescale —
+/// and `footerHeight` shrinks to content plus a 10pt margin on each side, rounded to a whole point.
 enum ActionBarMetrics {
-    /// Matches `action-bar.svg`'s own frame (the dashed Figma border aside).
-    static let footerHeight: CGFloat = 120
+    /// The shield's topmost outer edge: path y 18, stroked at 1.5pt *centred* on the path (our
+    /// own `.stroke()`, not an inside `.strokeBorder()`), so the visible edge is half that
+    /// further out — before the shift.
+    private static let designShieldTopOuterEdge: CGFloat = 18 - 1.5 / 2
+    private static let designTopMargin: CGFloat = 10
+    static let verticalShift: CGFloat = designTopMargin - designShieldTopOuterEdge
+
+    /// Content (shield top to worker-pill bottom) plus a 10pt margin on each side, rounded to a
+    /// whole point. Was 120 (the design's own frame, Figma padding included) before this round.
+    static let footerHeight: CGFloat = 103
     static let plateWidth: CGFloat = 722
 
     /// The session panel's and slot bar's shared horizontal centreline (both plates' bars are
-    /// centred on it, as is the row of slot squares).
-    static let barCenterY: CGFloat = 46
+    /// centred on it, as is the row of slot squares) — design y 46, shifted.
+    static let barCenterY: CGFloat = 46 + verticalShift
 
-    static let portraitCenter = CGPoint(x: 58, y: 53)
+    static let portraitCenter = CGPoint(x: 58, y: 53 + verticalShift)
     static let portraitRadius: CGFloat = 26.25
     static var portraitSide: CGFloat { portraitRadius * 2 }
 
@@ -21,8 +36,8 @@ enum ActionBarMetrics {
     /// per the review ("start behind the portrait"), not to its right.
     static let stripX: CGFloat = 58.5
     static let stripWidth: CGFloat = 242
-    static let titleStripY: CGFloat = 26.5
-    static let idStripY: CGFloat = 46.5
+    static let titleStripY: CGFloat = 26.5 + verticalShift
+    static let idStripY: CGFloat = 46.5 + verticalShift
     static let stripHeight: CGFloat = 19
     static let stripTrailingPadding: CGFloat = 12
     /// Where the strip's own text becomes visible past the portrait — the ID/title text centres
@@ -32,13 +47,18 @@ enum ActionBarMetrics {
 
     static let slotSize: CGFloat = 30
     static let slotIconSize: CGFloat = 20
-    static let slotTop: CGFloat = 31.5
     static let slotGroupGap: CGFloat = 20
     static let slotCount = 11
     /// Index (0-based) of the slot followed by `slotGroupGap` instead of sitting flush against
     /// its neighbour — between the two empty slots and the next three.
     static let slotGapAfterIndex = 5
-    static let slotBarStartX: CGFloat = 331.5
+    /// Derived from the shared centreline rather than a separate traced constant, so the slots
+    /// stay centred on the bar through this round's vertical shift (and any later one). Our own
+    /// slot squares use an inside `strokeBorder`, so this outer-edge value is also the frame
+    /// origin — unlike the SVG's own stroke-centred rect paths (331.5, 31.5), which sit 0.5pt
+    /// off the true outer edge this derives (331, 31-ish).
+    static var slotTop: CGFloat { barCenterY - slotSize / 2 }
+    static let slotBarStartX: CGFloat = 331
 
     static func slotX(at index: Int) -> CGFloat {
         let base = slotBarStartX + CGFloat(index) * slotSize
@@ -46,7 +66,7 @@ enum ActionBarMetrics {
     }
 
     /// The worker strip row: pills start just past the session panel's portrait.
-    static let workerRowY: CGFloat = 80
+    static let workerRowY: CGFloat = 80 + verticalShift
     static let workerRowHeight: CGFloat = 20
     static let workerRowStartX: CGFloat = 81
 
@@ -61,9 +81,16 @@ enum ActionBarMetrics {
         /// The plate's left edge lands on the portrait's own centre, so the portrait covers the
         /// plate's left half (traced: portrait centre x 91, plate left edge x 91.5).
         var plateOverlap: CGFloat { portraitSide / 2 }
-        /// Clears the overlapping portrait before the title text starts.
-        let titleLeadingPadding: CGFloat = 10
-        let titlePadding: CGFloat = 8
+        /// Measured as glyph ink, not box edges: the portrait's outer edge (`portraitSide / 2`
+        /// past the plate's own left edge, which sits on the portrait's centre) to the first
+        /// glyph's ink is 5pt in the source SVG, in both a short and a truncated pill. Our own
+        /// Ghostty-family font carries more built-in left bearing at this size than the source
+        /// font did, so less explicit padding lands the rendered ink at the same 5pt gap — tuned
+        /// against a rendered 3x crop next to the rasterised SVG's own, not computed blind.
+        var titleLeadingPadding: CGFloat { portraitSide / 2 + 2 }
+        /// The last glyph's ink to the plate's (or the +N pill's) outer right edge — 6.5pt,
+        /// measured consistently on the +N pill (no portrait to confound it either side).
+        let titlePadding: CGFloat = 6.5
         /// Gap from one pill's plate to the next pill's portrait (traced: plate end 140.5, next
         /// portrait left edge 146.5).
         let interPillGap: CGFloat = 5.5

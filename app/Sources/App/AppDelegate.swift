@@ -421,14 +421,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Attaches the terminal to `sessionID` — the same path a tracker row click or a Cmd+1..9
     /// menu selection uses (`selectTrackerSession`), reused here for a worker-pill click/Enter.
+    /// Activates by exact id, so it works whether or not `sessionID`'s master is collapsed in the
+    /// tracker: `selectableSessions` hides a collapsed master's workers (right for Cmd+1..9's
+    /// position-based lookup, which `selectTrackerSession` still uses to resolve the id first),
+    /// but activation only needs the id to exist, not to be numbered/visible.
     private func attachSession(_ sessionID: String) {
         guard let window = shellHandles?.window else {
             return
         }
-        let rows = TrackerSessionShortcuts.selectableSessions(
-            TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot)),
-            expandedMasterIDs: runtimeStore.expandedMasterIDs
-        )
+        let rows = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(runtimeStore.snapshot))
         var commandState = TrackerCommandState()
         guard let effects = commandState.effects(
             for: .activate(openedID: sessionID),

@@ -84,9 +84,13 @@ struct ActionBarFooterView: View {
             .offset(x: ActionBarMetrics.workerRowStartX, y: ActionBarMetrics.workerRowY)
         }
         .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight, alignment: .topLeading)
+        // The opaque background stops here, at the actual content block — expanding to the full
+        // window width below is for centring math only. A background here instead would paint
+        // the whole strip opaque, hiding the dock (now the window's full height) everywhere
+        // beside the plate, not just where the two are meant to overlap.
+        .background(AppPalette.window.swiftUI)
         .frame(maxWidth: .infinity, alignment: .center)
         .frame(height: ActionBarMetrics.footerHeight)
-        .background(AppPalette.window.swiftUI)
     }
 
     private var panelVariant: ActionBarSessionPanelVariant {
