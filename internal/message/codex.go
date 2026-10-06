@@ -69,7 +69,7 @@ func (s *Service) deliverCodexWithMode(ctx context.Context, m state.Manifest, me
 	if err != nil {
 		return "", fmt.Errorf("%w: Codex binary unavailable: %v", errNativeUnavailable, err)
 	}
-	if s.Steer && m.ExtraString(state.CodexRemoteAppServerKey) == state.CodexRemoteAppServer && state.IsValidSessionID(m.SessionID) {
+	if m.ExtraString(state.CodexRemoteAppServerKey) == state.CodexRemoteAppServer && state.IsValidSessionID(m.SessionID) {
 		steerCtx, steerCancel := context.WithTimeout(ctx, codexSteerTimeout)
 		steered, err := codexSteer(steerCtx, state.CodexAppServerSocketPath(m.SessionID), thread, message)
 		steerCancel()

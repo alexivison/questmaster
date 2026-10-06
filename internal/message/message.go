@@ -28,7 +28,6 @@ type Service struct {
 	store  *state.Store
 	client *tmux.Client
 	dial   func(context.Context, string, string) (net.Conn, error)
-	Steer  bool
 }
 
 // DeliveryMode names the local transport path used for a message.
@@ -181,7 +180,7 @@ func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
 type BroadcastResult struct {
 	Registered    int                  // total workers in manifest
 	Delivered     int                  // workers whose local transport accepted the message
-	DeliveryModes map[DeliveryMode]int // populated when steer mode is enabled
+	DeliveryModes map[DeliveryMode]int // count of delivered messages by transport
 }
 
 // BroadcastFrom sends a message with sender provenance to all workers of a master session.
@@ -195,7 +194,7 @@ func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message
 	}
 	workers := m.Workers
 	if len(workers) == 0 {
-		return BroadcastResult{}, nil
+		return BroadcastResult{DeliveryModes: make(map[DeliveryMode]int)}, nil
 	}
 
 	sender, _ := s.store.Read(senderID)
@@ -209,7 +208,7 @@ func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message
 // are surfaced via the returned error so a zero- or partial-delivery broadcast is
 // never silent — matching the error-returning behavior of Relay.
 func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID string, sender state.Manifest, message string) (BroadcastResult, error) {
-	result := BroadcastResult{Registered: len(workers)}
+	result := BroadcastResult{Registered: len(workers), DeliveryModes: make(map[DeliveryMode]int)}
 	var errs []error
 	for _, wid := range workers {
 		alive, err := s.client.HasSession(ctx, wid)
@@ -244,12 +243,7 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 			errs = append(errs, fmt.Errorf("send to %q: %w", wid, err))
 			continue
 		}
-		if s.Steer {
-			if result.DeliveryModes == nil {
-				result.DeliveryModes = make(map[DeliveryMode]int)
-			}
-			result.DeliveryModes[mode]++
-		}
+		result.DeliveryModes[mode]++
 		result.Delivered++
 	}
 	return result, errors.Join(errs...)

@@ -53,7 +53,6 @@ questmaster start "fix-login-flow"
 questmaster start --master --primary codex "release-triage"
 questmaster spawn qm-master123 "smoke-test-worker" --prompt "Investigate the failing smoke test"
 questmaster send qm-worker123 "Try a smaller test case."
-questmaster send --steer qm-worker123 "Also check the edge case already in progress."
 questmaster send master "done: fixed parser edge case; regression test passes"
 questmaster send all "Please report your current status."
 ```
@@ -90,22 +89,20 @@ Messages between a worker and its recorded parent use `[MASTER:<id>]` or
 routing relationship, not model receipt.
 
 Messaging uses native delivery for live Claude, Codex, and Pi
-sessions when available. With its daemon running, Codex messages use its
-durable queue by default; if the daemon is unavailable, the existing tmux
-fallback applies. Questmaster-launched Codex sessions start a per-session
+sessions when available. Questmaster-launched Codex sessions start a per-session
 app-server with the matching session environment and connect the TUI to its Unix
 socket. If that server cannot start, Questmaster launches the regular local TUI
-so session startup still works. `--steer` can add input to the active turn on
-that per-session server. Older or externally launched Codex sessions, or a
-Questmaster session whose server is unavailable, use the durable queue. With no
-active turn, `--steer` also falls back to that queue. If a steer request may have
-been accepted but its response is lost, the command returns an error and does
-not retry through the queue or tmux. A `delivery_mode` in `send --steer` output
-identifies the selected transport (`codex-steer`, `codex-queue`, or
-`existing-transport`); `send --steer all` reports counts in `delivery_modes`.
-These fields report the selected path and do not establish model receipt. For
-Claude, Pi, OpenCode, and tmux targets, `--steer` keeps the existing transport
-behavior.
+so session startup still works. `send` attempts active-turn steering by default
+for sessions using that app-server. When there is no active turn, steering is
+unsupported, the app-server is unavailable, or the session is older, external,
+or started without that server, `send` uses Codex's durable queue. If Codex
+native delivery is unavailable, the existing tmux fallback applies. If a steer
+request may have been accepted but its response is lost, the command returns an
+error and does not retry through the queue or tmux. `send` reports the selected path in `delivery_mode`
+(`codex-steer`, `codex-queue`, or `existing-transport`); `send all` reports
+counts in `delivery_modes`. These fields report the selected transport and do
+not establish model receipt. For Claude, Pi, OpenCode, and tmux targets, `send`
+keeps the existing transport behavior.
 Pi steers the current turn and its receipt is unconfirmed. Claude's socket has
 no delivery receipt:
 `submitted: true` can coexist with Claude holding the message if its effective `crossSessionInbound`

@@ -9,7 +9,6 @@ import (
 
 func newSendCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var messageFile string
-	var steer bool
 	cmd := &cobra.Command{
 		Use:   "send <recipient|master|all> [message]",
 		Short: "Send to a session, report to your master, or broadcast to workers",
@@ -19,16 +18,17 @@ func newSendCmd(store *state.Store, client *tmux.Client) *cobra.Command {
   questmaster send master "message"        Worker report to its parent
   questmaster send all "message"           Master broadcast to its workers
 
-Use the default Codex queue when a message can wait for the next turn; use
---steer to ask the app-server to add input to the active turn of a Codex TUI
-launched or continued by Questmaster. Older or externally launched Codex
-sessions use the durable queue. If there is no active turn or steering is
-unsupported, --steer falls back to that queue. If the Codex daemon is
-unavailable, the existing tmux fallback applies. With --steer, delivery_mode
-reports the selected transport, not model receipt.
+Questmaster-launched or continued Codex sessions with a per-session app-server
+receive active-turn input by default. If there is no active turn, steering is
+unsupported, the app-server is unavailable, or the session is older, external,
+or started without that server, send uses Codex's durable queue. If Codex's
+queue daemon or required native transport is unavailable, the existing tmux
+fallback applies.
+delivery_mode reports the selected transport, not model receipt. If steer
+acceptance is uncertain, send errors without retrying through the queue or tmux.
 Use --message-file <path> or --message-file - for file or stdin input.
 
-For Claude, Pi, OpenCode, and tmux targets, --steer keeps the existing transport behavior.`,
+For Claude, Pi, OpenCode, and tmux targets, send keeps the existing transport behavior.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			text, err := messageFromArgsAndFile(cmd, args[1:], messageFile)
@@ -38,7 +38,6 @@ For Claude, Pi, OpenCode, and tmux targets, --steer keeps the existing transport
 			ctx := cmd.Context()
 			recipient := args[0]
 			svc := message.NewService(store, client)
-			svc.Steer = steer
 			var deliveryMode message.DeliveryMode
 			switch recipient {
 			case "master":
@@ -63,11 +62,9 @@ For Claude, Pi, OpenCode, and tmux targets, --steer keeps the existing transport
 					Recipient     string                       `json:"recipient"`
 					Registered    int                          `json:"registered"`
 					Submitted     int                          `json:"submitted"`
-					DeliveryModes map[message.DeliveryMode]int `json:"delivery_modes,omitempty"`
+					DeliveryModes map[message.DeliveryMode]int `json:"delivery_modes"`
 				}{recipient, result.Registered, result.Delivered, nil}
-				if steer {
-					response.DeliveryModes = result.DeliveryModes
-				}
+				response.DeliveryModes = result.DeliveryModes
 				return writeJSON(cmd.OutOrStdout(), response)
 			default:
 				sender, err := discoverSession(ctx, client)
@@ -85,15 +82,11 @@ For Claude, Pi, OpenCode, and tmux targets, --steer keeps the existing transport
 			response := struct {
 				Recipient    string               `json:"recipient"`
 				Submitted    bool                 `json:"submitted"`
-				DeliveryMode message.DeliveryMode `json:"delivery_mode,omitempty"`
-			}{Recipient: recipient, Submitted: true}
-			if steer {
-				response.DeliveryMode = deliveryMode
-			}
+				DeliveryMode message.DeliveryMode `json:"delivery_mode"`
+			}{Recipient: recipient, Submitted: true, DeliveryMode: deliveryMode}
 			return writeJSON(cmd.OutOrStdout(), response)
 		},
 	}
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "read message from a file, or '-' for stdin")
-	cmd.Flags().BoolVar(&steer, "steer", false, "request active-turn steering for Questmaster-launched Codex sessions")
 	return cmd
 }

@@ -245,7 +245,6 @@ func TestCodexSteerAndQueueFallback(t *testing.T) {
 			t.Setenv("CODEX_STEER_MODE", tt.mode)
 			var sent []string
 			svc := newService(store, idleAndSendRunner(&sent))
-			svc.Steer = true
 			deliveryMode, err := svc.RelayWithMode(t.Context(), sessionID, "hello")
 			if (err != nil) != tt.wantError {
 				t.Fatalf("Relay error = %v, wantError %v", err, tt.wantError)

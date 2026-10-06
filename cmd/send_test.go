@@ -29,20 +29,20 @@ func TestSendDirectPreservesSender(t *testing.T) {
 	createWorkerManifest(t, store, "qm-worker", "qm-master")
 	runner := newSendCaptureRunner("qm-worker")
 	out := runCmd(t, store, runner, "send", "qm-worker", "hello")
-	if !strings.Contains(out, `"recipient": "qm-worker"`) || strings.Contains(out, "delivery_mode") || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
+	if !strings.Contains(out, `"recipient": "qm-worker"`) || !strings.Contains(out, `"delivery_mode": "existing-transport"`) || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
 		t.Fatalf("send output = %q, payloads = %v", out, runner.sends)
 	}
 }
 
-func TestSendSteerReportsExistingTransportWithoutReceiptClaim(t *testing.T) {
+func TestSendReportsExistingTransportWithoutReceiptClaim(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "qm-master")
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "qm-worker", "qm-master")
 	runner := newSendCaptureRunner("qm-worker")
-	out := runCmd(t, store, runner, "send", "--steer", "qm-worker", "hello")
+	out := runCmd(t, store, runner, "send", "qm-worker", "hello")
 	if !strings.Contains(out, `"delivery_mode": "existing-transport"`) || strings.Contains(out, "received") || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
-		t.Fatalf("steer output = %q, payloads = %v", out, runner.sends)
+		t.Fatalf("send output = %q, payloads = %v", out, runner.sends)
 	}
 }
 
@@ -79,16 +79,26 @@ func TestSendAllBroadcastsFromMaster(t *testing.T) {
 	}
 }
 
-func TestSendAllSteerReportsDeliveryModeCounts(t *testing.T) {
+func TestSendAllReportsDeliveryModeCounts(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "qm-master")
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "/tmp", "master")
 	createWorkerManifest(t, store, "qm-w1", "qm-master")
 	createWorkerManifest(t, store, "qm-w2", "qm-master")
 	runner := newSendCaptureRunner("qm-w1", "qm-w2")
-	out := runCmd(t, store, runner, "send", "--steer", "all", "hello")
+	out := runCmd(t, store, runner, "send", "all", "hello")
 	if !strings.Contains(out, `"delivery_modes": {`) || !strings.Contains(out, `"existing-transport": 2`) {
-		t.Fatalf("steer broadcast output = %q", out)
+		t.Fatalf("broadcast output = %q", out)
+	}
+}
+
+func TestSendAllReportsEmptyDeliveryModes(t *testing.T) {
+	t.Setenv("QUESTMASTER_SESSION", "qm-master")
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	out := runCmd(t, store, newSendCaptureRunner(), "send", "all", "hello")
+	if !strings.Contains(out, `"delivery_modes": {}`) {
+		t.Fatalf("empty broadcast output = %q", out)
 	}
 }
 
@@ -126,6 +136,7 @@ func TestSendRejectsInvalidRoutes(t *testing.T) {
 	}{
 		{"missing recipient", []string{"send"}, "accepts between 1 and 2 arg"},
 		{"missing message", []string{"send", "master"}, "message is required"},
+		{"removed steer flag", []string{"send", "--steer", "qm-master", "hello"}, "unknown flag: --steer"},
 		{"duplicate message", []string{"send", "master", "inline", "--message-file", "-"}, "only one of message or --message-file"},
 		{"worker broadcast", []string{"send", "all", "hello"}, "not a master"},
 		{"invalid ID", []string{"send", "bad-id", "hello"}, "invalid worker id"},
@@ -208,11 +219,14 @@ func TestSendExternalCannotForgeMasterPrefix(t *testing.T) {
 	}
 }
 
-func TestSendHelpDocumentsSteer(t *testing.T) {
+func TestSendHelpDocumentsDefaultCodexDelivery(t *testing.T) {
 	out := runCmd(t, setupStore(t), messagingRunner(), "send", "--help")
-	for _, want := range []string{"--steer", "active turn", "durable queue", "delivery_mode", "existing transport behavior"} {
+	for _, want := range []string{"active turn", "durable queue", "delivery_mode", "existing transport behavior"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("send help missing %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "--steer") {
+		t.Fatalf("send help still exposes --steer:\n%s", out)
 	}
 }

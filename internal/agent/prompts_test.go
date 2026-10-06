@@ -113,8 +113,7 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 				"questmaster help",
 				"questmaster <command> --help",
 				"questmaster promote <session-id>",
-				"add --steer to send input into the active turn",
-				"launched or continued by Questmaster",
+				"Questmaster-launched or continued Codex sessions with a per-session app-server get active-turn steering by default",
 				"reports `delivery_mode`",
 				"Use sub-agents for explicit sub-agent requests",
 				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
@@ -122,6 +121,9 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 				if !strings.Contains(got, want) {
 					t.Fatalf("%s prompt missing common guide text %q:\n%s", name, want, got)
 				}
+			}
+			if strings.Contains(got, "--steer") {
+				t.Fatalf("%s prompt still exposes the removed --steer option:\n%s", name, got)
 			}
 		})
 	}
