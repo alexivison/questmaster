@@ -66,20 +66,23 @@ struct ActionBarWorkerPillView: View {
         ActionBarWorkerPillTitle.truncated(session.title.isEmpty ? session.id : session.title)
     }
 
+    /// Matches the tracker's own selected-plate treatment (`TrackerNameplateBackground.
+    /// outlineColor`/its `2 * 1.5` stroke width) rather than a separate outline — the SVGs don't
+    /// draw a focus state, so this reuses the tracker's existing values instead of inventing new
+    /// ones. Selection beats the highlighted/attached look, the same way it does there.
+    private var borderColor: NSColor {
+        if isSelected { return AppPalette.dim }
+        if isHighlighted { return AppPalette.activeControlBorder }
+        return ActionBarMetrics.SourceColor.stroke
+    }
+    private var borderWidth: CGFloat { isSelected ? 2 * 1.5 : 1.5 }
+
     var body: some View {
         HStack(alignment: .top, spacing: -ActionBarMetrics.worker.plateOverlap) {
             portrait
             plate.padding(.top, ActionBarMetrics.worker.plateTopInset)
         }
         .contentShape(Rectangle())
-        .overlay {
-            if isSelected {
-                // The tracker's own selection-outline style — the SVGs don't draw a focus state.
-                RoundedRectangle(cornerRadius: Token.Radius.segment)
-                    .strokeBorder(AppPalette.activeControlBorder.swiftUI, lineWidth: 1.5)
-                    .padding(-2)
-            }
-        }
     }
 
     private var portrait: some View {
@@ -96,10 +99,7 @@ struct ActionBarWorkerPillView: View {
                     .frame(width: ActionBarMetrics.worker.portraitSide * 0.615, height: ActionBarMetrics.worker.portraitSide * 0.615)
                     .clipShape(Circle())
             }
-            Circle().strokeBorder(
-                (isHighlighted ? AppPalette.activeControlBorder : ActionBarMetrics.SourceColor.stroke).swiftUI,
-                lineWidth: 1.5
-            )
+            Circle().strokeBorder(borderColor.swiftUI, lineWidth: borderWidth)
         }
         .frame(width: ActionBarMetrics.worker.portraitSide, height: ActionBarMetrics.worker.portraitSide)
         .zIndex(1)
@@ -122,10 +122,7 @@ struct ActionBarWorkerPillView: View {
             .frame(height: ActionBarMetrics.worker.plateHeight)
             .background(
                 plateShape.fill(AppPalette.item.swiftUI)
-                    .overlay(plateShape.strokeBorder(
-                        (isHighlighted ? AppPalette.activeControlBorder : ActionBarMetrics.SourceColor.stroke).swiftUI,
-                        lineWidth: 1.5
-                    ))
+                    .overlay(plateShape.strokeBorder(borderColor.swiftUI, lineWidth: borderWidth))
             )
     }
 }

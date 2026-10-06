@@ -85,9 +85,22 @@ public struct ActionBarWorkerStripState: Equatable {
         return true
     }
 
-    /// Esc: returns focus to the terminal.
+    /// Esc, or any other loss of the strip's keyboard focus: returns focus to the terminal.
     public mutating func blur() {
         isFocused = false
+    }
+
+    /// Enter: resolves which worker (if any) is selected to attach to, and blurs — matching the
+    /// tracker's own activate, which also drops keyboard focus after acting. A worker only comes
+    /// back when the strip is actually focused with a valid selection; otherwise `self` is
+    /// returned unchanged, so a caller can always just assign the result back.
+    public func attachTarget(in workers: [TrackerSession]) -> (sessionID: String?, state: ActionBarWorkerStripState) {
+        guard isFocused, let selectedIndex, workers.indices.contains(selectedIndex) else {
+            return (nil, self)
+        }
+        var blurred = self
+        blurred.blur()
+        return (workers[selectedIndex].id, blurred)
     }
 
     /// h/l: moves the selection by one pill without wrapping, scrolling the window by the

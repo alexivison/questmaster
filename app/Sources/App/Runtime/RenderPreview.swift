@@ -46,6 +46,13 @@ enum RenderPreview {
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: false, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-tracker-hidden.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: false), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-dock-hidden.png")
+        // A narrow window plus a maxed-out dock width: the dock's left edge lands well inside
+        // the footer's centred content, so its bottom-right corner reaches under the footer.
+        renderView(
+            shellWithFooterView(size: CGSize(width: 950, height: 900), trackerVisible: false, dockVisible: true, preferredDockWidth: 900),
+            size: CGSize(width: 950, height: 900),
+            to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
+        )
         for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "standalone-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
@@ -90,15 +97,18 @@ enum RenderPreview {
     }
 
     /// The full window shell with the action bar footer, for judging the window-centred
-    /// placement — and, with `trackerVisible`/`dockVisible`, confirming that placement holds
-    /// with either side card hidden.
+    /// placement — and, with `trackerVisible`/`dockVisible`/`preferredDockWidth`, confirming that
+    /// placement holds with either side card hidden, or with the dock wide enough to reach down
+    /// over the footer's own area.
     @MainActor
-    private static func shellWithFooterView(size: CGSize, trackerVisible: Bool, dockVisible: Bool) -> NSView {
+    private static func shellWithFooterView(size: CGSize, trackerVisible: Bool, dockVisible: Bool, preferredDockWidth: Double? = nil) -> NSView {
         let splitSize = CGSize(width: size.width, height: size.height - ActionBarMetrics.footerHeight)
         let splitView = shellView(size: splitSize) as! MainSplitView
         splitView.trackerVisible = trackerVisible
         splitView.setDockVisible(dockVisible, animated: false)
-        splitView.applyCanonicalLayout()
+        if let preferredDockWidth {
+            splitView.setDockPreferredWidth(preferredDockWidth)
+        }
         let footer = ActionBarShellView()
         footer.update(
             navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockVisible),
@@ -108,6 +118,9 @@ enum RenderPreview {
             highlightedWorkerID: nil,
             dockContentMode: .artifacts
         )
+        // `ShellRootContainerView.layout()` re-runs `splitView.applyCanonicalLayout()` once this
+        // is actually sized (needed for the dock's full-height frame) — happens for real once
+        // `renderView` gives this a frame and shows it.
         return ShellRootContainerView(splitView: splitView, footer: footer)
     }
 

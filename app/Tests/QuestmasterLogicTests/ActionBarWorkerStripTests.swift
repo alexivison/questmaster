@@ -12,6 +12,7 @@ struct ActionBarWorkerStripTests {
         focusSelectsFirstPillAndBlurClearsIt()
         clickingOverflowScrollsByOnePill()
         panelVariantMapsRoleToShape()
+        attachTargetBlursOnSuccessAndLeavesUnfocusedStateAlone()
         print("ActionBarWorkerStripTests: all tests passed")
     }
 
@@ -120,6 +121,19 @@ struct ActionBarWorkerStripTests {
         expect(ActionBarSessionPanelVariant(role: .standalone) == .standalone, "a standalone shows the notched circle")
         expect(ActionBarSessionPanelVariant(role: .worker) == .worker, "a worker shows the plain circle")
         expect(ActionBarSessionPanelVariant(role: nil) == .worker, "no selection reuses the plain circle")
+    }
+
+    private static func attachTargetBlursOnSuccessAndLeavesUnfocusedStateAlone() {
+        let workers = [worker("w1", parentID: "m"), worker("w2", parentID: "m")]
+        let focused = ActionBarWorkerStripState(isFocused: true, selectedIndex: 1, scrollOffset: 0)
+        let (sessionID, afterAttach) = focused.attachTarget(in: workers)
+        expect(sessionID == "w2", "Enter should resolve the selected worker, got \(sessionID ?? "nil")")
+        expect(afterAttach.isFocused == false, "attaching should blur the strip, like the tracker's own activate")
+
+        let unfocused = ActionBarWorkerStripState(isFocused: false, selectedIndex: 0, scrollOffset: 0)
+        let (noTarget, unchanged) = unfocused.attachTarget(in: workers)
+        expect(noTarget == nil, "Enter with no focus should resolve nothing")
+        expect(unchanged == unfocused, "a no-op attachTarget must not mutate the state")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
