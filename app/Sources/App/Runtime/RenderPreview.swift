@@ -38,9 +38,14 @@ enum RenderPreview {
         for fixture in ["master-3", "worker-8-start", "worker-8-middle", "worker-8-end", "standalone", "none"] {
             render(actionBarFooterView(fixture: fixture), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-\(fixture).png")
         }
-        render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.plateZoneHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
+        render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarFooterView(fixture: "worker-8-middle", stripFocused: true), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-strip-focused.png")
-        renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900)), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
+        // No window-centring margin here: this one's meant to overlay directly on
+        // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
+        render(actionBarFooterView(fixture: "master-3"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
+        renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
+        renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: false, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-tracker-hidden.png")
+        renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: false), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-dock-hidden.png")
         for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "standalone-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
@@ -85,14 +90,18 @@ enum RenderPreview {
     }
 
     /// The full window shell with the action bar footer, for judging the window-centred
-    /// placement: tracker and dock both open, footer pinned under all three panes.
+    /// placement — and, with `trackerVisible`/`dockVisible`, confirming that placement holds
+    /// with either side card hidden.
     @MainActor
-    private static func shellWithFooterView(size: CGSize) -> NSView {
+    private static func shellWithFooterView(size: CGSize, trackerVisible: Bool, dockVisible: Bool) -> NSView {
         let splitSize = CGSize(width: size.width, height: size.height - ActionBarMetrics.footerHeight)
         let splitView = shellView(size: splitSize) as! MainSplitView
+        splitView.trackerVisible = trackerVisible
+        splitView.setDockVisible(dockVisible, animated: false)
+        splitView.applyCanonicalLayout()
         let footer = ActionBarShellView()
         footer.update(
-            navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: true, dockVisible: true),
+            navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockVisible),
             session: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
             role: .master,
             workers: actionBarFixtureWorkers(count: 3),

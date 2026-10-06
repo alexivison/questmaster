@@ -18,7 +18,7 @@ struct ActionBarWorkerStripView: View {
     private var trailingOverflow: Int { state.trailingOverflowCount(workerCount: workers.count, visibleCount: visibleCount) }
 
     var body: some View {
-        HStack(spacing: ActionBarMetrics.worker.pillGap) {
+        HStack(spacing: ActionBarMetrics.worker.interPillGap) {
             if workers.isEmpty {
                 EmptyView()
             } else {
@@ -39,8 +39,7 @@ struct ActionBarWorkerStripView: View {
                 }
             }
         }
-        .frame(height: ActionBarMetrics.workerStripHeight, alignment: .leading)
-        .offset(x: ActionBarMetrics.stripZoneX)
+        .frame(height: ActionBarMetrics.workerRowHeight, alignment: .top)
     }
 
     private func overflowPill(count: Int, side: ActionBarWorkerStripSide) -> some View {
@@ -52,6 +51,7 @@ struct ActionBarWorkerStripView: View {
             .background(Capsule().fill(AppPalette.item.swiftUI))
             .overlay(Capsule().strokeBorder(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 1))
             .contentShape(Capsule())
+            .padding(.top, ActionBarMetrics.worker.plateTopInset)
             .onTapGesture { onScroll(side) }
     }
 }
@@ -67,9 +67,9 @@ struct ActionBarWorkerPillView: View {
     }
 
     var body: some View {
-        HStack(spacing: -ActionBarMetrics.worker.portraitSide / 2 + ActionBarMetrics.worker.gap) {
+        HStack(alignment: .top, spacing: -ActionBarMetrics.worker.plateOverlap) {
             portrait
-            plate
+            plate.padding(.top, ActionBarMetrics.worker.plateTopInset)
         }
         .contentShape(Rectangle())
         .overlay {
@@ -105,17 +105,24 @@ struct ActionBarWorkerPillView: View {
         .zIndex(1)
     }
 
+    /// Rounded on the trailing end only — the leading end sits under the overlapping portrait,
+    /// matching the tracked pill plate (`M135 80.5C…H91.5V80.5H135Z`: a flat left edge, round
+    /// right corners), the same shape family as `TrackerWorkerSummaryPill`'s capsule.
+    private var plateShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(bottomTrailingRadius: ActionBarMetrics.worker.plateHeight / 2, topTrailingRadius: ActionBarMetrics.worker.plateHeight / 2)
+    }
+
     private var plate: some View {
         Text(title)
             .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(ActionBarMetrics.SourceColor.title.swiftUI)
+            .foregroundStyle(ActionBarMetrics.SourceColor.pillText.swiftUI)
             .lineLimit(1)
-            .padding(.leading, ActionBarMetrics.worker.portraitSide / 2 - ActionBarMetrics.worker.gap)
+            .padding(.leading, ActionBarMetrics.worker.titleLeadingPadding)
             .padding(.trailing, ActionBarMetrics.worker.titlePadding)
             .frame(height: ActionBarMetrics.worker.plateHeight)
             .background(
-                Capsule().fill(AppPalette.item.swiftUI)
-                    .overlay(Capsule().strokeBorder(
+                plateShape.fill(AppPalette.item.swiftUI)
+                    .overlay(plateShape.strokeBorder(
                         (isHighlighted ? AppPalette.activeControlBorder : ActionBarMetrics.SourceColor.stroke).swiftUI,
                         lineWidth: 1.5
                     ))
