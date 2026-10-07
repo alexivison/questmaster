@@ -8,7 +8,8 @@ struct TerminalCellSnappingTests {
         exactMultipleLeavesNoLeftover()
         remainderBecomesLeftover()
         widthAndHeightSnapIndependently()
-        applyingShiftsTerminalUpAndShrinksTracker()
+        applyingShiftsTerminalUpWithoutTouchingTheTracker()
+        snappedContentHeightAccountsForTheConstantReservation()
         applyingWidensDockByHorizontalLeftoverAndMovesItLeft()
         applyingLeavesLeftoverAtWindowEdgeWhenDockHidden()
         applyingIsANoOpWhenAlreadySnapped()
@@ -55,12 +56,12 @@ struct TerminalCellSnappingTests {
         expect(snapped.verticalLeftover == 3, "vertical leftover mismatch, got \(snapped.verticalLeftover)")
     }
 
-    private static func applyingShiftsTerminalUpAndShrinksTracker() {
+    private static func applyingShiftsTerminalUpWithoutTouchingTheTracker() {
         let layout = ShellSplitLayout(
-            trackerFrame: ShellSplitRect(x: 10, y: 111, width: 280, height: 781),
+            trackerFrame: ShellSplitRect(x: 10, y: 8, width: 280, height: 884),
             terminalFrame: ShellSplitRect(x: 290, y: 103, width: 561, height: 797),
             dockFrame: ShellSplitRect(x: 851, y: 8, width: 661, height: 884),
-            firstDividerFrame: ShellSplitRect(x: 290, y: 111, width: 0, height: 781),
+            firstDividerFrame: ShellSplitRect(x: 290, y: 8, width: 0, height: 884),
             secondDividerFrame: ShellSplitRect(x: 847.5, y: 8, width: 7, height: 884),
             dockWidth: 661
         )
@@ -73,9 +74,24 @@ struct TerminalCellSnappingTests {
         expect(adjusted.terminalFrame.y == 106, "terminal bottom should rise by the leftover, got \(adjusted.terminalFrame.y)")
         expect(adjusted.terminalFrame.maxY == layout.terminalFrame.maxY, "terminal's top edge must not move, got \(adjusted.terminalFrame.maxY)")
 
-        expect(adjusted.trackerFrame.y == 114, "tracker should shift up by the same leftover, got \(adjusted.trackerFrame.y)")
-        expect(adjusted.trackerFrame.height == 778, "tracker should shrink by the same leftover, got \(adjusted.trackerFrame.height)")
-        expect(adjusted.trackerFrame.maxY == layout.trackerFrame.maxY, "tracker's top edge must not move, got \(adjusted.trackerFrame.maxY)")
+        // The tracker is full window height (round 5), independent of the footer — it (and its
+        // divider) must come back completely untouched.
+        expect(adjusted.trackerFrame == layout.trackerFrame, "tracker should be untouched, got \(adjusted.trackerFrame)")
+        expect(adjusted.firstDividerFrame == layout.firstDividerFrame, "first divider should be untouched, got \(adjusted.firstDividerFrame)")
+    }
+
+    private static func snappedContentHeightAccountsForTheConstantReservation() {
+        let cell = TerminalCellMetrics(cellWidth: 8, cellHeight: 18, paddingX: 10, paddingY: 10)
+        // constantReservedHeight 123 (footer + top inset) leaves 797 for the terminal, which is
+        // 43 rows (774) + 20 padding + a 3pt remainder, same as the case above.
+        let snapped = TerminalCellSnapping.snappedContentHeight(contentHeight: 920, constantReservedHeight: 123, cell: cell)
+        expect(snapped == 917, "content height should snap down by the same 3pt remainder, got \(snapped)")
+
+        let alreadySnapped = TerminalCellSnapping.snappedContentHeight(contentHeight: 917, constantReservedHeight: 123, cell: cell)
+        expect(alreadySnapped == 917, "an already-snapped content height should come back unchanged, got \(alreadySnapped)")
+
+        let noCell = TerminalCellSnapping.snappedContentHeight(contentHeight: 920, constantReservedHeight: 123, cell: .unavailable)
+        expect(noCell == 920, "no cell metrics should leave the content height unchanged, got \(noCell)")
     }
 
     private static func applyingWidensDockByHorizontalLeftoverAndMovesItLeft() {
