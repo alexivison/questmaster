@@ -237,6 +237,7 @@ struct TrackerRootView: View {
     private let keyboardBridge: TrackerKeyboardBridge?
     @ObservedObject private var newSessionPresenter: NewSessionSheetPresenter
     @ObservedObject private var destructiveConfirmationPresenter: DestructiveConfirmationPresenter
+    @ObservedObject private var headerAlignment: TrackerHeaderAlignmentModel
 
     @State private var commandState = TrackerCommandState()
     @State private var commandLongPressIsActive = false
@@ -252,6 +253,7 @@ struct TrackerRootView: View {
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
         destructiveConfirmationPresenter: DestructiveConfirmationPresenter,
+        headerAlignment: TrackerHeaderAlignmentModel = TrackerHeaderAlignmentModel(),
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
@@ -260,6 +262,7 @@ struct TrackerRootView: View {
         self.onEffect = onEffect
         _newSessionPresenter = ObservedObject(wrappedValue: newSessionPresenter)
         _destructiveConfirmationPresenter = ObservedObject(wrappedValue: destructiveConfirmationPresenter)
+        _headerAlignment = ObservedObject(wrappedValue: headerAlignment)
         _snapshot = State(initialValue: store.snapshot)
     }
 
@@ -338,7 +341,7 @@ struct TrackerRootView: View {
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, index == 0 ? TrackerListMetrics.firstSectionTopInset : TrackerListMetrics.sectionSpacing)
+                            .padding(.top, index == 0 ? TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight) : TrackerListMetrics.sectionSpacing)
                             .padding(.bottom, index == repos.count - 1 ? TrackerListMetrics.verticalPadding : 0)
                         }
                     }
