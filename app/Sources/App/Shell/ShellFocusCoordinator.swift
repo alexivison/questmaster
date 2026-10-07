@@ -13,7 +13,7 @@ final class ShellFocusCoordinator {
     private let dockView: () -> SwiftUIDockPane?
     private let terminalHost: () -> TerminalPaneHosting?
     private let selectedSessionChip: () -> SelectedSessionChip?
-    private let selectedSessionContext: () -> (role: SessionRoleKind?, workers: [TrackerSession], highlightedWorkerID: String?)
+    private let selectedSessionRole: () -> SessionRoleKind?
     private let updateDockTabs: () -> Void
 
     init(
@@ -27,7 +27,7 @@ final class ShellFocusCoordinator {
         dockView: @escaping () -> SwiftUIDockPane?,
         terminalHost: @escaping () -> TerminalPaneHosting?,
         selectedSessionChip: @escaping () -> SelectedSessionChip?,
-        selectedSessionContext: @escaping () -> (role: SessionRoleKind?, workers: [TrackerSession], highlightedWorkerID: String?),
+        selectedSessionRole: @escaping () -> SessionRoleKind?,
         updateDockTabs: @escaping () -> Void
     ) {
         self.navigation = navigation
@@ -40,7 +40,7 @@ final class ShellFocusCoordinator {
         self.dockView = dockView
         self.terminalHost = terminalHost
         self.selectedSessionChip = selectedSessionChip
-        self.selectedSessionContext = selectedSessionContext
+        self.selectedSessionRole = selectedSessionRole
         self.updateDockTabs = updateDockTabs
     }
 
@@ -87,13 +87,10 @@ final class ShellFocusCoordinator {
         splitView()?.trackerVisible = navigation.trackerVisible
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
         dockShell()?.setRegionActive(navigation.focusedRegion == .dock)
-        let context = selectedSessionContext()
         footerShell()?.update(
             navigation: navigation.state,
             session: selectedSessionChip(),
-            role: context.role,
-            workers: context.workers,
-            highlightedWorkerID: context.highlightedWorkerID,
+            role: selectedSessionRole(),
             dockContentMode: dockView()?.currentMode ?? .artifacts
         )
         updateDockTabs()

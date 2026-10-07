@@ -58,6 +58,7 @@ enum LogicSelfTests {
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
         ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
+        ("testActionBarFooterBottomGapMeasuresFromBarBand", testActionBarFooterBottomGapMeasuresFromBarBand),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1905,13 +1906,30 @@ enum LogicSelfTests {
     }
 
     /// A fractional footer height puts every plate border and the snapped terminal edge on half
-    /// pixels at 1x, which renders blurry — guards the content-height rounding in
-    /// `ActionBarMetrics.footerHeight` against a future edit reintroducing a fractional sum.
+    /// pixels at 1x, which renders blurry — guards `ActionBarMetrics.footerHeight` against a
+    /// future edit reintroducing a fractional sum.
     private static func testActionBarFooterHeightIsIntegral() throws {
         try expect(
             ActionBarMetrics.footerHeight == ActionBarMetrics.footerHeight.rounded(),
             "footerHeight should be a whole point, got \(ActionBarMetrics.footerHeight)"
         )
+    }
+
+    /// The footer's bottom gap is `ShellMetrics.gap` measured from the bar band's bottom edge, and
+    /// every panel variant's outline (shield tip included) stays inside the footer.
+    private static func testActionBarFooterBottomGapMeasuresFromBarBand() throws {
+        try expect(
+            ActionBarMetrics.footerHeight - ActionBarMetrics.barBandBottomEdge == ShellMetrics.gap,
+            "footer bottom gap should be \(ShellMetrics.gap) from the bar band, got \(ActionBarMetrics.footerHeight - ActionBarMetrics.barBandBottomEdge)"
+        )
+        let panels = [ActionBarPlateOutlines.masterPanel, ActionBarPlateOutlines.standalonePanel, ActionBarPlateOutlines.workerPanel, ActionBarPlateOutlines.slotBar]
+        for panel in panels {
+            let bounds = panel.boundingRect
+            try expect(
+                bounds.minY >= 0 && bounds.maxY <= ActionBarMetrics.footerHeight,
+                "plate outline should sit inside the footer, got \(bounds.minY)...\(bounds.maxY) of \(ActionBarMetrics.footerHeight)"
+            )
+        }
     }
 
     private static func settingsSheetModel(

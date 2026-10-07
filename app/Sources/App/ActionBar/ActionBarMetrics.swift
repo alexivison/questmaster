@@ -25,23 +25,27 @@ enum ActionBarMetrics {
     /// value land on a quarter point, which every traced y-coordinate below adds this same shift
     /// to — left unrounded, that puts the whole footer's content off the pixel grid at 1x, not
     /// just the shield. The shield's own distance from the frame's top becomes `topMargin` to
-    /// within half a point instead of exactly, the same trade `footerHeight` above already makes.
+    /// within half a point instead of exactly.
     static let verticalShift: CGFloat = (topMargin - designShieldTopOuterEdge).rounded()
 
-    /// Content (shield top, y 15.25, to worker-pill bottom, y 86 — both already in the shared
-    /// content-row coordinate system the panel variants are aligned into, before `verticalShift`)
-    /// plus `topMargin` and a full `G` margin on the bottom — content rounded UP to a whole point
-    /// first, so the whole sum is integral (a fractional height puts every plate border and the
-    /// snapped terminal edge on half pixels at 1x, which renders blurry). The remainder from that
-    /// rounding goes into the bottom margin, not the top: `verticalShift` (and so the shield's own
-    /// `topMargin` distance from the frame's top) is computed from the unrounded content height,
-    /// untouched by this.
-    static let footerHeight: CGFloat = (86 - designShieldTopOuterEdge).rounded(.up) + topMargin + ShellMetrics.gap
     static let plateWidth: CGFloat = 695
 
     /// The session panel's and slot bar's shared horizontal centreline (both plates' bars are
     /// centred on it, as is the row of slot squares, and the portrait) — design y 41, shifted.
     static let barCenterY: CGFloat = 41 + verticalShift
+
+    /// The bar band: the session panel's and slot bar's shared 40pt outer height (design y 21–61
+    /// before the shift). The master shield, the standalone notches and the slot bar's end
+    /// decorations all reach past it; the band itself is what the footer's margins measure from.
+    static let barBandHeight: CGFloat = 40
+    static var barBandBottomEdge: CGFloat { barCenterY + barBandHeight / 2 }
+
+    /// The band's bottom edge plus a full `G`: the footer's bottom gap is measured from the bar,
+    /// not from the shield's tip (which reaches below the band) or any decoration. Integral
+    /// because `verticalShift` is — a fractional height puts every plate border and the snapped
+    /// terminal edge on half pixels at 1x, which renders blurry. Constant across the master,
+    /// standalone and worker panel variants, which all share the same band.
+    static let footerHeight: CGFloat = barBandBottomEdge + ShellMetrics.gap
 
     static let portraitCenter = CGPoint(x: 41, y: 41 + verticalShift)
     static let portraitRadius: CGFloat = 19.25
@@ -82,76 +86,6 @@ enum ActionBarMetrics {
         return index > slotGapAfterIndex ? base + slotGroupGap : base
     }
 
-    /// The worker strip row: pills start 5pt below the slot bar's own outer bottom edge (y 61).
-    static let workerRowY: CGFloat = 66 + verticalShift
-    static let workerRowHeight: CGFloat = 20
-    /// 5pt past the master shield's own outer edge (border included), measured where the pill row
-    /// overlaps it (y 66–86, i.e. raw SVG y 71–91 before the dx/dy shift into this frame). Derived
-    /// by sampling the one traced curve segment that actually reaches into that range — the shield
-    /// bends back up, away from the row, immediately after — rather than reading a point off it by
-    /// hand. Shared by all three panel variants (master/standalone/worker) so the strip doesn't
-    /// jump when the variant changes, per the review. Rounded to a whole point (the sampled edge
-    /// itself lands on a fraction) — still 5pt from the shield at 1x.
-    static let workerRowStartX: CGFloat = (shieldEdgeAtWorkerRow + 5).rounded()
-
-    /// `action-bar-v2.svg`'s traced master panel: the segment `C58.2328 70.0624 52.8309 72.9423
-    /// 49.0003 75`, starting at `(63.0364, 66)` — raw (pre-shift) coordinates, the same ones
-    /// `ActionBarPlateOutlines.masterPanel` traces. `-8` is that same path's shared `dx` shift.
-    private static let shieldEdgeAtWorkerRow: CGFloat = cubicBezierMaxX(
-        p0: CGPoint(x: 63.0364, y: 66),
-        p1: CGPoint(x: 58.2328, y: 70.0624),
-        p2: CGPoint(x: 52.8309, y: 72.9423),
-        p3: CGPoint(x: 49.0003, y: 75),
-        yRange: 71...91
-    ) - 8
-
-    /// Samples a cubic bezier at fine resolution and returns the maximum x where y falls within
-    /// `yRange` — derives a geometry-dependent constant from a traced curve instead of reading a
-    /// single point off it by hand.
-    private static func cubicBezierMaxX(p0: CGPoint, p1: CGPoint, p2: CGPoint, p3: CGPoint, yRange: ClosedRange<CGFloat>, steps: Int = 2000) -> CGFloat {
-        var maxX: CGFloat = -.infinity
-        for step in 0...steps {
-            let t = CGFloat(step) / CGFloat(steps)
-            let mt = 1 - t
-            let x = mt * mt * mt * p0.x + 3 * mt * mt * t * p1.x + 3 * mt * t * t * p2.x + t * t * t * p3.x
-            let y = mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y
-            if yRange.contains(y), x > maxX {
-                maxX = x
-            }
-        }
-        return maxX
-    }
-
-    static let worker: WorkerPillMetrics = WorkerPillMetrics()
-
-    struct WorkerPillMetrics {
-        let portraitSide: CGFloat = 20
-        let plateHeight: CGFloat = 14
-        /// The plate's top sits a touch below the portrait's own top (matching the traced pill:
-        /// portrait y 66–86, plate y 66.5–80.5).
-        let plateTopInset: CGFloat = 0.5
-        /// The plate's left edge lands on the portrait's own centre, so the portrait covers the
-        /// plate's left half.
-        var plateOverlap: CGFloat { portraitSide / 2 }
-        /// Measured as glyph ink, not box edges: the portrait's outer edge (`portraitSide / 2`
-        /// past the plate's own left edge, which sits on the portrait's centre) to the first
-        /// glyph's ink is 5pt in the source SVG, in both a short and a truncated pill. Our own
-        /// Ghostty-family font carries more built-in left bearing at this size than the source
-        /// font did, so less explicit padding lands the rendered ink at the same 5pt gap — tuned
-        /// against a rendered 3x crop next to the rasterised SVG's own, not computed blind. Kept
-        /// unchanged through the v2 redesign (the brief says the pill's own text spacing didn't
-        /// move); not yet re-verified against the v2 SVG's own ink, since that needs a render.
-        var titleLeadingPadding: CGFloat { portraitSide / 2 + 2 }
-        /// The last glyph's ink to the plate's (or the +N pill's) outer right edge — 6.5pt,
-        /// measured consistently on the +N pill (no portrait to confound it either side). Kept
-        /// unchanged through the v2 redesign for the same reason as `titleLeadingPadding` above.
-        let titlePadding: CGFloat = 6.5
-        /// Gap from one pill's plate to the next pill's portrait, measured at OUTER edges per the
-        /// 5pt-rhythm addendum (one plate's outer right edge at x 121, the next portrait's outer
-        /// left edge at x 126 — replaces the v1 design's 5.5).
-        let interPillGap: CGFloat = 5
-    }
-
     /// Off-palette colours from the SVG, mapped to the nearest existing `AppPalette` token
     /// (by RGB distance) rather than adding new ones.
     enum SourceColor {
@@ -163,8 +97,6 @@ enum ActionBarMetrics {
         static let logo = AppPalette.muted
         /// `#454A50` → `AppPalette.line` (plate/slot/strip stroke).
         static let stroke = AppPalette.line
-        /// `#ADBAC7` → `AppPalette.muted` (the worker pill's title text).
-        static let pillText = AppPalette.muted
     }
 
     /// `action-bar-button.svg`'s slot fills, reusing existing palette tokens.
