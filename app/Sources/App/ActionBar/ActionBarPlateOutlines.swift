@@ -1,35 +1,45 @@
 import SwiftUI
 
-/// Literal outlines traced from the design's own SVGs, per the first review round: the plate
-/// geometry doesn't scale cleanly through `TrackerPlatePaths`' parametric shield math, so these
-/// are copied directly from `action-bar.svg` (the slot bar and the master session panel) and
-/// `session-panel-variants.svg` (the standalone and worker/none session panels), translated only
-/// enough to land each variant's portrait at the same (58, 53) point the master's own sits at —
-/// the panel is otherwise drawn exactly as exported, at 1:1 scale.
+/// Literal outlines traced from the design's own v2 SVGs (the compact redesign, 2026-10-07): the
+/// plate geometry doesn't scale cleanly through `TrackerPlatePaths`' parametric shield math, so
+/// these are copied directly from `action-bar-v2.svg` (the slot bar) and
+/// `session-panel-variants-v2.svg` (the master, standalone and worker/plain session panels),
+/// translated only enough to land each variant's own portrait centre on the shared content row's
+/// centre, `(41, 41)` in each source file's own coordinates — the panel is otherwise drawn exactly
+/// as exported, at 1:1 scale. A further, single `ActionBarMetrics.verticalShift` (applied to every
+/// shape here, same as the slot bar) removes the source files' own Figma frame padding, same as
+/// the v1 design before it.
 enum ActionBarPlateOutlines {
-    /// `action-bar.svg`'s slot bar (a separate plate from the session panel, overlapping it).
+    /// `action-bar-v2.svg`'s slot bar (a separate plate from the session panel, overlapping it) —
+    /// already at the target content-row centreline (y 41), so only the shared vertical shift
+    /// applies.
     static let slotBar = SVGPath.parse("""
-    M686.82 26.75C690.381 29.0212 692.989 29.3892 694.787 29.0791C695.485 28.9588 696.041 28.7389 696.467 28.5088L700.232 46L696.467 63.4902C696.041 63.2602 695.484 63.0412 694.787 62.9209C692.989 62.6108 690.381 62.9788 686.82 65.25H285.18C281.619 62.9788 279.011 62.6108 277.213 62.9209C276.515 63.0412 275.958 63.26 275.532 63.4902L271.767 46L275.532 28.5088C275.958 28.7391 276.515 28.9587 277.213 29.0791C279.011 29.3892 281.619 29.0212 285.18 26.75H686.82Z
+    M660.141 21.75C663.618 24.019 666.171 24.391 667.938 24.0791C668.607 23.9608 669.145 23.7461 669.559 23.5205L673.232 41L669.559 58.4785C669.145 58.253 668.607 58.0391 667.938 57.9209C666.171 57.609 663.618 57.981 660.141 60.25H267.859C264.382 57.981 261.829 57.609 260.062 57.9209C259.392 58.0392 258.854 58.2529 258.44 58.4785L254.767 41L258.44 23.5205C258.854 23.7462 259.392 23.9608 260.062 24.0791C261.829 24.391 264.382 24.019 267.859 21.75H660.141Z
     """, dy: ActionBarMetrics.verticalShift)
 
-    /// `action-bar.svg`'s own session panel (the shield variant) — already in the target frame.
+    /// `session-panel-variants-v2.svg`'s master (shield + tip) panel — its own portrait centre,
+    /// (49, 46), already matches the target x; only the shared vertical shift applies (its own y
+    /// contribution is folded into that same shift, since this panel's own content-row centre is
+    /// also y 41... but its portrait sits 5pt above that, at y 46 → the full vertical shift here
+    /// is `(41 - 46) + ActionBarMetrics.verticalShift`, matching the other two variants' same
+    /// `(41 - theirPortraitY) + verticalShift` pattern below).
     static let masterPanel = SVGPath.parse("""
-    M58.5112 18C58.5112 18 63.0875 18.8205 72.9037 21H305.442C305.442 21 305.651 27.2764 311.219 30.792C316.198 34.3076 318.172 31.7139 318.172 31.7139L321.006 46L318.172 60.2861C318.172 60.2861 316.198 57.6924 311.219 61.208C305.651 64.7236 305.442 71 305.442 71H85.3276C77.9098 81.4104 65.9771 87.8954 58.5092 92C48.6403 86.5758 30.9715 76.9965 26.2338 59.6914C20.3658 38.2543 21.0326 26.4102 21.0326 26.4102C21.0906 26.395 25.6491 25.2069 38.5033 22.2646C52.1543 19.1403 58.4679 18.0077 58.5112 18Z
-    """, dy: ActionBarMetrics.verticalShift)
+    M49.0013 21C49.0013 21 53.7129 21.8245 63.9378 24.1123C67.5043 24.9101 70.2149 25.5338 72.2161 26H291.436C291.436 26 291.645 31.0205 297.213 33.833C302.192 36.6455 304.166 34.5713 304.166 34.5713L307 46L304.166 57.4287C304.166 57.4287 302.192 55.3545 297.213 58.167C291.653 60.9754 291.436 65.9855 291.436 66H63.0364C58.2328 70.0624 52.8309 72.9423 49.0003 75C41.6315 71.0418 28.4381 64.051 24.9007 51.4229C20.5316 35.8236 21.0142 27.1859 21.0169 27.1377C21.0169 27.1377 24.4022 26.2732 34.0618 24.1123C44.2553 21.8322 48.9696 21.0055 49.0013 21Z
+    """, dx: -8, dy: 41 - 46 + ActionBarMetrics.verticalShift)
 
-    /// `session-panel-variants.svg`'s standalone (notched circle) panel, shifted so its own
-    /// portrait centre (56.0092, 144) lands on the master's (58, 53), then by the same vertical
-    /// shift that removes the design's Figma padding.
+    /// `session-panel-variants-v2.svg`'s standalone (notched circle) panel, shifted so its own
+    /// portrait centre (49, 136) lands on the shared content row's (41, 41), then by the same
+    /// vertical shift that removes the source files' Figma padding.
     static let standalonePanel = SVGPath.parse("""
-    M41.9027 112C41.9027 112 41.6886 118.289 36.0023 121.812C30.9186 125.334 28.9027 122.735 28.9027 122.735L27.5697 129.333C25.8793 132.611 24.765 136.159 24.2826 139.823C23.7341 143.99 24.0123 148.223 25.1 152.282C26.1876 156.341 28.0633 160.147 30.6215 163.48C33.1797 166.814 36.3699 169.612 40.0092 171.713C43.6485 173.814 47.666 175.178 51.8324 175.727C55.9988 176.275 60.2323 175.997 64.2914 174.909C68.3504 173.822 72.1558 171.946 75.4896 169.388C78.1656 167.334 80.4948 164.873 82.3969 162.1H303.119C303.119 162.1 303.333 155.811 309.019 152.288C314.08 148.781 316.101 151.341 316.119 151.363L319.012 137.05L316.119 122.735C316.119 122.735 314.103 125.334 309.019 121.812C303.335 118.29 303.119 112.004 303.119 112H41.9027Z
-    """, dx: 58 - 56.0092, dy: 53 - 144 + ActionBarMetrics.verticalShift)
+    M49.0004 111C43.3718 111 38.1779 112.861 33.9994 116H30.0004C30.0004 116 29.849 121.08 27.1068 123C25.1873 124.344 24.0004 124.571 24.0004 124.571L21.0004 136L24.0004 147.429C24.0004 147.429 25.1873 147.656 27.1068 149C29.849 150.92 30.0004 156 30.0004 156H33.9994C38.1779 159.139 43.3718 161 49.0004 161C54.629 161 59.8228 159.139 64.0013 156H292C292.001 155.993 292.153 150.918 294.893 149C296.805 147.662 297.99 147.431 297.999 147.429L301 136L297.999 124.571C297.989 124.569 296.804 124.338 294.893 123C292.151 121.08 292 116 292 116H64.0013C59.8228 112.861 54.629 111 49.0004 111Z
+    """, dx: -8, dy: 41 - 136 + ActionBarMetrics.verticalShift)
 
-    /// `session-panel-variants.svg`'s worker/none (plain circle) panel, shifted so its own
-    /// portrait centre (56.0061, 228) lands on the master's (58, 53), then by the same vertical
-    /// shift that removes the design's Figma padding.
+    /// `session-panel-variants-v2.svg`'s worker/plain (full circle, no notches) panel, shifted so
+    /// its own portrait centre (49, 221) lands on the shared content row's (41, 41), then by the
+    /// same vertical shift that removes the source files' Figma padding.
     static let workerPanel = SVGPath.parse("""
-    M299.006 196C301.767 196 304.006 198.239 304.006 201V241C304.006 243.761 301.767 246 299.006 246H82.4658C76.7059 254.451 67.0043 260 56.0059 260C38.3327 260 24.0059 245.673 24.0059 228C24.0059 210.926 37.3785 196.975 54.2217 196.05V196H299.006Z
-    """, dx: 58 - 56.0061, dy: 53 - 228 + ActionBarMetrics.verticalShift)
+    M49.001 196C54.6296 196 59.8234 197.861 64.002 201H292C294.761 201 297 203.239 297 206V236.001C297 238.762 294.761 241.001 292 241.001H64.002C59.8234 244.14 54.6297 246.001 49.001 246.001C35.1937 246.001 24.0002 234.808 24 221.001C24 207.194 35.1936 196 49.001 196Z
+    """, dx: -8, dy: 41 - 221 + ActionBarMetrics.verticalShift)
 }
 
 /// A minimal absolute-command SVG path-data parser (M/L/H/V/C/Z — the only commands the traced
