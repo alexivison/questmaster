@@ -17,6 +17,7 @@ struct WorkerChatTests {
         messageKeepsParagraphsAndReportMutesItsText()
         onlyFreeTextEntriesAreNarration()
         actionRunCollapsesWithCountsAndNoCommas()
+        lateNarrationSortsBeforeEarlierActionArrival()
         actionRunStaysOpenAcrossOtherWorkersEntries()
         actionRunClosesOnTheSameWorkersNextNonAction()
         timeHeadersFollowTheClockMinuteOfTheLastHeader()
@@ -138,6 +139,30 @@ struct WorkerChatTests {
         let single = makeStore()
         feed(single, [entry(0, "w1", "action", "Bash")])
         expect(segments(single, 0).last?.text == "[Bash]", "a single call should show no count, got \(segments(single, 0))")
+    }
+
+    private static func lateNarrationSortsBeforeEarlierActionArrival() {
+        let store = makeStore()
+        let first = open(store)
+        let followUp = store.receive(
+            WorkerFeedPayload(entries: [
+                entry(1, "w1", "action", "Read"),
+                entry(3, "w1", "action", "Edit"),
+            ], hasMore: ["w1": true]),
+            for: first
+        )
+        expect(followUp != nil, "has_more should request the next page")
+        expect(entryLines(store).count == 1, "adjacent actions should initially collapse into one Cast run")
+        _ = store.receive(
+            WorkerFeedPayload(entries: [entry(2, "w1", "say", "Reading the README.")]),
+            for: followUp!
+        )
+
+        let entries = entryLines(store)
+        expect(entries.count == 3, "expected action, say and action rows, got \(entries.count)")
+        expect(entries[0].segments.dropFirst().map(\.text) == [" Cast ", "[Read]"], "first action should precede the late say")
+        expect(entries[1].segments.last?.text == " Reading the README.", "late say should sort between the already displayed actions")
+        expect(entries[2].segments.dropFirst().map(\.text) == [" Cast ", "[Edit]"], "late say should split the Cast run")
     }
 
     private static func actionRunStaysOpenAcrossOtherWorkersEntries() {

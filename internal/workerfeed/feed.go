@@ -144,9 +144,9 @@ func ReadHistory(root, masterID, workerID, before string, limit int) (HistoryPag
 		return HistoryPage{}, err
 	}
 	page := HistoryPage{MasterID: masterID, WorkerID: workerID, Entries: []Entry{}}
-	pageCandidates := make([]Entry, 0, limit+1)
+	var pageCandidates []Entry
 	for _, worker := range workers {
-		entries, err := readWorkerHistory(root, worker, constraint, limit+1)
+		entries, err := readWorkerHistory(root, worker, constraint)
 		if err != nil {
 			if workerID != "" {
 				return HistoryPage{}, fmt.Errorf("read worker %s history: %w", worker.id, err)
@@ -411,9 +411,9 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 	return allEntries, cursor, used, skipping, nil
 }
 
-func readWorkerHistory(root string, worker worker, before beforeConstraint, limit int) ([]Entry, error) {
+func readWorkerHistory(root string, worker worker, before beforeConstraint) ([]Entry, error) {
 	paths := []string{state.SessionStateLogPath(root, worker.id), state.SessionStateLogPath(root, worker.id) + ".1"}
-	entries := make([]Entry, 0, limit)
+	var entries []Entry
 	for _, path := range paths {
 		file, err := os.Open(path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -427,28 +427,25 @@ func readWorkerHistory(root string, worker worker, before beforeConstraint, limi
 			file.Close()
 			return nil, statErr
 		}
-		page, readErr := readHistoryFile(file, worker, fileIdentity(info), before, limit-len(entries))
+		page, readErr := readHistoryFile(file, worker, fileIdentity(info), before)
 		file.Close()
 		if readErr != nil {
 			return nil, readErr
 		}
 		entries = append(entries, page...)
-		if len(entries) >= limit {
-			break
-		}
 	}
 	return entries, nil
 }
 
-func readHistoryFile(file *os.File, worker worker, fileID string, before beforeConstraint, limit int) ([]Entry, error) {
+func readHistoryFile(file *os.File, worker worker, fileID string, before beforeConstraint) ([]Entry, error) {
 	info, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
 	end := info.Size()
-	entries := make([]Entry, 0, limit)
+	var entries []Entry
 	reverse := reverseHistoryReader{file: file, size: end}
-	for end > 0 && len(entries) < limit {
+	for end > 0 {
 		start, lineEnd, line, err := reverse.previousLine(end)
 		if err != nil {
 			return nil, err
@@ -468,7 +465,7 @@ func readHistoryFile(file *os.File, worker worker, fileID string, before beforeC
 			continue
 		}
 		lineEntries := deriveWorkerEvent(worker, fileID, start, event)
-		for i := len(lineEntries) - 1; i >= 0 && len(entries) < limit; i-- {
+		for i := len(lineEntries) - 1; i >= 0; i-- {
 			entry := lineEntries[i]
 			if before.includes(entry.position) {
 				entries = append(entries, entry)
@@ -613,10 +610,16 @@ func deriveWorkerEvent(worker worker, fileID string, offset int64, event state.S
 		if strings.TrimSpace(text) == "" || !validChatKind(kind) {
 			continue
 		}
+		timestamp := event.Ts
+		if chatTimestamp, ok := fields["chat_timestamp"].(string); ok {
+			if parsed, err := time.Parse(time.RFC3339Nano, chatTimestamp); err == nil && !parsed.IsZero() {
+				timestamp = parsed
+			}
+		}
 		entry := Entry{
-			Timestamp: event.Ts, WorkerID: worker.id, WorkerTitle: worker.title,
+			Timestamp: timestamp, WorkerID: worker.id, WorkerTitle: worker.title,
 			Kind: kind, Text: text,
-			position: entryPosition{timestamp: event.Ts, workerID: worker.id, fileID: fileID, offset: offset, index: i},
+			position: entryPosition{timestamp: timestamp, workerID: worker.id, fileID: fileID, offset: offset, index: i},
 		}
 		if kind == "action" {
 			entry.Summary = event.Activity

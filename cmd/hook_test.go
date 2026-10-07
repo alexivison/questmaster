@@ -317,6 +317,36 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 	}
 }
 
+func TestHookClaudeSayUsesFirstBatchTimestamp(t *testing.T) {
+	r, rec := newTestRunner(t)
+	firstBatchAt := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	now := firstBatchAt
+	r.Now = func() time.Time { return now }
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "m1", "prompt_id": "p1", "index": 0, "delta": "Reading the README.",
+	})
+
+	now = firstBatchAt.Add(time.Second)
+	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{"tool_name": "Read"})
+	now = firstBatchAt.Add(2 * time.Second)
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "m1", "prompt_id": "p1", "index": 1, "final": true, "delta": "",
+	})
+
+	sayEvent := rec.events[len(rec.events)-1]
+	if sayEvent.Ts != now {
+		t.Fatalf("say hook timestamp = %s, want completion time %s", sayEvent.Ts, now)
+	}
+	entries := chatEntries(sayEvent)
+	if len(entries) != 1 {
+		t.Fatalf("say entries = %#v, want one", entries)
+	}
+	got, ok := entries[0]["chat_timestamp"].(time.Time)
+	if !ok || !got.Equal(firstBatchAt) {
+		t.Fatalf("say chat_timestamp = %#v, want first batch time %s", entries[0]["chat_timestamp"], firstBatchAt)
+	}
+}
+
 func TestHookClaudeOutOfOrderDisplayDeltasKeepStateBounded(t *testing.T) {
 	root := t.TempDir()
 	r, _ := newTestRunner(t)
@@ -343,9 +373,8 @@ func TestHookCodexLargeChatEventsStayWithinReaderWindow(t *testing.T) {
 	root := t.TempDir()
 	var rollout strings.Builder
 	for i := 0; i < 300; i++ {
-		rollout.WriteString(`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"`)
-		rollout.WriteString(strings.Repeat("x", 1_000))
-		rollout.WriteString(`"}}}` + "\n")
+		rollout.WriteString(codexCommentaryLine(strings.Repeat("x", 1_000)))
+		rollout.WriteByte('\n')
 	}
 	if err := os.WriteFile(path, []byte(rollout.String()), 0o600); err != nil {
 		t.Fatal(err)
@@ -423,44 +452,95 @@ func TestHookClaudeDoesNotAccumulateLateDisplayAfterStop(t *testing.T) {
 
 func TestReadCodexCommentaryFiltersAndAdvancesOffset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
-	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"Checking layout"}}}`)
-	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"final_answer","text":"Done"}}}`)
+	appendCodexRollout(t, path, codexRolloutLine("commentary", "Checking layout"))
+	appendCodexRollout(t, path, codexRolloutLine("final_answer", "Done"))
 	commentary, offset, _, err := readCodexCommentary(path, 0, false)
 	if err != nil {
 		t.Fatalf("read rollout: %v", err)
 	}
-	if !slices.Equal(commentary, []string{"Checking layout"}) {
-		t.Fatalf("commentary = %q", commentary)
+	if !slices.Equal(codexCommentaryTexts(commentary), []string{"Checking layout"}) {
+		t.Fatalf("commentary = %#v", commentary)
 	}
-	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"Reading code"}}}`)
+	appendCodexRollout(t, path, codexCommentaryLine("Reading code"))
 	commentary, next, _, err := readCodexCommentary(path, offset, false)
 	if err != nil {
 		t.Fatalf("read next rollout chunk: %v", err)
 	}
-	if !slices.Equal(commentary, []string{"Reading code"}) || next <= offset {
-		t.Fatalf("incremental read = %q offset %d, previous %d", commentary, next, offset)
+	if !slices.Equal(codexCommentaryTexts(commentary), []string{"Reading code"}) || next <= offset {
+		t.Fatalf("incremental read = %#v offset %d, previous %d", commentary, next, offset)
 	}
 	commentary, repeated, _, err := readCodexCommentary(path, next, false)
 	if err != nil || len(commentary) != 0 || repeated != next {
-		t.Fatalf("repeat read = %q offset %d err %v", commentary, repeated, err)
+		t.Fatalf("repeat read = %#v offset %d err %v", commentary, repeated, err)
+	}
+}
+
+func TestReadCodexCommentaryRealRolloutFixture(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "real-rollout.jsonl")
+	data, err := os.ReadFile("testdata/codex_real_rollout_trimmed.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commentary, _, _, err := readCodexCommentary(path, 0, false)
+	if err != nil {
+		t.Fatalf("read real rollout: %v", err)
+	}
+	want := []string{
+		"I’ll read `README.md` to identify the project’s purpose.",
+		"I’ll list the immediate package directories under `internal/` and count them.",
+		"I’ll read `cmd/root.go` to see what the root command configures.",
+		"I’ll send the requested two-sentence findings to the master.",
+	}
+	if !slices.Equal(codexCommentaryTexts(commentary), want) {
+		t.Fatalf("commentary = %#v, want %#v", codexCommentaryTexts(commentary), want)
+	}
+	if got, want := commentary[0].timestamp, time.UnixMilli(1791378229960).UTC(); !got.Equal(want) {
+		t.Fatalf("first commentary timestamp = %s, want completed_at_ms %s", got, want)
+	}
+}
+
+func TestHookCodexRealRolloutUsesRecordTimestamps(t *testing.T) {
+	path := filepath.Join("testdata", "codex_real_rollout_trimmed.jsonl")
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "codex", "tool_start", "qm-codex", map[string]interface{}{"transcript_path": path})
+
+	var sayEntries []map[string]interface{}
+	for _, entry := range chatEntries(rec.events[len(rec.events)-1]) {
+		if entry["chat_kind"] == "say" {
+			sayEntries = append(sayEntries, entry)
+		}
+	}
+	if len(sayEntries) != 4 {
+		t.Fatalf("say entries = %d, want four commentary records", len(sayEntries))
+	}
+	got, ok := sayEntries[0]["chat_timestamp"].(time.Time)
+	if !ok || !got.Equal(time.UnixMilli(1791378229960).UTC()) {
+		t.Fatalf("first say timestamp = %#v, want completed_at_ms 1791378229960", sayEntries[0]["chat_timestamp"])
+	}
+}
+
+func TestReadCodexCommentaryJoinsTextParts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	appendCodexRollout(t, path, codexRolloutLineParts("commentary", "Read ", "README.md"))
+	commentary, _, _, err := readCodexCommentary(path, 0, false)
+	if err != nil || !slices.Equal(codexCommentaryTexts(commentary), []string{"Read README.md"}) {
+		t.Fatalf("joined commentary = %#v, err %v", codexCommentaryTexts(commentary), err)
 	}
 }
 
 func TestReadCodexCommentaryLongLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
-	line, err := json.Marshal(map[string]interface{}{"type": "event_msg", "payload": map[string]interface{}{
-		"type": "item_completed", "item": map[string]interface{}{"type": "AgentMessage", "phase": "commentary", "text": strings.Repeat("x", 100_000)},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	line := []byte(codexCommentaryLine(strings.Repeat("x", 100_000)))
 	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	commentary, offset, _, err := readCodexCommentary(path, 0, false)
 	gotTextLen := 0
 	if len(commentary) == 1 {
-		gotTextLen = len(commentary[0])
+		gotTextLen = len(commentary[0].text)
 	}
 	if err != nil || len(commentary) != 1 || gotTextLen != 100_000 || offset != int64(len(line)+1) {
 		t.Fatalf("long line read = %d entries/%d chars offset=%d err=%v", len(commentary), gotTextLen, offset, err)
@@ -469,18 +549,18 @@ func TestReadCodexCommentaryLongLine(t *testing.T) {
 
 func TestReadCodexCommentarySkipsOversizedLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
-	valid := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"after oversized line"}}}`
+	valid := codexCommentaryLine("after oversized line")
 	contents := append([]byte(strings.Repeat("x", codexRolloutReadLimit+100)+"\n"), []byte(valid+"\n")...)
 	if err := os.WriteFile(path, contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	commentary, offset, skipping, err := readCodexCommentary(path, 0, false)
 	if err != nil || len(commentary) != 0 || !skipping || offset != codexRolloutReadLimit {
-		t.Fatalf("first oversized read = %q offset=%d skipping=%t err=%v", commentary, offset, skipping, err)
+		t.Fatalf("first oversized read = %#v offset=%d skipping=%t err=%v", commentary, offset, skipping, err)
 	}
 	commentary, offset, skipping, err = readCodexCommentary(path, offset, skipping)
-	if err != nil || !slices.Equal(commentary, []string{"after oversized line"}) || skipping || offset != int64(len(contents)) {
-		t.Fatalf("oversized continuation = %q offset=%d skipping=%t err=%v", commentary, offset, skipping, err)
+	if err != nil || !slices.Equal(codexCommentaryTexts(commentary), []string{"after oversized line"}) || skipping || offset != int64(len(contents)) {
+		t.Fatalf("oversized continuation = %#v offset=%d skipping=%t err=%v", commentary, offset, skipping, err)
 	}
 }
 
@@ -488,10 +568,10 @@ func TestHookCodexRolloutPathChangeAndSubagentExclusion(t *testing.T) {
 	first := filepath.Join(t.TempDir(), "first.jsonl")
 	second := filepath.Join(t.TempDir(), "second.jsonl")
 	child := filepath.Join(t.TempDir(), "child.jsonl")
-	appendCodexRollout(t, first, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"old"}}}`)
-	appendCodexRollout(t, second, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"new parent rollout"}}}`)
-	appendCodexRollout(t, second, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"another narration"}}}`)
-	appendCodexRollout(t, child, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"child text"}}}`)
+	appendCodexRollout(t, first, codexCommentaryLine("old"))
+	appendCodexRollout(t, second, codexCommentaryLine("new parent rollout"))
+	appendCodexRollout(t, second, codexCommentaryLine("another narration"))
+	appendCodexRollout(t, child, codexCommentaryLine("child text"))
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
 		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: first, CodexTranscriptOffset: 10_000},
@@ -519,8 +599,8 @@ func TestHookCodexRolloutPathChangeAndSubagentExclusion(t *testing.T) {
 
 func TestHookCodexRetriesWhenRolloutOffsetChangesDuringRead(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
-	first := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"already consumed"}}}`
-	second := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"appended during overlap"}}}`
+	first := codexCommentaryLine("already consumed")
+	second := codexCommentaryLine("appended during overlap")
 	appendCodexRollout(t, path, first)
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
@@ -561,9 +641,7 @@ func TestHookCodexRetriesWhenRolloutOffsetChangesDuringRead(t *testing.T) {
 
 func TestHookCodexStopCatchesUpAfterRepeatedRolloutConflicts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
-	rolloutLine := func(text string) string {
-		return `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"` + text + `"}}}`
-	}
+	rolloutLine := codexCommentaryLine
 	appendCodexRollout(t, path, rolloutLine("seed"))
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
@@ -623,13 +701,13 @@ func TestHookCodexMissingAndRotatedRollout(t *testing.T) {
 	if rec.lastState.Panes["primary"].CodexTranscriptPath != path {
 		t.Fatalf("missing rollout path = %q", rec.lastState.Panes["primary"].CodexTranscriptPath)
 	}
-	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"first"}}}`)
+	appendCodexRollout(t, path, codexCommentaryLine("first"))
 	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
 	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "first" {
 		t.Fatalf("first rollout narration = %q", got)
 	}
 	oldOffset := rec.lastState.Panes["primary"].CodexTranscriptOffset
-	short := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"new"}}}` + "\n"
+	short := codexCommentaryLine("new") + "\n"
 	if err := os.WriteFile(path, []byte(short), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -655,6 +733,46 @@ func appendCodexRollout(t *testing.T, path, line string) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func codexCommentaryLine(text string) string {
+	return codexRolloutLine("commentary", text)
+}
+
+func codexRolloutLine(phase, text string) string {
+	return codexRolloutLineParts(phase, text)
+}
+
+func codexRolloutLineParts(phase string, parts ...string) string {
+	content := make([]map[string]string, len(parts))
+	for i, text := range parts {
+		content[i] = map[string]string{"type": "Text", "text": text}
+	}
+	line, err := json.Marshal(map[string]interface{}{
+		"timestamp": "2026-10-07T13:03:49.961Z",
+		"ordinal":   11,
+		"type":      "event_msg",
+		"payload": map[string]interface{}{
+			"type":            "item_completed",
+			"thread_id":       "thread_123",
+			"turn_id":         "turn_123",
+			"item":            map[string]interface{}{"type": "AgentMessage", "id": "msg_123", "content": content, "phase": phase},
+			"started_at_ms":   int64(1791378229501),
+			"completed_at_ms": int64(1791378229960),
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return string(line)
+}
+
+func codexCommentaryTexts(entries []codexCommentaryEntry) []string {
+	texts := make([]string, len(entries))
+	for i, entry := range entries {
+		texts[i] = entry.text
+	}
+	return texts
 }
 
 func TestHookClaudeTaskNotificationDoesNotExposePrompt(t *testing.T) {
@@ -1266,28 +1384,39 @@ func TestHookClaudeSubagentToolEventRecoversParentStateFromIdle(t *testing.T) {
 	}
 }
 
-func TestHookClaudeSubagentStopUpdatesActivityOnly(t *testing.T) {
+func TestHookClaudeSubagentStopDoesNotChangePane(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", LastKind: "PreToolUse"},
+			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse"},
 		},
 	}
 	runHookWithStdin(r, "claude", "subagent_stop", "qm-abc", map[string]interface{}{
-		"agent_id": "task-42",
-		"result":   "Reviewed 12 files.\nDetails follow…",
+		"agent_id":   "task-42",
+		"agent_type": "general-purpose",
+		"result":     "Reviewed 12 files.\nDetails follow…",
 	})
 	pane := rec.lastState.Panes["primary"]
 	if pane.State != "working" {
 		t.Errorf("subagent_stop should never change State, got %q", pane.State)
 	}
-	if pane.Activity != "Subagent: Reviewed 12 files." {
-		t.Errorf("subagent_stop activity: %q", pane.Activity)
+	if pane.Activity != "Edit: foo.go" {
+		t.Errorf("subagent_stop changed Activity: %q", pane.Activity)
+	}
+	if pane.Tool != "Edit" {
+		t.Errorf("subagent_stop changed Tool: %q", pane.Tool)
 	}
 	if pane.LastKind != "SubagentStop" {
 		t.Errorf("subagent_stop LastKind: %q", pane.LastKind)
+	}
+	event := rec.events[len(rec.events)-1]
+	if event.AgentType != "general-purpose" {
+		t.Errorf("subagent_stop agent_type = %q", event.AgentType)
+	}
+	if got := event.Fields["subagent_result"]; got != "Reviewed 12 files.\nDetails follow…" {
+		t.Errorf("subagent_stop result field = %#v", got)
 	}
 }
 
