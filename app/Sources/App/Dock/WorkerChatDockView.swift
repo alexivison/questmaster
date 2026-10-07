@@ -12,6 +12,8 @@ enum WorkerChatMetrics {
     static let headerGap: CGFloat = 8
     static let logoColumnWidth: CGFloat = 20
     static let logoSide: CGFloat = 15
+    /// Display cap on a message, say or report row; the full text stays in the store.
+    static let maxRowLines = 4
 
     /// SwiftUI sizes a text line at the font's ceiled height (JetBrains Mono 12: 15.84 → 16). Any
     /// shortfall to `lineHeight` (a smaller fallback font) is added between wrapped lines and
@@ -105,38 +107,96 @@ struct WorkerChatDockView: View {
     }
 }
 
+/// A scrolling feed that keeps its bottom edge in view while the user stays at the bottom. The
+/// rows sit in a plain VStack so their wrapped heights are exact (a lazy stack estimates them and
+/// drifts off the bottom as lines arrive), and `WorkerChatBottomFollower` does the pinning.
 struct WorkerChatFeedView: View {
     let lines: [WorkerChatLine]
-    @State private var isAtBottom = true
-
-    private static let bottomID = "worker-chat-bottom"
 
     var body: some View {
-        ScrollViewReader { proxy in
+        GeometryReader { viewport in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     WorkerChatRows(lines: lines)
-                    bottomSentinel
                 }
                 .padding(WorkerChatMetrics.inset)
+                .frame(minHeight: viewport.size.height, alignment: .bottom)
+                .background(WorkerChatBottomFollower())
             }
             .scrollIndicators(.hidden)
-            .defaultScrollAnchor(.bottom)
-            .onChange(of: lines) { _, _ in
-                guard isAtBottom else {
-                    return
-                }
-                proxy.scrollTo(Self.bottomID, anchor: .bottom)
-            }
         }
     }
+}
 
-    private var bottomSentinel: some View {
-        Color.clear
-            .frame(height: 1)
-            .id(Self.bottomID)
-            .onAppear { isAtBottom = true }
-            .onDisappear { isAtBottom = false }
+/// Pins the enclosing scroll view to its bottom whenever the content resizes, until the user
+/// scrolls above the bottom; scrolling back down (or `G`) resumes following. Observes the clip and
+/// document views directly, so mouse, trackpad and key scrolling all count, with no per-frame work.
+private struct WorkerChatBottomFollower: NSViewRepresentable {
+    func makeNSView(context: Context) -> WorkerChatBottomFollowerView {
+        WorkerChatBottomFollowerView()
+    }
+
+    func updateNSView(_ view: WorkerChatBottomFollowerView, context: Context) {}
+}
+
+private final class WorkerChatBottomFollowerView: NSView {
+    private var isFollowing = true
+    private var lastOffset: CGFloat?
+    private var observers: [NSObjectProtocol] = []
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        guard window != nil,
+              let scrollView = enclosingScrollView,
+              let documentView = scrollView.documentView else {
+            return
+        }
+        let clipView = scrollView.contentView
+        clipView.postsBoundsChangedNotifications = true
+        documentView.postsFrameChangedNotifications = true
+        observers = [
+            NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clipView, queue: .main) { [weak self, weak scrollView] _ in
+                MainActor.assumeIsolated {
+                    if let scrollView { self?.scrolled(scrollView) }
+                }
+            },
+            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: documentView, queue: .main) { [weak self, weak scrollView] _ in
+                MainActor.assumeIsolated {
+                    if let scrollView { self?.contentResized(scrollView) }
+                }
+            },
+        ]
+        contentResized(scrollView)
+    }
+
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    private func scrolled(_ scrollView: NSScrollView) {
+        let clipView = scrollView.contentView
+        guard clipView.bounds.origin.y != lastOffset, let documentView = scrollView.documentView else {
+            return
+        }
+        lastOffset = clipView.bounds.origin.y
+        isFollowing = WorkerChatScroll.isAtBottom(
+            offset: clipView.bounds.origin.y,
+            viewportHeight: clipView.bounds.height,
+            contentHeight: documentView.bounds.height
+        )
+    }
+
+    private func contentResized(_ scrollView: NSScrollView) {
+        let clipView = scrollView.contentView
+        guard isFollowing,
+              let documentView = scrollView.documentView,
+              let bottom = WorkerChatScroll.bottomOffset(viewportHeight: clipView.bounds.height, contentHeight: documentView.bounds.height) else {
+            return
+        }
+        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: bottom))
+        scrollView.reflectScrolledClipView(clipView)
     }
 }
 
@@ -179,6 +239,7 @@ private struct WorkerChatLineView: View {
                 logo(agent: agent)
                     .frame(width: WorkerChatMetrics.logoColumnWidth, height: WorkerChatMetrics.logoSide, alignment: .leading)
                 text(for: segments)
+                    .lineLimit(line.isNarration ? WorkerChatMetrics.maxRowLines : nil)
                     .lineSpacing(WorkerChatMetrics.lineSlack)
                     .padding(.bottom, WorkerChatMetrics.lineSlack)
                     .frame(maxWidth: .infinity, alignment: .leading)

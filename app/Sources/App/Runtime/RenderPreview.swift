@@ -41,6 +41,8 @@ enum RenderPreview {
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/worker-chat.png")
+        render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.compactWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
+        render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.compactWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
         render(actionBarFooterView(fixture: "master"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
@@ -148,9 +150,8 @@ enum RenderPreview {
         )
     }
 
-    /// The chat feed's rows (static, so the off-screen renderer sees them all) over the dock's panel fill.
     @MainActor
-    private static func workerChatView() -> some View {
+    private static func workerChatStore(rounds: Int = 0, entryLimit: Int? = nil) -> (WorkerChatStore, WorkerFeedRequest?) {
         let store = WorkerChatStore()
         let tracker = [
             TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
@@ -159,10 +160,7 @@ enum RenderPreview {
             TrackerSession(id: "w3", title: "A worker title that is far too long", repoName: "Repo", agent: "pi", role: "worker", parentID: "m"),
         ]
         let request = store.sync(selectedSessionID: "m", sessions: tracker, isVisible: true)
-        func entry(_ minute: Int, _ second: Int, _ worker: String, _ kind: String, _ text: String) -> WorkerFeedEntry {
-            WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
-        }
-        let payload = WorkerFeedPayload(entries: [
+        var entries = [
             entry(20, 0, "w1", "status", "working"),
             entry(20, 5, "w1", "say", "Understood. I will start by looking at the ticket and the related files."),
             entry(20, 9, "w2", "status", "working"),
@@ -173,13 +171,39 @@ enum RenderPreview {
             entry(31, 2, "w2", "report", "The fix is in and the tests pass."),
             entry(31, 3, "w2", "status", "done"),
             entry(31, 9, "w3", "status", "blocked"),
-        ])
-        if let request {
-            _ = store.receive(payload, for: request)
+        ]
+        for round in 0..<rounds {
+            entries.append(entry(40 + round, 1, "w2", "say", "Round \(round): a long narration line that wraps across several rows of the dock so the feed has to measure every wrapped row correctly."))
         }
+        if let entryLimit {
+            entries = Array(entries.prefix(entryLimit))
+        }
+        if let request {
+            _ = store.receive(WorkerFeedPayload(entries: entries), for: request)
+        }
+        return (store, request)
+    }
+
+    private static func entry(_ minute: Int, _ second: Int, _ worker: String, _ kind: String, _ text: String) -> WorkerFeedEntry {
+        WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
+    }
+
+    /// The chat feed's rows (static, so the off-screen renderer sees them all) over the dock's panel fill.
+    @MainActor
+    private static func workerChatView() -> some View {
+        let (store, _) = workerChatStore()
         return VStack(alignment: .leading, spacing: 0) { WorkerChatRows(lines: store.lines) }
             .padding(WorkerChatMetrics.inset)
             .frame(maxHeight: .infinity, alignment: .top)
+            .frame(width: DockWidthPreference.compactWidth)
+            .background(AppPalette.panel.swiftUI)
+    }
+
+    /// The real scrolling feed at the dock's width, for checking the bottom anchor.
+    @MainActor
+    private static func workerChatFeedView(rounds: Int, entryLimit: Int? = nil) -> some View {
+        let (store, _) = workerChatStore(rounds: rounds, entryLimit: entryLimit)
+        return WorkerChatFeedView(lines: store.lines)
             .frame(width: DockWidthPreference.compactWidth)
             .background(AppPalette.panel.swiftUI)
     }

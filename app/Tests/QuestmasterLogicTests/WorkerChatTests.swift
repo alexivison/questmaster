@@ -15,6 +15,7 @@ struct WorkerChatTests {
         statusLinesMuteTheVerbAndColourTheTag()
         idleAndUnknownEntriesAreNotShown()
         messageKeepsParagraphsAndReportMutesItsText()
+        onlyFreeTextEntriesAreNarration()
         actionRunCollapsesWithCountsAndNoCommas()
         actionRunStaysOpenAcrossOtherWorkersEntries()
         actionRunClosesOnTheSameWorkersNextNonAction()
@@ -94,6 +95,23 @@ struct WorkerChatTests {
             ],
             "report line mismatch: \(segments(store, 1))"
         )
+    }
+
+    private static func onlyFreeTextEntriesAreNarration() {
+        let store = makeStore()
+        feed(store, [
+            entry(0, "w1", "status", "working"),
+            entry(1, "w1", "action", "Bash"),
+            entry(2, "w1", "say", "Looking."),
+            entry(3, "w1", "message", "Hello."),
+            entry(4, "w1", "report", "Done."),
+        ])
+        let flags = store.lines.filter { line in
+            if case .entry = line.content { return true }
+            return false
+        }.map(\.isNarration)
+        expect(flags == [false, false, true, true, true], "only say, message and report should be narration, got \(flags)")
+        expect(store.lines.first.map { !$0.isNarration } == true, "time headers are not narration")
     }
 
     private static func actionRunCollapsesWithCountsAndNoCommas() {
