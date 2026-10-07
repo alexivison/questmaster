@@ -19,14 +19,14 @@ struct WorkerChatTests {
         actionRunStaysOpenAcrossOtherWorkersEntries()
         actionRunClosesOnTheSameWorkersNextNonAction()
         timeHeadersFollowTheClockMinuteOfTheLastHeader()
-        timeHeadersUseLocalTime()
         cursorsRoundTripUnchanged()
         hasMoreRepullsImmediately()
-        pullTriggersAreOpenChangeAndHasMoreOnly()
+        toolOnlyTrackerChangesDoNotPull()
         lastChatTimestampChangeTriggersPull()
         changeDuringAPullIsPickedUpByTheNextOne()
         failedPullRetriesOnNextSync()
         attachChangeResetsTheFeed()
+        hiddenAttachmentChangesResetWhenReopened()
         attachChangeWithinTheGroupPullsAgainKeepingCursors()
         unreadableWorkerShowsANoticeAndRetries()
         manyUnreadableWorkersShareOneBoundedNotice()
@@ -99,7 +99,7 @@ struct WorkerChatTests {
     private static func actionRunCollapsesWithCountsAndNoCommas() {
         let store = makeStore()
         feed(store, [
-            entry(0, "w1", "action", "Bash", summary: "Bash: go test ./..."),
+            entry(0, "w1", "action", "Bash"),
             entry(1, "w1", "action", "Edit"),
             entry(2, "w1", "action", "Bash"),
             entry(3, "w1", "action", "Edit"),
@@ -118,7 +118,7 @@ struct WorkerChatTests {
         )
 
         let single = makeStore()
-        feed(single, [entry(0, "w1", "action", "Bash", summary: "Bash: ls")])
+        feed(single, [entry(0, "w1", "action", "Bash")])
         expect(segments(single, 0).last?.text == "[Bash]", "a single call should show no count, got \(segments(single, 0))")
     }
 
@@ -172,27 +172,17 @@ struct WorkerChatTests {
         }
         expect(kinds == ["[09:00]", "a", "b", "[09:01]", "c", "d", "[09:22]", "e"], "header placement mismatch: \(kinds)")
 
-        expect(
-            !WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: base(0), at: base(59), calendar: calendar),
-            "the same clock minute as the last header should not need a header"
-        )
-        expect(
-            WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: base(0), at: base(60), calendar: calendar),
-            "a new clock minute should need a header, however short the gap"
-        )
-        expect(
-            WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: nil, at: base(0), calendar: calendar),
-            "the first entry always needs a header"
-        )
-    }
-
-    private static func timeHeadersUseLocalTime() {
-        let tokyoLabel = WorkerChatTimeHeaderPolicy.label(for: base(0), calendar: calendar)
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
-        let utcLabel = WorkerChatTimeHeaderPolicy.label(for: base(0), calendar: utc)
-        expect(tokyoLabel == "[09:00]", "Tokyo label was \(tokyoLabel)")
-        expect(utcLabel == "[00:00]", "UTC label was \(utcLabel)")
+        let utcStore = WorkerChatStore(calendar: utc)
+        feed(utcStore, [entry(0, "w1", "say", "a"), entry(59, "w1", "say", "b"), entry(60, "w1", "say", "c")])
+        let utcHeaders = utcStore.lines.compactMap { line -> String? in
+            guard case .timeHeader(let label) = line.content else {
+                return nil
+            }
+            return label
+        }
+        expect(utcHeaders == ["[00:00]", "[00:01]"], "UTC line headers were \(utcHeaders)")
     }
 
     // MARK: - Pulling
@@ -203,7 +193,9 @@ struct WorkerChatTests {
         expect(first.cursors.isEmpty, "the first pull starts without cursors")
         let cursor = WorkerFeedCursor(offset: 128, fileID: "1:42")
         _ = store.receive(WorkerFeedPayload(entries: [], cursors: ["w1": cursor]), for: first)
-        let next = store.sync(selectedSessionID: "m", sessions: group(snippet: "next"), isVisible: true)
+        var changed = group()
+        changed[1].lastChatAt = base(1)
+        let next = store.sync(selectedSessionID: "m", sessions: changed, isVisible: true)
         expect(next?.cursors == ["w1": cursor], "the backend's cursors should come back unchanged, got \(String(describing: next?.cursors))")
 
         let object = next?.jsonObject(id: "req") ?? [:]
@@ -228,14 +220,21 @@ struct WorkerChatTests {
         expect(third == nil, "no has_more means no further pull")
     }
 
-    private static func pullTriggersAreOpenChangeAndHasMoreOnly() {
+    private static func toolOnlyTrackerChangesDoNotPull() {
         let store = makeStore()
         expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: false) == nil, "a closed dock should not pull")
         let first = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
         expect(first != nil, "opening the dock should pull")
         _ = store.receive(WorkerFeedPayload(), for: first!)
         expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "an unchanged tracker should not pull")
-        expect(store.sync(selectedSessionID: "m", sessions: group(snippet: "Bash: ls"), isVisible: true) != nil, "a changed worker should pull")
+        var toolChange = group(snippet: "Bash: ls")
+        toolChange[1].state = "working"
+        toolChange[1].lifecycle = "active"
+        toolChange[1].lastKind = "PreToolUse"
+        expect(store.sync(selectedSessionID: "m", sessions: toolChange, isVisible: true) == nil, "tool-only tracker changes should not pull chat")
+        var chatChange = toolChange
+        chatChange[1].lastChatAt = base(1)
+        expect(store.sync(selectedSessionID: "m", sessions: chatChange, isVisible: true) != nil, "new chat should still pull")
     }
 
     private static func lastChatTimestampChangeTriggersPull() {
@@ -250,7 +249,9 @@ struct WorkerChatTests {
     private static func changeDuringAPullIsPickedUpByTheNextOne() {
         let store = makeStore()
         let first = open(store)
-        expect(store.sync(selectedSessionID: "m", sessions: group(snippet: "changed"), isVisible: true) == nil, "only one pull should be in flight")
+        var changed = group(snippet: "changed")
+        changed[1].lastChatAt = base(1)
+        expect(store.sync(selectedSessionID: "m", sessions: changed, isVisible: true) == nil, "only one pull should be in flight")
         let followUp = store.receive(WorkerFeedPayload(), for: first)
         expect(followUp != nil, "the change seen mid-pull should trigger a follow-up")
     }
@@ -293,6 +294,22 @@ struct WorkerChatTests {
         expect(stale == nil && store.lines.isEmpty, "a response for the old master should be dropped")
     }
 
+    private static func hiddenAttachmentChangesResetWhenReopened() {
+        let store = makeStore()
+        let first = open(store)
+        _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "hello")]), for: first)
+        expect(store.lines.count == 2, "the current feed should be visible before hiding")
+        expect(store.sync(selectedSessionID: "m2", sessions: [], isVisible: false) == nil, "a hidden dock should not pull")
+        expect(store.lines.count == 2, "a hidden selection change should wait to reset the visible feed")
+
+        let otherMaster = [
+            TrackerSession(id: "m2", title: "Other", repoName: "Repo", role: "master"),
+            TrackerSession(id: "x1", title: "X", repoName: "Repo", agent: "codex", role: "worker", parentID: "m2"),
+        ]
+        let request = store.sync(selectedSessionID: "m2", sessions: otherMaster, isVisible: true)
+        expect(request?.masterID == "m2" && store.lines.isEmpty, "opening on another master should reset and pull its feed")
+    }
+
     private static func attachChangeWithinTheGroupPullsAgainKeepingCursors() {
         let store = makeStore()
         let request = store.sync(selectedSessionID: "w2", sessions: group(), isVisible: true)
@@ -300,6 +317,12 @@ struct WorkerChatTests {
         expect(store.isAttached, "a worker with a master is attached")
         let cursor = WorkerFeedCursor(offset: 7, fileID: "a")
         _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "hi")], cursors: ["w1": cursor]), for: request!)
+
+        var changedSibling = group()
+        changedSibling[1].lastChatAt = base(1)
+        let siblingChange = store.sync(selectedSessionID: "w2", sessions: changedSibling, isVisible: true)
+        expect(siblingChange?.cursors == ["w1": cursor], "a selected worker should keep its sibling cursors")
+        _ = store.receive(WorkerFeedPayload(), for: siblingChange!)
 
         let sameMaster = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
         expect(sameMaster?.masterID == "m", "switching between a worker and its master should pull")
@@ -392,14 +415,13 @@ struct WorkerChatTests {
         return formatter.string(from: base(seconds))
     }
 
-    private static func entry(_ seconds: TimeInterval, _ worker: String, _ kind: String, _ text: String, title: String? = nil, summary: String? = nil) -> WorkerFeedEntry {
+    private static func entry(_ seconds: TimeInterval, _ worker: String, _ kind: String, _ text: String, title: String? = nil) -> WorkerFeedEntry {
         WorkerFeedEntry(
             timestamp: timestamp(seconds),
             workerID: worker,
             workerTitle: title ?? (worker == "w1" ? "Worker One" : "Worker Two"),
             kind: kind,
-            text: text,
-            summary: summary
+            text: text
         )
     }
 

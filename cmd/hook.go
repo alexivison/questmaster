@@ -61,7 +61,7 @@ type HookRunner struct {
 	// always appends ev, then conditionally writes state.json when mutate
 	// returns true. Hot-path handlers use this instead of an AppendEvent +
 	// Update pair to take one lock per event instead of two.
-	UpdateAndLog func(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) error
+	UpdateAndLog func(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error
 
 	// UpdateAndLogEvents applies and logs a group of related hook events under
 	// one state lock.
@@ -93,7 +93,7 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		LoadState:          state.LoadSessionState,
 		Update:             state.UpdateSessionState,
 		AppendEvent:        state.AppendStateEvent,
-		UpdateAndLog:       state.UpdateAndLog,
+		UpdateAndLog:       state.UpdateAndLogWithEvents,
 		UpdateAndLogEvents: state.UpdateAndLogBatch,
 	}
 }
@@ -109,19 +109,106 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 // It returns the append and update errors separately so callers can keep
 // their agent-specific stderr messages.
 func (r *HookRunner) updateAndLog(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
+	var overflowEvents []*state.StateEvent
+	apply := func(ss *state.SessionState) bool {
+		changed := mutate(ss)
+		overflowEvents = splitChatEvent(ev)
+		return changed
+	}
+	appendOverflow := func() error {
+		if len(overflowEvents) == 0 {
+			return nil
+		}
+		if r.UpdateAndLogEvents != nil {
+			return r.UpdateAndLogEvents(sessionID, overflowEvents, func(*state.SessionState) bool { return false })
+		}
+		if r.AppendEvent != nil {
+			var err error
+			for _, event := range overflowEvents {
+				err = errors.Join(err, r.AppendEvent(sessionID, *event))
+			}
+			return err
+		}
+		return nil
+	}
 	if r.UpdateAndLog != nil {
-		// The combined path logs the event and writes state under one lock;
-		// surface its single error as the update error so the (rare) failure
-		// is still reported.
-		return nil, r.UpdateAndLog(sessionID, ev, mutate)
+		// The combined path expands and logs all lines under the state lock;
+		// surface its single error as the update error.
+		return nil, r.UpdateAndLog(sessionID, ev, mutate, splitChatEvent)
 	}
 	if r.Update != nil {
-		updateErr = r.Update(sessionID, mutate)
+		updateErr = r.Update(sessionID, apply)
 	}
 	if r.AppendEvent != nil {
 		appendErr = r.AppendEvent(sessionID, *ev)
 	}
+	appendErr = errors.Join(appendErr, appendOverflow())
 	return appendErr, updateErr
+}
+
+const maxHookChatEventLineBytes = 64 * 1024
+
+func splitChatEvent(event *state.StateEvent) []*state.StateEvent {
+	entries, ok := event.Fields["chat_entries"].([]interface{})
+	if !ok || len(entries) < 2 {
+		return nil
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil || len(encoded)+1 <= maxHookChatEventLineBytes {
+		return nil
+	}
+
+	original := *event
+	originalFields := maps.Clone(event.Fields)
+	empty := original
+	empty.Fields = maps.Clone(originalFields)
+	empty.Fields["chat_entries"] = []interface{}{}
+	base, err := json.Marshal(empty)
+	if err != nil {
+		return nil
+	}
+	var chunks [][]interface{}
+	chunk := make([]interface{}, 0, len(entries))
+	chunkBytes := len(base) + 1
+	for _, entry := range entries {
+		entryJSON, err := json.Marshal(entry)
+		if err != nil {
+			return nil
+		}
+		entryBytes := len(entryJSON)
+		if len(chunk) > 0 {
+			entryBytes++
+		}
+		if chunkBytes+entryBytes > maxHookChatEventLineBytes && len(chunk) > 0 {
+			chunks = append(chunks, chunk)
+			chunk = make([]interface{}, 0, len(entries)-len(chunks))
+			chunkBytes = len(base) + 1
+			entryBytes = len(entryJSON)
+		}
+		if chunkBytes+entryBytes > maxHookChatEventLineBytes {
+			return nil
+		}
+		chunk = append(chunk, entry)
+		chunkBytes += entryBytes
+	}
+	if len(chunk) > 0 {
+		chunks = append(chunks, chunk)
+	}
+	if len(chunks) < 2 {
+		return nil
+	}
+	makeEvent := func(entries []interface{}) *state.StateEvent {
+		copy := original
+		copy.Fields = maps.Clone(originalFields)
+		copy.Fields["chat_entries"] = entries
+		return &copy
+	}
+	*event = *makeEvent(chunks[0])
+	result := make([]*state.StateEvent, 0, len(chunks)-1)
+	for _, entries := range chunks[1:] {
+		result = append(result, makeEvent(entries))
+	}
+	return result
 }
 
 func (r *HookRunner) updateAndLogEvents(sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error {
@@ -494,24 +581,38 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 					pane.ClaudeDisplayChunks = make(map[int]string)
 				}
 				if payload.MessageID != "" && payload.Index >= 0 && payload.Index < maxClaudeDisplayBatches {
-					if _, seen := pane.ClaudeDisplayChunks[payload.Index]; !seen {
-						pane.ClaudeDisplayChunks[payload.Index] = payload.Delta
-						capClaudeDisplayChunks(pane.ClaudeDisplayChunks)
-					}
-					if payload.Final {
-						pane.ClaudeDisplayFinal = true
-						pane.ClaudeDisplayFinalIndex = payload.Index
-					}
-					if text, complete := claudeDisplayText(pane); complete {
-						capped := workerfeed.CapText(text)
-						if capped != "" {
-							addChatEntry(&ev, &pane, "say", text)
-							pane.ClaudeLastSayMessage = capped
-							pane.ClaudeLastSayPromptID = payload.PromptID
-							pane.ClaudeLastSayTranscript = payload.TranscriptPath
-							clearClaudeDisplay(&pane)
-						} else {
-							clearClaudeDisplay(&pane)
+					if !pane.ClaudeDisplayAbandoned {
+						if pane.ClaudeDisplayChunks == nil {
+							pane.ClaudeDisplayChunks = make(map[int]string)
+						}
+						if _, seen := pane.ClaudeDisplayChunks[payload.Index]; !seen {
+							delta := capClaudeDisplayDelta(pane.ClaudeDisplayChunks, payload.Index, payload.Delta)
+							if len(pane.ClaudeDisplayChunks) >= maxClaudeDisplayChunks || claudeDisplayChunksRawSize(pane.ClaudeDisplayChunks)+len(delta) > maxClaudeDisplayBytes {
+								abandonClaudeDisplay(&pane)
+							} else {
+								pane.ClaudeDisplayChunks[payload.Index] = delta
+								if claudeDisplayChunksSize(pane.ClaudeDisplayChunks) > maxClaudeDisplayBytes {
+									abandonClaudeDisplay(&pane)
+								} else {
+									capClaudeDisplayChunks(pane.ClaudeDisplayChunks)
+								}
+							}
+						}
+						if !pane.ClaudeDisplayAbandoned && payload.Final {
+							pane.ClaudeDisplayFinal = true
+							pane.ClaudeDisplayFinalIndex = payload.Index
+						}
+						if text, complete := claudeDisplayText(pane); complete {
+							capped := workerfeed.CapText(text)
+							if capped != "" {
+								addChatEntry(&ev, &pane, "say", text)
+								pane.ClaudeLastSayMessage = capped
+								pane.ClaudeLastSayPromptID = payload.PromptID
+								pane.ClaudeLastSayTranscript = payload.TranscriptPath
+								clearClaudeDisplay(&pane)
+							} else {
+								clearClaudeDisplay(&pane)
+							}
 						}
 					}
 				}
@@ -680,18 +781,63 @@ func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text str
 		event.Fields["chat_entries"] = append(entries, entry)
 		return
 	}
-	if oldKind, ok := event.Fields["chat_kind"].(string); ok {
-		old := map[string]interface{}{"chat_kind": oldKind, "chat_text": event.Fields["chat_text"]}
-		delete(event.Fields, "chat_kind")
-		delete(event.Fields, "chat_text")
-		event.Fields["chat_entries"] = []interface{}{old, entry}
-		return
-	}
-	event.Fields["chat_kind"] = kind
-	event.Fields["chat_text"] = workerfeed.CapText(text)
+	event.Fields["chat_entries"] = []interface{}{entry}
 }
 
-const maxClaudeDisplayBatches = 4096
+const (
+	maxClaudeDisplayBatches = 4096
+	// ponytail: cap display tracking at 1,501 batches; Stop still writes the final say.
+	maxClaudeDisplayChunks = 1501
+	maxClaudeDisplayBytes  = 24 * 1024
+)
+
+func claudeDisplayChunksSize(chunks map[int]string) int {
+	encoded, _ := json.Marshal(chunks)
+	return len(encoded)
+}
+
+func claudeDisplayChunksRawSize(chunks map[int]string) int {
+	size := 0
+	for _, chunk := range chunks {
+		size += len(chunk)
+	}
+	return size
+}
+
+func capClaudeDisplayDelta(chunks map[int]string, index int, delta string) string {
+	remaining := 1500
+	leading := true
+	for previous := 0; previous < index; previous++ {
+		text, ok := chunks[previous]
+		if !ok {
+			leading = false
+			break
+		}
+		if leading {
+			text = strings.TrimLeftFunc(text, unicode.IsSpace)
+			leading = text == ""
+		}
+		remaining -= len([]rune(text))
+		if remaining <= 0 {
+			return ""
+		}
+	}
+	if leading {
+		delta = strings.TrimLeftFunc(delta, unicode.IsSpace)
+	}
+	runes := []rune(delta)
+	if len(runes) > remaining {
+		return string(runes[:remaining])
+	}
+	return delta
+}
+
+func abandonClaudeDisplay(pane *state.PaneState) {
+	pane.ClaudeDisplayChunks = nil
+	pane.ClaudeDisplayFinalIndex = 0
+	pane.ClaudeDisplayFinal = false
+	pane.ClaudeDisplayAbandoned = true
+}
 
 func capClaudeDisplayChunks(chunks map[int]string) {
 	indexes := sortedClaudeDisplayIndexes(chunks)
@@ -757,6 +903,7 @@ func clearClaudeDisplay(pane *state.PaneState) {
 	pane.ClaudeDisplayChunks = nil
 	pane.ClaudeDisplayFinalIndex = 0
 	pane.ClaudeDisplayFinal = false
+	pane.ClaudeDisplayAbandoned = false
 }
 
 func claudeDisplayStateChanged(before, after state.PaneState) bool {
@@ -766,6 +913,7 @@ func claudeDisplayStateChanged(before, after state.PaneState) bool {
 		!maps.Equal(before.ClaudeDisplayChunks, after.ClaudeDisplayChunks) ||
 		before.ClaudeDisplayFinalIndex != after.ClaudeDisplayFinalIndex ||
 		before.ClaudeDisplayFinal != after.ClaudeDisplayFinal ||
+		before.ClaudeDisplayAbandoned != after.ClaudeDisplayAbandoned ||
 		!before.LastChatAt.Equal(after.LastChatAt) ||
 		before.ClaudeLastSayMessage != after.ClaudeLastSayMessage ||
 		before.ClaudeLastSayPromptID != after.ClaudeLastSayPromptID ||

@@ -315,8 +315,7 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		Ts:     now,
 		Action: "report",
 		Fields: map[string]interface{}{
-			"chat_kind": "report",
-			"chat_text": chatText,
+			"chat_entries": []interface{}{map[string]interface{}{"chat_kind": "report", "chat_text": chatText}},
 		},
 	}, func(ss *state.SessionState) bool {
 		if chatText == "" {

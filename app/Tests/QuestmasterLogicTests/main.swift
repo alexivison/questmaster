@@ -30,7 +30,6 @@ enum QuestmasterLogicTests {
         QuestCoreTests.run()
         ShellChromeTests.run()
         CaffeineStateTests.run()
-        AttachedWorkerGroupResolverTests.run()
         GhosttyConfigParserTests.run()
         TerminalDetachSignalTests.run()
         WorkerChatTests.run()

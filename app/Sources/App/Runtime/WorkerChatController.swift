@@ -6,9 +6,9 @@ import QuestmasterCore
 @MainActor
 final class WorkerChatController {
     private let store: WorkerChatStore
-    private let feedClient: () -> ServeWorkerFeedFetching?
+    private let feedClient: () -> UnixSocketMutationClient?
 
-    init(store: WorkerChatStore, feedClient: @escaping () -> ServeWorkerFeedFetching?) {
+    init(store: WorkerChatStore, feedClient: @escaping () -> UnixSocketMutationClient?) {
         self.store = store
         self.feedClient = feedClient
     }

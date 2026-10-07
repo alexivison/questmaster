@@ -151,6 +151,122 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 	})
 }
 
+func TestReadSinceSkipsUnterminatedRotatedSuffix(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	appendEvent(t, root, "qm-w1", chatEvent("message", "before", time.Unix(1, 0)))
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := first.Cursors["qm-w1"]
+	path := state.SessionStateLogPath(root, "qm-w1")
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial, err := json.Marshal(chatEvent("message", "partial", time.Unix(2, 0)))
+	if err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if _, err := file.Write(partial); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	appendEvent(t, root, "qm-w1", chatEvent("message", "current", time.Unix(3, 0)))
+
+	next, err := ReadSince(root, "qm-master", map[string]Cursor{"qm-w1": cursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Entries) != 1 || next.Entries[0].Text != "current" {
+		t.Fatalf("entries after unterminated rotated suffix = %#v, want only current", next.Entries)
+	}
+	if next.Cursors["qm-w1"].FileID == cursor.FileID || next.HasMore["qm-w1"] {
+		t.Fatalf("cursor did not advance into current log: before=%#v after=%#v has_more=%v", cursor, next.Cursors["qm-w1"], next.HasMore["qm-w1"])
+	}
+
+	last, err := ReadSince(root, "qm-master", next.Cursors)
+	if err != nil || len(last.Entries) != 0 || last.HasMore["qm-w1"] {
+		t.Fatalf("follow-up pull = %#v, err = %v; want no repeated entries or pull", last, err)
+	}
+}
+
+func TestReadSinceSkipsOversizedLineAndContinues(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	appendEvent(t, root, "qm-w1", chatEvent("message", "before", time.Unix(1, 0)))
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendEvent(t, root, "qm-w1", state.StateEvent{Ts: time.Unix(2, 0), Fields: map[string]interface{}{
+		"chat_entries": []interface{}{map[string]interface{}{"chat_kind": "message", "chat_text": strings.Repeat("x", maxIncrementalRead+64*1024)}},
+	}})
+	appendEvent(t, root, "qm-w1", chatEvent("message", "after", time.Unix(3, 0)))
+
+	second, err := ReadSince(root, "qm-master", first.Cursors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Cursors["qm-w1"].Offset <= first.Cursors["qm-w1"].Offset || !second.HasMore["qm-w1"] {
+		t.Fatalf("oversized line stalled cursor: before=%#v after=%#v has_more=%v", first.Cursors["qm-w1"], second.Cursors["qm-w1"], second.HasMore["qm-w1"])
+	}
+	third, err := ReadSince(root, "qm-master", second.Cursors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(third.Entries) != 1 || third.Entries[0].Text != "after" {
+		t.Fatalf("entries after oversized line = %#v", third.Entries)
+	}
+}
+
+func TestReadSinceSkipsMultiMegabyteLineInBoundedPulls(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	appendEvent(t, root, "qm-w1", chatEvent("message", "before", time.Unix(1, 0)))
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendEvent(t, root, "qm-w1", state.StateEvent{Ts: time.Unix(2, 0), Fields: map[string]interface{}{
+		"chat_entries": []interface{}{map[string]interface{}{"chat_kind": "message", "chat_text": strings.Repeat("x", 3*1024*1024)}},
+	}})
+	appendEvent(t, root, "qm-w1", chatEvent("message", "after", time.Unix(3, 0)))
+
+	cursors := first.Cursors
+	var entries []Entry
+	for pull := 0; pull < 20; pull++ {
+		page, err := ReadSince(root, "qm-master", cursors)
+		if err != nil {
+			t.Fatal(err)
+		}
+		previous := cursors["qm-w1"].Offset
+		next := page.Cursors["qm-w1"]
+		if advanced := next.Offset - previous; advanced > maxIncrementalRead {
+			t.Fatalf("pull %d advanced %d bytes, want at most %d", pull, advanced, maxIncrementalRead)
+		}
+		entries = append(entries, page.Entries...)
+		if !page.HasMore["qm-w1"] {
+			break
+		}
+		cursors = page.Cursors
+	}
+	if len(entries) != 1 || entries[0].Text != "after" {
+		t.Fatalf("entries after oversized line = %#v, want only the valid trailing entry", entries)
+	}
+}
+
 func TestReadSinceTailLineBoundaryAndOffsetBeyondEOF(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -414,8 +530,7 @@ func appendEvent(t *testing.T, root, workerID string, event state.StateEvent) {
 
 func chatEvent(kind, text string, at time.Time) state.StateEvent {
 	return state.StateEvent{Ts: at, Activity: "Safe action summary", Fields: map[string]interface{}{
-		"chat_kind": kind,
-		"chat_text": text,
+		"chat_entries": []interface{}{map[string]interface{}{"chat_kind": kind, "chat_text": text}},
 	}}
 }
 

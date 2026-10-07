@@ -1250,8 +1250,9 @@ func TestReport_LogsCappedFeedEntry(t *testing.T) {
 			if err := json.Unmarshal([]byte(line), &event); err != nil {
 				t.Fatalf("decode report event: %v", err)
 			}
-			if event.Fields["chat_kind"] != "report" || event.Fields["chat_text"] != tc.want {
-				t.Fatalf("report chat fields = %#v, want report/%q", event.Fields, tc.want)
+			entries, _ := event.Fields["chat_entries"].([]interface{})
+			if len(entries) != 1 || entries[0].(map[string]interface{})["chat_kind"] != "report" || entries[0].(map[string]interface{})["chat_text"] != tc.want {
+				t.Fatalf("report chat fields = %#v, want one report/%q entry", event.Fields, tc.want)
 			}
 			ss, err := state.LoadSessionStateAt(store.Root(), "qm-w1")
 			if err != nil || ss == nil {
