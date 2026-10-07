@@ -23,30 +23,37 @@ enum ShellMetrics {
     /// the rounded edge. Deliberately not reused for `SideCardOrnaments`'
     /// own default so the tracker/dock inset stays untouched.
     static let modalOrnamentInset: CGFloat = 10
-    /// The single gap `G` (2026-10-07): applies to every pane-to-pane and pane-to-window-edge gap
-    /// in the shell (tracker/dock side-card inset, tracker's own leading padding, the dock's outer
-    /// margin). Was `Token.Spacing.card` (8); the user may bump this to `Token.Spacing.section`
-    /// (20) after seeing it, so every gap below derives from this one constant.
-    static let sideCardInset = Token.Spacing.element
+    /// The shell's own single gap `G` (2026-10-07) — applies to every pane-to-pane and
+    /// pane-to-window-edge gap in the shell (tracker/dock side-card inset, tracker's own leading
+    /// padding, the dock's and terminal's outer margins). A dedicated constant, not
+    /// `Token.Spacing.element`: that token is used all over the rest of the app and stays 10:
+    /// this is the shell's own rhythm, free to move independently (the user may bump it again
+    /// after seeing 20).
+    static let gap: CGFloat = 20
+    static let sideCardInset = gap
     static let sideCardCornerRadius = Token.Radius.card
-    /// Window edge to the tracker frame: 0, now that `TrackerListMetrics.sidePadding` alone
-    /// (applied leading-only — see its own call sites) provides the full G gap to the plates.
-    /// `trackerMaxWidth` shrinks by that same G below, so the plates still land flush against
-    /// the terminal pane on their trailing edge, with only Ghostty's own padding completing that
-    /// gap (2026-10-07).
+    /// Window edge to the tracker frame: 0, now that `TrackerListMetrics.sidePadding` (which
+    /// tracks `gap`) alone, applied leading-only, provides the full gap to the plates.
+    /// `trackerMaxWidth` grows to fit that same padding ahead of the plate's own fixed width, so
+    /// it still lands flush against the terminal pane on its trailing edge, with only Ghostty's
+    /// own padding completing that gap (2026-10-07).
     static let trackerLeadingInset: CGFloat = 0
-    /// 0 whenever Ghostty's own horizontal padding already reaches G on its own (true today:
-    /// both are 10) — otherwise the shortfall, on the same axis and so the same value, as
-    /// `terminalToDockGap` below.
-    static let horizontalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(Token.Spacing.element), ghosttyPadding: GhosttyWindowPadding.resolved.x))
+    /// 0 whenever Ghostty's own padding already reaches `gap` on its own (true today: both
+    /// horizontal and vertical Ghostty padding are 10, `gap` is 20, so both are 10) — otherwise
+    /// the shortfall. Horizontal: tracker-to-terminal and terminal-to-dock (or window edge,
+    /// dock hidden) — all the same axis, so the same value. Vertical: the terminal's own inset
+    /// from the window's top edge.
+    static let horizontalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.x))
+    static let verticalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.y))
     static let trackerTrailingGap: CGFloat = horizontalFlushGap
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
         dockDividerHitWidth: 7,
-        trackerMaxWidth: 300 - Double(Token.Spacing.element),
+        trackerMaxWidth: Double(TrackerListMetrics.rootPlateWidth) + Double(gap),
         trackerLeadingInset: Double(trackerLeadingInset),
         trackerTrailingGap: Double(trackerTrailingGap),
         terminalToDockGap: Double(horizontalFlushGap),
+        terminalTopInset: Double(verticalFlushGap),
         footerReservedHeight: Double(ActionBarMetrics.footerHeight)
     )
 }

@@ -339,7 +339,7 @@ struct TrackerRootView: View {
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, index == 0 ? TrackerListMetrics.verticalPadding : TrackerListMetrics.sectionSpacing)
+                            .padding(.top, index == 0 ? TrackerListMetrics.firstSectionTopInset : TrackerListMetrics.sectionSpacing)
                             .padding(.bottom, index == repos.count - 1 ? TrackerListMetrics.verticalPadding : 0)
                         }
                     }

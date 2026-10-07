@@ -17,8 +17,10 @@ struct ShellSplitLayoutTests {
         compactDockUsesCompactWidth()
         dockResizeClampsFromDragDelta()
         zeroWidthDoesNotProduceLayout()
-        footerReservationShortensTrackerAndTerminalButNotDock()
+        footerReservationShortensOnlyTheTerminal()
         terminalToDockGapInsetsTheDockWithoutMovingItsOuterEdge()
+        terminalToDockGapInsetsTheWindowEdgeWhenDockIsHidden()
+        terminalTopInsetPullsOnlyTheTerminalsTopEdgeDown()
         print("ShellSplitLayoutTests: all tests passed")
     }
 
@@ -115,10 +117,9 @@ struct ShellSplitLayoutTests {
         expect(layout == nil, "zero-width split should not produce a layout")
     }
 
-    /// The action bar footer reserves bottom space for the tracker and terminal, but the dock (and
-    /// its divider) ignore it and keep the window's full height with the usual `sideCardInset` —
-    /// restored to how it was before any footer existed.
-    private static func footerReservationShortensTrackerAndTerminalButNotDock() {
+    /// The action bar footer reserves bottom space for the terminal only — the tracker, like the
+    /// dock, keeps the window's full height with the usual `sideCardInset` regardless.
+    private static func footerReservationShortensOnlyTheTerminal() {
         let metricsWithFooter = ShellSplitLayoutMetrics(
             sideCardInset: 8,
             dockDividerHitWidth: 7,
@@ -139,10 +140,9 @@ struct ShellSplitLayoutTests {
             Foundation.exit(1)
         }
 
-        // Tracker and terminal sit above the 103pt footer reservation (which occupies the
-        // window's own bottom, y 0..103) — their own frames start at y=103 (terminal) or
-        // y=111 (tracker, plus its usual side-card inset) and reach the window's top.
-        expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 111, width: 300, height: 781), "tracker should sit above the footer, got \(layout.trackerFrame)")
+        // Tracker and dock both keep the full window height (y 8, height 884) — only the
+        // terminal's bottom edge stops above the 103pt footer reservation.
+        expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 884), "tracker should keep the full window height, got \(layout.trackerFrame)")
         expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 103, width: 561, height: 797), "terminal should sit above the footer, got \(layout.terminalFrame)")
         expect(layout.trackerFrame.maxY == layout.dockFrame.maxY, "tracker and dock should still share the same top edge, got \(layout.trackerFrame.maxY) vs \(layout.dockFrame.maxY)")
 
@@ -179,6 +179,59 @@ struct ShellSplitLayoutTests {
         expect(layout.dockFrame == ShellSplitRect(x: 871, y: 8, width: 641, height: 884), "dock should keep its no-gap position, got \(layout.dockFrame)")
         expect(layout.secondDividerFrame.x == 868, "divider should keep its no-gap position, got \(layout.secondDividerFrame.x)")
         expect(layout.terminalFrame.maxX + 10 == layout.dockFrame.x, "the gap should sit exactly between the terminal and the dock, got terminal maxX \(layout.terminalFrame.maxX) vs dock x \(layout.dockFrame.x)")
+    }
+
+    /// With the dock hidden, `terminalToDockGap` reserves the same gap at the window's trailing
+    /// edge instead of before the dock.
+    private static func terminalToDockGapInsetsTheWindowEdgeWhenDockIsHidden() {
+        let metricsWithGap = ShellSplitLayoutMetrics(
+            sideCardInset: 8,
+            dockDividerHitWidth: 7,
+            trackerMaxWidth: 300,
+            trackerLeadingInset: 10,
+            trackerTrailingGap: 0,
+            terminalToDockGap: 10
+        )
+        guard let layout = ShellSplitLayoutPlanner.layout(
+            size: ShellSplitSize(width: 1520, height: 900),
+            metrics: metricsWithGap,
+            trackerVisible: true,
+            dockVisible: false,
+            preferredDockWidth: nil,
+            dockWidthMode: .standard
+        ) else {
+            fputs("ShellSplitLayoutTests failed: expected layout\n", stderr)
+            Foundation.exit(1)
+        }
+
+        expect(layout.terminalFrame.maxX == 1510, "terminal should stop 10pt short of the window edge, got \(layout.terminalFrame.maxX)")
+    }
+
+    /// `terminalTopInset` pulls the terminal's bottom edge down (shrinking it from the top) while
+    /// the tracker and dock, which don't use it, keep reaching the window's actual top.
+    private static func terminalTopInsetPullsOnlyTheTerminalsTopEdgeDown() {
+        let metricsWithInset = ShellSplitLayoutMetrics(
+            sideCardInset: 8,
+            dockDividerHitWidth: 7,
+            trackerMaxWidth: 300,
+            trackerLeadingInset: 10,
+            trackerTrailingGap: 0,
+            terminalTopInset: 10
+        )
+        guard let layout = ShellSplitLayoutPlanner.layout(
+            size: ShellSplitSize(width: 1520, height: 900),
+            metrics: metricsWithInset,
+            trackerVisible: true,
+            dockVisible: true,
+            preferredDockWidth: 640.5,
+            dockWidthMode: .standard
+        ) else {
+            fputs("ShellSplitLayoutTests failed: expected layout\n", stderr)
+            Foundation.exit(1)
+        }
+
+        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 10, width: 561, height: 890), "terminal should recede from the top, got \(layout.terminalFrame)")
+        expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 884), "tracker should be unaffected, got \(layout.trackerFrame)")
     }
 
     private static func requireLayout(

@@ -18,13 +18,17 @@ public struct ShellSplitLayoutMetrics: Equatable {
     /// Tracker plates to the terminal pane — 0 when Ghostty's own horizontal padding already
     /// reaches `G` on its own, otherwise the shortfall (`ShellGapDerivation.flushGap`).
     public let trackerTrailingGap: Double
-    /// Terminal pane to the dock's inner (terminal-facing) edge — same derivation as
-    /// `trackerTrailingGap`, on the same axis, so the two stay equal.
+    /// Terminal pane to the dock's inner (terminal-facing) edge when the dock is visible, or to
+    /// the window's trailing edge when it's hidden — same derivation as `trackerTrailingGap`, on
+    /// the same axis, so all three stay equal.
     public let terminalToDockGap: Double
+    /// Terminal pane to the window's top edge — the vertical analogue of `terminalToDockGap`.
+    /// The tracker and dock don't use this: they already reach the top via `sideCardInset`.
+    public let terminalTopInset: Double
     /// Height reserved at the window's bottom for a footer drawn outside this layout (the action
-    /// bar) — the tracker and terminal frames stop above it. The dock (and its resize divider)
-    /// ignore it and keep the full window height with `sideCardInset` top and bottom, as they did
-    /// before any footer existed; it's drawn on top of the dock there, not sharing its space.
+    /// bar) — only the terminal frame stops above it. The tracker, like the dock, keeps the full
+    /// window height with `sideCardInset` top and bottom regardless of the footer; both are drawn
+    /// over by it where it overlaps, rather than sharing space with it.
     public let footerReservedHeight: Double
 
     public init(
@@ -34,6 +38,7 @@ public struct ShellSplitLayoutMetrics: Equatable {
         trackerLeadingInset: Double,
         trackerTrailingGap: Double,
         terminalToDockGap: Double = 0,
+        terminalTopInset: Double = 0,
         footerReservedHeight: Double = 0
     ) {
         self.sideCardInset = sideCardInset
@@ -42,6 +47,7 @@ public struct ShellSplitLayoutMetrics: Equatable {
         self.trackerLeadingInset = trackerLeadingInset
         self.trackerTrailingGap = trackerTrailingGap
         self.terminalToDockGap = terminalToDockGap
+        self.terminalTopInset = terminalTopInset
         self.footerReservedHeight = footerReservedHeight
     }
 }
@@ -147,35 +153,34 @@ public enum ShellSplitLayoutPlanner {
             : 0
         let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
 
-        // NSView frames are non-flipped (y=0 is the window's bottom edge): the reserved footer
-        // height has to sit BELOW the pane area, so the tracker/terminal/divider's own y origin
-        // starts above it, at `paneAreaY`, not at the window's absolute bottom. The dock (and its
-        // divider) don't reserve for it and keep the full window height, same as before any
-        // footer existed — it draws on top of the dock there instead of sharing its space.
+        // NSView frames are non-flipped (y=0 is the window's bottom edge). The tracker, like the
+        // dock, reaches the full window height via `sideCardInset` top and bottom, regardless of
+        // the footer reservation — only the terminal's own bottom edge stops above it, at
+        // `paneAreaY`, with `terminalTopInset` additionally pulling its top edge down from the
+        // window's top the same way `terminalToDockGap` pulls its trailing edge in from the dock
+        // (or the window's edge, dock hidden).
         let paneAreaY = metrics.footerReservedHeight
-        let paneAreaHeight = max(0, size.height - metrics.footerReservedHeight)
-        let paneSideCardY = paneAreaY + metrics.sideCardInset
-        let paneSideCardHeight = max(0, paneAreaHeight - (metrics.sideCardInset * 2))
-        let dockSideCardY = metrics.sideCardInset
-        let dockSideCardHeight = max(0, size.height - (metrics.sideCardInset * 2))
+        let paneAreaHeight = max(0, size.height - metrics.footerReservedHeight - metrics.terminalTopInset)
+        let sideCardY = metrics.sideCardInset
+        let sideCardHeight = max(0, size.height - (metrics.sideCardInset * 2))
         var x = 0.0
         let trackerFrame: ShellSplitRect
         let firstDividerFrame: ShellSplitRect
         if trackerVisible {
             trackerFrame = ShellSplitRect(
                 x: metrics.trackerLeadingInset,
-                y: paneSideCardY,
+                y: sideCardY,
                 width: trackerWidth,
-                height: paneSideCardHeight
+                height: sideCardHeight
             )
             x = trackerFrame.maxX + metrics.trackerTrailingGap
-            firstDividerFrame = ShellSplitRect(x: trackerFrame.maxX, y: paneSideCardY, width: 0, height: paneSideCardHeight)
+            firstDividerFrame = ShellSplitRect(x: trackerFrame.maxX, y: sideCardY, width: 0, height: sideCardHeight)
         } else {
-            trackerFrame = ShellSplitRect(x: 0, y: paneSideCardY, width: 0, height: paneSideCardHeight)
+            trackerFrame = ShellSplitRect(x: 0, y: sideCardY, width: 0, height: sideCardHeight)
             firstDividerFrame = ShellSplitRect(x: 0, y: 0, width: 0, height: 0)
         }
 
-        let terminalFrame = ShellSplitRect(x: x, y: paneAreaY, width: terminalWidth, height: paneAreaHeight)
+        let terminalFrame = ShellSplitRect(x: x, y: paneAreaY + metrics.terminalTopInset, width: terminalWidth, height: paneAreaHeight)
         x += terminalWidth
 
         let secondDividerFrame: ShellSplitRect
@@ -186,19 +191,19 @@ public enum ShellSplitLayoutPlanner {
             let dockCardMinX = x + metrics.terminalToDockGap
             secondDividerFrame = ShellSplitRect(
                 x: dockCardMinX - (metrics.dockDividerHitWidth / 2),
-                y: dockSideCardY,
+                y: sideCardY,
                 width: metrics.dockDividerHitWidth,
-                height: dockSideCardHeight
+                height: sideCardHeight
             )
             dockFrame = ShellSplitRect(
                 x: dockCardMinX,
-                y: dockSideCardY,
+                y: sideCardY,
                 width: dockWidth,
-                height: dockSideCardHeight
+                height: sideCardHeight
             )
         } else {
-            secondDividerFrame = ShellSplitRect(x: size.width, y: dockSideCardY, width: 0, height: dockSideCardHeight)
-            dockFrame = ShellSplitRect(x: size.width, y: dockSideCardY, width: 0, height: dockSideCardHeight)
+            secondDividerFrame = ShellSplitRect(x: size.width, y: sideCardY, width: 0, height: sideCardHeight)
+            dockFrame = ShellSplitRect(x: size.width, y: sideCardY, width: 0, height: sideCardHeight)
         }
 
         return ShellSplitLayout(
@@ -241,9 +246,10 @@ public enum ShellSplitLayoutPlanner {
         dockVisible: Bool
     ) -> Double {
         let trackerInsets = trackerVisible ? metrics.trackerLeadingInset + metrics.trackerTrailingGap : 0
-        // `sideCardInset` guards the dock's outer (window-facing) edge; `terminalToDockGap` is
-        // its own separate reservation on the terminal-facing side (0 when flush).
-        let dockInsets = dockVisible ? metrics.sideCardInset + metrics.terminalToDockGap : 0
+        // `terminalToDockGap` reserves the terminal's own trailing inset either way — against the
+        // dock's inner edge when visible, or the window's trailing edge when it's hidden.
+        // `sideCardInset` additionally guards the dock's outer (window-facing) edge, only when visible.
+        let dockInsets = (dockVisible ? metrics.sideCardInset : 0) + metrics.terminalToDockGap
         return trackerInsets + dockInsets
     }
 

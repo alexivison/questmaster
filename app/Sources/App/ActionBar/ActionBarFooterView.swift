@@ -268,8 +268,12 @@ struct ActionBarSlotButton: View {
             .overlay(innerShadow)
             .overlay {
                 if let symbolName = slot.symbolName {
+                    let iconSize = ActionBarMetrics.SlotIconSize.size(for: symbolName)
                     Image(systemName: symbolName)
-                        .font(.system(size: ActionBarMetrics.slotIconSize * 0.6, weight: .medium))
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .fontWeight(.medium)
+                        .frame(width: iconSize.width, height: iconSize.height)
                         .foregroundStyle((isHovered ? AppPalette.activeText : ActionBarMetrics.SourceColor.icon).swiftUI)
                 }
             }
