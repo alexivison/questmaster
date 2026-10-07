@@ -15,6 +15,7 @@ import (
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 	"github.com/spf13/cobra"
 )
 
@@ -217,6 +218,7 @@ func readStdinNonBlocking(r io.Reader) ([]byte, error) {
 // in upstream Claude should degrade snippets rather than break state updates.
 type claudePayload struct {
 	AgentID              string                 `json:"agent_id"`
+	AgentType            string                 `json:"agent_type"`
 	SessionID            string                 `json:"session_id"`
 	ToolName             string                 `json:"tool_name"`
 	ToolInput            map[string]interface{} `json:"tool_input"`
@@ -265,10 +267,12 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	isSubagent := payload.AgentID != ""
 
 	ev := state.StateEvent{
-		Ts:     now,
-		Agent:  "claude",
-		Role:   "primary",
-		Action: opts.action,
+		Ts:        now,
+		Agent:     "claude",
+		AgentID:   payload.AgentID,
+		AgentType: payload.AgentType,
+		Role:      "primary",
+		Action:    opts.action,
 	}
 
 	// Compute the desired pane mutation. Subagent suppression is
@@ -299,7 +303,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	case "working":
 		// UserPromptSubmit marks the primary pane as working at turn start.
 		setState = "working"
-		setActivity = "You: " + truncatePromptLine(payload.Prompt)
+		if isTaskNotification(payload.Prompt) {
+			setActivity = "Background agent resumed"
+		} else {
+			setActivity = "You: " + truncatePromptLine(payload.Prompt)
+		}
 		lastKind = "UserPromptSubmit"
 		suppressStateForSubagent = true
 	case "tool_start":
@@ -341,23 +349,32 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// reading the file races and frequently returns no assistant
 		// record. Fall back to the transcript tail when the payload
 		// field is absent.
-		if payload.LastAssistantMessage != "" {
-			setActivity = truncatePromptLine(payload.LastAssistantMessage)
-		} else if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
-			if snippet := saidSnippet(tail); snippet != "" {
-				setActivity = snippet
+		finalMessage := payload.LastAssistantMessage
+		if finalMessage == "" {
+			if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
+				finalMessage = saidText(tail)
+			}
+		}
+		if finalMessage != "" {
+			setActivity = truncatePromptLine(finalMessage)
+			if !isSubagent {
+				addChatFields(&ev, "message", finalMessage, "")
 			}
 		}
 		lastKind = "Stop"
 	case "subagent_stop":
 		// SubagentStop updates Activity only; the parent State belongs to
 		// the primary agent's own lifecycle hooks.
-		result := strings.TrimSpace(payload.Result)
+		result := strings.TrimSpace(payload.LastAssistantMessage)
+		if result == "" {
+			result = strings.TrimSpace(payload.Result)
+		}
 		if result == "" {
 			result = strings.TrimSpace(payload.Text)
 		}
 		if result != "" {
 			setActivity = "Subagent: " + truncatePromptLine(result)
+			ev.Fields = map[string]interface{}{"subagent_result": workerfeed.CapText(result)}
 		}
 		lastKind = "SubagentStop"
 	case "blocked":
@@ -392,6 +409,15 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// subagent snippet.
 		setState = ""
 		setActivity = ""
+	}
+	if opts.action == "tool_start" && !isSubagent && payload.ToolName != "" {
+		addChatFields(&ev, "action", payload.ToolName, setActivity)
+	}
+	if payload.AgentID != "" && ev.Fields != nil {
+		ev.Fields["agent_id"] = payload.AgentID
+	}
+	if payload.AgentType != "" && ev.Fields != nil {
+		ev.Fields["agent_type"] = payload.AgentType
 	}
 
 	ev.State = setState
@@ -430,7 +456,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// The first UserPromptSubmit arrives while the pane is still in its
 		// post-SessionStart "starting" state. That is the only turn worth a
 		// manifest title check, so steady-state prompts never touch it.
-		firstPrompt = opts.action == "working" && prev.State == "starting"
+		firstPrompt = opts.action == "working" && prev.State == "starting" && !isTaskNotification(payload.Prompt)
 
 		// Notification fires after the AskUserQuestion PreToolUse with a
 		// generic "Claude needs your permission to use AskUserQuestion"
@@ -520,6 +546,29 @@ func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLast
 		return
 	}
 	pane.WorkingSince = now
+}
+
+func chatFields(kind, text, summary string) map[string]interface{} {
+	fields := map[string]interface{}{
+		"chat_kind": kind,
+		"chat_text": workerfeed.CapText(text),
+	}
+	if summary != "" {
+		fields["chat_summary"] = workerfeed.CapText(summary)
+	}
+	return fields
+}
+
+func addChatFields(event *state.StateEvent, kind, text, summary string) {
+	fields := chatFields(kind, text, summary)
+	for key, value := range event.Fields {
+		fields[key] = value
+	}
+	event.Fields = fields
+}
+
+func isTaskNotification(prompt string) bool {
+	return strings.HasPrefix(strings.TrimSpace(prompt), "<task-notification>")
 }
 
 // activityForTool formats the Activity field for a PreToolUse event.
@@ -689,7 +738,7 @@ func loadTranscriptTail(path string) ([]byte, error) {
 // transcript tail. The transcript is JSONL; we walk lines in reverse
 // looking for the first assistant message with non-empty text content.
 // Best-effort: returns "" rather than failing on a malformed line.
-func saidSnippet(tail []byte) string {
+func saidText(tail []byte) string {
 	// Walk the tail line-by-line from EOF without allocating a []string of
 	// every line: most transcripts surface the assistant message within the
 	// last few lines, so the reverse LastIndexByte scan returns early.
@@ -727,7 +776,7 @@ func saidSnippet(tail []byte) string {
 		if text == "" {
 			continue
 		}
-		return truncatePromptLine(text)
+		return text
 	}
 	return ""
 }
@@ -766,6 +815,8 @@ func extractAssistantText(raw json.RawMessage) string {
 // still moving, so missing fields should degrade the Activity snippet
 // rather than break the state transition.
 type codexPayload struct {
+	AgentID              string                 `json:"agent_id"`
+	AgentType            string                 `json:"agent_type"`
 	ToolName             string                 `json:"tool_name"`
 	ToolInput            map[string]interface{} `json:"tool_input"`
 	Prompt               string                 `json:"prompt"`
@@ -797,10 +848,12 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	now := r.Now().UTC()
 
 	ev := state.StateEvent{
-		Ts:     now,
-		Agent:  "codex",
-		Role:   "primary",
-		Action: opts.action,
+		Ts:        now,
+		Agent:     "codex",
+		AgentID:   payload.AgentID,
+		AgentType: payload.AgentType,
+		Role:      "primary",
+		Action:    opts.action,
 	}
 
 	var (
@@ -839,17 +892,29 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		lastKind = "PermissionRequest"
 	case "done":
 		setState = "done"
-		if payload.LastAssistantMessage != "" {
-			setActivity = truncatePromptLine(payload.LastAssistantMessage)
-		} else if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
-			if snippet := saidSnippet(tail); snippet != "" {
-				setActivity = snippet
+		finalMessage := payload.LastAssistantMessage
+		if finalMessage == "" {
+			if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
+				finalMessage = saidText(tail)
 			}
+		}
+		if finalMessage != "" {
+			setActivity = truncatePromptLine(finalMessage)
+			addChatFields(&ev, "message", finalMessage, "")
 		}
 		lastKind = "Stop"
 	default:
 		fmt.Fprintf(stderr, "questmaster hook codex: unknown action %q\n", opts.action)
 		return
+	}
+	if opts.action == "tool_start" && payload.ToolName != "" {
+		addChatFields(&ev, "action", payload.ToolName, setActivity)
+	}
+	if payload.AgentID != "" && ev.Fields != nil {
+		ev.Fields["agent_id"] = payload.AgentID
+	}
+	if payload.AgentType != "" && ev.Fields != nil {
+		ev.Fields["agent_type"] = payload.AgentType
 	}
 
 	ev.State = setState
@@ -1359,6 +1424,14 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			fields["recent_count"] = len(recent)
 		}
 		ev.Fields = fields
+	}
+	if opts.action == "tool_execution_start" {
+		addChatFields(&ev, "action", piToolName(payload), setActivity)
+	}
+	if opts.action == "agent_end" {
+		if text := piLastMessageText(payload); text != "" {
+			addChatFields(&ev, "message", text, "")
+		}
 	}
 
 	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {

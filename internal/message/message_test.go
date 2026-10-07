@@ -1222,6 +1222,41 @@ func TestReport_Success(t *testing.T) {
 	}
 }
 
+func TestReport_LogsCappedFeedEntry(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "plain", text: "done: fixed the bug", want: "done: fixed the bug"},
+		{name: "paragraph cap", text: "one\n\ntwo\n\nthree\n\nfour", want: "one\n\ntwo\n\nthree"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := setupStore(t)
+			createManifest(t, store, "qm-master", "master", "master")
+			createWorkerManifest(t, store, "qm-w1", "qm-master")
+			svc := newService(store, idleAndSendRunner(new([]string)))
+			if err := svc.Report(t.Context(), "qm-w1", tc.text); err != nil {
+				t.Fatalf("report: %v", err)
+			}
+			log, err := os.ReadFile(state.SessionStateLogPath(store.Root(), "qm-w1"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			line := strings.TrimSpace(string(log))
+			var event state.StateEvent
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				t.Fatalf("decode report event: %v", err)
+			}
+			if event.Fields["chat_kind"] != "report" || event.Fields["chat_text"] != tc.want {
+				t.Fatalf("report chat fields = %#v, want report/%q", event.Fields, tc.want)
+			}
+		})
+	}
+}
+
 func TestReport_PromotedChildUsesFromPrefix(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)

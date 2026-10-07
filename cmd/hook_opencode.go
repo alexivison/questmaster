@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 const openCodeMinimumVersion = "1.17.11"
@@ -40,10 +41,6 @@ type openCodePatch struct {
 	statusType string
 	version    string
 
-	// partText/partMsgID carry a message.part.updated whose author role is not
-	// yet known; assistantMsgID carries the message.updated that confirms a
-	// message is assistant-authored. See updateOpenCodePane for how the two are
-	// correlated so a user prompt is never surfaced as the worker's activity.
 	partText       string
 	partMsgID      string
 	assistantMsgID string
@@ -90,6 +87,18 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	}
 	if patch.hasRecent {
 		fields["recent_count"] = len(patch.recent)
+	}
+	if patch.kind == "tool.execute.before" {
+		fields["chat_kind"] = "action"
+		fields["chat_text"] = workerfeed.CapText(patch.tool)
+		fields["chat_summary"] = workerfeed.CapText(patch.activity)
+	}
+	if patch.partMsgID != "" && patch.partText != "" {
+		fields["workerfeed_part_id"] = patch.partMsgID
+		fields["workerfeed_part_text"] = workerfeed.CapText(patch.partText)
+	}
+	if patch.assistantMsgID != "" {
+		fields["workerfeed_assistant_message_id"] = patch.assistantMsgID
 	}
 	ev.Fields = fields
 

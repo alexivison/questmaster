@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 var updateContractGoldens = flag.Bool("update", false, "update serve contract golden files")
@@ -166,12 +167,32 @@ func serveContractFixtures() []contractFixture {
 		Default: "xhigh",
 		Efforts: []string{"minimal", "low", "medium", "high", "xhigh"},
 	}
+	workerFeed := workerfeed.Response{
+		Entries: []workerfeed.Entry{{
+			Timestamp:   observedAt,
+			WorkerID:    "qm-worker",
+			WorkerTitle: "Worker",
+			Kind:        "status",
+			Text:        "working",
+		}},
+		Cursors: map[string]workerfeed.Cursor{
+			"qm-worker": {Offset: 128, FileID: "1:42", LastState: "working"},
+		},
+	}
 
 	return []contractFixture{
 		{name: "tracker_payload.json", value: tracker},
 		{name: "dir_suggest_payload.json", value: dirSuggest},
 		{name: "models_payload.json", value: models},
 		{name: "reasoning_efforts_payload.json", value: reasoningEfforts},
+		{name: "worker_feed_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion,
+			Type:            "response",
+			ID:              json.RawMessage(`"worker-feed-request"`),
+			OK:              boolPtr(true),
+			Topic:           topicWorkerFeed,
+			Data:            workerFeed,
+		}},
 		{name: "tracker_event_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
 			Type:            "event",

@@ -929,15 +929,17 @@ func InitStartingState(id string, agentsByRole map[string]string) error {
 // fixed columns belong in Fields so consumers parsing the log don't have
 // to keep up with a moving schema.
 type StateEvent struct {
-	Ts       time.Time              `json:"ts"`
-	Agent    string                 `json:"agent"`
-	Role     string                 `json:"role,omitempty"`
-	Action   string                 `json:"action"`
-	State    string                 `json:"state,omitempty"`
-	Activity string                 `json:"activity,omitempty"`
-	Tool     string                 `json:"tool,omitempty"`
-	Kind     string                 `json:"kind,omitempty"`
-	Fields   map[string]interface{} `json:"fields,omitempty"`
+	Ts        time.Time              `json:"ts"`
+	Agent     string                 `json:"agent"`
+	AgentID   string                 `json:"agent_id,omitempty"`
+	AgentType string                 `json:"agent_type,omitempty"`
+	Role      string                 `json:"role,omitempty"`
+	Action    string                 `json:"action"`
+	State     string                 `json:"state,omitempty"`
+	Activity  string                 `json:"activity,omitempty"`
+	Tool      string                 `json:"tool,omitempty"`
+	Kind      string                 `json:"kind,omitempty"`
+	Fields    map[string]interface{} `json:"fields,omitempty"`
 }
 
 // AppendStateEvent appends to state.jsonl and rotates the file when it
@@ -945,10 +947,14 @@ type StateEvent struct {
 // session-state directory is created lazily). Rotation drops the previous
 // .1 file, so only one rolled file is retained on disk.
 func AppendStateEvent(id string, ev StateEvent) error {
+	return AppendStateEventAt(StateRoot(), id, ev)
+}
+
+// AppendStateEventAt appends an event under the given state root.
+func AppendStateEventAt(root, id string, ev StateEvent) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
-	root := StateRoot()
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
