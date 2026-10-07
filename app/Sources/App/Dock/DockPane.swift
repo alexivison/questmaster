@@ -8,19 +8,33 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let model: DockPaneModel
     private let newQuestPresenter: NewQuestSheetPresenter
     private let settingsPresenter: SettingsSheetPresenter
+    private let workerChatStore: WorkerChatStore
 
-    init(store: RuntimeStore, newQuestPresenter: NewQuestSheetPresenter, settingsPresenter: SettingsSheetPresenter) {
+    init(
+        store: RuntimeStore,
+        workerChatStore: WorkerChatStore,
+        newQuestPresenter: NewQuestSheetPresenter,
+        settingsPresenter: SettingsSheetPresenter
+    ) {
         self.store = store
+        self.workerChatStore = workerChatStore
         self.newQuestPresenter = newQuestPresenter
         self.settingsPresenter = settingsPresenter
         let model = DockPaneModel()
         self.model = model
-        super.init(rootView: DockRootView(store: store, model: model, newQuestPresenter: newQuestPresenter, settingsPresenter: settingsPresenter))
+        super.init(rootView: DockRootView(
+            store: store,
+            workerChatStore: workerChatStore,
+            model: model,
+            newQuestPresenter: newQuestPresenter,
+            settingsPresenter: settingsPresenter
+        ))
         configureModelCallbacks()
     }
 
     required init(rootView: DockRootView) {
         self.store = rootView.store
+        self.workerChatStore = rootView.workerChatStore
         self.model = rootView.model
         self.newQuestPresenter = rootView.newQuestPresenter
         self.settingsPresenter = rootView.settingsPresenter
@@ -277,6 +291,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 
 struct DockRootView: View {
     let store: RuntimeStore
+    let workerChatStore: WorkerChatStore
     @ObservedObject var model: DockPaneModel
     @ObservedObject var newQuestPresenter: NewQuestSheetPresenter
     @ObservedObject var settingsPresenter: SettingsSheetPresenter
@@ -311,6 +326,8 @@ struct DockRootView: View {
                     onStart: model.startSelectedQuests,
                     onEdit: model.editSelectedQuest
                 )
+            case .workerChat:
+                WorkerChatDockView(store: workerChatStore)
             }
         }
         .background(AppPalette.panel.swiftUI)

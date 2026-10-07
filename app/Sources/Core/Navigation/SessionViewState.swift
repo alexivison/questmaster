@@ -5,6 +5,7 @@ public enum DockContent: Equatable {
     case artifactList
     case artifactViewer
     case questList
+    case workerChat
 }
 
 /// Per-session, in-memory view state projected into the dock when the session is viewed.

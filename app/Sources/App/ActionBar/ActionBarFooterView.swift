@@ -42,6 +42,7 @@ struct ActionBarFooterView: View {
     let onHideTracker: () -> Void
     let onOpenArtifacts: () -> Void
     let onOpenQuests: () -> Void
+    let onOpenWorkerChat: () -> Void
     let onToggleCaffeine: () -> Void
     let onOpenSettings: () -> Void
     let onCopySessionID: (String) -> Void
@@ -186,7 +187,14 @@ struct ActionBarFooterView: View {
                 isActive: navState.dockVisible && model.dockContentMode == .artifacts,
                 action: onOpenArtifacts
             ),
-            .empty, .empty, .empty, .empty, .empty,
+            ActionBarSlotSpec(
+                symbolName: "bubble.left.and.bubble.right",
+                tooltip: tooltip("Open Worker Chat", Keymap.Command.toggleWorkerChatDock),
+                isActive: navState.dockVisible && model.dockContentMode == .workerChat,
+                isEnabled: model.sessionRole?.hasWorkerChat == true,
+                action: onOpenWorkerChat
+            ),
+            .empty, .empty, .empty, .empty,
             ActionBarSlotSpec(
                 symbolName: "cup.and.saucer",
                 tooltip: tooltip("Caffeinate", Keymap.Command.toggleCaffeine),
@@ -207,6 +215,8 @@ struct ActionBarSlotSpec {
     var symbolName: String?
     var tooltip: String = ""
     var isActive: Bool = false
+    /// A disabled slot keeps its place but dims its icon and ignores clicks and hover.
+    var isEnabled: Bool = true
     var action: (() -> Void)?
 
     static let empty = ActionBarSlotSpec(symbolName: nil)
@@ -224,7 +234,8 @@ struct ActionBarSlotButton: View {
             if let action = slot.action, !isEmpty {
                 Button(action: action) { content }
                     .buttonStyle(.plain)
-                    .onHover { isHovered = $0 }
+                    .disabled(!slot.isEnabled)
+                    .onHover { isHovered = slot.isEnabled && $0 }
                     .help(slot.tooltip)
             } else {
                 content
@@ -253,6 +264,7 @@ struct ActionBarSlotButton: View {
                         .fontWeight(.medium)
                         .frame(width: iconSize.width, height: iconSize.height)
                         .foregroundStyle((isHovered ? AppPalette.activeText : ActionBarMetrics.SourceColor.icon).swiftUI)
+                        .opacity(slot.isEnabled ? 1 : ActionBarMetrics.SlotFill.disabledIconOpacity)
                 }
             }
     }

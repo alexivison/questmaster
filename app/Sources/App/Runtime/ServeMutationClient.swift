@@ -5,6 +5,13 @@ import QuestmasterCore
 struct ServeMutationAck {
     let data: Any?
 
+    func decoded<Payload: Decodable>(_ type: Payload.Type) throws -> Payload {
+        guard let data, JSONSerialization.isValidJSONObject(data) else {
+            throw ServeClientError.protocolError("response missing data")
+        }
+        return try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: data))
+    }
+
     var sessionID: String? {
         guard let data = data as? [String: Any] else {
             return nil
@@ -67,6 +74,10 @@ protocol ServeReasoningEffortSuggesting: AnyObject {
     )
 }
 
+protocol ServeWorkerFeedFetching: AnyObject {
+    func fetchWorkerFeed(_ request: WorkerFeedRequest, completion: @escaping (Result<WorkerFeedPayload, Error>) -> Void)
+}
+
 final class UnixSocketMutationClient: ServeMutationSending {
     private let socketPath: String
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
@@ -74,6 +85,9 @@ final class UnixSocketMutationClient: ServeMutationSending {
     /// means waiting on a subprocess. It gets its own queue so a slow harness
     /// never delays the mutation the user is actually waiting on.
     private let modelQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.models")
+    /// Feed pulls read log files and can chain on `has_more`; their own queue keeps them from
+    /// delaying a mutation.
+    private let feedQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.workerFeed")
     private static let responseTimeoutSeconds = 35
     /// Mirrors UnixSocketServeClient's own backoff schedule: the app-launched
     /// `qm serve` can take a few seconds to bind its socket (see
@@ -260,6 +274,19 @@ extension UnixSocketMutationClient: ServeReasoningEffortSuggesting {
                     efforts: Self.stringArray(data["efforts"]),
                     defaultEffort: data["default"] as? String ?? ""
                 )))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+}
+
+extension UnixSocketMutationClient: ServeWorkerFeedFetching {
+    func fetchWorkerFeed(_ request: WorkerFeedRequest, completion: @escaping (Result<WorkerFeedPayload, Error>) -> Void) {
+        feedQueue.async { [socketPath] in
+            do {
+                let ack = try Self.sendObject(request.jsonObject(id: UUID().uuidString), socketPath: socketPath)
+                completion(.success(try ack.decoded(WorkerFeedPayload.self)))
             } catch {
                 completion(.failure(error))
             }

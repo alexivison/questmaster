@@ -202,6 +202,10 @@ enum AppFonts {
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
     static let settingsSectionTitle = NSFont.systemFont(ofSize: 14.5, weight: .semibold)
 
+    /// Worker chat lines at the design's 12pt: the Ghostty font, else the system mono.
+    static let chat = monospaced(size: 12, weight: .regular)
+    static let chatName = monospaced(size: 12, weight: .bold)
+
     /// Tracker row titles at 12pt (the shared 12.5pt `itemTitle` lands its caps on half rows): the Ghostty font.
     static let trackerTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
         ?? .systemFont(ofSize: 12, weight: .semibold)

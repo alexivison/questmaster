@@ -42,6 +42,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private var modelSuggestionClient: ServeModelSuggesting?
     private var reasoningEffortSuggestionClient: ServeReasoningEffortSuggesting?
+    private var workerFeedClient: ServeWorkerFeedFetching?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private let newQuestPresenter = NewQuestSheetPresenter()
     private let settingsPresenter = SettingsSheetPresenter()
@@ -54,8 +55,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didStartEnvironmentDependentServices = false
     private let navigation = NavigationStore()
     private let dockCoordinator = DockCoordinator()
+    private let workerChatStore = WorkerChatStore()
+    private lazy var workerChatController = WorkerChatController(
+        store: workerChatStore,
+        feedClient: { [weak self] in self?.workerFeedClient }
+    )
     private lazy var shellWindowController = ShellWindowController(
         runtimeStore: runtimeStore,
+        workerChatStore: workerChatStore,
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
         newQuestPresenter: newQuestPresenter,
@@ -177,6 +184,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
                 toggleQuestDock: #selector(toggleQuestDock),
+                toggleWorkerChatDock: #selector(toggleWorkerChatDock),
                 widenDock: #selector(widenDock),
                 narrowDock: #selector(narrowDock),
                 toggleCaffeine: #selector(toggleCaffeine),
@@ -195,6 +203,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         directorySuggestionClient = serveMutationClient
         modelSuggestionClient = serveMutationClient
         reasoningEffortSuggestionClient = serveMutationClient
+        workerFeedClient = serveMutationClient
         sessionCoordinator = makeSessionCoordinator(mutationClient: serveMutationClient)
         createWindow()
         do {
@@ -245,6 +254,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.footerShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
+        handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
         handles.footerShell.onCopySessionID = { [weak self] sessionID in self?.copySessionIDToPasteboard(sessionID) }
@@ -385,6 +395,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             animateDockVisibility: animateDockVisibility,
             animateDockLayout: animateDockLayout
         )
+        syncWorkerChat()
+    }
+
+    private func syncWorkerChat() {
+        let sessionID = runtimeStore.currentTerminalSessionID
+        let isChatDockOpen = navigation.dockVisible && dockCoordinator.state(for: sessionID).dockContent == .workerChat
+        workerChatController.sync(
+            selectedSessionID: sessionID,
+            sessions: runtimeStore.snapshot.tracker.repos.flatMap(\.sessions),
+            isVisible: isChatDockOpen
+        )
     }
 
     private func updateDockTabs() {
@@ -467,7 +488,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showDockContent(_ content: DockContent, focusDock: Bool) {
-        guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID) else {
+        guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID, role: selectedSessionRole()) else {
+            if content == .workerChat {
+                NSSound.beep()
+            }
             renderSnapshot()
             return
         }
@@ -508,6 +532,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         showDockContent(.questList, focusDock: true)
+    }
+
+    @objc private func toggleWorkerChatDock() {
+        if navigation.dockVisible {
+            let desired = dockCoordinator.state(for: runtimeStore.currentTerminalSessionID)
+            if desired.dockContent == .workerChat {
+                hideDock()
+                return
+            }
+        }
+        showDockContent(.workerChat, focusDock: true)
     }
 
     @objc private func toggleTracker() {
@@ -891,17 +926,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
 enum DockCommandRouting {
     static func shouldHideArtifactDock(isDockVisible: Bool, content: DockContent) -> Bool {
-        isDockVisible && content != .questList
+        isDockVisible && (content == .artifactList || content == .artifactViewer)
     }
 }
 
 enum DockContentRouting {
-    static func canShow(_ content: DockContent, sessionID: String?) -> Bool {
+    static func canShow(_ content: DockContent, sessionID: String?, role: SessionRoleKind? = nil) -> Bool {
+        let hasSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         switch content {
         case .questList:
             return true
         case .artifactList, .artifactViewer:
-            return sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            return hasSession
+        case .workerChat:
+            return hasSession && role?.hasWorkerChat == true
         }
     }
 }

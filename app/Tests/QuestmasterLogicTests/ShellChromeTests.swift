@@ -5,6 +5,7 @@ struct ShellChromeTests {
     static func run() {
         dockTopBarArtifactListHasNoBackOrActions()
         dockTopBarArtifactViewerShowsBackTitleAndActions()
+        dockTopBarWorkerChatShowsItsTitle()
         print("ShellChromeTests: all tests passed")
     }
 
@@ -35,6 +36,13 @@ struct ShellChromeTests {
             artifactTitle: nil
         )
         expect(untitled.title == "Artifact", "missing artifact title should fall back to a default")
+    }
+
+    private static func dockTopBarWorkerChatShowsItsTitle() {
+        let model = DockTopBarModel.make(mode: .workerChat, artifactRoute: .viewer, artifactTitle: "report.html")
+        expect(model.title == "Worker Chat", "worker chat should show its own title")
+        expect(model.back == nil, "worker chat has no back affordance")
+        expect(!model.showArtifactActions, "worker chat should not show artifact actions")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

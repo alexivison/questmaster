@@ -87,6 +87,7 @@ public enum Keymap {
         // so the modifier mask is unambiguous across keyboard layouts.
         public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "a", modifiers: [.command, .shift])
         public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "t", modifiers: [.command, .shift])
+        public static let toggleWorkerChatDock = CommandBinding(title: "Toggle Worker Chat", keyEquivalent: "w", modifiers: [.command, .shift])
         // ">"/"<" match vim's window-resize convention (Ctrl-w >/Ctrl-w <). Bound via
         // their unshifted base keys ("."/",") with explicit .shift, per the layout-independence
         // note above.

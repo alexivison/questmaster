@@ -19,6 +19,7 @@ final class ActionBarShellView: NSView {
     var onHideTracker: (() -> Void)?
     var onOpenArtifacts: (() -> Void)?
     var onOpenQuests: (() -> Void)?
+    var onOpenWorkerChat: (() -> Void)?
     var onToggleCaffeine: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onCopySessionID: ((String) -> Void)?
@@ -26,7 +27,7 @@ final class ActionBarShellView: NSView {
     init() {
         hostingView = ActionBarHostingView(rootView: ActionBarFooterView(
             model: model,
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
             onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
         ))
         super.init(frame: .zero)
@@ -38,6 +39,7 @@ final class ActionBarShellView: NSView {
             onHideTracker: { [weak self] in self?.onHideTracker?() },
             onOpenArtifacts: { [weak self] in self?.onOpenArtifacts?() },
             onOpenQuests: { [weak self] in self?.onOpenQuests?() },
+            onOpenWorkerChat: { [weak self] in self?.onOpenWorkerChat?() },
             onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() },
             onOpenSettings: { [weak self] in self?.onOpenSettings?() },
             onCopySessionID: { [weak self] sessionID in self?.onCopySessionID?(sessionID) }

@@ -39,6 +39,8 @@ enum RenderPreview {
             render(actionBarFooterView(fixture: fixture), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-\(fixture).png")
         }
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
+        render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
+        render(workerChatView(), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
         render(actionBarFooterView(fixture: "master"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
@@ -87,7 +89,7 @@ enum RenderPreview {
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
         splitView.addArrangedSubview(TrackerShellView(body: tracker))
         splitView.addArrangedSubview(TerminalShellView(body: terminalBody, dragHandleHeight: 0))
-        splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
+        splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
         splitView.sendTerminalToBack()
         splitView.trackerVisible = true
         splitView.setDockVisible(true, animated: false)
@@ -141,24 +143,60 @@ enum RenderPreview {
         }
         return ActionBarFooterView(
             model: model,
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
             onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
         )
     }
 
+    /// The chat feed's rows (static, so the off-screen renderer sees them all) over the dock's panel fill.
+    @MainActor
+    private static func workerChatView() -> some View {
+        let store = WorkerChatStore()
+        let tracker = [
+            TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+            TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w2", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "w3", title: "A worker title that is far too long", repoName: "Repo", agent: "pi", role: "worker", parentID: "m"),
+        ]
+        let request = store.sync(selectedSessionID: "m", sessions: tracker, isVisible: true)
+        func entry(_ minute: Int, _ second: Int, _ worker: String, _ kind: String, _ text: String) -> WorkerFeedEntry {
+            WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
+        }
+        let payload = WorkerFeedPayload(entries: [
+            entry(20, 0, "w1", "status", "working"),
+            entry(20, 5, "w1", "say", "Understood. I will start by looking at the ticket and the related files."),
+            entry(20, 9, "w2", "status", "working"),
+            entry(22, 1, "w2", "say", "I see the problem. I will spin two sub-agents to debug the problem to see why the first round did not fix the issue. I will report back to the master as instructed."),
+            entry(22, 20, "w1", "action", "Bash"), entry(22, 21, "w1", "action", "Edit"), entry(22, 22, "w1", "action", "Bash"),
+            entry(22, 23, "w3", "action", "Read"),
+            entry(25, 40, "w1", "message", "Found a contradiction in the referenced files, I should confirm this with the master."),
+            entry(31, 2, "w2", "report", "The fix is in and the tests pass."),
+            entry(31, 3, "w2", "status", "done"),
+            entry(31, 9, "w3", "status", "blocked"),
+        ])
+        if let request {
+            _ = store.receive(payload, for: request)
+        }
+        return VStack(alignment: .leading, spacing: 0) { WorkerChatRows(lines: store.lines) }
+            .padding(WorkerChatMetrics.inset)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(width: DockWidthPreference.compactWidth)
+            .background(AppPalette.panel.swiftUI)
+    }
+
     /// The slot bar with Caffeine active and the Artifacts dock open (Artifacts slot active too).
     @MainActor
-    private static func actionBarSlotsView() -> some View {
+    private static func actionBarSlotsView(dockContentMode: DockContentMode = .artifacts) -> some View {
         let model = ActionBarFooterModel(
             navigation: AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true),
             sessionChip: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
             sessionRole: .master,
             caffeineActive: true,
-            dockContentMode: .artifacts
+            dockContentMode: dockContentMode
         )
         return ActionBarFooterView(
             model: model,
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
             onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
         )
     }
