@@ -77,20 +77,18 @@ struct ActionBarFooterView: View {
                     model.workerStripState.scroll(
                         toward: side,
                         workerCount: model.workers.count,
-                        visibleCount: ActionBarMetrics.worker.visibleCount
+                        visibleCount: ActionBarWorkerStripCapacity.singleOverflow
                     )
                 }
             )
             .offset(x: ActionBarMetrics.workerRowStartX, y: ActionBarMetrics.workerRowY)
         }
         .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight, alignment: .topLeading)
-        // The opaque background stops here, at the actual content block — expanding to the full
-        // window width below is for centring math only. A background here instead would paint
-        // the whole strip opaque, hiding the dock (now the window's full height) everywhere
-        // beside the plate, not just where the two are meant to overlap.
-        .background(AppPalette.window.swiftUI)
         .frame(maxWidth: .infinity, alignment: .center)
         .frame(height: ActionBarMetrics.footerHeight)
+        // No background: the window behind the footer is already `AppPalette.window`, so only
+        // the plate/pill shapes above should paint anything — exactly what should cover the dock
+        // (now the window's full height) where the two happen to overlap, and nothing else.
     }
 
     private var panelVariant: ActionBarSessionPanelVariant {

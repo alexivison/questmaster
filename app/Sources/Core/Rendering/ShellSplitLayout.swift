@@ -16,19 +16,26 @@ public struct ShellSplitLayoutMetrics: Equatable {
     public let trackerLeadingInset: Double
     /// Tracker plates to the terminal pane.
     public let trackerTrailingGap: Double
+    /// Height reserved at the window's bottom for a footer drawn outside this layout (the action
+    /// bar) — the tracker and terminal frames stop above it. The dock (and its resize divider)
+    /// ignore it and keep the full window height with `sideCardInset` top and bottom, as they did
+    /// before any footer existed; it's drawn on top of the dock there, not sharing its space.
+    public let footerReservedHeight: Double
 
     public init(
         sideCardInset: Double,
         dockDividerHitWidth: Double,
         trackerMaxWidth: Double,
         trackerLeadingInset: Double,
-        trackerTrailingGap: Double
+        trackerTrailingGap: Double,
+        footerReservedHeight: Double = 0
     ) {
         self.sideCardInset = sideCardInset
         self.dockDividerHitWidth = dockDividerHitWidth
         self.trackerMaxWidth = trackerMaxWidth
         self.trackerLeadingInset = trackerLeadingInset
         self.trackerTrailingGap = trackerTrailingGap
+        self.footerReservedHeight = footerReservedHeight
     }
 }
 
@@ -130,7 +137,12 @@ public enum ShellSplitLayoutPlanner {
         let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
 
         let sideCardY = metrics.sideCardInset
-        let sideCardHeight = max(0, size.height - (metrics.sideCardInset * 2))
+        // The tracker and terminal stop above the reserved footer height; the dock (and its
+        // divider) don't reserve for it and keep the full window height, same as before any
+        // footer existed — it draws on top of the dock there instead of sharing its space.
+        let paneAreaHeight = max(0, size.height - metrics.footerReservedHeight)
+        let paneSideCardHeight = max(0, paneAreaHeight - (metrics.sideCardInset * 2))
+        let dockSideCardHeight = max(0, size.height - (metrics.sideCardInset * 2))
         var x = 0.0
         let trackerFrame: ShellSplitRect
         let firstDividerFrame: ShellSplitRect
@@ -139,16 +151,16 @@ public enum ShellSplitLayoutPlanner {
                 x: metrics.trackerLeadingInset,
                 y: sideCardY,
                 width: trackerWidth,
-                height: sideCardHeight
+                height: paneSideCardHeight
             )
             x = trackerFrame.maxX + metrics.trackerTrailingGap
-            firstDividerFrame = ShellSplitRect(x: trackerFrame.maxX, y: sideCardY, width: 0, height: sideCardHeight)
+            firstDividerFrame = ShellSplitRect(x: trackerFrame.maxX, y: sideCardY, width: 0, height: paneSideCardHeight)
         } else {
-            trackerFrame = ShellSplitRect(x: 0, y: sideCardY, width: 0, height: sideCardHeight)
+            trackerFrame = ShellSplitRect(x: 0, y: sideCardY, width: 0, height: paneSideCardHeight)
             firstDividerFrame = ShellSplitRect(x: 0, y: 0, width: 0, height: 0)
         }
 
-        let terminalFrame = ShellSplitRect(x: x, y: 0, width: terminalWidth, height: size.height)
+        let terminalFrame = ShellSplitRect(x: x, y: 0, width: terminalWidth, height: paneAreaHeight)
         x += terminalWidth
 
         let secondDividerFrame: ShellSplitRect
@@ -160,17 +172,17 @@ public enum ShellSplitLayoutPlanner {
                 x: dockCardMinX - (metrics.dockDividerHitWidth / 2),
                 y: sideCardY,
                 width: metrics.dockDividerHitWidth,
-                height: sideCardHeight
+                height: dockSideCardHeight
             )
             dockFrame = ShellSplitRect(
                 x: dockCardMinX,
                 y: sideCardY,
                 width: dockWidth,
-                height: sideCardHeight
+                height: dockSideCardHeight
             )
         } else {
-            secondDividerFrame = ShellSplitRect(x: size.width, y: sideCardY, width: 0, height: sideCardHeight)
-            dockFrame = ShellSplitRect(x: size.width, y: sideCardY, width: 0, height: sideCardHeight)
+            secondDividerFrame = ShellSplitRect(x: size.width, y: sideCardY, width: 0, height: dockSideCardHeight)
+            dockFrame = ShellSplitRect(x: size.width, y: sideCardY, width: 0, height: dockSideCardHeight)
         }
 
         return ShellSplitLayout(

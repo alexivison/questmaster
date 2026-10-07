@@ -121,25 +121,6 @@ final class MainSplitView: NSView {
         addSubview(panes[1], positioned: .below, relativeTo: nil)
     }
 
-    /// Moves the dock pane and its resize divider to `newSuperview` (the window's whole content
-    /// view), positioned just below `zOrderAbove`, so they can span the window's full height with
-    /// the usual `sideCardInset` top and bottom — restored to how it was before the action bar
-    /// footer — while this view (the tracker and terminal) stops above the footer.
-    /// `canonicalLayout()` still computes both panes' frames (so dock width/x tracking stays in
-    /// one place); only their rendered height differs, via `dockFrameSpanningFullHeight(_:)`.
-    /// Frame-setting doesn't care which view is the actual superview, so the existing
-    /// `apply`/`animate` code is otherwise untouched. `newSuperview` and `zOrderAbove` must both
-    /// already be in the hierarchy.
-    func relocateDockToFullHeightSuperview(_ newSuperview: NSView, below zOrderAbove: NSView) {
-        guard panes.count == 3 else {
-            return
-        }
-        // The single line to flip, to have the dock win an overlap with `zOrderAbove` instead.
-        let position: NSWindow.OrderingMode = .below
-        newSuperview.addSubview(panes[2], positioned: position, relativeTo: zOrderAbove)
-        newSuperview.addSubview(secondDividerGrab, positioned: position, relativeTo: zOrderAbove)
-    }
-
     func applyCanonicalLayout(animated: Bool = false) {
         guard let layout = canonicalLayout() else {
             return
@@ -219,21 +200,11 @@ final class MainSplitView: NSView {
         return CanonicalLayout(
             trackerFrame: nsRect(layout.trackerFrame),
             terminalFrame: nsRect(layout.terminalFrame),
-            dockFrame: dockFrameSpanningFullHeight(layout.dockFrame),
+            dockFrame: nsRect(layout.dockFrame),
             firstDividerFrame: nsRect(layout.firstDividerFrame),
-            secondDividerFrame: dockFrameSpanningFullHeight(layout.secondDividerFrame),
+            secondDividerFrame: nsRect(layout.secondDividerFrame),
             dockWidth: CGFloat(layout.dockWidth)
         )
-    }
-
-    /// The planner computes the dock (and its divider) at this view's own, footer-shortened
-    /// height, matching the tracker and terminal. The dock needs the window's real height
-    /// instead — read from the superview it's now relocated to (`relocateDockToFullHeightSuperview`)
-    /// — with the usual `sideCardInset` top and bottom, same as any other side card.
-    private func dockFrameSpanningFullHeight(_ rect: ShellSplitRect) -> NSRect {
-        let fullHeight = superview?.bounds.height ?? bounds.height
-        let inset = ShellMetrics.sideCardInset
-        return NSRect(x: CGFloat(rect.x), y: inset, width: CGFloat(rect.width), height: max(0, fullHeight - inset * 2))
     }
 
     private func apply(_ layout: CanonicalLayout) {

@@ -94,10 +94,6 @@ enum ActionBarMetrics {
         /// Gap from one pill's plate to the next pill's portrait (traced: plate end 140.5, next
         /// portrait left edge 146.5).
         let interPillGap: CGFloat = 5.5
-        /// How many pills fit across the plate's width at this pill sizing — a fixed fit count
-        /// (not a per-frame text measurement) sized for the truncated-title worst case, so a
-        /// short title doesn't make the strip claim it has room for one pill more than it does.
-        let visibleCount: Int = 6
     }
 
     /// Off-palette colours from the SVG, mapped to the nearest existing `AppPalette` token

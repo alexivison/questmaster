@@ -88,17 +88,56 @@ final class ActionBarShellView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// The footer spans the full window width so its centred content never shifts when the dock
-    /// opens or closes, but at narrow windows or with a wide dock that leaves empty margin on
-    /// either side of the centred plate, over whatever the dock (now the full window height) is
-    /// doing there. Only the plate's own width should claim clicks — the margins must fall
-    /// through to it.
+    /// Top-left origin, matching `ActionBarFooterView`'s own SwiftUI (and so `ActionBarMetrics`'s)
+    /// coordinate convention — so `hitTest`'s shape maths below doesn't need a separate flip.
+    override var isFlipped: Bool { true }
+
+    /// The footer has no background (the window behind it already is `AppPalette.window`, and
+    /// painting one would hide the dock, now the window's full height, under the whole strip).
+    /// Hit-testing follows the same rule: only the actual plate/slot/pill shapes should claim a
+    /// click — everywhere else, including the gaps between them and the margins outside the
+    /// centred content block, must fall through to whatever is behind (the dock, where the two
+    /// overlap).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let contentX = (bounds.width - ActionBarMetrics.plateWidth) / 2
-        guard point.x >= contentX, point.x <= contentX + ActionBarMetrics.plateWidth else {
+        let local = CGPoint(x: point.x - contentX, y: point.y)
+        guard isOnActionBarShape(local) else {
             return nil
         }
         return super.hitTest(point)
+    }
+
+    private func isOnActionBarShape(_ point: CGPoint) -> Bool {
+        if ActionBarPlateOutlines.slotBar.contains(point) || currentPanelPath.contains(point) {
+            return true
+        }
+        for index in 0..<ActionBarMetrics.slotCount {
+            let slotRect = CGRect(x: ActionBarMetrics.slotX(at: index), y: ActionBarMetrics.slotTop, width: ActionBarMetrics.slotSize, height: ActionBarMetrics.slotSize)
+            if slotRect.contains(point) {
+                return true
+            }
+        }
+        // The pills are dynamically sized text capsules, not fixed geometry — approximated here
+        // as one row-height band spanning the strip, rather than hit-testing each pill
+        // individually, so the small gaps between them still count as "on a pill".
+        guard !model.workers.isEmpty else {
+            return false
+        }
+        let workerRowRect = CGRect(
+            x: ActionBarMetrics.workerRowStartX,
+            y: ActionBarMetrics.workerRowY,
+            width: ActionBarMetrics.plateWidth - ActionBarMetrics.workerRowStartX,
+            height: ActionBarMetrics.workerRowHeight
+        )
+        return workerRowRect.contains(point)
+    }
+
+    private var currentPanelPath: Path {
+        switch ActionBarSessionPanelVariant(role: model.sessionRole) {
+        case .master: ActionBarPlateOutlines.masterPanel
+        case .standalone: ActionBarPlateOutlines.standalonePanel
+        case .worker: ActionBarPlateOutlines.workerPanel
+        }
     }
 
     func update(
@@ -121,7 +160,7 @@ final class ActionBarShellView: NSView {
             model.workerStripState.ensureVisible(
                 index: workers.firstIndex(where: { $0.id == highlightedWorkerID }) ?? 0,
                 workerCount: workers.count,
-                visibleCount: ActionBarMetrics.worker.visibleCount
+                visibleCount: ActionBarWorkerStripCapacity.singleOverflow
             )
         }
         model.workers = workers
@@ -134,7 +173,7 @@ final class ActionBarShellView: NSView {
 
     /// ⌘⇧W: focuses the strip and selects its first pill.
     func focusWorkerStrip() {
-        guard model.workerStripState.focus(workerCount: model.workers.count, visibleCount: ActionBarMetrics.worker.visibleCount) else {
+        guard model.workerStripState.focus(workerCount: model.workers.count, visibleCount: ActionBarWorkerStripCapacity.singleOverflow) else {
             NSSound.beep()
             return
         }
@@ -161,10 +200,10 @@ final class ActionBarShellView: NSView {
             return true
         }
         if chars == "h" {
-            return model.workerStripState.moveSelection(by: -1, workerCount: model.workers.count, visibleCount: ActionBarMetrics.worker.visibleCount)
+            return model.workerStripState.moveSelection(by: -1, workerCount: model.workers.count, visibleCount: ActionBarWorkerStripCapacity.singleOverflow)
         }
         if chars == "l" {
-            return model.workerStripState.moveSelection(by: 1, workerCount: model.workers.count, visibleCount: ActionBarMetrics.worker.visibleCount)
+            return model.workerStripState.moveSelection(by: 1, workerCount: model.workers.count, visibleCount: ActionBarWorkerStripCapacity.singleOverflow)
         }
         return false
     }

@@ -13,6 +13,7 @@ struct ActionBarWorkerStripTests {
         clickingOverflowScrollsByOnePill()
         panelVariantMapsRoleToShape()
         attachTargetBlursOnSuccessAndLeavesUnfocusedStateAlone()
+        capacityDropsToFiveWhenBothSidesWouldOverflow()
         print("ActionBarWorkerStripTests: all tests passed")
     }
 
@@ -134,6 +135,35 @@ struct ActionBarWorkerStripTests {
         let (noTarget, unchanged) = unfocused.attachTarget(in: workers)
         expect(noTarget == nil, "Enter with no focus should resolve nothing")
         expect(unchanged == unfocused, "a no-op attachTarget must not mutate the state")
+    }
+
+    private static func capacityDropsToFiveWhenBothSidesWouldOverflow() {
+        // At the start or end of an 8-worker list, 6 fits with only a single +N.
+        let start = ActionBarWorkerStripCapacity.resolve(workerCount: 8, selectedIndex: 5, scrollOffset: 0)
+        expect(start == (6, 0), "start of the list should keep 6 visible, got \(start)")
+
+        let end = ActionBarWorkerStripCapacity.resolve(workerCount: 8, selectedIndex: 7, scrollOffset: 2)
+        expect(end == (6, 2), "end of the list should keep 6 visible, got \(end)")
+
+        // Scrolled to the middle (offset 1 of 8, 6-wide covers workers 2-7): both a leading and a
+        // trailing +N would show at once, so this drops to 5. The selection (index 3) isn't on
+        // the pill that falls out of the smaller window, so the offset doesn't need to move.
+        let middle = ActionBarWorkerStripCapacity.resolve(workerCount: 8, selectedIndex: 3, scrollOffset: 1)
+        expect(middle == (5, 1), "the middle of a long list should drop to 5 visible, got \(middle)")
+
+        // Same scroll position, but the selection is exactly the pill (index 6) that dropping the
+        // window's width from 6 to 5 would otherwise push out of view — the offset nudges right
+        // by one instead of hiding it.
+        let selectionAtTheEdge = ActionBarWorkerStripCapacity.resolve(workerCount: 8, selectedIndex: 6, scrollOffset: 1)
+        expect(selectionAtTheEdge == (5, 2), "the selection should nudge the window right instead of being hidden, got \(selectionAtTheEdge)")
+        expect(
+            selectionAtTheEdge.scrollOffset...(selectionAtTheEdge.scrollOffset + selectionAtTheEdge.visibleCount - 1) ~= 6,
+            "the selected pill must stay inside the resolved window"
+        )
+
+        // A worker count that never needs more than 6 pills never drops to 5.
+        let short = ActionBarWorkerStripCapacity.resolve(workerCount: 6, selectedIndex: 3, scrollOffset: 0)
+        expect(short == (6, 0), "a worker count that fits in one window never overflows either side, got \(short)")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

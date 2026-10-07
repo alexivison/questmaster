@@ -171,6 +171,40 @@ public struct ActionBarWorkerStripState: Equatable {
     }
 }
 
+/// How many pills the strip shows. The design fits 6 pills plus a single "+N" overflow pill (the
+/// brief's own worked example — 6 pills + "+2" ending at the strip's right edge), but 6 pills plus
+/// *two* "+N" indicators — one on each side, when the selection is scrolled to the middle of a
+/// long list — don't fit in that same width, so that case shows one fewer pill instead.
+public enum ActionBarWorkerStripCapacity {
+    public static let singleOverflow = 6
+    public static let bothOverflow = 5
+
+    /// Resolves the pill count and scroll offset to actually render for this worker count,
+    /// selection, and scroll position: `singleOverflow` normally, or `bothOverflow` — with the
+    /// offset nudged one pill right if that's what it takes to keep the selection inside the
+    /// smaller window, rather than just trimming it off the end — when `singleOverflow` would
+    /// otherwise show both a leading and a trailing overflow pill at once.
+    public static func resolve(workerCount: Int, selectedIndex: Int?, scrollOffset: Int) -> (visibleCount: Int, scrollOffset: Int) {
+        guard workerCount > singleOverflow else {
+            return (singleOverflow, scrollOffset)
+        }
+        let maxOffsetAtSingle = max(0, workerCount - singleOverflow)
+        let offsetAtSingle = max(0, min(scrollOffset, maxOffsetAtSingle))
+        let hasLeadingOverflow = offsetAtSingle > 0
+        let hasTrailingOverflow = offsetAtSingle + singleOverflow < workerCount
+        guard hasLeadingOverflow && hasTrailingOverflow else {
+            return (singleOverflow, offsetAtSingle)
+        }
+        var offsetAtBoth = offsetAtSingle
+        if let selectedIndex, selectedIndex == offsetAtSingle + singleOverflow - 1 {
+            offsetAtBoth += 1
+        }
+        let maxOffsetAtBoth = max(0, workerCount - bothOverflow)
+        offsetAtBoth = max(0, min(offsetAtBoth, maxOffsetAtBoth))
+        return (bothOverflow, offsetAtBoth)
+    }
+}
+
 /// Which plate shape the session panel shows, per the brief: a shield for a master, a notched
 /// circle for a standalone session, and a plain-ended circle otherwise (a worker, or no
 /// selection) — the same three shapes `TrackerPlatePaths.Kind` already draws for the tracker.
