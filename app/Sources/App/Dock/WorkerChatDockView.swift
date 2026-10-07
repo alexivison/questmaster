@@ -142,6 +142,12 @@ private struct WorkerChatBottomFollower: NSViewRepresentable {
 private final class WorkerChatBottomFollowerView: NSView {
     private var isFollowing = true
     private var lastOffset: CGFloat?
+    private var lastHeights: Heights?
+
+    private struct Heights: Equatable {
+        let viewport: CGFloat
+        let content: CGFloat
+    }
     private var observers: [NSObjectProtocol] = []
 
     override func viewDidMoveToWindow() {
@@ -155,29 +161,47 @@ private final class WorkerChatBottomFollowerView: NSView {
         }
         let clipView = scrollView.contentView
         clipView.postsBoundsChangedNotifications = true
+        clipView.postsFrameChangedNotifications = true
         documentView.postsFrameChangedNotifications = true
         observers = [
             NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clipView, queue: .main) { [weak self, weak scrollView] _ in
                 MainActor.assumeIsolated {
-                    if let scrollView { self?.scrolled(scrollView) }
+                    if let scrollView { self?.sync(scrollView) }
+                }
+            },
+            NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: clipView, queue: .main) { [weak self, weak scrollView] _ in
+                MainActor.assumeIsolated {
+                    if let scrollView { self?.sync(scrollView) }
                 }
             },
             NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: documentView, queue: .main) { [weak self, weak scrollView] _ in
                 MainActor.assumeIsolated {
-                    if let scrollView { self?.contentResized(scrollView) }
+                    if let scrollView { self?.sync(scrollView) }
                 }
             },
         ]
-        contentResized(scrollView)
+        sync(scrollView)
     }
 
     deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
     }
 
-    private func scrolled(_ scrollView: NSScrollView) {
+    /// A size change (content grew, window resized) re-pins while following; an origin change at
+    /// unchanged sizes is the user scrolling, which decides whether to follow. Origin changes that
+    /// come with a size change are AppKit clamping and say nothing about the user.
+    private func sync(_ scrollView: NSScrollView) {
         let clipView = scrollView.contentView
-        guard clipView.bounds.origin.y != lastOffset, let documentView = scrollView.documentView else {
+        guard let documentView = scrollView.documentView else {
+            return
+        }
+        let heights = Heights(viewport: clipView.bounds.height, content: documentView.bounds.height)
+        if heights != lastHeights {
+            lastHeights = heights
+            pinIfFollowing(scrollView)
+            return
+        }
+        guard clipView.bounds.origin.y != lastOffset else {
             return
         }
         lastOffset = clipView.bounds.origin.y
@@ -188,13 +212,14 @@ private final class WorkerChatBottomFollowerView: NSView {
         )
     }
 
-    private func contentResized(_ scrollView: NSScrollView) {
+    private func pinIfFollowing(_ scrollView: NSScrollView) {
         let clipView = scrollView.contentView
         guard isFollowing,
               let documentView = scrollView.documentView,
               let bottom = WorkerChatScroll.bottomOffset(viewportHeight: clipView.bounds.height, contentHeight: documentView.bounds.height) else {
             return
         }
+        lastOffset = bottom
         clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: bottom))
         scrollView.reflectScrolledClipView(clipView)
     }
