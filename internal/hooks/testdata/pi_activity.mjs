@@ -35,7 +35,7 @@ try {
 	const workingStartedAt = Date.now();
 	await handlers.get("agent_start")({}, context);
 	await new Promise((resolve) => setTimeout(resolve, 220));
-	assert(Date.now() - workingStartedAt < 500, "working status should reach the hook promptly");
+	assert(Date.now() - workingStartedAt < 250, "working status should reach the hook promptly");
 	assert(hooks.calls.some(({ args }) => args[2] === "agent_start"), "working status did not reach the hook");
 	await handlers.get("turn_start")({ turnIndex: 1 }, context);
 	for (const type of ["thinking_delta", "thinking_end", "text_delta", "toolcall_delta"]) {

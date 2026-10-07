@@ -181,6 +181,43 @@ func TestReadSinceSkipsOversizedLineAndContinues(t *testing.T) {
 	}
 }
 
+func TestReadSinceSkipsMultiMegabyteLineInBoundedPulls(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	appendEvent(t, root, "qm-w1", chatEvent("message", "before", time.Unix(1, 0)))
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendEvent(t, root, "qm-w1", state.StateEvent{Ts: time.Unix(2, 0), Fields: map[string]interface{}{
+		"chat_entries": []interface{}{map[string]interface{}{"chat_kind": "message", "chat_text": strings.Repeat("x", 3*1024*1024)}},
+	}})
+	appendEvent(t, root, "qm-w1", chatEvent("message", "after", time.Unix(3, 0)))
+
+	cursors := first.Cursors
+	var entries []Entry
+	for pull := 0; pull < 20; pull++ {
+		page, err := ReadSince(root, "qm-master", cursors)
+		if err != nil {
+			t.Fatal(err)
+		}
+		previous := cursors["qm-w1"].Offset
+		next := page.Cursors["qm-w1"]
+		if advanced := next.Offset - previous; advanced > maxIncrementalRead {
+			t.Fatalf("pull %d advanced %d bytes, want at most %d", pull, advanced, maxIncrementalRead)
+		}
+		entries = append(entries, page.Entries...)
+		if !page.HasMore["qm-w1"] {
+			break
+		}
+		cursors = page.Cursors
+	}
+	if len(entries) != 1 || entries[0].Text != "after" {
+		t.Fatalf("entries after oversized line = %#v, want only the valid trailing entry", entries)
+	}
+}
+
 func TestReadSinceTailLineBoundaryAndOffsetBeyondEOF(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

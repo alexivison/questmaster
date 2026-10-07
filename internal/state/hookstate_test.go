@@ -253,6 +253,80 @@ func TestUpdateAndLogBatchWritesEventsAndAppliesMutationOnce(t *testing.T) {
 	}
 }
 
+func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-expanded-events"
+	insideExpansion := make(chan struct{})
+	releaseExpansion := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- UpdateAndLogWithEventsAt(root, id, &StateEvent{Action: "commentary"}, func(ss *SessionState) bool {
+			ss.Panes["primary"] = PaneState{Role: "primary", LastChatAt: time.Unix(1, 0)}
+			return true
+		}, func(*StateEvent) []*StateEvent {
+			close(insideExpansion)
+			<-releaseExpansion
+			return []*StateEvent{{Action: "overflow"}}
+		})
+	}()
+	<-insideExpansion
+
+	stopStarted := make(chan struct{})
+	stopDone := make(chan error, 1)
+	go func() {
+		close(stopStarted)
+		stopDone <- UpdateAndLogAt(root, id, &StateEvent{Action: "stop"}, func(ss *SessionState) bool {
+			pane := ss.Panes["primary"]
+			pane.State = "done"
+			ss.Panes["primary"] = pane
+			return true
+		})
+	}()
+	<-stopStarted
+	select {
+	case err := <-stopDone:
+		t.Fatalf("stop event completed during expansion: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(releaseExpansion)
+	select {
+	case err := <-firstDone:
+		if err != nil {
+			t.Fatalf("expanded event update: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expanded event update did not finish")
+	}
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("stop update: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("stop update did not finish")
+	}
+
+	data, err := os.ReadFile(SessionStateLogPath(root, id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actions []string
+	for _, line := range bytes.Split(bytes.TrimSpace(data), []byte("\n")) {
+		var event StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatal(err)
+		}
+		actions = append(actions, event.Action)
+	}
+	if len(actions) != 3 || actions[0] != "commentary" || actions[1] != "overflow" || actions[2] != "stop" {
+		t.Fatalf("event order = %v, want commentary, overflow, stop", actions)
+	}
+	ss, err := LoadSessionStateAt(root, id)
+	if err != nil || ss.Panes["primary"].State != "done" || ss.Panes["primary"].LastChatAt.IsZero() {
+		t.Fatalf("final state = %#v, err = %v", ss, err)
+	}
+}
+
 func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
 	root := setStateRoot(t)
 	id := "qm-batch-partial"

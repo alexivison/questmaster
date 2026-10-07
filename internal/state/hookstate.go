@@ -287,6 +287,18 @@ func UpdateAndLog(id string, ev *StateEvent, mutate func(*SessionState) bool) er
 
 // UpdateAndLogAt is UpdateAndLog with the state root supplied by the caller.
 func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool) error {
+	return UpdateAndLogWithEventsAt(root, id, ev, mutate, nil)
+}
+
+// UpdateAndLogWithEvents appends events produced from the primary event and
+// applies their state mutation under one lock.
+func UpdateAndLogWithEvents(id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
+	return UpdateAndLogWithEventsAt(StateRoot(), id, ev, mutate, extraEvents)
+}
+
+// UpdateAndLogWithEventsAt is UpdateAndLogWithEvents with the state root
+// supplied by the caller.
+func UpdateAndLogWithEventsAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
@@ -308,14 +320,21 @@ func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) 
 			return errors.Join(appendRotatingJSONL(SessionStateLogPath(root, id), *ev), err)
 		}
 		if ss == nil {
-			ss = &SessionState{
-				SessionID: id,
-				Version:   SchemaVersion,
-				Panes:     map[string]PaneState{},
-			}
+			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
 		}
 		changed := mutate(ss)
+		var extras []*StateEvent
+		if extraEvents != nil {
+			extras = extraEvents(ev)
+		}
 		appendErr := appendRotatingJSONL(SessionStateLogPath(root, id), *ev)
+		for _, extra := range extras {
+			if extra == nil {
+				appendErr = errors.Join(appendErr, errors.New("nil state event"))
+				continue
+			}
+			appendErr = errors.Join(appendErr, appendRotatingJSONL(SessionStateLogPath(root, id), *extra))
+		}
 		if !changed {
 			return appendErr
 		}

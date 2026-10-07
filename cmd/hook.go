@@ -61,7 +61,7 @@ type HookRunner struct {
 	// always appends ev, then conditionally writes state.json when mutate
 	// returns true. Hot-path handlers use this instead of an AppendEvent +
 	// Update pair to take one lock per event instead of two.
-	UpdateAndLog func(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) error
+	UpdateAndLog func(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error
 
 	// UpdateAndLogEvents applies and logs a group of related hook events under
 	// one state lock.
@@ -93,7 +93,7 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		LoadState:          state.LoadSessionState,
 		Update:             state.UpdateSessionState,
 		AppendEvent:        state.AppendStateEvent,
-		UpdateAndLog:       state.UpdateAndLog,
+		UpdateAndLog:       state.UpdateAndLogWithEvents,
 		UpdateAndLogEvents: state.UpdateAndLogBatch,
 	}
 }
@@ -132,12 +132,9 @@ func (r *HookRunner) updateAndLog(sessionID string, ev *state.StateEvent, mutate
 		return nil
 	}
 	if r.UpdateAndLog != nil {
-		// The combined path logs the event and writes state under one lock;
-		// surface its single error as the update error so the (rare) failure
-		// is still reported.
-		updateErr = r.UpdateAndLog(sessionID, ev, apply)
-		appendErr = appendOverflow()
-		return appendErr, updateErr
+		// The combined path expands and logs all lines under the state lock;
+		// surface its single error as the update error.
+		return nil, r.UpdateAndLog(sessionID, ev, mutate, splitChatEvent)
 	}
 	if r.Update != nil {
 		updateErr = r.Update(sessionID, apply)
@@ -589,10 +586,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 							pane.ClaudeDisplayChunks = make(map[int]string)
 						}
 						if _, seen := pane.ClaudeDisplayChunks[payload.Index]; !seen {
-							if len(pane.ClaudeDisplayChunks) >= maxClaudeDisplayChunks || len(payload.Delta) > maxClaudeDisplayBytes || claudeDisplayChunksRawSize(pane.ClaudeDisplayChunks)+len(payload.Delta) > maxClaudeDisplayBytes {
+							delta := capClaudeDisplayDelta(pane.ClaudeDisplayChunks, payload.Index, payload.Delta)
+							if len(pane.ClaudeDisplayChunks) >= maxClaudeDisplayChunks || claudeDisplayChunksRawSize(pane.ClaudeDisplayChunks)+len(delta) > maxClaudeDisplayBytes {
 								abandonClaudeDisplay(&pane)
 							} else {
-								pane.ClaudeDisplayChunks[payload.Index] = payload.Delta
+								pane.ClaudeDisplayChunks[payload.Index] = delta
 								if claudeDisplayChunksSize(pane.ClaudeDisplayChunks) > maxClaudeDisplayBytes {
 									abandonClaudeDisplay(&pane)
 								} else {
@@ -803,6 +801,34 @@ func claudeDisplayChunksRawSize(chunks map[int]string) int {
 		size += len(chunk)
 	}
 	return size
+}
+
+func capClaudeDisplayDelta(chunks map[int]string, index int, delta string) string {
+	remaining := 1500
+	leading := true
+	for previous := 0; previous < index; previous++ {
+		text, ok := chunks[previous]
+		if !ok {
+			leading = false
+			break
+		}
+		if leading {
+			text = strings.TrimLeftFunc(text, unicode.IsSpace)
+			leading = text == ""
+		}
+		remaining -= len([]rune(text))
+		if remaining <= 0 {
+			return ""
+		}
+	}
+	if leading {
+		delta = strings.TrimLeftFunc(delta, unicode.IsSpace)
+	}
+	runes := []rune(delta)
+	if len(runes) > remaining {
+		return string(runes[:remaining])
+	}
+	return delta
 }
 
 func abandonClaudeDisplay(pane *state.PaneState) {

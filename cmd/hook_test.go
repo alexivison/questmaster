@@ -235,6 +235,19 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 			sayInHook:  strings.Repeat("猫", 1500),
 		},
 		{
+			name: "single oversized batch is capped before storage limit",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m8", "index": 0, "final": true, "delta": strings.Repeat("x", maxClaudeDisplayBytes+1)}},
+			},
+			wantSay:    []string{strings.Repeat("x", 1500)},
+			checkSayIn: true,
+			sayInput:   0,
+			sayInHook:  strings.Repeat("x", 1500),
+		},
+		{
 			name: "leading whitespace does not consume the cap",
 			inputs: []struct {
 				action  string
@@ -307,8 +320,8 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 func TestHookClaudeOutOfOrderDisplayDeltasKeepStateBounded(t *testing.T) {
 	root := t.TempDir()
 	r, _ := newTestRunner(t)
-	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool) error {
-		return state.UpdateAndLogAt(root, sessionID, event, mutate)
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
 	}
 	for index := 1; index <= 2; index++ {
 		runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
@@ -327,6 +340,7 @@ func TestHookClaudeOutOfOrderDisplayDeltasKeepStateBounded(t *testing.T) {
 
 func TestHookCodexLargeChatEventsStayWithinReaderWindow(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	root := t.TempDir()
 	var rollout strings.Builder
 	for i := 0; i < 300; i++ {
 		rollout.WriteString(`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"`)
@@ -336,29 +350,41 @@ func TestHookCodexLargeChatEventsStayWithinReaderWindow(t *testing.T) {
 	if err := os.WriteFile(path, []byte(rollout.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r, rec := newTestRunner(t)
+	r, _ := newTestRunner(t)
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
+	}
 	runHookWithStdin(r, "codex", "tool_start", "qm-chat", map[string]interface{}{"transcript_path": path})
-	if len(rec.events) < 2 {
-		t.Fatalf("large chat event stayed in %d state log line(s)", len(rec.events))
+	data, err := os.ReadFile(state.SessionStateLogPath(root, "qm-chat"))
+	if err != nil {
+		t.Fatal(err)
 	}
 	entries, maxLineBytes := 0, 0
-	for _, event := range rec.events {
-		data, err := json.Marshal(event)
-		if err != nil {
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	if len(lines) < 2 {
+		t.Fatalf("large chat event stayed in %d state log line(s)", len(lines))
+	}
+	for _, line := range lines {
+		var event state.StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
 			t.Fatal(err)
 		}
-		if len(data)+1 > 64*1024 {
-			t.Fatalf("state log line is %d bytes, exceeds 64 KiB", len(data)+1)
+		if len(line)+1 > 64*1024 {
+			t.Fatalf("state log line is %d bytes, exceeds 64 KiB", len(line)+1)
 		}
-		if len(data)+1 > maxLineBytes {
-			maxLineBytes = len(data) + 1
+		if len(line)+1 > maxLineBytes {
+			maxLineBytes = len(line) + 1
 		}
 		entries += len(chatEntries(event))
 	}
 	if entries != 300 {
 		t.Fatalf("chat entries = %d, want 300", entries)
 	}
-	t.Logf("split 300 chat entries across %d lines; max line %d bytes", len(rec.events), maxLineBytes)
+	ss, err := state.LoadSessionStateAt(root, "qm-chat")
+	if err != nil || ss == nil || ss.Panes["primary"].LastChatAt.IsZero() {
+		t.Fatalf("LastChatAt not committed with split lines: state=%#v err=%v", ss, err)
+	}
+	t.Logf("split 300 chat entries across %d lines; max line %d bytes", len(lines), maxLineBytes)
 }
 
 func TestHookClaudeClearsAbandonedDisplayAtLifecycleBoundary(t *testing.T) {
