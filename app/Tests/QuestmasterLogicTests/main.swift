@@ -33,6 +33,7 @@ enum QuestmasterLogicTests {
         GhosttyConfigParserTests.run()
         TerminalDetachSignalTests.run()
         WorkerChatTests.run()
+        WorkerChatScrollTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

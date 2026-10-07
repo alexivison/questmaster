@@ -28,10 +28,13 @@ public struct WorkerChatLine: Identifiable, Equatable {
 
     public let id: String
     public let content: Content
+    /// A message, say or report entry: free text that the view may truncate. Status and tool-run lines are not.
+    public let isNarration: Bool
 
-    public init(id: String, content: Content) {
+    public init(id: String, content: Content, isNarration: Bool = false) {
         self.id = id
         self.content = content
+        self.isNarration = isNarration
     }
 }
 
@@ -65,6 +68,16 @@ enum WorkerChatLineBuilder {
     private enum Body {
         case record(WorkerChatRecord)
         case run([Tool])
+
+        var isNarration: Bool {
+            guard case .record(let record) = self else {
+                return false
+            }
+            switch record.kind {
+            case .say, .message, .report: return true
+            case .status, .action: return false
+            }
+        }
     }
 
     private struct Draft {
@@ -118,7 +131,8 @@ enum WorkerChatLineBuilder {
             let name = displayName(names[draft.workerID] ?? draft.workerID) + ":"
             lines.append(WorkerChatLine(
                 id: draft.id,
-                content: .entry(agent: agents[draft.workerID] ?? "", segments: [WorkerChatSegment(name, .name)] + segments(for: draft.body))
+                content: .entry(agent: agents[draft.workerID] ?? "", segments: [WorkerChatSegment(name, .name)] + segments(for: draft.body)),
+                isNarration: draft.body.isNarration
             ))
         }
         return lines
