@@ -10,6 +10,7 @@ enum QuestmasterLogicTests {
         ShellSplitLayoutTests.run()
         TerminalCellSnappingTests.run()
         GhosttyGapDerivationTests.run()
+        TrackerHeaderAlignmentTests.run()
         DockWidthPreferenceTests.run()
         ServeRecoveryPolicyTests.run()
         NewSessionLogicTests.run()
