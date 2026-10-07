@@ -30,6 +30,26 @@ func TestPiMessagingSocketOwnership(t *testing.T) {
 	}
 }
 
+func TestPiActivityForwardingUsesDiscreteHooks(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is unavailable")
+	}
+	if err := exec.Command(node, "--experimental-strip-types", "-e", "").Run(); err != nil {
+		t.Skip("Node TypeScript type stripping is unavailable")
+	}
+	extension, err := filepath.Abs(filepath.Join("assets", "questmaster-pi-messaging.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_activity.mjs"), extension).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Pi activity extension check: %v\n%s", err, out)
+	}
+}
+
 func newTestPiInstaller(t *testing.T) *PiInstaller {
 	t.Helper()
 	home := t.TempDir()
@@ -71,17 +91,33 @@ func TestPiInstallIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestPiSidecarVersionMatchesExtension(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "pi", "agent", "extensions", "activity-sidecar.ts"))
-	if os.IsNotExist(err) {
-		t.Skip("activity-sidecar.ts is absent in standalone source checkouts")
+func TestPiInstallReplacesOutdatedExtension(t *testing.T) {
+	p := newTestPiInstaller(t)
+	if err := p.Install(); err != nil {
+		t.Fatalf("initial install: %v", err)
 	}
-	if err != nil {
-		t.Fatalf("read activity-sidecar.ts: %v", err)
+	if err := os.WriteFile(p.extensionPath(), []byte("old extension"), 0o644); err != nil {
+		t.Fatalf("replace installed extension: %v", err)
 	}
-	want := `const SIDECAR_VERSION = "` + QuestmasterSidecarVersion + `";`
-	if !strings.Contains(string(data), want) {
-		t.Fatalf("activity-sidecar.ts version marker does not match %q", QuestmasterSidecarVersion)
+	if got := p.Status(); got.Status != StatusOutdated {
+		t.Fatalf("status after extension change: %+v", got)
+	}
+	if err := p.Install(); err != nil {
+		t.Fatalf("upgrade install: %v", err)
+	}
+	data, err := os.ReadFile(p.extensionPath())
+	if err != nil || string(data) != piMessagingExtension {
+		t.Fatalf("installed extension = %q, err = %v", data, err)
+	}
+	if got := p.Status(); got.Status != StatusCurrent {
+		t.Fatalf("status after upgrade: %+v", got)
+	}
+}
+
+func TestPiMarkerVersionMatchesExtension(t *testing.T) {
+	want := `const sidecarVersion = "` + QuestmasterSidecarVersion + `";`
+	if !strings.Contains(piMessagingExtension, want) {
+		t.Fatalf("Pi extension marker does not match %q", QuestmasterSidecarVersion)
 	}
 }
 

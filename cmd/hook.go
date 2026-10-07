@@ -1735,6 +1735,11 @@ type piPayload struct {
 	Snippet               string                  `json:"snippet"`
 	Text                  string                  `json:"text"`
 	Prompt                string                  `json:"prompt"`
+	Model                 interface{}             `json:"model"`
+	Thinking              interface{}             `json:"thinking"`
+	Context               interface{}             `json:"context"`
+	Turn                  interface{}             `json:"turn"`
+	Usage                 interface{}             `json:"usage"`
 	ToolName              string                  `json:"toolName"`
 	ToolNameSnake         string                  `json:"tool_name"`
 	Name                  string                  `json:"name"`
@@ -1791,7 +1796,7 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	)
 
 	switch opts.action {
-	case "session_start", "before_agent_start", "agent_start":
+	case "session_start", "before_agent_start":
 		setState = "starting"
 		setActivity = piPromptActivity(payload)
 		if setActivity == "" {
@@ -1802,6 +1807,9 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			piPrompt = payload.Text
 		}
 		maybeDeriveTitle(opts.ctx, r, sessionID, piPrompt, stderr)
+	case "agent_start":
+		setState = "working"
+		lastKind = "agent_start"
 	case "message_update", "message_end":
 		setState = "working"
 		if text := piLastMessageText(payload); text != "" {
@@ -1809,6 +1817,10 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		} else {
 			setActivity = "Replying…"
 		}
+	case "say":
+		setState = "working"
+		setActivity = truncatePromptLine(piActivityText(payload))
+		lastKind = "say"
 	case "tool_execution_start":
 		setState = "working"
 		setTool = piToolName(payload)
@@ -1824,7 +1836,7 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	case "agent_end":
 		setState = "done"
 		clearTool = true
-		if text := piLastMessageText(payload); text != "" {
+		if text := piActivityText(payload); text != "" {
 			setActivity = truncatePromptLine(text)
 		}
 	case "session_shutdown":
@@ -1849,8 +1861,8 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		Tool:     setTool,
 		Kind:     lastKind,
 	}
-	if sessionFile != "" || piSessionID != "" || hasRecent {
-		fields := make(map[string]interface{}, 3)
+	if sessionFile != "" || piSessionID != "" || hasRecent || payload.Model != nil || payload.Thinking != nil || payload.Context != nil || payload.Turn != nil || payload.Usage != nil {
+		fields := make(map[string]interface{}, 8)
 		if sessionFile != "" {
 			fields["session_file"] = sessionFile
 		}
@@ -1859,6 +1871,14 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		if hasRecent {
 			fields["recent_count"] = len(recent)
+		}
+		for key, value := range map[string]interface{}{
+			"model": payload.Model, "thinking": payload.Thinking, "context": payload.Context,
+			"turn": payload.Turn, "usage": payload.Usage,
+		} {
+			if value != nil {
+				fields[key] = value
+			}
 		}
 		ev.Fields = fields
 	}
@@ -1916,11 +1936,14 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		pane.Seq = now.UnixNano()
 		pane.Agent = agentName
 		pane.Role = role
-		if opts.action == "tool_execution_start" && !preserveBlockedQuestion {
-			if pane.State != prev.State {
+		if opts.action == "tool_execution_start" {
+			if !preserveBlockedQuestion && pane.State != prev.State {
 				addVisibleStatus(&ev, &pane, pane.State)
 			}
 			addChatEntry(&ev, &pane, "action", piToolName(payload))
+		}
+		if opts.action == "say" {
+			addChatEntry(&ev, "say", piLastMessageText(payload))
 		}
 		if opts.action == "agent_end" {
 			if text := piLastMessageText(payload); text != "" && pane.State == "done" {
@@ -2173,6 +2196,9 @@ func piLastMessageText(p piPayload) string {
 	if text, ok := p.AssistantMessageEvent.Delta.(string); ok && strings.TrimSpace(text) != "" {
 		return text
 	}
+	if strings.TrimSpace(p.Text) != "" {
+		return p.Text
+	}
 	if strings.TrimSpace(p.Snippet) != "" {
 		return p.Snippet
 	}
@@ -2182,13 +2208,17 @@ func piLastMessageText(p piPayload) string {
 			return clean[len(clean)-1]
 		}
 	}
-	if strings.TrimSpace(p.Text) != "" {
-		return p.Text
-	}
 	if strings.TrimSpace(p.Prompt) != "" {
 		return p.Prompt
 	}
 	return ""
+}
+
+func piActivityText(p piPayload) string {
+	if strings.TrimSpace(p.Snippet) != "" {
+		return p.Snippet
+	}
+	return piLastMessageText(p)
 }
 
 func piTextFromMessage(value interface{}) string {

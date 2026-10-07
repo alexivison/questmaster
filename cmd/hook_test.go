@@ -113,7 +113,7 @@ func TestHookChatEntriesForHarnesses(t *testing.T) {
 	}{
 		{name: "claude", agent: "claude", action: "tool_start", payload: map[string]interface{}{"tool_name": "Bash"}, final: "last_assistant_message", finalEvent: "done"},
 		{name: "codex", agent: "codex", action: "tool_start", payload: map[string]interface{}{"tool_name": "Bash"}, final: "last_assistant_message", finalEvent: "done"},
-		{name: "pi", agent: "pi", action: "tool_execution_start", payload: map[string]interface{}{"toolName": "Bash"}, final: "messages", finalEvent: "agent_end"},
+		{name: "pi", agent: "pi", action: "tool_execution_start", payload: map[string]interface{}{"toolName": "Bash"}, final: "text", finalEvent: "agent_end"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
@@ -124,9 +124,6 @@ func TestHookChatEntriesForHarnesses(t *testing.T) {
 
 			finalText := strings.Join([]string{strings.Repeat("猫", 1501), "second paragraph", "third paragraph", "fourth"}, "\n\n")
 			payload := map[string]interface{}{tc.final: finalText}
-			if tc.final == "messages" {
-				payload[tc.final] = []string{finalText}
-			}
 			runHookWithStdin(r, tc.agent, tc.finalEvent, "qm-chat", payload)
 			last := rec.events[len(rec.events)-1]
 			message := chatTextFor(last, "message")
@@ -797,7 +794,6 @@ func TestHookStartingSnippetIsStarted(t *testing.T) {
 		{agent: "codex", action: "starting"},
 		{agent: "pi", action: "session_start"},
 		{agent: "pi", action: "before_agent_start"},
-		{agent: "pi", action: "agent_start"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.agent+"/"+tc.action, func(t *testing.T) {
@@ -2620,6 +2616,9 @@ func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 	if pane.State != "blocked" || pane.Activity != "Question: Pick a deployment target" || pane.LastKind != "waiting_for_user" {
 		t.Fatalf("tool heartbeat should preserve blocked question, got %+v", pane)
 	}
+	if got := chatKinds(rec.events[len(rec.events)-1]); !slices.Equal(got, []string{"action"}) {
+		t.Fatalf("blocked tool action chat kinds = %v, want [action]", got)
+	}
 
 	runHookWithStdin(r, "pi", "tool_execution_end", "qm-abc", map[string]interface{}{"toolName": "ask_user"})
 	pane = rec.lastState.Panes["primary"]
@@ -2649,7 +2648,7 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 			wantActivity: "started",
 		},
 		{action: "before_agent_start", wantState: "starting", wantActivity: "started"},
-		{action: "agent_start", wantState: "starting", wantActivity: "started"},
+		{action: "agent_start", wantState: "working", wantActivity: "started"},
 		{action: "message_update", wantState: "working", wantActivity: "Replying…"},
 		{
 			action: "message_end",
@@ -2725,6 +2724,90 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 	}
 	if rec.updateCalls != len(steps) || rec.writeCalls != len(steps) {
 		t.Errorf("updates/writes: want %d/%d, got %d/%d", len(steps), len(steps), rec.updateCalls, rec.writeCalls)
+	}
+}
+
+func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "session_start", "qm-chat", nil)
+	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+	if got := rec.lastState.Panes["primary"].State; got != "working" {
+		t.Fatalf("agent_start state = %q, want working", got)
+	}
+
+	runHookWithStdin(r, "pi", "say", "qm-chat", map[string]interface{}{
+		"text":   "Checking the config\nbefore editing",
+		"recent": []string{"Checking the config", "before editing"},
+		"turn":   map[string]interface{}{"index": float64(1), "status": "running"},
+		"usage":  map[string]interface{}{"last": map[string]interface{}{"input": float64(12)}},
+	})
+	say := rec.events[len(rec.events)-1]
+	if got := chatKinds(say); !slices.Equal(got, []string{"say"}) {
+		t.Fatalf("say chat kinds = %v, want [say]", got)
+	}
+	if got := chatTextFor(say, "say"); got != "Checking the config\nbefore editing" {
+		t.Fatalf("say text = %q", got)
+	}
+	if say.Fields["turn"] == nil || say.Fields["usage"] == nil {
+		t.Fatalf("turn/usage metadata missing from event fields: %#v", say.Fields)
+	}
+
+	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
+		"tool": map[string]interface{}{"name": "bash", "summary": "bash: go test ./..."},
+	})
+	tool := rec.events[len(rec.events)-1]
+	if !slices.Contains(chatKinds(tool), "action") || chatTextFor(tool, "action") != "bash" {
+		t.Fatalf("tool chat entries = %#v", chatEntries(tool))
+	}
+	runHookWithStdin(r, "pi", "tool_execution_end", "qm-chat", nil)
+	if rec.lastState.Panes["primary"].Tool != "" || len(chatEntries(rec.events[len(rec.events)-1])) != 0 {
+		t.Fatalf("tool end did not clear tool without a chat entry: pane=%+v event=%+v", rec.lastState.Panes["primary"], rec.events[len(rec.events)-1])
+	}
+
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"text":    "All tests passed.\nReady to merge.",
+		"snippet": "Ready to merge.",
+		"recent":  []string{"All tests passed.", "Ready to merge."},
+	})
+	final := rec.events[len(rec.events)-1]
+	if got := chatTextFor(final, "message"); got != "All tests passed.\nReady to merge." {
+		t.Fatalf("final message = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].Activity; got != "Ready to merge." {
+		t.Fatalf("final activity snippet = %q", got)
+	}
+	if !slices.Contains(chatKinds(final), "status") || rec.lastState.Panes["primary"].State != "done" {
+		t.Fatalf("final event/state = %#v/%q", chatEntries(final), rec.lastState.Panes["primary"].State)
+	}
+
+	runHookWithStdin(r, "pi", "waiting_for_user", "qm-chat", map[string]interface{}{"prompt": "Choose a target"})
+	blocked := rec.events[len(rec.events)-1]
+	if rec.lastState.Panes["primary"].State != "blocked" || chatTextFor(blocked, "status") != "blocked" {
+		t.Fatalf("blocked event/state = %#v/%q", chatEntries(blocked), rec.lastState.Panes["primary"].State)
+	}
+	runHookWithStdin(r, "pi", "session_shutdown", "qm-chat", nil)
+	if rec.lastState.Panes["primary"].State != "stopped" {
+		t.Fatalf("shutdown state = %q, want stopped", rec.lastState.Panes["primary"].State)
+	}
+}
+
+func TestHookPiThinkingIsNotChat(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "message_update", "qm-chat", map[string]interface{}{
+		"assistantMessageEvent": map[string]interface{}{"type": "thinking_delta", "delta": "private reasoning"},
+	})
+	if got := chatEntries(rec.events[len(rec.events)-1]); len(got) != 1 || got[0]["chat_kind"] != "status" {
+		t.Fatalf("thinking produced unexpected chat entries: %#v", got)
+	}
+}
+
+func TestHookPiAgentEndFallsBackToRecent(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"recent": []string{"last captured line"},
+	})
+	if got := chatTextFor(rec.events[0], "message"); got != "last captured line" {
+		t.Fatalf("fallback message = %q", got)
 	}
 }
 

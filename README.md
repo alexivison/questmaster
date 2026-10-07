@@ -76,9 +76,9 @@ questmaster hooks install --dry-run
 questmaster hooks install
 ```
 
-Claude and Codex use shell-script hooks merged into their native config. Pi uses
-an out-of-band activity sidecar; `questmaster hooks install pi` writes its
-version marker and messaging extension under the `$PI_HOME` or `~/.pi` dirs.
+Claude and Codex use shell-script hooks merged into their native config. Pi's
+Questmaster extension handles inbound messages and activity; `questmaster hooks
+install pi` writes its version marker and extension under `$PI_HOME` or `~/.pi`.
 
 `send` takes a session ID for a direct message, `master` to report to the
 current worker's parent, or `all` to broadcast from the current master.

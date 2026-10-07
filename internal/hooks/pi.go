@@ -12,13 +12,12 @@ import (
 //go:embed assets/questmaster-pi-messaging.ts
 var piMessagingExtension string
 
-// QuestmasterSidecarVersion is the marker version emitted by the Pi
-// activity-sidecar contract that shells out to `questmaster hook pi`.
+// QuestmasterSidecarVersion is the marker version emitted by installed Pi and
+// OpenCode extensions that call `questmaster hook`.
 const QuestmasterSidecarVersion = "phase2-v2"
 
-// PiInstaller manages the Pi activity-sidecar marker file. The TypeScript
-// sidecar writes the same marker at runtime so `questmaster hooks status pi`
-// can detect stale non-symlink installs.
+// PiInstaller manages the Pi extension marker and bundled TypeScript extension.
+// The extension also refreshes the marker at runtime.
 type PiInstaller struct {
 	// Home is the resolved Pi config directory ($PI_HOME or ~/.pi).
 	// Override only in tests.
@@ -41,13 +40,12 @@ func NewPiInstaller(home string) *PiInstaller {
 // Name implements Installer.
 func (p *PiInstaller) Name() string { return "pi" }
 
-// Install implements Installer. It writes the current sidecar marker
-// atomically and is idempotent.
+// Install implements Installer.
 func (p *PiInstaller) Install() error {
 	return p.InstallWithOptions(InstallOptions{})
 }
 
-// InstallWithOptions writes the current marker.
+// InstallWithOptions writes the current marker and extension.
 func (p *PiInstaller) InstallWithOptions(opts InstallOptions) error {
 	opts = opts.normalized()
 	if p.Home == "" {
