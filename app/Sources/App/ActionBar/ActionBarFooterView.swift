@@ -64,7 +64,10 @@ struct ActionBarFooterView: View {
             // the title/ID strips (which start behind the portrait), then the portrait itself —
             // its ring and logo must stay fully visible over the strips, per the design.
             ActionBarPlateShapeView(path: ActionBarPlateOutlines.slotBar, fill: ActionBarMetrics.PlateFill.slotBar)
-            ActionBarPlateShapeView(path: panelPath, fill: ActionBarMetrics.PlateFill.sessionPanel)
+            // The panel's own traced path already sits at its bar's true outer edge (unlike the
+            // slot bar's, which is pre-inset assuming a centred stroke) — stroking it centred
+            // would push that edge 0.75pt further out than the slot bar's, a visible mismatch.
+            ActionBarPlateShapeView(path: panelPath, fill: ActionBarMetrics.PlateFill.sessionPanel, strokeInside: true)
             strips
             portrait
             slotBar(navState: navState)
@@ -301,11 +304,31 @@ struct ActionBarSlotButton: View {
 struct ActionBarPlateShapeView: View {
     let path: Path
     let fill: NSColor
+    /// `false` (default, centred — matches the slot bar's own traced path, which is pre-inset by
+    /// half the stroke width assuming a centred stroke): the stroke straddles the path, half in,
+    /// half out. `true` (the session panel): the path already sits at the shape's true outer
+    /// edge, so the stroke is drawn entirely inside it instead, to avoid pushing that edge out
+    /// further than the slot bar's own.
+    var strokeInside: Bool = false
 
     var body: some View {
-        ActionBarPlateShape(path: path)
+        let shape = ActionBarPlateShape(path: path)
+        return shape
             .fill(fill.swiftUI)
-            .overlay(ActionBarPlateShape(path: path).stroke(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 1.5))
+            .overlay(strokeOverlay(shape))
+    }
+
+    @ViewBuilder
+    private func strokeOverlay(_ shape: ActionBarPlateShape) -> some View {
+        if strokeInside {
+            // `ActionBarPlateShape` wraps a raw traced `Path`, not an `InsettableShape`, so it has
+            // no `strokeBorder`. Same trick as the tracker's own plate stroke: stroke at double
+            // the width (centred, so it reaches the full width in from the path and back out
+            // again) and clip to the path, keeping only the inward half.
+            shape.stroke(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 3).clipShape(shape)
+        } else {
+            shape.stroke(ActionBarMetrics.SourceColor.stroke.swiftUI, lineWidth: 1.5)
+        }
     }
 }
 

@@ -46,9 +46,13 @@ enum ActionBarMetrics {
     /// matching the v1 design's own placement, not to its right.
     static let stripX: CGFloat = 41.5
     static let stripWidth: CGFloat = 242
-    static let titleStripY: CGFloat = 26.5 + verticalShift
-    static let idStripY: CGFloat = 41.5 + verticalShift
-    static let stripHeight: CGFloat = 14
+    /// Outer edges (the traced rects are stroke-centred at y 26.5–40.5 and 41.5–55.5 with a 1pt
+    /// stroke, so their true outer edges are 26–41 and 41–56): our own strip draws an inside
+    /// `strokeBorder`, so these origin/height values are the frame bounds directly, with zero gap
+    /// between the two — not the stroke-centred values, which would leave a 1pt visible gap.
+    static let titleStripY: CGFloat = 26 + verticalShift
+    static let idStripY: CGFloat = 41 + verticalShift
+    static let stripHeight: CGFloat = 15
     static let stripTrailingPadding: CGFloat = 12
     /// Where the strip's own text becomes visible past the portrait — the ID/title text centres
     /// in `stripX + visibleInset ..< stripX + stripWidth`, not across the whole (partly hidden)
@@ -73,11 +77,44 @@ enum ActionBarMetrics {
         return index > slotGapAfterIndex ? base + slotGroupGap : base
     }
 
-    /// The worker strip row: pills start just past the session panel's portrait, 6pt (not quite —
-    /// see the addendum below) below the slot bar's own outer bottom edge.
+    /// The worker strip row: pills start 5pt below the slot bar's own outer bottom edge (y 61).
     static let workerRowY: CGFloat = 66 + verticalShift
     static let workerRowHeight: CGFloat = 20
-    static let workerRowStartX: CGFloat = 61
+    /// 5pt past the master shield's own outer edge (border included), measured where the pill row
+    /// overlaps it (y 66–86, i.e. raw SVG y 71–91 before the dx/dy shift into this frame). Derived
+    /// by sampling the one traced curve segment that actually reaches into that range — the shield
+    /// bends back up, away from the row, immediately after — rather than reading a point off it by
+    /// hand. Shared by all three panel variants (master/standalone/worker) so the strip doesn't
+    /// jump when the variant changes, per the review.
+    static let workerRowStartX: CGFloat = shieldEdgeAtWorkerRow + 5
+
+    /// `action-bar-v2.svg`'s traced master panel: the segment `C58.2328 70.0624 52.8309 72.9423
+    /// 49.0003 75`, starting at `(63.0364, 66)` — raw (pre-shift) coordinates, the same ones
+    /// `ActionBarPlateOutlines.masterPanel` traces. `-8` is that same path's shared `dx` shift.
+    private static let shieldEdgeAtWorkerRow: CGFloat = cubicBezierMaxX(
+        p0: CGPoint(x: 63.0364, y: 66),
+        p1: CGPoint(x: 58.2328, y: 70.0624),
+        p2: CGPoint(x: 52.8309, y: 72.9423),
+        p3: CGPoint(x: 49.0003, y: 75),
+        yRange: 71...91
+    ) - 8
+
+    /// Samples a cubic bezier at fine resolution and returns the maximum x where y falls within
+    /// `yRange` — derives a geometry-dependent constant from a traced curve instead of reading a
+    /// single point off it by hand.
+    private static func cubicBezierMaxX(p0: CGPoint, p1: CGPoint, p2: CGPoint, p3: CGPoint, yRange: ClosedRange<CGFloat>, steps: Int = 2000) -> CGFloat {
+        var maxX: CGFloat = -.infinity
+        for step in 0...steps {
+            let t = CGFloat(step) / CGFloat(steps)
+            let mt = 1 - t
+            let x = mt * mt * mt * p0.x + 3 * mt * mt * t * p1.x + 3 * mt * t * t * p2.x + t * t * t * p3.x
+            let y = mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y
+            if yRange.contains(y), x > maxX {
+                maxX = x
+            }
+        }
+        return maxX
+    }
 
     static let worker: WorkerPillMetrics = WorkerPillMetrics()
 
