@@ -17,9 +17,10 @@ public struct WorkerFeedPayload: Decodable {
     public var entries: [WorkerFeedEntry]
     public var cursors: [String: WorkerFeedCursor]
     public var hasMore: [String: Bool]
+    public var errors: [String: String]?
 
     enum CodingKeys: String, CodingKey {
-        case entries, cursors
+        case entries, cursors, errors
         case hasMore = "has_more"
     }
 }

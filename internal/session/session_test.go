@@ -1214,6 +1214,9 @@ func TestContinue_PromotedWorkerUsesMasterPrompt(t *testing.T) {
 	if !runner.hasSendText("qm-child:0.1", promotedMasterRoleMessage) {
 		t.Fatal("promoted master did not receive role update")
 	}
+	if !strings.Contains(promotedMasterRoleMessage, "a worker title is required and may contain at most 16 Unicode characters (runes)") {
+		t.Fatal("promoted master role update is missing the worker title rule")
+	}
 	runner.sessions["qm-child"] = false
 	result, err := svc.Continue(t.Context(), "qm-child")
 	if err != nil {

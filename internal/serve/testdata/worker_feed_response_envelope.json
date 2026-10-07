@@ -30,6 +30,9 @@
     },
     "has_more": {
       "qm-worker": true
+    },
+    "errors": {
+      "qm-other": "permission denied"
     }
   }
 }

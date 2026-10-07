@@ -115,6 +115,8 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 				"questmaster help",
 				"questmaster <command> --help",
 				"questmaster promote <session-id>",
+				"questmaster spawn --cwd <worktree> <title>",
+				"A worker title is required and may contain at most 16 Unicode characters (runes)",
 				"Use sub-agents for explicit sub-agent requests",
 				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
 			} {

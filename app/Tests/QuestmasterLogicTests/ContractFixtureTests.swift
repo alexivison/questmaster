@@ -82,6 +82,7 @@ struct ContractFixtureTests {
         expect(workerFeed.cursors["qm-worker"]?.offset == 128, "worker_feed cursor did not decode")
         expect(workerFeed.cursors["qm-worker"]?.fileID == "1:42", "worker_feed file identity did not decode")
         expect(workerFeed.hasMore["qm-worker"] == true, "worker_feed has_more did not decode")
+        expect(workerFeed.errors?["qm-other"] == "permission denied", "worker_feed errors did not decode")
     }
 
     private static func decodeFixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {

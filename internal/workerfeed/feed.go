@@ -48,6 +48,7 @@ type Response struct {
 	Entries []Entry           `json:"entries"`
 	Cursors map[string]Cursor `json:"cursors"`
 	HasMore map[string]bool   `json:"has_more"`
+	Errors  map[string]string `json:"errors,omitempty"`
 }
 
 type HistoryPage struct {
@@ -112,14 +113,18 @@ func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, erro
 	result := Response{Entries: []Entry{}, Cursors: make(map[string]Cursor, len(workers)), HasMore: make(map[string]bool, len(workers))}
 	for _, worker := range workers {
 		result.HasMore[worker.id] = false
-		entries, cursor, err := readWorkerSince(root, worker, cursors[worker.id])
+		entries, cursor, hasMore, err := readWorkerSince(root, worker, cursors[worker.id])
 		if err != nil {
 			result.Cursors[worker.id] = cursors[worker.id]
+			if result.Errors == nil {
+				result.Errors = make(map[string]string)
+			}
+			result.Errors[worker.id] = err.Error()
 			continue
 		}
 		result.Entries = append(result.Entries, entries...)
 		result.Cursors[worker.id] = cursor
-		result.HasMore[worker.id] = workerHasMore(root, worker.id, cursor)
+		result.HasMore[worker.id] = hasMore
 	}
 	sortEntries(result.Entries)
 	return result, nil
@@ -201,7 +206,7 @@ func workersForMaster(root, masterID, filter string) ([]worker, error) {
 	return workers, nil
 }
 
-func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor, error) {
+func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor, bool, error) {
 	path := state.SessionStateLogPath(root, worker.id)
 	current, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -210,27 +215,27 @@ func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor
 			defer rotated.Close()
 			info, statErr := rotated.Stat()
 			if statErr != nil {
-				return nil, Cursor{}, statErr
+				return nil, Cursor{}, false, statErr
 			}
 			if cursor.FileID != "" && cursor.FileID == fileIdentity(info) {
 				entries, next, _, readErr := readForward(rotated, worker, cursor.FileID, cursor.Offset, maxIncrementalRead, cursor, false)
-				return entries, next, readErr
+				return entries, next, hasCompleteLineAfter(rotated, next.Offset, info.Size()), readErr
 			}
 			entries, next, _, readErr := readTail(rotated, worker, fileIdentity(info), InitialTailBytes, Cursor{})
-			return entries, next, readErr
+			return entries, next, hasCompleteLineAfter(rotated, next.Offset, info.Size()), readErr
 		}
 		if !errors.Is(rotatedErr, os.ErrNotExist) {
-			return nil, Cursor{}, rotatedErr
+			return nil, Cursor{}, false, rotatedErr
 		}
-		return nil, cursor, nil
+		return nil, cursor, false, nil
 	}
 	if err != nil {
-		return nil, cursor, err
+		return nil, cursor, false, err
 	}
 	defer current.Close()
 	info, err := current.Stat()
 	if err != nil {
-		return nil, cursor, err
+		return nil, cursor, false, err
 	}
 	currentID := fileIdentity(info)
 	if cursor.FileID == "" {
@@ -241,27 +246,27 @@ func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor
 				defer rotated.Close()
 				rolledInfo, statErr := rotated.Stat()
 				if statErr != nil {
-					return nil, Cursor{}, statErr
+					return nil, Cursor{}, false, statErr
 				}
 				rolledBudget := budget - info.Size()
 				rolledEntries, next, used, readErr := readTail(rotated, worker, fileIdentity(rolledInfo), rolledBudget, Cursor{})
 				if readErr != nil {
-					return nil, Cursor{}, readErr
+					return nil, Cursor{}, false, readErr
 				}
 				budget -= int64(used)
 				currentEntries, currentCursor, _, readErr := readForward(current, worker, currentID, 0, int(budget), next, false)
-				return append(rolledEntries, currentEntries...), currentCursor, readErr
+				return append(rolledEntries, currentEntries...), currentCursor, hasCompleteLineAfter(current, currentCursor.Offset, info.Size()), readErr
 			}
 			if !errors.Is(openErr, os.ErrNotExist) {
-				return nil, Cursor{}, openErr
+				return nil, Cursor{}, false, openErr
 			}
 		}
 		entries, next, _, readErr := readTail(current, worker, currentID, budget, Cursor{})
-		return entries, next, readErr
+		return entries, next, hasCompleteLineAfter(current, next.Offset, info.Size()), readErr
 	}
 	if cursor.FileID == currentID {
 		entries, next, _, err := readForward(current, worker, currentID, cursor.Offset, maxIncrementalRead, cursor, false)
-		return entries, next, err
+		return entries, next, hasCompleteLineAfter(current, next.Offset, info.Size()), err
 	}
 
 	rotated, openErr := os.Open(path + ".1")
@@ -269,29 +274,29 @@ func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor
 		defer rotated.Close()
 		rolledInfo, statErr := rotated.Stat()
 		if statErr != nil {
-			return nil, cursor, statErr
+			return nil, cursor, false, statErr
 		}
 		if fileIdentity(rolledInfo) == cursor.FileID {
 			entries, next, used, readErr := readForward(rotated, worker, cursor.FileID, cursor.Offset, maxIncrementalRead, cursor, false)
 			if readErr != nil {
-				return nil, cursor, readErr
+				return nil, cursor, false, readErr
 			}
 			if next.Offset < rolledInfo.Size() || used >= maxIncrementalRead {
-				return entries, next, nil
+				return entries, next, hasCompleteLineAfter(rotated, next.Offset, rolledInfo.Size()) || hasCompleteLineAfter(current, 0, info.Size()), nil
 			}
 			more, currentCursor, _, readErr := readForward(current, worker, currentID, 0, maxIncrementalRead-used, next, false)
-			return append(entries, more...), currentCursor, readErr
+			return append(entries, more...), currentCursor, hasCompleteLineAfter(current, currentCursor.Offset, info.Size()), readErr
 		}
 	}
 	if openErr != nil && !errors.Is(openErr, os.ErrNotExist) {
-		return nil, cursor, openErr
+		return nil, cursor, false, openErr
 	}
 	start := info.Size() - InitialTailBytes
 	if start < 0 {
 		start = 0
 	}
 	entries, next, _, err := readForward(current, worker, currentID, start, InitialTailBytes, cursor, start > 0)
-	return entries, next, err
+	return entries, next, hasCompleteLineAfter(current, next.Offset, info.Size()), err
 }
 
 func readTail(file *os.File, worker worker, fileID string, limit int64, cursor Cursor) ([]Entry, Cursor, int, error) {
@@ -417,8 +422,9 @@ func readHistoryFile(file *os.File, worker worker, fileID string, before beforeC
 	}
 	end := info.Size()
 	entries := make([]Entry, 0, limit)
+	reverse := reverseHistoryReader{file: file, size: end}
 	for end > 0 && len(entries) < limit {
-		start, lineEnd, err := previousLine(file, end)
+		start, lineEnd, line, err := reverse.previousLine(end)
 		if err != nil {
 			return nil, err
 		}
@@ -426,9 +432,11 @@ func readHistoryFile(file *os.File, worker worker, fileID string, before beforeC
 		if lineEnd-start > maxHistoryLineSize {
 			continue
 		}
-		line := make([]byte, lineEnd-start)
-		if _, err := file.ReadAt(line, start); err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
+		if line == nil {
+			line = make([]byte, lineEnd-start)
+			if _, err := file.ReadAt(line, start); err != nil && !errors.Is(err, io.EOF) {
+				return nil, err
+			}
 		}
 		var event state.StateEvent
 		if json.Unmarshal(line, &event) != nil {
@@ -445,33 +453,75 @@ func readHistoryFile(file *os.File, worker worker, fileID string, before beforeC
 	return entries, nil
 }
 
-func previousLine(file *os.File, end int64) (start, lineEnd int64, err error) {
+type reverseHistoryReader struct {
+	file       *os.File
+	size       int64
+	chunk      []byte
+	chunkStart int64
+	loaded     bool
+}
+
+func (r *reverseHistoryReader) previousLine(end int64) (start, lineEnd int64, line []byte, err error) {
 	lineEnd = end
 	if end > 0 {
-		var last [1]byte
-		if _, err := file.ReadAt(last[:], end-1); err != nil && !errors.Is(err, io.EOF) {
-			return 0, 0, err
+		last, err := r.byteAt(end - 1)
+		if err != nil {
+			return 0, 0, nil, err
 		}
-		if last[0] == '\n' {
+		if last == '\n' {
 			lineEnd--
 		}
 	}
 	pos := lineEnd
 	for pos > 0 {
-		chunkStart := pos - historyChunkBytes
-		if chunkStart < 0 {
-			chunkStart = 0
+		if err := r.load(pos - 1); err != nil {
+			return 0, 0, nil, err
 		}
-		chunk := make([]byte, pos-chunkStart)
-		if _, err := file.ReadAt(chunk, chunkStart); err != nil && !errors.Is(err, io.EOF) {
-			return 0, 0, err
+		chunkEnd := r.chunkStart + int64(len(r.chunk))
+		if pos > chunkEnd {
+			pos = chunkEnd
 		}
+		chunk := r.chunk[:pos-r.chunkStart]
 		if index := bytes.LastIndexByte(chunk, '\n'); index >= 0 {
-			return chunkStart + int64(index+1), lineEnd, nil
+			start = r.chunkStart + int64(index+1)
+			if lineEnd <= chunkEnd {
+				line = r.chunk[index+1 : lineEnd-r.chunkStart]
+			}
+			return start, lineEnd, line, nil
 		}
-		pos = chunkStart
+		pos = r.chunkStart
 	}
-	return 0, lineEnd, nil
+	return 0, lineEnd, nil, nil
+}
+
+func (r *reverseHistoryReader) byteAt(offset int64) (byte, error) {
+	if err := r.load(offset); err != nil {
+		return 0, err
+	}
+	return r.chunk[offset-r.chunkStart], nil
+}
+
+func (r *reverseHistoryReader) load(offset int64) error {
+	if r.loaded && offset >= r.chunkStart && offset < r.chunkStart+int64(len(r.chunk)) {
+		return nil
+	}
+	chunkSize := int64(historyChunkBytes)
+	r.chunkStart = offset / chunkSize * chunkSize
+	length := chunkSize
+	if remaining := r.size - r.chunkStart; remaining < length {
+		length = remaining
+	}
+	if length <= 0 {
+		r.chunk = nil
+		r.loaded = true
+		return nil
+	}
+	r.chunk = make([]byte, length)
+	if _, err := r.file.ReadAt(r.chunk, r.chunkStart); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	r.loaded = true
+	return nil
 }
 
 type beforeConstraint struct {
@@ -616,44 +666,14 @@ func comparePositions(a, b entryPosition) int {
 	return 0
 }
 
-func workerHasMore(root, workerID string, cursor Cursor) bool {
-	if cursor.FileID == "" {
-		return false
-	}
-	path := state.SessionStateLogPath(root, workerID)
-	if file, err := os.Open(path); err == nil {
-		defer file.Close()
-		if info, statErr := file.Stat(); statErr == nil && fileIdentity(info) == cursor.FileID {
-			return hasCompleteLineAfter(file, cursor.Offset)
-		}
-	}
-	if file, err := os.Open(path + ".1"); err == nil {
-		defer file.Close()
-		if info, statErr := file.Stat(); statErr == nil && fileIdentity(info) == cursor.FileID {
-			if hasCompleteLineAfter(file, cursor.Offset) {
-				return true
-			}
-			if current, openErr := os.Open(path); openErr == nil {
-				defer current.Close()
-				return hasCompleteLineAfter(current, 0)
-			}
-		}
-	}
-	return false
-}
-
-func hasCompleteLineAfter(file *os.File, offset int64) bool {
-	info, err := file.Stat()
-	if err != nil {
-		return false
-	}
+func hasCompleteLineAfter(file *os.File, offset, size int64) bool {
 	if offset < 0 {
 		offset = 0
 	}
-	for offset < info.Size() {
+	for offset < size {
 		length := int64(historyChunkBytes)
-		if info.Size()-offset < length {
-			length = info.Size() - offset
+		if size-offset < length {
+			length = size - offset
 		}
 		data := make([]byte, length)
 		n, err := file.ReadAt(data, offset)

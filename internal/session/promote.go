@@ -8,7 +8,7 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-const promotedMasterRoleMessage = `Questmaster role update: this session is now a master. Orchestrate instead of implementing: create dedicated worktrees for implementation, spawn workers with questmaster spawn --cwd <worktree>, relay scope with questmaster send <worker-id>, wait for questmaster send master reports without sleep/poll/watch loops, and review worker reports before accepting completion. Use sub-agents only for explicit sub-agent requests; use Questmaster workers for worker, session, or worktree-isolation requests.`
+const promotedMasterRoleMessage = `Questmaster role update: this session is now a master. Orchestrate instead of implementing: create dedicated worktrees for implementation, spawn workers with questmaster spawn --cwd <worktree> <title>; a worker title is required and may contain at most 16 Unicode characters (runes), relay scope with questmaster send <worker-id>, wait for questmaster send master reports without sleep/poll/watch loops, and review worker reports before accepting completion. Use sub-agents only for explicit sub-agent requests; use Questmaster workers for worker, session, or worktree-isolation requests.`
 
 // Promote converts a worker or standalone session to a master session.
 func (s *Service) Promote(ctx context.Context, sessionID string) error {

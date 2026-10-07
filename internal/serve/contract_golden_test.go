@@ -186,6 +186,7 @@ func serveContractFixtures() []contractFixture {
 			"qm-worker": {Offset: 128, FileID: "1:42"},
 		},
 		HasMore: map[string]bool{"qm-worker": true},
+		Errors:  map[string]string{"qm-other": "permission denied"},
 	}
 
 	return []contractFixture{

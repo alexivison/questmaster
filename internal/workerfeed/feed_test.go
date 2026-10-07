@@ -221,6 +221,9 @@ func TestReadSinceHasMoreAndUnreadableWorker(t *testing.T) {
 		if got.Cursors["qm-w1"] != old {
 			t.Fatalf("cursor = %#v, want preserved %#v", got.Cursors["qm-w1"], old)
 		}
+		if got.Errors["qm-w1"] == "" {
+			t.Fatalf("worker error = %#v, want unreadable-log indication", got.Errors)
+		}
 	})
 }
 
