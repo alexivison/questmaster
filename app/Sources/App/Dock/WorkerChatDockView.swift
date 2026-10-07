@@ -187,9 +187,10 @@ private final class WorkerChatBottomFollowerView: NSView {
         observers.forEach(NotificationCenter.default.removeObserver)
     }
 
-    /// A size change (content grew, window resized) re-pins while following; an origin change at
-    /// unchanged sizes is the user scrolling, which decides whether to follow. Origin changes that
-    /// come with a size change are AppKit clamping and say nothing about the user.
+    /// A size change (content grew, window resized) re-pins while following, and otherwise
+    /// re-checks whether the bottom edge came into view. An origin change at unchanged sizes is the
+    /// user scrolling, which decides whether to follow. Origin changes that come with a size change
+    /// are AppKit clamping and say nothing about the user.
     private func sync(_ scrollView: NSScrollView) {
         let clipView = scrollView.contentView
         guard let documentView = scrollView.documentView else {
@@ -198,7 +199,16 @@ private final class WorkerChatBottomFollowerView: NSView {
         let heights = Heights(viewport: clipView.bounds.height, content: documentView.bounds.height)
         if heights != lastHeights {
             lastHeights = heights
-            pinIfFollowing(scrollView)
+            if isFollowing {
+                pinIfFollowing(scrollView)
+            } else {
+                lastOffset = clipView.bounds.origin.y
+                isFollowing = WorkerChatScroll.isAtBottom(
+                    offset: clipView.bounds.origin.y,
+                    viewportHeight: heights.viewport,
+                    contentHeight: heights.content
+                )
+            }
             return
         }
         guard clipView.bounds.origin.y != lastOffset else {
