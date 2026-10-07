@@ -3,9 +3,11 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -317,6 +319,102 @@ func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) 
 			return appendErr
 		}
 		return errors.Join(appendErr, writeSessionStateLocked(root, id, ss))
+	})
+}
+
+// UpdateAndLogBatch applies a related group of hook events under one state
+// lock. If writing state.json fails, it removes the appended event lines.
+func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionState) bool) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	if mutate == nil {
+		return errors.New("nil mutate function")
+	}
+	root := StateRoot()
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	for _, ev := range events {
+		if ev == nil {
+			return errors.New("nil state event")
+		}
+		if ev.Ts.IsZero() {
+			ev.Ts = time.Now().UTC()
+		}
+	}
+	return withStateLock(root, id, func() error {
+		ss, err := loadSessionStateAt(root, id)
+		if err != nil {
+			return err
+		}
+		if ss == nil {
+			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
+		}
+		changed := mutate(ss)
+		var eventData bytes.Buffer
+		encoder := json.NewEncoder(&eventData)
+		for _, ev := range events {
+			if err := encoder.Encode(ev); err != nil {
+				return fmt.Errorf("encode state event: %w", err)
+			}
+		}
+		logPath := SessionStateLogPath(root, id)
+		var log *os.File
+		var oldSize int64
+		var existed bool
+		if eventData.Len() > 0 {
+			_, err = os.Stat(logPath)
+			existed = err == nil
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat state log: %w", err)
+			}
+			log, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				return fmt.Errorf("open state log: %w", err)
+			}
+			info, statErr := log.Stat()
+			if statErr != nil {
+				_ = log.Close()
+				return fmt.Errorf("stat state log: %w", statErr)
+			}
+			oldSize = info.Size()
+		}
+		rollback := func() error {
+			if log == nil {
+				return nil
+			}
+			truncateErr := log.Truncate(oldSize)
+			closeErr := log.Close()
+			if !existed {
+				if err := os.Remove(logPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return errors.Join(truncateErr, closeErr, fmt.Errorf("remove state log: %w", err))
+				}
+			}
+			return errors.Join(truncateErr, closeErr)
+		}
+		if log != nil {
+			written, writeErr := io.Copy(log, &eventData)
+			if writeErr != nil || written != int64(eventData.Len()) {
+				if writeErr == nil {
+					writeErr = io.ErrShortWrite
+				}
+				return errors.Join(fmt.Errorf("write state events: %w", writeErr), rollback())
+			}
+		}
+		if changed {
+			if err := writeSessionStateLocked(root, id, ss); err != nil {
+				return errors.Join(err, rollback())
+			}
+		}
+		if log != nil {
+			_ = log.Close()
+			if info, err := os.Stat(logPath); err == nil && info.Size() >= StateJSONLMaxSize {
+				_ = os.Remove(logPath + ".1")
+				_ = os.Rename(logPath, logPath+".1")
+			}
+		}
+		return nil
 	})
 }
 

@@ -62,6 +62,10 @@ type HookRunner struct {
 	// returns true. Hot-path handlers use this instead of an AppendEvent +
 	// Update pair to take one lock per event instead of two.
 	UpdateAndLog func(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) error
+
+	// UpdateAndLogEvents applies and logs a group of related hook events under
+	// one state lock.
+	UpdateAndLogEvents func(sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error
 }
 
 type hookManifestStore interface {
@@ -90,6 +94,7 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		Update:             state.UpdateSessionState,
 		AppendEvent:        state.AppendStateEvent,
 		UpdateAndLog:       state.UpdateAndLog,
+		UpdateAndLogEvents: state.UpdateAndLogBatch,
 	}
 }
 
@@ -119,6 +124,26 @@ func (r *HookRunner) updateAndLog(sessionID string, ev *state.StateEvent, mutate
 	return appendErr, updateErr
 }
 
+func (r *HookRunner) updateAndLogEvents(sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error {
+	if r.UpdateAndLogEvents != nil {
+		return r.UpdateAndLogEvents(sessionID, events, mutate)
+	}
+	var updateErr error
+	if r.Update != nil {
+		updateErr = r.Update(sessionID, mutate)
+	}
+	if updateErr != nil {
+		return updateErr
+	}
+	var appendErr error
+	if r.AppendEvent != nil {
+		for _, event := range events {
+			appendErr = errors.Join(appendErr, r.AppendEvent(sessionID, *event))
+		}
+	}
+	return appendErr
+}
+
 // hookOptions holds parsed CLI inputs.
 type hookOptions struct {
 	ctx     context.Context
@@ -146,9 +171,12 @@ func newHookCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := hookOptions{ctx: cmd.Context(), agent: args[0], action: args[1], session: sessionFlag}
-			if data, err := readStdinNonBlocking(cmd.InOrStdin()); err == nil {
-				opts.stdin = data
+			data, err := readStdinNonBlocking(cmd.InOrStdin())
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "questmaster hook: read stdin: %v\n", err)
+				return nil
 			}
+			opts.stdin = data
 			runHook(newHookRunner(store, client), opts, cmd.ErrOrStderr())
 			return nil
 		},
@@ -202,7 +230,7 @@ var stdinLooksInteractive = func(r io.Reader) bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// readStdinNonBlocking reads up to 64 KiB from stdin when stdin is piped or
+// readStdinNonBlocking reads up to 1 MiB from stdin when stdin is piped or
 // otherwise non-interactive. A real TTY must not be read: ReadAll would wait
 // for a line/EOF and hook invocations from an interactive shell would hang.
 func readStdinNonBlocking(r io.Reader) ([]byte, error) {
@@ -212,8 +240,15 @@ func readStdinNonBlocking(r io.Reader) ([]byte, error) {
 	if stdinLooksInteractive(r) {
 		return nil, nil
 	}
-	const maxBytes = 64 * 1024
-	return io.ReadAll(io.LimitReader(r, maxBytes))
+	const maxBytes = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxBytes {
+		return nil, fmt.Errorf("stdin exceeds %d-byte limit", maxBytes)
+	}
+	return data, nil
 }
 
 // ---------------------------------------------------------------------
@@ -1768,13 +1803,15 @@ type piAssistantMessageEvent struct {
 	Content interface{} `json:"content"`
 }
 
-func decodePi(data []byte) piPayload {
+func decodePi(data []byte) (piPayload, error) {
 	var p piPayload
 	if len(data) == 0 {
-		return p
+		return p, nil
 	}
-	_ = json.Unmarshal(data, &p)
-	return p
+	if err := json.Unmarshal(data, &p); err != nil {
+		return piPayload{}, err
+	}
+	return p, nil
 }
 
 func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
@@ -1793,21 +1830,79 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 			fmt.Fprintf(stderr, "questmaster hook pi: batch has %d events, maximum is 32\n", len(batch.Events))
 			return
 		}
+		prepared := make([]preparedPiEvent, 0, len(batch.Events))
 		for _, event := range batch.Events {
 			batchOpts := opts
 			batchOpts.action = event.Action
 			batchOpts.stdin = event.Payload
-			handlePiLike(r, sessionID, batchOpts, stderr, "pi")
+			item, ok := preparePiLike(r, sessionID, batchOpts, stderr, "pi")
+			if !ok {
+				return
+			}
+			prepared = append(prepared, item)
 		}
+		applyPiBatch(r, sessionID, prepared, stderr, "pi")
 		return
 	}
 	handlePiLike(r, sessionID, opts, stderr, "pi")
 }
 
+type preparedPiEvent struct {
+	event  *state.StateEvent
+	mutate func(*state.SessionState) bool
+	after  func()
+}
+
+func applyPiBatch(r *HookRunner, sessionID string, prepared []preparedPiEvent, stderr io.Writer, agentName string) {
+	events := make([]*state.StateEvent, len(prepared))
+	for i := range prepared {
+		events[i] = prepared[i].event
+	}
+	err := r.updateAndLogEvents(sessionID, events, func(ss *state.SessionState) bool {
+		changed := false
+		for i := range prepared {
+			if prepared[i].mutate(ss) {
+				changed = true
+			}
+		}
+		return changed
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: update batch: %v\n", agentName, err)
+		return
+	}
+	for i := range prepared {
+		if prepared[i].after != nil {
+			prepared[i].after()
+		}
+	}
+}
+
 // handlePiLike processes a Pi-style activity event for the named agent. The
 // tolerant payload parser is shared so other Pi-style harnesses can reuse it.
 func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer, agentName string) {
-	payload := decodePi(opts.stdin)
+	prepared, ok := preparePiLike(r, sessionID, opts, stderr, agentName)
+	if !ok {
+		return
+	}
+	appendErr, updateErr := r.updateAndLog(sessionID, prepared.event, prepared.mutate)
+	if appendErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: append event: %v\n", agentName, appendErr)
+	}
+	if updateErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: update state: %v\n", agentName, updateErr)
+	}
+	if prepared.after != nil {
+		prepared.after()
+	}
+}
+
+func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer, agentName string) (preparedPiEvent, bool) {
+	payload, err := decodePi(opts.stdin)
+	if err != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: decode payload: %v\n", agentName, err)
+		return preparedPiEvent{}, false
+	}
 	now := r.Now().UTC()
 	lastKind := opts.action
 
@@ -1825,11 +1920,6 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		if setActivity == "" {
 			setActivity = "started"
 		}
-		piPrompt := payload.Prompt
-		if strings.TrimSpace(piPrompt) == "" {
-			piPrompt = payload.Text
-		}
-		maybeDeriveTitle(opts.ctx, r, sessionID, piPrompt, stderr)
 	case "agent_start":
 		setState = "working"
 		lastKind = "agent_start"
@@ -1867,14 +1957,25 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		clearTool = true
 	default:
 		fmt.Fprintf(stderr, "questmaster hook %s: unknown action %q\n", agentName, opts.action)
-		return
+		return preparedPiEvent{}, false
+	}
+	var after func()
+	if opts.action == "session_start" || opts.action == "before_agent_start" {
+		piPrompt := payload.Prompt
+		if strings.TrimSpace(piPrompt) == "" {
+			piPrompt = payload.Text
+		}
+		after = func() { maybeDeriveTitle(opts.ctx, r, sessionID, piPrompt, stderr) }
+	}
+	if opts.action == "session_shutdown" {
+		after = func() { clearAdoptedAgentOnExit(opts.ctx, r, stderr, sessionID, agentName) }
 	}
 
 	recent, hasRecent := piRecentForAction(opts.action, payload)
 	sessionFile := strings.TrimSpace(payload.SessionFile)
 	piSessionID := strings.TrimSpace(payload.PiSessionID)
 
-	ev := state.StateEvent{
+	ev := &state.StateEvent{
 		Ts:       now,
 		Agent:    agentName,
 		Role:     "primary",
@@ -1905,7 +2006,7 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		ev.Fields = fields
 	}
-	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+	mutate := func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -1961,20 +2062,20 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		pane.Role = role
 		if opts.action == "tool_execution_start" {
 			if !preserveBlockedQuestion && pane.State != prev.State {
-				addVisibleStatus(&ev, &pane, pane.State)
+				addVisibleStatus(ev, &pane, pane.State)
 			}
-			addChatEntry(&ev, &pane, "action", piToolName(payload))
+			addChatEntry(ev, &pane, "action", piToolName(payload))
 		}
 		if opts.action == "say" {
-			addChatEntry(&ev, "say", piLastMessageText(payload))
+			addChatEntry(ev, &pane, "say", piLastMessageText(payload))
 		}
 		if opts.action == "agent_end" {
 			if text := piLastMessageText(payload); text != "" && pane.State == "done" {
-				addChatEntry(&ev, &pane, "message", text)
+				addChatEntry(ev, &pane, "message", text)
 			}
 		}
 		if !preserveBlockedQuestion && opts.action != "tool_execution_start" && pane.State != prev.State {
-			addVisibleStatus(&ev, &pane, pane.State)
+			addVisibleStatus(ev, &pane, pane.State)
 		}
 		ss.Panes[role] = pane
 
@@ -1991,16 +2092,8 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			return false
 		}
 		return true
-	})
-	if appendErr != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: append event: %v\n", agentName, appendErr)
 	}
-	if mutateErr != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: update state: %v\n", agentName, mutateErr)
-	}
-	if opts.action == "session_shutdown" {
-		clearAdoptedAgentOnExit(opts.ctx, r, stderr, sessionID, agentName)
-	}
+	return preparedPiEvent{event: ev, mutate: mutate, after: after}, true
 }
 
 func piRecentForAction(action string, payload piPayload) ([]string, bool) {

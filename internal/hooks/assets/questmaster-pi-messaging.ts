@@ -29,15 +29,21 @@ type PiTurn = { index?: number; status?: "running" | "done"; started_at_ms?: num
 type PiTool = { name?: string; call_id?: string; summary?: string; status?: "running" | "done" | "error"; started_at_ms?: number; ended_at_ms?: number };
 
 function safeLine(text: string, limit = snippetLimit): string {
-	return text.replace(/\s+/g, " ").trim().slice(0, limit);
+	return Array.from(text.replace(/\s+/g, " ").trim()).slice(0, limit).join("");
 }
 
 function cleanString(value: unknown, limit = snippetLimit): string | undefined {
 	return typeof value === "string" && value.trim() ? safeLine(value, limit) : undefined;
 }
 
+function boundedString(value: unknown, limit: number): string | undefined {
+	return typeof value === "string" && value ? Array.from(value).slice(0, limit).join("") : undefined;
+}
+
 function cleanNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	return typeof value === "number" && Number.isFinite(value)
+		? Math.max(-Number.MAX_SAFE_INTEGER, Math.min(value, Number.MAX_SAFE_INTEGER))
+		: undefined;
 }
 
 function cleanNullableNumber(value: unknown): number | null | undefined {
@@ -91,7 +97,9 @@ function capChatText(text: string): string {
 function modelState(raw: unknown): Record<string, unknown> | undefined {
 	if (!raw || typeof raw !== "object") return undefined;
 	const model = raw as Record<string, unknown>;
-	const input = Array.isArray(model.input) ? model.input.filter((value): value is string => typeof value === "string") : undefined;
+	const input = Array.isArray(model.input)
+		? model.input.filter((value): value is string => typeof value === "string").slice(0, 8).map((value) => safeLine(value, 40))
+		: undefined;
 	const state = {
 		provider: cleanString(model.provider, 80),
 		id: cleanString(model.id, 120),
@@ -145,7 +153,7 @@ function mergeAssistantModel(current: Record<string, unknown> | undefined, messa
 }
 
 function formatTool(toolName: string | undefined, rawArgs?: unknown): string {
-	const name = toolName || "tool";
+	const name = cleanString(toolName, 80) ?? "tool";
 	let args = rawArgs && typeof rawArgs === "object" ? rawArgs as Record<string, unknown> : {};
 	if (typeof rawArgs === "string") {
 		try {
@@ -227,7 +235,7 @@ export default function (pi: ExtensionAPI) {
 	let turn: PiTurn | undefined;
 	let tool: PiTool | undefined;
 	let usage: { last: Record<string, number> } | undefined;
-	let pendingNarration: string[] = [];
+	let pendingNarration = "";
 	let hookQueue: QueuedHook[] = [];
 	let hookQueueBytes = 0;
 	let hookFlushTimer: NodeJS.Timeout | undefined;
@@ -268,15 +276,15 @@ export default function (pi: ExtensionAPI) {
 		return {
 			version: 1,
 			source: "pi",
-			...(questmasterSessionID ? { id: questmasterSessionID, session_id: questmasterSessionID } : {}),
-			...(piSessionID ? { pi_session_id: piSessionID } : {}),
-			...(sessionFile ? { session_file: sessionFile } : {}),
-			...(cwd ? { cwd } : {}),
+			...(questmasterSessionID ? { id: safeLine(questmasterSessionID, maxIDBytes), session_id: safeLine(questmasterSessionID, maxIDBytes) } : {}),
+			...(piSessionID ? { pi_session_id: boundedString(piSessionID, maxIDBytes) } : {}),
+			...(sessionFile ? { session_file: boundedString(sessionFile, 1_024) } : {}),
+			...(cwd ? { cwd: boundedString(cwd, 1_024) } : {}),
 			updated_at_ms: Date.now(),
 			busy,
 			phase,
 			...(snippet ? { snippet } : {}),
-			...(recent.length ? { recent } : {}),
+			...(recent.length ? { recent: recent.slice(-recentLimit).map((line) => safeLine(line)) } : {}),
 			...(model ? { model } : {}),
 			...(thinking ? { thinking } : {}),
 			...(contextUsage ? { context: contextUsage } : {}),
@@ -316,7 +324,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	async function emitHook(action: string, extra?: Record<string, unknown>, flush = false): Promise<void> {
-		if (!sessionPattern.test(questmasterSessionID)) return;
+		if (!sessionPattern.test(questmasterSessionID) || Buffer.byteLength(questmasterSessionID) > maxIDBytes) return;
 		const payload = activityPayload(extra);
 		const event = { action, payload };
 		const bytes = Buffer.byteLength(JSON.stringify(event));
@@ -482,7 +490,7 @@ export default function (pi: ExtensionAPI) {
 		const ctx = rawContext as PiContext | undefined;
 		currentTool = "";
 		tool = undefined;
-		pendingNarration = [];
+		pendingNarration = "";
 		refreshMetadata(ctx);
 		setBusy(true, "thinking");
 		await emitHook("agent_start");
@@ -497,7 +505,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("turn_start", (event: { turnIndex?: unknown; timestamp?: unknown }, rawContext) => {
 		refreshMetadata(rawContext as PiContext | undefined);
-		pendingNarration = [];
+		pendingNarration = "";
 		turn = {
 			index: cleanNumber(event.turnIndex),
 			status: "running",
@@ -513,10 +521,10 @@ export default function (pi: ExtensionAPI) {
 			index: cleanNumber(event.turnIndex) ?? turn?.index,
 			status: "done",
 			ended_at_ms: Date.now(),
-			tool_calls: Array.isArray(event.toolResults) ? event.toolResults.length : undefined,
-			errors: Array.isArray(event.toolResults) ? event.toolResults.filter((result) => result?.isError).length : undefined,
+			tool_calls: Array.isArray(event.toolResults) ? Math.min(event.toolResults.length, 1_000_000) : undefined,
+			errors: Array.isArray(event.toolResults) ? Math.min(event.toolResults.filter((result) => result?.isError).length, 1_000_000) : undefined,
 		};
-		pendingNarration = [];
+		pendingNarration = "";
 	});
 
 	pi.on("message_update", (event: { message?: unknown; assistantMessageEvent?: { type?: string; content?: unknown } }) => {
@@ -526,13 +534,13 @@ export default function (pi: ExtensionAPI) {
 		if (!text.trim()) return;
 		addTextToRecent(text);
 		setSnippet(lastTextLine(text), false);
-		pendingNarration.push(text);
+		pendingNarration = capChatText(`${pendingNarration}${pendingNarration ? "\n" : ""}${text}`);
 	});
 
 	pi.on("tool_execution_start", async (event: { toolCallId?: string; toolName?: string; args?: unknown }) => {
 		if (pendingNarration.length) {
-			await emitHook("say", { text: capChatText(pendingNarration.join("\n")) });
-			pendingNarration = [];
+			await emitHook("say", { text: pendingNarration });
+			pendingNarration = "";
 		}
 		currentTool = formatTool(event.toolName, event.args);
 		tool = {
@@ -581,7 +589,7 @@ export default function (pi: ExtensionAPI) {
 		if (finalText) setSnippet(lastTextLine(finalText), false);
 		if (tool) tool = { ...tool, status: "done", ended_at_ms: Date.now() };
 		setBusy(false, "done", snippet || "Done");
-		pendingNarration = [];
+		pendingNarration = "";
 		await emitHook("agent_end", finalText ? { text: capChatText(finalText) } : undefined, true);
 	});
 

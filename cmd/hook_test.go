@@ -732,6 +732,32 @@ func TestReadStdinNonBlockingReadsPipedInput(t *testing.T) {
 	}
 }
 
+func TestReadStdinNonBlockingAcceptsPayloadsOver64KiB(t *testing.T) {
+	orig := stdinLooksInteractive
+	t.Cleanup(func() { stdinLooksInteractive = orig })
+	stdinLooksInteractive = func(io.Reader) bool { return false }
+
+	want := strings.Repeat("x", 128*1024)
+	data, err := readStdinNonBlocking(strings.NewReader(want))
+	if err != nil {
+		t.Fatalf("readStdinNonBlocking: %v", err)
+	}
+	if string(data) != want {
+		t.Fatalf("read %d bytes, want %d", len(data), len(want))
+	}
+}
+
+func TestHookFastPathLogsOversizedStdin(t *testing.T) {
+	var stderr bytes.Buffer
+	handled, err := executeHookFastPath([]string{"pi", "batch"}, strings.NewReader(strings.Repeat("x", (1<<20)+1)), &stderr)
+	if err != nil || !handled {
+		t.Fatalf("executeHookFastPath = %t, %v", handled, err)
+	}
+	if !strings.Contains(stderr.String(), "stdin exceeds 1048576-byte limit") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestHookNoSessionExitsCleanly(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
 	r, rec := newTestRunner(t)
@@ -2735,6 +2761,9 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 		t.Fatalf("agent_start state = %q, want working", got)
 	}
 
+	pane := rec.lastState.Panes["primary"]
+	pane.LastChatAt = time.Time{}
+	rec.lastState.Panes["primary"] = pane
 	runHookWithStdin(r, "pi", "say", "qm-chat", map[string]interface{}{
 		"text":   "Checking the config\nbefore editing",
 		"recent": []string{"Checking the config", "before editing"},
@@ -2751,13 +2780,22 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	if say.Fields["turn"] == nil || say.Fields["usage"] == nil {
 		t.Fatalf("turn/usage metadata missing from event fields: %#v", say.Fields)
 	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("say LastChatAt = %s, want %s", got, r.Now())
+	}
 
+	pane = rec.lastState.Panes["primary"]
+	pane.LastChatAt = time.Time{}
+	rec.lastState.Panes["primary"] = pane
 	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
 		"tool": map[string]interface{}{"name": "bash", "summary": "bash: go test ./..."},
 	})
 	tool := rec.events[len(rec.events)-1]
 	if !slices.Contains(chatKinds(tool), "action") || chatTextFor(tool, "action") != "bash" {
 		t.Fatalf("tool chat entries = %#v", chatEntries(tool))
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("action LastChatAt = %s, want %s", got, r.Now())
 	}
 	runHookWithStdin(r, "pi", "tool_execution_end", "qm-chat", nil)
 	if rec.lastState.Panes["primary"].Tool != "" || len(chatEntries(rec.events[len(rec.events)-1])) != 0 {
@@ -2775,6 +2813,9 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	}
 	if got := rec.lastState.Panes["primary"].Activity; got != "Ready to merge." {
 		t.Fatalf("final activity snippet = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("message LastChatAt = %s, want %s", got, r.Now())
 	}
 	if !slices.Contains(chatKinds(final), "status") || rec.lastState.Panes["primary"].State != "done" {
 		t.Fatalf("final event/state = %#v/%q", chatEntries(final), rec.lastState.Panes["primary"].State)
@@ -2807,8 +2848,8 @@ func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("batch stderr: %q", stderr)
 	}
-	if len(rec.events) != 7 || rec.updateCalls != 7 {
-		t.Fatalf("batch events/updates = %d/%d, want 7/7", len(rec.events), rec.updateCalls)
+	if len(rec.events) != 7 || rec.updateCalls != 1 {
+		t.Fatalf("batch events/updates = %d/%d, want 7/1", len(rec.events), rec.updateCalls)
 	}
 	if got := chatTextFor(rec.events[2], "say"); got != "Checking the config" {
 		t.Fatalf("say entry = %q", got)
@@ -2824,6 +2865,65 @@ func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
 	}
 	if got := rec.lastState.Panes["primary"].State; got != "done" {
 		t.Fatalf("final pane state = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("batch LastChatAt = %s, want %s", got, r.Now())
+	}
+}
+
+func TestHookPiBatchStateWriteFailureIsAtomic(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	const sessionID = "qm-pi-atomic"
+	initial := &state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "pi", State: "idle", LastKind: "agent_end"},
+		},
+	}
+	if err := state.SaveSessionState(sessionID, initial); err != nil {
+		t.Fatalf("save initial state: %v", err)
+	}
+	if err := state.AppendStateEventAt(root, sessionID, state.StateEvent{Action: "before"}); err != nil {
+		t.Fatalf("seed event log: %v", err)
+	}
+	statePath := state.SessionStatePath(root, sessionID)
+	logPath := state.SessionStateLogPath(root, sessionID)
+	stateBefore, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read initial state: %v", err)
+	}
+	logBefore, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read initial event log: %v", err)
+	}
+	if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
+		t.Fatalf("make state write fail: %v", err)
+	}
+	r := newHookRunner(state.OpenStore(root), &tmuxEnvStub{})
+	stderr := runHookWithStdin(r, "pi", "batch", sessionID, map[string]interface{}{
+		"events": []interface{}{
+			map[string]interface{}{"action": "agent_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{"toolName": "bash"}},
+		},
+	})
+	if !strings.Contains(stderr, "update batch") {
+		t.Fatalf("batch failure stderr = %q", stderr)
+	}
+	stateAfter, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read state after failed batch: %v", err)
+	}
+	logAfter, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read event log after failed batch: %v", err)
+	}
+	if !bytes.Equal(stateAfter, stateBefore) {
+		t.Fatalf("state changed after failed batch:\nbefore %s\nafter  %s", stateBefore, stateAfter)
+	}
+	if !bytes.Equal(logAfter, logBefore) {
+		t.Fatalf("event log changed after failed batch:\nbefore %s\nafter  %s", logBefore, logAfter)
 	}
 }
 
