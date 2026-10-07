@@ -2791,6 +2791,42 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	}
 }
 
+func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
+	r, rec := newTestRunner(t)
+	stderr := runHookWithStdin(r, "pi", "batch", "qm-chat", map[string]interface{}{
+		"events": []interface{}{
+			map[string]interface{}{"action": "session_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "agent_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "say", "payload": map[string]interface{}{"text": "Checking the config"}},
+			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{"tool": map[string]interface{}{"name": "bash"}}},
+			map[string]interface{}{"action": "waiting_for_user", "payload": map[string]interface{}{"prompt": "Continue?"}},
+			map[string]interface{}{"action": "tool_execution_end", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "agent_end", "payload": map[string]interface{}{"text": "Finished."}},
+		},
+	})
+	if stderr != "" {
+		t.Fatalf("batch stderr: %q", stderr)
+	}
+	if len(rec.events) != 7 || rec.updateCalls != 7 {
+		t.Fatalf("batch events/updates = %d/%d, want 7/7", len(rec.events), rec.updateCalls)
+	}
+	if got := chatTextFor(rec.events[2], "say"); got != "Checking the config" {
+		t.Fatalf("say entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[3], "action"); got != "bash" {
+		t.Fatalf("action entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[4], "status"); got != "blocked" {
+		t.Fatalf("blocked status entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[6], "message"); got != "Finished." {
+		t.Fatalf("message entry = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "done" {
+		t.Fatalf("final pane state = %q", got)
+	}
+}
+
 func TestHookPiThinkingIsNotChat(t *testing.T) {
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "pi", "message_update", "qm-chat", map[string]interface{}{

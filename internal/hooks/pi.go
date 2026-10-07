@@ -51,6 +51,9 @@ func (p *PiInstaller) InstallWithOptions(opts InstallOptions) error {
 	if p.Home == "" {
 		return errors.New("pi home not resolved (set $PI_HOME or $HOME)")
 	}
+	if warning := p.legacySidecarWarning(); warning != "" {
+		logf(opts, "questmaster: warning: %s", warning)
+	}
 	if opts.DryRun {
 		if existing, err := os.ReadFile(p.markerPath()); err != nil || strings.TrimSpace(string(existing)) != QuestmasterSidecarVersion {
 			logf(opts, "questmaster: dry-run: would write Pi marker %s", p.markerPath())
@@ -88,6 +91,9 @@ func (p *PiInstaller) Status() Report {
 	if p.Home == "" {
 		return Report{Agent: "pi", Status: StatusNotInstalled, Detail: "home dir not resolved"}
 	}
+	if warning := p.legacySidecarWarning(); warning != "" {
+		return Report{Agent: "pi", Status: StatusOutdated, Detail: warning}
+	}
 	for _, path := range p.markerPaths() {
 		data, err := os.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -107,6 +113,55 @@ func (p *PiInstaller) Status() Report {
 		return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker version %q != %q", version, QuestmasterSidecarVersion)}
 	}
 	return Report{Agent: "pi", Status: StatusNotInstalled}
+}
+
+func (p *PiInstaller) legacySidecarWarning() string {
+	var files, settings []string
+	for _, path := range p.legacyExtensionPaths() {
+		if _, err := os.Stat(path); err == nil {
+			files = append(files, path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Sprintf("could not check legacy Pi sidecar %s: %v", path, err)
+		}
+	}
+	for _, path := range p.settingsPaths() {
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Sprintf("could not check Pi settings %s for the legacy activity sidecar: %v", path, err)
+		}
+		if strings.Contains(string(data), "activity-sidecar.ts") {
+			settings = append(settings, path)
+		}
+	}
+	if len(files) == 0 && len(settings) == 0 {
+		return ""
+	}
+	locations := append(files, settings...)
+	return fmt.Sprintf("legacy Pi activity sidecar detected at %s; remove the activity-sidecar.ts file and its settings.json extension reference", strings.Join(locations, ", "))
+}
+
+func (p *PiInstaller) legacyExtensionPaths() []string {
+	paths := []string{
+		filepath.Join(p.Home, "agent", "extensions", "activity-sidecar.ts"),
+		filepath.Join(p.Home, "extensions", "activity-sidecar.ts"),
+	}
+	if dir := os.Getenv("PI_CODING_AGENT_DIR"); dir != "" {
+		paths = append(paths, filepath.Join(dir, "extensions", "activity-sidecar.ts"))
+	}
+	return paths
+}
+
+func (p *PiInstaller) settingsPaths() []string {
+	if dir := os.Getenv("PI_CODING_AGENT_DIR"); dir != "" {
+		return []string{filepath.Join(dir, "settings.json")}
+	}
+	return []string{
+		filepath.Join(p.Home, "agent", "settings.json"),
+		filepath.Join(p.Home, "settings.json"),
+	}
 }
 
 func (p *PiInstaller) extensionPath() string {

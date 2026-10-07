@@ -1778,6 +1778,29 @@ func decodePi(data []byte) piPayload {
 }
 
 func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
+	if opts.action == "batch" {
+		var batch struct {
+			Events []struct {
+				Action  string          `json:"action"`
+				Payload json.RawMessage `json:"payload"`
+			} `json:"events"`
+		}
+		if err := json.Unmarshal(opts.stdin, &batch); err != nil {
+			fmt.Fprintf(stderr, "questmaster hook pi: decode batch: %v\n", err)
+			return
+		}
+		if len(batch.Events) > 32 {
+			fmt.Fprintf(stderr, "questmaster hook pi: batch has %d events, maximum is 32\n", len(batch.Events))
+			return
+		}
+		for _, event := range batch.Events {
+			batchOpts := opts
+			batchOpts.action = event.Action
+			batchOpts.stdin = event.Payload
+			handlePiLike(r, sessionID, batchOpts, stderr, "pi")
+		}
+		return
+	}
 	handlePiLike(r, sessionID, opts, stderr, "pi")
 }
 

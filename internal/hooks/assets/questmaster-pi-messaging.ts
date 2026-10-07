@@ -11,10 +11,13 @@ const maxIDBytes = 128;
 const recentLimit = 40;
 const snippetLimit = 180;
 const hookTimeoutMs = 1_000;
+const hookBatchLimit = 32;
+const hookBatchByteLimit = 48 * 1024;
 const sidecarVersion = "phase2-v2";
 const sessionPattern = /^qm-[A-Za-z0-9_-]+$/;
 
 type Request = { id: string; message: string };
+type QueuedHook = { action: string; payload: Record<string, unknown>; bytes: number };
 type PiContext = {
 	cwd?: string;
 	model?: unknown;
@@ -225,7 +228,10 @@ export default function (pi: ExtensionAPI) {
 	let tool: PiTool | undefined;
 	let usage: { last: Record<string, number> } | undefined;
 	let pendingNarration: string[] = [];
-	let hookQueue = Promise.resolve();
+	let hookQueue: QueuedHook[] = [];
+	let hookQueueBytes = 0;
+	let hookFlushTimer: NodeJS.Timeout | undefined;
+	let hookDrain: Promise<void> | undefined;
 
 	function refreshMetadata(ctx?: PiContext): void {
 		if (!ctx) return;
@@ -281,11 +287,49 @@ export default function (pi: ExtensionAPI) {
 		};
 	}
 
-	function emitHook(action: string, extra?: Record<string, unknown>): Promise<void> {
-		if (!sessionPattern.test(questmasterSessionID)) return Promise.resolve();
-		const input = `${JSON.stringify(activityPayload(extra))}\n`;
-		hookQueue = hookQueue.catch(() => {}).then(() => runHook(action, input)).catch(() => {});
-		return hookQueue;
+	function scheduleHookFlush(): void {
+		if (hookFlushTimer) return;
+		hookFlushTimer = setTimeout(() => {
+			hookFlushTimer = undefined;
+			void drainHookQueue();
+		}, 0);
+	}
+
+	async function drainHookQueue(): Promise<void> {
+		if (hookFlushTimer) {
+			clearTimeout(hookFlushTimer);
+			hookFlushTimer = undefined;
+		}
+		if (hookDrain) {
+			await hookDrain;
+			return drainHookQueue();
+		}
+		if (hookQueue.length === 0) return;
+		const events = hookQueue.splice(0);
+		hookQueueBytes = 0;
+		const operation = runHook("batch", `${JSON.stringify({ events: events.map(({ action, payload }) => ({ action, payload })) })}\n`);
+		hookDrain = operation;
+		await operation;
+		if (hookDrain === operation) hookDrain = undefined;
+		if (hookQueue.length >= hookBatchLimit || hookQueueBytes >= hookBatchByteLimit) return drainHookQueue();
+		if (hookQueue.length) scheduleHookFlush();
+	}
+
+	async function emitHook(action: string, extra?: Record<string, unknown>, flush = false): Promise<void> {
+		if (!sessionPattern.test(questmasterSessionID)) return;
+		const payload = activityPayload(extra);
+		const event = { action, payload };
+		const bytes = Buffer.byteLength(JSON.stringify(event));
+		if (bytes > hookBatchByteLimit) {
+			await drainHookQueue();
+			await runHook(action, `${JSON.stringify(payload)}\n`);
+			return;
+		}
+		if (hookQueue.length >= hookBatchLimit || hookQueueBytes + bytes > hookBatchByteLimit) await drainHookQueue();
+		hookQueue.push({ ...event, bytes });
+		hookQueueBytes += bytes;
+		if (flush || hookQueue.length >= hookBatchLimit || hookQueueBytes >= hookBatchByteLimit) await drainHookQueue();
+		else scheduleHookFlush();
 	}
 
 	function setBusy(next: boolean, nextPhase: string, nextSnippet?: string): void {
@@ -421,27 +465,27 @@ export default function (pi: ExtensionAPI) {
 		refreshMetadata(ctx);
 		tool = undefined;
 		setBusy(false, "idle");
-		void emitHook("session_start");
+		await emitHook("session_start", undefined, true);
 	});
 
-	pi.on("before_agent_start", (event: unknown, rawContext) => {
+	pi.on("before_agent_start", async (event: unknown, rawContext) => {
 		writeMarker();
 		const ctx = rawContext as PiContext | undefined;
 		refreshMetadata(ctx);
 		const record = event && typeof event === "object" ? event as Record<string, unknown> : {};
 		const prompt = [record.prompt, record.input, record.message].find((value) => typeof value === "string" && value.trim()) as string | undefined;
 		if (prompt) setSnippet(prompt);
-		void emitHook("before_agent_start", prompt ? { prompt: safeLine(prompt) } : undefined);
+		await emitHook("before_agent_start", prompt ? { prompt: safeLine(prompt) } : undefined, true);
 	});
 
-	pi.on("agent_start", (_event, rawContext) => {
+	pi.on("agent_start", async (_event, rawContext) => {
 		const ctx = rawContext as PiContext | undefined;
 		currentTool = "";
 		tool = undefined;
 		pendingNarration = [];
 		refreshMetadata(ctx);
 		setBusy(true, "thinking");
-		void emitHook("agent_start");
+		await emitHook("agent_start", undefined, true);
 	});
 
 	pi.on("model_select", (event: { model?: unknown }) => { model = modelState(event.model) ?? model; });
@@ -487,7 +531,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("tool_execution_start", async (event: { toolCallId?: string; toolName?: string; args?: unknown }) => {
 		if (pendingNarration.length) {
-			void emitHook("say", { text: capChatText(pendingNarration.join("\n")) });
+			await emitHook("say", { text: capChatText(pendingNarration.join("\n")) });
 			pendingNarration = [];
 		}
 		currentTool = formatTool(event.toolName, event.args);
@@ -502,9 +546,9 @@ export default function (pi: ExtensionAPI) {
 		setBusy(true, "tool");
 		if (event.toolName === "ask_user") {
 			const args = event.args && typeof event.args === "object" ? event.args as Record<string, unknown> : {};
-			await emitHook("waiting_for_user", { prompt: typeof args.question === "string" ? safeLine(args.question) : currentTool });
+			await emitHook("waiting_for_user", { prompt: typeof args.question === "string" ? safeLine(args.question) : currentTool }, true);
 		}
-		void emitHook("tool_execution_start");
+		await emitHook("tool_execution_start");
 	});
 
 	pi.on("tool_execution_end", async (event: { toolCallId?: string; toolName?: string; isError?: boolean }) => {
@@ -519,11 +563,10 @@ export default function (pi: ExtensionAPI) {
 		};
 		setSnippet(`${event.isError ? "✗" : "✓"} ${label}`);
 		currentTool = "";
-		if (event.toolName === "ask_user") await emitHook("tool_execution_end");
-		else void emitHook("tool_execution_end");
+		await emitHook("tool_execution_end", undefined, event.toolName === "ask_user");
 	});
 
-	pi.on("agent_end", (event: { messages?: unknown[] }, rawContext) => {
+	pi.on("agent_end", async (event: { messages?: unknown[] }, rawContext) => {
 		let finalText = "";
 		for (const message of event.messages ?? []) {
 			recordAssistantMessage(message);
@@ -539,12 +582,12 @@ export default function (pi: ExtensionAPI) {
 		if (tool) tool = { ...tool, status: "done", ended_at_ms: Date.now() };
 		setBusy(false, "done", snippet || "Done");
 		pendingNarration = [];
-		void emitHook("agent_end", finalText ? { text: capChatText(finalText) } : undefined);
+		await emitHook("agent_end", finalText ? { text: capChatText(finalText) } : undefined, true);
 	});
 
 	pi.on("session_shutdown", async () => {
 		setBusy(false, "idle");
 		await stop();
-		await emitHook("session_shutdown");
+		await emitHook("session_shutdown", undefined, true);
 	});
 }

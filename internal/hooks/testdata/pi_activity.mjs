@@ -15,12 +15,8 @@ process.env.QUESTMASTER_SESSION = sessionID;
 process.env.PI_HOME = root;
 process.env.QM_PI_ACTIVITY_LOG = logPath;
 process.env.PATH = `${root}:${process.env.PATH}`;
-await writeFile(cliPath, `#!${process.execPath}
-const fs = require("node:fs");
-const chunks = [];
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => chunks.push(chunk));
-process.stdin.on("end", () => fs.appendFileSync(process.env.QM_PI_ACTIVITY_LOG, JSON.stringify({ args: process.argv.slice(2), payload: JSON.parse(chunks.join("")) }) + "\\n"));
+await writeFile(cliPath, `#!/bin/sh
+cat >> "$QM_PI_ACTIVITY_LOG"
 `);
 await chmod(cliPath, 0o755);
 
@@ -66,7 +62,8 @@ try {
 	await handlers.get("session_shutdown")();
 	stopped = true;
 
-	const entries = (await readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+	const batches = (await readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+	const entries = batches.flatMap((batch) => batch.events.map((event) => ({ args: ["hook", "pi", event.action], payload: event.payload })));
 	assert.deepEqual(entries.map((entry) => entry.args[2]), [
 		"session_start", "before_agent_start", "agent_start", "say", "tool_execution_start", "tool_execution_end",
 		"waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_end", "session_shutdown",
