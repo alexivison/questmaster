@@ -497,6 +497,26 @@ func TestReadHistoryOrdersAndPagesLateTimestampEntry(t *testing.T) {
 	}
 }
 
+func TestReadSinceDeliversBackdatedSayOnLaterPull(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	base := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	appendEvent(t, root, "qm-w1", chatEvent("action", "Read", base.Add(4*time.Second)))
+	afterAction, err := ReadSince(root, "qm-master", nil)
+	if err != nil || len(afterAction.Entries) != 1 || afterAction.Entries[0].Kind != "action" {
+		t.Fatalf("first incremental pull = %#v, err %v", afterAction.Entries, err)
+	}
+	lateSay := chatEvent("say", "Reading the README.", base.Add(5*time.Second))
+	lateSay.Fields["chat_entries"].([]interface{})[0].(map[string]interface{})["chat_timestamp"] = base.Format(time.RFC3339Nano)
+	appendEvent(t, root, "qm-w1", lateSay)
+
+	second, err := ReadSince(root, "qm-master", afterAction.Cursors)
+	if err != nil || len(second.Entries) != 1 || second.Entries[0].Kind != "say" || second.Entries[0].Text != "Reading the README." || !second.Entries[0].Timestamp.Equal(base) {
+		t.Fatalf("second incremental pull = %#v, err %v; want the late say", second.Entries, err)
+	}
+}
+
 func TestRenderTextCollapsesAndExpandsActions(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
