@@ -15,6 +15,8 @@ struct GhosttyConfigParserTests {
         anUnavailablePrimaryFallsThroughToAnInstalledFamily()
         readsWindowPaddingAndKeepsTheLastValue()
         windowPaddingIsNilWhenNeitherAxisIsSet()
+        twoValueWindowPaddingUsesTheFirstComponent()
+        malformedWindowPaddingLeavesThePreviousValue()
         print("GhosttyConfigParserTests: all tests passed")
     }
 
@@ -99,6 +101,19 @@ struct GhosttyConfigParserTests {
     private static func windowPaddingIsNilWhenNeitherAxisIsSet() {
         let files = ["/d/config": "font-family = Own"]
         expect(GhosttyConfigParser.windowPadding(inDirectories: ["/d"]) { files[$0] } == nil, "no window-padding keys should give nil")
+    }
+
+    private static func twoValueWindowPaddingUsesTheFirstComponent() {
+        let files = ["/d/config": "window-padding-x = 10,20\nwindow-padding-y = 15, 25"]
+        let padding = GhosttyConfigParser.windowPadding(inDirectories: ["/d"]) { files[$0] }
+        expect(padding?.x == 10, "two-value x should use the first component, got \(String(describing: padding?.x))")
+        expect(padding?.y == 15, "two-value y should use the first component (trimmed), got \(String(describing: padding?.y))")
+    }
+
+    private static func malformedWindowPaddingLeavesThePreviousValue() {
+        let files = ["/d/config": "window-padding-x = 10\nwindow-padding-x = not-a-number\nwindow-padding-y = 10"]
+        let padding = GhosttyConfigParser.windowPadding(inDirectories: ["/d"]) { files[$0] }
+        expect(padding?.x == 10, "a malformed later value should not clobber the earlier good one, got \(String(describing: padding?.x))")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
