@@ -101,6 +101,10 @@ final class ShellWindowController {
         let root = ShellRootContainerView(splitView: splitView, footer: footerShell)
         window.contentView = root
 
+        splitView.cellMetricsProvider = { [weak terminalHost] in terminalHost?.cellMetrics ?? .unavailable }
+        terminalHost.onCellMetricsChanged = { [weak splitView] in splitView?.applyCanonicalLayout() }
+        splitView.onFooterBottomInsetChanged = { [weak root] inset in root?.setFooterBottomInset(inset) }
+
         let handles = Handles(
             window: window,
             splitView: splitView,

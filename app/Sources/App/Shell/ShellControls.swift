@@ -8,8 +8,9 @@ import QuestmasterCore
 
 enum ShellMetrics {
     static let dockTopBarHeight: CGFloat = 40
-    /// Empty space above the first tracker header, matching the mockup's spacing.
-    static let trackerTopInset: CGFloat = 25
+    /// No extra space above the first tracker header (2026-10-07): `sideCardInset` alone now
+    /// provides the window-top-to-tracker gap, matching every other G-rhythm gap in the shell.
+    static let trackerTopInset: CGFloat = 0
     static let dockViewerLeadingLineExtension: CGFloat = 56
     static let sideCardTopBarHorizontalInset: CGFloat = 8
     static let sideCardOrnamentSide: CGFloat = 32
@@ -22,17 +23,23 @@ enum ShellMetrics {
     /// the rounded edge. Deliberately not reused for `SideCardOrnaments`'
     /// own default so the tracker/dock inset stays untouched.
     static let modalOrnamentInset: CGFloat = 10
-    static let sideCardInset = Token.Spacing.card
+    /// The single gap `G` (2026-10-07): applies to every pane-to-pane and pane-to-window-edge gap
+    /// in the shell (tracker/dock side-card inset, tracker's own leading padding, the dock's outer
+    /// margin). Was `Token.Spacing.card` (8); the user may bump this to `Token.Spacing.section`
+    /// (20) after seeing it, so every gap below derives from this one constant.
+    static let sideCardInset = Token.Spacing.element
     static let sideCardCornerRadius = Token.Radius.card
-    /// Window edge to the tracker plates and plates to the terminal pane add up to the same 20pt as
-    /// Ghostty's own `window-padding-x` against the terminal's other three sides (2026-10-02): the
-    /// tracker now sits flush against the terminal, so Ghostty's padding alone makes up that side.
-    static let trackerLeadingInset = Token.Spacing.element
+    /// Window edge to the tracker frame: 0, now that `TrackerListMetrics.sidePadding` alone
+    /// (applied leading-only — see its own call sites) provides the full G gap to the plates.
+    /// `trackerMaxWidth` shrinks by that same G below, so the plates still land flush against
+    /// the terminal pane on their trailing edge, with only Ghostty's own padding completing that
+    /// gap (2026-10-07).
+    static let trackerLeadingInset: CGFloat = 0
     static let trackerTrailingGap: CGFloat = 0
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
         dockDividerHitWidth: 7,
-        trackerMaxWidth: 300,
+        trackerMaxWidth: 300 - Double(Token.Spacing.element),
         trackerLeadingInset: Double(trackerLeadingInset),
         trackerTrailingGap: Double(trackerTrailingGap),
         footerReservedHeight: Double(ActionBarMetrics.footerHeight)

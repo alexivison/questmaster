@@ -8,6 +8,7 @@ enum QuestmasterLogicTests {
         MutationRequestTests.run()
         NavigationLogicTests.run()
         ShellSplitLayoutTests.run()
+        TerminalCellSnappingTests.run()
         DockWidthPreferenceTests.run()
         ServeRecoveryPolicyTests.run()
         NewSessionLogicTests.run()
