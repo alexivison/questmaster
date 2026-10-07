@@ -4,17 +4,19 @@ import SwiftUI
 @MainActor
 final class ToastPresentationController {
     private let window: () -> NSWindow?
+    private let footer: () -> NSView?
     private var toastView: ToastHostingView?
     private var dismissWorkItem: DispatchWorkItem?
     private var presentationID = 0
 
-    init(window: @escaping () -> NSWindow?) {
+    init(window: @escaping () -> NSWindow?, footer: @escaping () -> NSView?) {
         self.window = window
+        self.footer = footer
     }
 
     func show(_ message: String) {
         let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanMessage.isEmpty, let contentView = window()?.contentView else {
+        guard !cleanMessage.isEmpty, let contentView = window()?.contentView, let footer = footer() else {
             return
         }
 
@@ -29,7 +31,10 @@ final class ToastPresentationController {
             contentView.addSubview(view)
             NSLayoutConstraint.activate([
                 view.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-                view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -22),
+                // The footer's top edge is the same as the terminal pane's own bottom edge — this
+                // follows the footer's height and the row-snap leftover automatically, instead of
+                // a window-bottom-relative constant that predates the footer.
+                view.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -ShellMetrics.gap),
                 view.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 18),
                 view.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -18),
             ])

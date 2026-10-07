@@ -91,9 +91,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         errorPresenter = ErrorPresentationController { [weak self] in
             self?.shellHandles?.window
         }
-        toastPresenter = ToastPresentationController { [weak self] in
-            self?.shellHandles?.window
-        }
+        toastPresenter = ToastPresentationController(
+            window: { [weak self] in self?.shellHandles?.window },
+            footer: { [weak self] in self?.shellHandles?.footerShell }
+        )
         caffeineController.onActiveChanged = { [weak self] active in
             self?.shellWindowController.updateCaffeine(active)
         }
