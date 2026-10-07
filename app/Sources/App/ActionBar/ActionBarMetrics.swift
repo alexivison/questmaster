@@ -21,7 +21,12 @@ enum ActionBarMetrics {
     /// further out — before the shift.
     private static let designShieldTopOuterEdge: CGFloat = 16 - 1.5 / 2
     private static let topMargin = CGFloat(GhosttyGapDerivation.flushGap(g: Double(ShellMetrics.gap), ghosttyPadding: GhosttyWindowPadding.resolved.y))
-    static let verticalShift: CGFloat = topMargin - designShieldTopOuterEdge
+    /// Rounded to a whole point: `designShieldTopOuterEdge`'s own half-stroke term makes the exact
+    /// value land on a quarter point, which every traced y-coordinate below adds this same shift
+    /// to — left unrounded, that puts the whole footer's content off the pixel grid at 1x, not
+    /// just the shield. The shield's own distance from the frame's top becomes `topMargin` to
+    /// within half a point instead of exactly, the same trade `footerHeight` above already makes.
+    static let verticalShift: CGFloat = (topMargin - designShieldTopOuterEdge).rounded()
 
     /// Content (shield top, y 15.25, to worker-pill bottom, y 86 — both already in the shared
     /// content-row coordinate system the panel variants are aligned into, before `verticalShift`)
@@ -85,8 +90,9 @@ enum ActionBarMetrics {
     /// by sampling the one traced curve segment that actually reaches into that range — the shield
     /// bends back up, away from the row, immediately after — rather than reading a point off it by
     /// hand. Shared by all three panel variants (master/standalone/worker) so the strip doesn't
-    /// jump when the variant changes, per the review.
-    static let workerRowStartX: CGFloat = shieldEdgeAtWorkerRow + 5
+    /// jump when the variant changes, per the review. Rounded to a whole point (the sampled edge
+    /// itself lands on a fraction) — still 5pt from the shield at 1x.
+    static let workerRowStartX: CGFloat = (shieldEdgeAtWorkerRow + 5).rounded()
 
     /// `action-bar-v2.svg`'s traced master panel: the segment `C58.2328 70.0624 52.8309 72.9423
     /// 49.0003 75`, starting at `(63.0364, 66)` — raw (pre-shift) coordinates, the same ones
