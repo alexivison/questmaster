@@ -34,6 +34,9 @@ func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
 			rec.transcriptPaths = append(rec.transcriptPaths, path)
 			return rec.transcriptTail, nil
 		},
+		LoadState: func(string) (*state.SessionState, error) {
+			return rec.lastState, nil
+		},
 		Update: func(sessionID string, mutate func(*state.SessionState) bool) error {
 			rec.updateCalls++
 			ss := rec.lastState
@@ -156,6 +159,223 @@ func TestHookSubagentTaggingAndChatExclusion(t *testing.T) {
 				t.Fatalf("duplicate subagent fields: %#v", event.Fields)
 			}
 		})
+	}
+}
+
+func TestHookClaudeMessageDisplay(t *testing.T) {
+	cases := []struct {
+		name   string
+		inputs []struct {
+			action  string
+			payload map[string]interface{}
+		}
+		wantSay     []string
+		wantMessage []string
+	}{
+		{
+			name: "assembles indexed batches before the next tool",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m1", "index": 1, "final": true, "delta": "layout."}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m1", "index": 0, "delta": "Checking the\n"}},
+				{action: "tool_start", payload: map[string]interface{}{"tool_name": "Read"}},
+			},
+			wantSay: []string{"Checking the\nlayout."},
+		},
+		{
+			name: "Stop suppresses its already displayed final message",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m2", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Done."}},
+				{action: "done", payload: map[string]interface{}{"transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
+			},
+			wantMessage: []string{"Done."},
+		},
+		{
+			name: "late display callback is suppressed by Stop text",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "done", payload: map[string]interface{}{"transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m3", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Done."}},
+			},
+			wantMessage: []string{"Done."},
+		},
+		{
+			name: "subagent display is excluded",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"agent_id": "task-1", "message_id": "m4", "index": 0, "final": true, "delta": "private subagent text"}},
+			},
+		},
+		{
+			name: "say text uses the shared cap",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m5", "index": 0, "final": true, "delta": strings.Repeat("猫", 1501)}},
+				{action: "tool_start", payload: map[string]interface{}{"tool_name": "Read"}},
+			},
+			wantSay: []string{strings.Repeat("猫", 1500)},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			for _, input := range tc.inputs {
+				runHookWithStdin(r, "claude", input.action, "qm-chat", input.payload)
+			}
+			var say, messages []string
+			for _, event := range rec.events {
+				for _, entry := range chatEntries(event) {
+					text, _ := entry["chat_text"].(string)
+					switch entry["chat_kind"] {
+					case "say":
+						say = append(say, text)
+					case "message":
+						messages = append(messages, text)
+					}
+				}
+			}
+			if !slices.Equal(say, tc.wantSay) || !slices.Equal(messages, tc.wantMessage) {
+				t.Fatalf("say/messages = %#v/%#v, want %#v/%#v", say, messages, tc.wantSay, tc.wantMessage)
+			}
+			var lastChatAt time.Time
+			if rec.lastState != nil {
+				lastChatAt = rec.lastState.Panes["primary"].LastChatAt
+			}
+			if len(tc.wantSay)+len(tc.wantMessage) == 0 {
+				if !lastChatAt.IsZero() {
+					t.Fatalf("excluded narration changed LastChatAt: %s", lastChatAt)
+				}
+			} else if want := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC); !lastChatAt.Equal(want) {
+				t.Fatalf("LastChatAt = %s, want %s", lastChatAt, want)
+			}
+		})
+	}
+}
+
+func TestReadCodexCommentaryFiltersAndAdvancesOffset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"Checking layout"}}}`)
+	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"final_answer","text":"Done"}}}`)
+	commentary, offset, err := readCodexCommentary(path, 0)
+	if err != nil {
+		t.Fatalf("read rollout: %v", err)
+	}
+	if !slices.Equal(commentary, []string{"Checking layout"}) {
+		t.Fatalf("commentary = %q", commentary)
+	}
+	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"Reading code"}}}`)
+	commentary, next, err := readCodexCommentary(path, offset)
+	if err != nil {
+		t.Fatalf("read next rollout chunk: %v", err)
+	}
+	if !slices.Equal(commentary, []string{"Reading code"}) || next <= offset {
+		t.Fatalf("incremental read = %q offset %d, previous %d", commentary, next, offset)
+	}
+	commentary, repeated, err := readCodexCommentary(path, next)
+	if err != nil || len(commentary) != 0 || repeated != next {
+		t.Fatalf("repeat read = %q offset %d err %v", commentary, repeated, err)
+	}
+}
+
+func TestReadCodexCommentaryLongLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	line, err := json.Marshal(map[string]interface{}{"type": "event_msg", "payload": map[string]interface{}{
+		"type": "item_completed", "item": map[string]interface{}{"type": "AgentMessage", "phase": "commentary", "text": strings.Repeat("x", 100_000)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commentary, offset, err := readCodexCommentary(path, 0)
+	if err != nil || len(commentary) != 1 || len(commentary[0]) != 100_000 || offset != int64(len(line)+1) {
+		t.Fatalf("long line read = %d entries/%d chars offset=%d err=%v", len(commentary), len(commentary[0]), offset, err)
+	}
+}
+
+func TestHookCodexRolloutPathChangeAndSubagentExclusion(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "first.jsonl")
+	second := filepath.Join(t.TempDir(), "second.jsonl")
+	child := filepath.Join(t.TempDir(), "child.jsonl")
+	appendCodexRollout(t, first, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"old"}}}`)
+	appendCodexRollout(t, second, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"new parent rollout"}}}`)
+	appendCodexRollout(t, second, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"another narration"}}}`)
+	appendCodexRollout(t, child, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"child text"}}}`)
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
+		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: first, CodexTranscriptOffset: 10_000},
+	}}
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": second})
+	var narration []string
+	for _, entry := range chatEntries(rec.events[len(rec.events)-1]) {
+		if entry["chat_kind"] == "say" {
+			narration = append(narration, entry["chat_text"].(string))
+		}
+	}
+	if !slices.Equal(narration, []string{"new parent rollout", "another narration"}) {
+		t.Fatalf("path-change narration = %q", narration)
+	}
+	pane := rec.lastState.Panes["primary"]
+	if pane.CodexTranscriptPath != second {
+		t.Fatalf("stored path = %q, want %q", pane.CodexTranscriptPath, second)
+	}
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"agent_id": "task-1", "transcript_path": child})
+	last := rec.events[len(rec.events)-1]
+	if len(chatEntries(last)) != 0 || rec.lastState.Panes["primary"].CodexTranscriptPath != second {
+		t.Fatalf("subagent rollout changed feed or offset: event=%+v pane=%+v", last, rec.lastState.Panes["primary"])
+	}
+}
+
+func TestHookCodexMissingAndRotatedRollout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
+	if rec.lastState.Panes["primary"].CodexTranscriptPath != path {
+		t.Fatalf("missing rollout path = %q", rec.lastState.Panes["primary"].CodexTranscriptPath)
+	}
+	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"first"}}}`)
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "first" {
+		t.Fatalf("first rollout narration = %q", got)
+	}
+	oldOffset := rec.lastState.Panes["primary"].CodexTranscriptOffset
+	short := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"new"}}}` + "\n"
+	if err := os.WriteFile(path, []byte(short), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(short)) >= oldOffset {
+		t.Fatalf("test setup failed: replacement size %d >= old offset %d", len(short), oldOffset)
+	}
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "new" {
+		t.Fatalf("rotated rollout narration = %q", got)
+	}
+}
+
+func appendCodexRollout(t *testing.T, path, line string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(line + "\n"); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -502,7 +722,7 @@ func TestHookClaudePreToolUseBashStripsEnvAssignments(t *testing.T) {
 	}
 }
 
-func TestHookClaudeIdenticalToolStartSkipsStateWrite(t *testing.T) {
+func TestHookClaudeToolStartWritesChatTimestamp(t *testing.T) {
 	r, rec := newTestRunner(t)
 	prior := time.Date(2026, 5, 20, 11, 59, 0, 0, time.UTC)
 	rec.lastState = &state.SessionState{
@@ -532,8 +752,11 @@ func TestHookClaudeIdenticalToolStartSkipsStateWrite(t *testing.T) {
 	if rec.updateCalls != 1 {
 		t.Fatalf("updateCalls = %d, want 1", rec.updateCalls)
 	}
-	if rec.writeCalls != 0 {
-		t.Fatalf("writeCalls = %d, want 0 for timestamp-only repeat", rec.writeCalls)
+	if rec.writeCalls != 1 {
+		t.Fatalf("writeCalls = %d, want 1 for LastChatAt", rec.writeCalls)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("LastChatAt = %s, want %s", got, r.Now())
 	}
 	if len(rec.events) != 1 {
 		t.Fatalf("events = %d, want 1", len(rec.events))

@@ -83,6 +83,7 @@ type PaneState struct {
 	LastEvent    time.Time `json:"last_event"`
 	LastKind     string    `json:"last_kind"`
 	WorkingSince time.Time `json:"working_since,omitempty"`
+	LastChatAt   time.Time `json:"last_chat_at,omitempty"`
 
 	Recent            []string `json:"recent,omitempty"`
 	SessionFile       string   `json:"session_file,omitempty"`
@@ -97,6 +98,16 @@ type PaneState struct {
 	PendingPartText     string `json:"pending_part_text,omitempty"`
 	PendingFinalMessage string `json:"pending_final_message,omitempty"`
 	LastChatStatus      string `json:"last_chat_status,omitempty"`
+
+	ClaudeDisplayMessageID   string         `json:"claude_display_message_id,omitempty"`
+	ClaudeDisplayChunks      map[int]string `json:"claude_display_chunks,omitempty"`
+	ClaudeDisplayFinalIndex  int            `json:"claude_display_final_index,omitempty"`
+	ClaudeDisplayFinal       bool           `json:"claude_display_final,omitempty"`
+	ClaudeLastStopMessage    string         `json:"claude_last_stop_message,omitempty"`
+	ClaudeLastStopTranscript string         `json:"claude_last_stop_transcript,omitempty"`
+
+	CodexTranscriptPath   string `json:"codex_transcript_path,omitempty"`
+	CodexTranscriptOffset int64  `json:"codex_transcript_offset,omitempty"`
 }
 
 // StateRoot resolves the directory that holds per-session state. Honors
@@ -262,13 +273,17 @@ func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 //
 // A failed state write does not undo the appended event line.
 func UpdateAndLog(id string, ev *StateEvent, mutate func(*SessionState) bool) error {
+	return UpdateAndLogAt(StateRoot(), id, ev, mutate)
+}
+
+// UpdateAndLogAt is UpdateAndLog with the state root supplied by the caller.
+func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
 	if mutate == nil {
 		return errors.New("nil mutate function")
 	}
-	root := StateRoot()
 	if root == "" {
 		return errors.New("no state root resolved")
 	}

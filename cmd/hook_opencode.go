@@ -225,7 +225,8 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			PendingPartText                 string
 			PendingFinalMessage             string
 			LastChatStatus                  string
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText, pane.PendingFinalMessage, pane.LastChatStatus}
+			LastChatAt                      time.Time
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText, pane.PendingFinalMessage, pane.LastChatStatus, pane.LastChatAt}
 
 		setState := patch.state
 		setActivity := patch.activity
@@ -298,14 +299,14 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		pane.Role = role
 		if !preservePermissionBlock {
 			if patch.kind == "session.idle" && pane.State == "done" && pane.PendingFinalMessage != "" {
-				addChatEntry(ev, "message", pane.PendingFinalMessage)
+				addChatEntry(ev, &pane, "message", pane.PendingFinalMessage)
 				pane.PendingFinalMessage = ""
 			}
 			if patch.kind == "tool.execute.before" {
 				if pane.State != prev.State {
 					addVisibleStatus(ev, &pane, pane.State)
 				}
-				addChatEntry(ev, "action", patch.tool)
+				addChatEntry(ev, &pane, "action", patch.tool)
 			}
 			if patch.kind != "tool.execute.before" && pane.State != prev.State {
 				addVisibleStatus(ev, &pane, pane.State)
@@ -323,7 +324,8 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			pane.PendingPartMsgID != prev.PendingPartMsgID ||
 			pane.PendingPartText != prev.PendingPartText ||
 			pane.PendingFinalMessage != prev.PendingFinalMessage ||
-			pane.LastChatStatus != prev.LastChatStatus
+			pane.LastChatStatus != prev.LastChatStatus ||
+			!pane.LastChatAt.Equal(prev.LastChatAt)
 	})
 	return accepted, appendErr, updateErr
 }

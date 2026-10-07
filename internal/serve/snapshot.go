@@ -116,6 +116,7 @@ type SessionSnapshot struct {
 	State          string             `json:"state,omitempty"`
 	ElapsedMS      int64              `json:"elapsed_ms"`
 	ElapsedSince   *time.Time         `json:"elapsed_since,omitempty"`
+	LastChatAt     *time.Time         `json:"last_chat_at,omitempty"`
 	LatestActivity string             `json:"latest_activity,omitempty"`
 	LastKind       string             `json:"last_kind,omitempty"`
 	WorktreePath   string             `json:"worktree_path,omitempty"`
@@ -299,7 +300,15 @@ func sameClockTrackerRow(a, b SessionSnapshot) bool {
 		a.State == b.State &&
 		a.LatestActivity == b.LatestActivity &&
 		a.LastKind == b.LastKind &&
+		sameTime(a.LastChatAt, b.LastChatAt) &&
 		artifactsEqual(a.Artifacts, b.Artifacts)
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Equal(*b)
 }
 
 func (s *Snapshotter) liveSessionSet() (map[string]struct{}, error) {
@@ -385,13 +394,14 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 	if row == nil || ss == nil {
 		return
 	}
+	result := sessionactivity.FromState(ss)
+	row.LastChatAt = timePtr(result.LastChatAt)
 	if row.Status != "active" {
 		row.State = "stopped"
 		row.ElapsedMS = 0
 		row.ElapsedSince = nil
 		return
 	}
-	result := sessionactivity.FromState(ss)
 	if result.State != "" {
 		row.State = result.State
 	}
@@ -478,6 +488,7 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			State:          stateName,
 			ElapsedMS:      elapsedMS(observedAt, elapsedSince),
 			ElapsedSince:   timePtr(elapsedSince),
+			LastChatAt:     timePtr(result.LastChatAt),
 			LatestActivity: snippet,
 			LastKind:       lastKind,
 			WorktreePath:   row.Cwd,

@@ -186,6 +186,7 @@ public struct TrackerSession: Decodable, Equatable {
     public var workerCount: Int
     public var duration: String
     public var elapsedSince: Date?
+    public var lastChatAt: Date?
     public var elapsedSeedMS: Int?
     public var isCurrent: Bool
     public var artifacts: [ArtifactReference]
@@ -209,6 +210,7 @@ public struct TrackerSession: Decodable, Equatable {
         workerCount: Int = 0,
         duration: String = "",
         elapsedSince: Date? = nil,
+        lastChatAt: Date? = nil,
         elapsedSeedMS: Int? = nil,
         isCurrent: Bool = false,
         artifacts: [ArtifactReference] = []
@@ -231,6 +233,7 @@ public struct TrackerSession: Decodable, Equatable {
         self.workerCount = workerCount
         self.duration = duration
         self.elapsedSince = elapsedSince
+        self.lastChatAt = lastChatAt
         self.elapsedSeedMS = elapsedSeedMS
         self.isCurrent = isCurrent
         self.artifacts = artifacts
@@ -253,6 +256,7 @@ public struct TrackerSession: Decodable, Equatable {
         case worker_count
         case elapsed_ms
         case elapsed_since
+        case last_chat_at
         case is_current
         case artifacts
     }
@@ -283,6 +287,9 @@ public struct TrackerSession: Decodable, Equatable {
         elapsedSeedMS = try container.decode(Int.self, forKey: .elapsed_ms)
         elapsedSince = TrackerSession.parseInstant(
             try container.decodeIfPresent(String.self, forKey: .elapsed_since)
+        )
+        lastChatAt = TrackerSession.parseInstant(
+            try container.decodeIfPresent(String.self, forKey: .last_chat_at)
         )
         duration = TrackerSession.formatElapsed(elapsedSeedMS) ?? ""
         isCurrent = try container.decode(Bool.self, forKey: .is_current)
