@@ -3,9 +3,11 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -317,6 +319,112 @@ func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) 
 			return appendErr
 		}
 		return errors.Join(appendErr, writeSessionStateLocked(root, id, ss))
+	})
+}
+
+// UpdateAndLogBatch applies a related group of hook events under one state
+// lock. Complete log lines remain visible if writing state.json fails.
+func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionState) bool) error {
+	return updateAndLogBatchAt(StateRoot(), id, events, mutate, func(w io.Writer, data []byte) (int, error) {
+		return w.Write(data)
+	})
+}
+
+func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*SessionState) bool, writeEvents func(io.Writer, []byte) (int, error)) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	if mutate == nil {
+		return errors.New("nil mutate function")
+	}
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	for _, ev := range events {
+		if ev == nil {
+			return errors.New("nil state event")
+		}
+		if ev.Ts.IsZero() {
+			ev.Ts = time.Now().UTC()
+		}
+	}
+	return withStateLock(root, id, func() error {
+		ss, err := loadSessionStateAt(root, id)
+		if err != nil {
+			return err
+		}
+		if ss == nil {
+			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
+		}
+		changed := mutate(ss)
+		var eventData bytes.Buffer
+		encoder := json.NewEncoder(&eventData)
+		for _, ev := range events {
+			if err := encoder.Encode(ev); err != nil {
+				return fmt.Errorf("encode state event: %w", err)
+			}
+		}
+		logPath := SessionStateLogPath(root, id)
+		var log *os.File
+		var oldSize int64
+		if eventData.Len() > 0 {
+			log, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				return fmt.Errorf("open state log: %w", err)
+			}
+			info, statErr := log.Stat()
+			if statErr != nil {
+				closeErr := log.Close()
+				log = nil
+				return errors.Join(fmt.Errorf("stat state log: %w", statErr), closeErr)
+			}
+			oldSize = info.Size()
+		}
+		if log != nil {
+			data := eventData.Bytes()
+			written, writeErr := writeEvents(log, data)
+			if writeErr == nil && written != len(data) {
+				writeErr = io.ErrShortWrite
+			}
+			closeErr := log.Close()
+			log = nil
+			if writeErr != nil {
+				writtenBytes := written
+				if writtenBytes < 0 {
+					writtenBytes = 0
+				}
+				if writtenBytes > len(data) {
+					writtenBytes = len(data)
+				}
+				completeBytes := 0
+				if newline := bytes.LastIndexByte(data[:writtenBytes], '\n'); newline >= 0 {
+					completeBytes = newline + 1
+				}
+				truncateErr := os.Truncate(logPath, oldSize+int64(completeBytes))
+				if truncateErr != nil {
+					truncateErr = fmt.Errorf("truncate incomplete state event: %w", truncateErr)
+				}
+				return errors.Join(fmt.Errorf("write state events: %w", writeErr), closeErr, truncateErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close state log: %w", closeErr)
+			}
+		}
+		if changed {
+			if err := writeSessionStateLocked(root, id, ss); err != nil {
+				return err
+			}
+		}
+		if eventData.Len() > 0 {
+			if info, err := os.Stat(logPath); err == nil && info.Size() >= StateJSONLMaxSize {
+				if err := os.Rename(logPath, logPath+".1"); err != nil {
+					return fmt.Errorf("rotate state log: %w", err)
+				}
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat state log for rotation: %w", err)
+			}
+		}
+		return nil
 	})
 }
 

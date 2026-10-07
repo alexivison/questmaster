@@ -3,9 +3,12 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -203,6 +206,245 @@ func TestUpdateMutateFalseSkipsWrite(t *testing.T) {
 	if string(before) != string(after) {
 		t.Errorf("file changed despite mutate returning false")
 	}
+}
+
+func TestUpdateAndLogBatchWritesEventsAndAppliesMutationOnce(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-batch-success"
+	events := []*StateEvent{
+		{Action: "agent_start", Agent: "pi"},
+		{Action: "tool_execution_start", Agent: "pi", Tool: "bash"},
+	}
+	mutateCalls := 0
+	err := UpdateAndLogBatch(id, events, func(ss *SessionState) bool {
+		mutateCalls++
+		ss.Panes["primary"] = PaneState{Role: "primary", Agent: "pi", State: "working", Tool: "bash"}
+		return true
+	})
+	if err != nil {
+		t.Fatalf("update and log batch: %v", err)
+	}
+	if mutateCalls != 1 {
+		t.Fatalf("mutate calls = %d, want 1", mutateCalls)
+	}
+
+	logData, err := os.ReadFile(SessionStateLogPath(root, id))
+	if err != nil {
+		t.Fatalf("read event log: %v", err)
+	}
+	var gotEvents []StateEvent
+	for _, line := range bytes.Split(bytes.TrimSpace(logData), []byte("\n")) {
+		var event StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode state event: %v", err)
+		}
+		gotEvents = append(gotEvents, event)
+	}
+	if len(gotEvents) != 2 || gotEvents[0].Action != "agent_start" || gotEvents[1].Action != "tool_execution_start" {
+		t.Fatalf("event order = %#v", gotEvents)
+	}
+
+	ss, err := LoadSessionStateAt(root, id)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	if pane := ss.Panes["primary"]; pane.State != "working" || pane.Tool != "bash" {
+		t.Fatalf("saved pane = %+v", pane)
+	}
+}
+
+func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-batch-partial"
+	if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"primary": {Role: "primary", State: "idle"}}}); err != nil {
+		t.Fatalf("save initial state: %v", err)
+	}
+	if err := AppendStateEventAt(root, id, StateEvent{Action: "before"}); err != nil {
+		t.Fatalf("seed event log: %v", err)
+	}
+	statePath, logPath := SessionStatePath(root, id), SessionStateLogPath(root, id)
+	stateBefore, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read initial state: %v", err)
+	}
+	logBefore, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read initial log: %v", err)
+	}
+	var writtenBatch []byte
+	var firstRecordEnd int
+	err = updateAndLogBatchAt(root, id, []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}, func(ss *SessionState) bool {
+		ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+		return true
+	}, func(w io.Writer, data []byte) (int, error) {
+		firstRecordEnd = bytes.IndexByte(data, '\n') + 1
+		writtenBatch = append([]byte(nil), data[:firstRecordEnd+5]...)
+		return w.Write(writtenBatch)
+	})
+	if err == nil || !strings.Contains(err.Error(), "short write") {
+		t.Fatalf("partial batch write error = %v, want short write", err)
+	}
+	stateAfter, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read state after partial write: %v", err)
+	}
+	logAfter, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log after partial write: %v", err)
+	}
+	wantLog := append(append([]byte(nil), logBefore...), writtenBatch[:firstRecordEnd]...)
+	if !bytes.Equal(stateBefore, stateAfter) || !bytes.Equal(wantLog, logAfter) {
+		t.Fatalf("partial write result: state unchanged=%t complete log retained=%t", bytes.Equal(stateBefore, stateAfter), bytes.Equal(wantLog, logAfter))
+	}
+}
+
+func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-batch-reader"
+	if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"primary": {Role: "primary", State: "idle"}}}); err != nil {
+		t.Fatalf("save initial state: %v", err)
+	}
+	statePath := SessionStatePath(root, id)
+	if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
+		t.Fatalf("make state write fail: %v", err)
+	}
+	logPath := SessionStateLogPath(root, id)
+	var readerData []byte
+	var readerErr error
+	events := []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}
+	err := updateAndLogBatchAt(root, id, events, func(ss *SessionState) bool {
+		ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+		return true
+	}, func(w io.Writer, data []byte) (int, error) {
+		written, writeErr := w.Write(data)
+		readDone := make(chan struct{})
+		go func() {
+			readerData, readerErr = os.ReadFile(logPath)
+			close(readDone)
+		}()
+		<-readDone
+		return written, writeErr
+	})
+	if err == nil || !strings.Contains(err.Error(), "write tmp state") {
+		t.Fatalf("batch error = %v, want state write failure", err)
+	}
+	if readerErr != nil {
+		t.Fatalf("concurrent feed read: %v", readerErr)
+	}
+	if len(readerData) == 0 || readerData[len(readerData)-1] != '\n' {
+		t.Fatalf("reader did not observe complete records: %q", readerData)
+	}
+	var observed []StateEvent
+	for _, line := range bytes.Split(bytes.TrimSpace(readerData), []byte("\n")) {
+		var event StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode concurrent record: %v", err)
+		}
+		observed = append(observed, event)
+	}
+	if len(observed) != len(events) || observed[0].Action != events[0].Action || observed[1].Action != events[1].Action {
+		t.Fatalf("concurrent reader events = %#v", observed)
+	}
+
+	if err := os.Remove(statePath + ".tmp"); err != nil {
+		t.Fatalf("remove state write blocker: %v", err)
+	}
+	if err := UpdateAndLogBatch(id, []*StateEvent{{Action: "later"}}, func(ss *SessionState) bool {
+		ss.Panes["primary"] = PaneState{Role: "primary", State: "done"}
+		return true
+	}); err != nil {
+		t.Fatalf("append after visible cursor: %v", err)
+	}
+	logAfter, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log after later append: %v", err)
+	}
+	if len(logAfter) < len(readerData) {
+		t.Fatalf("log was truncated behind reader cursor: size=%d cursor=%d", len(logAfter), len(readerData))
+	}
+	var later StateEvent
+	if err := json.Unmarshal(bytes.TrimSpace(logAfter[len(readerData):]), &later); err != nil {
+		t.Fatalf("decode event after reader cursor: %v", err)
+	}
+	if later.Action != "later" {
+		t.Fatalf("event after reader cursor = %q, want later", later.Action)
+	}
+}
+
+func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
+	const id = "qm-batch-rotate"
+	logPathFor := func(root string) string { return SessionStateLogPath(root, id) }
+	seed := func(t *testing.T, root string) ([]byte, []byte) {
+		t.Helper()
+		if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"primary": {Role: "primary", State: "idle"}}}); err != nil {
+			t.Fatalf("save initial state: %v", err)
+		}
+		current := []byte(strings.Repeat("x", StateJSONLMaxSize-1))
+		rotated := []byte("retained previous rotation\n")
+		path := logPathFor(root)
+		if err := os.WriteFile(path, current, 0o600); err != nil {
+			t.Fatalf("seed current log: %v", err)
+		}
+		if err := os.WriteFile(path+".1", rotated, 0o600); err != nil {
+			t.Fatalf("seed rotated log: %v", err)
+		}
+		return current, rotated
+	}
+	event := &StateEvent{Ts: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), Action: "agent_start"}
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, '\n')
+
+	t.Run("state write failure keeps batch without rotating", func(t *testing.T) {
+		root := setStateRoot(t)
+		current, rotated := seed(t, root)
+		statePath := SessionStatePath(root, id)
+		if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
+			t.Fatalf("make state write fail: %v", err)
+		}
+		err := UpdateAndLogBatch(id, []*StateEvent{event}, func(ss *SessionState) bool {
+			ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+			return true
+		})
+		if err == nil || !strings.Contains(err.Error(), "write tmp state") {
+			t.Fatalf("batch error = %v, want state write failure", err)
+		}
+		gotCurrent, err := os.ReadFile(logPathFor(root))
+		if err != nil {
+			t.Fatalf("read current log: %v", err)
+		}
+		gotRotated, err := os.ReadFile(logPathFor(root) + ".1")
+		if err != nil {
+			t.Fatalf("read rotated log: %v", err)
+		}
+		wantCurrent := append(append([]byte(nil), current...), data...)
+		if !bytes.Equal(gotCurrent, wantCurrent) || !bytes.Equal(gotRotated, rotated) {
+			t.Fatalf("failed batch log result: complete events retained=%t prior rotation preserved=%t", bytes.Equal(gotCurrent, wantCurrent), bytes.Equal(gotRotated, rotated))
+		}
+	})
+
+	t.Run("success rotates complete batch", func(t *testing.T) {
+		root := setStateRoot(t)
+		current, _ := seed(t, root)
+		if err := UpdateAndLogBatch(id, []*StateEvent{event}, func(ss *SessionState) bool {
+			ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+			return true
+		}); err != nil {
+			t.Fatalf("update and log batch: %v", err)
+		}
+		rotated, err := os.ReadFile(logPathFor(root) + ".1")
+		if err != nil {
+			t.Fatalf("read rotated log: %v", err)
+		}
+		if want := append(current, data...); !bytes.Equal(rotated, want) {
+			t.Fatalf("rotated log does not contain prior log followed by batch; length=%d want=%d", len(rotated), len(want))
+		}
+		if _, err := os.Stat(logPathFor(root)); !os.IsNotExist(err) {
+			t.Fatalf("current log after rotation stat error = %v, want missing", err)
+		}
+	})
 }
 
 func TestUpdateSessionStatePreservesArtifacts(t *testing.T) {

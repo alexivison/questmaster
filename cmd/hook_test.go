@@ -18,6 +18,8 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
+	"github.com/spf13/cobra"
 )
 
 func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
@@ -113,7 +115,7 @@ func TestHookChatEntriesForHarnesses(t *testing.T) {
 	}{
 		{name: "claude", agent: "claude", action: "tool_start", payload: map[string]interface{}{"tool_name": "Bash"}, final: "last_assistant_message", finalEvent: "done"},
 		{name: "codex", agent: "codex", action: "tool_start", payload: map[string]interface{}{"tool_name": "Bash"}, final: "last_assistant_message", finalEvent: "done"},
-		{name: "pi", agent: "pi", action: "tool_execution_start", payload: map[string]interface{}{"toolName": "Bash"}, final: "messages", finalEvent: "agent_end"},
+		{name: "pi", agent: "pi", action: "tool_execution_start", payload: map[string]interface{}{"toolName": "Bash"}, final: "text", finalEvent: "agent_end"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
@@ -124,9 +126,6 @@ func TestHookChatEntriesForHarnesses(t *testing.T) {
 
 			finalText := strings.Join([]string{strings.Repeat("猫", 1501), "second paragraph", "third paragraph", "fourth"}, "\n\n")
 			payload := map[string]interface{}{tc.final: finalText}
-			if tc.final == "messages" {
-				payload[tc.final] = []string{finalText}
-			}
 			runHookWithStdin(r, tc.agent, tc.finalEvent, "qm-chat", payload)
 			last := rec.events[len(rec.events)-1]
 			message := chatTextFor(last, "message")
@@ -735,6 +734,32 @@ func TestReadStdinNonBlockingReadsPipedInput(t *testing.T) {
 	}
 }
 
+func TestReadStdinNonBlockingAcceptsPayloadsOver64KiB(t *testing.T) {
+	orig := stdinLooksInteractive
+	t.Cleanup(func() { stdinLooksInteractive = orig })
+	stdinLooksInteractive = func(io.Reader) bool { return false }
+
+	want := strings.Repeat("x", 128*1024)
+	data, err := readStdinNonBlocking(strings.NewReader(want))
+	if err != nil {
+		t.Fatalf("readStdinNonBlocking: %v", err)
+	}
+	if string(data) != want {
+		t.Fatalf("read %d bytes, want %d", len(data), len(want))
+	}
+}
+
+func TestHookFastPathLogsOversizedStdin(t *testing.T) {
+	var stderr bytes.Buffer
+	handled, err := executeHookFastPath([]string{"pi", "batch"}, strings.NewReader(strings.Repeat("x", (1<<20)+1)), &stderr)
+	if err != nil || !handled {
+		t.Fatalf("executeHookFastPath = %t, %v", handled, err)
+	}
+	if !strings.Contains(stderr.String(), "stdin exceeds 1048576-byte limit") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestHookNoSessionExitsCleanly(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
 	r, rec := newTestRunner(t)
@@ -797,7 +822,6 @@ func TestHookStartingSnippetIsStarted(t *testing.T) {
 		{agent: "codex", action: "starting"},
 		{agent: "pi", action: "session_start"},
 		{agent: "pi", action: "before_agent_start"},
-		{agent: "pi", action: "agent_start"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.agent+"/"+tc.action, func(t *testing.T) {
@@ -2620,6 +2644,9 @@ func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 	if pane.State != "blocked" || pane.Activity != "Question: Pick a deployment target" || pane.LastKind != "waiting_for_user" {
 		t.Fatalf("tool heartbeat should preserve blocked question, got %+v", pane)
 	}
+	if got := chatKinds(rec.events[len(rec.events)-1]); !slices.Equal(got, []string{"action"}) {
+		t.Fatalf("blocked tool action chat kinds = %v, want [action]", got)
+	}
 
 	runHookWithStdin(r, "pi", "tool_execution_end", "qm-abc", map[string]interface{}{"toolName": "ask_user"})
 	pane = rec.lastState.Panes["primary"]
@@ -2649,7 +2676,7 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 			wantActivity: "started",
 		},
 		{action: "before_agent_start", wantState: "starting", wantActivity: "started"},
-		{action: "agent_start", wantState: "starting", wantActivity: "started"},
+		{action: "agent_start", wantState: "working", wantActivity: "started"},
 		{action: "message_update", wantState: "working", wantActivity: "Replying…"},
 		{
 			action: "message_end",
@@ -2725,6 +2752,329 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 	}
 	if rec.updateCalls != len(steps) || rec.writeCalls != len(steps) {
 		t.Errorf("updates/writes: want %d/%d, got %d/%d", len(steps), len(steps), rec.updateCalls, rec.writeCalls)
+	}
+}
+
+func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "session_start", "qm-chat", nil)
+	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+	if got := rec.lastState.Panes["primary"].State; got != "working" {
+		t.Fatalf("agent_start state = %q, want working", got)
+	}
+
+	pane := rec.lastState.Panes["primary"]
+	pane.LastChatAt = time.Time{}
+	rec.lastState.Panes["primary"] = pane
+	runHookWithStdin(r, "pi", "say", "qm-chat", map[string]interface{}{
+		"text":   "Checking the config\nbefore editing",
+		"recent": []string{"Checking the config", "before editing"},
+		"turn":   map[string]interface{}{"index": float64(1), "status": "running"},
+		"usage":  map[string]interface{}{"last": map[string]interface{}{"input": float64(12)}},
+	})
+	say := rec.events[len(rec.events)-1]
+	if got := chatKinds(say); !slices.Equal(got, []string{"say"}) {
+		t.Fatalf("say chat kinds = %v, want [say]", got)
+	}
+	if got := chatTextFor(say, "say"); got != "Checking the config\nbefore editing" {
+		t.Fatalf("say text = %q", got)
+	}
+	if say.Fields["turn"] == nil || say.Fields["usage"] == nil {
+		t.Fatalf("turn/usage metadata missing from event fields: %#v", say.Fields)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("say LastChatAt = %s, want %s", got, r.Now())
+	}
+
+	pane = rec.lastState.Panes["primary"]
+	pane.LastChatAt = time.Time{}
+	rec.lastState.Panes["primary"] = pane
+	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
+		"tool": map[string]interface{}{"name": "bash", "summary": "bash: go test ./..."},
+	})
+	tool := rec.events[len(rec.events)-1]
+	if !slices.Contains(chatKinds(tool), "action") || chatTextFor(tool, "action") != "bash" {
+		t.Fatalf("tool chat entries = %#v", chatEntries(tool))
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("action LastChatAt = %s, want %s", got, r.Now())
+	}
+	runHookWithStdin(r, "pi", "tool_execution_end", "qm-chat", nil)
+	if rec.lastState.Panes["primary"].Tool != "" || len(chatEntries(rec.events[len(rec.events)-1])) != 0 {
+		t.Fatalf("tool end did not clear tool without a chat entry: pane=%+v event=%+v", rec.lastState.Panes["primary"], rec.events[len(rec.events)-1])
+	}
+
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"text":    "All tests passed.\nReady to merge.",
+		"snippet": "Ready to merge.",
+		"recent":  []string{"All tests passed.", "Ready to merge."},
+	})
+	final := rec.events[len(rec.events)-1]
+	if got := chatTextFor(final, "message"); got != "All tests passed.\nReady to merge." {
+		t.Fatalf("final message = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].Activity; got != "Ready to merge." {
+		t.Fatalf("final activity snippet = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("message LastChatAt = %s, want %s", got, r.Now())
+	}
+	if !slices.Contains(chatKinds(final), "status") || rec.lastState.Panes["primary"].State != "done" {
+		t.Fatalf("final event/state = %#v/%q", chatEntries(final), rec.lastState.Panes["primary"].State)
+	}
+
+	runHookWithStdin(r, "pi", "waiting_for_user", "qm-chat", map[string]interface{}{"prompt": "Choose a target"})
+	blocked := rec.events[len(rec.events)-1]
+	if rec.lastState.Panes["primary"].State != "blocked" || chatTextFor(blocked, "status") != "blocked" {
+		t.Fatalf("blocked event/state = %#v/%q", chatEntries(blocked), rec.lastState.Panes["primary"].State)
+	}
+	runHookWithStdin(r, "pi", "session_shutdown", "qm-chat", nil)
+	if rec.lastState.Panes["primary"].State != "stopped" {
+		t.Fatalf("shutdown state = %q, want stopped", rec.lastState.Panes["primary"].State)
+	}
+}
+
+func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
+	r, rec := newTestRunner(t)
+	stderr := runHookWithStdin(r, "pi", "batch", "qm-chat", map[string]interface{}{
+		"events": []interface{}{
+			map[string]interface{}{"action": "session_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "agent_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "say", "payload": map[string]interface{}{"text": "Checking the config"}},
+			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{"tool": map[string]interface{}{"name": "bash"}}},
+			map[string]interface{}{"action": "waiting_for_user", "payload": map[string]interface{}{"prompt": "Continue?"}},
+			map[string]interface{}{"action": "tool_execution_end", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "agent_end", "payload": map[string]interface{}{"text": "Finished."}},
+		},
+	})
+	if stderr != "" {
+		t.Fatalf("batch stderr: %q", stderr)
+	}
+	if len(rec.events) != 7 || rec.updateCalls != 1 {
+		t.Fatalf("batch events/updates = %d/%d, want 7/1", len(rec.events), rec.updateCalls)
+	}
+	if got := chatTextFor(rec.events[2], "say"); got != "Checking the config" {
+		t.Fatalf("say entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[3], "action"); got != "bash" {
+		t.Fatalf("action entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[4], "status"); got != "blocked" {
+		t.Fatalf("blocked status entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[6], "message"); got != "Finished." {
+		t.Fatalf("message entry = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "done" {
+		t.Fatalf("final pane state = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("batch LastChatAt = %s, want %s", got, r.Now())
+	}
+}
+
+func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("QUESTMASTER_SESSION", "qm-pi-worker")
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new state store: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: "qm-pi-master", SessionType: "master", Workers: []string{"qm-pi-worker"}}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	workerManifest := state.Manifest{SessionID: "qm-pi-worker", Title: "Pi worker"}
+	workerManifest.SetExtra("parent_session", "qm-pi-master")
+	if err := store.Create(workerManifest); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+	input := `{"events":[
+		{"action":"agent_start","payload":{}},
+		{"action":"tool_execution_start","payload":{"toolName":"bash","args":{"command":"go test ./..."}}},
+		{"action":"say","payload":{"text":"Running the checks."}},
+		{"action":"agent_end","payload":{"text":"All checks passed."}}
+	]}`
+	var stderr bytes.Buffer
+	if err := executeWithArgs([]string{"hook", "pi", "batch"}, strings.NewReader(input), &bytes.Buffer{}, &stderr, func() *cobra.Command { return NewRootCmd() }); err != nil {
+		t.Fatalf("execute real hook fast path: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("hook stderr: %q", stderr.String())
+	}
+
+	logData, err := os.ReadFile(state.SessionStateLogPath(root, "qm-pi-worker"))
+	if err != nil {
+		t.Fatalf("read event log: %v", err)
+	}
+	var events []state.StateEvent
+	for _, line := range bytes.Split(bytes.TrimSpace(logData), []byte("\n")) {
+		var event state.StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		events = append(events, event)
+	}
+	if len(events) != 4 {
+		t.Fatalf("event count = %d, want 4", len(events))
+	}
+	if got := []string{events[0].Action, events[1].Action, events[2].Action, events[3].Action}; !slices.Equal(got, []string{"agent_start", "tool_execution_start", "say", "agent_end"}) {
+		t.Fatalf("event order = %v", got)
+	}
+	ss, err := state.LoadSessionStateAt(root, "qm-pi-worker")
+	if err != nil {
+		t.Fatalf("load worker state: %v", err)
+	}
+	if pane := ss.Panes["primary"]; pane.State != "done" || pane.LastChatAt.IsZero() {
+		t.Fatalf("saved worker pane = %+v", pane)
+	}
+
+	history, err := workerfeed.ReadHistory(root, "qm-pi-master", "qm-pi-worker", "", 50)
+	if err != nil {
+		t.Fatalf("read worker chat: %v", err)
+	}
+	kinds := make(map[string]bool)
+	for _, entry := range history.Entries {
+		kinds[entry.Kind] = true
+	}
+	for _, kind := range []string{"status", "action", "say", "message"} {
+		if !kinds[kind] {
+			t.Errorf("chat history missing %q: %#v", kind, history.Entries)
+		}
+	}
+	if rendered := workerfeed.RenderText(history.Entries, true); !strings.Contains(rendered, "Bash: go test ./...") || !strings.Contains(rendered, "Running the checks.") || !strings.Contains(rendered, "All checks passed.") {
+		t.Fatalf("rendered worker chat = %q", rendered)
+	}
+}
+
+func TestHookPiBatchStateWriteFailureKeepsFeedRecords(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	const sessionID = "qm-pi-atomic"
+	const masterID = "qm-pi-atomic-master"
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new state store: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: masterID, SessionType: "master", Workers: []string{sessionID}}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	workerManifest := state.Manifest{SessionID: sessionID, Title: "Pi worker"}
+	workerManifest.SetExtra("parent_session", masterID)
+	if err := store.Create(workerManifest); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+	initial := &state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "pi", State: "idle", LastKind: "agent_end"},
+		},
+	}
+	if err := state.SaveSessionState(sessionID, initial); err != nil {
+		t.Fatalf("save initial state: %v", err)
+	}
+	if err := state.AppendStateEventAt(root, sessionID, state.StateEvent{Action: "before"}); err != nil {
+		t.Fatalf("seed event log: %v", err)
+	}
+	statePath := state.SessionStatePath(root, sessionID)
+	logPath := state.SessionStateLogPath(root, sessionID)
+	stateBefore, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read initial state: %v", err)
+	}
+	logBefore, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read initial event log: %v", err)
+	}
+	initialFeed, err := workerfeed.ReadSince(root, masterID, nil)
+	if err != nil {
+		t.Fatalf("read initial worker feed: %v", err)
+	}
+	if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
+		t.Fatalf("make state write fail: %v", err)
+	}
+	r := newHookRunner(state.OpenStore(root), &tmuxEnvStub{})
+	stderr := runHookWithStdin(r, "pi", "batch", sessionID, map[string]interface{}{
+		"events": []interface{}{
+			map[string]interface{}{"action": "agent_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{"toolName": "bash"}},
+		},
+	})
+	if !strings.Contains(stderr, "write tmp state") {
+		t.Fatalf("batch failure stderr = %q", stderr)
+	}
+	stateAfter, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read state after failed batch: %v", err)
+	}
+	logAfter, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read event log after failed batch: %v", err)
+	}
+	if !bytes.Equal(stateAfter, stateBefore) {
+		t.Fatalf("state changed after failed batch:\nbefore %s\nafter  %s", stateBefore, stateAfter)
+	}
+	if bytes.Equal(logAfter, logBefore) {
+		t.Fatal("complete batch records were removed after state write failure")
+	}
+	var actions []string
+	for _, line := range bytes.Split(bytes.TrimSpace(logAfter), []byte("\n")) {
+		var event state.StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode retained event: %v", err)
+		}
+		actions = append(actions, event.Action)
+	}
+	if !slices.Equal(actions, []string{"before", "agent_start", "tool_execution_start"}) {
+		t.Fatalf("retained event order = %v", actions)
+	}
+	failedFeed, err := workerfeed.ReadSince(root, masterID, initialFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed after state write failure: %v", err)
+	}
+	if len(failedFeed.Entries) != 2 || failedFeed.Entries[0].Kind != "status" || failedFeed.Entries[1].Kind != "action" {
+		t.Fatalf("feed after failed state write = %#v, want status and action once", failedFeed.Entries)
+	}
+	duplicateFeed, err := workerfeed.ReadSince(root, masterID, failedFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed again after failed state write: %v", err)
+	}
+	if len(duplicateFeed.Entries) != 0 {
+		t.Fatalf("batch records repeated after cursor advance: %#v", duplicateFeed.Entries)
+	}
+	if err := os.Remove(statePath + ".tmp"); err != nil {
+		t.Fatalf("remove state write blocker: %v", err)
+	}
+	if stderr := runHookWithStdin(r, "pi", "agent_end", sessionID, map[string]interface{}{"text": "Finished."}); stderr != "" {
+		t.Fatalf("follow-up hook stderr: %q", stderr)
+	}
+	laterFeed, err := workerfeed.ReadSince(root, masterID, failedFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed after later append: %v", err)
+	}
+	if len(laterFeed.Entries) != 2 || laterFeed.Entries[0].Kind != "message" || laterFeed.Entries[1].Kind != "status" {
+		t.Fatalf("later feed = %#v, want only final message and done status", laterFeed.Entries)
+	}
+}
+
+func TestHookPiThinkingIsNotChat(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "message_update", "qm-chat", map[string]interface{}{
+		"assistantMessageEvent": map[string]interface{}{"type": "thinking_delta", "delta": "private reasoning"},
+	})
+	if got := chatEntries(rec.events[len(rec.events)-1]); len(got) != 1 || got[0]["chat_kind"] != "status" {
+		t.Fatalf("thinking produced unexpected chat entries: %#v", got)
+	}
+}
+
+func TestHookPiAgentEndFallsBackToRecent(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"recent": []string{"last captured line"},
+	})
+	if got := chatTextFor(rec.events[0], "message"); got != "last captured line" {
+		t.Fatalf("fallback message = %q", got)
 	}
 }
 

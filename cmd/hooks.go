@@ -16,7 +16,7 @@ func newHooksCmd() *cobra.Command {
 		Long: `Manage the agent-native hooks that drive questmaster's state tracker.
 
 The installer uses each agent's native integration: Claude settings.json plus
-script, Codex hooks.json plus script and trusted_hash config, Pi sidecar marker,
+script, Codex hooks.json plus script and trusted_hash config, Pi extension and marker,
 and OpenCode plugin/role-agent files. Re-running install is
 idempotent.`,
 	}

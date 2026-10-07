@@ -1,0 +1,78 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { installPiHookStub } from "./pi_hook_stub.mjs";
+
+const extensionPath = process.argv[2];
+const root = await mkdtemp(join(tmpdir(), "qm-pi-queue-"));
+const sessionID = `qm-pi-queue-${process.pid}`;
+const runtimeDir = join("/tmp", sessionID);
+const hooks = installPiHookStub(80);
+await mkdir(runtimeDir, { mode: 0o700 });
+process.env.QUESTMASTER_SESSION = sessionID;
+process.env.PI_HOME = root;
+
+const { default: extension } = await import(pathToFileURL(extensionPath));
+const handlers = new Map();
+extension({
+	on(event, handler) { handlers.set(event, handler); },
+	sendUserMessage() {},
+	getThinkingLevel() { return "high"; },
+});
+const context = {
+	cwd: `/workspace/${"界".repeat(2_000)}`,
+	model: { provider: "openai-codex", id: "gpt-test", contextWindow: 1000, input: Array(100).fill("modalities-".repeat(100)) },
+	sessionManager: { getSessionId: () => "pi-session", getSessionFile: () => `${"界".repeat(2_000)}.jsonl` },
+	getContextUsage: () => ({ tokens: 42, contextWindow: 1000, percent: 4.2 }),
+};
+let stopped = false;
+try {
+	await handlers.get("session_start")({}, context);
+	await handlers.get("before_agent_start")({ prompt: "Run many tools" }, context);
+	await handlers.get("agent_start")({}, context);
+	await handlers.get("message_update")({ assistantMessageEvent: { type: "text_end", content: "🐈".repeat(10_000) } }, context);
+	for (let i = 0; i < 100; i++) {
+		await handlers.get("tool_execution_start")({ toolCallId: `tool-${i}`, toolName: "bash", args: { command: `echo ${i}` } }, context);
+		await handlers.get("tool_execution_end")({ toolCallId: `tool-${i}`, toolName: "bash" }, context);
+	}
+	const controlStarted = Date.now();
+	await handlers.get("tool_execution_start")({ toolCallId: "ask", toolName: "ask_user", args: { question: "Continue?" } }, context);
+	const controlElapsed = Date.now() - controlStarted;
+	await handlers.get("tool_execution_end")({ toolCallId: "ask", toolName: "ask_user" }, context);
+	const finalStarted = Date.now();
+	await handlers.get("agent_end")({ messages: [{ role: "assistant", content: [{ type: "text", text: "Finished." }] }] }, context);
+	const finalElapsed = Date.now() - finalStarted;
+	await handlers.get("session_shutdown")();
+	stopped = true;
+
+	const batches = hooks.batches;
+	const actions = hooks.calls.map((entry) => entry.args[2]);
+	const expected = ["session_start", "before_agent_start", "agent_start", "say"];
+	for (let i = 0; i < 100; i++) expected.push("tool_execution_start", "tool_execution_end");
+	expected.push("waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_end", "session_shutdown");
+	assert.deepEqual(actions, expected);
+	assert.equal(actions.filter((action) => action === "tool_execution_start").length, 101);
+	assert.equal(actions.filter((action) => action === "tool_execution_end").length, 101);
+	assert.equal(actions.filter((action) => action === "waiting_for_user").length, 1);
+	assert(batches.length < actions.length / 2, `batch count ${batches.length} for ${actions.length} events`);
+	assert(batches.every((batch) => batch.length <= 32));
+	assert(batches.every((batch) => Buffer.byteLength(JSON.stringify({ events: batch })) <= 48 * 1024));
+	const bounded = hooks.calls[0].payload;
+	assert(Array.from(bounded.cwd).length <= 1_024);
+	assert(Array.from(bounded.session_file).length <= 1_024);
+	assert(bounded.model.input.length <= 8);
+	assert(bounded.model.input.every((value) => Array.from(value).length <= 40));
+	const narration = hooks.calls.find(({ args }) => args[2] === "say").payload.text;
+	assert(Array.from(narration).length <= 1_500);
+	const waitingBatch = batches.find((batch) => batch.some(({ action }) => action === "waiting_for_user"));
+	assert(waitingBatch.length <= 32, `control batch had ${waitingBatch.length} events`);
+	assert(controlElapsed < 2_500, `control event waited ${controlElapsed}ms`);
+	assert(finalElapsed >= 50, `agent_end returned before its hook: ${finalElapsed}ms`);
+	assert.equal(hooks.maxActive, 1, `concurrent hook calls = ${hooks.maxActive}`);
+} finally {
+	if (!stopped) await handlers.get("session_shutdown")?.();
+	await rm(runtimeDir, { recursive: true, force: true });
+	await rm(root, { recursive: true, force: true });
+}
