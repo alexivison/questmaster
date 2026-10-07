@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterCore
 
 /// Geometry for the action bar footer. Per the first review round, these are the design's own
 /// literal coordinates (from `action-bar.svg`, 1:1 — the asset's own scale, not rescaled), not an
@@ -6,23 +7,26 @@ import AppKit
 /// (`ActionBarPlateOutlines`), not `TrackerPlatePaths` unions.
 ///
 /// Per review round 3, the design's own 722×120 frame carries Figma padding the footer doesn't
-/// need. Per the 2026-10-07 single-gap-`G` pass, the footer's own top margin drops to 0: it's
-/// pinned directly under the terminal pane, and Ghostty's own padding alone provides the G gap
-/// from the last text row to the shield — stacking a second margin on top would double it.
-/// `verticalShift` moves every traced y-coordinate up so the shield's topmost outer edge lands
-/// flush with the footer's own frame top — a translation, not a rescale — and `footerHeight`
-/// shrinks to content plus a 10pt (G) margin on the bottom only, rounded to a whole point.
+/// need. Per the 2026-10-07 single-gap-`G` pass, the footer's own top margin relies on Ghostty's
+/// own padding to reach `G` the same way the tracker/dock's "flush" gaps do: 0 while Ghostty's
+/// padding already reaches `G` on its own (true today — both are 10), otherwise the shortfall
+/// (`GhosttyGapDerivation.flushGap`). `verticalShift` moves every traced y-coordinate up so the
+/// shield's topmost outer edge lands that margin below the footer's own frame top — a
+/// translation, not a rescale — and `footerHeight` is content (83, already a whole point) plus
+/// that top margin plus a 10pt (G) margin on the bottom.
 enum ActionBarMetrics {
     /// The shield's topmost outer edge: path y 18, stroked at 1.5pt *centred* on the path (our
     /// own `.stroke()`, not an inside `.strokeBorder()`), so the visible edge is half that
     /// further out — before the shift.
     private static let designShieldTopOuterEdge: CGFloat = 18 - 1.5 / 2
-    static let verticalShift: CGFloat = -designShieldTopOuterEdge
+    private static let topMargin = CGFloat(GhosttyGapDerivation.flushGap(g: Double(Token.Spacing.element), ghosttyPadding: GhosttyWindowPadding.resolved.y))
+    static let verticalShift: CGFloat = topMargin - designShieldTopOuterEdge
 
-    /// Content (shield top to worker-pill bottom) plus a 10pt (G) margin on the bottom only,
-    /// rounded to a whole point. Was 120 (the design's own frame, Figma padding included), then
-    /// 103 (10pt margin each side) before this round's top-margin removal.
-    static let footerHeight: CGFloat = 93
+    /// Content (shield top to worker-pill bottom) plus `topMargin` and a 10pt (G) margin on the
+    /// bottom, rounded to a whole point. Was 120 (the design's own frame, Figma padding included),
+    /// then 103 (10pt margin each side), then 93 (top margin dropped to a flat 0) before this
+    /// round made the top margin track Ghostty's own padding.
+    static let footerHeight: CGFloat = 83 + topMargin + 10
     static let plateWidth: CGFloat = 722
 
     /// The session panel's and slot bar's shared horizontal centreline (both plates' bars are

@@ -15,8 +15,12 @@ public struct ShellSplitLayoutMetrics: Equatable {
     public let trackerMaxWidth: Double
     /// Window edge to the tracker plates.
     public let trackerLeadingInset: Double
-    /// Tracker plates to the terminal pane.
+    /// Tracker plates to the terminal pane — 0 when Ghostty's own horizontal padding already
+    /// reaches `G` on its own, otherwise the shortfall (`ShellGapDerivation.flushGap`).
     public let trackerTrailingGap: Double
+    /// Terminal pane to the dock's inner (terminal-facing) edge — same derivation as
+    /// `trackerTrailingGap`, on the same axis, so the two stay equal.
+    public let terminalToDockGap: Double
     /// Height reserved at the window's bottom for a footer drawn outside this layout (the action
     /// bar) — the tracker and terminal frames stop above it. The dock (and its resize divider)
     /// ignore it and keep the full window height with `sideCardInset` top and bottom, as they did
@@ -29,6 +33,7 @@ public struct ShellSplitLayoutMetrics: Equatable {
         trackerMaxWidth: Double,
         trackerLeadingInset: Double,
         trackerTrailingGap: Double,
+        terminalToDockGap: Double = 0,
         footerReservedHeight: Double = 0
     ) {
         self.sideCardInset = sideCardInset
@@ -36,6 +41,7 @@ public struct ShellSplitLayoutMetrics: Equatable {
         self.trackerMaxWidth = trackerMaxWidth
         self.trackerLeadingInset = trackerLeadingInset
         self.trackerTrailingGap = trackerTrailingGap
+        self.terminalToDockGap = terminalToDockGap
         self.footerReservedHeight = footerReservedHeight
     }
 }
@@ -175,9 +181,9 @@ public enum ShellSplitLayoutPlanner {
         let secondDividerFrame: ShellSplitRect
         let dockFrame: ShellSplitRect
         if dockVisible {
-            // Flush against the terminal pane — Ghostty's own padding alone provides the gap
-            // there; `sideCardInset` now only guards the dock's outer (window-facing) edge.
-            let dockCardMinX = x
+            // `terminalToDockGap` is 0 (flush) whenever Ghostty's own padding already reaches
+            // `G` on its own; `sideCardInset` only guards the dock's outer (window-facing) edge.
+            let dockCardMinX = x + metrics.terminalToDockGap
             secondDividerFrame = ShellSplitRect(
                 x: dockCardMinX - (metrics.dockDividerHitWidth / 2),
                 y: dockSideCardY,
@@ -235,9 +241,9 @@ public enum ShellSplitLayoutPlanner {
         dockVisible: Bool
     ) -> Double {
         let trackerInsets = trackerVisible ? metrics.trackerLeadingInset + metrics.trackerTrailingGap : 0
-        // Only the dock's outer (window-facing) edge reserves `sideCardInset` — its terminal-facing
-        // edge is flush, with Ghostty's own padding providing the visible gap there.
-        let dockInsets = dockVisible ? metrics.sideCardInset : 0
+        // `sideCardInset` guards the dock's outer (window-facing) edge; `terminalToDockGap` is
+        // its own separate reservation on the terminal-facing side (0 when flush).
+        let dockInsets = dockVisible ? metrics.sideCardInset + metrics.terminalToDockGap : 0
         return trackerInsets + dockInsets
     }
 

@@ -18,6 +18,7 @@ struct ShellSplitLayoutTests {
         dockResizeClampsFromDragDelta()
         zeroWidthDoesNotProduceLayout()
         footerReservationShortensTrackerAndTerminalButNotDock()
+        terminalToDockGapInsetsTheDockWithoutMovingItsOuterEdge()
         print("ShellSplitLayoutTests: all tests passed")
     }
 
@@ -148,6 +149,36 @@ struct ShellSplitLayoutTests {
         // The dock and its divider ignore the reservation and keep the full 900pt height.
         expect(layout.dockFrame == ShellSplitRect(x: 871, y: 8, width: 641, height: 884), "dock should keep the full window height, got \(layout.dockFrame)")
         expect(layout.secondDividerFrame == ShellSplitRect(x: 868, y: 8, width: 7, height: 884), "dock divider should keep the full window height, got \(layout.secondDividerFrame)")
+    }
+
+    /// A nonzero `terminalToDockGap` (the G=20/padding=10 case) should shrink the terminal and
+    /// open a gap before the dock, while leaving the dock's own position/width — and so its outer
+    /// margin from the window's right edge — exactly as it was with no gap at all.
+    private static func terminalToDockGapInsetsTheDockWithoutMovingItsOuterEdge() {
+        let metricsWithGap = ShellSplitLayoutMetrics(
+            sideCardInset: 8,
+            dockDividerHitWidth: 7,
+            trackerMaxWidth: 300,
+            trackerLeadingInset: 10,
+            trackerTrailingGap: 0,
+            terminalToDockGap: 10
+        )
+        guard let layout = ShellSplitLayoutPlanner.layout(
+            size: ShellSplitSize(width: 1520, height: 900),
+            metrics: metricsWithGap,
+            trackerVisible: true,
+            dockVisible: true,
+            preferredDockWidth: 640.5,
+            dockWidthMode: .standard
+        ) else {
+            fputs("ShellSplitLayoutTests failed: expected layout\n", stderr)
+            Foundation.exit(1)
+        }
+
+        expect(layout.terminalFrame.width == 551, "terminal should shrink by the gap, got \(layout.terminalFrame.width)")
+        expect(layout.dockFrame == ShellSplitRect(x: 871, y: 8, width: 641, height: 884), "dock should keep its no-gap position, got \(layout.dockFrame)")
+        expect(layout.secondDividerFrame.x == 868, "divider should keep its no-gap position, got \(layout.secondDividerFrame.x)")
+        expect(layout.terminalFrame.maxX + 10 == layout.dockFrame.x, "the gap should sit exactly between the terminal and the dock, got terminal maxX \(layout.terminalFrame.maxX) vs dock x \(layout.dockFrame.x)")
     }
 
     private static func requireLayout(

@@ -13,6 +13,8 @@ struct GhosttyConfigParserTests {
         includesResolveRelativeToTheirFileAndLoadAfterIt()
         optionalMissingAndCyclicIncludesAreHarmless()
         anUnavailablePrimaryFallsThroughToAnInstalledFamily()
+        readsWindowPaddingAndKeepsTheLastValue()
+        windowPaddingIsNilWhenNeitherAxisIsSet()
         print("GhosttyConfigParserTests: all tests passed")
     }
 
@@ -82,6 +84,21 @@ struct GhosttyConfigParserTests {
         let installed: Set<String> = ["Fallback Mono"]
         expect(GhosttyConfigParser.firstInstalled(of: ["Missing Mono", "Fallback Mono"]) { installed.contains($0) } == "Fallback Mono", "should skip the uninstalled primary")
         expect(GhosttyConfigParser.firstInstalled(of: ["Missing Mono"]) { installed.contains($0) } == nil, "no installed family should give nil")
+    }
+
+    private static func readsWindowPaddingAndKeepsTheLastValue() {
+        let files = [
+            "/d/config.ghostty": "window-padding-x = 10\nwindow-padding-y = 10",
+            "/d/config": "font-family = Own\nwindow-padding-x = 20",
+        ]
+        let padding = GhosttyConfigParser.windowPadding(inDirectories: ["/d"]) { files[$0] }
+        expect(padding?.x == 20, "config should overwrite config.ghostty's x, got \(String(describing: padding?.x))")
+        expect(padding?.y == 10, "y should keep config.ghostty's value when config doesn't set it, got \(String(describing: padding?.y))")
+    }
+
+    private static func windowPaddingIsNilWhenNeitherAxisIsSet() {
+        let files = ["/d/config": "font-family = Own"]
+        expect(GhosttyConfigParser.windowPadding(inDirectories: ["/d"]) { files[$0] } == nil, "no window-padding keys should give nil")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

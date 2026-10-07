@@ -35,13 +35,18 @@ enum ShellMetrics {
     /// the terminal pane on their trailing edge, with only Ghostty's own padding completing that
     /// gap (2026-10-07).
     static let trackerLeadingInset: CGFloat = 0
-    static let trackerTrailingGap: CGFloat = 0
+    /// 0 whenever Ghostty's own horizontal padding already reaches G on its own (true today:
+    /// both are 10) — otherwise the shortfall, on the same axis and so the same value, as
+    /// `terminalToDockGap` below.
+    static let horizontalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(Token.Spacing.element), ghosttyPadding: GhosttyWindowPadding.resolved.x))
+    static let trackerTrailingGap: CGFloat = horizontalFlushGap
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
         dockDividerHitWidth: 7,
         trackerMaxWidth: 300 - Double(Token.Spacing.element),
         trackerLeadingInset: Double(trackerLeadingInset),
         trackerTrailingGap: Double(trackerTrailingGap),
+        terminalToDockGap: Double(horizontalFlushGap),
         footerReservedHeight: Double(ActionBarMetrics.footerHeight)
     )
 }
