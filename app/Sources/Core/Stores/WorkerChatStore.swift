@@ -34,8 +34,8 @@ public final class WorkerChatStore {
 
     public private(set) var lines: [WorkerChatLine] = []
     public private(set) var isAttached = false
-    /// One muted notice per worker whose log the last pull couldn't read; cleared by a clean pull.
-    public private(set) var readNotices: [String] = []
+    /// A single muted notice naming the workers whose log the last pull couldn't read; cleared by a clean pull.
+    public private(set) var readNotice: String?
 
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private var masterID: String?
@@ -123,7 +123,7 @@ public final class WorkerChatStore {
         records = []
         feedNames = [:]
         readErrorWorkerIDs = []
-        readNotices = []
+        readNotice = nil
         fingerprint = ""
         pullWanted = false
         inFlight = false
@@ -183,10 +183,24 @@ public final class WorkerChatStore {
         if built != lines {
             lines = built
         }
-        let notices = readErrorWorkerIDs.map { "Couldn't read \(WorkerChatLineBuilder.displayName(names[$0] ?? $0))'s activity" }
-        if notices != readNotices {
-            readNotices = notices
+        let notice = Self.readNotice(for: readErrorWorkerIDs.map { WorkerChatLineBuilder.displayName(names[$0] ?? $0) })
+        if notice != readNotice {
+            readNotice = notice
         }
+    }
+
+    private static let maxNamedInReadNotice = 2
+
+    private static func readNotice(for names: [String]) -> String? {
+        guard let first = names.first else {
+            return nil
+        }
+        guard names.count > 1 else {
+            return "Couldn't read \(first)'s activity"
+        }
+        let listed = names.prefix(maxNamedInReadNotice).joined(separator: ", ")
+        let hidden = names.count - maxNamedInReadNotice
+        return "Couldn't read activity for \(listed)" + (hidden > 0 ? " (+\(hidden))" : "")
     }
 
     private static func masterID(selectedSessionID: String?, sessions: [TrackerSession]) -> String? {

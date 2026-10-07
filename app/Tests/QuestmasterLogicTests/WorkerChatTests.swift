@@ -28,6 +28,7 @@ struct WorkerChatTests {
         attachChangeResetsTheFeed()
         attachChangeWithinTheGroupPullsAgainKeepingCursors()
         unreadableWorkerShowsANoticeAndRetries()
+        manyUnreadableWorkersShareOneBoundedNotice()
         standaloneIsUnattached()
         historyIsBounded()
         roleAvailability()
@@ -311,13 +312,28 @@ struct WorkerChatTests {
         )
         expect(followUp == nil, "an error alone should not re-pull straight away")
         expect(store.lines.count == 2, "the readable worker's entries should still show")
-        expect(store.readNotices == ["Couldn't read Worker Two's activity"], "notice mismatch: \(store.readNotices)")
+        expect(store.readNotice == "Couldn't read Worker Two's activity", "notice mismatch: \(String(describing: store.readNotice))")
 
         let retry = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
         expect(retry != nil, "the next sync should re-pull while a worker is in error, even with no change")
         _ = store.receive(WorkerFeedPayload(), for: retry!)
-        expect(store.readNotices.isEmpty, "a clean pull should clear the notice")
+        expect(store.readNotice == nil, "a clean pull should clear the notice")
         expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "no error and no change should not pull")
+    }
+
+    private static func manyUnreadableWorkersShareOneBoundedNotice() {
+        func sameTitled(_ ids: [String]) -> [TrackerSession] {
+            [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+                + ids.map { TrackerSession(id: $0, title: "Same", repoName: "Repo", agent: "codex", role: "worker", parentID: "m") }
+        }
+        let store = makeStore()
+        let request = store.sync(selectedSessionID: "m", sessions: sameTitled(["a", "b"]), isVisible: true)!
+        _ = store.receive(WorkerFeedPayload(errors: ["a": "denied", "b": "denied"]), for: request)
+        expect(store.readNotice == "Couldn't read activity for Same, Same", "two same-titled workers should both be named, got \(String(describing: store.readNotice))")
+
+        let more = store.sync(selectedSessionID: "m", sessions: sameTitled(["a", "b", "c", "d", "e"]), isVisible: true)!
+        _ = store.receive(WorkerFeedPayload(errors: ["a": "x", "b": "x", "c": "x", "d": "x", "e": "x"]), for: more)
+        expect(store.readNotice == "Couldn't read activity for Same, Same (+3)", "extra workers should be counted, got \(String(describing: store.readNotice))")
     }
 
     private static func standaloneIsUnattached() {

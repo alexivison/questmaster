@@ -73,20 +73,20 @@ struct WorkerChatDockView: View {
             } else {
                 WorkerChatFeedView(lines: store.lines)
             }
-            readNotices
+            readNotice
         }
     }
 
-    private var readNotices: some View {
-        VStack(alignment: .leading, spacing: WorkerChatMetrics.rowGap) {
-            ForEach(store.readNotices, id: \.self) { notice in
-                Text(notice)
-                    .font(AppFonts.chat.swiftUI)
-                    .foregroundStyle(WorkerChatMetrics.Color.muted.swiftUI)
-            }
+    @ViewBuilder
+    private var readNotice: some View {
+        if let notice = store.readNotice {
+            Text(notice)
+                .font(AppFonts.chat.swiftUI)
+                .foregroundStyle(WorkerChatMetrics.Color.muted.swiftUI)
+                .lineLimit(2)
+                .padding(.horizontal, WorkerChatMetrics.inset)
+                .padding(.bottom, WorkerChatMetrics.inset)
         }
-        .padding(.horizontal, store.readNotices.isEmpty ? 0 : WorkerChatMetrics.inset)
-        .padding(.bottom, store.readNotices.isEmpty ? 0 : WorkerChatMetrics.inset)
     }
 
     private var emptyState: some View {
