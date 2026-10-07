@@ -496,8 +496,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		lastKind = "Stop"
 	case "subagent_stop":
-		// SubagentStop updates Activity only; the parent State belongs to
-		// the primary agent's own lifecycle hooks.
+		// Future subagent chat must require a matching SubagentStart and non-empty, non-internal agent_type.
 		result := strings.TrimSpace(payload.LastAssistantMessage)
 		if result == "" {
 			result = strings.TrimSpace(payload.Result)
@@ -506,8 +505,6 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			result = strings.TrimSpace(payload.Text)
 		}
 		if result != "" {
-			setActivity = "Subagent: " + truncatePromptLine(result)
-			// Keep this for the future sub-agent returned line in worker chat.
 			ev.Fields = map[string]interface{}{"subagent_result": workerfeed.CapText(result)}
 		}
 		lastKind = "SubagentStop"
@@ -586,6 +583,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 							pane.ClaudeDisplayChunks = make(map[int]string)
 						}
 						if _, seen := pane.ClaudeDisplayChunks[payload.Index]; !seen {
+							if payload.Index == 0 {
+								firstBatchAt := now
+								pane.ClaudeDisplayFirstBatchAt = &firstBatchAt
+							}
 							delta := capClaudeDisplayDelta(pane.ClaudeDisplayChunks, payload.Index, payload.Delta)
 							if len(pane.ClaudeDisplayChunks) >= maxClaudeDisplayChunks || claudeDisplayChunksRawSize(pane.ClaudeDisplayChunks)+len(delta) > maxClaudeDisplayBytes {
 								abandonClaudeDisplay(&pane)
@@ -605,7 +606,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 						if text, complete := claudeDisplayText(pane); complete {
 							capped := workerfeed.CapText(text)
 							if capped != "" {
-								addChatEntry(&ev, &pane, "say", text)
+								firstBatchAt := time.Time{}
+								if pane.ClaudeDisplayFirstBatchAt != nil {
+									firstBatchAt = *pane.ClaudeDisplayFirstBatchAt
+								}
+								addChatEntryAt(&ev, &pane, "say", text, firstBatchAt)
 								pane.ClaudeLastSayMessage = capped
 								pane.ClaudeLastSayPromptID = payload.PromptID
 								pane.ClaudeLastSayTranscript = payload.TranscriptPath
@@ -769,6 +774,10 @@ func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLast
 }
 
 func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text string) {
+	addChatEntryAt(event, pane, kind, text, time.Time{})
+}
+
+func addChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text string, timestamp time.Time) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
@@ -777,6 +786,9 @@ func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text str
 		event.Fields = make(map[string]interface{})
 	}
 	entry := map[string]interface{}{"chat_kind": kind, "chat_text": workerfeed.CapText(text)}
+	if !timestamp.IsZero() && !timestamp.Equal(event.Ts) {
+		entry["chat_timestamp"] = timestamp
+	}
 	if entries, ok := event.Fields["chat_entries"].([]interface{}); ok {
 		event.Fields["chat_entries"] = append(entries, entry)
 		return
@@ -834,6 +846,7 @@ func capClaudeDisplayDelta(chunks map[int]string, index int, delta string) strin
 
 func abandonClaudeDisplay(pane *state.PaneState) {
 	pane.ClaudeDisplayChunks = nil
+	pane.ClaudeDisplayFirstBatchAt = nil
 	pane.ClaudeDisplayFinalIndex = 0
 	pane.ClaudeDisplayFinal = false
 	pane.ClaudeDisplayAbandoned = true
@@ -900,6 +913,7 @@ func sameClaudeTurn(aPromptID, bPromptID, aTranscript, bTranscript string) bool 
 func clearClaudeDisplay(pane *state.PaneState) {
 	pane.ClaudeDisplayMessageID = ""
 	pane.ClaudeDisplayPromptID = ""
+	pane.ClaudeDisplayFirstBatchAt = nil
 	pane.ClaudeDisplayChunks = nil
 	pane.ClaudeDisplayFinalIndex = 0
 	pane.ClaudeDisplayFinal = false
@@ -910,6 +924,7 @@ func claudeDisplayStateChanged(before, after state.PaneState) bool {
 	return before.ClaudePromptID != after.ClaudePromptID ||
 		before.ClaudeDisplayMessageID != after.ClaudeDisplayMessageID ||
 		before.ClaudeDisplayPromptID != after.ClaudeDisplayPromptID ||
+		!sameClaudeDisplayTime(before.ClaudeDisplayFirstBatchAt, after.ClaudeDisplayFirstBatchAt) ||
 		!maps.Equal(before.ClaudeDisplayChunks, after.ClaudeDisplayChunks) ||
 		before.ClaudeDisplayFinalIndex != after.ClaudeDisplayFinalIndex ||
 		before.ClaudeDisplayFinal != after.ClaudeDisplayFinal ||
@@ -920,6 +935,13 @@ func claudeDisplayStateChanged(before, after state.PaneState) bool {
 		before.ClaudeLastSayTranscript != after.ClaudeLastSayTranscript ||
 		before.ClaudeLastStopPromptID != after.ClaudeLastStopPromptID ||
 		before.ClaudeLastStopTranscript != after.ClaudeLastStopTranscript
+}
+
+func sameClaudeDisplayTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 func addVisibleStatus(event *state.StateEvent, pane *state.PaneState, status string) {
@@ -1219,7 +1241,12 @@ type codexRolloutRead struct {
 	path             string
 	nextOffset       int64
 	nextSkipping     bool
-	commentary       []string
+	commentary       []codexCommentaryEntry
+}
+
+type codexCommentaryEntry struct {
+	text      string
+	timestamp time.Time
 }
 
 func loadCodexRollout(r *HookRunner, sessionID, transcriptPath string) (codexRolloutRead, error) {
@@ -1247,7 +1274,7 @@ func loadCodexRollout(r *HookRunner, sessionID, transcriptPath string) (codexRol
 	return rollout, err
 }
 
-func readCodexCommentary(path string, offset int64, skipping bool) ([]string, int64, bool, error) {
+func readCodexCommentary(path string, offset int64, skipping bool) ([]codexCommentaryEntry, int64, bool, error) {
 	if path == "" {
 		return nil, offset, skipping, nil
 	}
@@ -1299,7 +1326,7 @@ func readCodexCommentary(path string, offset int64, skipping bool) ([]string, in
 	}
 	data = data[:lastNewline]
 	nextOffset := baseOffset + int64(lastNewline+1)
-	var commentary []string
+	var commentary []codexCommentaryEntry
 	for len(data) > 0 {
 		end := bytes.IndexByte(data, '\n')
 		var line []byte
@@ -1314,20 +1341,43 @@ func readCodexCommentary(path string, offset int64, skipping bool) ([]string, in
 			continue
 		}
 		var event struct {
-			Type    string `json:"type"`
-			Payload struct {
-				Type string `json:"type"`
-				Item struct {
-					Type  string `json:"type"`
-					Phase string `json:"phase"`
-					Text  string `json:"text"`
+			Type      string `json:"type"`
+			Timestamp string `json:"timestamp"`
+			Payload   struct {
+				Type          string `json:"type"`
+				CompletedAtMS int64  `json:"completed_at_ms"`
+				Item          struct {
+					Type    string `json:"type"`
+					Phase   string `json:"phase"`
+					Text    string `json:"text"`
+					Content []struct {
+						Type string `json:"type"`
+						Text string `json:"text"`
+					} `json:"content"`
 				} `json:"item"`
 			} `json:"payload"`
 		}
 		if json.Unmarshal(line, &event) == nil && event.Type == "event_msg" &&
 			event.Payload.Type == "item_completed" && event.Payload.Item.Type == "AgentMessage" &&
-			event.Payload.Item.Phase == "commentary" && event.Payload.Item.Text != "" {
-			commentary = append(commentary, event.Payload.Item.Text)
+			event.Payload.Item.Phase == "commentary" {
+			var text strings.Builder
+			for _, part := range event.Payload.Item.Content {
+				if strings.EqualFold(part.Type, "Text") {
+					text.WriteString(part.Text)
+				}
+			}
+			if text.Len() == 0 {
+				text.WriteString(event.Payload.Item.Text)
+			}
+			if text.Len() > 0 {
+				timestamp := time.Time{}
+				if event.Payload.CompletedAtMS > 0 {
+					timestamp = time.UnixMilli(event.Payload.CompletedAtMS).UTC()
+				} else if parsed, err := time.Parse(time.RFC3339Nano, event.Timestamp); err == nil {
+					timestamp = parsed
+				}
+				commentary = append(commentary, codexCommentaryEntry{text: text.String(), timestamp: timestamp})
+			}
 		}
 	}
 	return commentary, nextOffset, false, nil
@@ -1359,8 +1409,8 @@ func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time
 			pane.CodexTranscriptPath = rollout.path
 			pane.CodexTranscriptOffset = rollout.nextOffset
 			pane.CodexTranscriptSkippingLine = rollout.nextSkipping
-			for _, text := range rollout.commentary {
-				addChatEntry(&ev, &pane, "say", text)
+			for _, item := range rollout.commentary {
+				addChatEntryAt(&ev, &pane, "say", item.text, item.timestamp)
 			}
 			ss.SeenAt = now
 			ss.Panes["primary"] = pane
@@ -1403,8 +1453,8 @@ func catchUpCodexRolloutUnderLock(r *HookRunner, sessionID, transcriptPath strin
 		pane.CodexTranscriptPath = transcriptPath
 		pane.CodexTranscriptOffset = nextOffset
 		pane.CodexTranscriptSkippingLine = nextSkipping
-		for _, text := range commentary {
-			addChatEntry(&ev, &pane, "say", text)
+		for _, item := range commentary {
+			addChatEntryAt(&ev, &pane, "say", item.text, item.timestamp)
 		}
 		ss.SeenAt = now
 		ss.Panes["primary"] = pane
@@ -1521,8 +1571,8 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 				pane.CodexTranscriptPath = rollout.path
 				pane.CodexTranscriptOffset = rollout.nextOffset
 				pane.CodexTranscriptSkippingLine = rollout.nextSkipping
-				for _, text := range rollout.commentary {
-					addChatEntry(&ev, &pane, "say", text)
+				for _, item := range rollout.commentary {
+					addChatEntryAt(&ev, &pane, "say", item.text, item.timestamp)
 				}
 			} else {
 				rolloutConflict = true

@@ -613,10 +613,16 @@ func deriveWorkerEvent(worker worker, fileID string, offset int64, event state.S
 		if strings.TrimSpace(text) == "" || !validChatKind(kind) {
 			continue
 		}
+		timestamp := event.Ts
+		if chatTimestamp, ok := fields["chat_timestamp"].(string); ok {
+			if parsed, err := time.Parse(time.RFC3339Nano, chatTimestamp); err == nil && !parsed.IsZero() {
+				timestamp = parsed
+			}
+		}
 		entry := Entry{
-			Timestamp: event.Ts, WorkerID: worker.id, WorkerTitle: worker.title,
+			Timestamp: timestamp, WorkerID: worker.id, WorkerTitle: worker.title,
 			Kind: kind, Text: text,
-			position: entryPosition{timestamp: event.Ts, workerID: worker.id, fileID: fileID, offset: offset, index: i},
+			position: entryPosition{timestamp: timestamp, workerID: worker.id, fileID: fileID, offset: offset, index: i},
 		}
 		if kind == "action" {
 			entry.Summary = event.Activity

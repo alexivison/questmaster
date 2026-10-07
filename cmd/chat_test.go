@@ -70,6 +70,41 @@ func TestChatCommandHistoryAndRendering(t *testing.T) {
 	})
 }
 
+func TestChatTextAndBeforeKeepLateNarrationChronological(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	base := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	appendChatEvent := func(kind, text string, at time.Time, chatAt time.Time) {
+		fields := map[string]interface{}{"chat_entries": []interface{}{map[string]interface{}{"chat_kind": kind, "chat_text": text}}}
+		if !chatAt.IsZero() {
+			fields["chat_entries"].([]interface{})[0].(map[string]interface{})["chat_timestamp"] = chatAt.Format(time.RFC3339Nano)
+		}
+		if err := state.AppendStateEventAt(store.Root(), "qm-w1", state.StateEvent{Ts: at, Fields: fields}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendChatEvent("action", "Read", base.Add(time.Second), time.Time{})
+	appendChatEvent("say", "Reading the README.", base.Add(2*time.Second), base)
+
+	all := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
+	if !strings.Contains(all, "Worker qm-w1: Reading the README.\n") || !strings.HasSuffix(all, "Worker qm-w1: Cast [Read]\n") {
+		t.Fatalf("chat --text output = %q", all)
+	}
+	first := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--limit", "1")
+	var page workerfeed.HistoryPage
+	if err := json.Unmarshal([]byte(first), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Kind != "action" || page.NextBefore == "" {
+		t.Fatalf("latest page = %#v", page)
+	}
+	older := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--before", page.NextBefore, "--text")
+	if !strings.Contains(older, "Worker qm-w1: Reading the README.") || strings.Contains(older, "Cast [Read]") {
+		t.Fatalf("chat --before output = %q", older)
+	}
+}
+
 func TestChatCommandReportsPartialWorkerFailure(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
