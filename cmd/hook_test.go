@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +61,136 @@ type recordedHookCalls struct {
 	lastState       *state.SessionState
 	transcriptPaths []string
 	transcriptTail  []byte
+}
+
+func chatEntries(event state.StateEvent) []map[string]interface{} {
+	if entries, ok := event.Fields["chat_entries"].([]interface{}); ok {
+		out := make([]map[string]interface{}, 0, len(entries))
+		for _, raw := range entries {
+			if fields, ok := raw.(map[string]interface{}); ok {
+				out = append(out, fields)
+			}
+		}
+		return out
+	}
+	if kind, ok := event.Fields["chat_kind"].(string); ok {
+		return []map[string]interface{}{{"chat_kind": kind, "chat_text": event.Fields["chat_text"]}}
+	}
+	return nil
+}
+
+func chatKinds(event state.StateEvent) []string {
+	entries := chatEntries(event)
+	kinds := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		kind, _ := entry["chat_kind"].(string)
+		kinds = append(kinds, kind)
+	}
+	return kinds
+}
+
+func chatTextFor(event state.StateEvent, kind string) string {
+	for _, entry := range chatEntries(event) {
+		if entry["chat_kind"] == kind {
+			text, _ := entry["chat_text"].(string)
+			return text
+		}
+	}
+	return ""
+}
+
+func TestHookChatEntriesForHarnesses(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		agent      string
+		action     string
+		payload    map[string]interface{}
+		final      string
+		finalEvent string
+	}{
+		{name: "claude", agent: "claude", action: "tool_start", payload: map[string]interface{}{"tool_name": "Bash"}, final: "last_assistant_message", finalEvent: "done"},
+		{name: "codex", agent: "codex", action: "tool_start", payload: map[string]interface{}{"tool_name": "Bash"}, final: "last_assistant_message", finalEvent: "done"},
+		{name: "pi", agent: "pi", action: "tool_execution_start", payload: map[string]interface{}{"toolName": "Bash"}, final: "messages", finalEvent: "agent_end"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, tc.agent, tc.action, "qm-chat", tc.payload)
+			if got := chatKinds(rec.events[len(rec.events)-1]); !slices.Equal(got, []string{"status", "action"}) {
+				t.Fatalf("tool event chat kinds = %v, want status and action", got)
+			}
+
+			finalText := strings.Join([]string{strings.Repeat("猫", 1501), "second paragraph", "third paragraph", "fourth"}, "\n\n")
+			payload := map[string]interface{}{tc.final: finalText}
+			if tc.final == "messages" {
+				payload[tc.final] = []string{finalText}
+			}
+			runHookWithStdin(r, tc.agent, tc.finalEvent, "qm-chat", payload)
+			last := rec.events[len(rec.events)-1]
+			message := chatTextFor(last, "message")
+			if len([]rune(message)) != 1500 || strings.Contains(message, "fourth") {
+				runes := []rune(message)
+				if len(runes) > 4 {
+					runes = runes[len(runes)-4:]
+				}
+				t.Fatalf("capped final message runes=%d, suffix=%q", len([]rune(message)), string(runes))
+			}
+			if !slices.Contains(chatKinds(last), "status") || last.Fields["chat_summary"] != nil {
+				t.Fatalf("final event chat kinds/summary = %v/%v", chatKinds(last), last.Fields["chat_summary"])
+			}
+		})
+	}
+}
+
+func TestHookSubagentTaggingAndChatExclusion(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, agent, "tool_start", "qm-chat", map[string]interface{}{
+				"agent_id": "task-42", "agent_type": "explorer", "tool_name": "Bash",
+			})
+			event := rec.events[len(rec.events)-1]
+			if event.AgentID != "task-42" || event.AgentType != "explorer" || len(chatEntries(event)) != 0 {
+				t.Fatalf("subagent event = %+v, feed entries %v", event, chatEntries(event))
+			}
+			if event.Fields["agent_id"] != nil || event.Fields["agent_type"] != nil {
+				t.Fatalf("duplicate subagent fields: %#v", event.Fields)
+			}
+		})
+	}
+}
+
+func TestHookClaudeTaskNotificationDoesNotExposePrompt(t *testing.T) {
+	r, rec := newTestRunner(t)
+	prompt := "<task-notification>private task details</task-notification>"
+	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt": prompt})
+	if got := rec.lastState.Panes["primary"].Activity; got != "Background agent resumed" {
+		t.Fatalf("notification activity = %q", got)
+	}
+	if strings.Contains(rec.events[0].Activity, prompt) || strings.Contains(rec.events[0].Activity, "private task details") {
+		t.Fatalf("task notification leaked in event: %+v", rec.events[0])
+	}
+}
+
+func TestHookChatStatusDedupesAcrossStarting(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{SessionID: "qm-chat", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
+		"primary": {Role: "primary", Agent: "claude", State: "starting", LastChatStatus: "working"},
+	}}
+	for _, action := range []string{"working", "blocked", "blocked", "done"} {
+		runHookWithStdin(r, "claude", action, "qm-chat", map[string]interface{}{"last_assistant_message": "finished"})
+	}
+	var statuses []string
+	for _, event := range rec.events {
+		for _, entry := range chatEntries(event) {
+			if entry["chat_kind"] == "status" {
+				status, _ := entry["chat_text"].(string)
+				statuses = append(statuses, status)
+			}
+		}
+	}
+	if !slices.Equal(statuses, []string{"blocked", "done"}) {
+		t.Fatalf("status feed = %v, want blocked then done (no duplicate working or idle)", statuses)
+	}
 }
 
 type manifestStoreStub struct {

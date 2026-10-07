@@ -210,6 +210,7 @@ func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
 	result, err := svc.Start(t.Context(), StartOpts{
 		Cwd:      t.TempDir(),
 		MasterID: masterID,
+		Title:    "rollback-worker",
 	})
 	if err == nil {
 		t.Fatal("Start error = nil, want tmux create failure")
@@ -256,6 +257,7 @@ func TestStartRollsBackManifestWhenWorkerRegistrationFails(t *testing.T) {
 	_, err := svc.Start(t.Context(), StartOpts{
 		Cwd:      t.TempDir(),
 		MasterID: "qm-ghost-master", // valid ID, but no manifest on disk
+		Title:    "ghost-worker",
 	})
 	if err == nil {
 		t.Fatal("Start error = nil, want worker registration failure")

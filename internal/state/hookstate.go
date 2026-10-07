@@ -93,8 +93,10 @@ type PaneState struct {
 	// author role is not yet known. The text is promoted to Activity/Recent only
 	// once the matching assistant message.updated arrives, so a user's prompt is
 	// never surfaced as the worker's activity.
-	PendingPartMsgID string `json:"pending_part_msg_id,omitempty"`
-	PendingPartText  string `json:"pending_part_text,omitempty"`
+	PendingPartMsgID    string `json:"pending_part_msg_id,omitempty"`
+	PendingPartText     string `json:"pending_part_text,omitempty"`
+	PendingFinalMessage string `json:"pending_final_message,omitempty"`
+	LastChatStatus      string `json:"last_chat_status,omitempty"`
 }
 
 // StateRoot resolves the directory that holds per-session state. Honors
@@ -250,20 +252,16 @@ func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 
 // UpdateAndLog folds the JSONL event append and the state.json
 // read-modify-write into a single critical section so the per-event hook
-// path takes one flock instead of two. It always appends ev to state.jsonl
-// (matching AppendStateEvent's rotate-then-append behavior), then runs
-// mutate against the freshly-loaded SessionState and rewrites state.json
+// path takes one flock instead of two. It runs mutate against the freshly-loaded
+// SessionState, then appends the possibly enriched event and rewrites state.json
 // only when mutate returns true (matching UpdateSessionState).
 //
 // The event append uses appendRotatingJSONL directly rather than
 // AppendStateEvent: the shared per-session lockfile is already held here,
 // and re-locking the same file from this process would self-block.
 //
-// Both halves are best-effort relative to each other in the sense that a
-// failed state write does not undo the appended event line — but the append
-// runs first, so the event log always records the event even if the state
-// rewrite later fails.
-func UpdateAndLog(id string, ev StateEvent, mutate func(*SessionState) bool) error {
+// A failed state write does not undo the appended event line.
+func UpdateAndLog(id string, ev *StateEvent, mutate func(*SessionState) bool) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
@@ -274,15 +272,16 @@ func UpdateAndLog(id string, ev StateEvent, mutate func(*SessionState) bool) err
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
+	if ev == nil {
+		return errors.New("nil state event")
+	}
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
 	}
 	return withStateLock(root, id, func() error {
-		appendErr := appendRotatingJSONL(SessionStateLogPath(root, id), ev)
-
 		ss, err := loadSessionStateAt(root, id)
 		if err != nil {
-			return errors.Join(appendErr, err)
+			return errors.Join(appendRotatingJSONL(SessionStateLogPath(root, id), *ev), err)
 		}
 		if ss == nil {
 			ss = &SessionState{
@@ -291,7 +290,9 @@ func UpdateAndLog(id string, ev StateEvent, mutate func(*SessionState) bool) err
 				Panes:     map[string]PaneState{},
 			}
 		}
-		if !mutate(ss) {
+		changed := mutate(ss)
+		appendErr := appendRotatingJSONL(SessionStateLogPath(root, id), *ev)
+		if !changed {
 			return appendErr
 		}
 		return errors.Join(appendErr, writeSessionStateLocked(root, id, ss))
@@ -929,15 +930,17 @@ func InitStartingState(id string, agentsByRole map[string]string) error {
 // fixed columns belong in Fields so consumers parsing the log don't have
 // to keep up with a moving schema.
 type StateEvent struct {
-	Ts       time.Time              `json:"ts"`
-	Agent    string                 `json:"agent"`
-	Role     string                 `json:"role,omitempty"`
-	Action   string                 `json:"action"`
-	State    string                 `json:"state,omitempty"`
-	Activity string                 `json:"activity,omitempty"`
-	Tool     string                 `json:"tool,omitempty"`
-	Kind     string                 `json:"kind,omitempty"`
-	Fields   map[string]interface{} `json:"fields,omitempty"`
+	Ts        time.Time              `json:"ts"`
+	Agent     string                 `json:"agent"`
+	AgentID   string                 `json:"agent_id,omitempty"`
+	AgentType string                 `json:"agent_type,omitempty"`
+	Role      string                 `json:"role,omitempty"`
+	Action    string                 `json:"action"`
+	State     string                 `json:"state,omitempty"`
+	Activity  string                 `json:"activity,omitempty"`
+	Tool      string                 `json:"tool,omitempty"`
+	Kind      string                 `json:"kind,omitempty"`
+	Fields    map[string]interface{} `json:"fields,omitempty"`
 }
 
 // AppendStateEvent appends to state.jsonl and rotates the file when it
@@ -945,10 +948,14 @@ type StateEvent struct {
 // session-state directory is created lazily). Rotation drops the previous
 // .1 file, so only one rolled file is retained on disk.
 func AppendStateEvent(id string, ev StateEvent) error {
+	return AppendStateEventAt(StateRoot(), id, ev)
+}
+
+// AppendStateEventAt appends an event under the given state root.
+func AppendStateEventAt(root, id string, ev StateEvent) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
-	root := StateRoot()
 	if root == "" {
 		return errors.New("no state root resolved")
 	}

@@ -541,6 +541,26 @@ func TestSpawnCmd_Basic(t *testing.T) {
 	}
 }
 
+func TestSpawnCmd_RejectsWorkerTitleOverRuneLimit(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "orch", t.TempDir(), "master")
+	_, err := runCmdErr(t, store, allPassRunner(), "spawn", "qm-master", strings.Repeat("界", 17))
+	if err == nil || !strings.Contains(err.Error(), "worker title") {
+		t.Fatalf("spawn error = %v, want worker title validation", err)
+	}
+}
+
+func TestSpawnCmd_RequiresWorkerTitle(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "orch", t.TempDir(), "master")
+	_, err := runCmdErr(t, store, allPassRunner(), "spawn", "qm-master", "")
+	if err == nil || !strings.Contains(err.Error(), "worker title is required") {
+		t.Fatalf("spawn error = %v, want explicit worker title validation", err)
+	}
+}
+
 func TestSpawnCmd_JSONAndPromptFileStdin(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()

@@ -82,6 +82,7 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newSendCmd(o.store, o.client))
 	root.AddCommand(newReadCmd(o.store, o.client))
+	root.AddCommand(newChatCmd(o.store, o.client))
 	root.AddCommand(newWorkersCmd(o.store, o.client))
 	root.AddCommand(newAgentCmd())
 	root.AddCommand(newModelsCmd(o.store))

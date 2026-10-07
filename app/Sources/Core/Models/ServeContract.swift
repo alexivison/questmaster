@@ -13,6 +13,43 @@ public enum ServeContract {
     }
 }
 
+public struct WorkerFeedPayload: Decodable {
+    public var entries: [WorkerFeedEntry]
+    public var cursors: [String: WorkerFeedCursor]
+    public var hasMore: [String: Bool]
+    public var errors: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case entries, cursors, errors
+        case hasMore = "has_more"
+    }
+}
+
+public struct WorkerFeedEntry: Decodable {
+    public var timestamp: String
+    public var workerID: String
+    public var workerTitle: String?
+    public var kind: String
+    public var text: String
+    public var summary: String?
+
+    enum CodingKeys: String, CodingKey {
+        case timestamp, kind, text, summary
+        case workerID = "worker_id"
+        case workerTitle = "worker_title"
+    }
+}
+
+public struct WorkerFeedCursor: Decodable {
+    public var offset: Int64
+    public var fileID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case offset
+        case fileID = "file_id"
+    }
+}
+
 private struct ServeEnvelope: Decodable {
     var update: RuntimeUpdate?
 

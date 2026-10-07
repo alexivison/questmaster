@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -338,6 +339,71 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 	pane = rec.lastState.Panes["primary"]
 	if pane.State != "done" || pane.LastKind != "session.idle" {
 		t.Fatalf("idle status must not demote fresh done pane: %+v", pane)
+	}
+}
+
+func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := "qm-opencode-feed"
+	cleanupRuntimeDir(t, sessionID)
+	const ocSession = "ses_feed"
+
+	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{
+		"sessionID": ocSession,
+		"tool":      "bash",
+	})
+	toolEvent := rec.events[len(rec.events)-1]
+	if got := chatKinds(toolEvent); !slices.Equal(got, []string{"status", "action"}) {
+		t.Fatalf("tool feed kinds = %v", got)
+	}
+	if toolEvent.Fields["chat_summary"] != nil || toolEvent.Fields["workerfeed_part_text"] != nil {
+		t.Fatalf("redundant OpenCode feed fields: %#v", toolEvent.Fields)
+	}
+	writes := rec.writeCalls
+	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{
+		"sessionID": "ses_child", "tool": "bash",
+	})
+	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": "ses_child"})
+	for _, event := range rec.events[len(rec.events)-2:] {
+		if len(chatEntries(event)) != 0 {
+			t.Fatalf("rejected child event reached feed: %+v", event)
+		}
+	}
+	if rec.writeCalls != writes {
+		t.Fatalf("rejected child events wrote state: %d, want %d", rec.writeCalls, writes)
+	}
+
+	finalText := "full OpenCode final message\nsecond line"
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"type": "text", "text": finalText, "messageID": "msg_final",
+		},
+	})
+	openCodeHookEvent(t, r, sessionID, "message.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"info":      map[string]interface{}{"id": "msg_final", "role": "assistant"},
+	})
+	if got := rec.lastState.Panes["primary"].PendingFinalMessage; got != finalText {
+		t.Fatalf("pending OpenCode final message = %q", got)
+	}
+	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": ocSession})
+	finalEvent := rec.events[len(rec.events)-1]
+	if chatTextFor(finalEvent, "message") != finalText || !slices.Contains(chatKinds(finalEvent), "status") {
+		t.Fatalf("OpenCode final feed event = %+v", finalEvent)
+	}
+	if rec.lastState.Panes["primary"].PendingFinalMessage != "" {
+		t.Fatal("OpenCode final message was not cleared after done")
+	}
+
+	openCodeHookEvent(t, r, sessionID, "permission.asked", map[string]interface{}{
+		"sessionID":  ocSession,
+		"permission": map[string]interface{}{"id": "perm_feed", "tool": "bash"},
+	})
+	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": ocSession})
+	permissionIdle := rec.events[len(rec.events)-1]
+	if len(chatEntries(permissionIdle)) != 0 || rec.lastState.Panes["primary"].State != "blocked" {
+		t.Fatalf("idle during permission emitted chat or cleared block: event=%+v pane=%+v", permissionIdle, rec.lastState.Panes["primary"])
 	}
 }
 

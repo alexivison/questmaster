@@ -10,11 +10,13 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -304,7 +306,18 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		prefix = "[WORKER:" + sessionID + "] "
 		pointer = reportPointer
 	}
-	return s.deliver(ctx, parent, target, prefix+message, pointer, prefix)
+	if err := s.deliver(ctx, parent, target, prefix+message, pointer, prefix); err != nil {
+		return err
+	}
+	_ = state.AppendStateEventAt(s.store.Root(), sessionID, state.StateEvent{
+		Ts:     time.Now().UTC(),
+		Action: "report",
+		Fields: map[string]interface{}{
+			"chat_kind": "report",
+			"chat_text": workerfeed.CapText(message),
+		},
+	})
+	return nil
 }
 
 // Workers returns status information for all workers of a master session.

@@ -46,6 +46,8 @@ func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {
 	got := masterPromptWithGuide()
 	for _, want := range []string{
 		"Spawn plain Questmaster workers with questmaster spawn --cwd <worktree>",
+		"worker title must be explicit and no longer than 16 Unicode characters (runes)",
+		"do not rely on the prompt to name the worker",
 		"main/control checkout",
 		"worker manifest cwd is fixed at launch",
 		"Do not use sleep, polling, or watch loops to monitor workers",
@@ -113,6 +115,8 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 				"questmaster help",
 				"questmaster <command> --help",
 				"questmaster promote <session-id>",
+				"questmaster spawn --cwd <worktree> <title>",
+				"A worker title is required and may contain at most 16 Unicode characters (runes)",
 				"Use sub-agents for explicit sub-agent requests",
 				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
 			} {

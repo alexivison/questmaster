@@ -1,0 +1,38 @@
+{
+  "protocol_version": 1,
+  "type": "response",
+  "id": "worker-feed-request",
+  "ok": true,
+  "topic": "worker_feed",
+  "data": {
+    "entries": [
+      {
+        "timestamp": "2026-06-19T04:20:00Z",
+        "worker_id": "qm-worker",
+        "worker_title": "Worker",
+        "kind": "status",
+        "text": "working"
+      },
+      {
+        "timestamp": "2026-06-19T04:20:01Z",
+        "worker_id": "qm-worker",
+        "worker_title": "Worker",
+        "kind": "action",
+        "text": "Bash",
+        "summary": "Bash: go test ./..."
+      }
+    ],
+    "cursors": {
+      "qm-worker": {
+        "offset": 128,
+        "file_id": "1:42"
+      }
+    },
+    "has_more": {
+      "qm-worker": true
+    },
+    "errors": {
+      "qm-other": "permission denied"
+    }
+  }
+}

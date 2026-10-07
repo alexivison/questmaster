@@ -73,6 +73,16 @@ struct ContractFixtureTests {
 
         let trackerResponse = try requireUpdate("tracker_response_envelope.json")
         expect(trackerResponse.tracker?.repos.first?.sessions.first?.id == "qm-demo", "tracker response did not decode")
+
+        let workerFeed = try decodeFixture(WorkerFeedEnvelopeFixture.self, "worker_feed_response_envelope.json").data
+        expect(workerFeed.entries.first?.workerID == "qm-worker", "worker_feed worker id did not decode")
+        expect(workerFeed.entries.first?.kind == "status" && workerFeed.entries.first?.text == "working", "worker_feed entry did not decode")
+        expect(workerFeed.entries.last?.kind == "action" && workerFeed.entries.last?.text == "Bash", "worker_feed action did not decode")
+        expect(workerFeed.entries.last?.summary == "Bash: go test ./...", "worker_feed action summary did not decode")
+        expect(workerFeed.cursors["qm-worker"]?.offset == 128, "worker_feed cursor did not decode")
+        expect(workerFeed.cursors["qm-worker"]?.fileID == "1:42", "worker_feed file identity did not decode")
+        expect(workerFeed.hasMore["qm-worker"] == true, "worker_feed has_more did not decode")
+        expect(workerFeed.errors?["qm-other"] == "permission denied", "worker_feed errors did not decode")
     }
 
     private static func decodeFixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {
@@ -164,6 +174,10 @@ private struct ReasoningEffortsFixture: Decodable {
         case efforts
         case defaultEffort = "default"
     }
+}
+
+private struct WorkerFeedEnvelopeFixture: Decodable {
+    var data: WorkerFeedPayload
 }
 
 private struct ContractFixtureError: Error, CustomStringConvertible {
