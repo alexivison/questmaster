@@ -108,7 +108,6 @@ type PaneState struct {
 	ClaudeLastSayMessage     string         `json:"claude_last_say_message,omitempty"`
 	ClaudeLastSayPromptID    string         `json:"claude_last_say_prompt_id,omitempty"`
 	ClaudeLastSayTranscript  string         `json:"claude_last_say_transcript,omitempty"`
-	ClaudeLastStopMessage    string         `json:"claude_last_stop_message,omitempty"`
 	ClaudeLastStopPromptID   string         `json:"claude_last_stop_prompt_id,omitempty"`
 	ClaudeLastStopTranscript string         `json:"claude_last_stop_transcript,omitempty"`
 

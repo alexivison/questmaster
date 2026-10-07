@@ -449,7 +449,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		prevClaude.ClaudeDisplayChunks = maps.Clone(pane.ClaudeDisplayChunks)
 
 		if opts.action == "say" {
-			if !isSubagent &&
+			stoppedTurn := sameClaudeTurn(pane.ClaudeLastStopPromptID, payload.PromptID, pane.ClaudeLastStopTranscript, payload.TranscriptPath)
+			if !isSubagent && !stoppedTurn &&
 				(pane.ClaudePromptID == "" || pane.ClaudePromptID == payload.PromptID) {
 				if pane.ClaudeDisplayMessageID != payload.MessageID || pane.ClaudeDisplayPromptID != payload.PromptID {
 					clearClaudeDisplay(&pane)
@@ -468,11 +469,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 					}
 					if text, complete := claudeDisplayText(pane); complete {
 						capped := workerfeed.CapText(text)
-						lateStopDuplicate := pane.ClaudeLastStopMessage == capped && capped != "" &&
-							sameClaudeTurn(pane.ClaudeLastStopPromptID, payload.PromptID, pane.ClaudeLastStopTranscript, payload.TranscriptPath)
-						if lateStopDuplicate {
-							clearClaudeDisplay(&pane)
-						} else if capped != "" {
+						if capped != "" {
 							addChatEntry(&ev, &pane, "say", text)
 							pane.ClaudeLastSayMessage = capped
 							pane.ClaudeLastSayPromptID = payload.PromptID
@@ -497,7 +494,6 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 				pane.ClaudeLastSayMessage = ""
 				pane.ClaudeLastSayPromptID = ""
 				pane.ClaudeLastSayTranscript = ""
-				pane.ClaudeLastStopMessage = workerfeed.CapText(finalMessage)
 				pane.ClaudeLastStopPromptID = payload.PromptID
 				pane.ClaudeLastStopTranscript = payload.TranscriptPath
 			} else if opts.action == "working" {
@@ -506,7 +502,6 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 				pane.ClaudeLastSayMessage = ""
 				pane.ClaudeLastSayPromptID = ""
 				pane.ClaudeLastSayTranscript = ""
-				pane.ClaudeLastStopMessage = ""
 				pane.ClaudeLastStopPromptID = ""
 				pane.ClaudeLastStopTranscript = ""
 			}
@@ -740,7 +735,6 @@ func claudeDisplayStateChanged(before, after state.PaneState) bool {
 		before.ClaudeLastSayMessage != after.ClaudeLastSayMessage ||
 		before.ClaudeLastSayPromptID != after.ClaudeLastSayPromptID ||
 		before.ClaudeLastSayTranscript != after.ClaudeLastSayTranscript ||
-		before.ClaudeLastStopMessage != after.ClaudeLastStopMessage ||
 		before.ClaudeLastStopPromptID != after.ClaudeLastStopPromptID ||
 		before.ClaudeLastStopTranscript != after.ClaudeLastStopTranscript
 }
@@ -1156,15 +1150,15 @@ func readCodexCommentary(path string, offset int64, skipping bool) ([]string, in
 	return commentary, nextOffset, false, nil
 }
 
-func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) {
+func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) bool {
 	for attempt := 0; attempt < maxCodexRolloutRetries; attempt++ {
 		rollout, err := loadCodexRollout(r, sessionID, transcriptPath)
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook codex: retry rollout read: %v\n", err)
-			return
+			return false
 		}
 		if rollout.path == rollout.previousPath && rollout.nextOffset == rollout.previousOffset && rollout.nextSkipping == rollout.previousSkipping {
-			return
+			return false
 		}
 
 		ev := state.StateEvent{Ts: now, Agent: "codex", Role: "primary", Action: "rollout"}
@@ -1192,13 +1186,53 @@ func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time
 		})
 		if err != nil {
 			fmt.Fprintf(stderr, "questmaster hook codex: retry rollout update: %v\n", err)
-			return
+			return false
 		}
 		if committed || !conflict {
-			return
+			return false
 		}
 	}
-	fmt.Fprintf(stderr, "questmaster hook codex: rollout offset changed during %d retries\n", maxCodexRolloutRetries)
+	return true
+}
+
+func catchUpCodexRolloutUnderLock(r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) {
+	ev := state.StateEvent{Ts: now, Agent: "codex", Role: "primary", Action: "rollout"}
+	var readErr error
+	_, updateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+		pane, ok := ss.Panes["primary"]
+		if !ok {
+			pane = state.PaneState{Role: "primary", Agent: "codex"}
+		}
+		offset := pane.CodexTranscriptOffset
+		skipping := pane.CodexTranscriptSkippingLine
+		if pane.CodexTranscriptPath != transcriptPath {
+			offset = 0
+			skipping = false
+		}
+		commentary, nextOffset, nextSkipping, err := readCodexCommentary(transcriptPath, offset, skipping)
+		if err != nil {
+			readErr = err
+			return false
+		}
+		if pane.CodexTranscriptPath == transcriptPath && nextOffset == pane.CodexTranscriptOffset && nextSkipping == pane.CodexTranscriptSkippingLine {
+			return false
+		}
+		pane.CodexTranscriptPath = transcriptPath
+		pane.CodexTranscriptOffset = nextOffset
+		pane.CodexTranscriptSkippingLine = nextSkipping
+		for _, text := range commentary {
+			addChatEntry(&ev, &pane, "say", text)
+		}
+		ss.SeenAt = now
+		ss.Panes["primary"] = pane
+		return true
+	})
+	if readErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook codex: final rollout read: %v\n", readErr)
+	}
+	if updateErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook codex: final rollout update: %v\n", updateErr)
+	}
 }
 
 func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
@@ -1377,8 +1411,12 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
-	if rolloutConflict && mutateErr == nil {
-		retryCodexRollout(r, sessionID, payload.TranscriptPath, now, stderr)
+	if rolloutConflict && mutateErr == nil && retryCodexRollout(r, sessionID, payload.TranscriptPath, now, stderr) {
+		if opts.action == "done" {
+			catchUpCodexRolloutUnderLock(r, sessionID, payload.TranscriptPath, now, stderr)
+		} else {
+			fmt.Fprintf(stderr, "questmaster hook codex: rollout offset changed during %d retries\n", maxCodexRolloutRetries)
+		}
 	}
 	if firstPrompt {
 		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)

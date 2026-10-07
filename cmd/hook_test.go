@@ -204,13 +204,13 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 			sayInHook:  "Done.",
 		},
 		{
-			name: "late display callback is suppressed by Stop text",
+			name: "late same-turn display callback is suppressed after Stop",
 			inputs: []struct {
 				action  string
 				payload map[string]interface{}
 			}{
 				{action: "done", payload: map[string]interface{}{"prompt_id": "p3", "transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
-				{action: "say", payload: map[string]interface{}{"message_id": "m3", "prompt_id": "p3", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Done."}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m3", "prompt_id": "p3", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Checking files"}},
 			},
 			wantMessage: []string{"Done."},
 			checkSayIn:  true,
@@ -324,6 +324,21 @@ func TestHookClaudeClearsAbandonedDisplayAtLifecycleBoundary(t *testing.T) {
 				t.Fatalf("pending display remained after %s: %+v", action, pane)
 			}
 		})
+	}
+}
+
+func TestHookClaudeDoesNotAccumulateLateDisplayAfterStop(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "claude", "done", "qm-chat", map[string]interface{}{"prompt_id": "p1", "transcript_path": "/tmp/t.jsonl"})
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "late", "prompt_id": "p1", "transcript_path": "/tmp/t.jsonl", "index": 0, "delta": "partial",
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.ClaudeDisplayMessageID != "" || len(pane.ClaudeDisplayChunks) != 0 {
+		t.Fatalf("late display remained in pane state: %+v", pane)
+	}
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "" {
+		t.Fatalf("late display narration = %q", got)
 	}
 }
 
@@ -462,6 +477,63 @@ func TestHookCodexRetriesWhenRolloutOffsetChangesDuringRead(t *testing.T) {
 	}
 	if got := rec.lastState.Panes["primary"].CodexTranscriptOffset; got != int64(len(first+"\n"+second+"\n")) {
 		t.Fatalf("stored offset = %d, want %d", got, len(first+"\n"+second+"\n"))
+	}
+}
+
+func TestHookCodexStopCatchesUpAfterRepeatedRolloutConflicts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	rolloutLine := func(text string) string {
+		return `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"` + text + `"}}}`
+	}
+	appendCodexRollout(t, path, rolloutLine("seed"))
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
+		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: path},
+	}}
+	conflicts := []string{"after stop", "after retry 1", "after retry 2", "after retry 3"}
+	updateCalls := 0
+	r.Update = func(sessionID string, mutate func(*state.SessionState) bool) error {
+		updateCalls++
+		if updateCalls <= len(conflicts) {
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pane := rec.lastState.Panes["primary"]
+			pane.CodexTranscriptOffset = info.Size()
+			rec.lastState.Panes["primary"] = pane
+			appendCodexRollout(t, path, rolloutLine(conflicts[updateCalls-1]))
+		}
+		if mutate(rec.lastState) {
+			rec.writeCalls++
+		}
+		return nil
+	}
+
+	runHookWithStdin(r, "codex", "done", "qm-codex", map[string]interface{}{
+		"transcript_path":        path,
+		"last_assistant_message": "Stop final",
+	})
+	var narration []string
+	for _, event := range rec.events {
+		for _, entry := range chatEntries(event) {
+			if entry["chat_kind"] == "say" {
+				narration = append(narration, entry["chat_text"].(string))
+			}
+		}
+	}
+	if !slices.Equal(narration, []string{"after retry 3"}) {
+		t.Fatalf("Stop catch-up narration = %q", narration)
+	}
+	if updateCalls != maxCodexRolloutRetries+2 {
+		t.Fatalf("state updates = %d, want Stop + %d retries + final catch-up", updateCalls, maxCodexRolloutRetries)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.lastState.Panes["primary"].CodexTranscriptOffset; got != info.Size() {
+		t.Fatalf("stored offset = %d, want end of rollout %d", got, info.Size())
 	}
 }
 
