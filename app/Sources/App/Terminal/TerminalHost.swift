@@ -263,13 +263,41 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
             return .unavailable
         }
         let scale = terminalView?.window?.backingScaleFactor ?? 1
-        let g = Double(Token.Spacing.element)
+        let padding = liveWindowPadding() ?? GhosttyWindowPadding.resolved
         return TerminalCellMetrics(
             cellWidth: Double(latestCellSizePx.width) / scale,
             cellHeight: Double(latestCellSizePx.height) / scale,
-            paddingX: g,
-            paddingY: g
+            paddingX: padding.x,
+            paddingY: padding.y
         )
+    }
+
+    /// Tries the live surface's own loaded config first, since it reflects CLI-arg overrides a
+    /// config-file read alone would miss; `nil` falls through to `GhosttyWindowPadding.resolved`.
+    private func liveWindowPadding() -> (x: Double, y: Double)? {
+        guard let config = host.config,
+              let x = numericConfigValue(config, key: "window-padding-x"),
+              let y = numericConfigValue(config, key: "window-padding-y") else {
+            return nil
+        }
+        return (x, y)
+    }
+
+    /// `ghostty_config_get` is an untyped `memcpy`-style getter: the caller must already know the
+    /// value's size. Ghostty's own `window-padding-x`/`-y` are plain `u32` pixel counts, so a
+    /// 4-byte buffer is enough; a wildly out-of-range result means that assumption didn't hold for
+    /// this build of libghostty, and the caller should fall back instead of trusting it.
+    private func numericConfigValue(_ config: ghostty_config_t, key: String) -> Double? {
+        var value: UInt32 = 0
+        let ok = withUnsafeMutableBytes(of: &value) { buffer in
+            key.withCString { keyPtr in
+                ghostty_config_get(config, buffer.baseAddress, keyPtr, UInt(MemoryLayout<UInt32>.size))
+            }
+        }
+        guard ok, value > 0, value < 1000 else {
+            return nil
+        }
+        return Double(value)
     }
 
     var view: NSView {

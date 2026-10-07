@@ -7,6 +7,8 @@ public enum GhosttyConfigParser {
 
     private enum Entry {
         case fontFamily(String)
+        case windowPaddingX(String)
+        case windowPaddingY(String)
         case include(String)
     }
 
@@ -15,10 +17,8 @@ public enum GhosttyConfigParser {
     /// clears the list. A file's `config-file` includes are read after the file itself.
     public static func fontFamilies(inDirectories directories: [String], read: (String) -> String?) -> [String] {
         var families: [String] = []
-        for directory in directories {
-            for name in ["config.ghostty", "config"] {
-                load("\(directory)/\(name)", depth: 0, stack: [], families: &families, read: read)
-            }
+        for case .fontFamily(let value) in allEntries(inDirectories: directories, read: read) {
+            apply(value, to: &families)
         }
         return families
     }
@@ -31,27 +31,51 @@ public enum GhosttyConfigParser {
         return families
     }
 
+    /// The last `window-padding-x`/`-y` set across `directories`' config files — Ghostty's own
+    /// "last one wins" semantics for a non-repeating key, unlike `font-family`'s fallback list.
+    /// `nil` for an axis nothing set (not the same as an explicit `0`).
+    public static func windowPadding(inDirectories directories: [String], read: (String) -> String?) -> (x: Double, y: Double)? {
+        var x: Double?
+        var y: Double?
+        for entry in allEntries(inDirectories: directories, read: read) {
+            switch entry {
+            case .windowPaddingX(let value): x = Double(value) ?? x
+            case .windowPaddingY(let value): y = Double(value) ?? y
+            default: break
+            }
+        }
+        guard let x, let y else {
+            return nil
+        }
+        return (x, y)
+    }
+
     /// The first family the system can resolve, so an uninstalled primary falls through to its fallbacks.
     public static func firstInstalled(of families: [String], isInstalled: (String) -> Bool) -> String? {
         families.first(where: isInstalled)
     }
 
-    private static func load(_ path: String, depth: Int, stack: [String], families: inout [String], read: (String) -> String?) {
+    private static func allEntries(inDirectories directories: [String], read: (String) -> String?) -> [Entry] {
+        var all: [Entry] = []
+        for directory in directories {
+            for name in ["config.ghostty", "config"] {
+                load("\(directory)/\(name)", depth: 0, stack: [], into: &all, read: read)
+            }
+        }
+        return all
+    }
+
+    private static func load(_ path: String, depth: Int, stack: [String], into all: inout [Entry], read: (String) -> String?) {
         guard depth <= maxIncludeDepth, !stack.contains(path), let text = read(path) else {
             return
         }
-        var includes: [String] = []
-        for entry in entries(in: text) {
-            switch entry {
-            case .fontFamily(let value): apply(value, to: &families)
-            case .include(let value): includes.append(value)
-            }
-        }
+        let fileEntries = entries(in: text)
+        all.append(contentsOf: fileEntries)
         let directory = (path as NSString).deletingLastPathComponent
-        for include in includes {
+        for case .include(let include) in fileEntries {
             let optionalStripped = include.hasPrefix("?") ? String(include.dropFirst()) : include
             let target = optionalStripped.hasPrefix("/") ? optionalStripped : "\(directory)/\(optionalStripped)"
-            load((target as NSString).standardizingPath, depth: depth + 1, stack: stack + [path], families: &families, read: read)
+            load((target as NSString).standardizingPath, depth: depth + 1, stack: stack + [path], into: &all, read: read)
         }
     }
 
@@ -76,6 +100,8 @@ public enum GhosttyConfigParser {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
             switch key {
             case "font-family": entries.append(.fontFamily(value))
+            case "window-padding-x": entries.append(.windowPaddingX(value))
+            case "window-padding-y": entries.append(.windowPaddingY(value))
             case "config-file": entries.append(.include(value))
             default: break
             }
