@@ -318,6 +318,8 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         containerView.setTerminalView(nil)
         terminalView = nil
         session = nil
+        latestCellSizePx = nil
+        onCellMetricsChanged?()
     }
 
     func focus(in window: NSWindow?) {

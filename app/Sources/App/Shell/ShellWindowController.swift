@@ -102,7 +102,12 @@ final class ShellWindowController {
         window.contentView = root
 
         splitView.cellMetricsProvider = { [weak terminalHost] in terminalHost?.cellMetrics ?? .unavailable }
-        terminalHost.onCellMetricsChanged = { [weak splitView] in splitView?.applyCanonicalLayout() }
+        terminalHost.onCellMetricsChanged = { [weak self, weak splitView, weak terminalHost] in
+            if let self, let terminalHost {
+                self.applyResizeIncrements(cell: terminalHost.cellMetrics)
+            }
+            splitView?.applyCanonicalLayout()
+        }
         splitView.onFooterBottomInsetChanged = { [weak root] inset in root?.setFooterBottomInset(inset) }
 
         let handles = Handles(
@@ -135,4 +140,34 @@ final class ShellWindowController {
         handles?.footerShell.updateCaffeine(active)
     }
 
+    /// Sets the window's row-height resize increment from a zero-leftover baseline, so ordinary
+    /// interactive resizing itself keeps the gap under the footer at a constant `G` instead of
+    /// drifting up to a whole row's worth of slack. The one-time nudge only runs if the baseline
+    /// isn't already snapped, so it doesn't fight whatever the user is actively doing with the
+    /// window. Fullscreen/zoom/tiling ignore resize increments entirely — `MainSplitView`'s own
+    /// `TerminalCellSnapping.applying` fallback (leftover parked below the footer) still covers
+    /// those, unaffected by this.
+    private func applyResizeIncrements(cell: TerminalCellMetrics) {
+        guard let window = handles?.window else {
+            return
+        }
+        guard cell.cellHeight > 0 else {
+            window.contentResizeIncrements = NSSize(width: 1, height: 1)
+            return
+        }
+        guard let contentView = window.contentView else {
+            return
+        }
+        let constantReservedHeight = ShellMetrics.splitLayoutMetrics.footerReservedHeight + ShellMetrics.splitLayoutMetrics.terminalTopInset
+        let currentHeight = Double(contentView.bounds.height)
+        let snappedHeight = TerminalCellSnapping.snappedContentHeight(
+            contentHeight: currentHeight,
+            constantReservedHeight: constantReservedHeight,
+            cell: cell
+        )
+        if abs(snappedHeight - currentHeight) > 0.5 {
+            window.setContentSize(NSSize(width: contentView.bounds.width, height: CGFloat(snappedHeight)))
+        }
+        window.contentResizeIncrements = NSSize(width: 1, height: cell.cellHeight)
+    }
 }

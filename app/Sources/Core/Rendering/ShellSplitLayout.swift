@@ -153,12 +153,14 @@ public enum ShellSplitLayoutPlanner {
             : 0
         let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
 
-        // NSView frames are non-flipped (y=0 is the window's bottom edge). The tracker, like the
-        // dock, reaches the full window height via `sideCardInset` top and bottom, regardless of
-        // the footer reservation — only the terminal's own bottom edge stops above it, at
-        // `paneAreaY`, with `terminalTopInset` additionally pulling its top edge down from the
-        // window's top the same way `terminalToDockGap` pulls its trailing edge in from the dock
-        // (or the window's edge, dock hidden).
+        // NSView frames are non-flipped (y=0 is the window's bottom edge, so a rect's `y` is its
+        // BOTTOM edge, and only `height` controls where its top edge lands). The tracker, like
+        // the dock, reaches the full window height via `sideCardInset` top and bottom, regardless
+        // of the footer reservation — only the terminal's own bottom edge stops above it, fixed at
+        // `paneAreaY`. `terminalTopInset` pulls its TOP edge down from the window's top by
+        // shortening `paneAreaHeight` alone (leaving `paneAreaY` — the bottom edge — untouched),
+        // the same way `terminalToDockGap` pulls its trailing edge in from the dock (or the
+        // window's edge, dock hidden) by shortening its width, not moving its leading edge.
         let paneAreaY = metrics.footerReservedHeight
         let paneAreaHeight = max(0, size.height - metrics.footerReservedHeight - metrics.terminalTopInset)
         let sideCardY = metrics.sideCardInset
@@ -180,7 +182,7 @@ public enum ShellSplitLayoutPlanner {
             firstDividerFrame = ShellSplitRect(x: 0, y: 0, width: 0, height: 0)
         }
 
-        let terminalFrame = ShellSplitRect(x: x, y: paneAreaY + metrics.terminalTopInset, width: terminalWidth, height: paneAreaHeight)
+        let terminalFrame = ShellSplitRect(x: x, y: paneAreaY, width: terminalWidth, height: paneAreaHeight)
         x += terminalWidth
 
         let secondDividerFrame: ShellSplitRect

@@ -209,6 +209,9 @@ struct ShellSplitLayoutTests {
 
     /// `terminalTopInset` pulls the terminal's bottom edge down (shrinking it from the top) while
     /// the tracker and dock, which don't use it, keep reaching the window's actual top.
+    /// Frames are non-flipped: `y` is a rect's BOTTOM edge. `terminalTopInset` must shorten the
+    /// terminal's height to pull its TOP edge down, not raise `y` (which would instead raise its
+    /// bottom edge and leave the top untouched — the round-5 bug this guards against).
     private static func terminalTopInsetPullsOnlyTheTerminalsTopEdgeDown() {
         let metricsWithInset = ShellSplitLayoutMetrics(
             sideCardInset: 8,
@@ -216,7 +219,8 @@ struct ShellSplitLayoutTests {
             trackerMaxWidth: 300,
             trackerLeadingInset: 10,
             trackerTrailingGap: 0,
-            terminalTopInset: 10
+            terminalTopInset: 10,
+            footerReservedHeight: 20
         )
         guard let layout = ShellSplitLayoutPlanner.layout(
             size: ShellSplitSize(width: 1520, height: 900),
@@ -230,7 +234,9 @@ struct ShellSplitLayoutTests {
             Foundation.exit(1)
         }
 
-        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 10, width: 561, height: 890), "terminal should recede from the top, got \(layout.terminalFrame)")
+        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 20, width: 561, height: 870), "terminal should recede from the top only, got \(layout.terminalFrame)")
+        expect(layout.terminalFrame.y == 20, "terminal's bottom edge should stay at the footer reservation, got \(layout.terminalFrame.y)")
+        expect(layout.terminalFrame.maxY == 900 - 10, "terminal's top edge should recede by the inset, got \(layout.terminalFrame.maxY)")
         expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 884), "tracker should be unaffected, got \(layout.trackerFrame)")
     }
 

@@ -52,14 +52,29 @@ public enum TerminalCellSnapping {
         return SnappedTerminalSize(width: width, height: height, horizontalLeftover: horizontalLeftover, verticalLeftover: verticalLeftover)
     }
 
+    /// Snaps the window's full content-view height so the terminal pane's own height — the
+    /// content height minus `constantReservedHeight` (the footer reservation plus the terminal's
+    /// own top inset, neither of which varies with window size) — lands on a whole-row boundary.
+    /// Used to set `NSWindow.contentResizeIncrements` from a zero-leftover baseline, so ordinary
+    /// interactive resizing keeps the gap under the footer at a constant `G` instead of drifting
+    /// up to a whole row's worth of slack.
+    public static func snappedContentHeight(contentHeight: Double, constantReservedHeight: Double, cell: TerminalCellMetrics) -> Double {
+        let (snappedTerminalHeight, _) = snappedDimension(
+            available: max(0, contentHeight - constantReservedHeight),
+            cellSize: cell.cellHeight,
+            padding: cell.paddingY
+        )
+        return snappedTerminalHeight + constantReservedHeight
+    }
+
     /// Adjusts an already-planned layout so the terminal pane's width/height land on whole
     /// columns/rows. The freed horizontal space moves into the dock's width when visible
     /// (keeping the terminal-to-dock gap at exactly `cell.paddingX`, same as before snapping) or
     /// is left at the window's trailing edge when the dock is hidden (nothing to widen). The
-    /// tracker pane shifts/shrinks by the same vertical leftover as the terminal, since both
-    /// share the same pane-area bottom boundary; the returned `footerBottomInset` is how far the
-    /// footer should float up from the window's bottom edge to sit flush under the snapped
-    /// terminal, leaving the leftover strip below it.
+    /// tracker pane is untouched — it's full window height, like the dock, independent of the
+    /// footer reservation — only the terminal's own frame changes; the returned
+    /// `footerBottomInset` is how far the footer should float up from the window's bottom edge to
+    /// sit flush under the snapped terminal, leaving the leftover strip below it.
     public static func applying(
         to layout: ShellSplitLayout,
         cell: TerminalCellMetrics,
@@ -75,18 +90,6 @@ public enum TerminalCellSnapping {
             y: layout.terminalFrame.y + snapped.verticalLeftover,
             width: snapped.width,
             height: snapped.height
-        )
-        let trackerFrame = ShellSplitRect(
-            x: layout.trackerFrame.x,
-            y: layout.trackerFrame.y + snapped.verticalLeftover,
-            width: layout.trackerFrame.width,
-            height: max(0, layout.trackerFrame.height - snapped.verticalLeftover)
-        )
-        let firstDividerFrame = ShellSplitRect(
-            x: layout.firstDividerFrame.x,
-            y: layout.firstDividerFrame.y + snapped.verticalLeftover,
-            width: layout.firstDividerFrame.width,
-            height: max(0, layout.firstDividerFrame.height - snapped.verticalLeftover)
         )
 
         let absorbHorizontally = dockVisible && snapped.horizontalLeftover > 0
@@ -108,10 +111,10 @@ public enum TerminalCellSnapping {
             : layout.secondDividerFrame
 
         let newLayout = ShellSplitLayout(
-            trackerFrame: trackerFrame,
+            trackerFrame: layout.trackerFrame,
             terminalFrame: terminalFrame,
             dockFrame: dockFrame,
-            firstDividerFrame: firstDividerFrame,
+            firstDividerFrame: layout.firstDividerFrame,
             secondDividerFrame: secondDividerFrame,
             dockWidth: layout.dockWidth + (absorbHorizontally ? snapped.horizontalLeftover : 0)
         )
