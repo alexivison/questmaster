@@ -6,8 +6,7 @@ import SwiftUI
 /// old `TerminalTopBar`. Per the first review round, the session panel and slot bar are two
 /// separate, overlapping plates traced directly from the design's own SVGs
 /// (`ActionBarPlateOutlines`), not a single shape built from `TrackerPlatePaths`. See
-/// `ActionBarMetrics` for the rest of the geometry and the off-palette colour mapping, and
-/// `app/Sources/Core/ActionBar` for the pure worker-strip/truncation/keymap logic this view reads.
+/// `ActionBarMetrics` for the rest of the geometry and the off-palette colour mapping.
 
 private func tooltip(_ label: String, _ binding: Keymap.CommandBinding) -> String {
     "\(label)  \(binding.displayGlyph)"
@@ -18,30 +17,21 @@ final class ActionBarFooterModel {
     var navigation: AppNavigationState
     var sessionChip: SelectedSessionChip?
     var sessionRole: SessionRoleKind?
-    var workers: [TrackerSession]
-    var highlightedWorkerID: String?
     var caffeineActive: Bool
     var dockContentMode: DockContentMode
-    var workerStripState: ActionBarWorkerStripState
 
     init(
         navigation: AppNavigationState = AppNavigationState(),
         sessionChip: SelectedSessionChip? = nil,
         sessionRole: SessionRoleKind? = nil,
-        workers: [TrackerSession] = [],
-        highlightedWorkerID: String? = nil,
         caffeineActive: Bool = false,
-        dockContentMode: DockContentMode = .artifacts,
-        workerStripState: ActionBarWorkerStripState = ActionBarWorkerStripState()
+        dockContentMode: DockContentMode = .artifacts
     ) {
         self.navigation = navigation
         self.sessionChip = sessionChip
         self.sessionRole = sessionRole
-        self.workers = workers
-        self.highlightedWorkerID = highlightedWorkerID
         self.caffeineActive = caffeineActive
         self.dockContentMode = dockContentMode
-        self.workerStripState = workerStripState
     }
 }
 
@@ -55,7 +45,6 @@ struct ActionBarFooterView: View {
     let onToggleCaffeine: () -> Void
     let onOpenSettings: () -> Void
     let onCopySessionID: (String) -> Void
-    let onAttachWorker: (String) -> Void
 
     var body: some View {
         let navState = model.navigation
@@ -71,20 +60,6 @@ struct ActionBarFooterView: View {
             strips
             portrait
             slotBar(navState: navState)
-            ActionBarWorkerStripView(
-                workers: model.workers,
-                highlightedWorkerID: model.highlightedWorkerID,
-                state: model.workerStripState,
-                onAttach: onAttachWorker,
-                onScroll: { side in
-                    model.workerStripState.scroll(
-                        toward: side,
-                        workerCount: model.workers.count,
-                        visibleCount: ActionBarWorkerStripCapacity.singleOverflow
-                    )
-                }
-            )
-            .offset(x: ActionBarMetrics.workerRowStartX, y: ActionBarMetrics.workerRowY)
         }
         .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .center)

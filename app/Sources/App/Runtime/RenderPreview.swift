@@ -35,14 +35,13 @@ enum RenderPreview {
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
-        for fixture in ["master-3", "worker-8-start", "worker-8-middle", "worker-8-end", "standalone", "none"] {
+        for fixture in ["master", "worker", "standalone", "none"] {
             render(actionBarFooterView(fixture: fixture), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-\(fixture).png")
         }
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
-        render(actionBarFooterView(fixture: "worker-8-middle", stripFocused: true), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-strip-focused.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
-        render(actionBarFooterView(fixture: "master-3"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
+        render(actionBarFooterView(fixture: "master"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: false, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-tracker-hidden.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: false), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-dock-hidden.png")
@@ -117,55 +116,23 @@ enum RenderPreview {
             navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockVisible),
             session: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
             role: .master,
-            workers: actionBarFixtureWorkers(count: 3),
-            highlightedWorkerID: nil,
             dockContentMode: .artifacts
         )
         return ShellRootContainerView(splitView: splitView, footer: footer)
     }
 
-    private static func actionBarFixtureWorkers(count: Int) -> [TrackerSession] {
-        let agents = ["codex", "claude", "pi", "opencode"]
-        let titles = ["Fix A", "Fix something longer than this", "Fix B", "Fix something else entirely", "Skill Improvements", "Review error paths", "Polish the footer", "Ship it"]
-        return (0..<count).map { index in
-            TrackerSession(
-                id: "worker-\(index + 1)",
-                title: titles[index % titles.count],
-                repoName: "Questmaster",
-                displayColor: "yellow",
-                agent: agents[index % agents.count],
-                role: "worker",
-                state: "working",
-                snippet: "",
-                parentID: "root-2"
-            )
-        }
-    }
-
-    /// `fixture` selects one of the Verify checklist's footer scenarios: a master with 3 workers,
-    /// one with 8 (scrolled to the strip's start/middle/end, matching the brief's worked
-    /// example), a standalone session, and no session at all.
+    /// `fixture` selects one of the footer's session-panel variants: a master, a worker, a
+    /// standalone session, or no session at all.
     @MainActor
-    private static func actionBarFooterView(fixture: String, stripFocused: Bool = false) -> some View {
+    private static func actionBarFooterView(fixture: String) -> some View {
         let model = ActionBarFooterModel()
         switch fixture {
-        case "master-3":
+        case "master":
             model.sessionChip = SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex")
             model.sessionRole = .master
-            model.workers = actionBarFixtureWorkers(count: 3)
-        case "worker-8-start", "worker-8-middle", "worker-8-end":
-            let workers = actionBarFixtureWorkers(count: 8)
-            let selectedIndex = fixture == "worker-8-start" ? 0 : (fixture == "worker-8-middle" ? 6 : 7)
-            model.sessionChip = SelectedSessionChip(title: workers[selectedIndex].title, id: workers[selectedIndex].id, agent: workers[selectedIndex].agent)
+        case "worker":
+            model.sessionChip = SelectedSessionChip(title: "Fix something longer than this", id: "worker-2", agent: "claude")
             model.sessionRole = .worker
-            model.workers = workers
-            model.highlightedWorkerID = workers[selectedIndex].id
-            let offset = fixture == "worker-8-start" ? 0 : (fixture == "worker-8-middle" ? 1 : 2)
-            model.workerStripState = ActionBarWorkerStripState(
-                isFocused: stripFocused,
-                selectedIndex: stripFocused ? selectedIndex : nil,
-                scrollOffset: offset
-            )
         case "standalone":
             model.sessionChip = SelectedSessionChip(title: "Refine shell aliases for faster navigation", id: "root-1", agent: "codex")
             model.sessionRole = .standalone
@@ -175,7 +142,7 @@ enum RenderPreview {
         return ActionBarFooterView(
             model: model,
             onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
-            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }, onAttachWorker: { _ in }
+            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
         )
     }
 
@@ -192,7 +159,7 @@ enum RenderPreview {
         return ActionBarFooterView(
             model: model,
             onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
-            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }, onAttachWorker: { _ in }
+            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
         )
     }
 

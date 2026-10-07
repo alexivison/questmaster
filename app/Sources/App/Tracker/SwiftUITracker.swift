@@ -1855,7 +1855,7 @@ private struct WholePointCentered: Layout {
     }
 }
 
-/// Not private: the action bar's session panel and worker pills reuse `image(for:side:tint:)`
+/// Not private: the action bar's session panel reuses `image(for:side:tint:)`
 /// for the same per-agent mark the tracker draws, rather than re-deriving it.
 struct TrackerAgentMark: View {
     let agent: String
