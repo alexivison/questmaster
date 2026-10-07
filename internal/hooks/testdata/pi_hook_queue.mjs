@@ -1,25 +1,18 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { installPiHookStub } from "./pi_hook_stub.mjs";
 
 const extensionPath = process.argv[2];
 const root = await mkdtemp(join(tmpdir(), "qm-pi-queue-"));
 const sessionID = `qm-pi-queue-${process.pid}`;
 const runtimeDir = join("/tmp", sessionID);
-const logPath = join(root, "hooks.jsonl");
-const cliPath = join(root, "questmaster");
+const hooks = installPiHookStub(80);
 await mkdir(runtimeDir, { mode: 0o700 });
 process.env.QUESTMASTER_SESSION = sessionID;
 process.env.PI_HOME = root;
-process.env.QM_PI_QUEUE_LOG = logPath;
-process.env.PATH = `${root}:${process.env.PATH}`;
-await writeFile(cliPath, `#!/bin/sh
-sleep 0.08
-cat >> "$QM_PI_QUEUE_LOG"
-`);
-await chmod(cliPath, 0o755);
 
 const { default: extension } = await import(pathToFileURL(extensionPath));
 const handlers = new Map();
@@ -47,12 +40,14 @@ try {
 	await handlers.get("tool_execution_start")({ toolCallId: "ask", toolName: "ask_user", args: { question: "Continue?" } }, context);
 	const controlElapsed = Date.now() - controlStarted;
 	await handlers.get("tool_execution_end")({ toolCallId: "ask", toolName: "ask_user" }, context);
+	const finalStarted = Date.now();
 	await handlers.get("agent_end")({ messages: [{ role: "assistant", content: [{ type: "text", text: "Finished." }] }] }, context);
+	const finalElapsed = Date.now() - finalStarted;
 	await handlers.get("session_shutdown")();
 	stopped = true;
 
-	const batches = (await readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-	const actions = batches.flatMap((batch) => batch.events.map(({ action }) => action));
+	const batches = hooks.batches;
+	const actions = hooks.calls.map((entry) => entry.args[2]);
 	const expected = ["session_start", "before_agent_start", "agent_start"];
 	for (let i = 0; i < 100; i++) expected.push("tool_execution_start", "tool_execution_end");
 	expected.push("waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_end", "session_shutdown");
@@ -61,10 +56,12 @@ try {
 	assert.equal(actions.filter((action) => action === "tool_execution_end").length, 101);
 	assert.equal(actions.filter((action) => action === "waiting_for_user").length, 1);
 	assert(batches.length < actions.length / 2, `batch count ${batches.length} for ${actions.length} events`);
-	assert(batches.every((batch) => batch.events.length <= 32));
-	const waitingBatch = batches.find((batch) => batch.events.some(({ action }) => action === "waiting_for_user"));
-	assert(waitingBatch.events.length <= 32, `control batch had ${waitingBatch.events.length} events`);
+	assert(batches.every((batch) => batch.length <= 32));
+	const waitingBatch = batches.find((batch) => batch.some(({ action }) => action === "waiting_for_user"));
+	assert(waitingBatch.length <= 32, `control batch had ${waitingBatch.length} events`);
 	assert(controlElapsed < 2_500, `control event waited ${controlElapsed}ms`);
+	assert(finalElapsed >= 50, `agent_end returned before its hook: ${finalElapsed}ms`);
+	assert.equal(hooks.maxActive, 1, `concurrent hook calls = ${hooks.maxActive}`);
 } finally {
 	if (!stopped) await handlers.get("session_shutdown")?.();
 	await rm(runtimeDir, { recursive: true, force: true });

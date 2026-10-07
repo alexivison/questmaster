@@ -1,24 +1,18 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { installPiHookStub } from "./pi_hook_stub.mjs";
 
 const extensionPath = process.argv[2];
 const root = await mkdtemp(join(tmpdir(), "qm-pi-activity-"));
 const sessionID = `qm-pi-activity-${process.pid}`;
 const runtimeDir = join("/tmp", sessionID);
-const logPath = join(root, "hooks.jsonl");
-const cliPath = join(root, "questmaster");
+const hooks = installPiHookStub();
 await mkdir(runtimeDir, { mode: 0o700 });
 process.env.QUESTMASTER_SESSION = sessionID;
 process.env.PI_HOME = root;
-process.env.QM_PI_ACTIVITY_LOG = logPath;
-process.env.PATH = `${root}:${process.env.PATH}`;
-await writeFile(cliPath, `#!/bin/sh
-cat >> "$QM_PI_ACTIVITY_LOG"
-`);
-await chmod(cliPath, 0o755);
 
 const { default: extension } = await import(pathToFileURL(extensionPath));
 const handlers = new Map();
@@ -62,8 +56,7 @@ try {
 	await handlers.get("session_shutdown")();
 	stopped = true;
 
-	const batches = (await readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-	const entries = batches.flatMap((batch) => batch.events.map((event) => ({ args: ["hook", "pi", event.action], payload: event.payload })));
+	const entries = hooks.calls;
 	assert.deepEqual(entries.map((entry) => entry.args[2]), [
 		"session_start", "before_agent_start", "agent_start", "say", "tool_execution_start", "tool_execution_end",
 		"waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_end", "session_shutdown",

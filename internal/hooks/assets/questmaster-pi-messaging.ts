@@ -465,7 +465,7 @@ export default function (pi: ExtensionAPI) {
 		refreshMetadata(ctx);
 		tool = undefined;
 		setBusy(false, "idle");
-		await emitHook("session_start", undefined, true);
+		await emitHook("session_start");
 	});
 
 	pi.on("before_agent_start", async (event: unknown, rawContext) => {
@@ -475,7 +475,7 @@ export default function (pi: ExtensionAPI) {
 		const record = event && typeof event === "object" ? event as Record<string, unknown> : {};
 		const prompt = [record.prompt, record.input, record.message].find((value) => typeof value === "string" && value.trim()) as string | undefined;
 		if (prompt) setSnippet(prompt);
-		await emitHook("before_agent_start", prompt ? { prompt: safeLine(prompt) } : undefined, true);
+		await emitHook("before_agent_start", prompt ? { prompt: safeLine(prompt) } : undefined);
 	});
 
 	pi.on("agent_start", async (_event, rawContext) => {
@@ -485,7 +485,7 @@ export default function (pi: ExtensionAPI) {
 		pendingNarration = [];
 		refreshMetadata(ctx);
 		setBusy(true, "thinking");
-		await emitHook("agent_start", undefined, true);
+		await emitHook("agent_start");
 	});
 
 	pi.on("model_select", (event: { model?: unknown }) => { model = modelState(event.model) ?? model; });
