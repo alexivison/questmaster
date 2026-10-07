@@ -99,15 +99,22 @@ type PaneState struct {
 	PendingFinalMessage string `json:"pending_final_message,omitempty"`
 	LastChatStatus      string `json:"last_chat_status,omitempty"`
 
+	ClaudePromptID           string         `json:"claude_prompt_id,omitempty"`
 	ClaudeDisplayMessageID   string         `json:"claude_display_message_id,omitempty"`
+	ClaudeDisplayPromptID    string         `json:"claude_display_prompt_id,omitempty"`
 	ClaudeDisplayChunks      map[int]string `json:"claude_display_chunks,omitempty"`
 	ClaudeDisplayFinalIndex  int            `json:"claude_display_final_index,omitempty"`
 	ClaudeDisplayFinal       bool           `json:"claude_display_final,omitempty"`
+	ClaudeLastSayMessage     string         `json:"claude_last_say_message,omitempty"`
+	ClaudeLastSayPromptID    string         `json:"claude_last_say_prompt_id,omitempty"`
+	ClaudeLastSayTranscript  string         `json:"claude_last_say_transcript,omitempty"`
 	ClaudeLastStopMessage    string         `json:"claude_last_stop_message,omitempty"`
+	ClaudeLastStopPromptID   string         `json:"claude_last_stop_prompt_id,omitempty"`
 	ClaudeLastStopTranscript string         `json:"claude_last_stop_transcript,omitempty"`
 
-	CodexTranscriptPath   string `json:"codex_transcript_path,omitempty"`
-	CodexTranscriptOffset int64  `json:"codex_transcript_offset,omitempty"`
+	CodexTranscriptPath         string `json:"codex_transcript_path,omitempty"`
+	CodexTranscriptOffset       int64  `json:"codex_transcript_offset,omitempty"`
+	CodexTranscriptSkippingLine bool   `json:"codex_transcript_skipping_line,omitempty"`
 }
 
 // StateRoot resolves the directory that holds per-session state. Honors

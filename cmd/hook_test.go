@@ -171,29 +171,37 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 		}
 		wantSay     []string
 		wantMessage []string
+		checkSayIn  bool
+		sayInput    int
+		sayInHook   string
 	}{
 		{
-			name: "assembles indexed batches before the next tool",
+			name: "assembles indexed batches and emits in the completing hook",
 			inputs: []struct {
 				action  string
 				payload map[string]interface{}
 			}{
-				{action: "say", payload: map[string]interface{}{"message_id": "m1", "index": 1, "final": true, "delta": "layout."}},
-				{action: "say", payload: map[string]interface{}{"message_id": "m1", "index": 0, "delta": "Checking the\n"}},
-				{action: "tool_start", payload: map[string]interface{}{"tool_name": "Read"}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m1", "prompt_id": "p1", "index": 1, "final": true, "delta": "layout."}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m1", "prompt_id": "p1", "index": 0, "delta": "Checking the\n"}},
 			},
-			wantSay: []string{"Checking the\nlayout."},
+			wantSay:    []string{"Checking the\nlayout."},
+			checkSayIn: true,
+			sayInput:   1,
+			sayInHook:  "Checking the\nlayout.",
 		},
 		{
-			name: "Stop suppresses its already displayed final message",
+			name: "Stop skips the final message after emitting the same say",
 			inputs: []struct {
 				action  string
 				payload map[string]interface{}
 			}{
-				{action: "say", payload: map[string]interface{}{"message_id": "m2", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Done."}},
-				{action: "done", payload: map[string]interface{}{"transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m2", "prompt_id": "p2", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Done."}},
+				{action: "done", payload: map[string]interface{}{"prompt_id": "p2", "transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
 			},
-			wantMessage: []string{"Done."},
+			wantSay:    []string{"Done."},
+			checkSayIn: true,
+			sayInput:   0,
+			sayInHook:  "Done.",
 		},
 		{
 			name: "late display callback is suppressed by Stop text",
@@ -201,10 +209,12 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 				action  string
 				payload map[string]interface{}
 			}{
-				{action: "done", payload: map[string]interface{}{"transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
-				{action: "say", payload: map[string]interface{}{"message_id": "m3", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Done."}},
+				{action: "done", payload: map[string]interface{}{"prompt_id": "p3", "transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m3", "prompt_id": "p3", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Done."}},
 			},
 			wantMessage: []string{"Done."},
+			checkSayIn:  true,
+			sayInput:    1,
 		},
 		{
 			name: "subagent display is excluded",
@@ -222,9 +232,39 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 				payload map[string]interface{}
 			}{
 				{action: "say", payload: map[string]interface{}{"message_id": "m5", "index": 0, "final": true, "delta": strings.Repeat("猫", 1501)}},
-				{action: "tool_start", payload: map[string]interface{}{"tool_name": "Read"}},
 			},
-			wantSay: []string{strings.Repeat("猫", 1500)},
+			wantSay:    []string{strings.Repeat("猫", 1500)},
+			checkSayIn: true,
+			sayInput:   0,
+			sayInHook:  strings.Repeat("猫", 1500),
+		},
+		{
+			name: "leading whitespace does not consume the cap",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m6", "index": 0, "final": true, "delta": strings.Repeat(" ", 2000) + "visible"}},
+			},
+			wantSay:    []string{"visible"},
+			checkSayIn: true,
+			sayInput:   0,
+			sayInHook:  "visible",
+		},
+		{
+			name: "out of order leading whitespace batches do not consume the cap",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m7", "index": 2, "final": true, "delta": "visible"}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m7", "index": 1, "delta": strings.Repeat(" ", 2000)}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m7", "index": 0, "delta": strings.Repeat(" ", 2000)}},
+			},
+			wantSay:    []string{"visible"},
+			checkSayIn: true,
+			sayInput:   2,
+			sayInHook:  "visible",
 		},
 	}
 	for _, tc := range cases {
@@ -232,6 +272,11 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 			r, rec := newTestRunner(t)
 			for _, input := range tc.inputs {
 				runHookWithStdin(r, "claude", input.action, "qm-chat", input.payload)
+			}
+			if tc.checkSayIn {
+				if got := chatTextFor(rec.events[tc.sayInput], "say"); got != tc.sayInHook {
+					t.Fatalf("completing hook say = %q, want %q", got, tc.sayInHook)
+				}
 			}
 			var say, messages []string
 			for _, event := range rec.events {
@@ -263,11 +308,30 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 	}
 }
 
+func TestHookClaudeClearsAbandonedDisplayAtLifecycleBoundary(t *testing.T) {
+	for _, action := range []string{"working", "done"} {
+		t.Run(action, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{"message_id": "pending", "prompt_id": "p1", "index": 0, "delta": "partial"})
+			payload := map[string]interface{}{"prompt_id": "p2"}
+			if action == "done" {
+				payload["prompt_id"] = "p1"
+				payload["last_assistant_message"] = "complete final"
+			}
+			runHookWithStdin(r, "claude", action, "qm-chat", payload)
+			pane := rec.lastState.Panes["primary"]
+			if pane.ClaudeDisplayMessageID != "" || len(pane.ClaudeDisplayChunks) != 0 {
+				t.Fatalf("pending display remained after %s: %+v", action, pane)
+			}
+		})
+	}
+}
+
 func TestReadCodexCommentaryFiltersAndAdvancesOffset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
 	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"Checking layout"}}}`)
 	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"final_answer","text":"Done"}}}`)
-	commentary, offset, err := readCodexCommentary(path, 0)
+	commentary, offset, _, err := readCodexCommentary(path, 0, false)
 	if err != nil {
 		t.Fatalf("read rollout: %v", err)
 	}
@@ -275,14 +339,14 @@ func TestReadCodexCommentaryFiltersAndAdvancesOffset(t *testing.T) {
 		t.Fatalf("commentary = %q", commentary)
 	}
 	appendCodexRollout(t, path, `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"Reading code"}}}`)
-	commentary, next, err := readCodexCommentary(path, offset)
+	commentary, next, _, err := readCodexCommentary(path, offset, false)
 	if err != nil {
 		t.Fatalf("read next rollout chunk: %v", err)
 	}
 	if !slices.Equal(commentary, []string{"Reading code"}) || next <= offset {
 		t.Fatalf("incremental read = %q offset %d, previous %d", commentary, next, offset)
 	}
-	commentary, repeated, err := readCodexCommentary(path, next)
+	commentary, repeated, _, err := readCodexCommentary(path, next, false)
 	if err != nil || len(commentary) != 0 || repeated != next {
 		t.Fatalf("repeat read = %q offset %d err %v", commentary, repeated, err)
 	}
@@ -299,9 +363,30 @@ func TestReadCodexCommentaryLongLine(t *testing.T) {
 	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	commentary, offset, err := readCodexCommentary(path, 0)
-	if err != nil || len(commentary) != 1 || len(commentary[0]) != 100_000 || offset != int64(len(line)+1) {
-		t.Fatalf("long line read = %d entries/%d chars offset=%d err=%v", len(commentary), len(commentary[0]), offset, err)
+	commentary, offset, _, err := readCodexCommentary(path, 0, false)
+	gotTextLen := 0
+	if len(commentary) == 1 {
+		gotTextLen = len(commentary[0])
+	}
+	if err != nil || len(commentary) != 1 || gotTextLen != 100_000 || offset != int64(len(line)+1) {
+		t.Fatalf("long line read = %d entries/%d chars offset=%d err=%v", len(commentary), gotTextLen, offset, err)
+	}
+}
+
+func TestReadCodexCommentarySkipsOversizedLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	valid := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"after oversized line"}}}`
+	contents := append([]byte(strings.Repeat("x", codexRolloutReadLimit+100)+"\n"), []byte(valid+"\n")...)
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commentary, offset, skipping, err := readCodexCommentary(path, 0, false)
+	if err != nil || len(commentary) != 0 || !skipping || offset != codexRolloutReadLimit {
+		t.Fatalf("first oversized read = %q offset=%d skipping=%t err=%v", commentary, offset, skipping, err)
+	}
+	commentary, offset, skipping, err = readCodexCommentary(path, offset, skipping)
+	if err != nil || !slices.Equal(commentary, []string{"after oversized line"}) || skipping || offset != int64(len(contents)) {
+		t.Fatalf("oversized continuation = %q offset=%d skipping=%t err=%v", commentary, offset, skipping, err)
 	}
 }
 
@@ -335,6 +420,48 @@ func TestHookCodexRolloutPathChangeAndSubagentExclusion(t *testing.T) {
 	last := rec.events[len(rec.events)-1]
 	if len(chatEntries(last)) != 0 || rec.lastState.Panes["primary"].CodexTranscriptPath != second {
 		t.Fatalf("subagent rollout changed feed or offset: event=%+v pane=%+v", last, rec.lastState.Panes["primary"])
+	}
+}
+
+func TestHookCodexRetriesWhenRolloutOffsetChangesDuringRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	first := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"already consumed"}}}`
+	second := `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"appended during overlap"}}}`
+	appendCodexRollout(t, path, first)
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
+		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: path},
+	}}
+	firstCommit := true
+	r.Update = func(sessionID string, mutate func(*state.SessionState) bool) error {
+		rec.updateCalls++
+		if firstCommit {
+			firstCommit = false
+			pane := rec.lastState.Panes["primary"]
+			pane.CodexTranscriptOffset = int64(len(first) + 1)
+			rec.lastState.Panes["primary"] = pane
+			appendCodexRollout(t, path, second)
+		}
+		if mutate(rec.lastState) {
+			rec.writeCalls++
+		}
+		return nil
+	}
+
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
+	var narration []string
+	for _, event := range rec.events {
+		for _, entry := range chatEntries(event) {
+			if entry["chat_kind"] == "say" {
+				narration = append(narration, entry["chat_text"].(string))
+			}
+		}
+	}
+	if !slices.Equal(narration, []string{"appended during overlap"}) {
+		t.Fatalf("overlapping hook narration = %q", narration)
+	}
+	if got := rec.lastState.Panes["primary"].CodexTranscriptOffset; got != int64(len(first+"\n"+second+"\n")) {
+		t.Fatalf("stored offset = %d, want %d", got, len(first+"\n"+second+"\n"))
 	}
 }
 
