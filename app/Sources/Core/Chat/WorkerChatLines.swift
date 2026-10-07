@@ -52,26 +52,6 @@ struct WorkerChatRecord: Equatable {
     let text: String
 }
 
-public enum WorkerChatTimeHeaderPolicy {
-    /// A header precedes the first line, and any line whose clock minute differs from the minute
-    /// of the last header.
-    public static func needsHeader(afterHeaderAt lastHeader: Date?, at current: Date, calendar: Calendar) -> Bool {
-        guard let lastHeader else {
-            return true
-        }
-        return clockMinute(lastHeader, calendar) != clockMinute(current, calendar)
-    }
-
-    public static func label(for date: Date, calendar: Calendar) -> String {
-        let parts = calendar.dateComponents([.hour, .minute], from: date)
-        return String(format: "[%02d:%02d]", parts.hour ?? 0, parts.minute ?? 0)
-    }
-
-    private static func clockMinute(_ date: Date, _ calendar: Calendar) -> DateComponents {
-        calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
-    }
-}
-
 enum WorkerChatLineBuilder {
     static let maxNameLength = 16
     private static let actionVerb = "Cast"
@@ -127,10 +107,11 @@ enum WorkerChatLineBuilder {
         var lines: [WorkerChatLine] = []
         var lastHeader: Date?
         for draft in drafts {
-            if WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: lastHeader, at: draft.timestamp, calendar: calendar) {
+            if lastHeader.map({ !calendar.isDate(draft.timestamp, equalTo: $0, toGranularity: .minute) }) ?? true {
+                let parts = calendar.dateComponents([.hour, .minute], from: draft.timestamp)
                 lines.append(WorkerChatLine(
                     id: "h\(draft.id)",
-                    content: .timeHeader(WorkerChatTimeHeaderPolicy.label(for: draft.timestamp, calendar: calendar))
+                    content: .timeHeader(String(format: "[%02d:%02d]", parts.hour ?? 0, parts.minute ?? 0))
                 ))
                 lastHeader = draft.timestamp
             }

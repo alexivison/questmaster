@@ -19,7 +19,6 @@ struct WorkerChatTests {
         actionRunStaysOpenAcrossOtherWorkersEntries()
         actionRunClosesOnTheSameWorkersNextNonAction()
         timeHeadersFollowTheClockMinuteOfTheLastHeader()
-        timeHeadersUseLocalTime()
         cursorsRoundTripUnchanged()
         hasMoreRepullsImmediately()
         pullTriggersAreOpenChangeAndHasMoreOnly()
@@ -99,7 +98,7 @@ struct WorkerChatTests {
     private static func actionRunCollapsesWithCountsAndNoCommas() {
         let store = makeStore()
         feed(store, [
-            entry(0, "w1", "action", "Bash", summary: "Bash: go test ./..."),
+            entry(0, "w1", "action", "Bash"),
             entry(1, "w1", "action", "Edit"),
             entry(2, "w1", "action", "Bash"),
             entry(3, "w1", "action", "Edit"),
@@ -118,7 +117,7 @@ struct WorkerChatTests {
         )
 
         let single = makeStore()
-        feed(single, [entry(0, "w1", "action", "Bash", summary: "Bash: ls")])
+        feed(single, [entry(0, "w1", "action", "Bash")])
         expect(segments(single, 0).last?.text == "[Bash]", "a single call should show no count, got \(segments(single, 0))")
     }
 
@@ -172,27 +171,17 @@ struct WorkerChatTests {
         }
         expect(kinds == ["[09:00]", "a", "b", "[09:01]", "c", "d", "[09:22]", "e"], "header placement mismatch: \(kinds)")
 
-        expect(
-            !WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: base(0), at: base(59), calendar: calendar),
-            "the same clock minute as the last header should not need a header"
-        )
-        expect(
-            WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: base(0), at: base(60), calendar: calendar),
-            "a new clock minute should need a header, however short the gap"
-        )
-        expect(
-            WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: nil, at: base(0), calendar: calendar),
-            "the first entry always needs a header"
-        )
-    }
-
-    private static func timeHeadersUseLocalTime() {
-        let tokyoLabel = WorkerChatTimeHeaderPolicy.label(for: base(0), calendar: calendar)
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
-        let utcLabel = WorkerChatTimeHeaderPolicy.label(for: base(0), calendar: utc)
-        expect(tokyoLabel == "[09:00]", "Tokyo label was \(tokyoLabel)")
-        expect(utcLabel == "[00:00]", "UTC label was \(utcLabel)")
+        let utcStore = WorkerChatStore(calendar: utc)
+        feed(utcStore, [entry(0, "w1", "say", "a"), entry(59, "w1", "say", "b"), entry(60, "w1", "say", "c")])
+        let utcHeaders = utcStore.lines.compactMap { line -> String? in
+            guard case .timeHeader(let label) = line.content else {
+                return nil
+            }
+            return label
+        }
+        expect(utcHeaders == ["[00:00]", "[00:01]"], "UTC line headers were \(utcHeaders)")
     }
 
     // MARK: - Pulling
@@ -301,6 +290,12 @@ struct WorkerChatTests {
         let cursor = WorkerFeedCursor(offset: 7, fileID: "a")
         _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "hi")], cursors: ["w1": cursor]), for: request!)
 
+        var changedSibling = group()
+        changedSibling[1].lastChatAt = base(1)
+        let siblingChange = store.sync(selectedSessionID: "w2", sessions: changedSibling, isVisible: true)
+        expect(siblingChange?.cursors == ["w1": cursor], "a selected worker should keep its sibling cursors")
+        _ = store.receive(WorkerFeedPayload(), for: siblingChange!)
+
         let sameMaster = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
         expect(sameMaster?.masterID == "m", "switching between a worker and its master should pull")
         expect(sameMaster?.cursors == ["w1": cursor], "the switch should keep the cursors")
@@ -392,14 +387,13 @@ struct WorkerChatTests {
         return formatter.string(from: base(seconds))
     }
 
-    private static func entry(_ seconds: TimeInterval, _ worker: String, _ kind: String, _ text: String, title: String? = nil, summary: String? = nil) -> WorkerFeedEntry {
+    private static func entry(_ seconds: TimeInterval, _ worker: String, _ kind: String, _ text: String, title: String? = nil) -> WorkerFeedEntry {
         WorkerFeedEntry(
             timestamp: timestamp(seconds),
             workerID: worker,
             workerTitle: title ?? (worker == "w1" ? "Worker One" : "Worker Two"),
             kind: kind,
-            text: text,
-            summary: summary
+            text: text
         )
     }
 

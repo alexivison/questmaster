@@ -584,12 +584,7 @@ func deriveWorkerEvent(worker worker, fileID string, offset int64, event state.S
 	if event.Fields == nil {
 		return nil
 	}
-	var rawEntries []interface{}
-	if list, ok := event.Fields["chat_entries"].([]interface{}); ok {
-		rawEntries = list
-	} else if kind, ok := event.Fields["chat_kind"].(string); ok {
-		rawEntries = []interface{}{map[string]interface{}{"chat_kind": kind, "chat_text": event.Fields["chat_text"]}}
-	}
+	rawEntries, _ := event.Fields["chat_entries"].([]interface{})
 	entries := make([]Entry, 0, len(rawEntries))
 	for i, raw := range rawEntries {
 		fields, ok := raw.(map[string]interface{})

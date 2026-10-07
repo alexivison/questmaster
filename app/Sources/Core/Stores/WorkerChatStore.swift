@@ -70,7 +70,7 @@ public final class WorkerChatStore {
         }
         self.isVisible = isVisible
 
-        let group = AttachedWorkerGroupResolver.resolve(selectedSessionID: selectedSessionID, sessions: sessions).workers
+        let group = masterID.map { id in sessions.filter { $0.parentID == id } } ?? []
         let nextFingerprint = Self.fingerprint(of: group)
         if nextFingerprint != fingerprint {
             fingerprint = nextFingerprint

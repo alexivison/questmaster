@@ -42,7 +42,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private var modelSuggestionClient: ServeModelSuggesting?
     private var reasoningEffortSuggestionClient: ServeReasoningEffortSuggesting?
-    private var workerFeedClient: ServeWorkerFeedFetching?
+    private var workerFeedClient: UnixSocketMutationClient?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private let newQuestPresenter = NewQuestSheetPresenter()
     private let settingsPresenter = SettingsSheetPresenter()

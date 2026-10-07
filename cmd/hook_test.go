@@ -78,9 +78,6 @@ func chatEntries(event state.StateEvent) []map[string]interface{} {
 		}
 		return out
 	}
-	if kind, ok := event.Fields["chat_kind"].(string); ok {
-		return []map[string]interface{}{{"chat_kind": kind, "chat_text": event.Fields["chat_text"]}}
-	}
 	return nil
 }
 

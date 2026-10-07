@@ -414,8 +414,7 @@ func appendEvent(t *testing.T, root, workerID string, event state.StateEvent) {
 
 func chatEvent(kind, text string, at time.Time) state.StateEvent {
 	return state.StateEvent{Ts: at, Activity: "Safe action summary", Fields: map[string]interface{}{
-		"chat_kind": kind,
-		"chat_text": text,
+		"chat_entries": []interface{}{map[string]interface{}{"chat_kind": kind, "chat_text": text}},
 	}}
 }
 

@@ -43,26 +43,23 @@ public struct WorkerFeedEntry: Decodable, Equatable {
     public var workerTitle: String?
     public var kind: String
     public var text: String
-    public var summary: String?
 
     public init(
         timestamp: String,
         workerID: String,
         workerTitle: String? = nil,
         kind: String,
-        text: String,
-        summary: String? = nil
+        text: String
     ) {
         self.timestamp = timestamp
         self.workerID = workerID
         self.workerTitle = workerTitle
         self.kind = kind
         self.text = text
-        self.summary = summary
     }
 
     enum CodingKeys: String, CodingKey {
-        case timestamp, kind, text, summary
+        case timestamp, kind, text
         case workerID = "worker_id"
         case workerTitle = "worker_title"
     }

@@ -680,15 +680,7 @@ func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text str
 		event.Fields["chat_entries"] = append(entries, entry)
 		return
 	}
-	if oldKind, ok := event.Fields["chat_kind"].(string); ok {
-		old := map[string]interface{}{"chat_kind": oldKind, "chat_text": event.Fields["chat_text"]}
-		delete(event.Fields, "chat_kind")
-		delete(event.Fields, "chat_text")
-		event.Fields["chat_entries"] = []interface{}{old, entry}
-		return
-	}
-	event.Fields["chat_kind"] = kind
-	event.Fields["chat_text"] = workerfeed.CapText(text)
+	event.Fields["chat_entries"] = []interface{}{entry}
 }
 
 const maxClaudeDisplayBatches = 4096

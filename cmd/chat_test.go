@@ -32,7 +32,7 @@ func TestChatCommandHistoryAndRendering(t *testing.T) {
 		if event.kind == "action" {
 			activity = "Bash: go test ./..."
 		}
-		fields := map[string]interface{}{"chat_kind": event.kind, "chat_text": event.text}
+		fields := map[string]interface{}{"chat_entries": []interface{}{map[string]interface{}{"chat_kind": event.kind, "chat_text": event.text}}}
 		if err := state.AppendStateEventAt(store.Root(), event.worker, state.StateEvent{Ts: time.Unix(int64(i+1), 0), Activity: activity, Fields: fields}); err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +76,7 @@ func TestChatCommandReportsPartialWorkerFailure(t *testing.T) {
 	createFeedManifests(t, store, "qm-master", "qm-w1", "qm-w2")
 	if err := state.AppendStateEventAt(store.Root(), "qm-w1", state.StateEvent{
 		Ts:     time.Unix(1, 0),
-		Fields: map[string]interface{}{"chat_kind": "message", "chat_text": "available"},
+		Fields: map[string]interface{}{"chat_entries": []interface{}{map[string]interface{}{"chat_kind": "message", "chat_text": "available"}}},
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -74,10 +74,6 @@ protocol ServeReasoningEffortSuggesting: AnyObject {
     )
 }
 
-protocol ServeWorkerFeedFetching: AnyObject {
-    func fetchWorkerFeed(_ request: WorkerFeedRequest, completion: @escaping (Result<WorkerFeedPayload, Error>) -> Void)
-}
-
 final class UnixSocketMutationClient: ServeMutationSending {
     private let socketPath: String
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
@@ -281,7 +277,7 @@ extension UnixSocketMutationClient: ServeReasoningEffortSuggesting {
     }
 }
 
-extension UnixSocketMutationClient: ServeWorkerFeedFetching {
+extension UnixSocketMutationClient {
     func fetchWorkerFeed(_ request: WorkerFeedRequest, completion: @escaping (Result<WorkerFeedPayload, Error>) -> Void) {
         feedQueue.async { [socketPath] in
             do {
