@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +68,38 @@ func TestChatCommandHistoryAndRendering(t *testing.T) {
 			t.Fatalf("text output truncated worker title: %q", out)
 		}
 	})
+}
+
+func TestChatCommandReportsPartialWorkerFailure(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1", "qm-w2")
+	if err := state.AppendStateEventAt(store.Root(), "qm-w1", state.StateEvent{
+		Ts:     time.Unix(1, 0),
+		Fields: map[string]interface{}{"chat_kind": "message", "chat_text": "available"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(state.SessionStateLogPath(store.Root(), "qm-w2"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	jsonOut := runCmd(t, store, &mockRunner{}, "chat", "qm-master")
+	var page workerfeed.HistoryPage
+	if err := json.Unmarshal([]byte(jsonOut), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 1 || page.Errors["qm-w2"] == "" {
+		t.Fatalf("partial JSON page = %#v", page)
+	}
+
+	textOut := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
+	if !strings.Contains(textOut, "Worker qm-w2: [Error]") {
+		t.Fatalf("text output missing worker error: %q", textOut)
+	}
+	if _, err := runCmdErr(t, store, &mockRunner{}, "chat", "qm-master", "--worker", "qm-w2"); err == nil {
+		t.Fatal("single-worker command succeeded despite unreadable log")
+	}
 }
 
 func TestChatCommandDiscoversCurrentMaster(t *testing.T) {

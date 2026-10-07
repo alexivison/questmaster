@@ -52,10 +52,11 @@ type Response struct {
 }
 
 type HistoryPage struct {
-	MasterID   string  `json:"master_id"`
-	WorkerID   string  `json:"worker_id,omitempty"`
-	Entries    []Entry `json:"entries"`
-	NextBefore string  `json:"next_before,omitempty"`
+	MasterID   string            `json:"master_id"`
+	WorkerID   string            `json:"worker_id,omitempty"`
+	Entries    []Entry           `json:"entries"`
+	NextBefore string            `json:"next_before,omitempty"`
+	Errors     map[string]string `json:"errors,omitempty"`
 }
 
 type worker struct {
@@ -146,6 +147,13 @@ func ReadHistory(root, masterID, workerID, before string, limit int) (HistoryPag
 	for _, worker := range workers {
 		entries, err := readWorkerHistory(root, worker, constraint, limit+1)
 		if err != nil {
+			if workerID != "" {
+				return HistoryPage{}, fmt.Errorf("read worker %s history: %w", worker.id, err)
+			}
+			if page.Errors == nil {
+				page.Errors = make(map[string]string)
+			}
+			page.Errors[worker.id] = err.Error()
 			continue
 		}
 		pageCandidates = append(pageCandidates, entries...)
@@ -239,30 +247,7 @@ func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor
 	}
 	currentID := fileIdentity(info)
 	if cursor.FileID == "" {
-		budget := int64(InitialTailBytes)
-		if info.Size() < budget {
-			rotated, openErr := os.Open(path + ".1")
-			if openErr == nil {
-				defer rotated.Close()
-				rolledInfo, statErr := rotated.Stat()
-				if statErr != nil {
-					return nil, Cursor{}, false, statErr
-				}
-				rolledBudget := budget - info.Size()
-				rolledEntries, next, used, readErr := readTail(rotated, worker, fileIdentity(rolledInfo), rolledBudget, Cursor{})
-				if readErr != nil {
-					return nil, Cursor{}, false, readErr
-				}
-				budget -= int64(used)
-				currentEntries, currentCursor, _, readErr := readForward(current, worker, currentID, 0, int(budget), next, false)
-				return append(rolledEntries, currentEntries...), currentCursor, hasCompleteLineAfter(current, currentCursor.Offset, info.Size()), readErr
-			}
-			if !errors.Is(openErr, os.ErrNotExist) {
-				return nil, Cursor{}, false, openErr
-			}
-		}
-		entries, next, _, readErr := readTail(current, worker, currentID, budget, Cursor{})
-		return entries, next, hasCompleteLineAfter(current, next.Offset, info.Size()), readErr
+		return readInitialTail(path, current, worker, info)
 	}
 	if cursor.FileID == currentID {
 		entries, next, _, err := readForward(current, worker, currentID, cursor.Offset, maxIncrementalRead, cursor, false)
@@ -291,12 +276,35 @@ func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor
 	if openErr != nil && !errors.Is(openErr, os.ErrNotExist) {
 		return nil, cursor, false, openErr
 	}
-	start := info.Size() - InitialTailBytes
-	if start < 0 {
-		start = 0
+	return readInitialTail(path, current, worker, info)
+}
+
+func readInitialTail(path string, current *os.File, worker worker, currentInfo os.FileInfo) ([]Entry, Cursor, bool, error) {
+	currentID := fileIdentity(currentInfo)
+	budget := int64(InitialTailBytes)
+	if currentInfo.Size() < budget {
+		rotated, err := os.Open(path + ".1")
+		if err == nil {
+			defer rotated.Close()
+			rotatedInfo, err := rotated.Stat()
+			if err != nil {
+				return nil, Cursor{}, false, err
+			}
+			rotatedBudget := budget - currentInfo.Size()
+			rotatedEntries, cursor, used, err := readTail(rotated, worker, fileIdentity(rotatedInfo), rotatedBudget, Cursor{})
+			if err != nil {
+				return nil, Cursor{}, false, err
+			}
+			budget -= int64(used)
+			currentEntries, next, _, err := readForward(current, worker, currentID, 0, int(budget), cursor, false)
+			return append(rotatedEntries, currentEntries...), next, hasCompleteLineAfter(current, next.Offset, currentInfo.Size()), err
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, Cursor{}, false, err
+		}
 	}
-	entries, next, _, err := readForward(current, worker, currentID, start, InitialTailBytes, cursor, start > 0)
-	return entries, next, hasCompleteLineAfter(current, next.Offset, info.Size()), err
+	entries, next, _, err := readTail(current, worker, currentID, budget, Cursor{})
+	return entries, next, hasCompleteLineAfter(current, next.Offset, currentInfo.Size()), err
 }
 
 func readTail(file *os.File, worker worker, fileID string, limit int64, cursor Cursor) ([]Entry, Cursor, int, error) {
@@ -670,10 +678,17 @@ func hasCompleteLineAfter(file *os.File, offset, size int64) bool {
 	if offset < 0 {
 		offset = 0
 	}
-	for offset < size {
+	if offset >= size {
+		return false
+	}
+	lookaheadEnd := size
+	if size-offset > int64(maxIncrementalRead) {
+		lookaheadEnd = offset + int64(maxIncrementalRead)
+	}
+	for offset < lookaheadEnd {
 		length := int64(historyChunkBytes)
-		if size-offset < length {
-			length = size - offset
+		if lookaheadEnd-offset < length {
+			length = lookaheadEnd - offset
 		}
 		data := make([]byte, length)
 		n, err := file.ReadAt(data, offset)
@@ -723,11 +738,11 @@ func RenderText(entries []Entry, expandTools bool) string {
 			for _, tool := range order {
 				label := "[" + tool + "]"
 				if counts[tool] > 1 {
-					label += fmt.Sprintf(" x%d", counts[tool])
+					label += fmt.Sprintf("(x%d)", counts[tool])
 				}
 				parts = append(parts, label)
 			}
-			write(entry, "Cast "+strings.Join(parts, ", "))
+			write(entry, "Cast "+strings.Join(parts, " "))
 			i = j
 			continue
 		}
@@ -746,9 +761,9 @@ func renderEntry(entry Entry, expandTools bool) string {
 		return "Cast [" + entry.Text + "]"
 	case "status":
 		label := map[string]string{"working": "Working", "done": "Done", "blocked": "Blocked"}[entry.Text]
-		return "Received status: [" + label + "]"
+		return "Received status [" + label + "]"
 	case "report":
-		return "Reported to Master - " + entry.Text
+		return "[Report] " + entry.Text
 	case "message", "say":
 		return entry.Text
 	default:

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -33,8 +34,23 @@ func newChatCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 				return err
 			}
 			if textOutput || expand {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), workerfeed.RenderText(page.Entries, expand))
-				return err
+				out := cmd.OutOrStdout()
+				if rendered := workerfeed.RenderText(page.Entries, expand); rendered != "" {
+					if _, err := fmt.Fprintln(out, rendered); err != nil {
+						return err
+					}
+				}
+				workerIDs := make([]string, 0, len(page.Errors))
+				for id := range page.Errors {
+					workerIDs = append(workerIDs, id)
+				}
+				sort.Strings(workerIDs)
+				for _, id := range workerIDs {
+					if _, err := fmt.Fprintf(out, "Worker %s: [Error] %s\n", id, page.Errors[id]); err != nil {
+						return err
+					}
+				}
+				return nil
 			}
 			return writeJSON(cmd.OutOrStdout(), page)
 		},

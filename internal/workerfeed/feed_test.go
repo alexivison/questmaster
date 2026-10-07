@@ -130,6 +130,25 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 			t.Fatalf("current cursor missing after first load: %#v", got.Cursors["qm-w1"])
 		}
 	})
+	t.Run("stale cursor falls back to the bounded retained and current tails", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+		appendEvent(t, root, "qm-w1", chatEvent("message", "retained", time.Unix(1, 0)))
+		path := state.SessionStateLogPath(root, "qm-w1")
+		if err := os.Rename(path, path+".1"); err != nil {
+			t.Fatal(err)
+		}
+		appendEvent(t, root, "qm-w1", chatEvent("message", "current", time.Unix(2, 0)))
+
+		got, err := ReadSince(root, "qm-master", map[string]Cursor{"qm-w1": {Offset: 0, FileID: "stale-inode"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Entries) != 2 || got.Entries[0].Text != "retained" || got.Entries[1].Text != "current" {
+			t.Fatalf("stale-cursor entries = %#v, want retained then current", got.Entries)
+		}
+	})
 }
 
 func TestReadSinceTailLineBoundaryAndOffsetBeyondEOF(t *testing.T) {
@@ -265,6 +284,44 @@ func TestReadHistoryFilteringLimitAndPagination(t *testing.T) {
 	}
 }
 
+func TestReadHistoryReportsUnreadableWorker(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1", "qm-w2")
+	appendEvent(t, root, "qm-w1", chatEvent("message", "available", time.Unix(2, 0)))
+	if err := os.MkdirAll(state.SessionStateLogPath(root, "qm-w2"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReadHistory(root, "qm-master", "qm-w2", "", 10); err == nil {
+		t.Fatal("single-worker read succeeded despite unreadable log")
+	}
+	page, err := ReadHistory(root, "qm-master", "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Text != "available" || page.Errors["qm-w2"] == "" {
+		t.Fatalf("partial history = %#v, want available entry and worker error", page)
+	}
+}
+
+func TestHasCompleteLineAfterBoundsLookahead(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "state.jsonl")
+	data := append([]byte(strings.Repeat("x", maxIncrementalRead)), '\n')
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if hasCompleteLineAfter(file, 0, int64(len(data))) {
+		t.Fatal("lookahead found a newline beyond the incremental read budget")
+	}
+}
+
 func TestReadHistorySameTimestampBoundaryAndLongLine(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -294,15 +351,34 @@ func TestReadHistorySameTimestampBoundaryAndLongLine(t *testing.T) {
 
 func TestRenderTextCollapsesAndExpandsActions(t *testing.T) {
 	t.Parallel()
+	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	entries := []Entry{
-		{Timestamp: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Bash", Summary: "Bash: go test ./..."},
-		{Timestamp: time.Date(2026, 10, 7, 12, 0, 1, 0, time.UTC), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Bash", Summary: "Bash: go test ./..."},
-		{Timestamp: time.Date(2026, 10, 7, 12, 0, 2, 0, time.UTC), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Edit", Summary: "Edit: feed.go"},
-		{Timestamp: time.Date(2026, 10, 7, 12, 0, 3, 0, time.UTC), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "status", Text: "done"},
+		{Timestamp: at, WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Bash", Summary: "Bash: go test ./..."},
+		{Timestamp: at.Add(time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Bash", Summary: "Bash: go test ./..."},
+		{Timestamp: at.Add(2 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Edit", Summary: "Edit: feed.go"},
+		{Timestamp: at.Add(3 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Edit", Summary: "Edit: feed.go"},
+		{Timestamp: at.Add(4 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Edit", Summary: "Edit: feed.go"},
+		{Timestamp: at.Add(5 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Edit", Summary: "Edit: feed.go"},
+		{Timestamp: at.Add(6 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "action", Text: "Read", Summary: "Read: feed.go"},
+		{Timestamp: at.Add(7 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "status", Text: "done"},
+		{Timestamp: at.Add(8 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "report", Text: "Finished implementation"},
+		{Timestamp: at.Add(9 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "message", Text: "Final message"},
+		{Timestamp: at.Add(10 * time.Second), WorkerID: "qm-w1", WorkerTitle: "Worker One", Kind: "say", Text: "Progress update"},
 	}
 
 	collapsed := RenderText(entries, false)
-	if !strings.Contains(collapsed, "Worker One: Cast [Bash] x2, [Edit]") || strings.Contains(collapsed, "go test") {
+	for _, want := range []string{
+		"Worker One: Cast [Bash](x2) [Edit](x4) [Read]",
+		"Worker One: Received status [Done]",
+		"Worker One: [Report] Finished implementation",
+		"Worker One: Final message",
+		"Worker One: Progress update",
+	} {
+		if !strings.Contains(collapsed, want) {
+			t.Errorf("collapsed output missing %q: %q", want, collapsed)
+		}
+	}
+	if strings.Contains(collapsed, "go test") || strings.Contains(collapsed, "Received status:") {
 		t.Fatalf("collapsed output = %q", collapsed)
 	}
 	expanded := RenderText(entries, true)
