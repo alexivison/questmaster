@@ -298,6 +298,79 @@ func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
 	}
 }
 
+func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-batch-reader"
+	if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"primary": {Role: "primary", State: "idle"}}}); err != nil {
+		t.Fatalf("save initial state: %v", err)
+	}
+	statePath := SessionStatePath(root, id)
+	if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
+		t.Fatalf("make state write fail: %v", err)
+	}
+	logPath := SessionStateLogPath(root, id)
+	var readerData []byte
+	var readerErr error
+	events := []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}
+	err := updateAndLogBatchAt(root, id, events, func(ss *SessionState) bool {
+		ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+		return true
+	}, func(w io.Writer, data []byte) (int, error) {
+		written, writeErr := w.Write(data)
+		readDone := make(chan struct{})
+		go func() {
+			readerData, readerErr = os.ReadFile(logPath)
+			close(readDone)
+		}()
+		<-readDone
+		return written, writeErr
+	})
+	if err == nil || !strings.Contains(err.Error(), "write tmp state") {
+		t.Fatalf("batch error = %v, want state write failure", err)
+	}
+	if readerErr != nil {
+		t.Fatalf("concurrent feed read: %v", readerErr)
+	}
+	if len(readerData) == 0 || readerData[len(readerData)-1] != '\n' {
+		t.Fatalf("reader did not observe complete records: %q", readerData)
+	}
+	var observed []StateEvent
+	for _, line := range bytes.Split(bytes.TrimSpace(readerData), []byte("\n")) {
+		var event StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode concurrent record: %v", err)
+		}
+		observed = append(observed, event)
+	}
+	if len(observed) != len(events) || observed[0].Action != events[0].Action || observed[1].Action != events[1].Action {
+		t.Fatalf("concurrent reader events = %#v", observed)
+	}
+
+	if err := os.Remove(statePath + ".tmp"); err != nil {
+		t.Fatalf("remove state write blocker: %v", err)
+	}
+	if err := UpdateAndLogBatch(id, []*StateEvent{{Action: "later"}}, func(ss *SessionState) bool {
+		ss.Panes["primary"] = PaneState{Role: "primary", State: "done"}
+		return true
+	}); err != nil {
+		t.Fatalf("append after visible cursor: %v", err)
+	}
+	logAfter, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log after later append: %v", err)
+	}
+	if len(logAfter) < len(readerData) {
+		t.Fatalf("log was truncated behind reader cursor: size=%d cursor=%d", len(logAfter), len(readerData))
+	}
+	var later StateEvent
+	if err := json.Unmarshal(bytes.TrimSpace(logAfter[len(readerData):]), &later); err != nil {
+		t.Fatalf("decode event after reader cursor: %v", err)
+	}
+	if later.Action != "later" {
+		t.Fatalf("event after reader cursor = %q, want later", later.Action)
+	}
+}
+
 func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 	const id = "qm-batch-rotate"
 	logPathFor := func(root string) string { return SessionStateLogPath(root, id) }
