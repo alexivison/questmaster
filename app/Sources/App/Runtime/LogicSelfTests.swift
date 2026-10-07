@@ -57,6 +57,7 @@ enum LogicSelfTests {
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
+        ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1901,6 +1902,16 @@ enum LogicSelfTests {
         drainMainQueue()
 
         try expect(model.errorMessage == nil, "both saves succeeding should leave no error")
+    }
+
+    /// A fractional footer height puts every plate border and the snapped terminal edge on half
+    /// pixels at 1x, which renders blurry — guards the content-height rounding in
+    /// `ActionBarMetrics.footerHeight` against a future edit reintroducing a fractional sum.
+    private static func testActionBarFooterHeightIsIntegral() throws {
+        try expect(
+            ActionBarMetrics.footerHeight == ActionBarMetrics.footerHeight.rounded(),
+            "footerHeight should be a whole point, got \(ActionBarMetrics.footerHeight)"
+        )
     }
 
     private static func settingsSheetModel(
