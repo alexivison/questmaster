@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/repo"
@@ -50,6 +51,12 @@ type StartResult struct {
 
 // Start creates and launches a new questmaster session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
+	role := roleStandalone
+	if opts.Master {
+		role = roleMaster
+	} else if opts.MasterID != "" {
+		role = roleWorker
+	}
 	cwd := opts.Cwd
 	if cwd == "" {
 		var err error
@@ -65,18 +72,16 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	// blank" promise; otherwise it stays blank for the first-turn hook to
 	// fill in once the user's first message arrives.
 	titleLocked := strings.TrimSpace(opts.Title) != "" && !opts.Shell
-	if !titleLocked && opts.Prompt != "" {
+	if role != roleWorker && !titleLocked && opts.Prompt != "" {
 		opts.Title = TitleFromPrompt(opts.Prompt)
-	}
-
-	role := roleStandalone
-	if opts.Master {
-		role = roleMaster
-	} else if opts.MasterID != "" {
-		role = roleWorker
 	}
 	if opts.Shell && (opts.Master || opts.MasterID != "" || opts.Prompt != "" || opts.SystemBrief != "") {
 		return StartResult{}, fmt.Errorf("start --shell: shell sessions cannot take a master/worker role or a prompt")
+	}
+	if role == roleWorker {
+		if err := validateWorkerTitle(opts.Title); err != nil {
+			return StartResult{}, err
+		}
 	}
 	agentRole := agentSessionRole(role)
 	agentPath := defaultAgentPath()
@@ -282,6 +287,16 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 
 	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd}, nil
+}
+
+func validateWorkerTitle(title string) error {
+	if strings.TrimSpace(title) == "" {
+		return fmt.Errorf("worker title is required; provide an explicit title of at most 16 Unicode characters (runes)")
+	}
+	if count := utf8.RuneCountInString(title); count > 16 {
+		return fmt.Errorf("worker title must be at most 16 Unicode characters (runes); got %d", count)
+	}
+	return nil
 }
 
 func workerParentBrief(parentID, brief string) string {

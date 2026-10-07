@@ -46,6 +46,8 @@ func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {
 	got := masterPromptWithGuide()
 	for _, want := range []string{
 		"Spawn plain Questmaster workers with questmaster spawn --cwd <worktree>",
+		"worker title must be explicit and no longer than 16 Unicode characters (runes)",
+		"do not rely on the prompt to name the worker",
 		"main/control checkout",
 		"worker manifest cwd is fixed at launch",
 		"Do not use sleep, polling, or watch loops to monitor workers",

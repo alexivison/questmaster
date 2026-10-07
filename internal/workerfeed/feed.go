@@ -4,8 +4,8 @@
 package workerfeed
 
 import (
-	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,9 +23,10 @@ const (
 	maxTextChars       = 1500
 	InitialTailBytes   = 256 * 1024
 	maxIncrementalRead = 256 * 1024
+	historyChunkBytes  = 64 * 1024
+	maxHistoryLineSize = 2 * 1024 * 1024
 	DefaultLimit       = 50
 	MaxLimit           = 200
-	maxLogLineBytes    = 64 * 1024
 )
 
 type Entry struct {
@@ -35,23 +36,18 @@ type Entry struct {
 	Kind        string    `json:"kind"`
 	Text        string    `json:"text"`
 	Summary     string    `json:"summary,omitempty"`
-	AgentID     string    `json:"-"`
+	position    entryPosition
 }
 
 type Cursor struct {
-	Offset           int64      `json:"offset"`
-	FileID           string     `json:"file_id,omitempty"`
-	LastState        string     `json:"last_state,omitempty"`
-	PendingPartID    string     `json:"pending_part_id,omitempty"`
-	PendingPartText  string     `json:"pending_part_text,omitempty"`
-	PendingPartAt    *time.Time `json:"pending_part_at,omitempty"`
-	PendingFinalText string     `json:"pending_final_text,omitempty"`
-	PendingFinalAt   *time.Time `json:"pending_final_at,omitempty"`
+	Offset int64  `json:"offset"`
+	FileID string `json:"file_id"`
 }
 
 type Response struct {
 	Entries []Entry           `json:"entries"`
 	Cursors map[string]Cursor `json:"cursors"`
+	HasMore map[string]bool   `json:"has_more"`
 }
 
 type HistoryPage struct {
@@ -64,6 +60,14 @@ type HistoryPage struct {
 type worker struct {
 	id    string
 	title string
+}
+
+type entryPosition struct {
+	timestamp time.Time
+	workerID  string
+	fileID    string
+	offset    int64
+	index     int
 }
 
 // CapText keeps the first three paragraphs and at most 1500 Unicode characters.
@@ -105,49 +109,50 @@ func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, erro
 	if err != nil {
 		return Response{}, err
 	}
-	result := Response{Entries: []Entry{}, Cursors: make(map[string]Cursor, len(workers))}
+	result := Response{Entries: []Entry{}, Cursors: make(map[string]Cursor, len(workers)), HasMore: make(map[string]bool, len(workers))}
 	for _, worker := range workers {
+		result.HasMore[worker.id] = false
 		entries, cursor, err := readWorkerSince(root, worker, cursors[worker.id])
 		if err != nil {
-			return Response{}, fmt.Errorf("read worker %s feed: %w", worker.id, err)
+			result.Cursors[worker.id] = cursors[worker.id]
+			continue
 		}
 		result.Entries = append(result.Entries, entries...)
 		result.Cursors[worker.id] = cursor
+		result.HasMore[worker.id] = workerHasMore(root, worker.id, cursor)
 	}
 	sortEntries(result.Entries)
 	return result, nil
 }
 
-// ReadHistory returns the newest bounded page, optionally for one worker and before a timestamp.
-func ReadHistory(root, masterID, workerID string, before time.Time, limit int) (HistoryPage, error) {
+// ReadHistory returns the newest bounded page, optionally for one worker and before a timestamp or entry token.
+func ReadHistory(root, masterID, workerID, before string, limit int) (HistoryPage, error) {
 	workers, err := workersForMaster(root, masterID, workerID)
 	if err != nil {
 		return HistoryPage{}, err
 	}
 	limit = normalizeLimit(limit)
-	page := HistoryPage{MasterID: masterID, WorkerID: workerID, Entries: []Entry{}}
-	for _, worker := range workers {
-		entries, err := readWorkerHistory(root, worker)
-		if err != nil {
-			return HistoryPage{}, fmt.Errorf("read worker %s feed: %w", worker.id, err)
-		}
-		eligible := entries[:0]
-		for _, entry := range entries {
-			if before.IsZero() || entry.Timestamp.Before(before) {
-				eligible = append(eligible, entry)
-			}
-		}
-		if len(eligible) > limit {
-			eligible = eligible[len(eligible)-limit:]
-		}
-		page.Entries = append(page.Entries, eligible...)
-		sortEntries(page.Entries)
-		if len(page.Entries) > limit {
-			page.Entries = page.Entries[len(page.Entries)-limit:]
-		}
+	constraint, err := parseBefore(before)
+	if err != nil {
+		return HistoryPage{}, err
 	}
-	if len(page.Entries) == limit {
-		page.NextBefore = page.Entries[0].Timestamp.UTC().Format(time.RFC3339Nano)
+	page := HistoryPage{MasterID: masterID, WorkerID: workerID, Entries: []Entry{}}
+	pageCandidates := make([]Entry, 0, limit+1)
+	for _, worker := range workers {
+		entries, err := readWorkerHistory(root, worker, constraint, limit+1)
+		if err != nil {
+			continue
+		}
+		pageCandidates = append(pageCandidates, entries...)
+	}
+	sortEntries(pageCandidates)
+	hasOlder := len(pageCandidates) > limit
+	if hasOlder {
+		pageCandidates = pageCandidates[len(pageCandidates)-limit:]
+	}
+	page.Entries = pageCandidates
+	if hasOlder && len(page.Entries) > 0 {
+		page.NextBefore = encodePosition(page.Entries[0].position)
 	}
 	return page, nil
 }
@@ -217,7 +222,7 @@ func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor
 		if !errors.Is(rotatedErr, os.ErrNotExist) {
 			return nil, Cursor{}, rotatedErr
 		}
-		return nil, Cursor{}, nil
+		return nil, cursor, nil
 	}
 	if err != nil {
 		return nil, cursor, err
@@ -311,7 +316,14 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 		return nil, cursor, 0, err
 	}
 	if offset < 0 || offset > info.Size() {
-		offset = 0
+		if offset < 0 {
+			offset = 0
+		} else {
+			offset = info.Size()
+		}
+	}
+	if cursor.FileID == fileID && cursor.Offset > info.Size() {
+		cursor.Offset = info.Size()
 	}
 	available := info.Size() - offset
 	if available > int64(maxBytes) {
@@ -325,13 +337,22 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 	data = data[:n]
 	used := n
 	if skipPartial {
-		if newline := bytes.IndexByte(data, '\n'); newline >= 0 {
-			offset += int64(newline + 1)
-			data = data[newline+1:]
-		} else {
-			cursor.Offset = offset + int64(n)
-			cursor.FileID = fileID
-			return nil, cursor, used, nil
+		atLineStart := offset == 0
+		if offset > 0 {
+			var prev [1]byte
+			if _, err := file.ReadAt(prev[:], offset-1); err == nil && prev[0] == '\n' {
+				atLineStart = true
+			}
+		}
+		if !atLineStart {
+			if newline := bytes.IndexByte(data, '\n'); newline >= 0 {
+				offset += int64(newline + 1)
+				data = data[newline+1:]
+			} else {
+				cursor.Offset = offset + int64(n)
+				cursor.FileID = fileID
+				return nil, cursor, used, nil
+			}
 		}
 	}
 	if cursor.FileID != fileID {
@@ -348,7 +369,7 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 		line := data[:i]
 		var event state.StateEvent
 		if len(line) > 0 && json.Unmarshal(line, &event) == nil {
-			entries := deriveWorkerEvent(worker.id, worker.title, event, &cursor)
+			entries := deriveWorkerEvent(worker, fileID, lineStart, event)
 			cursor.Offset = lineStart + int64(i+1)
 			allEntries = append(allEntries, entries...)
 		} else {
@@ -360,10 +381,9 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 	return allEntries, cursor, used, nil
 }
 
-func readWorkerHistory(root string, worker worker) ([]Entry, error) {
-	paths := []string{state.SessionStateLogPath(root, worker.id) + ".1", state.SessionStateLogPath(root, worker.id)}
-	cursor := Cursor{}
-	entries := make([]Entry, 0)
+func readWorkerHistory(root string, worker worker, before beforeConstraint, limit int) ([]Entry, error) {
+	paths := []string{state.SessionStateLogPath(root, worker.id), state.SessionStateLogPath(root, worker.id) + ".1"}
+	entries := make([]Entry, 0, limit)
 	for _, path := range paths {
 		file, err := os.Open(path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -377,105 +397,172 @@ func readWorkerHistory(root string, worker worker) ([]Entry, error) {
 			file.Close()
 			return nil, statErr
 		}
-		identity := fileIdentity(info)
-		chunkLimit := int64(state.StateJSONLMaxSize + maxLogLineBytes)
-		data, readErr := io.ReadAll(io.LimitReader(file, chunkLimit))
+		page, readErr := readHistoryFile(file, worker, fileIdentity(info), before, limit-len(entries))
 		file.Close()
 		if readErr != nil {
 			return nil, readErr
 		}
-		if len(data) > 0 {
-			chunk, next, err := deriveLines(worker, identity, data, cursor)
-			if err != nil {
-				return nil, err
-			}
-			entries = append(entries, chunk...)
-			cursor = next
+		entries = append(entries, page...)
+		if len(entries) >= limit {
+			break
 		}
 	}
 	return entries, nil
 }
 
-func deriveLines(worker worker, fileID string, data []byte, cursor Cursor) ([]Entry, Cursor, error) {
-	var entries []Entry
-	reader := bufio.NewScanner(bytes.NewReader(data))
-	reader.Buffer(make([]byte, 4096), maxLogLineBytes)
-	for reader.Scan() {
+func readHistoryFile(file *os.File, worker worker, fileID string, before beforeConstraint, limit int) ([]Entry, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	end := info.Size()
+	entries := make([]Entry, 0, limit)
+	for end > 0 && len(entries) < limit {
+		start, lineEnd, err := previousLine(file, end)
+		if err != nil {
+			return nil, err
+		}
+		end = start
+		if lineEnd-start > maxHistoryLineSize {
+			continue
+		}
+		line := make([]byte, lineEnd-start)
+		if _, err := file.ReadAt(line, start); err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
 		var event state.StateEvent
-		if json.Unmarshal(reader.Bytes(), &event) == nil {
-			entries = append(entries, deriveWorkerEvent(worker.id, worker.title, event, &cursor)...)
+		if json.Unmarshal(line, &event) != nil {
+			continue
+		}
+		lineEntries := deriveWorkerEvent(worker, fileID, start, event)
+		for i := len(lineEntries) - 1; i >= 0 && len(entries) < limit; i-- {
+			entry := lineEntries[i]
+			if before.includes(entry.position) {
+				entries = append(entries, entry)
+			}
 		}
 	}
-	if err := reader.Err(); err != nil {
-		return nil, cursor, err
-	}
-	cursor.FileID = fileID
-	cursor.Offset = int64(len(data))
-	return entries, cursor, nil
+	return entries, nil
 }
 
-func deriveWorkerEvent(workerID, title string, event state.StateEvent, cursor *Cursor) []Entry {
-	fields := event.Fields
-	if event.AgentID != "" {
-		return nil
-	}
-	if value, ok := fields["agent_id"].(string); ok && value != "" {
-		return nil
-	}
-	entry := func(kind, text, summary string, at time.Time) Entry {
-		if at.IsZero() {
-			at = event.Ts
+func previousLine(file *os.File, end int64) (start, lineEnd int64, err error) {
+	lineEnd = end
+	if end > 0 {
+		var last [1]byte
+		if _, err := file.ReadAt(last[:], end-1); err != nil && !errors.Is(err, io.EOF) {
+			return 0, 0, err
 		}
-		return Entry{Timestamp: at, WorkerID: workerID, WorkerTitle: title, Kind: kind, Text: CapText(text), Summary: CapText(summary), AgentID: event.AgentID}
+		if last[0] == '\n' {
+			lineEnd--
+		}
 	}
-	var entries []Entry
-	kind, _ := fields["chat_kind"].(string)
-	text, _ := fields["chat_text"].(string)
-	summary, _ := fields["chat_summary"].(string)
-	if kind == "message" && strings.TrimSpace(text) != "" {
-		entries = append(entries, entry(kind, text, "", event.Ts))
+	pos := lineEnd
+	for pos > 0 {
+		chunkStart := pos - historyChunkBytes
+		if chunkStart < 0 {
+			chunkStart = 0
+		}
+		chunk := make([]byte, pos-chunkStart)
+		if _, err := file.ReadAt(chunk, chunkStart); err != nil && !errors.Is(err, io.EOF) {
+			return 0, 0, err
+		}
+		if index := bytes.LastIndexByte(chunk, '\n'); index >= 0 {
+			return chunkStart + int64(index+1), lineEnd, nil
+		}
+		pos = chunkStart
 	}
+	return 0, lineEnd, nil
+}
 
-	partID, _ := fields["workerfeed_part_id"].(string)
-	partText, _ := fields["workerfeed_part_text"].(string)
-	if partID != "" && partText != "" {
-		cursor.PendingPartID = partID
-		cursor.PendingPartText = CapText(partText)
-		partAt := event.Ts
-		cursor.PendingPartAt = &partAt
+type beforeConstraint struct {
+	timestamp *time.Time
+	position  *entryPosition
+}
+
+func parseBefore(value string) (beforeConstraint, error) {
+	if value == "" {
+		return beforeConstraint{}, nil
 	}
-	assistantID, _ := fields["workerfeed_assistant_message_id"].(string)
-	if assistantID != "" && assistantID == cursor.PendingPartID {
-		cursor.PendingFinalText = cursor.PendingPartText
-		cursor.PendingFinalAt = cursor.PendingPartAt
-		cursor.PendingPartID = ""
-		cursor.PendingPartText = ""
-		cursor.PendingPartAt = nil
+	if timestamp, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return beforeConstraint{timestamp: &timestamp}, nil
 	}
-	if event.Action == "tool.execute.before" {
-		cursor.PendingFinalText = ""
-		cursor.PendingFinalAt = nil
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return beforeConstraint{}, fmt.Errorf("parse --before as RFC3339 timestamp or entry token")
 	}
-	if event.State == "done" && cursor.PendingFinalText != "" {
-		at := event.Ts
-		if cursor.PendingFinalAt != nil {
-			at = *cursor.PendingFinalAt
+	var token struct {
+		Timestamp time.Time `json:"timestamp"`
+		WorkerID  string    `json:"worker_id"`
+		FileID    string    `json:"file_id"`
+		Offset    int64     `json:"offset"`
+		Index     int       `json:"index"`
+	}
+	if err := json.Unmarshal(data, &token); err != nil || token.Timestamp.IsZero() || token.WorkerID == "" || token.FileID == "" {
+		return beforeConstraint{}, fmt.Errorf("parse --before entry token")
+	}
+	pos := entryPosition{timestamp: token.Timestamp, workerID: token.WorkerID, fileID: token.FileID, offset: token.Offset, index: token.Index}
+	return beforeConstraint{position: &pos}, nil
+}
+
+func (b beforeConstraint) includes(pos entryPosition) bool {
+	if b.timestamp != nil {
+		return pos.timestamp.Before(*b.timestamp)
+	}
+	return b.position == nil || comparePositions(pos, *b.position) < 0
+}
+
+func encodePosition(pos entryPosition) string {
+	token, _ := json.Marshal(struct {
+		Timestamp time.Time `json:"timestamp"`
+		WorkerID  string    `json:"worker_id"`
+		FileID    string    `json:"file_id"`
+		Offset    int64     `json:"offset"`
+		Index     int       `json:"index"`
+	}{pos.timestamp, pos.workerID, pos.fileID, pos.offset, pos.index})
+	return base64.RawURLEncoding.EncodeToString(token)
+}
+
+func deriveWorkerEvent(worker worker, fileID string, offset int64, event state.StateEvent) []Entry {
+	if event.Fields == nil {
+		return nil
+	}
+	var rawEntries []interface{}
+	if list, ok := event.Fields["chat_entries"].([]interface{}); ok {
+		rawEntries = list
+	} else if kind, ok := event.Fields["chat_kind"].(string); ok {
+		rawEntries = []interface{}{map[string]interface{}{"chat_kind": kind, "chat_text": event.Fields["chat_text"]}}
+	}
+	entries := make([]Entry, 0, len(rawEntries))
+	for i, raw := range rawEntries {
+		fields, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
 		}
-		entries = append(entries, entry("message", cursor.PendingFinalText, "", at))
-		cursor.PendingFinalText = ""
-		cursor.PendingFinalAt = nil
-	}
-	if event.State != "" {
-		previous := cursor.LastState
-		cursor.LastState = event.State
-		if event.State != previous && (event.State == "working" || event.State == "done" || event.State == "blocked") {
-			entries = append(entries, entry("status", event.State, "", event.Ts))
+		kind, _ := fields["chat_kind"].(string)
+		text, _ := fields["chat_text"].(string)
+		if strings.TrimSpace(text) == "" || !validChatKind(kind) {
+			continue
 		}
-	}
-	if kind != "message" && (kind == "action" || kind == "report" || kind == "say") && strings.TrimSpace(text) != "" {
-		entries = append(entries, entry(kind, text, summary, event.Ts))
+		entry := Entry{
+			Timestamp: event.Ts, WorkerID: worker.id, WorkerTitle: worker.title,
+			Kind: kind, Text: text,
+			position: entryPosition{timestamp: event.Ts, workerID: worker.id, fileID: fileID, offset: offset, index: i},
+		}
+		if kind == "action" {
+			entry.Summary = event.Activity
+		}
+		entries = append(entries, entry)
 	}
 	return entries
+}
+
+func validChatKind(kind string) bool {
+	switch kind {
+	case "status", "action", "message", "report", "say":
+		return true
+	default:
+		return false
+	}
 }
 
 func fileIdentity(info os.FileInfo) string {
@@ -487,14 +574,108 @@ func fileIdentity(info os.FileInfo) string {
 }
 
 func sortEntries(entries []Entry) {
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Timestamp.Before(entries[j].Timestamp) })
+	sort.SliceStable(entries, func(i, j int) bool {
+		if !entries[i].Timestamp.Equal(entries[j].Timestamp) {
+			return entries[i].Timestamp.Before(entries[j].Timestamp)
+		}
+		return comparePositions(entries[i].position, entries[j].position) < 0
+	})
+}
+
+func comparePositions(a, b entryPosition) int {
+	if !a.timestamp.Equal(b.timestamp) {
+		if a.timestamp.Before(b.timestamp) {
+			return -1
+		}
+		return 1
+	}
+	if a.workerID != b.workerID {
+		if a.workerID < b.workerID {
+			return -1
+		}
+		return 1
+	}
+	if a.fileID != b.fileID {
+		if a.fileID < b.fileID {
+			return -1
+		}
+		return 1
+	}
+	if a.offset != b.offset {
+		if a.offset < b.offset {
+			return -1
+		}
+		return 1
+	}
+	if a.index < b.index {
+		return -1
+	}
+	if a.index > b.index {
+		return 1
+	}
+	return 0
+}
+
+func workerHasMore(root, workerID string, cursor Cursor) bool {
+	if cursor.FileID == "" {
+		return false
+	}
+	path := state.SessionStateLogPath(root, workerID)
+	if file, err := os.Open(path); err == nil {
+		defer file.Close()
+		if info, statErr := file.Stat(); statErr == nil && fileIdentity(info) == cursor.FileID {
+			return hasCompleteLineAfter(file, cursor.Offset)
+		}
+	}
+	if file, err := os.Open(path + ".1"); err == nil {
+		defer file.Close()
+		if info, statErr := file.Stat(); statErr == nil && fileIdentity(info) == cursor.FileID {
+			if hasCompleteLineAfter(file, cursor.Offset) {
+				return true
+			}
+			if current, openErr := os.Open(path); openErr == nil {
+				defer current.Close()
+				return hasCompleteLineAfter(current, 0)
+			}
+		}
+	}
+	return false
+}
+
+func hasCompleteLineAfter(file *os.File, offset int64) bool {
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	for offset < info.Size() {
+		length := int64(historyChunkBytes)
+		if info.Size()-offset < length {
+			length = info.Size() - offset
+		}
+		data := make([]byte, length)
+		n, err := file.ReadAt(data, offset)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return false
+		}
+		if bytes.IndexByte(data[:n], '\n') >= 0 {
+			return true
+		}
+		offset += int64(n)
+		if n == 0 {
+			return false
+		}
+	}
+	return false
 }
 
 func RenderText(entries []Entry, expandTools bool) string {
 	var out strings.Builder
 	lastHeader := ""
 	write := func(entry Entry, text string) {
-		header := entry.Timestamp.Format("15:04")
+		header := entry.Timestamp.Local().Format("15:04")
 		if header != lastHeader {
 			if out.Len() > 0 {
 				out.WriteByte('\n')
@@ -510,7 +691,7 @@ func RenderText(entries []Entry, expandTools bool) string {
 			counts := make(map[string]int)
 			order := make([]string, 0, 3)
 			j := i
-			for j < len(entries) && entries[j].Kind == "action" && entries[j].WorkerID == entry.WorkerID && entries[j].AgentID == entry.AgentID {
+			for j < len(entries) && entries[j].Kind == "action" && entries[j].WorkerID == entry.WorkerID {
 				tool := entries[j].Text
 				if _, exists := counts[tool]; !exists {
 					order = append(order, tool)
@@ -559,10 +740,6 @@ func displayName(entry Entry) string {
 	name := strings.TrimSpace(entry.WorkerTitle)
 	if name == "" {
 		name = entry.WorkerID
-	}
-	runes := []rune(name)
-	if len(runes) > 16 {
-		name = string(runes[:16])
 	}
 	return name
 }

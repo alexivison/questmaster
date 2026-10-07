@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -29,15 +28,7 @@ func newChatCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 				}
 				masterID = id
 			}
-			var before time.Time
-			if beforeText != "" {
-				parsed, err := time.Parse(time.RFC3339Nano, beforeText)
-				if err != nil {
-					return fmt.Errorf("parse --before timestamp: %w", err)
-				}
-				before = parsed
-			}
-			page, err := workerfeed.ReadHistory(store.Root(), masterID, workerID, before, limit)
+			page, err := workerfeed.ReadHistory(store.Root(), masterID, workerID, beforeText, limit)
 			if err != nil {
 				return err
 			}
@@ -50,7 +41,7 @@ func newChatCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&workerID, "worker", "", "show one worker's feed")
 	cmd.Flags().IntVar(&limit, "limit", workerfeed.DefaultLimit, "maximum entries to return")
-	cmd.Flags().StringVar(&beforeText, "before", "", "return entries before an RFC3339 timestamp")
+	cmd.Flags().StringVar(&beforeText, "before", "", "return entries before an RFC3339 timestamp or page cursor")
 	cmd.Flags().BoolVar(&textOutput, "text", false, "render a human-readable feed")
 	cmd.Flags().BoolVar(&expand, "expand", false, "render each tool call with its safe activity summary")
 	return cmd

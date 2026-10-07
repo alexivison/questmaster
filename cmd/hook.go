@@ -54,7 +54,7 @@ type HookRunner struct {
 	// always appends ev, then conditionally writes state.json when mutate
 	// returns true. Hot-path handlers use this instead of an AppendEvent +
 	// Update pair to take one lock per event instead of two.
-	UpdateAndLog func(sessionID string, ev state.StateEvent, mutate func(*state.SessionState) bool) error
+	UpdateAndLog func(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) error
 }
 
 type hookManifestStore interface {
@@ -95,18 +95,18 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 //
 // It returns the append and update errors separately so callers can keep
 // their agent-specific stderr messages.
-func (r *HookRunner) updateAndLog(sessionID string, ev state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
+func (r *HookRunner) updateAndLog(sessionID string, ev *state.StateEvent, mutate func(*state.SessionState) bool) (appendErr, updateErr error) {
 	if r.UpdateAndLog != nil {
 		// The combined path logs the event and writes state under one lock;
 		// surface its single error as the update error so the (rare) failure
 		// is still reported.
 		return nil, r.UpdateAndLog(sessionID, ev, mutate)
 	}
-	if r.AppendEvent != nil {
-		appendErr = r.AppendEvent(sessionID, ev)
-	}
 	if r.Update != nil {
 		updateErr = r.Update(sessionID, mutate)
+	}
+	if r.AppendEvent != nil {
+		appendErr = r.AppendEvent(sessionID, *ev)
 	}
 	return appendErr, updateErr
 }
@@ -278,11 +278,12 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	// Compute the desired pane mutation. Subagent suppression is
 	// Claude-specific because only Claude carries an agent_id discriminator.
 	var (
-		setState    string // empty → do not change State
-		setActivity string
-		setTool     string
-		clearTool   bool
-		lastKind    string
+		setState     string // empty → do not change State
+		setActivity  string
+		setTool      string
+		clearTool    bool
+		lastKind     string
+		finalMessage string
 		// suppressStateForSubagent controls whether the subagent rule
 		// applies to this action. tool_start / tool_end on a subagent
 		// still update Activity (so the renderer can show what the
@@ -349,7 +350,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// reading the file races and frequently returns no assistant
 		// record. Fall back to the transcript tail when the payload
 		// field is absent.
-		finalMessage := payload.LastAssistantMessage
+		finalMessage = payload.LastAssistantMessage
 		if finalMessage == "" {
 			if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
 				finalMessage = saidText(tail)
@@ -357,9 +358,6 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		if finalMessage != "" {
 			setActivity = truncatePromptLine(finalMessage)
-			if !isSubagent {
-				addChatFields(&ev, "message", finalMessage, "")
-			}
 		}
 		lastKind = "Stop"
 	case "subagent_stop":
@@ -374,6 +372,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		if result != "" {
 			setActivity = "Subagent: " + truncatePromptLine(result)
+			// Keep this for the future sub-agent returned line in worker chat.
 			ev.Fields = map[string]interface{}{"subagent_result": workerfeed.CapText(result)}
 		}
 		lastKind = "SubagentStop"
@@ -410,23 +409,13 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		setState = ""
 		setActivity = ""
 	}
-	if opts.action == "tool_start" && !isSubagent && payload.ToolName != "" {
-		addChatFields(&ev, "action", payload.ToolName, setActivity)
-	}
-	if payload.AgentID != "" && ev.Fields != nil {
-		ev.Fields["agent_id"] = payload.AgentID
-	}
-	if payload.AgentType != "" && ev.Fields != nil {
-		ev.Fields["agent_type"] = payload.AgentType
-	}
-
 	ev.State = setState
 	ev.Activity = setActivity
 	ev.Tool = setTool
 	ev.Kind = lastKind
 
 	firstPrompt := false
-	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -438,7 +427,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		prev := struct {
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
+			LastChatStatus                  string
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus}
 
 		// Subagent suppression: drop the State mutation while preserving
 		// Activity/Tool/LastKind updates so the renderer still gets useful
@@ -496,6 +486,20 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		pane.Seq = now.UnixNano()
 		pane.Agent = "claude"
 		pane.Role = role
+		if !isSubagent {
+			if opts.action == "done" && finalMessage != "" && pane.State == "done" {
+				addChatEntry(&ev, "message", finalMessage)
+			}
+			if opts.action == "tool_start" && payload.ToolName != "" {
+				if pane.State != prev.State {
+					addVisibleStatus(&ev, &pane, pane.State)
+				}
+				addChatEntry(&ev, "action", payload.ToolName)
+			}
+			if opts.action != "tool_start" && pane.State != prev.State {
+				addVisibleStatus(&ev, &pane, pane.State)
+			}
+		}
 		ss.Panes[role] = pane
 
 		// Conditional flush: rewrite state.json only when renderer-visible
@@ -505,7 +509,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
-			pane.WorkingSince.Equal(prev.WorkingSince) {
+			pane.WorkingSince.Equal(prev.WorkingSince) &&
+			pane.LastChatStatus == prev.LastChatStatus {
 			return false
 		}
 		return true
@@ -548,23 +553,38 @@ func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLast
 	pane.WorkingSince = now
 }
 
-func chatFields(kind, text, summary string) map[string]interface{} {
-	fields := map[string]interface{}{
-		"chat_kind": kind,
-		"chat_text": workerfeed.CapText(text),
+func addChatEntry(event *state.StateEvent, kind, text string) {
+	if strings.TrimSpace(text) == "" {
+		return
 	}
-	if summary != "" {
-		fields["chat_summary"] = workerfeed.CapText(summary)
+	if event.Fields == nil {
+		event.Fields = make(map[string]interface{})
 	}
-	return fields
+	entry := map[string]interface{}{"chat_kind": kind, "chat_text": workerfeed.CapText(text)}
+	if entries, ok := event.Fields["chat_entries"].([]interface{}); ok {
+		event.Fields["chat_entries"] = append(entries, entry)
+		return
+	}
+	if oldKind, ok := event.Fields["chat_kind"].(string); ok {
+		old := map[string]interface{}{"chat_kind": oldKind, "chat_text": event.Fields["chat_text"]}
+		delete(event.Fields, "chat_kind")
+		delete(event.Fields, "chat_text")
+		event.Fields["chat_entries"] = []interface{}{old, entry}
+		return
+	}
+	event.Fields["chat_kind"] = kind
+	event.Fields["chat_text"] = workerfeed.CapText(text)
 }
 
-func addChatFields(event *state.StateEvent, kind, text, summary string) {
-	fields := chatFields(kind, text, summary)
-	for key, value := range event.Fields {
-		fields[key] = value
+func addVisibleStatus(event *state.StateEvent, pane *state.PaneState, status string) {
+	if status != "working" && status != "done" && status != "blocked" {
+		return
 	}
-	event.Fields = fields
+	if pane.LastChatStatus == status {
+		return
+	}
+	addChatEntry(event, "status", status)
+	pane.LastChatStatus = status
 }
 
 func isTaskNotification(prompt string) bool {
@@ -857,11 +877,12 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	}
 
 	var (
-		setState    string
-		setActivity string
-		setTool     string
-		clearTool   bool
-		lastKind    string
+		setState     string
+		setActivity  string
+		setTool      string
+		clearTool    bool
+		lastKind     string
+		finalMessage string
 	)
 
 	switch opts.action {
@@ -892,7 +913,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		lastKind = "PermissionRequest"
 	case "done":
 		setState = "done"
-		finalMessage := payload.LastAssistantMessage
+		finalMessage = payload.LastAssistantMessage
 		if finalMessage == "" {
 			if tail, err := r.LoadTranscriptTail(payload.TranscriptPath); err == nil && len(tail) > 0 {
 				finalMessage = saidText(tail)
@@ -900,30 +921,19 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		}
 		if finalMessage != "" {
 			setActivity = truncatePromptLine(finalMessage)
-			addChatFields(&ev, "message", finalMessage, "")
 		}
 		lastKind = "Stop"
 	default:
 		fmt.Fprintf(stderr, "questmaster hook codex: unknown action %q\n", opts.action)
 		return
 	}
-	if opts.action == "tool_start" && payload.ToolName != "" {
-		addChatFields(&ev, "action", payload.ToolName, setActivity)
-	}
-	if payload.AgentID != "" && ev.Fields != nil {
-		ev.Fields["agent_id"] = payload.AgentID
-	}
-	if payload.AgentType != "" && ev.Fields != nil {
-		ev.Fields["agent_type"] = payload.AgentType
-	}
-
 	ev.State = setState
 	ev.Activity = setActivity
 	ev.Tool = setTool
 	ev.Kind = lastKind
 
 	firstPrompt := false
-	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -933,7 +943,8 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		prev := struct {
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince}
+			LastChatStatus                  string
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus}
 
 		// Only the first prompt (pane still "starting") is worth a manifest
 		// title check; steady-state prompts never touch it.
@@ -964,13 +975,28 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		pane.Seq = now.UnixNano()
 		pane.Agent = "codex"
 		pane.Role = role
+		if payload.AgentID == "" {
+			if opts.action == "done" && finalMessage != "" && pane.State == "done" {
+				addChatEntry(&ev, "message", finalMessage)
+			}
+			if opts.action == "tool_start" && payload.ToolName != "" {
+				if pane.State != prev.State {
+					addVisibleStatus(&ev, &pane, pane.State)
+				}
+				addChatEntry(&ev, "action", payload.ToolName)
+			}
+			if opts.action != "tool_start" && pane.State != prev.State {
+				addVisibleStatus(&ev, &pane, pane.State)
+			}
+		}
 		ss.Panes[role] = pane
 
 		if pane.State == prev.State &&
 			pane.Activity == prev.Activity &&
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
-			pane.WorkingSince.Equal(prev.WorkingSince) {
+			pane.WorkingSince.Equal(prev.WorkingSince) &&
+			pane.LastChatStatus == prev.LastChatStatus {
 			return false
 		}
 		return true
@@ -1425,16 +1451,7 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		ev.Fields = fields
 	}
-	if opts.action == "tool_execution_start" {
-		addChatFields(&ev, "action", piToolName(payload), setActivity)
-	}
-	if opts.action == "agent_end" {
-		if text := piLastMessageText(payload); text != "" {
-			addChatFields(&ev, "message", text, "")
-		}
-	}
-
-	appendErr, mutateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
+	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
@@ -1446,7 +1463,8 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			LastEvent, WorkingSince         time.Time
 			Recent                          []string
 			SessionFile, PiSessionID        string
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.SessionFile, pane.PiSessionID}
+			LastChatStatus                  string
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.SessionFile, pane.PiSessionID, pane.LastChatStatus}
 
 		preserveBlockedQuestion := opts.action == "tool_execution_start" && pane.State == "blocked" && pane.LastKind == "waiting_for_user"
 		clearStaleQuestionActivity := opts.action == "tool_execution_end" && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
@@ -1486,6 +1504,20 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		pane.Seq = now.UnixNano()
 		pane.Agent = agentName
 		pane.Role = role
+		if opts.action == "tool_execution_start" && !preserveBlockedQuestion {
+			if pane.State != prev.State {
+				addVisibleStatus(&ev, &pane, pane.State)
+			}
+			addChatEntry(&ev, "action", piToolName(payload))
+		}
+		if opts.action == "agent_end" {
+			if text := piLastMessageText(payload); text != "" && pane.State == "done" {
+				addChatEntry(&ev, "message", text)
+			}
+		}
+		if !preserveBlockedQuestion && opts.action != "tool_execution_start" && pane.State != prev.State {
+			addVisibleStatus(&ev, &pane, pane.State)
+		}
 		ss.Panes[role] = pane
 
 		if pane.State == prev.State &&
@@ -1495,7 +1527,8 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.WorkingSince.Equal(prev.WorkingSince) &&
 			slices.Equal(pane.Recent, prev.Recent) &&
 			pane.SessionFile == prev.SessionFile &&
-			pane.PiSessionID == prev.PiSessionID {
+			pane.PiSessionID == prev.PiSessionID &&
+			pane.LastChatStatus == prev.LastChatStatus {
 			return false
 		}
 		return true

@@ -41,6 +41,8 @@ type openCodePatch struct {
 	statusType string
 	version    string
 
+	// A part has no role. Keep it until message.updated confirms the matching
+	// assistant message, so user prompt text never enters the worker feed.
 	partText       string
 	partMsgID      string
 	assistantMsgID string
@@ -88,21 +90,9 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	if patch.hasRecent {
 		fields["recent_count"] = len(patch.recent)
 	}
-	if patch.kind == "tool.execute.before" {
-		fields["chat_kind"] = "action"
-		fields["chat_text"] = workerfeed.CapText(patch.tool)
-		fields["chat_summary"] = workerfeed.CapText(patch.activity)
-	}
-	if patch.partMsgID != "" && patch.partText != "" {
-		fields["workerfeed_part_id"] = patch.partMsgID
-		fields["workerfeed_part_text"] = workerfeed.CapText(patch.partText)
-	}
-	if patch.assistantMsgID != "" {
-		fields["workerfeed_assistant_message_id"] = patch.assistantMsgID
-	}
 	ev.Fields = fields
 
-	accepted, appendErr, updateErr := updateOpenCodePane(r, sessionID, now, patch, ev)
+	accepted, appendErr, updateErr := updateOpenCodePane(r, sessionID, now, patch, &ev)
 	if appendErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", appendErr)
 	}
@@ -209,7 +199,7 @@ func (p openCodePatch) mutatesState() bool {
 		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != ""
 }
 
-func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev state.StateEvent) (bool, error, error) {
+func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev *state.StateEvent) (bool, error, error) {
 	accepted := false
 	appendErr, updateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		if !patch.mutatesState() {
@@ -233,7 +223,9 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			OpenCodeSessionID               string
 			PendingPartMsgID                string
 			PendingPartText                 string
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText}
+			PendingFinalMessage             string
+			LastChatStatus                  string
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText, pane.PendingFinalMessage, pane.LastChatStatus}
 
 		setState := patch.state
 		setActivity := patch.activity
@@ -290,8 +282,12 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		if patch.assistantMsgID != "" && patch.assistantMsgID == pane.PendingPartMsgID {
 			pane.Activity = truncatePromptLine(pane.PendingPartText)
 			pane.Recent = cleanPiRecent(strings.Split(pane.PendingPartText, "\n"))
+			pane.PendingFinalMessage = workerfeed.CapText(pane.PendingPartText)
 			pane.PendingPartMsgID = ""
 			pane.PendingPartText = ""
+		}
+		if patch.kind == "tool.execute.before" {
+			pane.PendingFinalMessage = ""
 		}
 		if lastKind != "" {
 			pane.LastKind = lastKind
@@ -300,6 +296,21 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		pane.Seq = now.UnixNano()
 		pane.Agent = "opencode"
 		pane.Role = role
+		if !preservePermissionBlock {
+			if patch.kind == "session.idle" && pane.State == "done" && pane.PendingFinalMessage != "" {
+				addChatEntry(ev, "message", pane.PendingFinalMessage)
+				pane.PendingFinalMessage = ""
+			}
+			if patch.kind == "tool.execute.before" {
+				if pane.State != prev.State {
+					addVisibleStatus(ev, &pane, pane.State)
+				}
+				addChatEntry(ev, "action", patch.tool)
+			}
+			if patch.kind != "tool.execute.before" && pane.State != prev.State {
+				addVisibleStatus(ev, &pane, pane.State)
+			}
+		}
 		ss.Panes[role] = pane
 
 		return pane.State != prev.State ||
@@ -310,7 +321,9 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			!slices.Equal(pane.Recent, prev.Recent) ||
 			pane.OpenCodeSessionID != prev.OpenCodeSessionID ||
 			pane.PendingPartMsgID != prev.PendingPartMsgID ||
-			pane.PendingPartText != prev.PendingPartText
+			pane.PendingPartText != prev.PendingPartText ||
+			pane.PendingFinalMessage != prev.PendingFinalMessage ||
+			pane.LastChatStatus != prev.LastChatStatus
 	})
 	return accepted, appendErr, updateErr
 }

@@ -13,101 +13,38 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-func TestDeriveWorkerEvent(t *testing.T) {
+func TestCapText(t *testing.T) {
 	t.Parallel()
-
 	for _, tc := range []struct {
-		name   string
-		states []string
-		want   []string
+		name string
+		in   string
+		want string
 	}{
-		{name: "status dedupe and idle suppression", states: []string{"working", "working", "idle", "done", "done", "blocked"}, want: []string{"working", "done", "blocked"}},
-		{name: "unlisted states are suppressed", states: []string{"starting", "idle", "stopped"}},
+		{name: "three paragraphs", in: "one\n\ntwo\n\nthree\n\nfour", want: "one\n\ntwo\n\nthree"},
+		{name: "multibyte ceiling", in: strings.Repeat("猫", maxTextChars+20), want: strings.Repeat("猫", maxTextChars)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cursor := Cursor{}
-			var got []Entry
-			for _, value := range tc.states {
-				got = append(got, deriveWorkerEvent("qm-w1", "Worker", state.StateEvent{State: value}, &cursor)...)
-			}
-			if len(got) != len(tc.want) {
-				t.Fatalf("entries = %#v, want %v", got, tc.want)
-			}
-			for i, text := range tc.want {
-				if got[i].Kind != "status" || got[i].Text != text {
-					t.Errorf("entry %d = %#v, want status %q", i, got[i], text)
-				}
+			got := CapText(tc.in)
+			if got != tc.want {
+				t.Fatalf("CapText length/end = %d/%q", len([]rune(got)), got[len(got)-3:])
 			}
 		})
 	}
+}
 
-	t.Run("sub-agent event is excluded", func(t *testing.T) {
-		t.Parallel()
-		cursor := Cursor{}
-		got := deriveWorkerEvent("qm-w1", "Worker", state.StateEvent{
-			State: "working",
-			Fields: map[string]interface{}{
-				"agent_id":  "agent-1",
-				"chat_kind": "action",
-				"chat_text": "Bash",
-			},
-		}, &cursor)
-		if len(got) != 0 || cursor.LastState != "" {
-			t.Fatalf("sub-agent entries/state = %#v/%q, want none/empty", got, cursor.LastState)
-		}
-	})
-
-	t.Run("message cap is multibyte safe", func(t *testing.T) {
-		t.Parallel()
-		cursor := Cursor{}
-		text := strings.Repeat("猫", maxTextChars+20)
-		got := deriveWorkerEvent("qm-w1", "Worker", state.StateEvent{Fields: map[string]interface{}{
-			"chat_kind": "message",
-			"chat_text": text,
-		}}, &cursor)
-		if len(got) != 1 || got[0].Kind != "message" {
-			t.Fatalf("entries = %#v, want one message", got)
-		}
-		if len([]rune(got[0].Text)) != maxTextChars || !strings.HasSuffix(got[0].Text, "猫") {
-			t.Fatalf("message rune length/end = %d/%q", len([]rune(got[0].Text)), got[0].Text[len(got[0].Text)-3:])
-		}
-	})
-
-	t.Run("message cap keeps at most three paragraphs", func(t *testing.T) {
-		t.Parallel()
-		cursor := Cursor{}
-		got := deriveWorkerEvent("qm-w1", "Worker", state.StateEvent{Fields: map[string]interface{}{
-			"chat_kind": "message",
-			"chat_text": "one\n\ntwo\n\nthree\n\nfour",
-		}}, &cursor)
-		if len(got) != 1 || got[0].Text != "one\n\ntwo\n\nthree" {
-			t.Fatalf("paragraph-capped message = %#v", got)
-		}
-	})
-
-	t.Run("OpenCode assistant text waits for role confirmation and done", func(t *testing.T) {
-		t.Parallel()
-		cursor := Cursor{}
-		part := state.StateEvent{Ts: time.Unix(1, 0), State: "working", Action: "message.part.updated", Fields: map[string]interface{}{
-			"workerfeed_part_id":   "msg-1",
-			"workerfeed_part_text": "finished work",
-		}}
-		if got := deriveWorkerEvent("qm-w1", "Worker", part, &cursor); len(got) != 1 || got[0].Kind != "status" {
-			t.Fatalf("unconfirmed part entries = %#v, want only working status", got)
-		}
-		confirmed := state.StateEvent{Ts: time.Unix(2, 0), State: "working", Action: "message.updated", Fields: map[string]interface{}{
-			"workerfeed_assistant_message_id": "msg-1",
-		}}
-		if got := deriveWorkerEvent("qm-w1", "Worker", confirmed, &cursor); len(got) != 0 {
-			t.Fatalf("confirmed message emitted before done: %#v", got)
-		}
-		done := state.StateEvent{Ts: time.Unix(3, 0), State: "done", Action: "session.idle"}
-		got := deriveWorkerEvent("qm-w1", "Worker", done, &cursor)
-		if len(got) != 2 || got[0].Kind != "message" || got[0].Text != "finished work" || got[1].Kind != "status" {
-			t.Fatalf("done entries = %#v, want final message then done status", got)
-		}
-	})
+func TestDeriveWorkerEventIsStateless(t *testing.T) {
+	t.Parallel()
+	event := state.StateEvent{Ts: time.Unix(1, 0), Activity: "Bash: safe summary", Fields: map[string]interface{}{
+		"chat_entries": []interface{}{
+			map[string]interface{}{"chat_kind": "action", "chat_text": "Bash"},
+			map[string]interface{}{"chat_kind": "status", "chat_text": "working"},
+		},
+	}}
+	got := deriveWorkerEvent(worker{id: "qm-w1", title: "Worker"}, "1:2", 64, event)
+	if len(got) != 2 || got[0].Kind != "action" || got[0].Summary != "Bash: safe summary" || got[1].Text != "working" {
+		t.Fatalf("derived entries = %#v", got)
+	}
 }
 
 func TestReadSinceRotationAndBoundedTail(t *testing.T) {
@@ -117,18 +54,18 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 		t.Parallel()
 		root := t.TempDir()
 		createMasterAndWorkers(t, root, "qm-master", "qm-w1")
-		appendEvent(t, root, "qm-w1", event("working", time.Unix(1, 0)))
+		appendEvent(t, root, "qm-w1", chatEvent("status", "working", time.Unix(1, 0)))
 		first, err := ReadSince(root, "qm-master", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		cursor := first.Cursors["qm-w1"]
-		appendEvent(t, root, "qm-w1", event("done", time.Unix(2, 0)))
+		appendEvent(t, root, "qm-w1", chatEvent("status", "done", time.Unix(2, 0)))
 		path := state.SessionStateLogPath(root, "qm-w1")
 		if err := os.Rename(path, path+".1"); err != nil {
 			t.Fatal(err)
 		}
-		appendEvent(t, root, "qm-w1", event("working", time.Unix(3, 0)))
+		appendEvent(t, root, "qm-w1", chatEvent("status", "working", time.Unix(3, 0)))
 
 		next, err := ReadSince(root, "qm-master", map[string]Cursor{"qm-w1": cursor})
 		if err != nil {
@@ -152,7 +89,7 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 		}
 		prefix := strings.Repeat("x", InitialTailBytes+1024)
 		body := []byte(prefix + "\n")
-		body = append(body, mustMarshalEvent(event("done", time.Unix(4, 0)))...)
+		body = append(body, mustMarshalEvent(chatEvent("status", "done", time.Unix(4, 0)))...)
 		if err := os.WriteFile(path, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -176,10 +113,10 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path+".1", mustMarshalEvent(event("working", time.Unix(1, 0))), 0o600); err != nil {
+		if err := os.WriteFile(path+".1", mustMarshalEvent(chatEvent("status", "working", time.Unix(1, 0))), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, mustMarshalEvent(event("done", time.Unix(2, 0))), 0o600); err != nil {
+		if err := os.WriteFile(path, mustMarshalEvent(chatEvent("status", "done", time.Unix(2, 0))), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		got, err := ReadSince(root, "qm-master", nil)
@@ -191,6 +128,98 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 		}
 		if got.Cursors["qm-w1"].FileID == "" {
 			t.Fatalf("current cursor missing after first load: %#v", got.Cursors["qm-w1"])
+		}
+	})
+}
+
+func TestReadSinceTailLineBoundaryAndOffsetBeyondEOF(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	path := state.SessionStateLogPath(root, "qm-w1")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first := mustMarshalEvent(chatEvent("message", "first", time.Unix(1, 0)))
+	second := mustMarshalEvent(chatEvent("message", "second", time.Unix(2, 0)))
+	if err := os.WriteFile(path, append(first, second...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, _ := file.Stat()
+	tail, _, _, err := readTail(file, worker{id: "qm-w1", title: "Worker"}, fileIdentity(info), int64(len(second)), Cursor{})
+	file.Close()
+	if err != nil || len(tail) != 1 || tail[0].Text != "second" {
+		t.Fatalf("line-start tail = %#v, err %v", tail, err)
+	}
+
+	initial, err := ReadSince(root, "qm-master", nil)
+	if err != nil || len(initial.Entries) != 2 {
+		t.Fatalf("initial feed = %#v, err %v", initial, err)
+	}
+	cursor := initial.Cursors["qm-w1"]
+	cursor.Offset += 100
+	next, err := ReadSince(root, "qm-master", map[string]Cursor{"qm-w1": cursor})
+	if err != nil || len(next.Entries) != 0 || next.Cursors["qm-w1"].Offset != int64(len(first)+len(second)) {
+		t.Fatalf("past-EOF read = %#v, err %v", next, err)
+	}
+}
+
+func TestReadSinceHasMoreAndUnreadableWorker(t *testing.T) {
+	t.Parallel()
+	t.Run("has more after bounded incremental read", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+		path := state.SessionStateLogPath(root, "qm-w1")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		initialEvent := mustMarshalEvent(chatEvent("message", "initial", time.Unix(1, 0)))
+		if err := os.WriteFile(path, initialEvent, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		initial, err := ReadSince(root, "qm-master", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var backlog []byte
+		for i := 0; i < 4000; i++ {
+			backlog = append(backlog, mustMarshalEvent(chatEvent("action", "Bash", time.Unix(int64(i+2), 0)))...)
+		}
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write(backlog); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+		next, err := ReadSince(root, "qm-master", initial.Cursors)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !next.HasMore["qm-w1"] {
+			t.Fatalf("has_more = %#v, want true", next.HasMore)
+		}
+	})
+	t.Run("unreadable log preserves cursor", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+		if err := os.MkdirAll(state.SessionStateLogPath(root, "qm-w1"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		old := Cursor{Offset: 12, FileID: "unchanged"}
+		got, err := ReadSince(root, "qm-master", map[string]Cursor{"qm-w1": old})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Cursors["qm-w1"] != old {
+			t.Fatalf("cursor = %#v, want preserved %#v", got.Cursors["qm-w1"], old)
 		}
 	})
 }
@@ -210,16 +239,10 @@ func TestReadHistoryFilteringLimitAndPagination(t *testing.T) {
 		{"qm-w1", "message", "three"},
 		{"qm-w1", "message", "four"},
 	} {
-		appendEvent(t, root, item.worker, state.StateEvent{
-			Ts: time.Unix(int64(i+1), 0),
-			Fields: map[string]interface{}{
-				"chat_kind": item.kind,
-				"chat_text": item.text,
-			},
-		})
+		appendEvent(t, root, item.worker, chatEvent(item.kind, item.text, time.Unix(int64(i+1), 0)))
 	}
 
-	first, err := ReadHistory(root, "qm-master", "qm-w1", time.Time{}, 2)
+	first, err := ReadHistory(root, "qm-master", "qm-w1", "", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,16 +253,39 @@ func TestReadHistoryFilteringLimitAndPagination(t *testing.T) {
 		t.Fatal("next_before is empty for a full page")
 	}
 
-	before, err := time.Parse(time.RFC3339Nano, first.NextBefore)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := ReadHistory(root, "qm-master", "qm-w1", before, 2)
+	second, err := ReadHistory(root, "qm-master", "qm-w1", first.NextBefore, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(second.Entries) != 1 || second.Entries[0].Text != "one" {
 		t.Fatalf("older page = %#v, want only one", second.Entries)
+	}
+}
+
+func TestReadHistorySameTimestampBoundaryAndLongLine(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	at := time.Unix(42, 0)
+	appendEvent(t, root, "qm-w1", state.StateEvent{Ts: at, Fields: map[string]interface{}{
+		"chat_entries": []interface{}{
+			map[string]interface{}{"chat_kind": "message", "chat_text": "same timestamp message"},
+			map[string]interface{}{"chat_kind": "status", "chat_text": "done"},
+		},
+	}})
+	appendEvent(t, root, "qm-w1", chatEvent("message", strings.Repeat("x", 70*1024), time.Unix(41, 0)))
+
+	first, err := ReadHistory(root, "qm-master", "qm-w1", "", 1)
+	if err != nil || len(first.Entries) != 1 || first.Entries[0].Text != "done" || first.NextBefore == "" {
+		t.Fatalf("first page = %#v, err %v", first, err)
+	}
+	second, err := ReadHistory(root, "qm-master", "qm-w1", first.NextBefore, 1)
+	if err != nil || len(second.Entries) != 1 || second.Entries[0].Text != "same timestamp message" {
+		t.Fatalf("same-timestamp older page = %#v, err %v", second, err)
+	}
+	third, err := ReadHistory(root, "qm-master", "qm-w1", second.NextBefore, 1)
+	if err != nil || len(third.Entries) != 1 || len(third.Entries[0].Text) != 70*1024 {
+		t.Fatalf("long-line older page = len %d, err %v", len(third.Entries[0].Text), err)
 	}
 }
 
@@ -287,8 +333,11 @@ func appendEvent(t *testing.T, root, workerID string, event state.StateEvent) {
 	}
 }
 
-func event(status string, at time.Time) state.StateEvent {
-	return state.StateEvent{Ts: at, State: status}
+func chatEvent(kind, text string, at time.Time) state.StateEvent {
+	return state.StateEvent{Ts: at, Activity: "Safe action summary", Fields: map[string]interface{}{
+		"chat_kind": kind,
+		"chat_text": text,
+	}}
 }
 
 func mustMarshalEvent(event state.StateEvent) []byte {

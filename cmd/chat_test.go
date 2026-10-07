@@ -14,6 +14,9 @@ func TestChatCommandHistoryAndRendering(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createFeedManifests(t, store, "qm-master", "qm-w1", "qm-w2")
+	if err := store.Update("qm-w1", func(m *state.Manifest) { m.Title = "chat-feed-backend" }); err != nil {
+		t.Fatal(err)
+	}
 	for i, event := range []struct {
 		worker string
 		kind   string
@@ -24,11 +27,12 @@ func TestChatCommandHistoryAndRendering(t *testing.T) {
 		{"qm-w1", "action", "Bash"},
 		{"qm-w1", "action", "Bash"},
 	} {
-		fields := map[string]interface{}{"chat_kind": event.kind, "chat_text": event.text}
+		activity := ""
 		if event.kind == "action" {
-			fields["chat_summary"] = "Bash: go test ./..."
+			activity = "Bash: go test ./..."
 		}
-		if err := state.AppendStateEventAt(store.Root(), event.worker, state.StateEvent{Ts: time.Unix(int64(i+1), 0), Fields: fields}); err != nil {
+		fields := map[string]interface{}{"chat_kind": event.kind, "chat_text": event.text}
+		if err := state.AppendStateEventAt(store.Root(), event.worker, state.StateEvent{Ts: time.Unix(int64(i+1), 0), Activity: activity, Fields: fields}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -53,6 +57,14 @@ func TestChatCommandHistoryAndRendering(t *testing.T) {
 		out := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--worker", "qm-w1", "--expand")
 		if strings.Contains(out, "x2") || !strings.Contains(out, "Bash: go test ./...") {
 			t.Fatalf("expanded output = %q", out)
+		}
+	})
+
+	t.Run("text keeps the full worker title", func(t *testing.T) {
+		t.Parallel()
+		out := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--worker", "qm-w1", "--text")
+		if !strings.Contains(out, "chat-feed-backend: one") || strings.Contains(out, "chat-feed-backen:") {
+			t.Fatalf("text output truncated worker title: %q", out)
 		}
 	})
 }

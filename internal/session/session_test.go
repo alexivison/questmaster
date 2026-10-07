@@ -692,7 +692,7 @@ func TestStart_WorkerRoleDefaultDoesNotApplyToStandalone(t *testing.T) {
 		t.Fatalf("standalone primary model = %q, want its own persisted default, not the worker bucket's", got)
 	}
 
-	worker, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), MasterID: "qm-master"})
+	worker, err := svc.Start(t.Context(), StartOpts{Title: "worker-role", Cwd: t.TempDir(), MasterID: "qm-master"})
 	if err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
@@ -1657,6 +1657,57 @@ func TestSpawn_InheritsMasterDisplayColor(t *testing.T) {
 	}
 }
 
+func TestWorkerStartRequiresExplicitTitleWithinRuneLimit(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		title string
+	}{
+		{name: "missing title", title: ""},
+		{name: "whitespace title", title: "  \t "},
+		{name: "too many ASCII runes", title: strings.Repeat("w", 17)},
+		{name: "too many multibyte runes", title: strings.Repeat("界", 17)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			for _, startDirectly := range []bool{false, true} {
+				svc, _ := setupService(t)
+				createTestManifest(t, svc.Store, "qm-master", "orch", t.TempDir(), "master")
+				opts := StartOpts{Title: tc.title, MasterID: "qm-master", Prompt: "derive a plausible title from this prompt"}
+				var err error
+				if startDirectly {
+					_, err = svc.Start(t.Context(), opts)
+				} else {
+					_, err = svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: tc.title, Prompt: opts.Prompt})
+				}
+				if err == nil || !strings.Contains(err.Error(), "worker title") {
+					t.Fatalf("startDirectly=%v error = %v, want worker title validation", startDirectly, err)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkerStartAllowsSixteenUnicodeRunes(t *testing.T) {
+	t.Parallel()
+	svc, _ := setupService(t)
+	cwd := t.TempDir()
+	createTestManifest(t, svc.Store, "qm-master", "orch", cwd, "master")
+	title := strings.Repeat("界", 16)
+	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{Title: title})
+	if err != nil {
+		t.Fatalf("spawn with 16-rune title: %v", err)
+	}
+	manifest, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Title != title {
+		t.Fatalf("worker title = %q, want %q", manifest.Title, title)
+	}
+}
+
 func TestSpawn_ExplicitDisplayColorOverridesMasterDisplayColor(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
@@ -1672,7 +1723,7 @@ func TestSpawn_ExplicitDisplayColorOverridesMasterDisplayColor(t *testing.T) {
 	}
 
 	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{
-		Title:        "worker-explicit-color",
+		Title:        "explicit-color",
 		DisplayColor: "pink",
 	})
 	if err != nil {

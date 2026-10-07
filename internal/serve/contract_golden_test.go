@@ -174,10 +174,18 @@ func serveContractFixtures() []contractFixture {
 			WorkerTitle: "Worker",
 			Kind:        "status",
 			Text:        "working",
+		}, {
+			Timestamp:   observedAt.Add(time.Second),
+			WorkerID:    "qm-worker",
+			WorkerTitle: "Worker",
+			Kind:        "action",
+			Text:        "Bash",
+			Summary:     "Bash: go test ./...",
 		}},
 		Cursors: map[string]workerfeed.Cursor{
-			"qm-worker": {Offset: 128, FileID: "1:42", LastState: "working"},
+			"qm-worker": {Offset: 128, FileID: "1:42"},
 		},
+		HasMore: map[string]bool{"qm-worker": true},
 	}
 
 	return []contractFixture{

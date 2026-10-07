@@ -16,6 +16,12 @@ public enum ServeContract {
 public struct WorkerFeedPayload: Decodable {
     public var entries: [WorkerFeedEntry]
     public var cursors: [String: WorkerFeedCursor]
+    public var hasMore: [String: Bool]
+
+    enum CodingKeys: String, CodingKey {
+        case entries, cursors
+        case hasMore = "has_more"
+    }
 }
 
 public struct WorkerFeedEntry: Decodable {
@@ -36,12 +42,10 @@ public struct WorkerFeedEntry: Decodable {
 public struct WorkerFeedCursor: Decodable {
     public var offset: Int64
     public var fileID: String?
-    public var lastState: String?
 
     enum CodingKeys: String, CodingKey {
         case offset
         case fileID = "file_id"
-        case lastState = "last_state"
     }
 }
 
