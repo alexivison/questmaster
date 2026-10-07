@@ -151,6 +151,55 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 	})
 }
 
+func TestReadSinceSkipsUnterminatedRotatedSuffix(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	appendEvent(t, root, "qm-w1", chatEvent("message", "before", time.Unix(1, 0)))
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor := first.Cursors["qm-w1"]
+	path := state.SessionStateLogPath(root, "qm-w1")
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial, err := json.Marshal(chatEvent("message", "partial", time.Unix(2, 0)))
+	if err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if _, err := file.Write(partial); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	appendEvent(t, root, "qm-w1", chatEvent("message", "current", time.Unix(3, 0)))
+
+	next, err := ReadSince(root, "qm-master", map[string]Cursor{"qm-w1": cursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Entries) != 1 || next.Entries[0].Text != "current" {
+		t.Fatalf("entries after unterminated rotated suffix = %#v, want only current", next.Entries)
+	}
+	if next.Cursors["qm-w1"].FileID == cursor.FileID || next.HasMore["qm-w1"] {
+		t.Fatalf("cursor did not advance into current log: before=%#v after=%#v has_more=%v", cursor, next.Cursors["qm-w1"], next.HasMore["qm-w1"])
+	}
+
+	last, err := ReadSince(root, "qm-master", next.Cursors)
+	if err != nil || len(last.Entries) != 0 || last.HasMore["qm-w1"] {
+		t.Fatalf("follow-up pull = %#v, err = %v; want no repeated entries or pull", last, err)
+	}
+}
+
 func TestReadSinceSkipsOversizedLineAndContinues(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

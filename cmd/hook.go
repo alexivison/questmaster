@@ -786,8 +786,9 @@ func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text str
 
 const (
 	maxClaudeDisplayBatches = 4096
-	maxClaudeDisplayChunks  = 1501
-	maxClaudeDisplayBytes   = 24 * 1024
+	// ponytail: cap display tracking at 1,501 batches; Stop still writes the final say.
+	maxClaudeDisplayChunks = 1501
+	maxClaudeDisplayBytes  = 24 * 1024
 )
 
 func claudeDisplayChunksSize(chunks map[int]string) int {

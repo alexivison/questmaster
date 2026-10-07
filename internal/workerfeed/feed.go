@@ -267,6 +267,9 @@ func readWorkerSince(root string, worker worker, cursor Cursor) ([]Entry, Cursor
 			if readErr != nil {
 				return nil, cursor, false, readErr
 			}
+			if next.Offset < rolledInfo.Size() && cursor.Offset+int64(used) == rolledInfo.Size() {
+				next.Offset = rolledInfo.Size()
+			}
 			if next.Offset < rolledInfo.Size() || used >= maxIncrementalRead {
 				return entries, next, skipping || hasCompleteLineAfter(rotated, next.Offset, rolledInfo.Size()) || hasCompleteLineAfter(current, 0, info.Size()), nil
 			}
