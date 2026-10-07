@@ -4,6 +4,7 @@ package workerfeed
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,6 +150,63 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 			t.Fatalf("stale-cursor entries = %#v, want retained then current", got.Entries)
 		}
 	})
+}
+
+func TestReadSinceCursorSurvivesStateWriteFailure(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+
+	appended := make(chan error, 1)
+	allowFailure := make(chan struct{})
+	writeResult := make(chan error, 1)
+	failureSignaled := false
+	t.Cleanup(func() {
+		if !failureSignaled {
+			close(allowFailure)
+		}
+	})
+	go func() {
+		if err := state.AppendStateEventAt(root, "qm-w1", chatEvent("action", "first batch action", time.Unix(1, 0))); err != nil {
+			appended <- err
+			return
+		}
+		appended <- nil
+		<-allowFailure
+		writeResult <- errors.New("simulated state.json write failure")
+	}()
+	if err := <-appended; err != nil {
+		t.Fatalf("append complete event: %v", err)
+	}
+
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatalf("read feed between append and state failure: %v", err)
+	}
+	if len(first.Entries) != 1 || first.Entries[0].Text != "first batch action" {
+		t.Fatalf("feed during state failure = %#v", first.Entries)
+	}
+	close(allowFailure)
+	failureSignaled = true
+	if err := <-writeResult; err == nil {
+		t.Fatal("expected simulated state write failure")
+	}
+
+	duplicate, err := ReadSince(root, "qm-master", first.Cursors)
+	if err != nil {
+		t.Fatalf("read feed after cursor advance: %v", err)
+	}
+	if len(duplicate.Entries) != 0 {
+		t.Fatalf("read duplicated visible record: %#v", duplicate.Entries)
+	}
+	appendEvent(t, root, "qm-w1", chatEvent("message", "later event", time.Unix(2, 0)))
+	later, err := ReadSince(root, "qm-master", first.Cursors)
+	if err != nil {
+		t.Fatalf("read later append: %v", err)
+	}
+	if len(later.Entries) != 1 || later.Entries[0].Text != "later event" {
+		t.Fatalf("later append after retained cursor = %#v", later.Entries)
+	}
 }
 
 func TestReadSinceTailLineBoundaryAndOffsetBeyondEOF(t *testing.T) {

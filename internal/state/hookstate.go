@@ -323,7 +323,7 @@ func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) 
 }
 
 // UpdateAndLogBatch applies a related group of hook events under one state
-// lock. If writing state.json fails, it removes the appended event lines.
+// lock. Complete log lines remain visible if writing state.json fails.
 func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionState) bool) error {
 	return updateAndLogBatchAt(StateRoot(), id, events, mutate, func(w io.Writer, data []byte) (int, error) {
 		return w.Write(data)
@@ -367,13 +367,7 @@ func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*Ses
 		logPath := SessionStateLogPath(root, id)
 		var log *os.File
 		var oldSize int64
-		var existed bool
 		if eventData.Len() > 0 {
-			_, err = os.Stat(logPath)
-			existed = err == nil
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("stat state log: %w", err)
-			}
 			log, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 			if err != nil {
 				return fmt.Errorf("open state log: %w", err)
@@ -386,43 +380,39 @@ func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*Ses
 			}
 			oldSize = info.Size()
 		}
-		rollback := func() error {
-			var closeErr error
-			if log != nil {
-				closeErr = log.Close()
-				log = nil
-			}
-			if !existed {
-				if err := os.Remove(logPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return errors.Join(closeErr, fmt.Errorf("remove state log: %w", err))
-				}
-				return closeErr
-			}
-			rollbackLog, err := os.OpenFile(logPath, os.O_WRONLY, 0o644)
-			if err != nil {
-				return errors.Join(closeErr, fmt.Errorf("open state log for rollback: %w", err))
-			}
-			truncateErr := rollbackLog.Truncate(oldSize)
-			rollbackCloseErr := rollbackLog.Close()
-			return errors.Join(closeErr, truncateErr, rollbackCloseErr)
-		}
 		if log != nil {
 			data := eventData.Bytes()
 			written, writeErr := writeEvents(log, data)
 			if writeErr == nil && written != len(data) {
 				writeErr = io.ErrShortWrite
 			}
-			if closeErr := log.Close(); closeErr != nil {
-				writeErr = errors.Join(writeErr, fmt.Errorf("close state log: %w", closeErr))
-			}
+			closeErr := log.Close()
 			log = nil
 			if writeErr != nil {
-				return errors.Join(fmt.Errorf("write state events: %w", writeErr), rollback())
+				writtenBytes := written
+				if writtenBytes < 0 {
+					writtenBytes = 0
+				}
+				if writtenBytes > len(data) {
+					writtenBytes = len(data)
+				}
+				completeBytes := 0
+				if newline := bytes.LastIndexByte(data[:writtenBytes], '\n'); newline >= 0 {
+					completeBytes = newline + 1
+				}
+				truncateErr := os.Truncate(logPath, oldSize+int64(completeBytes))
+				if truncateErr != nil {
+					truncateErr = fmt.Errorf("truncate incomplete state event: %w", truncateErr)
+				}
+				return errors.Join(fmt.Errorf("write state events: %w", writeErr), closeErr, truncateErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close state log: %w", closeErr)
 			}
 		}
 		if changed {
 			if err := writeSessionStateLocked(root, id, ss); err != nil {
-				return errors.Join(err, rollback())
+				return err
 			}
 		}
 		if eventData.Len() > 0 {

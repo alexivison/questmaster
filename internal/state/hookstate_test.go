@@ -253,7 +253,7 @@ func TestUpdateAndLogBatchWritesEventsAndAppliesMutationOnce(t *testing.T) {
 	}
 }
 
-func TestUpdateAndLogBatchPartialWriteRollsBack(t *testing.T) {
+func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
 	root := setStateRoot(t)
 	id := "qm-batch-partial"
 	if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"primary": {Role: "primary", State: "idle"}}}); err != nil {
@@ -271,11 +271,15 @@ func TestUpdateAndLogBatchPartialWriteRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read initial log: %v", err)
 	}
-	err = updateAndLogBatchAt(root, id, []*StateEvent{{Action: "agent_start"}}, func(ss *SessionState) bool {
+	var writtenBatch []byte
+	var firstRecordEnd int
+	err = updateAndLogBatchAt(root, id, []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}, func(ss *SessionState) bool {
 		ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
 		return true
 	}, func(w io.Writer, data []byte) (int, error) {
-		return w.Write(data[:len(data)/2])
+		firstRecordEnd = bytes.IndexByte(data, '\n') + 1
+		writtenBatch = append([]byte(nil), data[:firstRecordEnd+5]...)
+		return w.Write(writtenBatch)
 	})
 	if err == nil || !strings.Contains(err.Error(), "short write") {
 		t.Fatalf("partial batch write error = %v, want short write", err)
@@ -288,8 +292,9 @@ func TestUpdateAndLogBatchPartialWriteRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read log after partial write: %v", err)
 	}
-	if !bytes.Equal(stateBefore, stateAfter) || !bytes.Equal(logBefore, logAfter) {
-		t.Fatalf("partial write changed state/log: state=%t log=%t", !bytes.Equal(stateBefore, stateAfter), !bytes.Equal(logBefore, logAfter))
+	wantLog := append(append([]byte(nil), logBefore...), writtenBatch[:firstRecordEnd]...)
+	if !bytes.Equal(stateBefore, stateAfter) || !bytes.Equal(wantLog, logAfter) {
+		t.Fatalf("partial write result: state unchanged=%t complete log retained=%t", bytes.Equal(stateBefore, stateAfter), bytes.Equal(wantLog, logAfter))
 	}
 }
 
@@ -319,7 +324,7 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 	}
 	data = append(data, '\n')
 
-	t.Run("state write failure preserves both logs", func(t *testing.T) {
+	t.Run("state write failure keeps batch without rotating", func(t *testing.T) {
 		root := setStateRoot(t)
 		current, rotated := seed(t, root)
 		statePath := SessionStatePath(root, id)
@@ -341,8 +346,9 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read rotated log: %v", err)
 		}
-		if !bytes.Equal(gotCurrent, current) || !bytes.Equal(gotRotated, rotated) {
-			t.Fatalf("failed batch changed logs: current=%t rotated=%t", !bytes.Equal(gotCurrent, current), !bytes.Equal(gotRotated, rotated))
+		wantCurrent := append(append([]byte(nil), current...), data...)
+		if !bytes.Equal(gotCurrent, wantCurrent) || !bytes.Equal(gotRotated, rotated) {
+			t.Fatalf("failed batch log result: complete events retained=%t prior rotation preserved=%t", bytes.Equal(gotCurrent, wantCurrent), bytes.Equal(gotRotated, rotated))
 		}
 	})
 

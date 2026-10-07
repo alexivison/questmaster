@@ -2947,10 +2947,23 @@ func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
 	}
 }
 
-func TestHookPiBatchStateWriteFailureIsAtomic(t *testing.T) {
+func TestHookPiBatchStateWriteFailureKeepsFeedRecords(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(state.StateRootEnv, root)
 	const sessionID = "qm-pi-atomic"
+	const masterID = "qm-pi-atomic-master"
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new state store: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: masterID, SessionType: "master", Workers: []string{sessionID}}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	workerManifest := state.Manifest{SessionID: sessionID, Title: "Pi worker"}
+	workerManifest.SetExtra("parent_session", masterID)
+	if err := store.Create(workerManifest); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
 	initial := &state.SessionState{
 		SessionID: sessionID,
 		Version:   state.SchemaVersion,
@@ -2973,6 +2986,10 @@ func TestHookPiBatchStateWriteFailureIsAtomic(t *testing.T) {
 	logBefore, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("read initial event log: %v", err)
+	}
+	initialFeed, err := workerfeed.ReadSince(root, masterID, nil)
+	if err != nil {
+		t.Fatalf("read initial worker feed: %v", err)
 	}
 	if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
 		t.Fatalf("make state write fail: %v", err)
@@ -2998,8 +3015,46 @@ func TestHookPiBatchStateWriteFailureIsAtomic(t *testing.T) {
 	if !bytes.Equal(stateAfter, stateBefore) {
 		t.Fatalf("state changed after failed batch:\nbefore %s\nafter  %s", stateBefore, stateAfter)
 	}
-	if !bytes.Equal(logAfter, logBefore) {
-		t.Fatalf("event log changed after failed batch:\nbefore %s\nafter  %s", logBefore, logAfter)
+	if bytes.Equal(logAfter, logBefore) {
+		t.Fatal("complete batch records were removed after state write failure")
+	}
+	var actions []string
+	for _, line := range bytes.Split(bytes.TrimSpace(logAfter), []byte("\n")) {
+		var event state.StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode retained event: %v", err)
+		}
+		actions = append(actions, event.Action)
+	}
+	if !slices.Equal(actions, []string{"before", "agent_start", "tool_execution_start"}) {
+		t.Fatalf("retained event order = %v", actions)
+	}
+	failedFeed, err := workerfeed.ReadSince(root, masterID, initialFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed after state write failure: %v", err)
+	}
+	if len(failedFeed.Entries) != 2 || failedFeed.Entries[0].Kind != "status" || failedFeed.Entries[1].Kind != "action" {
+		t.Fatalf("feed after failed state write = %#v, want status and action once", failedFeed.Entries)
+	}
+	duplicateFeed, err := workerfeed.ReadSince(root, masterID, failedFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed again after failed state write: %v", err)
+	}
+	if len(duplicateFeed.Entries) != 0 {
+		t.Fatalf("batch records repeated after cursor advance: %#v", duplicateFeed.Entries)
+	}
+	if err := os.Remove(statePath + ".tmp"); err != nil {
+		t.Fatalf("remove state write blocker: %v", err)
+	}
+	if stderr := runHookWithStdin(r, "pi", "agent_end", sessionID, map[string]interface{}{"text": "Finished."}); stderr != "" {
+		t.Fatalf("follow-up hook stderr: %q", stderr)
+	}
+	laterFeed, err := workerfeed.ReadSince(root, masterID, failedFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed after later append: %v", err)
+	}
+	if len(laterFeed.Entries) != 2 || laterFeed.Entries[0].Kind != "message" || laterFeed.Entries[1].Kind != "status" {
+		t.Fatalf("later feed = %#v, want only final message and done status", laterFeed.Entries)
 	}
 }
 
