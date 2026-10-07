@@ -69,6 +69,12 @@ type SessionState struct {
 	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
 
+type ClaudeOpenChatAction struct {
+	ToolUseID string    `json:"tool_use_id,omitempty"`
+	PromptID  string    `json:"prompt_id,omitempty"`
+	StartedAt time.Time `json:"started_at"`
+}
+
 // PaneState is the renderer-visible state for one role within a session.
 // WorkingSince timestamps the moment State transitioned to "working" and
 // is preserved across PreToolUse/PostToolUse cycles within the same turn,
@@ -101,19 +107,21 @@ type PaneState struct {
 	PendingFinalMessage string `json:"pending_final_message,omitempty"`
 	LastChatStatus      string `json:"last_chat_status,omitempty"`
 
-	ClaudePromptID            string         `json:"claude_prompt_id,omitempty"`
-	ClaudeDisplayMessageID    string         `json:"claude_display_message_id,omitempty"`
-	ClaudeDisplayPromptID     string         `json:"claude_display_prompt_id,omitempty"`
-	ClaudeDisplayFirstBatchAt *time.Time     `json:"claude_display_first_batch_at,omitempty"`
-	ClaudeDisplayChunks       map[int]string `json:"claude_display_chunks,omitempty"`
-	ClaudeDisplayFinalIndex   int            `json:"claude_display_final_index,omitempty"`
-	ClaudeDisplayFinal        bool           `json:"claude_display_final,omitempty"`
-	ClaudeDisplayAbandoned    bool           `json:"claude_display_abandoned,omitempty"`
-	ClaudeLastSayMessage      string         `json:"claude_last_say_message,omitempty"`
-	ClaudeLastSayPromptID     string         `json:"claude_last_say_prompt_id,omitempty"`
-	ClaudeLastSayTranscript   string         `json:"claude_last_say_transcript,omitempty"`
-	ClaudeLastStopPromptID    string         `json:"claude_last_stop_prompt_id,omitempty"`
-	ClaudeLastStopTranscript  string         `json:"claude_last_stop_transcript,omitempty"`
+	ClaudePromptID               string                 `json:"claude_prompt_id,omitempty"`
+	ClaudeDisplayMessageID       string                 `json:"claude_display_message_id,omitempty"`
+	ClaudeDisplayPromptID        string                 `json:"claude_display_prompt_id,omitempty"`
+	ClaudeDisplayFirstBatchAt    *time.Time             `json:"claude_display_first_batch_at,omitempty"`
+	ClaudeDisplayEarliestBatchAt time.Time              `json:"claude_display_earliest_batch_at,omitempty"`
+	ClaudeDisplayChunks          map[int]string         `json:"claude_display_chunks,omitempty"`
+	ClaudeDisplayFinalIndex      int                    `json:"claude_display_final_index,omitempty"`
+	ClaudeDisplayFinal           bool                   `json:"claude_display_final,omitempty"`
+	ClaudeDisplayAbandoned       bool                   `json:"claude_display_abandoned,omitempty"`
+	ClaudeOpenChatActions        []ClaudeOpenChatAction `json:"claude_open_chat_actions,omitempty"`
+	ClaudeLastSayMessage         string                 `json:"claude_last_say_message,omitempty"`
+	ClaudeLastSayPromptID        string                 `json:"claude_last_say_prompt_id,omitempty"`
+	ClaudeLastSayTranscript      string                 `json:"claude_last_say_transcript,omitempty"`
+	ClaudeLastStopPromptID       string                 `json:"claude_last_stop_prompt_id,omitempty"`
+	ClaudeLastStopTranscript     string                 `json:"claude_last_stop_transcript,omitempty"`
 
 	CodexTranscriptPath         string `json:"codex_transcript_path,omitempty"`
 	CodexTranscriptOffset       int64  `json:"codex_transcript_offset,omitempty"`

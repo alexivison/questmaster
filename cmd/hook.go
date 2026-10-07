@@ -352,6 +352,7 @@ type claudePayload struct {
 	SessionID            string                 `json:"session_id"`
 	PromptID             string                 `json:"prompt_id"`
 	ToolName             string                 `json:"tool_name"`
+	ToolUseID            string                 `json:"tool_use_id"`
 	ToolInput            map[string]interface{} `json:"tool_input"`
 	Prompt               string                 `json:"prompt"`
 	Message              string                 `json:"message"`
@@ -566,6 +567,16 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus, pane.LastChatAt}
 		prevClaude := pane
 		prevClaude.ClaudeDisplayChunks = maps.Clone(pane.ClaudeDisplayChunks)
+		prevClaude.ClaudeOpenChatActions = slices.Clone(pane.ClaudeOpenChatActions)
+		if !isSubagent {
+			pruneClaudeOpenChatActions(&pane, now)
+			switch opts.action {
+			case "working", "done", "stopped":
+				pane.ClaudeOpenChatActions = nil
+			case "tool_end":
+				closeClaudeOpenChatAction(&pane, payload.ToolUseID)
+			}
+		}
 
 		if opts.action == "say" {
 			stoppedTurn := sameClaudeTurn(pane.ClaudeLastStopPromptID, payload.PromptID, pane.ClaudeLastStopTranscript, payload.TranscriptPath)
@@ -583,6 +594,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 							pane.ClaudeDisplayChunks = make(map[int]string)
 						}
 						if _, seen := pane.ClaudeDisplayChunks[payload.Index]; !seen {
+							if pane.ClaudeDisplayEarliestBatchAt.IsZero() || now.Before(pane.ClaudeDisplayEarliestBatchAt) {
+								pane.ClaudeDisplayEarliestBatchAt = now
+							}
 							if payload.Index == 0 {
 								firstBatchAt := now
 								pane.ClaudeDisplayFirstBatchAt = &firstBatchAt
@@ -610,7 +624,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 								if pane.ClaudeDisplayFirstBatchAt != nil {
 									firstBatchAt = *pane.ClaudeDisplayFirstBatchAt
 								}
-								addChatEntryAt(&ev, &pane, "say", text, firstBatchAt)
+								chatAt := claudeSayChatTimestamp(&pane, payload.PromptID, firstBatchAt, pane.ClaudeDisplayEarliestBatchAt, now)
+								addChatEntryAt(&ev, &pane, "say", text, chatAt)
 								pane.ClaudeLastSayMessage = capped
 								pane.ClaudeLastSayPromptID = payload.PromptID
 								pane.ClaudeLastSayTranscript = payload.TranscriptPath
@@ -712,6 +727,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 				if pane.State != prev.State {
 					addVisibleStatus(&ev, &pane, pane.State)
 				}
+				promptID := payload.PromptID
+				if promptID == "" {
+					promptID = pane.ClaudePromptID
+				}
+				addClaudeOpenChatAction(&pane, payload.ToolUseID, promptID, now)
 				addChatEntry(&ev, &pane, "action", payload.ToolName)
 			}
 			if opts.action != "tool_start" && pane.State != prev.State {
@@ -775,6 +795,57 @@ func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLast
 
 func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text string) {
 	addChatEntryAt(event, pane, kind, text, time.Time{})
+}
+
+const claudeChatActionBackdateWindow = 250 * time.Millisecond
+
+func addClaudeOpenChatAction(pane *state.PaneState, toolUseID, promptID string, startedAt time.Time) {
+	if toolUseID == "" {
+		return
+	}
+	action := state.ClaudeOpenChatAction{ToolUseID: toolUseID, PromptID: promptID, StartedAt: startedAt}
+	closeClaudeOpenChatAction(pane, toolUseID)
+	pane.ClaudeOpenChatActions = append(pane.ClaudeOpenChatActions, action)
+}
+
+func closeClaudeOpenChatAction(pane *state.PaneState, toolUseID string) {
+	if toolUseID == "" {
+		return
+	}
+	for i := len(pane.ClaudeOpenChatActions) - 1; i >= 0; i-- {
+		if pane.ClaudeOpenChatActions[i].ToolUseID == toolUseID {
+			pane.ClaudeOpenChatActions = slices.Delete(pane.ClaudeOpenChatActions, i, i+1)
+			return
+		}
+	}
+}
+
+func pruneClaudeOpenChatActions(pane *state.PaneState, now time.Time) {
+	kept := pane.ClaudeOpenChatActions[:0]
+	for _, action := range pane.ClaudeOpenChatActions {
+		if !action.StartedAt.IsZero() && now.Sub(action.StartedAt) <= claudeChatActionBackdateWindow {
+			kept = append(kept, action)
+		}
+	}
+	pane.ClaudeOpenChatActions = kept
+}
+
+// ponytail: result narration before PostToolUse can still be backdated while its action remains open.
+func claudeSayChatTimestamp(pane *state.PaneState, promptID string, firstBatchAt, earliestBatchAt, now time.Time) time.Time {
+	var earliestOpenAction time.Time
+	for _, action := range pane.ClaudeOpenChatActions {
+		if action.PromptID != promptID || action.StartedAt.After(now) ||
+			now.Sub(action.StartedAt) > claudeChatActionBackdateWindow || !earliestBatchAt.After(action.StartedAt) {
+			continue
+		}
+		if earliestOpenAction.IsZero() || action.StartedAt.Before(earliestOpenAction) {
+			earliestOpenAction = action.StartedAt
+		}
+	}
+	if !earliestOpenAction.IsZero() {
+		return earliestOpenAction.Add(-time.Millisecond)
+	}
+	return firstBatchAt
 }
 
 func addChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text string, timestamp time.Time) {
@@ -914,6 +985,7 @@ func clearClaudeDisplay(pane *state.PaneState) {
 	pane.ClaudeDisplayMessageID = ""
 	pane.ClaudeDisplayPromptID = ""
 	pane.ClaudeDisplayFirstBatchAt = nil
+	pane.ClaudeDisplayEarliestBatchAt = time.Time{}
 	pane.ClaudeDisplayChunks = nil
 	pane.ClaudeDisplayFinalIndex = 0
 	pane.ClaudeDisplayFinal = false
@@ -925,6 +997,8 @@ func claudeDisplayStateChanged(before, after state.PaneState) bool {
 		before.ClaudeDisplayMessageID != after.ClaudeDisplayMessageID ||
 		before.ClaudeDisplayPromptID != after.ClaudeDisplayPromptID ||
 		!sameClaudeDisplayTime(before.ClaudeDisplayFirstBatchAt, after.ClaudeDisplayFirstBatchAt) ||
+		!before.ClaudeDisplayEarliestBatchAt.Equal(after.ClaudeDisplayEarliestBatchAt) ||
+		!slices.Equal(before.ClaudeOpenChatActions, after.ClaudeOpenChatActions) ||
 		!maps.Equal(before.ClaudeDisplayChunks, after.ClaudeDisplayChunks) ||
 		before.ClaudeDisplayFinalIndex != after.ClaudeDisplayFinalIndex ||
 		before.ClaudeDisplayFinal != after.ClaudeDisplayFinal ||
