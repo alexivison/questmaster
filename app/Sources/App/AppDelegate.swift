@@ -489,6 +489,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showDockContent(_ content: DockContent, focusDock: Bool) {
         guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID, role: selectedSessionRole()) else {
+            if content == .workerChat {
+                NSSound.beep()
+            }
             renderSnapshot()
             return
         }
