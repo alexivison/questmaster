@@ -25,8 +25,13 @@ enum ActionBarMetrics {
 
     /// Content (shield top, y 15.25, to worker-pill bottom, y 86 — both already in the shared
     /// content-row coordinate system the panel variants are aligned into, before `verticalShift`)
-    /// plus `topMargin` and a full `G` margin on the bottom.
-    static let footerHeight: CGFloat = (86 - designShieldTopOuterEdge) + topMargin + ShellMetrics.gap
+    /// plus `topMargin` and a full `G` margin on the bottom — content rounded UP to a whole point
+    /// first, so the whole sum is integral (a fractional height puts every plate border and the
+    /// snapped terminal edge on half pixels at 1x, which renders blurry). The remainder from that
+    /// rounding goes into the bottom margin, not the top: `verticalShift` (and so the shield's own
+    /// `topMargin` distance from the frame's top) is computed from the unrounded content height,
+    /// untouched by this.
+    static let footerHeight: CGFloat = (86 - designShieldTopOuterEdge).rounded(.up) + topMargin + ShellMetrics.gap
     static let plateWidth: CGFloat = 695
 
     /// The session panel's and slot bar's shared horizontal centreline (both plates' bars are
