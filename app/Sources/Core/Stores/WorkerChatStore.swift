@@ -221,7 +221,7 @@ public final class WorkerChatStore {
     private static func fingerprint(of workers: [TrackerSession]) -> String {
         workers
             .sorted { $0.id < $1.id }
-            .map { "\($0.id)|\($0.state)|\($0.lifecycle)|\($0.lastKind)|\($0.snippet)" }
+            .map { "\($0.id)|\($0.state)|\($0.lifecycle)|\($0.lastKind)|\($0.lastChatAt?.timeIntervalSince1970 ?? 0)|\($0.snippet)" }
             .joined(separator: "\n")
     }
 

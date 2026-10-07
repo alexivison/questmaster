@@ -1984,6 +1984,30 @@ func seedServeFixture(t *testing.T) serveFixture {
 	}
 }
 
+func TestSnapshotterTrackerSessionChangeIncludesLastChatAt(t *testing.T) {
+	env := seedServeFixture(t)
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	chatAt := env.now.Add(-time.Second)
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.LastChatAt = chatAt
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("update chat timestamp: %v", err)
+	}
+	got, err := snap.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("tracker change: %v", err)
+	}
+	if got.Sessions[0].LastChatAt == nil || !got.Sessions[0].LastChatAt.Equal(chatAt) {
+		t.Fatalf("last_chat_at = %v, want %s", got.Sessions[0].LastChatAt, chatAt)
+	}
+}
+
 func makeTestRepo(t *testing.T, name string) (string, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), name)

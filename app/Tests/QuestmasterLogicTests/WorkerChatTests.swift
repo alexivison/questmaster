@@ -23,6 +23,7 @@ struct WorkerChatTests {
         cursorsRoundTripUnchanged()
         hasMoreRepullsImmediately()
         pullTriggersAreOpenChangeAndHasMoreOnly()
+        lastChatTimestampChangeTriggersPull()
         changeDuringAPullIsPickedUpByTheNextOne()
         failedPullRetriesOnNextSync()
         attachChangeResetsTheFeed()
@@ -235,6 +236,15 @@ struct WorkerChatTests {
         _ = store.receive(WorkerFeedPayload(), for: first!)
         expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "an unchanged tracker should not pull")
         expect(store.sync(selectedSessionID: "m", sessions: group(snippet: "Bash: ls"), isVisible: true) != nil, "a changed worker should pull")
+    }
+
+    private static func lastChatTimestampChangeTriggersPull() {
+        let store = makeStore()
+        let first = open(store)
+        _ = store.receive(WorkerFeedPayload(), for: first)
+        var updated = group()
+        updated[1].lastChatAt = base(1)
+        expect(store.sync(selectedSessionID: "m", sessions: updated, isVisible: true) != nil, "new worker chat should trigger a pull")
     }
 
     private static func changeDuringAPullIsPickedUpByTheNextOne() {

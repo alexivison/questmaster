@@ -309,13 +309,27 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	if err := s.deliver(ctx, parent, target, prefix+message, pointer, prefix); err != nil {
 		return err
 	}
-	_ = state.AppendStateEventAt(s.store.Root(), sessionID, state.StateEvent{
-		Ts:     time.Now().UTC(),
+	now := time.Now().UTC()
+	chatText := workerfeed.CapText(message)
+	_ = state.UpdateAndLogAt(s.store.Root(), sessionID, &state.StateEvent{
+		Ts:     now,
 		Action: "report",
 		Fields: map[string]interface{}{
 			"chat_kind": "report",
-			"chat_text": workerfeed.CapText(message),
+			"chat_text": chatText,
 		},
+	}, func(ss *state.SessionState) bool {
+		if chatText == "" {
+			return false
+		}
+		pane, ok := ss.Panes["primary"]
+		if !ok {
+			pane = state.PaneState{Role: "primary"}
+		}
+		pane.LastChatAt = now
+		ss.Panes["primary"] = pane
+		ss.SeenAt = now
+		return true
 	})
 	return nil
 }

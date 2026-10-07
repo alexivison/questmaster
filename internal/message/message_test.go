@@ -1253,6 +1253,13 @@ func TestReport_LogsCappedFeedEntry(t *testing.T) {
 			if event.Fields["chat_kind"] != "report" || event.Fields["chat_text"] != tc.want {
 				t.Fatalf("report chat fields = %#v, want report/%q", event.Fields, tc.want)
 			}
+			ss, err := state.LoadSessionStateAt(store.Root(), "qm-w1")
+			if err != nil || ss == nil {
+				t.Fatalf("load report state = %v, %v", ss, err)
+			}
+			if got := ss.Panes["primary"].LastChatAt; !got.Equal(event.Ts) {
+				t.Fatalf("report LastChatAt = %s, want event timestamp %s", got, event.Ts)
+			}
 		})
 	}
 }

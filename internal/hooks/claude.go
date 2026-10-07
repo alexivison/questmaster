@@ -20,6 +20,7 @@ var claudeEvents = []claudeEntry{
 	{Event: "UserPromptSubmit", Action: "working"},
 	{Event: "PreToolUse", Action: "tool_start"},
 	{Event: "PostToolUse", Action: "tool_end"},
+	{Event: "MessageDisplay", Action: "say", Async: true},
 	{Event: "Stop", Action: "done"},
 	{Event: "SubagentStop", Action: "subagent_stop"},
 	{Event: "Notification", Action: "blocked"},
@@ -29,6 +30,7 @@ var claudeEvents = []claudeEntry{
 type claudeEntry struct {
 	Event  string
 	Action string
+	Async  bool
 }
 
 // claudeScriptCommandPath is the literal command path written into each
@@ -305,13 +307,17 @@ func (c *ClaudeInstaller) removeFromSettings() error {
 // sitting alongside any user-managed matcher-scoped blocks already in place.
 func (c *ClaudeInstaller) buildEntry(e claudeEntry) map[string]interface{} {
 	scriptCmd := fmt.Sprintf("%s %s", claudeScriptCommandPath, e.Action)
+	inner := map[string]interface{}{
+		"type":    "command",
+		"command": scriptCmd,
+		"timeout": 5,
+	}
+	if e.Async {
+		inner["async"] = true
+	}
 	return map[string]interface{}{
 		"hooks": []interface{}{
-			map[string]interface{}{
-				"type":    "command",
-				"command": scriptCmd,
-				"timeout": 5,
-			},
+			inner,
 		},
 	}
 }

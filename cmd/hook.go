@@ -1,16 +1,20 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
@@ -39,6 +43,9 @@ type HookRunner struct {
 	// transcript_path file. Returns (nil, nil) if the file is missing or
 	// unreadable; Stop hooks must remain best-effort when transcripts lag.
 	LoadTranscriptTail func(path string) ([]byte, error)
+
+	// LoadState reads the latest session state before bounded rollout reads.
+	LoadState func(sessionID string) (*state.SessionState, error)
 
 	// Update applies a tracker-style locked read-modify-write to the
 	// session's state.json. Returning false from mutate skips the disk
@@ -79,6 +86,7 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		Store:              store,
 		TmuxClient:         client,
 		LoadTranscriptTail: loadTranscriptTail,
+		LoadState:          state.LoadSessionState,
 		Update:             state.UpdateSessionState,
 		AppendEvent:        state.AppendStateEvent,
 		UpdateAndLog:       state.UpdateAndLog,
@@ -220,6 +228,7 @@ type claudePayload struct {
 	AgentID              string                 `json:"agent_id"`
 	AgentType            string                 `json:"agent_type"`
 	SessionID            string                 `json:"session_id"`
+	PromptID             string                 `json:"prompt_id"`
 	ToolName             string                 `json:"tool_name"`
 	ToolInput            map[string]interface{} `json:"tool_input"`
 	Prompt               string                 `json:"prompt"`
@@ -228,6 +237,10 @@ type claudePayload struct {
 	TranscriptPath       string                 `json:"transcript_path"`
 	Result               string                 `json:"result"`
 	LastAssistantMessage string                 `json:"last_assistant_message"`
+	MessageID            string                 `json:"message_id"`
+	Index                int                    `json:"index"`
+	Final                bool                   `json:"final"`
+	Delta                string                 `json:"delta"`
 }
 
 func decodeClaude(data []byte) claudePayload {
@@ -396,6 +409,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	case "stopped":
 		setState = "stopped"
 		lastKind = "SessionEnd"
+	case "say":
 	default:
 		fmt.Fprintf(stderr, "questmaster hook claude: unknown action %q\n", opts.action)
 		return
@@ -415,6 +429,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	ev.Kind = lastKind
 
 	firstPrompt := false
+	suppressFinalMessage := false
 	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
@@ -428,7 +443,69 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
 			LastChatStatus                  string
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus}
+			LastChatAt                      time.Time
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus, pane.LastChatAt}
+		prevClaude := pane
+		prevClaude.ClaudeDisplayChunks = maps.Clone(pane.ClaudeDisplayChunks)
+
+		if opts.action == "say" {
+			stoppedTurn := sameClaudeTurn(pane.ClaudeLastStopPromptID, payload.PromptID, pane.ClaudeLastStopTranscript, payload.TranscriptPath)
+			if !isSubagent && !stoppedTurn &&
+				(pane.ClaudePromptID == "" || pane.ClaudePromptID == payload.PromptID) {
+				if pane.ClaudeDisplayMessageID != payload.MessageID || pane.ClaudeDisplayPromptID != payload.PromptID {
+					clearClaudeDisplay(&pane)
+					pane.ClaudeDisplayMessageID = payload.MessageID
+					pane.ClaudeDisplayPromptID = payload.PromptID
+					pane.ClaudeDisplayChunks = make(map[int]string)
+				}
+				if payload.MessageID != "" && payload.Index >= 0 && payload.Index < maxClaudeDisplayBatches {
+					if _, seen := pane.ClaudeDisplayChunks[payload.Index]; !seen {
+						pane.ClaudeDisplayChunks[payload.Index] = payload.Delta
+						capClaudeDisplayChunks(pane.ClaudeDisplayChunks)
+					}
+					if payload.Final {
+						pane.ClaudeDisplayFinal = true
+						pane.ClaudeDisplayFinalIndex = payload.Index
+					}
+					if text, complete := claudeDisplayText(pane); complete {
+						capped := workerfeed.CapText(text)
+						if capped != "" {
+							addChatEntry(&ev, &pane, "say", text)
+							pane.ClaudeLastSayMessage = capped
+							pane.ClaudeLastSayPromptID = payload.PromptID
+							pane.ClaudeLastSayTranscript = payload.TranscriptPath
+							clearClaudeDisplay(&pane)
+						} else {
+							clearClaudeDisplay(&pane)
+						}
+					}
+				}
+			}
+			ss.Panes[role] = pane
+			return claudeDisplayStateChanged(prevClaude, pane)
+		}
+
+		if !isSubagent {
+			if opts.action == "done" {
+				cappedFinal := workerfeed.CapText(finalMessage)
+				suppressFinalMessage = cappedFinal != "" && pane.ClaudeLastSayMessage == cappedFinal &&
+					sameClaudeTurn(pane.ClaudeLastSayPromptID, payload.PromptID, pane.ClaudeLastSayTranscript, payload.TranscriptPath)
+				clearClaudeDisplay(&pane)
+				pane.ClaudeLastSayMessage = ""
+				pane.ClaudeLastSayPromptID = ""
+				pane.ClaudeLastSayTranscript = ""
+				pane.ClaudeLastStopPromptID = payload.PromptID
+				pane.ClaudeLastStopTranscript = payload.TranscriptPath
+			} else if opts.action == "working" {
+				clearClaudeDisplay(&pane)
+				pane.ClaudePromptID = payload.PromptID
+				pane.ClaudeLastSayMessage = ""
+				pane.ClaudeLastSayPromptID = ""
+				pane.ClaudeLastSayTranscript = ""
+				pane.ClaudeLastStopPromptID = ""
+				pane.ClaudeLastStopTranscript = ""
+			}
+		}
 
 		// Subagent suppression: drop the State mutation while preserving
 		// Activity/Tool/LastKind updates so the renderer still gets useful
@@ -487,14 +564,14 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		pane.Agent = "claude"
 		pane.Role = role
 		if !isSubagent {
-			if opts.action == "done" && finalMessage != "" && pane.State == "done" {
-				addChatEntry(&ev, "message", finalMessage)
+			if opts.action == "done" && finalMessage != "" && pane.State == "done" && !suppressFinalMessage {
+				addChatEntry(&ev, &pane, "message", finalMessage)
 			}
 			if opts.action == "tool_start" && payload.ToolName != "" {
 				if pane.State != prev.State {
 					addVisibleStatus(&ev, &pane, pane.State)
 				}
-				addChatEntry(&ev, "action", payload.ToolName)
+				addChatEntry(&ev, &pane, "action", payload.ToolName)
 			}
 			if opts.action != "tool_start" && pane.State != prev.State {
 				addVisibleStatus(&ev, &pane, pane.State)
@@ -510,7 +587,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
 			pane.WorkingSince.Equal(prev.WorkingSince) &&
-			pane.LastChatStatus == prev.LastChatStatus {
+			pane.LastChatStatus == prev.LastChatStatus &&
+			pane.LastChatAt.Equal(prev.LastChatAt) &&
+			!claudeDisplayStateChanged(prevClaude, pane) {
 			return false
 		}
 		return true
@@ -553,10 +632,11 @@ func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLast
 	pane.WorkingSince = now
 }
 
-func addChatEntry(event *state.StateEvent, kind, text string) {
+func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text string) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
+	pane.LastChatAt = event.Ts
 	if event.Fields == nil {
 		event.Fields = make(map[string]interface{})
 	}
@@ -576,6 +656,89 @@ func addChatEntry(event *state.StateEvent, kind, text string) {
 	event.Fields["chat_text"] = workerfeed.CapText(text)
 }
 
+const maxClaudeDisplayBatches = 4096
+
+func capClaudeDisplayChunks(chunks map[int]string) {
+	indexes := sortedClaudeDisplayIndexes(chunks)
+	remaining := 1500
+	leading := true
+	for expected, index := range indexes {
+		if index != expected {
+			return
+		}
+		text := chunks[index]
+		if leading {
+			text = strings.TrimLeftFunc(text, unicode.IsSpace)
+			chunks[index] = text
+			leading = text == ""
+		}
+		runes := []rune(text)
+		if len(runes) > remaining {
+			chunks[index] = string(runes[:remaining])
+			remaining = 0
+			continue
+		}
+		remaining -= len(runes)
+	}
+}
+
+func claudeDisplayText(pane state.PaneState) (string, bool) {
+	if !pane.ClaudeDisplayFinal || pane.ClaudeDisplayFinalIndex < 0 || pane.ClaudeDisplayFinalIndex >= maxClaudeDisplayBatches {
+		return "", false
+	}
+	indexes := sortedClaudeDisplayIndexes(pane.ClaudeDisplayChunks)
+	if len(indexes) != pane.ClaudeDisplayFinalIndex+1 {
+		return "", false
+	}
+	var text strings.Builder
+	for expected, index := range indexes {
+		if index != expected {
+			return "", false
+		}
+		text.WriteString(pane.ClaudeDisplayChunks[index])
+	}
+	return text.String(), true
+}
+
+func sortedClaudeDisplayIndexes(chunks map[int]string) []int {
+	indexes := make([]int, 0, len(chunks))
+	for index := range chunks {
+		indexes = append(indexes, index)
+	}
+	slices.Sort(indexes)
+	return indexes
+}
+
+func sameClaudeTurn(aPromptID, bPromptID, aTranscript, bTranscript string) bool {
+	if aPromptID != "" && bPromptID != "" {
+		return aPromptID == bPromptID
+	}
+	return aTranscript != "" && aTranscript == bTranscript
+}
+
+func clearClaudeDisplay(pane *state.PaneState) {
+	pane.ClaudeDisplayMessageID = ""
+	pane.ClaudeDisplayPromptID = ""
+	pane.ClaudeDisplayChunks = nil
+	pane.ClaudeDisplayFinalIndex = 0
+	pane.ClaudeDisplayFinal = false
+}
+
+func claudeDisplayStateChanged(before, after state.PaneState) bool {
+	return before.ClaudePromptID != after.ClaudePromptID ||
+		before.ClaudeDisplayMessageID != after.ClaudeDisplayMessageID ||
+		before.ClaudeDisplayPromptID != after.ClaudeDisplayPromptID ||
+		!maps.Equal(before.ClaudeDisplayChunks, after.ClaudeDisplayChunks) ||
+		before.ClaudeDisplayFinalIndex != after.ClaudeDisplayFinalIndex ||
+		before.ClaudeDisplayFinal != after.ClaudeDisplayFinal ||
+		!before.LastChatAt.Equal(after.LastChatAt) ||
+		before.ClaudeLastSayMessage != after.ClaudeLastSayMessage ||
+		before.ClaudeLastSayPromptID != after.ClaudeLastSayPromptID ||
+		before.ClaudeLastSayTranscript != after.ClaudeLastSayTranscript ||
+		before.ClaudeLastStopPromptID != after.ClaudeLastStopPromptID ||
+		before.ClaudeLastStopTranscript != after.ClaudeLastStopTranscript
+}
+
 func addVisibleStatus(event *state.StateEvent, pane *state.PaneState, status string) {
 	if status != "working" && status != "done" && status != "blocked" {
 		return
@@ -583,7 +746,7 @@ func addVisibleStatus(event *state.StateEvent, pane *state.PaneState, status str
 	if pane.LastChatStatus == status {
 		return
 	}
-	addChatEntry(event, "status", status)
+	addChatEntry(event, pane, "status", status)
 	pane.LastChatStatus = status
 }
 
@@ -862,10 +1025,230 @@ func decodeCodex(data []byte) codexPayload {
 	return p
 }
 
+// ponytail: 1 MiB per hook; oversized rollout lines are skipped across hooks.
+const codexRolloutReadLimit = 1 << 20
+const maxCodexRolloutRetries = 3
+
+type codexRolloutRead struct {
+	previousPath     string
+	previousOffset   int64
+	previousSkipping bool
+	path             string
+	nextOffset       int64
+	nextSkipping     bool
+	commentary       []string
+}
+
+func loadCodexRollout(r *HookRunner, sessionID, transcriptPath string) (codexRolloutRead, error) {
+	rollout := codexRolloutRead{path: transcriptPath}
+	if r.LoadState == nil {
+		return rollout, nil
+	}
+	ss, err := r.LoadState(sessionID)
+	if err != nil {
+		return rollout, err
+	}
+	if ss != nil {
+		pane := ss.Panes["primary"]
+		rollout.previousPath = pane.CodexTranscriptPath
+		rollout.previousOffset = pane.CodexTranscriptOffset
+		rollout.previousSkipping = pane.CodexTranscriptSkippingLine
+	}
+	start := rollout.previousOffset
+	skipping := rollout.previousSkipping
+	if rollout.previousPath != transcriptPath {
+		start = 0
+		skipping = false
+	}
+	rollout.commentary, rollout.nextOffset, rollout.nextSkipping, err = readCodexCommentary(transcriptPath, start, skipping)
+	return rollout, err
+}
+
+func readCodexCommentary(path string, offset int64, skipping bool) ([]string, int64, bool, error) {
+	if path == "" {
+		return nil, offset, skipping, nil
+	}
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, offset, skipping, nil
+	}
+	if err != nil {
+		return nil, offset, skipping, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, offset, skipping, err
+	}
+	if offset < 0 || info.Size() < offset {
+		offset = 0
+		skipping = false
+	}
+	available := info.Size() - offset
+	if available <= 0 {
+		return nil, offset, skipping, nil
+	}
+	if available > codexRolloutReadLimit {
+		available = codexRolloutReadLimit
+	}
+	data := make([]byte, int(available))
+	n, readErr := f.ReadAt(data, offset)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return nil, offset, skipping, readErr
+	}
+	data = data[:n]
+	baseOffset := offset
+	if skipping {
+		if newline := bytes.IndexByte(data, '\n'); newline < 0 {
+			return nil, offset + int64(len(data)), true, nil
+		} else {
+			baseOffset += int64(newline + 1)
+			data = data[newline+1:]
+			skipping = false
+		}
+	}
+	lastNewline := bytes.LastIndexByte(data, '\n')
+	if lastNewline < 0 {
+		if !skipping && len(data) >= codexRolloutReadLimit {
+			return nil, baseOffset + int64(len(data)), true, nil
+		}
+		return nil, baseOffset, skipping, nil
+	}
+	data = data[:lastNewline]
+	nextOffset := baseOffset + int64(lastNewline+1)
+	var commentary []string
+	for len(data) > 0 {
+		end := bytes.IndexByte(data, '\n')
+		var line []byte
+		if end < 0 {
+			line = data
+			data = nil
+		} else {
+			line = data[:end]
+			data = data[end+1:]
+		}
+		if !bytes.Contains(line, []byte("AgentMessage")) {
+			continue
+		}
+		var event struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Type string `json:"type"`
+				Item struct {
+					Type  string `json:"type"`
+					Phase string `json:"phase"`
+					Text  string `json:"text"`
+				} `json:"item"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(line, &event) == nil && event.Type == "event_msg" &&
+			event.Payload.Type == "item_completed" && event.Payload.Item.Type == "AgentMessage" &&
+			event.Payload.Item.Phase == "commentary" && event.Payload.Item.Text != "" {
+			commentary = append(commentary, event.Payload.Item.Text)
+		}
+	}
+	return commentary, nextOffset, false, nil
+}
+
+func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) bool {
+	for attempt := 0; attempt < maxCodexRolloutRetries; attempt++ {
+		rollout, err := loadCodexRollout(r, sessionID, transcriptPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "questmaster hook codex: retry rollout read: %v\n", err)
+			return false
+		}
+		if rollout.path == rollout.previousPath && rollout.nextOffset == rollout.previousOffset && rollout.nextSkipping == rollout.previousSkipping {
+			return false
+		}
+
+		ev := state.StateEvent{Ts: now, Agent: "codex", Role: "primary", Action: "rollout"}
+		conflict := false
+		committed := false
+		_, err = r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+			pane, ok := ss.Panes["primary"]
+			if !ok {
+				pane = state.PaneState{Role: "primary", Agent: "codex"}
+			}
+			if pane.CodexTranscriptPath != rollout.previousPath || pane.CodexTranscriptOffset != rollout.previousOffset || pane.CodexTranscriptSkippingLine != rollout.previousSkipping {
+				conflict = true
+				return false
+			}
+			pane.CodexTranscriptPath = rollout.path
+			pane.CodexTranscriptOffset = rollout.nextOffset
+			pane.CodexTranscriptSkippingLine = rollout.nextSkipping
+			for _, text := range rollout.commentary {
+				addChatEntry(&ev, &pane, "say", text)
+			}
+			ss.SeenAt = now
+			ss.Panes["primary"] = pane
+			committed = true
+			return true
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "questmaster hook codex: retry rollout update: %v\n", err)
+			return false
+		}
+		if committed || !conflict {
+			return false
+		}
+	}
+	return true
+}
+
+func catchUpCodexRolloutUnderLock(r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) {
+	ev := state.StateEvent{Ts: now, Agent: "codex", Role: "primary", Action: "rollout"}
+	var readErr error
+	_, updateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+		pane, ok := ss.Panes["primary"]
+		if !ok {
+			pane = state.PaneState{Role: "primary", Agent: "codex"}
+		}
+		offset := pane.CodexTranscriptOffset
+		skipping := pane.CodexTranscriptSkippingLine
+		if pane.CodexTranscriptPath != transcriptPath {
+			offset = 0
+			skipping = false
+		}
+		commentary, nextOffset, nextSkipping, err := readCodexCommentary(transcriptPath, offset, skipping)
+		if err != nil {
+			readErr = err
+			return false
+		}
+		if pane.CodexTranscriptPath == transcriptPath && nextOffset == pane.CodexTranscriptOffset && nextSkipping == pane.CodexTranscriptSkippingLine {
+			return false
+		}
+		pane.CodexTranscriptPath = transcriptPath
+		pane.CodexTranscriptOffset = nextOffset
+		pane.CodexTranscriptSkippingLine = nextSkipping
+		for _, text := range commentary {
+			addChatEntry(&ev, &pane, "say", text)
+		}
+		ss.SeenAt = now
+		ss.Panes["primary"] = pane
+		return true
+	})
+	if readErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook codex: final rollout read: %v\n", readErr)
+	}
+	if updateErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook codex: final rollout update: %v\n", updateErr)
+	}
+}
+
 func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
 	payload := decodeCodex(opts.stdin)
 	threadID := codexResumeID(payload)
 	now := r.Now().UTC()
+	var rollout codexRolloutRead
+	if payload.AgentID == "" && payload.TranscriptPath != "" &&
+		(opts.action == "tool_start" || opts.action == "tool_end" || opts.action == "done") && r.LoadState != nil {
+		var err error
+		rollout, err = loadCodexRollout(r, sessionID, payload.TranscriptPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "questmaster hook codex: load state for rollout: %v\n", err)
+			rollout.path = ""
+		}
+	}
 
 	ev := state.StateEvent{
 		Ts:        now,
@@ -933,6 +1316,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	ev.Kind = lastKind
 
 	firstPrompt := false
+	rolloutConflict := false
 	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
@@ -944,7 +1328,23 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
 			LastChatStatus                  string
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus}
+			CodexTranscriptPath             string
+			CodexTranscriptOffset           int64
+			CodexTranscriptSkippingLine     bool
+			LastChatAt                      time.Time
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus, pane.CodexTranscriptPath, pane.CodexTranscriptOffset, pane.CodexTranscriptSkippingLine, pane.LastChatAt}
+		if rollout.path != "" {
+			if pane.CodexTranscriptPath == rollout.previousPath && pane.CodexTranscriptOffset == rollout.previousOffset && pane.CodexTranscriptSkippingLine == rollout.previousSkipping {
+				pane.CodexTranscriptPath = rollout.path
+				pane.CodexTranscriptOffset = rollout.nextOffset
+				pane.CodexTranscriptSkippingLine = rollout.nextSkipping
+				for _, text := range rollout.commentary {
+					addChatEntry(&ev, &pane, "say", text)
+				}
+			} else {
+				rolloutConflict = true
+			}
+		}
 
 		// Only the first prompt (pane still "starting") is worth a manifest
 		// title check; steady-state prompts never touch it.
@@ -977,13 +1377,13 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		pane.Role = role
 		if payload.AgentID == "" {
 			if opts.action == "done" && finalMessage != "" && pane.State == "done" {
-				addChatEntry(&ev, "message", finalMessage)
+				addChatEntry(&ev, &pane, "message", finalMessage)
 			}
 			if opts.action == "tool_start" && payload.ToolName != "" {
 				if pane.State != prev.State {
 					addVisibleStatus(&ev, &pane, pane.State)
 				}
-				addChatEntry(&ev, "action", payload.ToolName)
+				addChatEntry(&ev, &pane, "action", payload.ToolName)
 			}
 			if opts.action != "tool_start" && pane.State != prev.State {
 				addVisibleStatus(&ev, &pane, pane.State)
@@ -996,7 +1396,11 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			pane.Tool == prev.Tool &&
 			pane.LastKind == prev.LastKind &&
 			pane.WorkingSince.Equal(prev.WorkingSince) &&
-			pane.LastChatStatus == prev.LastChatStatus {
+			pane.LastChatStatus == prev.LastChatStatus &&
+			pane.CodexTranscriptPath == prev.CodexTranscriptPath &&
+			pane.CodexTranscriptOffset == prev.CodexTranscriptOffset &&
+			pane.CodexTranscriptSkippingLine == prev.CodexTranscriptSkippingLine &&
+			pane.LastChatAt.Equal(prev.LastChatAt) {
 			return false
 		}
 		return true
@@ -1006,6 +1410,13 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	}
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
+	}
+	if rolloutConflict && mutateErr == nil && retryCodexRollout(r, sessionID, payload.TranscriptPath, now, stderr) {
+		if opts.action == "done" {
+			catchUpCodexRolloutUnderLock(r, sessionID, payload.TranscriptPath, now, stderr)
+		} else {
+			fmt.Fprintf(stderr, "questmaster hook codex: rollout offset changed during %d retries\n", maxCodexRolloutRetries)
+		}
 	}
 	if firstPrompt {
 		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
@@ -1464,7 +1875,8 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			Recent                          []string
 			SessionFile, PiSessionID        string
 			LastChatStatus                  string
-		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.SessionFile, pane.PiSessionID, pane.LastChatStatus}
+			LastChatAt                      time.Time
+		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.SessionFile, pane.PiSessionID, pane.LastChatStatus, pane.LastChatAt}
 
 		preserveBlockedQuestion := opts.action == "tool_execution_start" && pane.State == "blocked" && pane.LastKind == "waiting_for_user"
 		clearStaleQuestionActivity := opts.action == "tool_execution_end" && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
@@ -1508,11 +1920,11 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			if pane.State != prev.State {
 				addVisibleStatus(&ev, &pane, pane.State)
 			}
-			addChatEntry(&ev, "action", piToolName(payload))
+			addChatEntry(&ev, &pane, "action", piToolName(payload))
 		}
 		if opts.action == "agent_end" {
 			if text := piLastMessageText(payload); text != "" && pane.State == "done" {
-				addChatEntry(&ev, "message", text)
+				addChatEntry(&ev, &pane, "message", text)
 			}
 		}
 		if !preserveBlockedQuestion && opts.action != "tool_execution_start" && pane.State != prev.State {
@@ -1528,7 +1940,8 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			slices.Equal(pane.Recent, prev.Recent) &&
 			pane.SessionFile == prev.SessionFile &&
 			pane.PiSessionID == prev.PiSessionID &&
-			pane.LastChatStatus == prev.LastChatStatus {
+			pane.LastChatStatus == prev.LastChatStatus &&
+			pane.LastChatAt.Equal(prev.LastChatAt) {
 			return false
 		}
 		return true

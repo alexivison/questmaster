@@ -42,7 +42,7 @@ struct RuntimeDecoderTests {
 
     private static func trackerSessionDecodesCanonicalKeysAndDurations() {
         let raw = """
-        {"id":"s-canonical","title":"Canonical row","repo":{"identity":"repo-id","name":"Repo Name","path":"/repo","color":"repo-blue"},"display_color":"session-pink","worktree_path":"/worktree","primary_agent":"codex","session_type":"worker","status":"stopped","latest_activity":"Waiting","last_kind":"waiting_for_user","parent_id":"parent-1","worker_count":3,"elapsed_ms":125000,"elapsed_since":"2026-06-19T04:20:00Z","is_current":true}
+        {"id":"s-canonical","title":"Canonical row","repo":{"identity":"repo-id","name":"Repo Name","path":"/repo","color":"repo-blue"},"display_color":"session-pink","worktree_path":"/worktree","primary_agent":"codex","session_type":"worker","status":"stopped","latest_activity":"Waiting","last_kind":"waiting_for_user","parent_id":"parent-1","worker_count":3,"elapsed_ms":125000,"elapsed_since":"2026-06-19T04:20:00Z","last_chat_at":"2026-06-19T04:21:00Z","is_current":true}
         """
 
         do {
@@ -61,6 +61,7 @@ struct RuntimeDecoderTests {
             expect(session.state == "stopped", "stopped lifecycle should default state to stopped")
             expect(session.snippet == "Waiting", "latest_activity did not decode")
             expect(session.lastKind == "waiting_for_user", "last_kind did not decode")
+            expect(session.lastChatAt == ISO8601DateFormatter().date(from: "2026-06-19T04:21:00Z"), "last_chat_at did not decode")
             expect(session.parentID == "parent-1", "parent_id did not decode")
             expect(session.workerCount == 3, "worker_count did not decode")
             expect(session.duration == "0:02:05", "elapsed_ms should format initial duration")

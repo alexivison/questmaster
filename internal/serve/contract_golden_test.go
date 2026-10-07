@@ -51,6 +51,7 @@ type contractFixture struct {
 func serveContractFixtures() []contractFixture {
 	observedAt := time.Date(2026, 6, 19, 4, 20, 0, 0, time.UTC)
 	since := observedAt.Add(-2 * time.Minute)
+	lastChatAt := observedAt.Add(-time.Minute)
 	artifact := ArtifactSnapshot{
 		Kind:      "html",
 		Path:      "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
@@ -117,6 +118,7 @@ func serveContractFixtures() []contractFixture {
 			State:          "working",
 			ElapsedMS:      int64((2 * time.Minute).Milliseconds()),
 			ElapsedSince:   &since,
+			LastChatAt:     &lastChatAt,
 			LatestActivity: "Bash: go test ./...",
 			LastKind:       "PreToolUse",
 			WorktreePath:   "/tmp/questmaster/worktrees/app-contract",

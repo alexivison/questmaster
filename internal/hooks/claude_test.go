@@ -96,6 +96,22 @@ func TestClaudeInstallCreatesScriptAndSettings(t *testing.T) {
 			t.Errorf("entry for %s command = %q, want %q", ev.Event, cmd, want)
 		}
 	}
+	arr, _ := hooks["MessageDisplay"].([]interface{})
+	async := false
+	for _, raw := range arr {
+		entry, _ := raw.(map[string]interface{})
+		inner, _ := entry["hooks"].([]interface{})
+		for _, rawHook := range inner {
+			hook, _ := rawHook.(map[string]interface{})
+			command, _ := hook["command"].(string)
+			if strings.HasSuffix(command, claudeScriptCommandToken+" say") {
+				async, _ = hook["async"].(bool)
+			}
+		}
+	}
+	if !async {
+		t.Fatal("MessageDisplay hook is not async")
+	}
 }
 
 // TestClaudeEntriesOmitMatcherField guards the matcher-field shape:
@@ -179,6 +195,7 @@ func TestClaudeInstallSkipsCurrentSettingsWithoutReformatting(t *testing.T) {
     "SessionStart": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh starting", "type": "command"}]}],
     "Stop": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh done", "type": "command"}]}],
     "PostToolUse": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh tool_end", "type": "command"}]}],
+    "MessageDisplay": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh say", "type": "command", "async": true}]}],
     "UserPromptSubmit": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh working", "type": "command"}]}]
   },
   "a_unrelated": ["preserve", "order"]
