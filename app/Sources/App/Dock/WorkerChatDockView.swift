@@ -67,11 +67,26 @@ struct WorkerChatDockView: View {
     let store: WorkerChatStore
 
     var body: some View {
-        if store.lines.isEmpty {
-            emptyState
-        } else {
-            WorkerChatFeedView(lines: store.lines)
+        VStack(alignment: .leading, spacing: 0) {
+            if store.lines.isEmpty {
+                emptyState
+            } else {
+                WorkerChatFeedView(lines: store.lines)
+            }
+            readNotices
         }
+    }
+
+    private var readNotices: some View {
+        VStack(alignment: .leading, spacing: WorkerChatMetrics.rowGap) {
+            ForEach(store.readNotices, id: \.self) { notice in
+                Text(notice)
+                    .font(AppFonts.chat.swiftUI)
+                    .foregroundStyle(WorkerChatMetrics.Color.muted.swiftUI)
+            }
+        }
+        .padding(.horizontal, store.readNotices.isEmpty ? 0 : WorkerChatMetrics.inset)
+        .padding(.bottom, store.readNotices.isEmpty ? 0 : WorkerChatMetrics.inset)
     }
 
     private var emptyState: some View {

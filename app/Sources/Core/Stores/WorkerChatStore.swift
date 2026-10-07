@@ -34,9 +34,13 @@ public final class WorkerChatStore {
 
     public private(set) var lines: [WorkerChatLine] = []
     public private(set) var isAttached = false
+    /// One muted notice per worker whose log the last pull couldn't read; cleared by a clean pull.
+    public private(set) var readNotices: [String] = []
 
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private var masterID: String?
+    @ObservationIgnored private var selectedSessionID: String?
+    @ObservationIgnored private var readErrorWorkerIDs: [String] = []
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var cursors: [String: WorkerFeedCursor] = [:]
     @ObservationIgnored private var records: [WorkerChatRecord] = []
@@ -59,7 +63,9 @@ public final class WorkerChatStore {
         if nextMasterID != masterID {
             reset(to: nextMasterID)
         }
-        if isVisible && !self.isVisible {
+        let attachmentChanged = selectedSessionID != self.selectedSessionID
+        self.selectedSessionID = selectedSessionID
+        if (isVisible && !self.isVisible) || (attachmentChanged && nextMasterID != nil) || !readErrorWorkerIDs.isEmpty {
             pullWanted = true
         }
         self.isVisible = isVisible
@@ -86,6 +92,7 @@ public final class WorkerChatStore {
         if payload.hasMore.values.contains(true) {
             pullWanted = true
         }
+        readErrorWorkerIDs = (payload.errors ?? [:]).keys.sorted()
         merge(payload.entries)
         return nextRequest()
     }
@@ -115,6 +122,8 @@ public final class WorkerChatStore {
         cursors = [:]
         records = []
         feedNames = [:]
+        readErrorWorkerIDs = []
+        readNotices = []
         fingerprint = ""
         pullWanted = false
         inFlight = false
@@ -169,9 +178,14 @@ public final class WorkerChatStore {
             kept = kept.dropFirst(built.count - Self.maxLines)
             built = WorkerChatLineBuilder.lines(from: Array(kept), names: names, agents: agents, calendar: calendar)
         }
+        // ponytail: trimming drops raw records before collapsing, so a run past maxLines calls stays capped at the kept count
         records = Array(kept)
         if built != lines {
             lines = built
+        }
+        let notices = readErrorWorkerIDs.map { "Couldn't read \(WorkerChatLineBuilder.displayName(names[$0] ?? $0))'s activity" }
+        if notices != readNotices {
+            readNotices = notices
         }
     }
 

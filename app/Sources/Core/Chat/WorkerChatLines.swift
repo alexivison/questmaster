@@ -53,18 +53,13 @@ struct WorkerChatRecord: Equatable {
 }
 
 public enum WorkerChatTimeHeaderPolicy {
-    public static let minimumGap: TimeInterval = 5 * 60
-
-    /// A header precedes the first line, and any line stamped in a different clock minute at least
-    /// `minimumGap` after the previous line.
-    public static func needsHeader(after previous: Date?, at current: Date, calendar: Calendar) -> Bool {
-        guard let previous else {
+    /// A header precedes the first line, and any line whose clock minute differs from the minute
+    /// of the last header.
+    public static func needsHeader(afterHeaderAt lastHeader: Date?, at current: Date, calendar: Calendar) -> Bool {
+        guard let lastHeader else {
             return true
         }
-        guard current.timeIntervalSince(previous) >= minimumGap else {
-            return false
-        }
-        return clockMinute(previous, calendar) != clockMinute(current, calendar)
+        return clockMinute(lastHeader, calendar) != clockMinute(current, calendar)
     }
 
     public static func label(for date: Date, calendar: Calendar) -> String {
@@ -130,15 +125,15 @@ enum WorkerChatLineBuilder {
         }
 
         var lines: [WorkerChatLine] = []
-        var previous: Date?
+        var lastHeader: Date?
         for draft in drafts {
-            if WorkerChatTimeHeaderPolicy.needsHeader(after: previous, at: draft.timestamp, calendar: calendar) {
+            if WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: lastHeader, at: draft.timestamp, calendar: calendar) {
                 lines.append(WorkerChatLine(
                     id: "h\(draft.id)",
                     content: .timeHeader(WorkerChatTimeHeaderPolicy.label(for: draft.timestamp, calendar: calendar))
                 ))
+                lastHeader = draft.timestamp
             }
-            previous = draft.timestamp
             let name = displayName(names[draft.workerID] ?? draft.workerID) + ":"
             lines.append(WorkerChatLine(
                 id: draft.id,

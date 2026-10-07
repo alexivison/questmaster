@@ -18,7 +18,7 @@ struct WorkerChatTests {
         actionRunCollapsesWithCountsAndNoCommas()
         actionRunStaysOpenAcrossOtherWorkersEntries()
         actionRunClosesOnTheSameWorkersNextNonAction()
-        timeHeadersFollowTheGapAndMinuteRule()
+        timeHeadersFollowTheClockMinuteOfTheLastHeader()
         timeHeadersUseLocalTime()
         cursorsRoundTripUnchanged()
         hasMoreRepullsImmediately()
@@ -26,7 +26,8 @@ struct WorkerChatTests {
         changeDuringAPullIsPickedUpByTheNextOne()
         failedPullRetriesOnNextSync()
         attachChangeResetsTheFeed()
-        workerAttachSharesTheMastersFeed()
+        attachChangeWithinTheGroupPullsAgainKeepingCursors()
+        unreadableWorkerShowsANoticeAndRetries()
         standaloneIsUnattached()
         historyIsBounded()
         roleAvailability()
@@ -152,14 +153,14 @@ struct WorkerChatTests {
 
     // MARK: - Time headers
 
-    private static func timeHeadersFollowTheGapAndMinuteRule() {
+    private static func timeHeadersFollowTheClockMinuteOfTheLastHeader() {
         let store = makeStore()
         feed(store, [
             entry(0, "w1", "say", "a"),
-            entry(60, "w1", "say", "b"),
-            entry(299, "w1", "say", "c"),
-            entry(599, "w1", "say", "d"),
-            entry(599 + 120, "w1", "say", "e"),
+            entry(30, "w1", "say", "b"),
+            entry(60, "w1", "say", "c"),
+            entry(119, "w1", "say", "d"),
+            entry(120 + 20 * 60, "w1", "say", "e"),
         ])
         let kinds = store.lines.map { line -> String in
             switch line.content {
@@ -167,18 +168,18 @@ struct WorkerChatTests {
             case .entry(_, let segments): return segments.last?.text.trimmingCharacters(in: .whitespaces) ?? ""
             }
         }
-        expect(kinds == ["[09:00]", "a", "b", "c", "[09:09]", "d", "e"], "header placement mismatch: \(kinds)")
+        expect(kinds == ["[09:00]", "a", "b", "[09:01]", "c", "d", "[09:22]", "e"], "header placement mismatch: \(kinds)")
 
         expect(
-            !WorkerChatTimeHeaderPolicy.needsHeader(after: base(0), at: base(299), calendar: calendar),
-            "under five minutes should not need a header"
+            !WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: base(0), at: base(59), calendar: calendar),
+            "the same clock minute as the last header should not need a header"
         )
         expect(
-            WorkerChatTimeHeaderPolicy.needsHeader(after: base(0), at: base(300), calendar: calendar),
-            "exactly five minutes in a new clock minute should need a header"
+            WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: base(0), at: base(60), calendar: calendar),
+            "a new clock minute should need a header, however short the gap"
         )
         expect(
-            WorkerChatTimeHeaderPolicy.needsHeader(after: nil, at: base(0), calendar: calendar),
+            WorkerChatTimeHeaderPolicy.needsHeader(afterHeaderAt: nil, at: base(0), calendar: calendar),
             "the first entry always needs a header"
         )
     }
@@ -281,13 +282,42 @@ struct WorkerChatTests {
         expect(stale == nil && store.lines.isEmpty, "a response for the old master should be dropped")
     }
 
-    private static func workerAttachSharesTheMastersFeed() {
+    private static func attachChangeWithinTheGroupPullsAgainKeepingCursors() {
         let store = makeStore()
         let request = store.sync(selectedSessionID: "w2", sessions: group(), isVisible: true)
         expect(request?.masterID == "m", "a worker should pull its master's feed")
         expect(store.isAttached, "a worker with a master is attached")
+        let cursor = WorkerFeedCursor(offset: 7, fileID: "a")
+        _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "hi")], cursors: ["w1": cursor]), for: request!)
+
         let sameMaster = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
-        expect(sameMaster == nil && store.isAttached, "moving between master and worker keeps the feed")
+        expect(sameMaster?.masterID == "m", "switching between a worker and its master should pull")
+        expect(sameMaster?.cursors == ["w1": cursor], "the switch should keep the cursors")
+        expect(store.isAttached && store.lines.count == 2, "the feed should survive the switch")
+        _ = store.receive(WorkerFeedPayload(), for: sameMaster!)
+        expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "the same attachment should not pull again")
+    }
+
+    private static func unreadableWorkerShowsANoticeAndRetries() {
+        let store = makeStore()
+        let request = open(store)
+        let followUp = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(0, "w1", "say", "hi")],
+                cursors: ["w1": WorkerFeedCursor(offset: 3, fileID: "a")],
+                errors: ["w2": "permission denied"]
+            ),
+            for: request
+        )
+        expect(followUp == nil, "an error alone should not re-pull straight away")
+        expect(store.lines.count == 2, "the readable worker's entries should still show")
+        expect(store.readNotices == ["Couldn't read Worker Two's activity"], "notice mismatch: \(store.readNotices)")
+
+        let retry = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
+        expect(retry != nil, "the next sync should re-pull while a worker is in error, even with no change")
+        _ = store.receive(WorkerFeedPayload(), for: retry!)
+        expect(store.readNotices.isEmpty, "a clean pull should clear the notice")
+        expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "no error and no change should not pull")
     }
 
     private static func standaloneIsUnattached() {
