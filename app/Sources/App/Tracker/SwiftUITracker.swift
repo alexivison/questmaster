@@ -308,8 +308,8 @@ struct TrackerRootView: View {
         let repos = TrackerRenderer.tracker(snapshot)
         let rows = selectableRows(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
-        // The keyboard cursor is only drawn while the tracker has focus; hover and the attached
-        // state are unaffected.
+        // The keyboard cursor is only drawn while the tracker has focus; the hover state is
+        // unaffected.
         let highlightedID = navigation.focusedRegion == .tracker ? selectedID : nil
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
@@ -329,7 +329,6 @@ struct TrackerRootView: View {
                             TrackerRepoSection(
                                 repo: repo,
                                 selectedID: highlightedID,
-                                currentTerminalSessionID: store.currentTerminalSessionID,
                                 shortcutNumbers: shortcutNumbers,
                                 commandLongPressIsActive: commandLongPressIsActive,
                                 expandedMasterIDs: store.expandedMasterIDs,
@@ -869,7 +868,6 @@ private struct TrackerColorSelector: View {
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
-    let currentTerminalSessionID: String?
     let shortcutNumbers: [String: Int]
     let commandLongPressIsActive: Bool
     let expandedMasterIDs: Set<String>
@@ -889,7 +887,6 @@ private struct TrackerRepoSection: View {
                         TrackerSessionRow(
                             rendered: group.root,
                             selectedID: selectedID,
-                            currentTerminalSessionID: currentTerminalSessionID,
                             shortcutNumber: shortcutNumbers[group.root.session.id],
                             commandLongPressIsActive: commandLongPressIsActive,
                             hasWorkers: !group.workers.isEmpty,
@@ -905,7 +902,6 @@ private struct TrackerRepoSection: View {
                                 TrackerSessionRow(
                                     rendered: worker,
                                     selectedID: selectedID,
-                                    currentTerminalSessionID: currentTerminalSessionID,
                                     shortcutNumber: shortcutNumbers[worker.session.id],
                                     commandLongPressIsActive: commandLongPressIsActive,
                                     hasWorkers: false,
@@ -1547,7 +1543,6 @@ private struct TrackerNameplateBackground: View {
     let color: NSColor
     let selected: Bool
     let hovered: Bool
-    let attached: Bool
     let isRecoloring: Bool
     let isWorking: Bool
     let session: TrackerSession
@@ -1555,7 +1550,6 @@ private struct TrackerNameplateBackground: View {
     private var outlineColor: NSColor {
         if isRecoloring { return AppPalette.hoverBackground }
         if selected { return AppPalette.dim }
-        if attached { return AppPalette.brassActive }
         if hovered { return AppPalette.dim }
         return AppPalette.line
     }
@@ -1642,7 +1636,7 @@ private struct TrackerElapsedTimer: View {
 }
 
 /// The worker duration tag hanging under the plate. It lives with the plate layer and takes
-/// the plate's outline colour, so a highlighted or attached worker reads as one unit.
+/// the plate's outline colour, so a highlighted worker reads as one unit.
 private struct TrackerWorkerTimerTag: View {
     let session: TrackerSession
     let role: TrackerNameplateRole
@@ -1678,7 +1672,6 @@ private struct TrackerWorkerTimerTag: View {
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let selectedID: String?
-    let currentTerminalSessionID: String?
     let shortcutNumber: Int?
     let commandLongPressIsActive: Bool
     let hasWorkers: Bool
@@ -1692,7 +1685,6 @@ private struct TrackerSessionRow: View {
     private var session: TrackerSession { rendered.session }
     private var role: TrackerNameplateRole { TrackerNameplateRole(session) }
     private var isSelected: Bool { selectedID == session.id }
-    private var isCurrentTerminalSession: Bool { currentTerminalSessionID == session.id }
     private var showsWorkersCollapseMenuItem: Bool { hasWorkers && role.isMaster }
     private var leadingInset: CGFloat { role.isWorker ? TrackerListMetrics.workerIndent : 0 }
 
@@ -1711,7 +1703,6 @@ private struct TrackerSessionRow: View {
                     color: rendered.groupColor,
                     selected: selected,
                     hovered: hovered,
-                    attached: isCurrentTerminalSession,
                     isRecoloring: rendered.recolorEditHint != nil,
                     isWorking: rendered.status.kind == .working,
                     session: session
