@@ -13,6 +13,7 @@ const snippetLimit = 180;
 const hookTimeoutMs = 1_000;
 const hookBatchLimit = 32;
 const hookBatchByteLimit = 48 * 1024;
+const hookBatchDelayMs = 150;
 const sidecarVersion = "phase2-v2";
 const sessionPattern = /^qm-[A-Za-z0-9_-]+$/;
 
@@ -300,7 +301,7 @@ export default function (pi: ExtensionAPI) {
 		hookFlushTimer = setTimeout(() => {
 			hookFlushTimer = undefined;
 			void drainHookQueue();
-		}, 0);
+		}, hookBatchDelayMs);
 	}
 
 	async function drainHookQueue(): Promise<void> {

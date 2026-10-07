@@ -107,6 +107,7 @@ type PaneState struct {
 	ClaudeDisplayChunks      map[int]string `json:"claude_display_chunks,omitempty"`
 	ClaudeDisplayFinalIndex  int            `json:"claude_display_final_index,omitempty"`
 	ClaudeDisplayFinal       bool           `json:"claude_display_final,omitempty"`
+	ClaudeDisplayAbandoned   bool           `json:"claude_display_abandoned,omitempty"`
 	ClaudeLastSayMessage     string         `json:"claude_last_say_message,omitempty"`
 	ClaudeLastSayPromptID    string         `json:"claude_last_say_prompt_id,omitempty"`
 	ClaudeLastSayTranscript  string         `json:"claude_last_say_transcript,omitempty"`

@@ -59,6 +59,11 @@ public final class WorkerChatStore {
 
     /// Call on every runtime update and dock change. Returns the pull to run now, if any.
     public func sync(selectedSessionID: String?, sessions: [TrackerSession], isVisible: Bool) -> WorkerFeedRequest? {
+        guard isVisible else {
+            self.selectedSessionID = selectedSessionID
+            self.isVisible = false
+            return nil
+        }
         let nextMasterID = Self.masterID(selectedSessionID: selectedSessionID, sessions: sessions)
         if nextMasterID != masterID {
             reset(to: nextMasterID)
@@ -92,8 +97,13 @@ public final class WorkerChatStore {
         if payload.hasMore.values.contains(true) {
             pullWanted = true
         }
+        let previousErrors = readErrorWorkerIDs
         readErrorWorkerIDs = (payload.errors ?? [:]).keys.sorted()
-        merge(payload.entries)
+        if !payload.entries.isEmpty {
+            merge(payload.entries)
+        } else if previousErrors != readErrorWorkerIDs {
+            updateReadNotice()
+        }
         return nextRequest()
     }
 
@@ -183,6 +193,11 @@ public final class WorkerChatStore {
         if built != lines {
             lines = built
         }
+        updateReadNotice()
+    }
+
+    private func updateReadNotice() {
+        let names = feedNames.merging(trackerNames) { _, tracker in tracker }
         let notice = Self.readNotice(for: readErrorWorkerIDs.map { WorkerChatLineBuilder.displayName(names[$0] ?? $0) })
         if notice != readNotice {
             readNotice = notice
@@ -221,7 +236,7 @@ public final class WorkerChatStore {
     private static func fingerprint(of workers: [TrackerSession]) -> String {
         workers
             .sorted { $0.id < $1.id }
-            .map { "\($0.id)|\($0.state)|\($0.lifecycle)|\($0.lastKind)|\($0.lastChatAt?.timeIntervalSince1970 ?? 0)|\($0.snippet)" }
+            .map { "\($0.id)|\($0.lastChatAt.map { String($0.timeIntervalSince1970) } ?? "nil")" }
             .joined(separator: "\n")
     }
 

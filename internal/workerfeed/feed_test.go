@@ -151,6 +151,36 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 	})
 }
 
+func TestReadSinceSkipsOversizedLineAndContinues(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+	appendEvent(t, root, "qm-w1", chatEvent("message", "before", time.Unix(1, 0)))
+	first, err := ReadSince(root, "qm-master", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendEvent(t, root, "qm-w1", state.StateEvent{Ts: time.Unix(2, 0), Fields: map[string]interface{}{
+		"chat_entries": []interface{}{map[string]interface{}{"chat_kind": "message", "chat_text": strings.Repeat("x", maxIncrementalRead+64*1024)}},
+	}})
+	appendEvent(t, root, "qm-w1", chatEvent("message", "after", time.Unix(3, 0)))
+
+	second, err := ReadSince(root, "qm-master", first.Cursors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Cursors["qm-w1"].Offset <= first.Cursors["qm-w1"].Offset || !second.HasMore["qm-w1"] {
+		t.Fatalf("oversized line stalled cursor: before=%#v after=%#v has_more=%v", first.Cursors["qm-w1"], second.Cursors["qm-w1"], second.HasMore["qm-w1"])
+	}
+	third, err := ReadSince(root, "qm-master", second.Cursors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(third.Entries) != 1 || third.Entries[0].Text != "after" {
+		t.Fatalf("entries after oversized line = %#v", third.Entries)
+	}
+}
+
 func TestReadSinceTailLineBoundaryAndOffsetBeyondEOF(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -304,6 +304,63 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 	}
 }
 
+func TestHookClaudeOutOfOrderDisplayDeltasKeepStateBounded(t *testing.T) {
+	root := t.TempDir()
+	r, _ := newTestRunner(t)
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool) error {
+		return state.UpdateAndLogAt(root, sessionID, event, mutate)
+	}
+	for index := 1; index <= 2; index++ {
+		runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+			"message_id": "pending", "index": index, "delta": strings.Repeat("x", 1<<20),
+		})
+	}
+	info, err := os.Stat(state.SessionStatePath(root, "qm-chat"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 32*1024 {
+		t.Fatalf("state.json grew to %d bytes from out-of-order deltas", info.Size())
+	}
+	t.Logf("state.json after two out-of-order 1 MiB deltas: %d bytes", info.Size())
+}
+
+func TestHookCodexLargeChatEventsStayWithinReaderWindow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	var rollout strings.Builder
+	for i := 0; i < 300; i++ {
+		rollout.WriteString(`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","phase":"commentary","text":"`)
+		rollout.WriteString(strings.Repeat("x", 1_000))
+		rollout.WriteString(`"}}}` + "\n")
+	}
+	if err := os.WriteFile(path, []byte(rollout.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "codex", "tool_start", "qm-chat", map[string]interface{}{"transcript_path": path})
+	if len(rec.events) < 2 {
+		t.Fatalf("large chat event stayed in %d state log line(s)", len(rec.events))
+	}
+	entries, maxLineBytes := 0, 0
+	for _, event := range rec.events {
+		data, err := json.Marshal(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data)+1 > 64*1024 {
+			t.Fatalf("state log line is %d bytes, exceeds 64 KiB", len(data)+1)
+		}
+		if len(data)+1 > maxLineBytes {
+			maxLineBytes = len(data) + 1
+		}
+		entries += len(chatEntries(event))
+	}
+	if entries != 300 {
+		t.Fatalf("chat entries = %d, want 300", entries)
+	}
+	t.Logf("split 300 chat entries across %d lines; max line %d bytes", len(rec.events), maxLineBytes)
+}
+
 func TestHookClaudeClearsAbandonedDisplayAtLifecycleBoundary(t *testing.T) {
 	for _, action := range []string{"working", "done"} {
 		t.Run(action, func(t *testing.T) {

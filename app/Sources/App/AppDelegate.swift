@@ -403,7 +403,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let isChatDockOpen = navigation.dockVisible && dockCoordinator.state(for: sessionID).dockContent == .workerChat
         workerChatController.sync(
             selectedSessionID: sessionID,
-            sessions: runtimeStore.snapshot.tracker.repos.flatMap(\.sessions),
+            sessions: isChatDockOpen ? runtimeStore.snapshot.tracker.repos.flatMap(\.sessions) : [],
             isVisible: isChatDockOpen
         )
     }

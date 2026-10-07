@@ -20,13 +20,14 @@ import (
 )
 
 const (
-	maxTextChars       = 1500
-	InitialTailBytes   = 256 * 1024
-	maxIncrementalRead = 256 * 1024
-	historyChunkBytes  = 64 * 1024
-	maxHistoryLineSize = 2 * 1024 * 1024
-	DefaultLimit       = 50
-	MaxLimit           = 200
+	maxTextChars            = 1500
+	InitialTailBytes        = 256 * 1024
+	maxIncrementalRead      = 256 * 1024
+	historyChunkBytes       = 64 * 1024
+	maxIncrementalLineBytes = 64 * 1024
+	maxHistoryLineSize      = 2 * 1024 * 1024
+	DefaultLimit            = 50
+	MaxLimit                = 200
 )
 
 type Entry struct {
@@ -349,7 +350,7 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 	}
 	data = data[:n]
 	used := n
-	if skipPartial {
+	if skipPartial || offset > 0 {
 		atLineStart := offset == 0
 		if offset > 0 {
 			var prev [1]byte
@@ -362,7 +363,17 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 				offset += int64(newline + 1)
 				data = data[newline+1:]
 			} else {
-				cursor.Offset = offset + int64(n)
+				next, found, err := skipToNewline(file, offset+int64(len(data)), info.Size())
+				if err != nil {
+					return nil, cursor, used, err
+				}
+				if found {
+					cursor.Offset = next
+					cursor.FileID = fileID
+				}
+				if !found {
+					cursor.Offset = offset
+				}
 				cursor.FileID = fileID
 				return nil, cursor, used, nil
 			}
@@ -381,7 +392,7 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 		}
 		line := data[:i]
 		var event state.StateEvent
-		if len(line) > 0 && json.Unmarshal(line, &event) == nil {
+		if len(line) <= maxIncrementalLineBytes && len(line) > 0 && json.Unmarshal(line, &event) == nil {
 			entries := deriveWorkerEvent(worker, fileID, lineStart, event)
 			cursor.Offset = lineStart + int64(i+1)
 			allEntries = append(allEntries, entries...)
@@ -391,7 +402,39 @@ func readForward(file *os.File, worker worker, fileID string, offset int64, maxB
 		lineStart += int64(i + 1)
 		data = data[i+1:]
 	}
+	if len(data) > 0 && info.Size()-lineStart > maxIncrementalLineBytes {
+		next, found, err := skipToNewline(file, lineStart+int64(len(data)), info.Size())
+		if err != nil {
+			return nil, cursor, used, err
+		}
+		if found {
+			cursor.Offset = next
+			cursor.FileID = fileID
+		}
+	}
 	return allEntries, cursor, used, nil
+}
+
+func skipToNewline(file *os.File, offset, size int64) (int64, bool, error) {
+	var buffer [historyChunkBytes]byte
+	for offset < size {
+		length := int64(len(buffer))
+		if size-offset < length {
+			length = size - offset
+		}
+		n, err := file.ReadAt(buffer[:length], offset)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return offset, false, err
+		}
+		if index := bytes.IndexByte(buffer[:n], '\n'); index >= 0 {
+			return offset + int64(index+1), true, nil
+		}
+		if n == 0 {
+			return offset, false, nil
+		}
+		offset += int64(n)
+	}
+	return offset, false, nil
 }
 
 func readWorkerHistory(root string, worker worker, before beforeConstraint, limit int) ([]Entry, error) {
