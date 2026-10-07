@@ -18,6 +18,8 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
+	"github.com/spf13/cobra"
 )
 
 func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
@@ -2871,6 +2873,80 @@ func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
 	}
 }
 
+func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("QUESTMASTER_SESSION", "qm-pi-worker")
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new state store: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: "qm-pi-master", SessionType: "master", Workers: []string{"qm-pi-worker"}}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	workerManifest := state.Manifest{SessionID: "qm-pi-worker", Title: "Pi worker"}
+	workerManifest.SetExtra("parent_session", "qm-pi-master")
+	if err := store.Create(workerManifest); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+	input := `{"events":[
+		{"action":"agent_start","payload":{}},
+		{"action":"tool_execution_start","payload":{"toolName":"bash","args":{"command":"go test ./..."}}},
+		{"action":"say","payload":{"text":"Running the checks."}},
+		{"action":"agent_end","payload":{"text":"All checks passed."}}
+	]}`
+	var stderr bytes.Buffer
+	if err := executeWithArgs([]string{"hook", "pi", "batch"}, strings.NewReader(input), &bytes.Buffer{}, &stderr, func() *cobra.Command { return NewRootCmd() }); err != nil {
+		t.Fatalf("execute real hook fast path: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("hook stderr: %q", stderr.String())
+	}
+
+	logData, err := os.ReadFile(state.SessionStateLogPath(root, "qm-pi-worker"))
+	if err != nil {
+		t.Fatalf("read event log: %v", err)
+	}
+	var events []state.StateEvent
+	for _, line := range bytes.Split(bytes.TrimSpace(logData), []byte("\n")) {
+		var event state.StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		events = append(events, event)
+	}
+	if len(events) != 4 {
+		t.Fatalf("event count = %d, want 4", len(events))
+	}
+	if got := []string{events[0].Action, events[1].Action, events[2].Action, events[3].Action}; !slices.Equal(got, []string{"agent_start", "tool_execution_start", "say", "agent_end"}) {
+		t.Fatalf("event order = %v", got)
+	}
+	ss, err := state.LoadSessionStateAt(root, "qm-pi-worker")
+	if err != nil {
+		t.Fatalf("load worker state: %v", err)
+	}
+	if pane := ss.Panes["primary"]; pane.State != "done" || pane.LastChatAt.IsZero() {
+		t.Fatalf("saved worker pane = %+v", pane)
+	}
+
+	history, err := workerfeed.ReadHistory(root, "qm-pi-master", "qm-pi-worker", "", 50)
+	if err != nil {
+		t.Fatalf("read worker chat: %v", err)
+	}
+	kinds := make(map[string]bool)
+	for _, entry := range history.Entries {
+		kinds[entry.Kind] = true
+	}
+	for _, kind := range []string{"status", "action", "say", "message"} {
+		if !kinds[kind] {
+			t.Errorf("chat history missing %q: %#v", kind, history.Entries)
+		}
+	}
+	if rendered := workerfeed.RenderText(history.Entries, true); !strings.Contains(rendered, "Bash: go test ./...") || !strings.Contains(rendered, "Running the checks.") || !strings.Contains(rendered, "All checks passed.") {
+		t.Fatalf("rendered worker chat = %q", rendered)
+	}
+}
+
 func TestHookPiBatchStateWriteFailureIsAtomic(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(state.StateRootEnv, root)
@@ -2908,7 +2984,7 @@ func TestHookPiBatchStateWriteFailureIsAtomic(t *testing.T) {
 			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{"toolName": "bash"}},
 		},
 	})
-	if !strings.Contains(stderr, "update batch") {
+	if !strings.Contains(stderr, "write tmp state") {
 		t.Fatalf("batch failure stderr = %q", stderr)
 	}
 	stateAfter, err := os.ReadFile(statePath)

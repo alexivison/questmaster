@@ -325,13 +325,18 @@ func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) 
 // UpdateAndLogBatch applies a related group of hook events under one state
 // lock. If writing state.json fails, it removes the appended event lines.
 func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionState) bool) error {
+	return updateAndLogBatchAt(StateRoot(), id, events, mutate, func(w io.Writer, data []byte) (int, error) {
+		return w.Write(data)
+	})
+}
+
+func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*SessionState) bool, writeEvents func(io.Writer, []byte) (int, error)) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
 	if mutate == nil {
 		return errors.New("nil mutate function")
 	}
-	root := StateRoot()
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
@@ -375,30 +380,43 @@ func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionStat
 			}
 			info, statErr := log.Stat()
 			if statErr != nil {
-				_ = log.Close()
-				return fmt.Errorf("stat state log: %w", statErr)
+				closeErr := log.Close()
+				log = nil
+				return errors.Join(fmt.Errorf("stat state log: %w", statErr), closeErr)
 			}
 			oldSize = info.Size()
 		}
 		rollback := func() error {
-			if log == nil {
-				return nil
+			var closeErr error
+			if log != nil {
+				closeErr = log.Close()
+				log = nil
 			}
-			truncateErr := log.Truncate(oldSize)
-			closeErr := log.Close()
 			if !existed {
 				if err := os.Remove(logPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-					return errors.Join(truncateErr, closeErr, fmt.Errorf("remove state log: %w", err))
+					return errors.Join(closeErr, fmt.Errorf("remove state log: %w", err))
 				}
+				return closeErr
 			}
-			return errors.Join(truncateErr, closeErr)
+			rollbackLog, err := os.OpenFile(logPath, os.O_WRONLY, 0o644)
+			if err != nil {
+				return errors.Join(closeErr, fmt.Errorf("open state log for rollback: %w", err))
+			}
+			truncateErr := rollbackLog.Truncate(oldSize)
+			rollbackCloseErr := rollbackLog.Close()
+			return errors.Join(closeErr, truncateErr, rollbackCloseErr)
 		}
 		if log != nil {
-			written, writeErr := io.Copy(log, &eventData)
-			if writeErr != nil || written != int64(eventData.Len()) {
-				if writeErr == nil {
-					writeErr = io.ErrShortWrite
-				}
+			data := eventData.Bytes()
+			written, writeErr := writeEvents(log, data)
+			if writeErr == nil && written != len(data) {
+				writeErr = io.ErrShortWrite
+			}
+			if closeErr := log.Close(); closeErr != nil {
+				writeErr = errors.Join(writeErr, fmt.Errorf("close state log: %w", closeErr))
+			}
+			log = nil
+			if writeErr != nil {
 				return errors.Join(fmt.Errorf("write state events: %w", writeErr), rollback())
 			}
 		}
@@ -407,11 +425,13 @@ func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionStat
 				return errors.Join(err, rollback())
 			}
 		}
-		if log != nil {
-			_ = log.Close()
+		if eventData.Len() > 0 {
 			if info, err := os.Stat(logPath); err == nil && info.Size() >= StateJSONLMaxSize {
-				_ = os.Remove(logPath + ".1")
-				_ = os.Rename(logPath, logPath+".1")
+				if err := os.Rename(logPath, logPath+".1"); err != nil {
+					return fmt.Errorf("rotate state log: %w", err)
+				}
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat state log for rotation: %w", err)
 			}
 		}
 		return nil
