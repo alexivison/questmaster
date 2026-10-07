@@ -2,10 +2,14 @@ import AppKit
 import QuestmasterCore
 
 /// The user's Ghostty `window-padding-x`/`-y`, resolved once on first use from the same config
-/// files `GhosttyFontFamily` reads. Used both for the shell's "flush" gaps (tracker-to-terminal,
-/// terminal-to-dock, footer-to-terminal), which rely on this padding to reach `G` on its own, and
-/// as the default for `GhosttyKitTerminalHost.cellMetrics` when a live surface's own
-/// `ghostty_config_get` isn't available.
+/// files `GhosttyFontFamily` reads — not the live `ghostty_config_get` C API: its generic getter
+/// needs the caller to already know the value's exact byte layout, and these keys aren't a plain
+/// scalar (Ghostty accepts a two-value "left,right"/"top,bottom" pair), so a blind fixed-size read
+/// risks writing past its own buffer. The embedded app loads the same config files with no CLI
+/// overrides, so this file read already gives the true value. Used both for the shell's "flush"
+/// gaps (tracker-to-terminal, terminal-to-dock, footer-to-terminal), which rely on this padding to
+/// reach `G` on its own, and as `GhosttyKitTerminalHost.cellMetrics`'s padding for the terminal's
+/// row/column snapping.
 enum GhosttyWindowPadding {
     /// Ghostty's own built-in default (`window-padding-x`/`-y = 2`) isn't what this shell was
     /// designed against — the brief's G=10 rhythm assumes the padding the user actually has set,

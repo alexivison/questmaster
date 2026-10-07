@@ -34,13 +34,18 @@ public enum GhosttyConfigParser {
     /// The last `window-padding-x`/`-y` set across `directories`' config files — Ghostty's own
     /// "last one wins" semantics for a non-repeating key, unlike `font-family`'s fallback list.
     /// `nil` for an axis nothing set (not the same as an explicit `0`).
+    ///
+    /// Ghostty also accepts a two-value form (`"10,20"`, left/top and right/bottom padding) —
+    /// this shell has one gap per axis, not a separate leading/trailing one, so only the first
+    /// value is used; a malformed or empty component gives `nil` for that line rather than a
+    /// wrong number.
     public static func windowPadding(inDirectories directories: [String], read: (String) -> String?) -> (x: Double, y: Double)? {
         var x: Double?
         var y: Double?
         for entry in allEntries(inDirectories: directories, read: read) {
             switch entry {
-            case .windowPaddingX(let value): x = Double(value) ?? x
-            case .windowPaddingY(let value): y = Double(value) ?? y
+            case .windowPaddingX(let value): x = firstComponent(of: value) ?? x
+            case .windowPaddingY(let value): y = firstComponent(of: value) ?? y
             default: break
             }
         }
@@ -48,6 +53,15 @@ public enum GhosttyConfigParser {
             return nil
         }
         return (x, y)
+    }
+
+    /// `"10"` or the first of `"10,20"` — never a comma-joined string parsed whole, which would
+    /// silently fail `Double(_:)` and leave the previous value in place.
+    private static func firstComponent(of value: String) -> Double? {
+        guard let first = value.split(separator: ",").first else {
+            return nil
+        }
+        return Double(first.trimmingCharacters(in: .whitespaces))
     }
 
     /// The first family the system can resolve, so an uninstalled primary falls through to its fallbacks.
