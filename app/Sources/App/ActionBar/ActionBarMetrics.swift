@@ -7,26 +7,30 @@ import QuestmasterCore
 /// (`ActionBarPlateOutlines`), not `TrackerPlatePaths` unions.
 ///
 /// Per review round 3, the design's own 722×120 frame carries Figma padding the footer doesn't
-/// need. Per the 2026-10-07 single-gap-`G` pass, the footer's own top margin relies on Ghostty's
-/// own padding to reach `G` the same way the tracker/dock's "flush" gaps do: 0 while Ghostty's
-/// padding already reaches `G` on its own (true today — both are 10), otherwise the shortfall
-/// (`GhosttyGapDerivation.flushGap`). `verticalShift` moves every traced y-coordinate up so the
-/// shield's topmost outer edge lands that margin below the footer's own frame top — a
-/// translation, not a rescale — and `footerHeight` is content (83, already a whole point) plus
-/// that top margin plus a 10pt (G) margin on the bottom.
+/// need. Per the 2026-10-07 single-gap-`G` pass (`ShellMetrics.gap`, not `Token.Spacing.element` —
+/// see its own doc comment), the footer's own top margin relies on Ghostty's own padding to reach
+/// `G` the same way the tracker/dock's "flush" gaps do: 0 while Ghostty's padding already reaches
+/// `G` on its own, otherwise the shortfall (`GhosttyGapDerivation.flushGap`). The bottom margin is
+/// always the full `G` — it isn't a "flush" gap Ghostty helps with, since nothing sits below the
+/// footer but the window edge (plus any row-snap leftover, added separately at the view layer).
+/// `verticalShift` moves every traced y-coordinate up so the shield's topmost outer edge lands
+/// `topMargin` below the footer's own frame top — a translation, not a rescale — and `footerHeight`
+/// is content (83, already a whole point) plus `topMargin` plus `G` on the bottom. The brief's own
+/// upcoming redesign will replace this geometry; keep these margins derived from `G` so it drops
+/// in cleanly rather than retuning the footer's shape here.
 enum ActionBarMetrics {
     /// The shield's topmost outer edge: path y 18, stroked at 1.5pt *centred* on the path (our
     /// own `.stroke()`, not an inside `.strokeBorder()`), so the visible edge is half that
     /// further out — before the shift.
     private static let designShieldTopOuterEdge: CGFloat = 18 - 1.5 / 2
-    private static let topMargin = CGFloat(GhosttyGapDerivation.flushGap(g: Double(Token.Spacing.element), ghosttyPadding: GhosttyWindowPadding.resolved.y))
+    private static let topMargin = CGFloat(GhosttyGapDerivation.flushGap(g: Double(ShellMetrics.gap), ghosttyPadding: GhosttyWindowPadding.resolved.y))
     static let verticalShift: CGFloat = topMargin - designShieldTopOuterEdge
 
-    /// Content (shield top to worker-pill bottom) plus `topMargin` and a 10pt (G) margin on the
+    /// Content (shield top to worker-pill bottom) plus `topMargin` and a full `G` margin on the
     /// bottom, rounded to a whole point. Was 120 (the design's own frame, Figma padding included),
     /// then 103 (10pt margin each side), then 93 (top margin dropped to a flat 0) before this
-    /// round made the top margin track Ghostty's own padding.
-    static let footerHeight: CGFloat = 83 + topMargin + 10
+    /// round made both margins track `G`/Ghostty's own padding instead of a flat 10.
+    static let footerHeight: CGFloat = 83 + topMargin + ShellMetrics.gap
     static let plateWidth: CGFloat = 722
 
     /// The session panel's and slot bar's shared horizontal centreline (both plates' bars are
@@ -51,7 +55,6 @@ enum ActionBarMetrics {
     static var stripVisibleInset: CGFloat { portraitCenter.x + portraitRadius - stripX }
 
     static let slotSize: CGFloat = 30
-    static let slotIconSize: CGFloat = 20
     static let slotGroupGap: CGFloat = 20
     static let slotCount = 11
     /// Index (0-based) of the slot followed by `slotGroupGap` instead of sitting flush against
@@ -121,6 +124,25 @@ enum ActionBarMetrics {
         static let normal = AppPalette.item
         static let empty = AppPalette.panel
         static let activeBorder = AppPalette.brassActive
+    }
+
+    /// Each slot glyph's own rendered bounding box, measured directly from `action-bar.svg` — not
+    /// a single shared size, since SF Symbols' natural aspect ratios differ per glyph (a shared
+    /// font point size, as before, made some glyphs look smaller than others at the same nominal
+    /// size). Framed as a `.resizable().aspectRatio(.fit)` image sized to exactly this box,
+    /// rather than a font point size tuned by eye.
+    enum SlotIconSize {
+        static func size(for symbolName: String) -> CGSize {
+            switch symbolName {
+            case "sidebar.left": CGSize(width: 20, height: 16)
+            case "plus.rectangle": CGSize(width: 20, height: 16)
+            case "checklist": CGSize(width: 20, height: 18)
+            case "doc.richtext": CGSize(width: 16, height: 20)
+            case "cup.and.saucer": CGSize(width: 20, height: 15)
+            case "gearshape": CGSize(width: 20, height: 20)
+            default: CGSize(width: 20, height: 20)
+            }
+        }
     }
 
     /// The session panel's own fill (`#2D333B`) is lighter than the slot bar's (`#22272E`).
