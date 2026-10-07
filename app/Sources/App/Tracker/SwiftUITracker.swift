@@ -338,7 +338,7 @@ struct TrackerRootView: View {
                                 onEditSession: presentEditSession(_:),
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
-                            .padding(.horizontal, TrackerListMetrics.sidePadding)
+                            .padding(.leading, TrackerListMetrics.sidePadding)
                             .padding(.top, index == 0 ? TrackerListMetrics.verticalPadding : TrackerListMetrics.sectionSpacing)
                             .padding(.bottom, index == repos.count - 1 ? TrackerListMetrics.verticalPadding : 0)
                         }
@@ -2193,7 +2193,7 @@ private struct TrackerSkeletonPlaceholder: View {
             plate(role: .standalone, titleWidth: 190, subtitleWidth: 120)
                 .padding(.top, TrackerListMetrics.itemSpacing)
         }
-        .padding(.horizontal, TrackerListMetrics.sidePadding)
+        .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.vertical, TrackerListMetrics.verticalPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {

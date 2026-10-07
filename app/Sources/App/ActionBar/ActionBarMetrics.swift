@@ -6,22 +6,23 @@ import AppKit
 /// (`ActionBarPlateOutlines`), not `TrackerPlatePaths` unions.
 ///
 /// Per review round 3, the design's own 722×120 frame carries Figma padding the footer doesn't
-/// need: the user wants a 10pt gap from the footer's own top edge to the shield's topmost outer
-/// edge (stroke included), matching the 10pt Ghostty already adds below the terminal (so the
-/// *visual* gap above the footer matches the tracker's own 20pt side-padding gap). `verticalShift`
-/// moves every traced y-coordinate up by that removed padding — a translation, not a rescale —
-/// and `footerHeight` shrinks to content plus a 10pt margin on each side, rounded to a whole point.
+/// need. Per the 2026-10-07 single-gap-`G` pass, the footer's own top margin drops to 0: it's
+/// pinned directly under the terminal pane, and Ghostty's own padding alone provides the G gap
+/// from the last text row to the shield — stacking a second margin on top would double it.
+/// `verticalShift` moves every traced y-coordinate up so the shield's topmost outer edge lands
+/// flush with the footer's own frame top — a translation, not a rescale — and `footerHeight`
+/// shrinks to content plus a 10pt (G) margin on the bottom only, rounded to a whole point.
 enum ActionBarMetrics {
     /// The shield's topmost outer edge: path y 18, stroked at 1.5pt *centred* on the path (our
     /// own `.stroke()`, not an inside `.strokeBorder()`), so the visible edge is half that
     /// further out — before the shift.
     private static let designShieldTopOuterEdge: CGFloat = 18 - 1.5 / 2
-    private static let designTopMargin: CGFloat = 10
-    static let verticalShift: CGFloat = designTopMargin - designShieldTopOuterEdge
+    static let verticalShift: CGFloat = -designShieldTopOuterEdge
 
-    /// Content (shield top to worker-pill bottom) plus a 10pt margin on each side, rounded to a
-    /// whole point. Was 120 (the design's own frame, Figma padding included) before this round.
-    static let footerHeight: CGFloat = 103
+    /// Content (shield top to worker-pill bottom) plus a 10pt (G) margin on the bottom only,
+    /// rounded to a whole point. Was 120 (the design's own frame, Figma padding included), then
+    /// 103 (10pt margin each side) before this round's top-margin removal.
+    static let footerHeight: CGFloat = 93
     static let plateWidth: CGFloat = 722
 
     /// The session panel's and slot bar's shared horizontal centreline (both plates' bars are

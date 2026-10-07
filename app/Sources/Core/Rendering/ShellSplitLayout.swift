@@ -6,8 +6,9 @@ public enum RightDockWidthMode: Equatable {
 }
 
 public struct ShellSplitLayoutMetrics: Equatable {
-    /// Vertical inset for the tracker/dock side cards, and the horizontal gap on the dock's two
-    /// sides (terminal-to-dock, dock-to-window-edge). The tracker's own horizontal gaps are
+    /// Vertical inset for the tracker/dock side cards, and the horizontal gap on the dock's
+    /// outer (window-facing) edge only — its terminal-facing edge sits flush, with Ghostty's own
+    /// padding providing the visible gap there. The tracker's own horizontal gaps are
     /// `trackerLeadingInset`/`trackerTrailingGap` below, so its two sides can differ from the dock's.
     public let sideCardInset: Double
     public let dockDividerHitWidth: Double
@@ -64,6 +65,10 @@ public struct ShellSplitRect: Equatable {
 
     public var maxX: Double {
         x + width
+    }
+
+    public var maxY: Double {
+        y + height
     }
 
     public var midX: Double {
@@ -136,12 +141,16 @@ public enum ShellSplitLayoutPlanner {
             : 0
         let terminalWidth = max(0, availableWidth - trackerWidth - dockWidth)
 
-        let sideCardY = metrics.sideCardInset
-        // The tracker and terminal stop above the reserved footer height; the dock (and its
+        // NSView frames are non-flipped (y=0 is the window's bottom edge): the reserved footer
+        // height has to sit BELOW the pane area, so the tracker/terminal/divider's own y origin
+        // starts above it, at `paneAreaY`, not at the window's absolute bottom. The dock (and its
         // divider) don't reserve for it and keep the full window height, same as before any
         // footer existed — it draws on top of the dock there instead of sharing its space.
+        let paneAreaY = metrics.footerReservedHeight
         let paneAreaHeight = max(0, size.height - metrics.footerReservedHeight)
+        let paneSideCardY = paneAreaY + metrics.sideCardInset
         let paneSideCardHeight = max(0, paneAreaHeight - (metrics.sideCardInset * 2))
+        let dockSideCardY = metrics.sideCardInset
         let dockSideCardHeight = max(0, size.height - (metrics.sideCardInset * 2))
         var x = 0.0
         let trackerFrame: ShellSplitRect
@@ -149,40 +158,41 @@ public enum ShellSplitLayoutPlanner {
         if trackerVisible {
             trackerFrame = ShellSplitRect(
                 x: metrics.trackerLeadingInset,
-                y: sideCardY,
+                y: paneSideCardY,
                 width: trackerWidth,
                 height: paneSideCardHeight
             )
             x = trackerFrame.maxX + metrics.trackerTrailingGap
-            firstDividerFrame = ShellSplitRect(x: trackerFrame.maxX, y: sideCardY, width: 0, height: paneSideCardHeight)
+            firstDividerFrame = ShellSplitRect(x: trackerFrame.maxX, y: paneSideCardY, width: 0, height: paneSideCardHeight)
         } else {
-            trackerFrame = ShellSplitRect(x: 0, y: sideCardY, width: 0, height: paneSideCardHeight)
+            trackerFrame = ShellSplitRect(x: 0, y: paneSideCardY, width: 0, height: paneSideCardHeight)
             firstDividerFrame = ShellSplitRect(x: 0, y: 0, width: 0, height: 0)
         }
 
-        let terminalFrame = ShellSplitRect(x: x, y: 0, width: terminalWidth, height: paneAreaHeight)
+        let terminalFrame = ShellSplitRect(x: x, y: paneAreaY, width: terminalWidth, height: paneAreaHeight)
         x += terminalWidth
 
         let secondDividerFrame: ShellSplitRect
         let dockFrame: ShellSplitRect
         if dockVisible {
-            let dockGapX = x
-            let dockCardMinX = dockGapX + metrics.sideCardInset
+            // Flush against the terminal pane — Ghostty's own padding alone provides the gap
+            // there; `sideCardInset` now only guards the dock's outer (window-facing) edge.
+            let dockCardMinX = x
             secondDividerFrame = ShellSplitRect(
                 x: dockCardMinX - (metrics.dockDividerHitWidth / 2),
-                y: sideCardY,
+                y: dockSideCardY,
                 width: metrics.dockDividerHitWidth,
                 height: dockSideCardHeight
             )
             dockFrame = ShellSplitRect(
                 x: dockCardMinX,
-                y: sideCardY,
+                y: dockSideCardY,
                 width: dockWidth,
                 height: dockSideCardHeight
             )
         } else {
-            secondDividerFrame = ShellSplitRect(x: size.width, y: sideCardY, width: 0, height: dockSideCardHeight)
-            dockFrame = ShellSplitRect(x: size.width, y: sideCardY, width: 0, height: dockSideCardHeight)
+            secondDividerFrame = ShellSplitRect(x: size.width, y: dockSideCardY, width: 0, height: dockSideCardHeight)
+            dockFrame = ShellSplitRect(x: size.width, y: dockSideCardY, width: 0, height: dockSideCardHeight)
         }
 
         return ShellSplitLayout(
@@ -225,7 +235,9 @@ public enum ShellSplitLayoutPlanner {
         dockVisible: Bool
     ) -> Double {
         let trackerInsets = trackerVisible ? metrics.trackerLeadingInset + metrics.trackerTrailingGap : 0
-        let dockInsets = dockVisible ? metrics.sideCardInset * 2 : 0
+        // Only the dock's outer (window-facing) edge reserves `sideCardInset` — its terminal-facing
+        // edge is flush, with Ghostty's own padding providing the visible gap there.
+        let dockInsets = dockVisible ? metrics.sideCardInset : 0
         return trackerInsets + dockInsets
     }
 

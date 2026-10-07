@@ -18,6 +18,11 @@ extension NSWindow {
 /// wide dock), the footer wins by being the later `addSubview` call below — swap the two calls'
 /// order to have the dock win there instead.
 final class ShellRootContainerView: NSView {
+    /// Negative: the footer's bottom edge sits this far above the window's own bottom edge — the
+    /// terminal row-snap's vertical leftover, which lands below the footer instead of inside the
+    /// terminal pane. Zero (flush) until a Ghostty surface reports a cell size.
+    private var footerBottomConstraint: NSLayoutConstraint!
+
     init(splitView: MainSplitView, footer: NSView) {
         super.init(frame: .zero)
         wantsLayer = true
@@ -25,6 +30,7 @@ final class ShellRootContainerView: NSView {
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         footer.translatesAutoresizingMaskIntoConstraints = false
+        footerBottomConstraint = footer.bottomAnchor.constraint(equalTo: bottomAnchor)
         addSubview(splitView)
         addSubview(footer)
         NSLayoutConstraint.activate([
@@ -35,7 +41,7 @@ final class ShellRootContainerView: NSView {
 
             footer.leadingAnchor.constraint(equalTo: leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: trailingAnchor),
-            footer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            footerBottomConstraint,
             footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.footerHeight),
         ])
     }
@@ -43,5 +49,9 @@ final class ShellRootContainerView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func setFooterBottomInset(_ inset: CGFloat) {
+        footerBottomConstraint.constant = -inset
     }
 }

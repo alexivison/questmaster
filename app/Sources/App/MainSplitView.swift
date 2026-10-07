@@ -55,6 +55,14 @@ final class MainSplitView: NSView {
     private var isAnimatingCanonicalLayout = false
     private var layoutAnimationGeneration = 0
     var onDockWidthCommitted: ((Double) -> Void)?
+    /// Reports the terminal surface's current cell size so the canonical layout can snap the
+    /// terminal pane to whole columns/rows — `nil`, or `.unavailable`, before any surface has
+    /// reported one, in which case the layout is used exactly as planned.
+    var cellMetricsProvider: (() -> TerminalCellMetrics)?
+    /// How far the footer should float up from the window's bottom edge (the vertical row-snap
+    /// leftover) — fires only when that value actually changes.
+    var onFooterBottomInsetChanged: ((CGFloat) -> Void)?
+    private var lastFooterBottomInset: CGFloat = 0
 
     private enum CanonicalAnimation {
         static let duration: TimeInterval = 0.18
@@ -186,7 +194,7 @@ final class MainSplitView: NSView {
 
     private func canonicalLayout() -> CanonicalLayout? {
         guard panes.count == 3,
-              let layout = ShellSplitLayoutPlanner.layout(
+              let planned = ShellSplitLayoutPlanner.layout(
                 size: ShellSplitSize(width: Double(bounds.width), height: Double(bounds.height)),
                 metrics: ShellMetrics.splitLayoutMetrics,
                 trackerVisible: trackerVisible,
@@ -195,6 +203,13 @@ final class MainSplitView: NSView {
                 dockWidthMode: dockWidthMode
               ) else {
             return nil
+        }
+
+        let cell = cellMetricsProvider?() ?? .unavailable
+        let (layout, footerBottomInset) = TerminalCellSnapping.applying(to: planned, cell: cell, dockVisible: dockVisible)
+        if footerBottomInset != lastFooterBottomInset {
+            lastFooterBottomInset = footerBottomInset
+            onFooterBottomInsetChanged?(CGFloat(footerBottomInset))
         }
 
         return CanonicalLayout(

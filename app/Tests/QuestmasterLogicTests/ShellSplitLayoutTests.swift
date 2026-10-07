@@ -31,7 +31,7 @@ struct ShellSplitLayoutTests {
         )
 
         expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 884), "tracker frame mismatch")
-        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 0, width: 553, height: 900), "terminal frame mismatch")
+        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 0, width: 561, height: 900), "terminal frame mismatch")
         expect(layout.dockFrame == ShellSplitRect(x: 871, y: 8, width: 641, height: 884), "dock frame mismatch")
         expect(layout.secondDividerFrame == ShellSplitRect(x: 868, y: 8, width: 7, height: 884), "dock divider frame mismatch")
         expect(layout.dockFrame.isWholePoint, "dock frame should be whole-point aligned")
@@ -62,7 +62,7 @@ struct ShellSplitLayoutTests {
         )
 
         expect(layout.trackerFrame == ShellSplitRect(x: 0, y: 8, width: 0, height: 884), "hidden tracker frame mismatch")
-        expect(layout.terminalFrame == ShellSplitRect(x: 0, y: 0, width: 744, height: 900), "hidden-tracker terminal mismatch")
+        expect(layout.terminalFrame == ShellSplitRect(x: 0, y: 0, width: 752, height: 900), "hidden-tracker terminal mismatch")
         expect(layout.dockFrame == ShellSplitRect(x: 752, y: 8, width: 760, height: 884), "hidden-tracker dock mismatch")
     }
 
@@ -77,7 +77,7 @@ struct ShellSplitLayoutTests {
 
         expect(layout.dockWidth == DockWidthPreference.compactWidth, "compact dock width mismatch")
         expect(layout.dockFrame.width == DockWidthPreference.compactWidth, "compact dock frame width mismatch")
-        expect(layout.terminalFrame.width == 794, "compact terminal width mismatch")
+        expect(layout.terminalFrame.width == 802, "compact terminal width mismatch")
     }
 
     private static func dockResizeClampsFromDragDelta() {
@@ -99,7 +99,7 @@ struct ShellSplitLayoutTests {
             trackerVisible: true,
             dockVisible: true
         )
-        expect(clamped == 834, "negative delta should clamp to max dock width, got \(clamped)")
+        expect(clamped == 842, "negative delta should clamp to max dock width, got \(clamped)")
     }
 
     private static func zeroWidthDoesNotProduceLayout() {
@@ -138,10 +138,12 @@ struct ShellSplitLayoutTests {
             Foundation.exit(1)
         }
 
-        // Tracker and terminal stop 103pt above the window's bottom (minus the usual side-card
-        // inset for the tracker) — otherwise identical to the no-footer case above.
-        expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 781), "tracker should stop above the footer, got \(layout.trackerFrame)")
-        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 0, width: 553, height: 797), "terminal should stop above the footer, got \(layout.terminalFrame)")
+        // Tracker and terminal sit above the 103pt footer reservation (which occupies the
+        // window's own bottom, y 0..103) — their own frames start at y=103 (terminal) or
+        // y=111 (tracker, plus its usual side-card inset) and reach the window's top.
+        expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 111, width: 300, height: 781), "tracker should sit above the footer, got \(layout.trackerFrame)")
+        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 103, width: 561, height: 797), "terminal should sit above the footer, got \(layout.terminalFrame)")
+        expect(layout.trackerFrame.maxY == layout.dockFrame.maxY, "tracker and dock should still share the same top edge, got \(layout.trackerFrame.maxY) vs \(layout.dockFrame.maxY)")
 
         // The dock and its divider ignore the reservation and keep the full 900pt height.
         expect(layout.dockFrame == ShellSplitRect(x: 871, y: 8, width: 641, height: 884), "dock should keep the full window height, got \(layout.dockFrame)")

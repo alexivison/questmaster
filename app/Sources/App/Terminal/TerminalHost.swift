@@ -16,6 +16,12 @@ protocol TerminalPaneHosting: AnyObject {
     var tmuxSessionID: String? { get }
     var onFocusRequested: (() -> Void)? { get set }
     var onDetach: (() -> Void)? { get set }
+    /// The attached surface's current cell geometry — `.unavailable` before any surface has
+    /// reported one (including this host's own placeholder states).
+    var cellMetrics: TerminalCellMetrics { get }
+    /// Fires whenever `cellMetrics` changes (surface attach, font size change) — the shell
+    /// re-snaps the terminal pane's frame in response.
+    var onCellMetricsChanged: (() -> Void)? { get set }
     func start()
     func stop()
     func focus(in window: NSWindow?)
@@ -40,6 +46,8 @@ final class UnavailableTerminalHost: TerminalPaneHosting {
         }
     }
     var onDetach: (() -> Void)?
+    let cellMetrics: TerminalCellMetrics = .unavailable
+    var onCellMetricsChanged: (() -> Void)?
 
     private let terminalView: TerminalUnavailableView
     private let detail: String
@@ -77,6 +85,12 @@ final class DeferredTerminalHost: TerminalPaneHosting {
             host?.onDetach = onDetach
         }
     }
+    var cellMetrics: TerminalCellMetrics { host?.cellMetrics ?? .unavailable }
+    var onCellMetricsChanged: (() -> Void)? {
+        didSet {
+            host?.onCellMetricsChanged = onCellMetricsChanged
+        }
+    }
 
     private let containerView = TerminalHostContainerView()
     private let placeholder: UnavailableTerminalHost
@@ -94,6 +108,7 @@ final class DeferredTerminalHost: TerminalPaneHosting {
         self.host = host
         host.onFocusRequested = onFocusRequested
         host.onDetach = onDetach
+        host.onCellMetricsChanged = onCellMetricsChanged
         containerView.setTerminalView(host.view)
         if shouldStartHost {
             host.start()
@@ -235,9 +250,27 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
     private static let maxSurfaceAttachRetries = 10
 
     private(set) var tmuxSessionID: String?
+    /// The current surface's own cell pixel size, as last reported by `GHOSTTY_ACTION_CELL_SIZE`
+    /// — reset on every new surface, since a fresh one hasn't reported its own yet.
+    private var latestCellSizePx: GhosttyTerminalGridSize?
 
     var onFocusRequested: (() -> Void)?
     var onDetach: (() -> Void)?
+    var onCellMetricsChanged: (() -> Void)?
+
+    var cellMetrics: TerminalCellMetrics {
+        guard let latestCellSizePx else {
+            return .unavailable
+        }
+        let scale = terminalView?.window?.backingScaleFactor ?? 1
+        let g = Double(Token.Spacing.element)
+        return TerminalCellMetrics(
+            cellWidth: Double(latestCellSizePx.width) / scale,
+            cellHeight: Double(latestCellSizePx.height) / scale,
+            paddingX: g,
+            paddingY: g
+        )
+    }
 
     var view: NSView {
         containerView
@@ -359,6 +392,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         lastSurfaceLaunchConfig = config
         session?.actionHandler = nil
         session?.closeHandler = nil
+        latestCellSizePx = nil
         let launch = ghosttyLaunchConfiguration(for: config)
         if !config.disableTmux,
            cleanTerminalSessionID(config.tmuxSession) != nil,
@@ -427,6 +461,12 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
                 return
             }
             onTitle("command exit \(exitCode)")
+        case .cellSize(let size):
+            guard size != latestCellSizePx else {
+                return
+            }
+            latestCellSizePx = size
+            onCellMetricsChanged?()
         default:
             break
         }
