@@ -17,6 +17,7 @@ struct ShellSplitLayoutTests {
         compactDockUsesCompactWidth()
         dockResizeClampsFromDragDelta()
         zeroWidthDoesNotProduceLayout()
+        footerReservationShortensTrackerAndTerminalButNotDock()
         print("ShellSplitLayoutTests: all tests passed")
     }
 
@@ -111,6 +112,40 @@ struct ShellSplitLayoutTests {
             dockWidthMode: .standard
         )
         expect(layout == nil, "zero-width split should not produce a layout")
+    }
+
+    /// The action bar footer reserves bottom space for the tracker and terminal, but the dock (and
+    /// its divider) ignore it and keep the window's full height with the usual `sideCardInset` —
+    /// restored to how it was before any footer existed.
+    private static func footerReservationShortensTrackerAndTerminalButNotDock() {
+        let metricsWithFooter = ShellSplitLayoutMetrics(
+            sideCardInset: 8,
+            dockDividerHitWidth: 7,
+            trackerMaxWidth: 300,
+            trackerLeadingInset: 10,
+            trackerTrailingGap: 0,
+            footerReservedHeight: 103
+        )
+        guard let layout = ShellSplitLayoutPlanner.layout(
+            size: ShellSplitSize(width: 1520, height: 900),
+            metrics: metricsWithFooter,
+            trackerVisible: true,
+            dockVisible: true,
+            preferredDockWidth: 640.5,
+            dockWidthMode: .standard
+        ) else {
+            fputs("ShellSplitLayoutTests failed: expected layout\n", stderr)
+            Foundation.exit(1)
+        }
+
+        // Tracker and terminal stop 103pt above the window's bottom (minus the usual side-card
+        // inset for the tracker) — otherwise identical to the no-footer case above.
+        expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 781), "tracker should stop above the footer, got \(layout.trackerFrame)")
+        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 0, width: 553, height: 797), "terminal should stop above the footer, got \(layout.terminalFrame)")
+
+        // The dock and its divider ignore the reservation and keep the full 900pt height.
+        expect(layout.dockFrame == ShellSplitRect(x: 871, y: 8, width: 641, height: 884), "dock should keep the full window height, got \(layout.dockFrame)")
+        expect(layout.secondDividerFrame == ShellSplitRect(x: 868, y: 8, width: 7, height: 884), "dock divider should keep the full window height, got \(layout.secondDividerFrame)")
     }
 
     private static func requireLayout(

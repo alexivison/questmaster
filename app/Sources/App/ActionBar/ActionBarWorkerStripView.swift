@@ -2,9 +2,11 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The worker strip row: up to `ActionBarMetrics.worker.visibleCount` pills, with a leading/
-/// trailing "+N" overflow pill when the master has more workers than fit. The visible window and
-/// overflow counts come from `ActionBarWorkerStripState` (Core); this view only renders them.
+/// The worker strip row: up to `ActionBarWorkerStripCapacity.singleOverflow` pills, with a
+/// leading/trailing "+N" overflow pill when the master has more workers than fit — or one fewer
+/// pill, when the scroll position would otherwise show both at once (`resolved`, Core). The
+/// visible window and overflow counts themselves come from `ActionBarWorkerStripState`; this view
+/// only renders them.
 struct ActionBarWorkerStripView: View {
     let workers: [TrackerSession]
     let highlightedWorkerID: String?
@@ -12,10 +14,18 @@ struct ActionBarWorkerStripView: View {
     let onAttach: (String) -> Void
     let onScroll: (ActionBarWorkerStripSide) -> Void
 
-    private var visibleCount: Int { ActionBarMetrics.worker.visibleCount }
-    private var range: Range<Int> { state.visibleRange(workerCount: workers.count, visibleCount: visibleCount) }
-    private var leadingOverflow: Int { state.leadingOverflowCount(workerCount: workers.count, visibleCount: visibleCount) }
-    private var trailingOverflow: Int { state.trailingOverflowCount(workerCount: workers.count, visibleCount: visibleCount) }
+    private var resolved: (visibleCount: Int, scrollOffset: Int) {
+        ActionBarWorkerStripCapacity.resolve(workerCount: workers.count, selectedIndex: state.selectedIndex, scrollOffset: state.scrollOffset)
+    }
+    /// The same state, but at the resolved scroll offset — `ActionBarWorkerStripState`'s own
+    /// window/overflow math takes its offset from `self`, not a parameter.
+    private var renderState: ActionBarWorkerStripState {
+        ActionBarWorkerStripState(isFocused: state.isFocused, selectedIndex: state.selectedIndex, scrollOffset: resolved.scrollOffset)
+    }
+    private var visibleCount: Int { resolved.visibleCount }
+    private var range: Range<Int> { renderState.visibleRange(workerCount: workers.count, visibleCount: visibleCount) }
+    private var leadingOverflow: Int { renderState.leadingOverflowCount(workerCount: workers.count, visibleCount: visibleCount) }
+    private var trailingOverflow: Int { renderState.trailingOverflowCount(workerCount: workers.count, visibleCount: visibleCount) }
 
     var body: some View {
         HStack(spacing: ActionBarMetrics.worker.interPillGap) {

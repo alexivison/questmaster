@@ -34,7 +34,8 @@ enum ShellMetrics {
         dockDividerHitWidth: 7,
         trackerMaxWidth: 300,
         trackerLeadingInset: Double(trackerLeadingInset),
-        trackerTrailingGap: Double(trackerTrailingGap)
+        trackerTrailingGap: Double(trackerTrailingGap),
+        footerReservedHeight: Double(ActionBarMetrics.footerHeight)
     )
 }
 

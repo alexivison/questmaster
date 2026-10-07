@@ -102,13 +102,16 @@ enum RenderPreview {
     /// over the footer's own area.
     @MainActor
     private static func shellWithFooterView(size: CGSize, trackerVisible: Bool, dockVisible: Bool, preferredDockWidth: Double? = nil) -> NSView {
-        let splitSize = CGSize(width: size.width, height: size.height - ActionBarMetrics.footerHeight)
-        let splitView = shellView(size: splitSize) as! MainSplitView
+        // `splitView` gets the window's full size — it reserves its own tracker/terminal space
+        // above the footer via `ShellSplitLayoutMetrics.footerReservedHeight`, same as the real
+        // app; the dock ignores that reservation and keeps the full height.
+        let splitView = shellView(size: size) as! MainSplitView
         splitView.trackerVisible = trackerVisible
         splitView.setDockVisible(dockVisible, animated: false)
         if let preferredDockWidth {
             splitView.setDockPreferredWidth(preferredDockWidth)
         }
+        splitView.applyCanonicalLayout()
         let footer = ActionBarShellView()
         footer.update(
             navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockVisible),
@@ -118,9 +121,6 @@ enum RenderPreview {
             highlightedWorkerID: nil,
             dockContentMode: .artifacts
         )
-        // `ShellRootContainerView.layout()` re-runs `splitView.applyCanonicalLayout()` once this
-        // is actually sized (needed for the dock's full-height frame) — happens for real once
-        // `renderView` gives this a frame and shows it.
         return ShellRootContainerView(splitView: splitView, footer: footer)
     }
 
