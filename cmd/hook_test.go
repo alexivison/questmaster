@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -326,8 +327,6 @@ func TestHookClaudeSayUsesFirstBatchTimestamp(t *testing.T) {
 		"message_id": "m1", "prompt_id": "p1", "index": 0, "delta": "Reading the README.",
 	})
 
-	now = firstBatchAt.Add(time.Second)
-	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{"tool_name": "Read"})
 	now = firstBatchAt.Add(2 * time.Second)
 	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
 		"message_id": "m1", "prompt_id": "p1", "index": 1, "final": true, "delta": "",
@@ -345,6 +344,131 @@ func TestHookClaudeSayUsesFirstBatchTimestamp(t *testing.T) {
 	if !ok || !got.Equal(firstBatchAt) {
 		t.Fatalf("say chat_timestamp = %#v, want first batch time %s", entries[0]["chat_timestamp"], firstBatchAt)
 	}
+}
+
+func TestHookClaudeNarrationPrecedesActionsInTrace(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	r, setNow := newClaudeChatFeedRunner(t, store, time.Date(2026, 10, 7, 13, 44, 35, 451021000, time.UTC), "trace-turn")
+	trace := []struct {
+		actionOffset time.Duration
+		delay        time.Duration
+		tool         string
+		narration    string
+	}{
+		{0, 25_235 * time.Microsecond, "Read", "Reading the README to understand the project's main purpose."},
+		{2_971_751 * time.Microsecond, 2_869 * time.Microsecond, "Bash", "Listing packages in the internal/ directory to count them."},
+		{6_181_758 * time.Microsecond, 8_144 * time.Microsecond, "Read", "Reading cmd/root.go to understand what it sets up."},
+		{9_539_589 * time.Microsecond, 27_352 * time.Microsecond, "Read", "Reading the first 40 lines of AGENTS.md to identify rules."},
+	}
+	base := time.Date(2026, 10, 7, 13, 44, 35, 451021000, time.UTC)
+	var want []string
+	for i, event := range trace {
+		actionAt := base.Add(event.actionOffset)
+		setNow(actionAt)
+		runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+			"prompt_id": "trace-turn", "tool_name": event.tool,
+		})
+		setNow(actionAt.Add(event.delay))
+		runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+			"message_id": fmt.Sprintf("trace-%d", i), "prompt_id": "trace-turn", "index": 0,
+			"final": true, "delta": event.narration,
+		})
+		want = append(want, "Worker qm-w1: "+event.narration, "Worker qm-w1: Cast ["+event.tool+"]")
+	}
+
+	got := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
+	var chatLines []string
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		if strings.HasPrefix(line, "Worker qm-w1: ") {
+			chatLines = append(chatLines, line)
+		}
+	}
+	if !slices.Equal(chatLines, want) {
+		t.Fatalf("chat --text lines = %#v, want trace narration/action pairs %#v; full output:\n%s", chatLines, want, got)
+	}
+}
+
+func TestHookClaudeParallelNarrationPrecedesEarliestAction(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	r, setNow := newClaudeChatFeedRunner(t, store, time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC), "parallel-turn")
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	setNow(base)
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "parallel", "prompt_id": "parallel-turn", "index": 0, "delta": "Checking both files.",
+	})
+	setNow(base.Add(10 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{"prompt_id": "parallel-turn", "tool_name": "Read"})
+	setNow(base.Add(20 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{"prompt_id": "parallel-turn", "tool_name": "Grep"})
+	setNow(base.Add(30 * time.Millisecond))
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "parallel", "prompt_id": "parallel-turn", "index": 1, "final": true,
+	})
+
+	got := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
+	lines := []string{"Worker qm-w1: Checking both files.", "Worker qm-w1: Cast [Read] [Grep]"}
+	last := -1
+	for _, line := range lines {
+		at := strings.Index(got, line)
+		if at <= last {
+			t.Fatalf("chat --text = %q; want %q after offset %d", got, line, last)
+		}
+		last = at
+	}
+	page, err := workerfeed.ReadHistory(store.Root(), "qm-master", "qm-w1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 3 || page.Entries[0].Kind != "say" || !page.Entries[0].Timestamp.Equal(base.Add(9*time.Millisecond)) {
+		t.Fatalf("parallel history = %#v; want narration timestamp 1 ms before earliest action", page.Entries)
+	}
+}
+
+func TestHookClaudeSayIgnoresActionFromDifferentTurn(t *testing.T) {
+	r, rec := newTestRunner(t)
+	now := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r.Now = func() time.Time { return now }
+	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "old-turn"})
+	now = now.Add(time.Second)
+	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{"prompt_id": "old-turn", "tool_name": "Read"})
+	now = now.Add(time.Second)
+	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "new-turn"})
+	now = now.Add(time.Second)
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "new-message", "prompt_id": "new-turn", "index": 0, "final": true, "delta": "New turn narration.",
+	})
+
+	event := rec.events[len(rec.events)-1]
+	entries := chatEntries(event)
+	if len(entries) != 1 {
+		t.Fatalf("say entries = %#v, want one", entries)
+	}
+	if got, ok := entries[0]["chat_timestamp"].(time.Time); ok && !got.Equal(event.Ts) {
+		t.Fatalf("different-turn action timestamp = %s, want say arrival %s", got, event.Ts)
+	}
+}
+
+func newClaudeChatFeedRunner(t *testing.T, store *state.Store, start time.Time, promptID string) (*HookRunner, func(time.Time)) {
+	t.Helper()
+	root := store.Root()
+	var now = start
+	r, _ := newTestRunner(t)
+	r.Now = func() time.Time { return now }
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
+	}
+	seed := state.StateEvent{Ts: start, Agent: "claude", Action: "test_seed"}
+	if err := state.UpdateAndLogAt(root, "qm-w1", &seed, func(ss *state.SessionState) bool {
+		ss.Panes["primary"] = state.PaneState{
+			Role: "primary", Agent: "claude", State: "working", LastChatStatus: "working", ClaudePromptID: promptID,
+		}
+		return true
+	}); err != nil {
+		t.Fatalf("seed hook state: %v", err)
+	}
+	return r, func(at time.Time) { now = at }
 }
 
 func TestHookClaudeOutOfOrderDisplayDeltasKeepStateBounded(t *testing.T) {

@@ -610,7 +610,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 								if pane.ClaudeDisplayFirstBatchAt != nil {
 									firstBatchAt = *pane.ClaudeDisplayFirstBatchAt
 								}
-								addChatEntryAt(&ev, &pane, "say", text, firstBatchAt)
+								chatAt := claudeSayChatTimestamp(&pane, payload.PromptID, firstBatchAt, now)
+								addClaudeChatEntryAt(&ev, &pane, "say", text, chatAt, payload.PromptID)
 								pane.ClaudeLastSayMessage = capped
 								pane.ClaudeLastSayPromptID = payload.PromptID
 								pane.ClaudeLastSayTranscript = payload.TranscriptPath
@@ -706,16 +707,28 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		pane.Role = role
 		if !isSubagent {
 			if opts.action == "done" && finalMessage != "" && pane.State == "done" && !suppressFinalMessage {
-				addChatEntry(&ev, &pane, "message", finalMessage)
+				addClaudeChatEntryAt(&ev, &pane, "message", finalMessage, time.Time{}, payload.PromptID)
 			}
 			if opts.action == "tool_start" && payload.ToolName != "" {
 				if pane.State != prev.State {
 					addVisibleStatus(&ev, &pane, pane.State)
 				}
-				addChatEntry(&ev, &pane, "action", payload.ToolName)
+				promptID := payload.PromptID
+				if promptID == "" {
+					promptID = pane.ClaudePromptID
+				}
+				addClaudeChatEntryAt(&ev, &pane, "action", payload.ToolName, time.Time{}, promptID)
+				if pane.ClaudeDisplayFirstBatchAt != nil &&
+					pane.ClaudeDisplayPromptID == promptID &&
+					now.After(*pane.ClaudeDisplayFirstBatchAt) &&
+					(pane.ClaudeDisplayFirstActionAt.IsZero() || now.Before(pane.ClaudeDisplayFirstActionAt)) {
+					pane.ClaudeDisplayFirstActionAt = now
+				}
 			}
 			if opts.action != "tool_start" && pane.State != prev.State {
-				addVisibleStatus(&ev, &pane, pane.State)
+				if addVisibleStatus(&ev, &pane, pane.State) {
+					clearClaudeLastChatAction(&pane)
+				}
 			}
 		}
 		ss.Panes[role] = pane
@@ -775,6 +788,40 @@ func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLast
 
 func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text string) {
 	addChatEntryAt(event, pane, kind, text, time.Time{})
+}
+
+func addClaudeChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text string, timestamp time.Time, promptID string) {
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	addChatEntryAt(event, pane, kind, text, timestamp)
+	if kind == "action" {
+		pane.ClaudeLastChatActionAt = event.Ts
+		pane.ClaudeLastChatActionPromptID = promptID
+		return
+	}
+	clearClaudeLastChatAction(pane)
+}
+
+func clearClaudeLastChatAction(pane *state.PaneState) {
+	pane.ClaudeLastChatActionAt = time.Time{}
+	pane.ClaudeLastChatActionPromptID = ""
+}
+
+const claudeChatActionBackdateWindow = 2 * time.Second
+
+func claudeSayChatTimestamp(pane *state.PaneState, promptID string, firstBatchAt, now time.Time) time.Time {
+	lastActionAt := pane.ClaudeLastChatActionAt
+	if promptID == "" || pane.ClaudeLastChatActionPromptID != promptID || lastActionAt.IsZero() ||
+		now.Before(lastActionAt) || now.Sub(lastActionAt) > claudeChatActionBackdateWindow {
+		return firstBatchAt
+	}
+	if firstActionAt := pane.ClaudeDisplayFirstActionAt; pane.ClaudeDisplayPromptID == promptID &&
+		firstActionAt.After(firstBatchAt) && !firstActionAt.After(now) &&
+		now.Sub(firstActionAt) <= claudeChatActionBackdateWindow {
+		lastActionAt = firstActionAt
+	}
+	return lastActionAt.Add(-time.Millisecond)
 }
 
 func addChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text string, timestamp time.Time) {
@@ -914,6 +961,7 @@ func clearClaudeDisplay(pane *state.PaneState) {
 	pane.ClaudeDisplayMessageID = ""
 	pane.ClaudeDisplayPromptID = ""
 	pane.ClaudeDisplayFirstBatchAt = nil
+	pane.ClaudeDisplayFirstActionAt = time.Time{}
 	pane.ClaudeDisplayChunks = nil
 	pane.ClaudeDisplayFinalIndex = 0
 	pane.ClaudeDisplayFinal = false
@@ -925,12 +973,15 @@ func claudeDisplayStateChanged(before, after state.PaneState) bool {
 		before.ClaudeDisplayMessageID != after.ClaudeDisplayMessageID ||
 		before.ClaudeDisplayPromptID != after.ClaudeDisplayPromptID ||
 		!sameClaudeDisplayTime(before.ClaudeDisplayFirstBatchAt, after.ClaudeDisplayFirstBatchAt) ||
+		!before.ClaudeDisplayFirstActionAt.Equal(after.ClaudeDisplayFirstActionAt) ||
 		!maps.Equal(before.ClaudeDisplayChunks, after.ClaudeDisplayChunks) ||
 		before.ClaudeDisplayFinalIndex != after.ClaudeDisplayFinalIndex ||
 		before.ClaudeDisplayFinal != after.ClaudeDisplayFinal ||
 		before.ClaudeDisplayAbandoned != after.ClaudeDisplayAbandoned ||
 		!before.LastChatAt.Equal(after.LastChatAt) ||
 		before.ClaudeLastSayMessage != after.ClaudeLastSayMessage ||
+		!before.ClaudeLastChatActionAt.Equal(after.ClaudeLastChatActionAt) ||
+		before.ClaudeLastChatActionPromptID != after.ClaudeLastChatActionPromptID ||
 		before.ClaudeLastSayPromptID != after.ClaudeLastSayPromptID ||
 		before.ClaudeLastSayTranscript != after.ClaudeLastSayTranscript ||
 		before.ClaudeLastStopPromptID != after.ClaudeLastStopPromptID ||
@@ -944,15 +995,16 @@ func sameClaudeDisplayTime(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
-func addVisibleStatus(event *state.StateEvent, pane *state.PaneState, status string) {
+func addVisibleStatus(event *state.StateEvent, pane *state.PaneState, status string) bool {
 	if status != "working" && status != "done" && status != "blocked" {
-		return
+		return false
 	}
 	if pane.LastChatStatus == status {
-		return
+		return false
 	}
 	addChatEntry(event, pane, "status", status)
 	pane.LastChatStatus = status
+	return true
 }
 
 func isTaskNotification(prompt string) bool {
