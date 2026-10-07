@@ -67,11 +67,15 @@ final class DockPaneModel: ObservableObject {
     private var questFilterFocusNonce = 0
 
     var currentMode: DockContentMode {
-        currentDockContent == .questList ? .quests : .artifacts
+        switch currentDockContent {
+        case .questList: .quests
+        case .workerChat: .workerChat
+        case .artifactList, .artifactViewer: .artifacts
+        }
     }
 
     var currentWidthMode: RightDockWidthMode {
-        currentMode == .quests || currentArtifactRoute == .list ? .compact : .standard
+        currentMode != .artifacts || currentArtifactRoute == .list ? .compact : .standard
     }
 
     @discardableResult
@@ -93,8 +97,10 @@ final class DockPaneModel: ObservableObject {
             artifactScope = desired.artifactScope
         }
         currentDockContent = desired.dockContent
-        if currentMode == .quests {
-            updateQuestModel(snapshot: snapshot, selectedID: desired.selectedQuestID ?? selectedQuestID)
+        if currentMode != .artifacts {
+            if currentMode == .quests {
+                updateQuestModel(snapshot: snapshot, selectedID: desired.selectedQuestID ?? selectedQuestID)
+            }
             return ArtifactDisplayUpdate(artifacts: [], displayState: .noCurrentSession, intent: .none, selectedArtifactID: selectedArtifactID)
         }
         let route: ArtifactDockRoute = desired.dockContent == .artifactViewer ? .viewer : .list
@@ -119,6 +125,12 @@ final class DockPaneModel: ObservableObject {
     func handleKeyDown(_ event: NSEvent, snapshot: RuntimeSnapshot) -> Bool {
         if currentMode == .quests {
             return handleQuestKeyDown(event, snapshot: snapshot)
+        }
+        if currentMode == .workerChat {
+            guard let direction = focusDirection(from: event) else {
+                return false
+            }
+            return onControlDirection?(direction) == true
         }
         guard currentArtifactRoute == .list else {
             if Self.isArtifactViewerBack(event) {

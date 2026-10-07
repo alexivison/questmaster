@@ -30,6 +30,7 @@ enum LogicSelfTests {
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
         ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
+        ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
@@ -942,6 +943,10 @@ enum LogicSelfTests {
         try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should still require a current session")
         try expect(!DockContentRouting.canShow(.artifactViewer, sessionID: ""), "artifact viewer should still require a current session")
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
+        try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo", role: .master), "worker chat should open for a master")
+        try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo", role: .worker), "worker chat should open for a worker")
+        try expect(!DockContentRouting.canShow(.workerChat, sessionID: "qm-demo", role: .standalone), "worker chat should not open for a standalone session")
+        try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil, role: .master), "worker chat should still require a current session")
     }
 
     private static func testArtifactDockCommandSwitchesFromQuests() throws {
@@ -952,6 +957,10 @@ enum LogicSelfTests {
         try expect(
             !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .questList),
             "Cmd-3 should switch visible quests to artifacts"
+        )
+        try expect(
+            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .workerChat),
+            "Cmd-3 should switch a visible worker chat to artifacts"
         )
         try expect(
             DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .artifactList),
@@ -976,6 +985,20 @@ enum LogicSelfTests {
 
         coordinator.recordDockVisibility(false, sessionID: nil)
         try expect(!coordinator.state(for: nil).dockVisible, "hiding no-session quest dock should persist")
+    }
+
+    private static func testDockCoordinatorShowsWorkerChatPerSession() throws {
+        let coordinator = DockCoordinator()
+
+        coordinator.showDockContent(.workerChat, sessionID: nil)
+        try expect(coordinator.state(for: nil) == .initial, "worker chat should not create no-session dock state")
+
+        coordinator.mutate("qm-master") { $0.selectedArtifactID = "artifact-1" }
+        coordinator.showDockContent(.workerChat, sessionID: "qm-master")
+        let state = coordinator.state(for: "qm-master")
+        try expect(state.dockVisible && state.dockContent == .workerChat, "worker chat should open for its session")
+        try expect(state.selectedArtifactID == nil, "opening worker chat should clear the artifact selection")
+        try expect(coordinator.state(for: "qm-other") == .initial, "worker chat should not leak into another session")
     }
 
     private static func testNewQuestFooterTextMatchesMode() throws {

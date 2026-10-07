@@ -9,6 +9,7 @@ import Foundation
 public enum DockContentMode: Equatable {
     case artifacts
     case quests
+    case workerChat
 }
 
 /// Where the artifact area of the dock currently is.
@@ -46,8 +47,19 @@ public struct DockTopBarModel: Equatable {
         let viewingArtifact = mode == .artifacts && artifactRoute == .viewer
         return DockTopBarModel(
             back: viewingArtifact ? .artifactList : nil,
-            title: mode == .quests ? "Quests" : (viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"),
+            title: title(mode: mode, viewingArtifact: viewingArtifact, artifactTitle: artifactTitle),
             showArtifactActions: viewingArtifact
         )
+    }
+
+    private static func title(mode: DockContentMode, viewingArtifact: Bool, artifactTitle: String?) -> String {
+        switch mode {
+        case .quests:
+            return "Quests"
+        case .workerChat:
+            return "Worker Chat"
+        case .artifacts:
+            return viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"
+        }
     }
 }
