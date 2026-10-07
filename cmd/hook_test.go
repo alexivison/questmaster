@@ -367,7 +367,7 @@ func TestHookClaudeNarrationPrecedesActionsInTrace(t *testing.T) {
 		actionAt := base.Add(event.actionOffset)
 		setNow(actionAt)
 		runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
-			"prompt_id": "trace-turn", "tool_name": event.tool,
+			"prompt_id": "trace-turn", "tool_use_id": fmt.Sprintf("trace-tool-%d", i), "tool_name": event.tool,
 		})
 		setNow(actionAt.Add(event.delay))
 		runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
@@ -389,22 +389,26 @@ func TestHookClaudeNarrationPrecedesActionsInTrace(t *testing.T) {
 	}
 }
 
-func TestHookClaudeParallelNarrationPrecedesEarliestAction(t *testing.T) {
+func TestHookClaudeParallelNarrationPrecedesEarliestOpenAction(t *testing.T) {
 	store := setupStore(t)
 	createFeedManifests(t, store, "qm-master", "qm-w1")
 	r, setNow := newClaudeChatFeedRunner(t, store, time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC), "parallel-turn")
 	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
-	setNow(base)
-	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
-		"message_id": "parallel", "prompt_id": "parallel-turn", "index": 0, "delta": "Checking both files.",
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "parallel-turn", "tool_use_id": "read-1", "tool_name": "Read",
 	})
-	setNow(base.Add(10 * time.Millisecond))
-	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{"prompt_id": "parallel-turn", "tool_name": "Read"})
 	setNow(base.Add(20 * time.Millisecond))
-	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{"prompt_id": "parallel-turn", "tool_name": "Grep"})
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "parallel-turn", "tool_use_id": "grep-1", "tool_name": "Grep",
+	})
+	setNow(base.Add(25 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_end", "qm-w1", map[string]interface{}{
+		"prompt_id": "parallel-turn", "tool_use_id": "grep-1", "tool_name": "Grep",
+	})
 	setNow(base.Add(30 * time.Millisecond))
 	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
-		"message_id": "parallel", "prompt_id": "parallel-turn", "index": 1, "final": true,
+		"message_id": "parallel", "prompt_id": "parallel-turn", "index": 0, "final": true,
+		"delta": "Checking both files.",
 	})
 
 	got := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
@@ -421,8 +425,98 @@ func TestHookClaudeParallelNarrationPrecedesEarliestAction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Entries) != 3 || page.Entries[0].Kind != "say" || !page.Entries[0].Timestamp.Equal(base.Add(9*time.Millisecond)) {
-		t.Fatalf("parallel history = %#v; want narration timestamp 1 ms before earliest action", page.Entries)
+	if len(page.Entries) != 3 || page.Entries[0].Kind != "say" || !page.Entries[0].Timestamp.Equal(base.Add(-time.Millisecond)) {
+		t.Fatalf("parallel history = %#v; want narration timestamp 1 ms before earliest open action", page.Entries)
+	}
+}
+
+func TestHookClaudeFastToolResultKeepsArrivalTime(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r, setNow := newClaudeChatFeedRunner(t, store, base, "fast-turn")
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "fast-turn", "tool_use_id": "read-fast", "tool_name": "Read",
+	})
+	setNow(base.Add(40 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_end", "qm-w1", map[string]interface{}{
+		"prompt_id": "fast-turn", "tool_use_id": "read-fast", "tool_name": "Read",
+	})
+	sayAt := base.Add(1500 * time.Millisecond)
+	setNow(sayAt)
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "fast-result", "prompt_id": "fast-turn", "index": 0, "final": true, "delta": "Read completed.",
+	})
+
+	page, err := workerfeed.ReadHistory(store.Root(), "qm-master", "qm-w1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 2 || page.Entries[0].Kind != "action" || page.Entries[1].Kind != "say" || !page.Entries[1].Timestamp.Equal(sayAt) {
+		t.Fatalf("fast tool history = %#v; want Cast then result narration at arrival time", page.Entries)
+	}
+}
+
+func TestHookClaudeStreamedNarrationKeepsBatchZeroTime(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r, setNow := newClaudeChatFeedRunner(t, store, base, "stream-turn")
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "stream", "prompt_id": "stream-turn", "index": 0, "delta": "Reading both files.",
+	})
+	setNow(base.Add(10 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "stream-turn", "tool_use_id": "read-stream", "tool_name": "Read",
+	})
+	setNow(base.Add(2100 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "stream-turn", "tool_use_id": "grep-stream", "tool_name": "Grep",
+	})
+	setNow(base.Add(2200 * time.Millisecond))
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "stream", "prompt_id": "stream-turn", "index": 1, "final": true,
+	})
+
+	got := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
+	want := []string{"Worker qm-w1: Reading both files.", "Worker qm-w1: Cast [Read] [Grep]"}
+	last := -1
+	for _, line := range want {
+		at := strings.Index(got, line)
+		if at <= last {
+			t.Fatalf("chat --text = %q; want %q after offset %d", got, line, last)
+		}
+		last = at
+	}
+	page, err := workerfeed.ReadHistory(store.Root(), "qm-master", "qm-w1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 3 || page.Entries[0].Kind != "say" || !page.Entries[0].Timestamp.Equal(base) {
+		t.Fatalf("streamed history = %#v; want the batch-0 timestamp before both actions", page.Entries)
+	}
+}
+
+func TestHookClaudeStaleOpenActionKeepsSayArrivalTime(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r, setNow := newClaudeChatFeedRunner(t, store, base, "stale-turn")
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "stale-turn", "tool_use_id": "read-stale", "tool_name": "Read",
+	})
+	sayAt := base.Add(300 * time.Millisecond)
+	setNow(sayAt)
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "stale", "prompt_id": "stale-turn", "index": 0, "final": true, "delta": "The old read is still open.",
+	})
+
+	page, err := workerfeed.ReadHistory(store.Root(), "qm-master", "qm-w1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 2 || page.Entries[0].Kind != "action" || page.Entries[1].Kind != "say" || !page.Entries[1].Timestamp.Equal(sayAt) {
+		t.Fatalf("stale open action history = %#v; want arrival time after Cast", page.Entries)
 	}
 }
 
@@ -431,11 +525,14 @@ func TestHookClaudeSayIgnoresActionFromDifferentTurn(t *testing.T) {
 	now := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
 	r.Now = func() time.Time { return now }
 	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "old-turn"})
-	now = now.Add(time.Second)
-	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{"prompt_id": "old-turn", "tool_name": "Read"})
-	now = now.Add(time.Second)
+	now = now.Add(time.Millisecond)
+	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{"prompt_id": "old-turn", "tool_use_id": "old-read", "tool_name": "Read"})
+	now = now.Add(time.Millisecond)
 	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "new-turn"})
-	now = now.Add(time.Second)
+	if got := rec.lastState.Panes["primary"].ClaudeOpenChatActions; len(got) != 0 {
+		t.Fatalf("UserPromptSubmit left open actions: %#v", got)
+	}
+	now = now.Add(time.Millisecond)
 	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
 		"message_id": "new-message", "prompt_id": "new-turn", "index": 0, "final": true, "delta": "New turn narration.",
 	})
@@ -447,6 +544,22 @@ func TestHookClaudeSayIgnoresActionFromDifferentTurn(t *testing.T) {
 	}
 	if got, ok := entries[0]["chat_timestamp"].(time.Time); ok && !got.Equal(event.Ts) {
 		t.Fatalf("different-turn action timestamp = %s, want say arrival %s", got, event.Ts)
+	}
+}
+
+func TestHookClaudeStopClearsOpenActions(t *testing.T) {
+	r, rec := newTestRunner(t)
+	now := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r.Now = func() time.Time { return now }
+	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "stop-turn"})
+	now = now.Add(time.Millisecond)
+	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{
+		"prompt_id": "stop-turn", "tool_use_id": "stop-read", "tool_name": "Read",
+	})
+	now = now.Add(time.Millisecond)
+	runHookWithStdin(r, "claude", "done", "qm-chat", map[string]interface{}{"prompt_id": "stop-turn"})
+	if got := rec.lastState.Panes["primary"].ClaudeOpenChatActions; len(got) != 0 {
+		t.Fatalf("Stop left open actions: %#v", got)
 	}
 }
 
