@@ -63,10 +63,14 @@ enum ActionBarMetrics {
     static let idStripY: CGFloat = 41 + verticalShift
     static let stripHeight: CGFloat = 15
     static let stripTrailingPadding: CGFloat = 12
-    /// Where the strip's own text becomes visible past the portrait — the ID/title text centres
-    /// in `stripX + visibleInset ..< stripX + stripWidth`, not across the whole (partly hidden)
-    /// strip.
-    static var stripVisibleInset: CGFloat { portraitCenter.x + portraitRadius - stripX }
+    /// Breathing room between the portrait's outer edge and the first glyph of a long title/ID —
+    /// the tracker nameplates' own `portraitTextGap`, the same in all three panel variants.
+    static let portraitTextGap: CGFloat = 5
+    /// Where the strip's text region starts, relative to the strip: the portrait's outer edge plus
+    /// `portraitTextGap`, rounded so the text's left edge lands on a whole point. The title/ID text
+    /// centres in `stripX + stripTextInset ..< stripX + stripWidth - stripTrailingPadding`, not
+    /// across the whole (partly hidden) strip.
+    static var stripTextInset: CGFloat { (portraitCenter.x + portraitRadius + portraitTextGap).rounded() - stripX }
 
     static let slotSize: CGFloat = 30
     static let slotGroupGap: CGFloat = 20

@@ -143,13 +143,13 @@ struct ActionBarFooterView: View {
             .frame(width: ActionBarMetrics.stripWidth, height: ActionBarMetrics.stripHeight)
             .overlay(alignment: .leading) {
                 // The strip starts behind the portrait; its text centres in the part that's
-                // actually visible, not across the whole (partly hidden) strip.
+                // visible past the portrait and its text gap, not across the whole strip.
                 content()
                     .frame(
-                        width: ActionBarMetrics.stripWidth - ActionBarMetrics.stripVisibleInset - ActionBarMetrics.stripTrailingPadding,
+                        width: ActionBarMetrics.stripWidth - ActionBarMetrics.stripTextInset - ActionBarMetrics.stripTrailingPadding,
                         alignment: .center
                     )
-                    .offset(x: ActionBarMetrics.stripVisibleInset)
+                    .offset(x: ActionBarMetrics.stripTextInset)
             }
             .offset(x: ActionBarMetrics.stripX, y: y)
     }
