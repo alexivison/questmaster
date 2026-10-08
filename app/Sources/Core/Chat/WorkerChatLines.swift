@@ -74,9 +74,8 @@ enum WorkerChatLineBuilder {
         var body: Body
     }
 
-    /// `records` must already be in chronological order. A worker's tool actions in the same
-    /// calendar minute fold into one line at the first action's position; other workers' entries
-    /// do not close it, but that worker's next non-action or later-minute action starts a new line.
+    /// `records` must already be in chronological order. Consecutive tool actions from the same
+    /// worker in the same calendar minute fold into the last line; any intervening entry closes it.
     static func lines(
         from records: [WorkerChatRecord],
         names: [String: String],
@@ -84,25 +83,23 @@ enum WorkerChatLineBuilder {
         calendar: Calendar
     ) -> [WorkerChatLine] {
         var drafts: [Draft] = []
-        var openRuns: [String: Int] = [:]
         for record in records {
             guard case .action(let tool) = record.kind else {
-                openRuns[record.workerID] = nil
                 drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, body: .record(record)))
                 continue
             }
-            if let index = openRuns[record.workerID],
-               case .run(var tools) = drafts[index].body,
-               calendar.isDate(record.timestamp, equalTo: drafts[index].timestamp, toGranularity: .minute) {
+            if let lastDraft = drafts.last,
+               lastDraft.workerID == record.workerID,
+               case .run(var tools) = lastDraft.body,
+               calendar.isDate(record.timestamp, equalTo: lastDraft.timestamp, toGranularity: .minute) {
                 if let toolIndex = tools.firstIndex(where: { $0.name == tool }) {
                     tools[toolIndex].count += 1
                 } else {
                     tools.append(Tool(name: tool, count: 1))
                 }
-                drafts[index].body = .run(tools)
+                drafts[drafts.count - 1].body = .run(tools)
                 continue
             }
-            openRuns[record.workerID] = drafts.count
             drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, body: .run([Tool(name: tool, count: 1)])))
         }
 

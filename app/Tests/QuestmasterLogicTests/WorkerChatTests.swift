@@ -16,9 +16,9 @@ struct WorkerChatTests {
         idleAndUnknownEntriesAreNotShown()
         messageKeepsParagraphsAndReportMutesItsText()
         actionRunCollapsesWithCountsAndNoCommas()
-        actionRunSplitsAtCalendarMinuteWithoutBreakingOnOtherWorkers()
+        actionRunSplitsAtCalendarMinute()
         lateNarrationSortsBeforeEarlierActionArrival()
-        actionRunStaysOpenAcrossOtherWorkersEntries()
+        actionRunClosesWhenAnotherWorkerAddsALine()
         actionRunClosesOnTheSameWorkersNextNonAction()
         timeHeadersFollowTheClockMinuteOfTheLastHeader()
         cursorsRoundTripUnchanged()
@@ -130,12 +130,11 @@ struct WorkerChatTests {
         expect(segments(single, 0).last?.text == "[Bash]", "a single call should show no count, got \(segments(single, 0))")
     }
 
-    private static func actionRunSplitsAtCalendarMinuteWithoutBreakingOnOtherWorkers() {
+    private static func actionRunSplitsAtCalendarMinute() {
         let store = makeStore()
         feed(store, [
             entry(5, "w1", "action", "Bash"),
-            entry(20, "w2", "action", "Read"),
-            entry(40, "w1", "action", "Edit"),
+            entry(20, "w1", "action", "Edit"),
             entry(60, "w1", "action", "Bash"),
         ])
 
@@ -147,10 +146,9 @@ struct WorkerChatTests {
         }
         let entries = entryLines(store)
         expect(headers == ["[09:00]", "[09:01]"], "a next-minute action should start a new header, got \(headers)")
-        expect(entries.count == 3, "same-minute actions should fold around another worker and split at the next minute, got \(entries.count)")
-        expect(entries[0].segments.dropFirst().map(\.text) == [" Cast ", "[Bash] [Edit]"], "same-minute actions should stay in one run across another worker, got \(entries[0].segments)")
-        expect(entries[1].segments.first?.text == "Worker Two:", "the interleaved worker should keep its own row")
-        expect(entries[2].segments.dropFirst().map(\.text) == [" Cast ", "[Bash]"], "the next-minute action should start a fresh run, got \(entries[2].segments)")
+        expect(entries.count == 2, "same-minute actions should fold and the next minute should split, got \(entries.count)")
+        expect(entries[0].segments.dropFirst().map(\.text) == [" Cast ", "[Bash] [Edit]"], "same-minute actions should fold, got \(entries[0].segments)")
+        expect(entries[1].segments.dropFirst().map(\.text) == [" Cast ", "[Bash]"], "the next-minute action should start a fresh run, got \(entries[1].segments)")
     }
 
     private static func lateNarrationSortsBeforeEarlierActionArrival() {
@@ -177,21 +175,17 @@ struct WorkerChatTests {
         expect(entries[2].segments.dropFirst().map(\.text) == [" Cast ", "[Edit]"], "late say should split the Cast run")
     }
 
-    private static func actionRunStaysOpenAcrossOtherWorkersEntries() {
+    private static func actionRunClosesWhenAnotherWorkerAddsALine() {
         let store = makeStore()
         feed(store, [
             entry(0, "w1", "action", "Bash"),
             entry(1, "w2", "action", "Read"),
-            entry(2, "w2", "say", "looking"),
-            entry(3, "w1", "action", "Bash"),
-            entry(4, "w1", "action", "Edit"),
+            entry(2, "w1", "action", "Edit"),
         ])
         let lines = entryLines(store)
-        expect(lines.count == 3, "expected w1's run, w2's run and w2's say, got \(lines.count)")
-        expect(lines[0].segments.last?.text == "[Bash](x2) [Edit]", "w1's run should keep growing in its original place, got \(lines[0].segments)")
-        expect(lines[0].segments.first?.text == "Worker One:", "w1's run should stay first")
-        expect(lines[1].segments.last?.text == "[Read]", "w2's own run should be separate")
-        expect(lines[2].segments.last?.text == " looking", "w2's say should follow")
+        expect(lines.count == 3, "interleaved workers should produce three Cast lines, got \(lines.count)")
+        expect(lines.map { $0.segments.first?.text } == ["Worker One:", "Worker Two:", "Worker One:"], "Cast lines should keep arrival order, got \(lines)")
+        expect(lines.map { $0.segments.last?.text } == ["[Bash]", "[Read]", "[Edit]"], "each interleaved action should keep its own Cast line, got \(lines)")
     }
 
     private static func actionRunClosesOnTheSameWorkersNextNonAction() {
