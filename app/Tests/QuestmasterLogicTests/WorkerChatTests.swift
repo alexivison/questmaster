@@ -33,7 +33,8 @@ struct WorkerChatTests {
         unreadableWorkerShowsANoticeAndRetries()
         manyUnreadableWorkersShareOneBoundedNotice()
         removedWorkerClearsItsChatState()
-        removedWorkerDuringPullIgnoresStaleResponse()
+        removedWorkerDuringPullKeepsCurrentEntries()
+        membershipChangesWhilePullingDoNotQueueRequests()
         standaloneIsUnattached()
         historyIsBounded()
         roleAvailability()
@@ -442,45 +443,54 @@ struct WorkerChatTests {
         expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "removed worker errors should not trigger retries")
     }
 
-    private static func removedWorkerDuringPullIgnoresStaleResponse() {
+    private static func removedWorkerDuringPullKeepsCurrentEntries() {
         let store = makeStore()
         let first = open(store)
-        let w1Cursor = WorkerFeedCursor(offset: 3, fileID: "w1-file")
-        let w2Cursor = WorkerFeedCursor(offset: 5, fileID: "w2-file")
-        let pending = store.receive(
+        let remainingGroup = group().filter { $0.id != "w1" }
+        let current = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
+        expect(current == nil, "membership changes should not issue another request while a pull is in flight")
+
+        let w2Cursor = WorkerFeedCursor(offset: 10, fileID: "w2-file")
+        let followUp = store.receive(
             WorkerFeedPayload(
-                entries: [entry(0, "w1", "say", "leaving"), entry(1, "w2", "say", "staying")],
-                cursors: ["w1": w1Cursor, "w2": w2Cursor],
+                entries: [entry(2, "w1", "say", "resurrected"), entry(3, "w2", "say", "late")],
+                cursors: ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor],
                 hasMore: ["w1": true],
                 errors: ["w1": "permission denied"]
             ),
             for: first
         )
-        expect(pending?.cursors == ["w1": w1Cursor, "w2": w2Cursor], "the next pull should start with both workers")
-        let w2LinesBefore = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
 
+        let w2Lines = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "removed worker entries should be dropped")
+        expect(w2Lines.count == 1 && w2Lines[0].last?.text == " late", "the remaining worker's new entry should be shown")
+        expect(store.readNotice == nil, "removed worker read errors should be dropped")
+        expect(followUp?.cursors == ["w2": w2Cursor], "only the remaining worker's advanced cursor should be sent")
+
+        _ = store.receive(WorkerFeedPayload(), for: followUp!)
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "has_more from a removed worker should be ignored")
+    }
+
+    private static func membershipChangesWhilePullingDoNotQueueRequests() {
+        let store = makeStore()
+        let first = open(store)
         let remainingGroup = group().filter { $0.id != "w1" }
-        let current = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
-        expect(current?.cursors == ["w2": w2Cursor], "the replacement pull should keep only the remaining cursor")
-        _ = store.receive(
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "removing a worker should keep the current pull in flight")
+        expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "re-adding a worker should not queue another pull")
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "repeated membership changes should not queue pulls")
+
+        let w2Cursor = WorkerFeedCursor(offset: 10, fileID: "w2-file")
+        let followUp = store.receive(
             WorkerFeedPayload(
-                entries: [entry(2, "w1", "say", "resurrected"), entry(3, "w2", "say", "late")],
-                cursors: ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": WorkerFeedCursor(offset: 10, fileID: "w2-file")],
+                entries: [entry(0, "w1", "say", "removed"), entry(1, "w2", "say", "kept")],
+                cursors: ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor],
                 errors: ["w1": "permission denied"]
             ),
-            for: pending!
+            for: first
         )
-
-        let w2LinesAfter = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
-        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "a stale response should not restore removed worker lines")
-        expect(w2LinesAfter == w2LinesBefore, "a stale response should not add lines for remaining workers")
-        expect(store.readNotice == nil, "a stale response should not restore removed worker read errors")
-
-        _ = store.receive(WorkerFeedPayload(), for: current!)
-        var changedGroup = remainingGroup
-        changedGroup[1].lastChatAt = base(2)
-        let retry = store.sync(selectedSessionID: "m", sessions: changedGroup, isVisible: true)
-        expect(retry?.cursors == ["w2": w2Cursor], "a stale response should not restore removed worker cursors")
+        expect(followUp?.cursors == ["w2": w2Cursor], "the completed pull should issue one follow-up for the latest group")
+        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "the final group should not show the removed worker")
+        expect(entryLines(store).contains { $0.segments.last?.text == " kept" }, "the final group should keep the remaining worker")
     }
 
     private static func standaloneIsUnattached() {
@@ -557,10 +567,11 @@ struct WorkerChatTests {
     /// Opens the dock and applies one response. `tracker: false` keeps tracker titles out so the
     /// feed's own titles are what shows.
     private static func feed(_ store: WorkerChatStore, _ entries: [WorkerFeedEntry], tracker: Bool = true) {
-        let sessions = tracker ? group() : []
-        let request = tracker
-            ? store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
-            : store.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true)
+        let sessions = tracker
+            ? group()
+            : [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+                + Set(entries.map(\.workerID)).map { TrackerSession(id: $0, title: "", repoName: "Repo", role: "worker", parentID: "m") }
+        let request = store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
         _ = store.receive(WorkerFeedPayload(entries: entries), for: request!)
     }
 

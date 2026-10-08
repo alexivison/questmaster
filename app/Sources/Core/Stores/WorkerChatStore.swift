@@ -91,16 +91,17 @@ public final class WorkerChatStore {
             return nil
         }
         inFlight = false
-        for (workerID, cursor) in payload.cursors {
+        for (workerID, cursor) in payload.cursors where agents[workerID] != nil {
             cursors[workerID] = cursor
         }
-        if payload.hasMore.values.contains(true) {
+        if payload.hasMore.contains(where: { agents[$0.key] != nil && $0.value }) {
             pullWanted = true
         }
         let previousErrors = readErrorWorkerIDs
-        readErrorWorkerIDs = (payload.errors ?? [:]).keys.sorted()
-        if !payload.entries.isEmpty {
-            merge(payload.entries)
+        readErrorWorkerIDs = (payload.errors ?? [:]).keys.filter { agents[$0] != nil }.sorted()
+        let entries = payload.entries.filter { agents[$0.workerID] != nil }
+        if !entries.isEmpty {
+            merge(entries)
         } else if previousErrors != readErrorWorkerIDs {
             updateReadNotice()
         }
@@ -157,10 +158,6 @@ public final class WorkerChatStore {
         trackerNames = names
         agents = nextAgents
         if !removedWorkerIDs.isEmpty {
-            if inFlight {
-                generation += 1
-                inFlight = false
-            }
             records.removeAll { removedWorkerIDs.contains($0.workerID) }
             for workerID in removedWorkerIDs {
                 cursors.removeValue(forKey: workerID)
