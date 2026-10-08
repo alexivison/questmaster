@@ -18,6 +18,7 @@ struct WorkerChatTests {
         actionRunCollapsesWithCountsAndNoCommas()
         actionRunSplitsAtCalendarMinute()
         lateNarrationSortsBeforeEarlierActionArrival()
+        lateOtherWorkerEntryDoesNotSplitCastRun()
         actionRunClosesWhenAnotherWorkerAddsALine()
         actionRunClosesOnTheSameWorkersNextNonAction()
         timeHeadersFollowTheClockMinuteOfTheLastHeader()
@@ -173,6 +174,49 @@ struct WorkerChatTests {
         expect(entries[0].segments.dropFirst().map(\.text) == [" Cast ", "[Read]"], "first action should precede the late say")
         expect(entries[1].segments.last?.text == " Reading the README.", "late say should sort between the already displayed actions")
         expect(entries[2].segments.dropFirst().map(\.text) == [" Cast ", "[Edit]"], "late say should split the Cast run")
+    }
+
+    private static func lateOtherWorkerEntryDoesNotSplitCastRun() {
+        let store = makeStore()
+        let first = open(store)
+        guard let followUp = store.receive(
+            WorkerFeedPayload(entries: [
+                entry(1, "w1", "action", "Read"),
+                entry(3, "w1", "action", "Edit"),
+            ], hasMore: ["w1": true]),
+            for: first
+        ) else {
+            fail("has_more should request the next page")
+        }
+        let firstEntries = store.lines.compactMap { line -> WorkerChatLine? in
+            guard case .entry = line.content else {
+                return nil
+            }
+            return line
+        }
+        expect(firstEntries.count == 1, "the first pull should combine adjacent actions")
+        let originalID = firstEntries.first?.id
+
+        _ = store.receive(WorkerFeedPayload(entries: [entry(2, "w2", "action", "Read")]), for: followUp)
+
+        let entries = store.lines.compactMap { line -> WorkerChatLine? in
+            guard case .entry = line.content else {
+                return nil
+            }
+            return line
+        }
+        expect(entries.count == 2, "a late other-worker entry should follow the existing Cast line, got \(entries.count)")
+        expect(entries.first?.id == originalID, "the Cast line should keep its id after a late entry")
+        if case .entry(_, let segments) = entries.first?.content {
+            expect(segments.dropFirst().map(\.text) == [" Cast ", "[Read] [Edit]"], "the Cast line should remain folded, got \(segments)")
+        } else {
+            fail("the first line should remain the Cast run")
+        }
+        if case .entry(_, let segments) = entries.last?.content {
+            expect(segments.first?.text == "Worker Two:", "the late entry should follow the Cast line")
+        } else {
+            fail("the late entry should be a worker line")
+        }
     }
 
     private static func actionRunClosesWhenAnotherWorkerAddsALine() {

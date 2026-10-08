@@ -71,11 +71,12 @@ enum WorkerChatLineBuilder {
         let id: String
         let timestamp: Date
         let workerID: String
+        var sequence: Int
         var body: Body
     }
 
-    /// `records` must already be in chronological order. Consecutive tool actions from the same
-    /// worker in the same calendar minute fold into the last line; any intervening entry closes it.
+    /// `records` must already be in chronological order. Same-worker actions in one minute fold
+    /// unless a same-worker non-action or earlier-arriving other-worker line follows the run.
     static func lines(
         from records: [WorkerChatRecord],
         names: [String: String],
@@ -83,24 +84,28 @@ enum WorkerChatLineBuilder {
         calendar: Calendar
     ) -> [WorkerChatLine] {
         var drafts: [Draft] = []
+        var openRuns: [String: Int] = [:]
         for record in records {
             guard case .action(let tool) = record.kind else {
-                drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, body: .record(record)))
+                openRuns[record.workerID] = nil
+                drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, body: .record(record)))
                 continue
             }
-            if let lastDraft = drafts.last,
-               lastDraft.workerID == record.workerID,
-               case .run(var tools) = lastDraft.body,
-               calendar.isDate(record.timestamp, equalTo: lastDraft.timestamp, toGranularity: .minute) {
+            if let index = openRuns[record.workerID],
+               case .run(var tools) = drafts[index].body,
+               calendar.isDate(record.timestamp, equalTo: drafts[index].timestamp, toGranularity: .minute),
+               !drafts.dropFirst(index + 1).contains(where: { $0.workerID != record.workerID && $0.sequence < record.sequence }) {
                 if let toolIndex = tools.firstIndex(where: { $0.name == tool }) {
                     tools[toolIndex].count += 1
                 } else {
                     tools.append(Tool(name: tool, count: 1))
                 }
-                drafts[drafts.count - 1].body = .run(tools)
+                drafts[index].sequence = min(drafts[index].sequence, record.sequence)
+                drafts[index].body = .run(tools)
                 continue
             }
-            drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, body: .run([Tool(name: tool, count: 1)])))
+            openRuns[record.workerID] = drafts.count
+            drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, body: .run([Tool(name: tool, count: 1)])))
         }
 
         var lines: [WorkerChatLine] = []
