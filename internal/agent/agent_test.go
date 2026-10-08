@@ -346,9 +346,8 @@ func TestSupportedReasoningEfforts(t *testing.T) {
 	}
 }
 
+// Keep serial: a parallel test fork can inherit the executable's write fd (ETXTBSY on Linux).
 func TestValidateOpenCodeReasoningVersion(t *testing.T) {
-	t.Parallel()
-
 	for _, tt := range []struct {
 		name    string
 		version string
