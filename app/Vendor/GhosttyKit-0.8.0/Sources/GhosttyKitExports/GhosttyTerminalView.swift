@@ -42,7 +42,6 @@ public struct GhosttyTerminalViewHandlers {
     public var appearanceChanged: (NSAppearance) -> Void
     public var keyboardLayoutChanged: () -> Void
     public var primaryInteraction: () -> Void
-    public var translateKeyEvent: (NSEvent) -> NSEvent
     public var keyDown: (NSEvent, String?) -> Void
     public var keyUp: (NSEvent) -> Void
     public var insertText: (String) -> Void
@@ -72,7 +71,6 @@ public struct GhosttyTerminalViewHandlers {
         appearanceChanged: @escaping (NSAppearance) -> Void,
         keyboardLayoutChanged: @escaping () -> Void,
         primaryInteraction: @escaping () -> Void,
-        translateKeyEvent: @escaping (NSEvent) -> NSEvent,
         keyDown: @escaping (NSEvent, String?) -> Void,
         keyUp: @escaping (NSEvent) -> Void,
         insertText: @escaping (String) -> Void,
@@ -101,7 +99,6 @@ public struct GhosttyTerminalViewHandlers {
         self.appearanceChanged = appearanceChanged
         self.keyboardLayoutChanged = keyboardLayoutChanged
         self.primaryInteraction = primaryInteraction
-        self.translateKeyEvent = translateKeyEvent
         self.keyDown = keyDown
         self.keyUp = keyUp
         self.insertText = insertText
@@ -290,7 +287,7 @@ public final class GhosttyTerminalView: NSView, @preconcurrency NSTextInputClien
 
     public override func keyDown(with event: NSEvent) {
         keyTextAccumulator = []
-        interpretKeyEvents([handlers?.translateKeyEvent(event) ?? event])
+        interpretKeyEvents([event])
         let text = keyTextAccumulator?.joined()
         keyTextAccumulator = nil
         handlers?.keyDown(event, text?.isEmpty == true ? nil : text)
