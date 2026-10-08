@@ -74,9 +74,9 @@ enum WorkerChatLineBuilder {
         var body: Body
     }
 
-    /// `records` must already be in chronological order. A worker's consecutive tool actions fold
-    /// into one line that keeps its place while the run stays open; only that worker's next
-    /// non-action entry closes it.
+    /// `records` must already be in chronological order. A worker's tool actions in the same
+    /// calendar minute fold into one line at the first action's position; other workers' entries
+    /// do not close it, but that worker's next non-action or later-minute action starts a new line.
     static func lines(
         from records: [WorkerChatRecord],
         names: [String: String],
@@ -91,7 +91,9 @@ enum WorkerChatLineBuilder {
                 drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, body: .record(record)))
                 continue
             }
-            if let index = openRuns[record.workerID], case .run(var tools) = drafts[index].body {
+            if let index = openRuns[record.workerID],
+               case .run(var tools) = drafts[index].body,
+               calendar.isDate(record.timestamp, equalTo: drafts[index].timestamp, toGranularity: .minute) {
                 if let toolIndex = tools.firstIndex(where: { $0.name == tool }) {
                     tools[toolIndex].count += 1
                 } else {

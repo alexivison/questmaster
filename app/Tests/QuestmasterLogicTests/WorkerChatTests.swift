@@ -16,6 +16,7 @@ struct WorkerChatTests {
         idleAndUnknownEntriesAreNotShown()
         messageKeepsParagraphsAndReportMutesItsText()
         actionRunCollapsesWithCountsAndNoCommas()
+        actionRunSplitsAtCalendarMinuteWithoutBreakingOnOtherWorkers()
         lateNarrationSortsBeforeEarlierActionArrival()
         actionRunStaysOpenAcrossOtherWorkersEntries()
         actionRunClosesOnTheSameWorkersNextNonAction()
@@ -125,6 +126,29 @@ struct WorkerChatTests {
         let single = makeStore()
         feed(single, [entry(0, "w1", "action", "Bash")])
         expect(segments(single, 0).last?.text == "[Bash]", "a single call should show no count, got \(segments(single, 0))")
+    }
+
+    private static func actionRunSplitsAtCalendarMinuteWithoutBreakingOnOtherWorkers() {
+        let store = makeStore()
+        feed(store, [
+            entry(5, "w1", "action", "Bash"),
+            entry(20, "w2", "action", "Read"),
+            entry(40, "w1", "action", "Edit"),
+            entry(60, "w1", "action", "Bash"),
+        ])
+
+        let headers = store.lines.compactMap { line -> String? in
+            guard case .timeHeader(let label) = line.content else {
+                return nil
+            }
+            return label
+        }
+        let entries = entryLines(store)
+        expect(headers == ["[09:00]", "[09:01]"], "a next-minute action should start a new header, got \(headers)")
+        expect(entries.count == 3, "same-minute actions should fold around another worker and split at the next minute, got \(entries.count)")
+        expect(entries[0].segments.dropFirst().map(\.text) == [" Cast ", "[Bash] [Edit]"], "same-minute actions should stay in one run across another worker, got \(entries[0].segments)")
+        expect(entries[1].segments.first?.text == "Worker Two:", "the interleaved worker should keep its own row")
+        expect(entries[2].segments.dropFirst().map(\.text) == [" Cast ", "[Bash]"], "the next-minute action should start a fresh run, got \(entries[2].segments)")
     }
 
     private static func lateNarrationSortsBeforeEarlierActionArrival() {
