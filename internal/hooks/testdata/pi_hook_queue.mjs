@@ -64,7 +64,7 @@ try {
 	assert(Array.from(bounded.session_file).length <= 1_024);
 	assert(bounded.model.input.length <= 8);
 	assert(bounded.model.input.every((value) => Array.from(value).length <= 40));
-	const narration = hooks.calls.find(({ args }) => args[2] === "say").payload.text;
+	const narration = hooks.calls.find(({ args }) => args[2] === "say").payload.message.content;
 	assert(Array.from(narration).length <= 1_500);
 	const waitingBatch = batches.find((batch) => batch.some(({ action }) => action === "waiting_for_user"));
 	assert(waitingBatch.length <= 32, `control batch had ${waitingBatch.length} events`);

@@ -41,6 +41,7 @@ try {
 	for (const type of ["thinking_delta", "thinking_end", "text_delta", "toolcall_delta"]) {
 		await handlers.get("message_update")({ assistantMessageEvent: { type, delta: "private thinking text" } }, context);
 	}
+	const narrationEventAt = Date.now();
 	await handlers.get("message_update")({
 		message: { role: "assistant", content: [{ type: "text", text: "Checking this now." }] },
 		assistantMessageEvent: { type: "text_end", content: "Checking this now." },
@@ -65,6 +66,12 @@ try {
 	await handlers.get("agent_end")({
 		messages: [{ role: "assistant", content: [{ type: "text", text: finalText }], usage: { output: 8 } }],
 	}, context);
+	const errorText = `Your authentication token has expired. Please try refreshing it. ${"x".repeat(1600)}`;
+	await handlers.get("before_agent_start")({ prompt: "You are a smoke-test worker" }, context);
+	await handlers.get("agent_start")({}, context);
+	await handlers.get("agent_end")({
+		messages: [{ role: "assistant", content: [], stopReason: "error", errorMessage: errorText }],
+	}, context);
 	await handlers.get("session_shutdown")();
 	stopped = true;
 
@@ -72,20 +79,27 @@ try {
 	assert.deepEqual(entries.map((entry) => entry.args[2]), [
 		"session_start", "before_agent_start", "agent_start", "say", "tool_execution_start", "tool_execution_end",
 		"tool_execution_start", "tool_execution_end",
-		"waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_end", "session_shutdown",
+		"waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_end",
+		"before_agent_start", "agent_start", "agent_end", "session_shutdown",
 	]);
-	assert.equal(entries[3].payload.text, "Checking this now.");
+	assert.equal(entries[3].payload.message.content, "Checking this now.");
+	assert(entries[3].payload.occurred_at_ms >= narrationEventAt, "say timestamp should come from its text event");
+	assert(entries[3].payload.occurred_at_ms <= entries[4].payload.occurred_at_ms, "say timestamp should precede its tool action");
 	assert.equal(entries[4].payload.tool.name, "bash");
 	assert.equal(entries[6].payload.tool.name, "bash");
 	assert.equal(entries[6].payload.tool.summary, "bash: echo hi");
 	assert.equal(entries[8].payload.prompt, "Choose a target");
 	assert.equal(entries[9].payload.tool.name, "ask_user");
-	assert.equal(Array.from(entries[11].payload.text).length, 1_500);
-	assert(!entries[11].payload.text.includes("second paragraph"));
+	assert.equal(Array.from(entries[11].payload.message.content).length, 1_500);
+	assert(!entries[11].payload.message.content.includes("second paragraph"));
 	assert.equal(entries[11].payload.turn.index, 1);
 	assert.equal(entries[11].payload.turn.tool_calls, 1);
 	assert.equal(entries[11].payload.usage.last.output, 8);
 	assert.deepEqual(entries[11].payload.recent.slice(-3), ["second paragraph", "third paragraph", "fourth paragraph"]);
+	assert.equal(entries[14].payload.stopReason, "error");
+	assert.equal(Array.from(entries[14].payload.errorMessage).length, 1_500, "agent_end error message should be capped");
+	assert(entries[14].payload.errorMessage.startsWith("Your authentication token has expired."));
+	assert.equal(entries[14].payload.message, undefined, "empty error turn should not forward assistant text");
 	assert(!JSON.stringify(entries).includes("private thinking text"));
 	assert.equal(await readFile(join(root, "agent", "extensions", ".questmaster-installed"), "utf8"), "phase2-v2\n");
 } finally {

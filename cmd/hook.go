@@ -1019,13 +1019,17 @@ func sameClaudeDisplayTime(a, b *time.Time) bool {
 }
 
 func addVisibleStatus(event *state.StateEvent, pane *state.PaneState, status string) {
+	addVisibleStatusAt(event, pane, status, time.Time{})
+}
+
+func addVisibleStatusAt(event *state.StateEvent, pane *state.PaneState, status string, timestamp time.Time) {
 	if status != "working" && status != "done" && status != "blocked" {
 		return
 	}
 	if pane.LastChatStatus == status {
 		return
 	}
-	addChatEntry(event, pane, "status", status)
+	addChatEntryAt(event, pane, "status", status, timestamp)
 	pane.LastChatStatus = status
 }
 
@@ -2042,6 +2046,9 @@ type piPayload struct {
 	Snippet               string                  `json:"snippet"`
 	Text                  string                  `json:"text"`
 	Prompt                string                  `json:"prompt"`
+	StopReason            string                  `json:"stopReason"`
+	ErrorMessage          string                  `json:"errorMessage"`
+	OccurredAtMS          int64                   `json:"occurred_at_ms"`
 	Model                 interface{}             `json:"model"`
 	Thinking              interface{}             `json:"thinking"`
 	Context               interface{}             `json:"context"`
@@ -2169,6 +2176,8 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	}
 }
 
+const piOccurredAtWindow = 5 * time.Minute
+
 func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer, agentName string) (preparedPiEvent, bool) {
 	payload, err := decodePi(opts.stdin)
 	if err != nil {
@@ -2176,6 +2185,13 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		return preparedPiEvent{}, false
 	}
 	now := r.Now().UTC()
+	occurredAt := now
+	if payload.OccurredAtMS > 0 {
+		candidate := time.UnixMilli(payload.OccurredAtMS).UTC()
+		if delta := candidate.Sub(now); delta >= -piOccurredAtWindow && delta <= piOccurredAtWindow {
+			occurredAt = candidate
+		}
+	}
 	lastKind := opts.action
 
 	var (
@@ -2221,8 +2237,17 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	case "agent_end":
 		setState = "done"
 		clearTool = true
-		if text := piActivityText(payload); text != "" {
-			setActivity = truncatePromptLine(text)
+		if !piAgentEndAborted(payload) {
+			if errorMessage := piAgentEndError(payload); errorMessage != "" {
+				setState = "blocked"
+				setActivity = truncatePromptLine("Error: " + errorMessage)
+			} else if text := piAssistantMessageText(payload); text != "" {
+				activity := strings.TrimSpace(payload.Snippet)
+				if activity == "" || !strings.Contains(text, activity) {
+					activity = text
+				}
+				setActivity = truncatePromptLine(activity)
+			}
 		}
 	case "session_shutdown":
 		setState = "stopped"
@@ -2334,20 +2359,24 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		pane.Role = role
 		if opts.action == "tool_execution_start" {
 			if !preserveBlockedQuestion && pane.State != prev.State {
-				addVisibleStatus(ev, &pane, pane.State)
+				addVisibleStatusAt(ev, &pane, pane.State, occurredAt)
 			}
-			addChatEntry(ev, &pane, "action", piToolName(payload))
+			addChatEntryAt(ev, &pane, "action", piToolName(payload), occurredAt)
 		}
 		if opts.action == "say" {
-			addChatEntry(ev, &pane, "say", piLastMessageText(payload))
+			addChatEntryAt(ev, &pane, "say", piAssistantMessageText(payload), occurredAt)
 		}
 		if opts.action == "agent_end" {
-			if text := piLastMessageText(payload); text != "" && pane.State == "done" {
-				addChatEntry(ev, &pane, "message", text)
+			if !piAgentEndAborted(payload) {
+				if errorMessage := piAgentEndError(payload); errorMessage != "" {
+					addChatEntryAt(ev, &pane, "message", "Error: "+errorMessage, occurredAt)
+				} else if text := piAssistantMessageText(payload); text != "" && pane.State == "done" {
+					addChatEntryAt(ev, &pane, "message", text, occurredAt)
+				}
 			}
 		}
 		if !preserveBlockedQuestion && opts.action != "tool_execution_start" && pane.State != prev.State {
-			addVisibleStatus(ev, &pane, pane.State)
+			addVisibleStatusAt(ev, &pane, pane.State, occurredAt)
 		}
 		ss.Panes[role] = pane
 
@@ -2570,18 +2599,7 @@ func piArgsSnippet(value interface{}) string {
 }
 
 func piLastMessageText(p piPayload) string {
-	for i := len(p.Messages) - 1; i >= 0; i-- {
-		if text := piTextFromMessage(p.Messages[i]); text != "" {
-			return text
-		}
-	}
-	if text := piTextFromMessage(p.Message); text != "" {
-		return text
-	}
-	if text := piTextFromContent(p.AssistantMessageEvent.Content); text != "" {
-		return text
-	}
-	if text, ok := p.AssistantMessageEvent.Delta.(string); ok && strings.TrimSpace(text) != "" {
+	if text := piAssistantMessageText(p); text != "" {
 		return text
 	}
 	if strings.TrimSpace(p.Text) != "" {
@@ -2596,10 +2614,42 @@ func piLastMessageText(p piPayload) string {
 			return clean[len(clean)-1]
 		}
 	}
-	if strings.TrimSpace(p.Prompt) != "" {
-		return p.Prompt
+	return p.Prompt
+}
+
+func piAssistantMessageText(p piPayload) string {
+	for i := len(p.Messages) - 1; i >= 0; i-- {
+		if text := piTextFromMessage(p.Messages[i]); text != "" {
+			return text
+		}
+	}
+	if text := piTextFromMessage(p.Message); text != "" {
+		return text
+	}
+	if text := piTextFromContent(p.AssistantMessageEvent.Content); text != "" {
+		return text
+	}
+	if text, ok := p.AssistantMessageEvent.Delta.(string); ok && strings.TrimSpace(text) != "" {
+		return text
 	}
 	return ""
+}
+
+func piAgentEndError(p piPayload) string {
+	if piAgentEndAborted(p) {
+		return ""
+	}
+	if errorMessage := strings.TrimSpace(p.ErrorMessage); errorMessage != "" {
+		return errorMessage
+	}
+	if strings.EqualFold(strings.TrimSpace(p.StopReason), "error") {
+		return "Pi reported an error"
+	}
+	return ""
+}
+
+func piAgentEndAborted(p piPayload) bool {
+	return strings.EqualFold(strings.TrimSpace(p.StopReason), "aborted")
 }
 
 func piActivityText(p piPayload) string {
@@ -2614,9 +2664,9 @@ func piTextFromMessage(value interface{}) string {
 	case nil:
 		return ""
 	case string:
-		return v
+		return ""
 	case map[string]interface{}:
-		if role, _ := v["role"].(string); role != "" && role != "assistant" {
+		if role, _ := v["role"].(string); role != "assistant" {
 			return ""
 		}
 		if text := piTextFromContent(v["content"]); text != "" {
