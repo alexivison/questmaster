@@ -39,6 +39,7 @@ struct WorkerChatTests {
         removeAndReAddDuringPullKeepsHistory()
         standaloneIsUnattached()
         historyIsBounded()
+        historyKeepsLatestActionAndHeaderAtLineCap()
         print("WorkerChatTests: all tests passed")
     }
 
@@ -551,6 +552,29 @@ struct WorkerChatTests {
         }
         expect(store.lines.last.map(lastText) == " line \(WorkerChatStore.maxLines + 99)", "the newest line should be kept")
         expect(!store.lines.contains { lastText($0) == " line 0" }, "the oldest lines should be dropped")
+    }
+
+    private static func historyKeepsLatestActionAndHeaderAtLineCap() {
+        let store = makeStore()
+        let first = open(store)
+        let entries = (0..<WorkerChatStore.maxLines).map { entry(TimeInterval($0 * 60), "w1", "action", "Bash") }
+        _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
+
+        expect(!store.lines.isEmpty, "history trimming should keep the newest activity visible")
+        expect(store.lines.count <= WorkerChatStore.maxLines, "rendered history should stay within the line cap")
+        guard store.lines.count >= 2 else {
+            fail("the newest action and its header should remain visible")
+        }
+        if case .timeHeader(let label) = store.lines[store.lines.count - 2].content {
+            expect(label == "[17:19]", "the newest action should keep its minute header, got \(label)")
+        } else {
+            fail("the newest action should have its minute header immediately before it")
+        }
+        if case .entry(_, let segments) = store.lines.last?.content {
+            expect(segments.last?.text == "[Bash]", "the newest action should remain visible, got \(segments)")
+        } else {
+            fail("the newest line should be the latest Cast action")
+        }
     }
 
     // MARK: - Helpers

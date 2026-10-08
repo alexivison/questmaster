@@ -189,8 +189,8 @@ public final class WorkerChatStore {
         let hiddenKept = Array(hiddenRecords.suffix(Self.maxLines))
         var displayed = visibleKept
         var built = WorkerChatLineBuilder.lines(from: displayed, names: names, agents: agents, calendar: calendar)
-        while built.count > Self.maxLines {
-            displayed = Array(displayed.dropFirst(built.count - Self.maxLines))
+        while built.count > Self.maxLines, !displayed.isEmpty {
+            displayed = Array(displayed.dropFirst())
             built = WorkerChatLineBuilder.lines(from: displayed, names: names, agents: agents, calendar: calendar)
         }
         // ponytail: independent visible and hidden caps bound cached history at 2x maxLines.
