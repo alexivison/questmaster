@@ -40,6 +40,7 @@ struct WorkerChatTests {
         standaloneIsUnattached()
         historyIsBounded()
         historyKeepsLatestActionAndHeaderAtLineCap()
+        historyKeepsHeaderWhenLineCapCutsThroughSameMinute()
         print("WorkerChatTests: all tests passed")
     }
 
@@ -562,6 +563,9 @@ struct WorkerChatTests {
 
         expect(!store.lines.isEmpty, "history trimming should keep the newest activity visible")
         expect(store.lines.count <= WorkerChatStore.maxLines, "rendered history should stay within the line cap")
+        if case .timeHeader = store.lines.first?.content {} else {
+            fail("trimmed history should start with a time header")
+        }
         guard store.lines.count >= 2 else {
             fail("the newest action and its header should remain visible")
         }
@@ -574,6 +578,22 @@ struct WorkerChatTests {
             expect(segments.last?.text == "[Bash]", "the newest action should remain visible, got \(segments)")
         } else {
             fail("the newest line should be the latest Cast action")
+        }
+    }
+
+    private static func historyKeepsHeaderWhenLineCapCutsThroughSameMinute() {
+        let store = makeStore()
+        let entries = (0..<WorkerChatStore.maxLines).map { entry(0, "w\($0)", "action", "Bash") }
+        feed(store, entries, tracker: false)
+
+        expect(store.lines.count == WorkerChatStore.maxLines, "history should fit the line cap after retaining its header, got \(store.lines.count)")
+        if case .timeHeader = store.lines.first?.content {} else {
+            fail("same-minute history should start with its header")
+        }
+        if case .entry(_, let segments) = store.lines.last?.content {
+            expect(segments.last?.text == "[Bash]", "the latest same-minute action should remain visible, got \(segments)")
+        } else {
+            fail("the latest same-minute line should be an action")
         }
     }
 
