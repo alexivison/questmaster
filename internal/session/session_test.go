@@ -2407,8 +2407,8 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	}
 }
 
+// Keep serial: a parallel test fork can inherit the executable's write fd (ETXTBSY on Linux).
 func TestStart_OpenCodeReasoningEffortRejectsOldVersion(t *testing.T) {
-	t.Parallel()
 	svc, runner := setupService(t)
 
 	opencodeCLI := filepath.Join(t.TempDir(), "opencode")
@@ -2436,8 +2436,8 @@ func TestStart_OpenCodeReasoningEffortRejectsOldVersion(t *testing.T) {
 	}
 }
 
+// Keep serial: a parallel test fork can inherit the executable's write fd (ETXTBSY on Linux).
 func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
-	t.Parallel()
 	svc, runner := setupService(t)
 
 	opencodeCLI := filepath.Join(t.TempDir(), "opencode")
