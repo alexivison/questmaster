@@ -89,19 +89,20 @@ struct WorkerChatDockView: View {
         }
     }
 
+    @ViewBuilder
     private var emptyState: some View {
-        EmptyStatePane(
-            title: store.isAttached ? "No worker activity yet." : "No worker chat.",
-            message: store.isAttached
-                ? "Worker status, tool use and messages appear here."
-                : "Attach to a master session or one of its workers.",
-            padding: EdgeInsets(
-                top: Token.Spacing.content,
-                leading: Token.Spacing.content,
-                bottom: Token.Spacing.content,
-                trailing: Token.Spacing.content
+        if store.isAttached {
+            EmptyStatePane(
+                title: "No worker activity yet.",
+                message: "Worker status, tool use and messages appear here.",
+                padding: EdgeInsets(
+                    top: Token.Spacing.content,
+                    leading: Token.Spacing.content,
+                    bottom: Token.Spacing.content,
+                    trailing: Token.Spacing.content
+                )
             )
-        )
+        }
     }
 }
 

@@ -943,10 +943,8 @@ enum LogicSelfTests {
         try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should still require a current session")
         try expect(!DockContentRouting.canShow(.artifactViewer, sessionID: ""), "artifact viewer should still require a current session")
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
-        try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo", role: .master), "worker chat should open for a master")
-        try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo", role: .worker), "worker chat should open for a worker")
-        try expect(!DockContentRouting.canShow(.workerChat, sessionID: "qm-demo", role: .standalone), "worker chat should not open for a standalone session")
-        try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil, role: .master), "worker chat should still require a current session")
+        try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo"), "worker chat should open for every attached session")
+        try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil), "worker chat should still require a current session")
     }
 
     private static func testArtifactDockCommandSwitchesFromQuests() throws {

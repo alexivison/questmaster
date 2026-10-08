@@ -108,7 +108,6 @@ enum ActionBarMetrics {
         static let normal = AppPalette.item
         static let empty = AppPalette.panel
         static let activeBorder = AppPalette.brassActive
-        static let disabledIconOpacity = 0.4
     }
 
     /// Each slot glyph's own rendered bounding box, measured directly from `action-bar.svg` — not
