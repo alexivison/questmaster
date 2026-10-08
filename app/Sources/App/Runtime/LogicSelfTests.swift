@@ -60,7 +60,7 @@ enum LogicSelfTests {
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
         ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
         ("testActionBarFooterBottomGapMeasuresFromBarBand", testActionBarFooterBottomGapMeasuresFromBarBand),
-        ("testScrollerHidingSurvivesPreferredStyleChange", testScrollerHidingSurvivesPreferredStyleChange),
+        ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1960,7 +1960,18 @@ enum LogicSelfTests {
     /// `NSScroller.preferredScrollerStyleDidChangeNotification` fires (e.g. a mouse connects while
     /// "Show scroll bars" is Automatic), so the gutter can return with no SwiftUI state change to
     /// trigger a reapply. `ScrollerHidingNSView` observes that notification directly instead.
-    private static func testScrollerHidingSurvivesPreferredStyleChange() throws {
+    ///
+    /// AppKit's own response to that same notification isn't guaranteed to land before or after
+    /// ours, so reapplying directly inside the notification handler can still race it: if ours
+    /// runs first, an AppKit reset landing right behind it re-breaks the gutter with nothing left
+    /// to react to it. `NotificationCenter` runs every `queue: .main` observer for a given
+    /// notification synchronously, in registration order, within `post()` itself (verified: a
+    /// second observer registered after the hider's fires synchronously right after it, and a
+    /// `DispatchQueue.main.async` hop chained from inside a handler only runs once `post()` has
+    /// returned) — so a second observer registered after the hider's own is a deterministic stand-in
+    /// for an uncooperative AppKit reset landing on the very next turn, proving the fix actually
+    /// defers past it rather than merely winning by accident.
+    private static func testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt() throws {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
         scrollView.documentView = documentView
@@ -1984,18 +1995,25 @@ enum LogicSelfTests {
             "clip view should fill the scroll view width once the scroller is hidden, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
         )
 
-        // Simulate what AppKit does internally when the system scroller-style preference
-        // changes (e.g. a mouse connects): the scroller returns and reserves its legacy-style
-        // gutter again, independent of any SwiftUI re-render.
-        scrollView.hasVerticalScroller = true
-        scrollView.scrollerStyle = .legacy
-        scrollView.perform(NSSelectorFromString("tile"))
+        // Registered after the hider's own observer, so it runs right behind it in the same
+        // synchronous `post()` pass — a deterministic stand-in for AppKit's own reset.
+        let competingReset = NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            scrollView.hasVerticalScroller = true
+            scrollView.scrollerStyle = .legacy
+            scrollView.tile()
+        }
+        defer { NotificationCenter.default.removeObserver(competingReset) }
+
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
 
         try expect(
             scrollView.contentView.bounds.width == scrollView.bounds.width,
-            "clip view should still fill the scroll view width after a scroller-style reset, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
+            "clip view should still fill the scroll view width after a competing reset lands right behind the style-change notification, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
         )
     }
 

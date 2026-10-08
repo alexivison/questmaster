@@ -20,7 +20,7 @@ struct ArtifactMarkdownView: View {
                     .foregroundStyle(AppPalette.warn.swiftUI)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(Token.Spacing.content)
-                    .background(ArtifactMarkdownScrollBackground())
+                    .background(ScrollerHider(onApply: Self.styleScroll))
                     .textSelection(.enabled)
             } else {
                 Markdown(markdown, baseURL: baseURL, imageBaseURL: baseURL)
@@ -35,7 +35,7 @@ struct ArtifactMarkdownView: View {
                     .markdownInlineImageProvider(LocalMarkdownInlineImageProvider())
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .padding(Token.Spacing.content)
-                    .background(ArtifactMarkdownScrollBackground())
+                    .background(ScrollerHider(onApply: Self.styleScroll))
                     .textSelection(.enabled)
             }
         }
@@ -64,6 +64,15 @@ struct ArtifactMarkdownView: View {
             markdown = ""
             self.error = error.localizedDescription
         }
+    }
+
+    private static func styleScroll(_ scrollView: NSScrollView) {
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.backgroundColor = .clear
+        scrollView.contentView.drawsBackground = false
+        scrollView.contentView.backgroundColor = .clear
+        hideScroller(on: scrollView)
     }
 }
 
@@ -104,27 +113,4 @@ enum LocalMarkdownImages {
 
 private enum LocalMarkdownImageError: Error {
     case unavailable
-}
-
-private struct ArtifactMarkdownScrollBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> ScrollerHidingNSView {
-        let view = ScrollerHidingNSView()
-        view.onApply = Self.style
-        return view
-    }
-
-    func updateNSView(_ nsView: ScrollerHidingNSView, context: Context) {
-        DispatchQueue.main.async {
-            nsView.reapply()
-        }
-    }
-
-    private static func style(_ scrollView: NSScrollView) {
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.backgroundColor = .clear
-        scrollView.contentView.drawsBackground = false
-        scrollView.contentView.backgroundColor = .clear
-        hideScroller(on: scrollView)
-    }
 }

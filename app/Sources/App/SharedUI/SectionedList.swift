@@ -129,8 +129,18 @@ final class ScrollerHidingNSView: NSView {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.reapply()
+            // NotificationCenter runs every `queue: .main` observer for this notification
+            // synchronously, in registration order, within `post()` itself — including whatever
+            // AppKit's own per-scroll-view response to a style-preference change is. Reapplying
+            // directly here can land before that response and still lose: AppKit's own reset then
+            // runs right behind us, in the same synchronous pass, with no further notification left
+            // to react to it. Deferring to the next main-runloop turn — a `DispatchQueue.main.async`
+            // chained from inside the handler only runs once `post()` has returned — runs us after
+            // everything that same synchronous pass did, AppKit's reset included.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.reapplyIfWindowed()
+                }
             }
         }
     }
@@ -140,6 +150,13 @@ final class ScrollerHidingNSView: NSView {
             return
         }
         onApply(scrollView)
+    }
+
+    private func reapplyIfWindowed() {
+        guard window != nil else {
+            return
+        }
+        reapply()
     }
 
     private func removeStyleObserver() {
@@ -161,9 +178,8 @@ final class ScrollerHidingNSView: NSView {
 /// does not retroactively re-run the scroll view's internal layout pass, and
 /// `.legacy` scroller style reserves gutter width independent of whether a
 /// scroller is actually shown. `.overlay` style never reserves space, and an
-/// explicit `tile()` (AppKit's private but widely-relied-on relayout trigger
-/// for exactly this scenario) forces the content view to pick up the new
-/// settings immediately instead of on whatever layout pass happens next.
+/// explicit `tile()` forces the content view to pick up the new settings
+/// immediately instead of on whatever layout pass happens next.
 func hideScroller(on scrollView: NSScrollView) {
     scrollView.scrollerStyle = .overlay
     scrollView.hasVerticalScroller = false
@@ -171,7 +187,7 @@ func hideScroller(on scrollView: NSScrollView) {
     scrollView.automaticallyAdjustsContentInsets = false
     scrollView.contentInsets = NSEdgeInsetsZero
     scrollView.scrollerInsets = NSEdgeInsetsZero
-    scrollView.perform(NSSelectorFromString("tile"))
+    scrollView.tile()
 }
 
 struct SectionHeader: View {

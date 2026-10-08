@@ -27,16 +27,29 @@ struct ArtifactWebView: NSViewRepresentable {
     /// CSS at document-start hides the WebKit-rendered track and thumb (and the width it reserves)
     /// before first paint, without touching `overflow`, so wheel, trackpad, and any script-driven
     /// scrolling the page does are unaffected.
+    ///
+    /// Only the outer document's own scrollbar — the one DockPane's j/k actually scrolls — is
+    /// targeted: `forMainFrameOnly` keeps this out of embedded iframes, and the selector is scoped
+    /// to `html`/`body` rather than the bare `::-webkit-scrollbar` (which matches every scrollable
+    /// element), so an artifact's own scrollable panels keep their scrollbar as their only visual
+    /// scroll affordance. A `data-` attribute (rather than reusing or overwriting the artifact's
+    /// own `id`) bumps the selector's specificity so it holds even if the artifact's own
+    /// stylesheet — which loads after this injection — declares a `!important` rule of its own.
     private static let scrollbarHidingScript = WKUserScript(
         source: """
         (function() {
+            document.documentElement.setAttribute('data-qm-no-scrollbar', '');
             var style = document.createElement('style');
-            style.textContent = '::-webkit-scrollbar{width:0!important;height:0!important;background:transparent!important}html{scrollbar-width:none}';
+            style.textContent =
+                'html[data-qm-no-scrollbar]::-webkit-scrollbar,' +
+                'html[data-qm-no-scrollbar] body::-webkit-scrollbar' +
+                '{width:0!important;height:0!important;background:transparent!important}' +
+                'html[data-qm-no-scrollbar]{scrollbar-width:none}';
             document.documentElement.appendChild(style);
         })();
         """,
         injectionTime: .atDocumentStart,
-        forMainFrameOnly: false
+        forMainFrameOnly: true
     )
 
     func updateNSView(_ webView: WKWebView, context: Context) {
