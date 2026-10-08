@@ -121,6 +121,7 @@ struct WorkerChatFeedView: View {
                 .padding(WorkerChatMetrics.inset)
                 .frame(minHeight: viewport.size.height, alignment: .bottom)
                 .background(WorkerChatBottomFollower())
+                .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
         }

@@ -60,6 +60,7 @@ enum LogicSelfTests {
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
         ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
         ("testActionBarFooterBottomGapMeasuresFromBarBand", testActionBarFooterBottomGapMeasuresFromBarBand),
+        ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1951,6 +1952,61 @@ enum LogicSelfTests {
                 "plate outline should sit inside the footer, got \(bounds.minY)...\(bounds.maxY) of \(ActionBarMetrics.footerHeight)"
             )
         }
+    }
+
+    /// Root cause of the scrollbar gutter resisting four prior fix PRs (#222/#223/#225/#226):
+    /// hiding the scroller once from SwiftUI's `updateNSView` only reapplies when SwiftUI itself
+    /// re-renders. AppKit resets `NSScrollView.scrollerStyle` independently whenever
+    /// `NSScroller.preferredScrollerStyleDidChangeNotification` fires (e.g. a mouse connects while
+    /// "Show scroll bars" is Automatic), so the gutter can return with no SwiftUI state change to
+    /// trigger a reapply. `ScrollerHidingNSView` observes that notification directly instead.
+    ///
+    /// AppKit's own response to that same notification isn't guaranteed to land before or after
+    /// ours, so reapplying directly inside the notification handler can still race it: if ours
+    /// runs first, an AppKit reset landing right behind it re-breaks the gutter with nothing left
+    /// to react to it. `NotificationCenter` doesn't document how it orders multiple observers of
+    /// one notification, so the stand-in for AppKit's reset below doesn't rely on that: it's
+    /// plain, unconditionally-sequential code run right after `post()` returns, not a second
+    /// observer racing the first. A single-hop reapply can only "win" that race by having already
+    /// run *during* `post()`, before this stand-in gets to run at all; the deferred fix wins
+    /// regardless, by running on the *next* main-runloop turn instead — after the stand-in, not
+    /// racing it.
+    private static func testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt() throws {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
+        scrollView.documentView = documentView
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .legacy
+
+        let hider = ScrollerHidingNSView()
+        documentView.addSubview(hider)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = scrollView
+        window.orderFrontRegardless()
+        defer { window.close() }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        try expect(
+            scrollView.contentView.bounds.width == scrollView.bounds.width,
+            "clip view should fill the scroll view width once the scroller is hidden, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
+        )
+
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        // Plain synchronous code, right after `post()` returns — the stand-in for AppKit's own
+        // reset, landing deterministically before any run-loop turn gets pumped below.
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .legacy
+        scrollView.tile()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        try expect(
+            scrollView.contentView.bounds.width == scrollView.bounds.width,
+            "clip view should still fill the scroll view width after a competing reset lands right behind the style-change notification, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
+        )
     }
 
     private static func settingsSheetModel(
