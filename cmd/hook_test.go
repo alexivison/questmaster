@@ -124,6 +124,9 @@ func TestHookChatEntriesForHarnesses(t *testing.T) {
 
 			finalText := strings.Join([]string{strings.Repeat("猫", 1501), "second paragraph", "third paragraph", "fourth"}, "\n\n")
 			payload := map[string]interface{}{tc.final: finalText}
+			if tc.agent == "pi" {
+				payload = map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": finalText}}
+			}
 			runHookWithStdin(r, tc.agent, tc.finalEvent, "qm-chat", payload)
 			last := rec.events[len(rec.events)-1]
 			message := chatTextFor(last, "message")
@@ -3213,10 +3216,10 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	pane.LastChatAt = time.Time{}
 	rec.lastState.Panes["primary"] = pane
 	runHookWithStdin(r, "pi", "say", "qm-chat", map[string]interface{}{
-		"text":   "Checking the config\nbefore editing",
-		"recent": []string{"Checking the config", "before editing"},
-		"turn":   map[string]interface{}{"index": float64(1), "status": "running"},
-		"usage":  map[string]interface{}{"last": map[string]interface{}{"input": float64(12)}},
+		"message": map[string]interface{}{"role": "assistant", "content": "Checking the config\nbefore editing"},
+		"recent":  []string{"Checking the config", "before editing"},
+		"turn":    map[string]interface{}{"index": float64(1), "status": "running"},
+		"usage":   map[string]interface{}{"last": map[string]interface{}{"input": float64(12)}},
 	})
 	say := rec.events[len(rec.events)-1]
 	if got := chatKinds(say); !slices.Equal(got, []string{"say"}) {
@@ -3251,7 +3254,7 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	}
 
 	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
-		"text":    "All tests passed.\nReady to merge.",
+		"message": map[string]interface{}{"role": "assistant", "content": "All tests passed.\nReady to merge."},
 		"snippet": "Ready to merge.",
 		"recent":  []string{"All tests passed.", "Ready to merge."},
 	})
@@ -3286,11 +3289,11 @@ func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
 		"events": []interface{}{
 			map[string]interface{}{"action": "session_start", "payload": map[string]interface{}{}},
 			map[string]interface{}{"action": "agent_start", "payload": map[string]interface{}{}},
-			map[string]interface{}{"action": "say", "payload": map[string]interface{}{"text": "Checking the config"}},
+			map[string]interface{}{"action": "say", "payload": map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": "Checking the config"}}},
 			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{"tool": map[string]interface{}{"name": "bash"}}},
 			map[string]interface{}{"action": "waiting_for_user", "payload": map[string]interface{}{"prompt": "Continue?"}},
 			map[string]interface{}{"action": "tool_execution_end", "payload": map[string]interface{}{}},
-			map[string]interface{}{"action": "agent_end", "payload": map[string]interface{}{"text": "Finished."}},
+			map[string]interface{}{"action": "agent_end", "payload": map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": "Finished."}}},
 		},
 	})
 	if stderr != "" {
@@ -3338,8 +3341,8 @@ func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
 	input := `{"events":[
 		{"action":"agent_start","payload":{}},
 		{"action":"tool_execution_start","payload":{"toolName":"bash","args":{"command":"go test ./..."}}},
-		{"action":"say","payload":{"text":"Running the checks."}},
-		{"action":"agent_end","payload":{"text":"All checks passed."}}
+		{"action":"say","payload":{"message":{"role":"assistant","content":"Running the checks."}}},
+		{"action":"agent_end","payload":{"message":{"role":"assistant","content":"All checks passed."}}}
 	]}`
 	var stderr bytes.Buffer
 	if err := executeWithArgs([]string{"hook", "pi", "batch"}, strings.NewReader(input), &bytes.Buffer{}, &stderr, func() *cobra.Command { return NewRootCmd() }); err != nil {
@@ -3390,6 +3393,64 @@ func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
 	}
 	if rendered := workerfeed.RenderText(history.Entries, true); !strings.Contains(rendered, "Bash: go test ./...") || !strings.Contains(rendered, "Running the checks.") || !strings.Contains(rendered, "All checks passed.") {
 		t.Fatalf("rendered worker chat = %q", rendered)
+	}
+}
+
+func TestHookPiBatchedEntriesKeepOccurrenceOrderBeforeReport(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new state store: %v", err)
+	}
+	createFeedManifests(t, store, "qm-master", "qm-pi-worker")
+	base := time.Date(2026, 10, 8, 1, 0, 0, 0, time.UTC)
+	sayAt, actionAt, reportAt, processedAt := base, base.Add(100*time.Millisecond), base.Add(200*time.Millisecond), base.Add(time.Second)
+	if err := state.UpdateAndLogAt(root, "qm-pi-worker", &state.StateEvent{Ts: base.Add(-time.Second), Action: "seed"}, func(ss *state.SessionState) bool {
+		ss.Panes["primary"] = state.PaneState{Role: "primary", Agent: "pi", State: "working", LastChatStatus: "working"}
+		return true
+	}); err != nil {
+		t.Fatalf("seed worker state: %v", err)
+	}
+	if err := state.AppendStateEventAt(root, "qm-pi-worker", state.StateEvent{
+		Ts: reportAt, Action: "report", Fields: map[string]interface{}{
+			"chat_entries": []interface{}{map[string]interface{}{"chat_kind": "report", "chat_text": "Finished the smoke test."}},
+		},
+	}); err != nil {
+		t.Fatalf("append report event: %v", err)
+	}
+	r, _ := newTestRunner(t)
+	r.Now = func() time.Time { return processedAt }
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogAt(root, sessionID, event, mutate)
+	}
+	r.UpdateAndLogEvents = state.UpdateAndLogBatch
+	stderr := runHookWithStdin(r, "pi", "batch", "qm-pi-worker", map[string]interface{}{
+		"events": []interface{}{
+			map[string]interface{}{"action": "say", "payload": map[string]interface{}{
+				"message": map[string]interface{}{"role": "assistant", "content": "Running the final smoke test."}, "occurred_at_ms": sayAt.UnixMilli(),
+			}},
+			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{
+				"occurred_at_ms": actionAt.UnixMilli(), "tool": map[string]interface{}{"name": "bash", "summary": "bash: questmaster send master"},
+			}},
+		},
+	})
+	if stderr != "" {
+		t.Fatalf("Pi hook stderr: %q", stderr)
+	}
+	history, err := workerfeed.ReadHistory(root, "qm-master", "qm-pi-worker", "", 50)
+	if err != nil {
+		t.Fatalf("read worker chat: %v", err)
+	}
+	rendered := workerfeed.RenderText(history.Entries, true)
+	sayIndex := strings.Index(rendered, "Running the final smoke test.")
+	actionIndex := strings.Index(rendered, "Cast [bash]")
+	reportIndex := strings.Index(rendered, "[Report] Finished the smoke test.")
+	if sayIndex < 0 || actionIndex < 0 || reportIndex < 0 || !(sayIndex < actionIndex && actionIndex < reportIndex) {
+		t.Fatalf("rendered worker chat = %q, want say, Cast, then Report", rendered)
+	}
+	if !history.Entries[0].Timestamp.Equal(sayAt) || !history.Entries[1].Timestamp.Equal(actionAt) || !history.Entries[2].Timestamp.Equal(reportAt) {
+		t.Fatalf("entry timestamps = %v, want say %s, action %s, report %s", []time.Time{history.Entries[0].Timestamp, history.Entries[1].Timestamp, history.Entries[2].Timestamp}, sayAt, actionAt, reportAt)
 	}
 }
 
@@ -3492,7 +3553,7 @@ func TestHookPiBatchStateWriteFailureKeepsFeedRecords(t *testing.T) {
 	if err := os.Remove(statePath + ".tmp"); err != nil {
 		t.Fatalf("remove state write blocker: %v", err)
 	}
-	if stderr := runHookWithStdin(r, "pi", "agent_end", sessionID, map[string]interface{}{"text": "Finished."}); stderr != "" {
+	if stderr := runHookWithStdin(r, "pi", "agent_end", sessionID, map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": "Finished."}}); stderr != "" {
 		t.Fatalf("follow-up hook stderr: %q", stderr)
 	}
 	laterFeed, err := workerfeed.ReadSince(root, masterID, failedFeed.Cursors)
@@ -3514,13 +3575,79 @@ func TestHookPiThinkingIsNotChat(t *testing.T) {
 	}
 }
 
-func TestHookPiAgentEndFallsBackToRecent(t *testing.T) {
+func TestHookPiAgentEndDoesNotUseActivityFallbackForChat(t *testing.T) {
 	r, rec := newTestRunner(t)
-	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
-		"recent": []string{"last captured line"},
+	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
+		"tool": map[string]interface{}{"name": "bash", "summary": "bash: echo done"},
 	})
-	if got := chatTextFor(rec.events[0], "message"); got != "last captured line" {
-		t.Fatalf("fallback message = %q", got)
+	previousActivity := rec.lastState.Panes["primary"].Activity
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"prompt":  "You are a smoke-test worker",
+		"text":    "You are a smoke-test worker",
+		"snippet": "You: You are a smoke-test worker",
+		"recent":  []string{"You are a smoke-test worker"},
+	})
+	final := rec.events[len(rec.events)-1]
+	if got := chatTextFor(final, "message"); got != "" {
+		t.Fatalf("empty turn message = %q, want no message", got)
+	}
+	if !slices.Contains(chatKinds(final), "status") || chatTextFor(final, "status") != "done" {
+		t.Fatalf("empty turn entries = %#v, want only done status", chatEntries(final))
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "done" {
+		t.Fatalf("empty turn state = %q, want done", got)
+	}
+	if got := rec.lastState.Panes["primary"].Activity; got != previousActivity {
+		t.Fatalf("empty turn activity = %q, want previous %q", got, previousActivity)
+	}
+}
+
+func TestHookPiAgentEndErrorBlocksAndUsesErrorMessage(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+	prompt := "You are a smoke-test worker"
+	errorMessage := "Your authentication token has expired. Please try refreshing it."
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"prompt":       prompt,
+		"snippet":      "You: " + prompt,
+		"recent":       []string{prompt},
+		"stopReason":   "error",
+		"errorMessage": errorMessage,
+	})
+	final := rec.events[len(rec.events)-1]
+	if got := rec.lastState.Panes["primary"].State; got != "blocked" {
+		t.Fatalf("error turn state = %q, want blocked", got)
+	}
+	if got := chatTextFor(final, "status"); got != "blocked" {
+		t.Fatalf("error turn status = %q, want blocked", got)
+	}
+	want := "Error: " + errorMessage
+	if got := chatTextFor(final, "message"); got != want {
+		t.Fatalf("error turn message = %q, want %q", got, want)
+	}
+	if strings.Contains(chatTextFor(final, "message"), prompt) {
+		t.Fatalf("error turn echoed prompt in chat entry: %#v", chatEntries(final))
+	}
+	if got := rec.lastState.Panes["primary"].Activity; !strings.HasPrefix(got, "Error: Your authentication token has expired.") || len([]rune(got)) > 180 {
+		t.Fatalf("error turn activity = %q, want a capped Error line", got)
+	}
+}
+
+func TestHookPiAgentEndErrorCanBeInferredFromEitherField(t *testing.T) {
+	for _, payload := range []map[string]interface{}{
+		{"errorMessage": "provider failed"},
+		{"stopReason": "error"},
+	} {
+		r, rec := newTestRunner(t)
+		runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+		runHookWithStdin(r, "pi", "agent_end", "qm-chat", payload)
+		final := rec.events[len(rec.events)-1]
+		if got := rec.lastState.Panes["primary"].State; got != "blocked" || chatTextFor(final, "status") != "blocked" {
+			t.Fatalf("error payload %#v state/status = %q/%q, want blocked/blocked", payload, got, chatTextFor(final, "status"))
+		}
+		if got := chatTextFor(final, "message"); !strings.HasPrefix(got, "Error: ") {
+			t.Fatalf("error payload %#v message = %q, want Error prefix", payload, got)
+		}
 	}
 }
 

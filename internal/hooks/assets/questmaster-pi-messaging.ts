@@ -25,7 +25,7 @@ type PiContext = {
 	sessionManager?: { getSessionId?: () => string | undefined; getSessionFile?: () => string | undefined };
 	getContextUsage?: () => { tokens?: number | null; contextWindow?: number; percent?: number | null } | undefined;
 };
-type PiMessage = { role?: string; content?: unknown; model?: unknown; provider?: unknown; api?: unknown; usage?: unknown };
+type PiMessage = { role?: string; content?: unknown; model?: unknown; provider?: unknown; api?: unknown; usage?: unknown; stopReason?: unknown; errorMessage?: unknown };
 type PiTurn = { index?: number; status?: "running" | "done"; started_at_ms?: number; ended_at_ms?: number; tool_calls?: number; errors?: number };
 type PiTool = { name?: string; call_id?: string; summary?: string; status?: "running" | "done" | "error"; started_at_ms?: number; ended_at_ms?: number };
 
@@ -237,6 +237,7 @@ export default function (pi: ExtensionAPI) {
 	let tool: PiTool | undefined;
 	let usage: { last: Record<string, number> } | undefined;
 	let pendingNarration = "";
+	let pendingNarrationAt = 0;
 	let hookQueue: QueuedHook[] = [];
 	let hookQueueBytes = 0;
 	let hookFlushTimer: NodeJS.Timeout | undefined;
@@ -273,7 +274,7 @@ export default function (pi: ExtensionAPI) {
 		if (remember) pushRecent(clean);
 	}
 
-	function activityPayload(extra?: Record<string, unknown>): Record<string, unknown> {
+	function activityPayload(extra?: Record<string, unknown>, occurredAtMS = Date.now()): Record<string, unknown> {
 		return {
 			version: 1,
 			source: "pi",
@@ -282,6 +283,7 @@ export default function (pi: ExtensionAPI) {
 			...(sessionFile ? { session_file: boundedString(sessionFile, 1_024) } : {}),
 			...(cwd ? { cwd: boundedString(cwd, 1_024) } : {}),
 			updated_at_ms: Date.now(),
+			occurred_at_ms: cleanNumber(occurredAtMS),
 			busy,
 			phase,
 			...(snippet ? { snippet } : {}),
@@ -324,9 +326,9 @@ export default function (pi: ExtensionAPI) {
 		if (hookQueue.length) scheduleHookFlush();
 	}
 
-	async function emitHook(action: string, extra?: Record<string, unknown>, flush = false): Promise<void> {
+	async function emitHook(action: string, extra?: Record<string, unknown>, flush = false, occurredAtMS = Date.now()): Promise<void> {
 		if (!sessionPattern.test(questmasterSessionID) || Buffer.byteLength(questmasterSessionID) > maxIDBytes) return;
-		const payload = activityPayload(extra);
+		const payload = activityPayload(extra, occurredAtMS);
 		const event = { action, payload };
 		const bytes = Buffer.byteLength(JSON.stringify(event));
 		if (bytes > hookBatchByteLimit) {
@@ -465,6 +467,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, rawContext) => {
+		const occurredAtMS = Date.now();
 		await stop();
 		await start();
 		const ctx = rawContext as PiContext | undefined;
@@ -474,27 +477,30 @@ export default function (pi: ExtensionAPI) {
 		refreshMetadata(ctx);
 		tool = undefined;
 		setBusy(false, "idle");
-		await emitHook("session_start");
+		await emitHook("session_start", undefined, false, occurredAtMS);
 	});
 
 	pi.on("before_agent_start", async (event: unknown, rawContext) => {
+		const occurredAtMS = Date.now();
 		writeMarker();
 		const ctx = rawContext as PiContext | undefined;
 		refreshMetadata(ctx);
 		const record = event && typeof event === "object" ? event as Record<string, unknown> : {};
 		const prompt = [record.prompt, record.input, record.message].find((value) => typeof value === "string" && value.trim()) as string | undefined;
 		if (prompt) setSnippet(prompt);
-		await emitHook("before_agent_start", prompt ? { prompt: safeLine(prompt) } : undefined);
+		await emitHook("before_agent_start", prompt ? { prompt: safeLine(prompt) } : undefined, false, occurredAtMS);
 	});
 
 	pi.on("agent_start", async (_event, rawContext) => {
+		const occurredAtMS = Date.now();
 		const ctx = rawContext as PiContext | undefined;
 		currentTool = "";
 		tool = undefined;
 		pendingNarration = "";
+		pendingNarrationAt = 0;
 		refreshMetadata(ctx);
 		setBusy(true, "thinking");
-		await emitHook("agent_start");
+		await emitHook("agent_start", undefined, false, occurredAtMS);
 	});
 
 	pi.on("model_select", (event: { model?: unknown }) => { model = modelState(event.model) ?? model; });
@@ -507,6 +513,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("turn_start", (event: { turnIndex?: unknown; timestamp?: unknown }, rawContext) => {
 		refreshMetadata(rawContext as PiContext | undefined);
 		pendingNarration = "";
+		pendingNarrationAt = 0;
 		turn = {
 			index: cleanNumber(event.turnIndex),
 			status: "running",
@@ -529,6 +536,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("message_update", (event: { message?: unknown; assistantMessageEvent?: { type?: string; content?: unknown } }) => {
+		const occurredAtMS = Date.now();
 		const delta = event.assistantMessageEvent;
 		if (delta?.type !== "text_end") return;
 		const text = typeof delta.content === "string" ? delta.content : textFromMessage(event.message);
@@ -536,12 +544,15 @@ export default function (pi: ExtensionAPI) {
 		addTextToRecent(text);
 		setSnippet(lastTextLine(text), false);
 		pendingNarration = capChatText(`${pendingNarration}${pendingNarration ? "\n" : ""}${text}`);
+		pendingNarrationAt = occurredAtMS;
 	});
 
 	pi.on("tool_execution_start", async (event: { toolCallId?: string; toolName?: string; args?: unknown }) => {
+		const occurredAtMS = Date.now();
 		if (pendingNarration.length) {
-			await emitHook("say", { text: pendingNarration });
+			await emitHook("say", { message: { role: "assistant", content: pendingNarration } }, false, pendingNarrationAt);
 			pendingNarration = "";
+			pendingNarrationAt = 0;
 		}
 		currentTool = formatTool(event.toolName, event.args);
 		tool = {
@@ -555,12 +566,13 @@ export default function (pi: ExtensionAPI) {
 		setBusy(true, "tool");
 		if (event.toolName === "ask_user") {
 			const args = event.args && typeof event.args === "object" ? event.args as Record<string, unknown> : {};
-			await emitHook("waiting_for_user", { prompt: typeof args.question === "string" ? safeLine(args.question) : currentTool }, true);
+			await emitHook("waiting_for_user", { prompt: typeof args.question === "string" ? safeLine(args.question) : currentTool }, true, occurredAtMS);
 		}
-		await emitHook("tool_execution_start");
+		await emitHook("tool_execution_start", undefined, false, occurredAtMS);
 	});
 
 	pi.on("tool_execution_end", async (event: { toolCallId?: string; toolName?: string; isError?: boolean }) => {
+		const occurredAtMS = Date.now();
 		const label = currentTool || formatTool(event.toolName);
 		tool = {
 			...(tool ?? {}),
@@ -572,31 +584,42 @@ export default function (pi: ExtensionAPI) {
 		};
 		setSnippet(`${event.isError ? "✗" : "✓"} ${label}`);
 		currentTool = "";
-		await emitHook("tool_execution_end", undefined, event.toolName === "ask_user");
+		await emitHook("tool_execution_end", undefined, event.toolName === "ask_user", occurredAtMS);
 	});
 
 	pi.on("agent_end", async (event: { messages?: unknown[] }, rawContext) => {
+		const occurredAtMS = Date.now();
 		let finalText = "";
+		let stopReason: string | undefined;
+		let errorMessage: string | undefined;
 		for (const message of event.messages ?? []) {
+			const assistant = message as PiMessage | undefined;
+			if (assistant?.role !== "assistant") continue;
 			recordAssistantMessage(message);
 			const text = textFromMessage(message);
-			if (!text) continue;
-			addTextToRecent(text);
-			if (!messageHasToolCall(message)) {
-				finalText = text;
-			}
+			finalText = text && !messageHasToolCall(message) ? text : "";
+			stopReason = boundedString(assistant.stopReason, 80);
+			errorMessage = boundedString(assistant.errorMessage, 1_500);
+			if (text) addTextToRecent(text);
 		}
 		refreshMetadata(rawContext as PiContext | undefined);
 		if (finalText) setSnippet(lastTextLine(finalText), false);
 		if (tool) tool = { ...tool, status: "done", ended_at_ms: Date.now() };
 		setBusy(false, "done", snippet || "Done");
 		pendingNarration = "";
-		await emitHook("agent_end", finalText ? { text: capChatText(finalText) } : undefined, true);
+		pendingNarrationAt = 0;
+		const finalPayload = {
+			...(finalText ? { message: { role: "assistant", content: capChatText(finalText) } } : {}),
+			...(stopReason ? { stopReason } : {}),
+			...(errorMessage ? { errorMessage } : {}),
+		};
+		await emitHook("agent_end", Object.keys(finalPayload).length ? finalPayload : undefined, true, occurredAtMS);
 	});
 
 	pi.on("session_shutdown", async () => {
+		const occurredAtMS = Date.now();
 		setBusy(false, "idle");
 		await stop();
-		await emitHook("session_shutdown", undefined, true);
+		await emitHook("session_shutdown", undefined, true, occurredAtMS);
 	});
 }
