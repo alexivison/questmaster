@@ -33,6 +33,7 @@ struct WorkerChatTests {
         unreadableWorkerShowsANoticeAndRetries()
         manyUnreadableWorkersShareOneBoundedNotice()
         removedWorkerClearsItsChatState()
+        removedWorkerDuringPullIgnoresStaleResponse()
         standaloneIsUnattached()
         historyIsBounded()
         roleAvailability()
@@ -439,6 +440,47 @@ struct WorkerChatTests {
 
         _ = store.receive(WorkerFeedPayload(), for: next!)
         expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "removed worker errors should not trigger retries")
+    }
+
+    private static func removedWorkerDuringPullIgnoresStaleResponse() {
+        let store = makeStore()
+        let first = open(store)
+        let w1Cursor = WorkerFeedCursor(offset: 3, fileID: "w1-file")
+        let w2Cursor = WorkerFeedCursor(offset: 5, fileID: "w2-file")
+        let pending = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(0, "w1", "say", "leaving"), entry(1, "w2", "say", "staying")],
+                cursors: ["w1": w1Cursor, "w2": w2Cursor],
+                hasMore: ["w1": true],
+                errors: ["w1": "permission denied"]
+            ),
+            for: first
+        )
+        expect(pending?.cursors == ["w1": w1Cursor, "w2": w2Cursor], "the next pull should start with both workers")
+        let w2LinesBefore = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+
+        let remainingGroup = group().filter { $0.id != "w1" }
+        let current = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
+        expect(current?.cursors == ["w2": w2Cursor], "the replacement pull should keep only the remaining cursor")
+        _ = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(2, "w1", "say", "resurrected"), entry(3, "w2", "say", "late")],
+                cursors: ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": WorkerFeedCursor(offset: 10, fileID: "w2-file")],
+                errors: ["w1": "permission denied"]
+            ),
+            for: pending!
+        )
+
+        let w2LinesAfter = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "a stale response should not restore removed worker lines")
+        expect(w2LinesAfter == w2LinesBefore, "a stale response should not add lines for remaining workers")
+        expect(store.readNotice == nil, "a stale response should not restore removed worker read errors")
+
+        _ = store.receive(WorkerFeedPayload(), for: current!)
+        var changedGroup = remainingGroup
+        changedGroup[1].lastChatAt = base(2)
+        let retry = store.sync(selectedSessionID: "m", sessions: changedGroup, isVisible: true)
+        expect(retry?.cursors == ["w2": w2Cursor], "a stale response should not restore removed worker cursors")
     }
 
     private static func standaloneIsUnattached() {

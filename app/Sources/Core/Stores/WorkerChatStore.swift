@@ -157,6 +157,10 @@ public final class WorkerChatStore {
         trackerNames = names
         agents = nextAgents
         if !removedWorkerIDs.isEmpty {
+            if inFlight {
+                generation += 1
+                inFlight = false
+            }
             records.removeAll { removedWorkerIDs.contains($0.workerID) }
             for workerID in removedWorkerIDs {
                 cursors.removeValue(forKey: workerID)
