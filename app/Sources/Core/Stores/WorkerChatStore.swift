@@ -187,11 +187,22 @@ public final class WorkerChatStore {
         let hiddenRecords = records.filter { agents[$0.workerID] == nil }
         let visibleKept = Array(visibleRecords.suffix(Self.maxLines))
         let hiddenKept = Array(hiddenRecords.suffix(Self.maxLines))
-        var displayed = visibleKept
-        var built = WorkerChatLineBuilder.lines(from: displayed, names: names, agents: agents, calendar: calendar)
-        while built.count > Self.maxLines {
-            displayed = Array(displayed.dropFirst(built.count - Self.maxLines))
-            built = WorkerChatLineBuilder.lines(from: displayed, names: names, agents: agents, calendar: calendar)
+        var built = WorkerChatLineBuilder.lines(from: visibleKept, names: names, agents: agents, calendar: calendar)
+        if built.count > Self.maxLines {
+            let suffix = Array(built.suffix(Self.maxLines))
+            if let firstHeader = suffix.firstIndex(where: {
+                if case .timeHeader = $0.content { return true }
+                return false
+            }) {
+                built = Array(suffix[firstHeader...])
+            } else if let header = built.dropLast(Self.maxLines).last(where: {
+                if case .timeHeader = $0.content { return true }
+                return false
+            }) {
+                built = [header] + Array(suffix.dropFirst())
+            } else {
+                built = suffix
+            }
         }
         // ponytail: independent visible and hidden caps bound cached history at 2x maxLines.
         records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }

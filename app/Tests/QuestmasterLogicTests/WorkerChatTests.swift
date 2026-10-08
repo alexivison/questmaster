@@ -16,6 +16,7 @@ struct WorkerChatTests {
         idleAndUnknownEntriesAreNotShown()
         messageKeepsParagraphsAndReportMutesItsText()
         actionRunCollapsesWithCountsAndNoCommas()
+        actionRunSplitsAtCalendarMinuteWithoutBreakingOnOtherWorkers()
         lateNarrationSortsBeforeEarlierActionArrival()
         actionRunStaysOpenAcrossOtherWorkersEntries()
         actionRunClosesOnTheSameWorkersNextNonAction()
@@ -38,6 +39,8 @@ struct WorkerChatTests {
         removeAndReAddDuringPullKeepsHistory()
         standaloneIsUnattached()
         historyIsBounded()
+        historyKeepsLatestActionAndHeaderAtLineCap()
+        historyKeepsHeaderWhenLineCapCutsThroughSameMinute()
         print("WorkerChatTests: all tests passed")
     }
 
@@ -125,6 +128,29 @@ struct WorkerChatTests {
         let single = makeStore()
         feed(single, [entry(0, "w1", "action", "Bash")])
         expect(segments(single, 0).last?.text == "[Bash]", "a single call should show no count, got \(segments(single, 0))")
+    }
+
+    private static func actionRunSplitsAtCalendarMinuteWithoutBreakingOnOtherWorkers() {
+        let store = makeStore()
+        feed(store, [
+            entry(5, "w1", "action", "Bash"),
+            entry(20, "w2", "action", "Read"),
+            entry(40, "w1", "action", "Edit"),
+            entry(60, "w1", "action", "Bash"),
+        ])
+
+        let headers = store.lines.compactMap { line -> String? in
+            guard case .timeHeader(let label) = line.content else {
+                return nil
+            }
+            return label
+        }
+        let entries = entryLines(store)
+        expect(headers == ["[09:00]", "[09:01]"], "a next-minute action should start a new header, got \(headers)")
+        expect(entries.count == 3, "same-minute actions should fold around another worker and split at the next minute, got \(entries.count)")
+        expect(entries[0].segments.dropFirst().map(\.text) == [" Cast ", "[Bash] [Edit]"], "same-minute actions should stay in one run across another worker, got \(entries[0].segments)")
+        expect(entries[1].segments.first?.text == "Worker Two:", "the interleaved worker should keep its own row")
+        expect(entries[2].segments.dropFirst().map(\.text) == [" Cast ", "[Bash]"], "the next-minute action should start a fresh run, got \(entries[2].segments)")
     }
 
     private static func lateNarrationSortsBeforeEarlierActionArrival() {
@@ -527,6 +553,48 @@ struct WorkerChatTests {
         }
         expect(store.lines.last.map(lastText) == " line \(WorkerChatStore.maxLines + 99)", "the newest line should be kept")
         expect(!store.lines.contains { lastText($0) == " line 0" }, "the oldest lines should be dropped")
+    }
+
+    private static func historyKeepsLatestActionAndHeaderAtLineCap() {
+        let store = makeStore()
+        let first = open(store)
+        let entries = (0..<WorkerChatStore.maxLines).map { entry(TimeInterval($0 * 60), "w1", "action", "Bash") }
+        _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
+
+        expect(!store.lines.isEmpty, "history trimming should keep the newest activity visible")
+        expect(store.lines.count <= WorkerChatStore.maxLines, "rendered history should stay within the line cap")
+        if case .timeHeader = store.lines.first?.content {} else {
+            fail("trimmed history should start with a time header")
+        }
+        guard store.lines.count >= 2 else {
+            fail("the newest action and its header should remain visible")
+        }
+        if case .timeHeader(let label) = store.lines[store.lines.count - 2].content {
+            expect(label == "[17:19]", "the newest action should keep its minute header, got \(label)")
+        } else {
+            fail("the newest action should have its minute header immediately before it")
+        }
+        if case .entry(_, let segments) = store.lines.last?.content {
+            expect(segments.last?.text == "[Bash]", "the newest action should remain visible, got \(segments)")
+        } else {
+            fail("the newest line should be the latest Cast action")
+        }
+    }
+
+    private static func historyKeepsHeaderWhenLineCapCutsThroughSameMinute() {
+        let store = makeStore()
+        let entries = (0..<WorkerChatStore.maxLines).map { entry(0, "w\($0)", "action", "Bash") }
+        feed(store, entries, tracker: false)
+
+        expect(store.lines.count == WorkerChatStore.maxLines, "history should fit the line cap after retaining its header, got \(store.lines.count)")
+        if case .timeHeader = store.lines.first?.content {} else {
+            fail("same-minute history should start with its header")
+        }
+        if case .entry(_, let segments) = store.lines.last?.content {
+            expect(segments.last?.text == "[Bash]", "the latest same-minute action should remain visible, got \(segments)")
+        } else {
+            fail("the latest same-minute line should be an action")
+        }
     }
 
     // MARK: - Helpers
