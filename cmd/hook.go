@@ -2237,15 +2237,17 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	case "agent_end":
 		setState = "done"
 		clearTool = true
-		if errorMessage := piAgentEndError(payload); errorMessage != "" {
-			setState = "blocked"
-			setActivity = truncatePromptLine("Error: " + errorMessage)
-		} else if text := piAssistantMessageText(payload); text != "" {
-			activity := strings.TrimSpace(payload.Snippet)
-			if activity == "" || !strings.Contains(text, activity) {
-				activity = text
+		if !piAgentEndAborted(payload) {
+			if errorMessage := piAgentEndError(payload); errorMessage != "" {
+				setState = "blocked"
+				setActivity = truncatePromptLine("Error: " + errorMessage)
+			} else if text := piAssistantMessageText(payload); text != "" {
+				activity := strings.TrimSpace(payload.Snippet)
+				if activity == "" || !strings.Contains(text, activity) {
+					activity = text
+				}
+				setActivity = truncatePromptLine(activity)
 			}
-			setActivity = truncatePromptLine(activity)
 		}
 	case "session_shutdown":
 		setState = "stopped"
@@ -2365,10 +2367,12 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 			addChatEntryAt(ev, &pane, "say", piAssistantMessageText(payload), occurredAt)
 		}
 		if opts.action == "agent_end" {
-			if errorMessage := piAgentEndError(payload); errorMessage != "" {
-				addChatEntryAt(ev, &pane, "message", "Error: "+errorMessage, occurredAt)
-			} else if text := piAssistantMessageText(payload); text != "" && pane.State == "done" {
-				addChatEntryAt(ev, &pane, "message", text, occurredAt)
+			if !piAgentEndAborted(payload) {
+				if errorMessage := piAgentEndError(payload); errorMessage != "" {
+					addChatEntryAt(ev, &pane, "message", "Error: "+errorMessage, occurredAt)
+				} else if text := piAssistantMessageText(payload); text != "" && pane.State == "done" {
+					addChatEntryAt(ev, &pane, "message", text, occurredAt)
+				}
 			}
 		}
 		if !preserveBlockedQuestion && opts.action != "tool_execution_start" && pane.State != prev.State {
@@ -2632,7 +2636,7 @@ func piAssistantMessageText(p piPayload) string {
 }
 
 func piAgentEndError(p piPayload) string {
-	if strings.EqualFold(strings.TrimSpace(p.StopReason), "aborted") {
+	if piAgentEndAborted(p) {
 		return ""
 	}
 	if errorMessage := strings.TrimSpace(p.ErrorMessage); errorMessage != "" {
@@ -2642,6 +2646,10 @@ func piAgentEndError(p piPayload) string {
 		return "Pi reported an error"
 	}
 	return ""
+}
+
+func piAgentEndAborted(p piPayload) bool {
+	return strings.EqualFold(strings.TrimSpace(p.StopReason), "aborted")
 }
 
 func piActivityText(p piPayload) string {

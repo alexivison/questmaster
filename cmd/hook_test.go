@@ -3647,6 +3647,7 @@ func TestHookPiAgentEndAbortDoesNotReportError(t *testing.T) {
 	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
 	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
 		"prompt":       "You are a smoke-test worker",
+		"message":      map[string]interface{}{"role": "assistant", "content": "Partial output before cancellation"},
 		"snippet":      "You: You are a smoke-test worker",
 		"recent":       []string{"You are a smoke-test worker"},
 		"stopReason":   "aborted",
