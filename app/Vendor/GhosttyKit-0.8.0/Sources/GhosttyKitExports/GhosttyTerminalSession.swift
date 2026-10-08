@@ -432,6 +432,7 @@ public final class GhosttyTerminalSession {
             },
             keyboardLayoutChanged: { [weak self] in self?.keyboardLayoutChanged() },
             primaryInteraction: {},
+            translateKeyEvent: { [weak self] event in self?.translatedKeyEvent(event) ?? event },
             keyDown: { [weak self] event, text in self?.sendKeyDown(event, text: text) },
             keyUp: { [weak self] event in self?.sendKeyUp(event) },
             insertText: { [weak self] text in self?.insertText(text) },
@@ -505,6 +506,26 @@ public final class GhosttyTerminalSession {
     public func sendKeyDown(_ event: NSEvent, text: String?) {
         sendKeyEvent(event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS, text: text)
         ghostty_surface_refresh(surface)
+    }
+
+    private func translatedKeyEvent(_ event: NSEvent) -> NSEvent {
+        guard let surface, event.modifierFlags.contains(.option) else { return event }
+        let modifiers = ghostty_surface_key_translation_mods(surface, translateModifiers(event.modifierFlags))
+        guard modifiers.rawValue & GHOSTTY_MODS_ALT.rawValue == 0 else { return event }
+        var flags = event.modifierFlags
+        flags.remove(.option)
+        return NSEvent.keyEvent(
+            with: event.type,
+            location: event.locationInWindow,
+            modifierFlags: flags,
+            timestamp: event.timestamp,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: event.characters(byApplyingModifiers: flags) ?? "",
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+            isARepeat: event.isARepeat,
+            keyCode: event.keyCode
+        ) ?? event
     }
 
     public func sendKeyUp(_ event: NSEvent) {
