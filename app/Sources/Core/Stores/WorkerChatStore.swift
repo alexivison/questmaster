@@ -150,11 +150,20 @@ public final class WorkerChatStore {
             }
             nextAgents[worker.id] = worker.agent
         }
+        let removedWorkerIDs = Set(agents.keys).subtracting(nextAgents.keys)
         guard names != trackerNames || nextAgents != agents else {
             return
         }
         trackerNames = names
         agents = nextAgents
+        if !removedWorkerIDs.isEmpty {
+            records.removeAll { removedWorkerIDs.contains($0.workerID) }
+            for workerID in removedWorkerIDs {
+                cursors.removeValue(forKey: workerID)
+                feedNames.removeValue(forKey: workerID)
+            }
+            readErrorWorkerIDs.removeAll { removedWorkerIDs.contains($0) }
+        }
         rebuild()
     }
 

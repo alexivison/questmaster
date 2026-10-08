@@ -32,6 +32,7 @@ struct WorkerChatTests {
         attachChangeWithinTheGroupPullsAgainKeepingCursors()
         unreadableWorkerShowsANoticeAndRetries()
         manyUnreadableWorkersShareOneBoundedNotice()
+        removedWorkerClearsItsChatState()
         standaloneIsUnattached()
         historyIsBounded()
         roleAvailability()
@@ -410,6 +411,34 @@ struct WorkerChatTests {
         let more = store.sync(selectedSessionID: "m", sessions: sameTitled(["a", "b", "c", "d", "e"]), isVisible: true)!
         _ = store.receive(WorkerFeedPayload(errors: ["a": "x", "b": "x", "c": "x", "d": "x", "e": "x"]), for: more)
         expect(store.readNotice == "Couldn't read activity for Same, Same (+3)", "extra workers should be counted, got \(String(describing: store.readNotice))")
+    }
+
+    private static func removedWorkerClearsItsChatState() {
+        let store = makeStore()
+        let first = open(store)
+        let w1Cursor = WorkerFeedCursor(offset: 3, fileID: "w1-file")
+        let w2Cursor = WorkerFeedCursor(offset: 5, fileID: "w2-file")
+        _ = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(0, "w1", "say", "leaving"), entry(1, "w2", "say", "staying")],
+                cursors: ["w1": w1Cursor, "w2": w2Cursor],
+                errors: ["w1": "permission denied"]
+            ),
+            for: first
+        )
+        let w2LinesBefore = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+        expect(store.readNotice == "Couldn't read Worker One's activity", "the unreadable worker should have a notice before removal")
+
+        let remainingGroup = group().filter { $0.id != "w1" }
+        let next = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
+        let w2LinesAfter = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "removed worker lines should disappear")
+        expect(w2LinesAfter == w2LinesBefore && w2LinesAfter.count == 1, "remaining worker lines should be unchanged")
+        expect(next?.cursors == ["w2": w2Cursor], "only remaining worker cursors should be sent, got \(String(describing: next?.cursors))")
+        expect(store.readNotice == nil, "removed worker read errors should disappear")
+
+        _ = store.receive(WorkerFeedPayload(), for: next!)
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "removed worker errors should not trigger retries")
     }
 
     private static func standaloneIsUnattached() {
