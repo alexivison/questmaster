@@ -3602,13 +3602,18 @@ func TestHookPiAgentEndDoesNotUseActivityFallbackForChat(t *testing.T) {
 	}
 }
 
-func TestHookPiAgentEndErrorBlocksAndUsesErrorMessage(t *testing.T) {
+func TestHookPiAgentEndReplaysAuthErrorTurnWithoutPromptEcho(t *testing.T) {
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+	working := rec.events[len(rec.events)-1]
+	if got := chatTextFor(working, "status"); got != "working" {
+		t.Fatalf("agent start status = %q, want working", got)
+	}
 	prompt := "You are a smoke-test worker"
 	errorMessage := "Your authentication token has expired. Please try refreshing it."
 	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
 		"prompt":       prompt,
+		"text":         prompt,
 		"snippet":      "You: " + prompt,
 		"recent":       []string{prompt},
 		"stopReason":   "error",
@@ -3630,6 +3635,66 @@ func TestHookPiAgentEndErrorBlocksAndUsesErrorMessage(t *testing.T) {
 	}
 	if got := rec.lastState.Panes["primary"].Activity; !strings.HasPrefix(got, "Error: Your authentication token has expired.") || len([]rune(got)) > 180 {
 		t.Fatalf("error turn activity = %q, want a capped Error line", got)
+	}
+}
+
+func TestHookPiAgentEndAbortDoesNotReportError(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
+		"tool": map[string]interface{}{"name": "bash", "summary": "bash: echo done"},
+	})
+	previousActivity := rec.lastState.Panes["primary"].Activity
+	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"prompt":       "You are a smoke-test worker",
+		"snippet":      "You: You are a smoke-test worker",
+		"recent":       []string{"You are a smoke-test worker"},
+		"stopReason":   "aborted",
+		"errorMessage": "Request aborted",
+	})
+
+	final := rec.events[len(rec.events)-1]
+	if got := rec.lastState.Panes["primary"].State; got != "done" || chatTextFor(final, "status") != "done" {
+		t.Fatalf("aborted turn state/status = %q/%q, want done/done", got, chatTextFor(final, "status"))
+	}
+	if got := chatTextFor(final, "message"); got != "" {
+		t.Fatalf("aborted turn message = %q, want no message", got)
+	}
+	if got := rec.lastState.Panes["primary"].Activity; got != previousActivity {
+		t.Fatalf("aborted turn activity = %q, want previous %q", got, previousActivity)
+	}
+}
+
+func TestHookPiOccurredAtOutsideWindowFallsBackToHookTime(t *testing.T) {
+	r, rec := newTestRunner(t)
+	now := r.Now()
+	for _, tc := range []struct {
+		name string
+		at   time.Time
+	}{
+		{name: "far past", at: now.Add(-6 * time.Minute)},
+		{name: "far future", at: now.Add(6 * time.Minute)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runHookWithStdin(r, "pi", "say", "qm-chat", map[string]interface{}{
+				"message":        map[string]interface{}{"role": "assistant", "content": "Reply"},
+				"occurred_at_ms": tc.at.UnixMilli(),
+			})
+			entries := chatEntries(rec.events[len(rec.events)-1])
+			var sayEntry map[string]interface{}
+			for _, entry := range entries {
+				if entry["chat_kind"] == "say" {
+					sayEntry = entry
+					break
+				}
+			}
+			if sayEntry == nil {
+				t.Fatalf("say entries = %#v, want a say", entries)
+			}
+			if got, ok := sayEntry["chat_timestamp"].(time.Time); ok && !got.Equal(now) {
+				t.Fatalf("chat timestamp = %s, want hook time %s", got, now)
+			}
+		})
 	}
 }
 

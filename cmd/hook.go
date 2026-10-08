@@ -2176,6 +2176,8 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	}
 }
 
+const piOccurredAtWindow = 5 * time.Minute
+
 func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer, agentName string) (preparedPiEvent, bool) {
 	payload, err := decodePi(opts.stdin)
 	if err != nil {
@@ -2185,7 +2187,10 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	now := r.Now().UTC()
 	occurredAt := now
 	if payload.OccurredAtMS > 0 {
-		occurredAt = time.UnixMilli(payload.OccurredAtMS).UTC()
+		candidate := time.UnixMilli(payload.OccurredAtMS).UTC()
+		if delta := candidate.Sub(now); delta >= -piOccurredAtWindow && delta <= piOccurredAtWindow {
+			occurredAt = candidate
+		}
 	}
 	lastKind := opts.action
 
@@ -2627,6 +2632,9 @@ func piAssistantMessageText(p piPayload) string {
 }
 
 func piAgentEndError(p piPayload) string {
+	if strings.EqualFold(strings.TrimSpace(p.StopReason), "aborted") {
+		return ""
+	}
 	if errorMessage := strings.TrimSpace(p.ErrorMessage); errorMessage != "" {
 		return errorMessage
 	}
