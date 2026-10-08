@@ -442,8 +442,6 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		setState = "working"
 		if isTaskNotification(payload.Prompt) {
 			setActivity = "Background agent resumed"
-		} else {
-			setActivity = "You: " + truncatePromptLine(payload.Prompt)
 		}
 		lastKind = "UserPromptSubmit"
 		suppressStateForSubagent = true
@@ -1586,7 +1584,6 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		lastKind = "SessionStart"
 	case "working":
 		setState = "working"
-		setActivity = "You: " + truncatePromptLine(payload.Prompt)
 		lastKind = "UserPromptSubmit"
 	case "tool_start":
 		setState = "working"
@@ -2202,10 +2199,12 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	)
 
 	switch opts.action {
-	case "session_start", "before_agent_start":
+	case "session_start":
 		setState = "starting"
-		setActivity = piPromptActivity(payload)
-		if setActivity == "" {
+		setActivity = "started"
+	case "before_agent_start":
+		setState = "starting"
+		if strings.TrimSpace(payload.Prompt) == "" && strings.TrimSpace(payload.Text) == "" {
 			setActivity = "started"
 		}
 	case "agent_start":
@@ -2407,15 +2406,6 @@ func piRecentForAction(action string, payload piPayload) ([]string, bool) {
 		}
 	}
 	return nil, false
-}
-
-func piPromptActivity(p piPayload) string {
-	for _, prompt := range []string{p.Prompt, p.Text} {
-		if strings.TrimSpace(prompt) != "" {
-			return "You: " + truncatePromptLine(prompt)
-		}
-	}
-	return ""
 }
 
 func piQuestionText(p piPayload) string {
