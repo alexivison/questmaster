@@ -32,6 +32,11 @@ struct WorkerChatTests {
         attachChangeWithinTheGroupPullsAgainKeepingCursors()
         unreadableWorkerShowsANoticeAndRetries()
         manyUnreadableWorkersShareOneBoundedNotice()
+        removedWorkerHidesItsChatLines()
+        removedWorkerDuringPullKeepsCurrentEntries()
+        membershipChangesWhilePullingDoNotQueueRequests()
+        departedReadErrorsStayHiddenUntilReadded()
+        removeAndReAddDuringPullKeepsHistory()
         standaloneIsUnattached()
         historyIsBounded()
         roleAvailability()
@@ -412,6 +417,121 @@ struct WorkerChatTests {
         expect(store.readNotice == "Couldn't read activity for Same, Same (+3)", "extra workers should be counted, got \(String(describing: store.readNotice))")
     }
 
+    private static func removedWorkerHidesItsChatLines() {
+        let store = makeStore()
+        let first = open(store)
+        let w1Cursor = WorkerFeedCursor(offset: 3, fileID: "w1-file")
+        let w2Cursor = WorkerFeedCursor(offset: 5, fileID: "w2-file")
+        _ = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(0, "w1", "say", "leaving"), entry(1, "w2", "say", "staying")],
+                cursors: ["w1": w1Cursor, "w2": w2Cursor],
+                errors: ["w1": "permission denied"]
+            ),
+            for: first
+        )
+        let w2LinesBefore = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+        expect(store.readNotice == "Couldn't read Worker One's activity", "the unreadable worker should have a notice before removal")
+
+        let remainingGroup = group().filter { $0.id != "w1" }
+        let next = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
+        let w2LinesAfter = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "removed worker lines should disappear")
+        expect(w2LinesAfter == w2LinesBefore && w2LinesAfter.count == 1, "remaining worker lines should be unchanged")
+        expect(next?.cursors == ["w1": w1Cursor, "w2": w2Cursor], "the hidden worker cursor should be retained, got \(String(describing: next?.cursors))")
+        expect(store.readNotice == nil, "removed worker read errors should disappear")
+    }
+
+    private static func removedWorkerDuringPullKeepsCurrentEntries() {
+        let store = makeStore()
+        let first = open(store)
+        let remainingGroup = group().filter { $0.id != "w1" }
+        let current = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
+        expect(current == nil, "membership changes should not issue another request while a pull is in flight")
+
+        let w2Cursor = WorkerFeedCursor(offset: 10, fileID: "w2-file")
+        let followUp = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(2, "w1", "say", "resurrected"), entry(3, "w2", "say", "late")],
+                cursors: ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor],
+                hasMore: ["w1": true],
+                errors: ["w1": "permission denied"]
+            ),
+            for: first
+        )
+
+        let w2Lines = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "removed worker entries should be dropped")
+        expect(w2Lines.count == 1 && w2Lines[0].last?.text == " late", "the remaining worker's new entry should be shown")
+        expect(store.readNotice == nil, "removed worker read errors should be dropped")
+        expect(followUp?.cursors == ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor], "the response cursors should be retained while the worker is hidden")
+
+        _ = store.receive(WorkerFeedPayload(), for: followUp!)
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "the completed feed should not request another pull")
+    }
+
+    private static func membershipChangesWhilePullingDoNotQueueRequests() {
+        let store = makeStore()
+        let first = open(store)
+        let remainingGroup = group().filter { $0.id != "w1" }
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "removing a worker should keep the current pull in flight")
+        expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "re-adding a worker should not queue another pull")
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "repeated membership changes should not queue pulls")
+
+        let w2Cursor = WorkerFeedCursor(offset: 10, fileID: "w2-file")
+        let followUp = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(0, "w1", "say", "removed"), entry(1, "w2", "say", "kept")],
+                cursors: ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor],
+                errors: ["w1": "permission denied"]
+            ),
+            for: first
+        )
+        expect(followUp?.cursors == ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor], "the completed pull should issue one follow-up with cached cursors")
+        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "the final group should not show the removed worker")
+        expect(entryLines(store).contains { $0.segments.last?.text == " kept" }, "the final group should keep the remaining worker")
+        _ = store.receive(WorkerFeedPayload(errors: ["w1": "permission denied"]), for: followUp!)
+        expect(store.readNotice == nil, "the removed worker error should stay hidden")
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "a hidden worker error should not trigger retries")
+    }
+
+    private static func departedReadErrorsStayHiddenUntilReadded() {
+        let store = makeStore()
+        let first = open(store)
+        _ = store.receive(WorkerFeedPayload(errors: ["w1": "permission denied"]), for: first)
+        expect(store.readNotice == "Couldn't read Worker One's activity", "current worker errors should be shown")
+
+        let remainingGroup = group().filter { $0.id != "w1" }
+        let next = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
+        expect(next != nil && store.readNotice == nil, "a departed worker's error should be hidden")
+        expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "re-adding should keep the in-flight request")
+        expect(store.readNotice == "Couldn't read Worker One's activity", "the cached error should return when the worker rejoins")
+    }
+
+    private static func removeAndReAddDuringPullKeepsHistory() {
+        let store = makeStore()
+        let first = open(store)
+        let initialEntries = (0..<100).map { _ in entry(0, "w1", "action", "Bash") }
+            + (0..<400).map { _ in entry(0, "w2", "action", "Read") }
+        _ = store.receive(WorkerFeedPayload(entries: initialEntries), for: first)
+
+        let remainingGroup = group().filter { $0.id != "w2" }
+        let pull = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
+        expect(pull != nil, "removing a worker should request the current group")
+        let additions = (0..<100).map { _ in entry(1, "w1", "action", "Bash") }
+        let pending = store.receive(WorkerFeedPayload(entries: additions, hasMore: ["w1": true]), for: pull!)
+        let aLines = entryLines(store).filter { $0.agent == "codex" }
+        expect(aLines.count == 1 && aLines[0].segments.last?.text == "[Bash](x200)", "visible worker history should keep all 200 actions")
+        expect(pending != nil, "has_more should leave one pull in flight")
+
+        var rejoinedGroup = group()
+        rejoinedGroup[2].title = ""
+        expect(store.sync(selectedSessionID: "m", sessions: rejoinedGroup, isVisible: true) == nil, "re-adding should keep the existing pull")
+        let bLines = entryLines(store).filter { $0.agent == "claude" }
+        expect(bLines.count == 1 && bLines[0].segments.last?.text == "[Read](x400)", "re-adding B should restore its retained hidden history")
+        expect(bLines[0].segments.first?.text == "Worker Two:", "the cached feed name should survive the omission")
+    }
+
     private static func standaloneIsUnattached() {
         let store = makeStore()
         let standalone = [TrackerSession(id: "s", title: "Solo", repoName: "Repo", role: "standalone")]
@@ -486,10 +606,11 @@ struct WorkerChatTests {
     /// Opens the dock and applies one response. `tracker: false` keeps tracker titles out so the
     /// feed's own titles are what shows.
     private static func feed(_ store: WorkerChatStore, _ entries: [WorkerFeedEntry], tracker: Bool = true) {
-        let sessions = tracker ? group() : []
-        let request = tracker
-            ? store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
-            : store.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true)
+        let sessions = tracker
+            ? group()
+            : [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+                + Set(entries.map(\.workerID)).map { TrackerSession(id: $0, title: "", repoName: "Repo", role: "worker", parentID: "m") }
+        let request = store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
         _ = store.receive(WorkerFeedPayload(entries: entries), for: request!)
     }
 

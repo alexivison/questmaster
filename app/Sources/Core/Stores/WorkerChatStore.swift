@@ -70,7 +70,9 @@ public final class WorkerChatStore {
         }
         let attachmentChanged = selectedSessionID != self.selectedSessionID
         self.selectedSessionID = selectedSessionID
-        if (isVisible && !self.isVisible) || (attachmentChanged && nextMasterID != nil) || !readErrorWorkerIDs.isEmpty {
+        if (isVisible && !self.isVisible)
+            || (attachmentChanged && nextMasterID != nil)
+            || readErrorWorkerIDs.contains(where: { agents[$0] != nil }) {
             pullWanted = true
         }
         self.isVisible = isVisible
@@ -182,14 +184,18 @@ public final class WorkerChatStore {
 
     private func rebuild() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
-        var kept = records.suffix(Self.maxLines)
-        var built = WorkerChatLineBuilder.lines(from: Array(kept), names: names, agents: agents, calendar: calendar)
+        let visibleRecords = records.filter { agents[$0.workerID] != nil }
+        let hiddenRecords = records.filter { agents[$0.workerID] == nil }
+        let visibleKept = Array(visibleRecords.suffix(Self.maxLines))
+        let hiddenKept = Array(hiddenRecords.suffix(Self.maxLines))
+        var displayed = visibleKept
+        var built = WorkerChatLineBuilder.lines(from: displayed, names: names, agents: agents, calendar: calendar)
         while built.count > Self.maxLines {
-            kept = kept.dropFirst(built.count - Self.maxLines)
-            built = WorkerChatLineBuilder.lines(from: Array(kept), names: names, agents: agents, calendar: calendar)
+            displayed = Array(displayed.dropFirst(built.count - Self.maxLines))
+            built = WorkerChatLineBuilder.lines(from: displayed, names: names, agents: agents, calendar: calendar)
         }
-        // ponytail: trimming drops raw records before collapsing, so a run past maxLines calls stays capped at the kept count
-        records = Array(kept)
+        // ponytail: independent visible and hidden caps bound cached history at 2x maxLines.
+        records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
         if built != lines {
             lines = built
         }
@@ -198,7 +204,8 @@ public final class WorkerChatStore {
 
     private func updateReadNotice() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
-        let notice = Self.readNotice(for: readErrorWorkerIDs.map { WorkerChatLineBuilder.displayName(names[$0] ?? $0) })
+        let currentErrors = readErrorWorkerIDs.filter { agents[$0] != nil }
+        let notice = Self.readNotice(for: currentErrors.map { WorkerChatLineBuilder.displayName(names[$0] ?? $0) })
         if notice != readNotice {
             readNotice = notice
         }
