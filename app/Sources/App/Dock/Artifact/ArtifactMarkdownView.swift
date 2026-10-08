@@ -107,21 +107,24 @@ private enum LocalMarkdownImageError: Error {
 }
 
 private struct ArtifactMarkdownScrollBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        NSView()
+    func makeNSView(context: Context) -> ScrollerHidingNSView {
+        let view = ScrollerHidingNSView()
+        view.onApply = Self.style
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
+    func updateNSView(_ nsView: ScrollerHidingNSView, context: Context) {
         DispatchQueue.main.async {
-            guard let scrollView = nsView.enclosingScrollView else {
-                return
-            }
-            scrollView.drawsBackground = false
-            scrollView.borderType = .noBorder
-            scrollView.backgroundColor = .clear
-            scrollView.contentView.drawsBackground = false
-            scrollView.contentView.backgroundColor = .clear
-            hideScroller(on: scrollView)
+            nsView.reapply()
         }
+    }
+
+    private static func style(_ scrollView: NSScrollView) {
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.backgroundColor = .clear
+        scrollView.contentView.drawsBackground = false
+        scrollView.contentView.backgroundColor = .clear
+        hideScroller(on: scrollView)
     }
 }

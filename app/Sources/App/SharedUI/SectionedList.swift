@@ -32,7 +32,7 @@ struct SectionedList<Content: View>: View {
                 }
                 .padding(.bottom, 5)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(SectionedListScrollerHider())
+                .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
             .onAppear {
@@ -80,18 +80,77 @@ struct SectionedList<Content: View>: View {
 
 }
 
-private struct SectionedListScrollerHider: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        NSView()
+/// Drop into any `ScrollView` via `.background(ScrollerHider())` to keep its enclosing
+/// `NSScrollView` scroller forced hidden, including across a system scroller-style change.
+struct ScrollerHider: NSViewRepresentable {
+    var onApply: (NSScrollView) -> Void = hideScroller
+
+    func makeNSView(context: Context) -> ScrollerHidingNSView {
+        let view = ScrollerHidingNSView()
+        view.onApply = onApply
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
+    func updateNSView(_ nsView: ScrollerHidingNSView, context: Context) {
+        nsView.onApply = onApply
         DispatchQueue.main.async {
-            guard let scrollView = nsView.enclosingScrollView else {
-                return
-            }
-            hideScroller(on: scrollView)
+            nsView.reapply()
         }
+    }
+}
+
+/// An invisible view that keeps its enclosing `NSScrollView`'s scroller forced hidden for as long
+/// as it's in the view hierarchy.
+///
+/// Reapplying only from SwiftUI's `updateNSView` — the prior mechanism — misses one trigger:
+/// AppKit resets `NSScrollView.scrollerStyle` to the system's current preferred style whenever
+/// `NSScroller.preferredScrollerStyleDidChangeNotification` fires (e.g. a mouse connects while
+/// "Show scroll bars" is Automatic), independent of whether SwiftUI re-renders. With "Show scroll
+/// bars" on Automatic and a mouse attached, that preferred style is `.legacy`, which reserves
+/// gutter width regardless of whether a scroller is shown — so the gutter could come back on its
+/// own, with no state change for SwiftUI to diff against. Observing that notification directly
+/// closes the gap.
+final class ScrollerHidingNSView: NSView {
+    var onApply: (NSScrollView) -> Void = hideScroller
+    private var styleObserver: NSObjectProtocol?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else {
+            removeStyleObserver()
+            return
+        }
+        reapply()
+        guard styleObserver == nil else {
+            return
+        }
+        styleObserver = NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reapply()
+            }
+        }
+    }
+
+    func reapply() {
+        guard let scrollView = enclosingScrollView else {
+            return
+        }
+        onApply(scrollView)
+    }
+
+    private func removeStyleObserver() {
+        if let styleObserver {
+            NotificationCenter.default.removeObserver(styleObserver)
+        }
+        styleObserver = nil
+    }
+
+    deinit {
+        removeStyleObserver()
     }
 }
 

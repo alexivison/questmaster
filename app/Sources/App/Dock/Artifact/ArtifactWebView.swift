@@ -15,11 +15,29 @@ struct ArtifactWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        config.userContentController.addUserScript(Self.scrollbarHidingScript)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         return webView
     }
+
+    /// `WKWebView` draws its own scrollbar inside the web content layer — there's no AppKit
+    /// `NSScrollView` between it and the gutter, so `hideScroller(on:)` doesn't reach it. Injecting
+    /// CSS at document-start hides the WebKit-rendered track and thumb (and the width it reserves)
+    /// before first paint, without touching `overflow`, so wheel, trackpad, and any script-driven
+    /// scrolling the page does are unaffected.
+    private static let scrollbarHidingScript = WKUserScript(
+        source: """
+        (function() {
+            var style = document.createElement('style');
+            style.textContent = '::-webkit-scrollbar{width:0!important;height:0!important;background:transparent!important}html{scrollbar-width:none}';
+            document.documentElement.appendChild(style);
+        })();
+        """,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: false
+    )
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.update(

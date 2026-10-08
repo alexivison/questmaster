@@ -60,6 +60,7 @@ enum LogicSelfTests {
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
         ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
         ("testActionBarFooterBottomGapMeasuresFromBarBand", testActionBarFooterBottomGapMeasuresFromBarBand),
+        ("testScrollerHidingSurvivesPreferredStyleChange", testScrollerHidingSurvivesPreferredStyleChange),
     ]
 
     static func runIfRequested() -> Bool {
@@ -1951,6 +1952,51 @@ enum LogicSelfTests {
                 "plate outline should sit inside the footer, got \(bounds.minY)...\(bounds.maxY) of \(ActionBarMetrics.footerHeight)"
             )
         }
+    }
+
+    /// Root cause of the scrollbar gutter resisting four prior fix PRs (#222/#223/#225/#226):
+    /// hiding the scroller once from SwiftUI's `updateNSView` only reapplies when SwiftUI itself
+    /// re-renders. AppKit resets `NSScrollView.scrollerStyle` independently whenever
+    /// `NSScroller.preferredScrollerStyleDidChangeNotification` fires (e.g. a mouse connects while
+    /// "Show scroll bars" is Automatic), so the gutter can return with no SwiftUI state change to
+    /// trigger a reapply. `ScrollerHidingNSView` observes that notification directly instead.
+    private static func testScrollerHidingSurvivesPreferredStyleChange() throws {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
+        scrollView.documentView = documentView
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .legacy
+
+        let hider = ScrollerHidingNSView()
+        documentView.addSubview(hider)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = scrollView
+        window.orderFrontRegardless()
+        defer { window.close() }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        try expect(
+            scrollView.contentView.bounds.width == scrollView.bounds.width,
+            "clip view should fill the scroll view width once the scroller is hidden, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
+        )
+
+        // Simulate what AppKit does internally when the system scroller-style preference
+        // changes (e.g. a mouse connects): the scroller returns and reserves its legacy-style
+        // gutter again, independent of any SwiftUI re-render.
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .legacy
+        scrollView.perform(NSSelectorFromString("tile"))
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        try expect(
+            scrollView.contentView.bounds.width == scrollView.bounds.width,
+            "clip view should still fill the scroll view width after a scroller-style reset, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
+        )
     }
 
     private static func settingsSheetModel(
