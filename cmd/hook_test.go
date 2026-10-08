@@ -3119,9 +3119,11 @@ func TestHookPiMessageActivityUsesStreamingText(t *testing.T) {
 		want    string
 	}{
 		{
-			action:  "message_update",
-			payload: map[string]interface{}{"snippet": "Streaming answer\nignored"},
-			want:    "Streaming answer",
+			action: "message_update",
+			payload: map[string]interface{}{
+				"assistantMessageEvent": map[string]interface{}{"type": "text_end", "content": "Streaming answer\nignored"},
+			},
+			want: "Streaming answer",
 		},
 		{
 			action: "message_end",
@@ -3151,10 +3153,43 @@ func TestHookPiMessageActivityFallsBackWhenTextMissing(t *testing.T) {
 	for _, action := range []string{"message_update", "message_end"} {
 		t.Run(action, func(t *testing.T) {
 			r, rec := newTestRunner(t)
+			rec.lastState = &state.SessionState{
+				SessionID: "qm-abc",
+				Version:   state.SchemaVersion,
+				Panes: map[string]state.PaneState{
+					"primary": {Role: "primary", Agent: "pi", State: "working", Activity: "previous activity"},
+				},
+			}
 			runHookWithStdin(r, "pi", action, "qm-abc", nil)
 			pane := rec.lastState.Panes["primary"]
-			if pane.Activity != "Replying…" {
-				t.Fatalf("activity: want %q, got %q", "Replying…", pane.Activity)
+			if pane.Activity != "previous activity" {
+				t.Fatalf("activity: want previous value %q, got %q", "previous activity", pane.Activity)
+			}
+		})
+	}
+}
+
+func TestHookPiPromptOnlyFallbackDoesNotUpdateActivityOrSay(t *testing.T) {
+	for _, action := range []string{"message_update", "message_end", "say"} {
+		t.Run(action, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			rec.lastState = &state.SessionState{
+				SessionID: "qm-abc",
+				Version:   state.SchemaVersion,
+				Panes: map[string]state.PaneState{
+					"primary": {Role: "primary", Agent: "pi", State: "working", Activity: "previous activity"},
+				},
+			}
+			runHookWithStdin(r, "pi", action, "qm-abc", map[string]interface{}{
+				"prompt": "private prompt", "text": "private prompt", "snippet": "You: private prompt",
+				"recent": []string{"private prompt"},
+			})
+			pane := rec.lastState.Panes["primary"]
+			if pane.Activity != "previous activity" {
+				t.Fatalf("activity = %q, want previous value %q", pane.Activity, "previous activity")
+			}
+			if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "" {
+				t.Fatalf("prompt-only event emitted say entry %q", got)
 			}
 		})
 	}
@@ -3221,7 +3256,7 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 		},
 		{action: "before_agent_start", wantState: "starting", wantActivity: "started"},
 		{action: "agent_start", wantState: "working", wantActivity: "started"},
-		{action: "message_update", wantState: "working", wantActivity: "Replying…"},
+		{action: "message_update", wantState: "working", wantActivity: "started"},
 		{
 			action: "message_end",
 			payload: map[string]interface{}{
