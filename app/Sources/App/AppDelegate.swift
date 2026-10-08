@@ -936,9 +936,7 @@ enum DockContentRouting {
         switch content {
         case .questList:
             return true
-        case .artifactList, .artifactViewer:
-            return hasSession
-        case .workerChat:
+        case .artifactList, .artifactViewer, .workerChat:
             return hasSession
         }
     }
