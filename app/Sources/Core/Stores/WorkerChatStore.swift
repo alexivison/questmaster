@@ -184,16 +184,18 @@ public final class WorkerChatStore {
 
     private func rebuild() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
-        var kept = records.suffix(Self.maxLines)
-        var visible = kept.filter { agents[$0.workerID] != nil }
-        var built = WorkerChatLineBuilder.lines(from: Array(visible), names: names, agents: agents, calendar: calendar)
+        let visibleRecords = records.filter { agents[$0.workerID] != nil }
+        let hiddenRecords = records.filter { agents[$0.workerID] == nil }
+        let visibleKept = Array(visibleRecords.suffix(Self.maxLines))
+        let hiddenKept = Array(hiddenRecords.suffix(Self.maxLines))
+        var displayed = visibleKept
+        var built = WorkerChatLineBuilder.lines(from: displayed, names: names, agents: agents, calendar: calendar)
         while built.count > Self.maxLines {
-            kept = kept.dropFirst(built.count - Self.maxLines)
-            visible = kept.filter { agents[$0.workerID] != nil }
-            built = WorkerChatLineBuilder.lines(from: Array(visible), names: names, agents: agents, calendar: calendar)
+            displayed = Array(displayed.dropFirst(built.count - Self.maxLines))
+            built = WorkerChatLineBuilder.lines(from: displayed, names: names, agents: agents, calendar: calendar)
         }
-        // ponytail: hidden records count toward maxLines, so old hidden history expires under the same cap.
-        records = Array(kept)
+        // ponytail: independent visible and hidden caps bound cached history at 2x maxLines.
+        records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
         if built != lines {
             lines = built
         }
