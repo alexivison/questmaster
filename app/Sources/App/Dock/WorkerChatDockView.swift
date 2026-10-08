@@ -12,8 +12,6 @@ enum WorkerChatMetrics {
     static let headerGap: CGFloat = 8
     static let logoColumnWidth: CGFloat = 20
     static let logoSide: CGFloat = 15
-    /// Display cap on a message, say or report row; the full text stays in the store.
-    static let maxRowLines = 4
 
     /// SwiftUI sizes a text line at the font's ceiled height (JetBrains Mono 12: 15.84 → 16). Any
     /// shortfall to `lineHeight` (a smaller fallback font) is added between wrapped lines and
@@ -274,7 +272,6 @@ private struct WorkerChatLineView: View {
                 logo(agent: agent)
                     .frame(width: WorkerChatMetrics.logoColumnWidth, height: WorkerChatMetrics.logoSide, alignment: .leading)
                 text(for: segments)
-                    .lineLimit(line.isNarration ? WorkerChatMetrics.maxRowLines : nil)
                     .lineSpacing(WorkerChatMetrics.lineSlack)
                     .padding(.bottom, WorkerChatMetrics.lineSlack)
                     .frame(maxWidth: .infinity, alignment: .leading)
