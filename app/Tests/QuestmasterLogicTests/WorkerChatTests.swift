@@ -32,9 +32,11 @@ struct WorkerChatTests {
         attachChangeWithinTheGroupPullsAgainKeepingCursors()
         unreadableWorkerShowsANoticeAndRetries()
         manyUnreadableWorkersShareOneBoundedNotice()
-        removedWorkerClearsItsChatState()
+        removedWorkerHidesItsChatLines()
         removedWorkerDuringPullKeepsCurrentEntries()
         membershipChangesWhilePullingDoNotQueueRequests()
+        departedReadErrorsStayHiddenUntilReadded()
+        removeAndReAddDuringPullKeepsHistory()
         standaloneIsUnattached()
         historyIsBounded()
         roleAvailability()
@@ -415,7 +417,7 @@ struct WorkerChatTests {
         expect(store.readNotice == "Couldn't read activity for Same, Same (+3)", "extra workers should be counted, got \(String(describing: store.readNotice))")
     }
 
-    private static func removedWorkerClearsItsChatState() {
+    private static func removedWorkerHidesItsChatLines() {
         let store = makeStore()
         let first = open(store)
         let w1Cursor = WorkerFeedCursor(offset: 3, fileID: "w1-file")
@@ -436,11 +438,8 @@ struct WorkerChatTests {
         let w2LinesAfter = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
         expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "removed worker lines should disappear")
         expect(w2LinesAfter == w2LinesBefore && w2LinesAfter.count == 1, "remaining worker lines should be unchanged")
-        expect(next?.cursors == ["w2": w2Cursor], "only remaining worker cursors should be sent, got \(String(describing: next?.cursors))")
+        expect(next?.cursors == ["w1": w1Cursor, "w2": w2Cursor], "the hidden worker cursor should be retained, got \(String(describing: next?.cursors))")
         expect(store.readNotice == nil, "removed worker read errors should disappear")
-
-        _ = store.receive(WorkerFeedPayload(), for: next!)
-        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "removed worker errors should not trigger retries")
     }
 
     private static func removedWorkerDuringPullKeepsCurrentEntries() {
@@ -465,10 +464,10 @@ struct WorkerChatTests {
         expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "removed worker entries should be dropped")
         expect(w2Lines.count == 1 && w2Lines[0].last?.text == " late", "the remaining worker's new entry should be shown")
         expect(store.readNotice == nil, "removed worker read errors should be dropped")
-        expect(followUp?.cursors == ["w2": w2Cursor], "only the remaining worker's advanced cursor should be sent")
+        expect(followUp?.cursors == ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor], "the response cursors should be retained while the worker is hidden")
 
         _ = store.receive(WorkerFeedPayload(), for: followUp!)
-        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "has_more from a removed worker should be ignored")
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "the completed feed should not request another pull")
     }
 
     private static func membershipChangesWhilePullingDoNotQueueRequests() {
@@ -488,9 +487,56 @@ struct WorkerChatTests {
             ),
             for: first
         )
-        expect(followUp?.cursors == ["w2": w2Cursor], "the completed pull should issue one follow-up for the latest group")
+        expect(followUp?.cursors == ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor], "the completed pull should issue one follow-up with cached cursors")
         expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "the final group should not show the removed worker")
         expect(entryLines(store).contains { $0.segments.last?.text == " kept" }, "the final group should keep the remaining worker")
+        _ = store.receive(WorkerFeedPayload(errors: ["w1": "permission denied"]), for: followUp!)
+        expect(store.readNotice == nil, "the removed worker error should stay hidden")
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "a hidden worker error should not trigger retries")
+    }
+
+    private static func departedReadErrorsStayHiddenUntilReadded() {
+        let store = makeStore()
+        let first = open(store)
+        _ = store.receive(WorkerFeedPayload(errors: ["w1": "permission denied"]), for: first)
+        expect(store.readNotice == "Couldn't read Worker One's activity", "current worker errors should be shown")
+
+        let remainingGroup = group().filter { $0.id != "w1" }
+        let next = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
+        expect(next != nil && store.readNotice == nil, "a departed worker's error should be hidden")
+        expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "re-adding should keep the in-flight request")
+        expect(store.readNotice == "Couldn't read Worker One's activity", "the cached error should return when the worker rejoins")
+    }
+
+    private static func removeAndReAddDuringPullKeepsHistory() {
+        let store = makeStore()
+        let first = open(store)
+        let entries = (0..<100).map { entry(TimeInterval($0), "w1", "say", "history \($0)") }
+        let cursor = WorkerFeedCursor(offset: 100, fileID: "w1-file")
+        let pending = store.receive(
+            WorkerFeedPayload(entries: entries, cursors: ["w1": cursor], hasMore: ["w1": true]),
+            for: first
+        )
+        expect(pending?.cursors["w1"] == cursor, "the history pull should continue from the cached cursor")
+
+        let remainingGroup = group().filter { $0.id != "w1" }
+        expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "removing a worker should keep the existing pull in flight")
+        expect(entryLines(store).filter { $0.agent == "codex" }.isEmpty, "removed worker history should be hidden")
+        var rejoinedGroup = group()
+        rejoinedGroup[1].title = ""
+        expect(store.sync(selectedSessionID: "m", sessions: rejoinedGroup, isVisible: true) == nil, "re-adding should not replace the existing pull")
+
+        let advancedCursor = WorkerFeedCursor(offset: 101, fileID: "w1-file")
+        let followUp = store.receive(
+            WorkerFeedPayload(entries: [entry(100, "w1", "say", "history 100")], cursors: ["w1": advancedCursor]),
+            for: pending!
+        )
+        let w1Lines = entryLines(store).filter { $0.agent == "codex" }
+        expect(w1Lines.count == 101, "rejoining should restore all cached entries and include the delta, got \(w1Lines.count)")
+        expect(w1Lines.first?.segments.last?.text == " history 0", "the first cached entry should survive the omission")
+        expect(w1Lines.last?.segments.last?.text == " history 100", "the response delta should be appended")
+        expect(w1Lines.first?.segments.first?.text == "Worker One:", "the cached feed name should survive the omission")
+        expect(followUp?.cursors["w1"] == advancedCursor, "the rejoined worker's cursor should advance")
     }
 
     private static func standaloneIsUnattached() {

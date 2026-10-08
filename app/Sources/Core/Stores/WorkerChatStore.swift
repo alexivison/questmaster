@@ -70,7 +70,9 @@ public final class WorkerChatStore {
         }
         let attachmentChanged = selectedSessionID != self.selectedSessionID
         self.selectedSessionID = selectedSessionID
-        if (isVisible && !self.isVisible) || (attachmentChanged && nextMasterID != nil) || !readErrorWorkerIDs.isEmpty {
+        if (isVisible && !self.isVisible)
+            || (attachmentChanged && nextMasterID != nil)
+            || readErrorWorkerIDs.contains(where: { agents[$0] != nil }) {
             pullWanted = true
         }
         self.isVisible = isVisible
@@ -91,17 +93,16 @@ public final class WorkerChatStore {
             return nil
         }
         inFlight = false
-        for (workerID, cursor) in payload.cursors where agents[workerID] != nil {
+        for (workerID, cursor) in payload.cursors {
             cursors[workerID] = cursor
         }
-        if payload.hasMore.contains(where: { agents[$0.key] != nil && $0.value }) {
+        if payload.hasMore.values.contains(true) {
             pullWanted = true
         }
         let previousErrors = readErrorWorkerIDs
-        readErrorWorkerIDs = (payload.errors ?? [:]).keys.filter { agents[$0] != nil }.sorted()
-        let entries = payload.entries.filter { agents[$0.workerID] != nil }
-        if !entries.isEmpty {
-            merge(entries)
+        readErrorWorkerIDs = (payload.errors ?? [:]).keys.sorted()
+        if !payload.entries.isEmpty {
+            merge(payload.entries)
         } else if previousErrors != readErrorWorkerIDs {
             updateReadNotice()
         }
@@ -151,20 +152,11 @@ public final class WorkerChatStore {
             }
             nextAgents[worker.id] = worker.agent
         }
-        let removedWorkerIDs = Set(agents.keys).subtracting(nextAgents.keys)
         guard names != trackerNames || nextAgents != agents else {
             return
         }
         trackerNames = names
         agents = nextAgents
-        if !removedWorkerIDs.isEmpty {
-            records.removeAll { removedWorkerIDs.contains($0.workerID) }
-            for workerID in removedWorkerIDs {
-                cursors.removeValue(forKey: workerID)
-                feedNames.removeValue(forKey: workerID)
-            }
-            readErrorWorkerIDs.removeAll { removedWorkerIDs.contains($0) }
-        }
         rebuild()
     }
 
@@ -193,12 +185,14 @@ public final class WorkerChatStore {
     private func rebuild() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
         var kept = records.suffix(Self.maxLines)
-        var built = WorkerChatLineBuilder.lines(from: Array(kept), names: names, agents: agents, calendar: calendar)
+        var visible = kept.filter { agents[$0.workerID] != nil }
+        var built = WorkerChatLineBuilder.lines(from: Array(visible), names: names, agents: agents, calendar: calendar)
         while built.count > Self.maxLines {
             kept = kept.dropFirst(built.count - Self.maxLines)
-            built = WorkerChatLineBuilder.lines(from: Array(kept), names: names, agents: agents, calendar: calendar)
+            visible = kept.filter { agents[$0.workerID] != nil }
+            built = WorkerChatLineBuilder.lines(from: Array(visible), names: names, agents: agents, calendar: calendar)
         }
-        // ponytail: trimming drops raw records before collapsing, so a run past maxLines calls stays capped at the kept count
+        // ponytail: hidden records count toward maxLines, so old hidden history expires under the same cap.
         records = Array(kept)
         if built != lines {
             lines = built
@@ -208,7 +202,8 @@ public final class WorkerChatStore {
 
     private func updateReadNotice() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
-        let notice = Self.readNotice(for: readErrorWorkerIDs.map { WorkerChatLineBuilder.displayName(names[$0] ?? $0) })
+        let currentErrors = readErrorWorkerIDs.filter { agents[$0] != nil }
+        let notice = Self.readNotice(for: currentErrors.map { WorkerChatLineBuilder.displayName(names[$0] ?? $0) })
         if notice != readNotice {
             readNotice = notice
         }
