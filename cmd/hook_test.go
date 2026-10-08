@@ -1332,6 +1332,13 @@ func TestHookClaudeStartingAllowedAfterStopped(t *testing.T) {
 
 func TestHookClaudeUserPromptSubmit(t *testing.T) {
 	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "claude", State: "starting", Activity: "started"},
+		},
+	}
 	runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{
 		"prompt": "What's the time?\nSecond line ignored",
 	})
@@ -1339,11 +1346,62 @@ func TestHookClaudeUserPromptSubmit(t *testing.T) {
 	if pane.State != "working" {
 		t.Errorf("want state=working, got %q", pane.State)
 	}
-	if pane.Activity != "You: What's the time?" {
-		t.Errorf("activity: %q", pane.Activity)
+	if pane.Activity != "started" {
+		t.Errorf("activity: want previous value %q, got %q", "started", pane.Activity)
 	}
 	if pane.LastKind != "UserPromptSubmit" {
 		t.Errorf("last_kind: %q", pane.LastKind)
+	}
+}
+
+func TestHookCodexUserPromptSubmitLeavesActivityUnchanged(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "codex", State: "idle", Activity: "previous activity"},
+		},
+	}
+	runHookWithStdin(r, "codex", "working", "qm-abc", map[string]interface{}{"prompt": "keep this prompt private"})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" {
+		t.Fatalf("state = %q, want working", pane.State)
+	}
+	if pane.Activity != "previous activity" {
+		t.Fatalf("activity = %q, want previous activity", pane.Activity)
+	}
+	if pane.LastKind != "UserPromptSubmit" {
+		t.Fatalf("last_kind = %q, want UserPromptSubmit", pane.LastKind)
+	}
+}
+
+func TestHookPiBeforeAgentStartLeavesActivityUnchanged(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "pi", State: "starting", Activity: "started"},
+		},
+	}
+	runHookWithStdin(r, "pi", "session_start", "qm-abc", map[string]interface{}{"prompt": "session prompt"})
+	if got := rec.lastState.Panes["primary"].Activity; got != "started" {
+		t.Fatalf("session_start activity = %q, want started", got)
+	}
+	runHookWithStdin(r, "pi", "before_agent_start", "qm-abc", map[string]interface{}{"prompt": "keep this prompt private"})
+	pane := rec.lastState.Panes["primary"]
+	if pane.Activity != "started" {
+		t.Fatalf("before_agent_start activity = %q, want previous value %q", pane.Activity, "started")
+	}
+	runHookWithStdin(r, "pi", "before_agent_start", "qm-abc", map[string]interface{}{"text": "private fallback prompt"})
+	if got := rec.lastState.Panes["primary"].Activity; got != "started" {
+		t.Fatalf("before_agent_start fallback activity = %q, want previous value %q", got, "started")
+	}
+	runHookWithStdin(r, "pi", "agent_start", "qm-abc", nil)
+	pane = rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Activity != "started" {
+		t.Fatalf("agent_start pane = %+v, want working with previous activity", pane)
 	}
 }
 
@@ -1444,6 +1502,55 @@ func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 	}
 	if pane.LastKind != "PostToolUse" {
 		t.Errorf("PostToolUse did not update LastKind: %q", pane.LastKind)
+	}
+}
+
+func TestHookClaudeToolFailureClosesToolAndPreventsBackdating(t *testing.T) {
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r, rec := newTestRunner(t)
+	r.Now = func() time.Time { return base.Add(50 * time.Millisecond) }
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {
+				Role: "primary", Agent: "claude", State: "working", Activity: "Read: file.go", Tool: "Read",
+				ClaudePromptID: "failure-turn",
+				ClaudeOpenChatActions: []state.ClaudeOpenChatAction{{
+					ToolUseID: "read-failed", PromptID: "failure-turn", StartedAt: base,
+				}, {
+					ToolUseID: "other-tool", PromptID: "other-turn", StartedAt: base,
+				}},
+			},
+		},
+	}
+	runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{
+		"prompt_id": "failure-turn", "tool_use_id": "read-failed", "tool_name": "Read",
+		"error": "Exit code 1", "is_interrupt": false,
+	})
+	if entries := chatEntries(rec.events[len(rec.events)-1]); len(entries) != 0 {
+		t.Fatalf("failed tool end added chat entries: %#v", entries)
+	}
+	pane := rec.lastState.Panes["primary"]
+	if pane.Tool != "" {
+		t.Fatalf("tool = %q, want cleared", pane.Tool)
+	}
+	if len(pane.ClaudeOpenChatActions) != 1 || pane.ClaudeOpenChatActions[0].ToolUseID != "other-tool" {
+		t.Fatalf("open actions = %#v, want only unrelated action left", pane.ClaudeOpenChatActions)
+	}
+
+	sayAt := base.Add(100 * time.Millisecond)
+	r.Now = func() time.Time { return sayAt }
+	runHookWithStdin(r, "claude", "say", "qm-abc", map[string]interface{}{
+		"message_id": "failure-result", "prompt_id": "failure-turn", "index": 0,
+		"final": true, "delta": "The read failed.",
+	})
+	entries := chatEntries(rec.events[len(rec.events)-1])
+	if len(entries) != 1 {
+		t.Fatalf("failure narration entries = %#v, want one", entries)
+	}
+	if got, ok := entries[0]["chat_timestamp"].(time.Time); ok && !got.Equal(sayAt) {
+		t.Fatalf("failure narration timestamp = %s, want arrival time %s", got, sayAt)
 	}
 }
 
@@ -2726,7 +2833,7 @@ func TestHookCodexEndToEnd(t *testing.T) {
 			action:       "working",
 			payload:      map[string]interface{}{"hook_event_name": "UserPromptSubmit", "prompt": "What changed?\nignore"},
 			wantState:    "working",
-			wantActivity: "You: What changed?",
+			wantActivity: "started",
 			wantKind:     "UserPromptSubmit",
 		},
 		{
@@ -2948,18 +3055,6 @@ func TestHookCodexRequestUserInputToolEndClearsQuestion(t *testing.T) {
 	}
 }
 
-func TestPiPromptActivityUsesUserPrefix(t *testing.T) {
-	if got := piPromptActivity(piPayload{Prompt: "Fix this\nignore"}); got != "You: Fix this" {
-		t.Fatalf("prompt activity: want %q, got %q", "You: Fix this", got)
-	}
-	if got := piPromptActivity(piPayload{Text: "Fallback text"}); got != "You: Fallback text" {
-		t.Fatalf("text activity: want %q, got %q", "You: Fallback text", got)
-	}
-	if got := piPromptActivity(piPayload{}); got != "" {
-		t.Fatalf("empty prompt activity: want empty, got %q", got)
-	}
-}
-
 func TestPiToolActivityUsesClaudeVocabulary(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -3024,9 +3119,11 @@ func TestHookPiMessageActivityUsesStreamingText(t *testing.T) {
 		want    string
 	}{
 		{
-			action:  "message_update",
-			payload: map[string]interface{}{"snippet": "Streaming answer\nignored"},
-			want:    "Streaming answer",
+			action: "message_update",
+			payload: map[string]interface{}{
+				"assistantMessageEvent": map[string]interface{}{"type": "text_end", "content": "Streaming answer\nignored"},
+			},
+			want: "Streaming answer",
 		},
 		{
 			action: "message_end",
@@ -3056,10 +3153,43 @@ func TestHookPiMessageActivityFallsBackWhenTextMissing(t *testing.T) {
 	for _, action := range []string{"message_update", "message_end"} {
 		t.Run(action, func(t *testing.T) {
 			r, rec := newTestRunner(t)
+			rec.lastState = &state.SessionState{
+				SessionID: "qm-abc",
+				Version:   state.SchemaVersion,
+				Panes: map[string]state.PaneState{
+					"primary": {Role: "primary", Agent: "pi", State: "working", Activity: "previous activity"},
+				},
+			}
 			runHookWithStdin(r, "pi", action, "qm-abc", nil)
 			pane := rec.lastState.Panes["primary"]
-			if pane.Activity != "Replying…" {
-				t.Fatalf("activity: want %q, got %q", "Replying…", pane.Activity)
+			if pane.Activity != "previous activity" {
+				t.Fatalf("activity: want previous value %q, got %q", "previous activity", pane.Activity)
+			}
+		})
+	}
+}
+
+func TestHookPiPromptOnlyFallbackDoesNotUpdateActivityOrSay(t *testing.T) {
+	for _, action := range []string{"message_update", "message_end", "say"} {
+		t.Run(action, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			rec.lastState = &state.SessionState{
+				SessionID: "qm-abc",
+				Version:   state.SchemaVersion,
+				Panes: map[string]state.PaneState{
+					"primary": {Role: "primary", Agent: "pi", State: "working", Activity: "previous activity"},
+				},
+			}
+			runHookWithStdin(r, "pi", action, "qm-abc", map[string]interface{}{
+				"prompt": "private prompt", "text": "private prompt", "snippet": "You: private prompt",
+				"recent": []string{"private prompt"},
+			})
+			pane := rec.lastState.Panes["primary"]
+			if pane.Activity != "previous activity" {
+				t.Fatalf("activity = %q, want previous value %q", pane.Activity, "previous activity")
+			}
+			if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "" {
+				t.Fatalf("prompt-only event emitted say entry %q", got)
 			}
 		})
 	}
@@ -3126,7 +3256,7 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 		},
 		{action: "before_agent_start", wantState: "starting", wantActivity: "started"},
 		{action: "agent_start", wantState: "working", wantActivity: "started"},
-		{action: "message_update", wantState: "working", wantActivity: "Replying…"},
+		{action: "message_update", wantState: "working", wantActivity: "started"},
 		{
 			action: "message_end",
 			payload: map[string]interface{}{

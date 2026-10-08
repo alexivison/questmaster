@@ -442,8 +442,6 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		setState = "working"
 		if isTaskNotification(payload.Prompt) {
 			setActivity = "Background agent resumed"
-		} else {
-			setActivity = "You: " + truncatePromptLine(payload.Prompt)
 		}
 		lastKind = "UserPromptSubmit"
 		suppressStateForSubagent = true
@@ -1586,7 +1584,6 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		lastKind = "SessionStart"
 	case "working":
 		setState = "working"
-		setActivity = "You: " + truncatePromptLine(payload.Prompt)
 		lastKind = "UserPromptSubmit"
 	case "tool_start":
 		setState = "working"
@@ -2202,10 +2199,12 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	)
 
 	switch opts.action {
-	case "session_start", "before_agent_start":
+	case "session_start":
 		setState = "starting"
-		setActivity = piPromptActivity(payload)
-		if setActivity == "" {
+		setActivity = "started"
+	case "before_agent_start":
+		setState = "starting"
+		if strings.TrimSpace(payload.Prompt) == "" && strings.TrimSpace(payload.Text) == "" {
 			setActivity = "started"
 		}
 	case "agent_start":
@@ -2213,14 +2212,12 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		lastKind = "agent_start"
 	case "message_update", "message_end":
 		setState = "working"
-		if text := piLastMessageText(payload); text != "" {
+		if text := piAssistantMessageText(payload); text != "" {
 			setActivity = truncatePromptLine(text)
-		} else {
-			setActivity = "Replying…"
 		}
 	case "say":
 		setState = "working"
-		setActivity = truncatePromptLine(piActivityText(payload))
+		setActivity = truncatePromptLine(piAssistantMessageText(payload))
 		lastKind = "say"
 	case "tool_execution_start":
 		setState = "working"
@@ -2402,20 +2399,11 @@ func piRecentForAction(action string, payload piPayload) ([]string, bool) {
 		return cleanPiRecent(payload.Recent), true
 	}
 	if action == "message_end" || action == "agent_end" {
-		if text := piLastMessageText(payload); text != "" {
+		if text := piAssistantMessageText(payload); text != "" {
 			return cleanPiRecent(strings.Split(text, "\n")), true
 		}
 	}
 	return nil, false
-}
-
-func piPromptActivity(p piPayload) string {
-	for _, prompt := range []string{p.Prompt, p.Text} {
-		if strings.TrimSpace(prompt) != "" {
-			return "You: " + truncatePromptLine(prompt)
-		}
-	}
-	return ""
 }
 
 func piQuestionText(p piPayload) string {
@@ -2598,25 +2586,6 @@ func piArgsSnippet(value interface{}) string {
 	}
 }
 
-func piLastMessageText(p piPayload) string {
-	if text := piAssistantMessageText(p); text != "" {
-		return text
-	}
-	if strings.TrimSpace(p.Text) != "" {
-		return p.Text
-	}
-	if strings.TrimSpace(p.Snippet) != "" {
-		return p.Snippet
-	}
-	if p.Recent != nil {
-		clean := cleanPiRecent(p.Recent)
-		if len(clean) > 0 {
-			return clean[len(clean)-1]
-		}
-	}
-	return p.Prompt
-}
-
 func piAssistantMessageText(p piPayload) string {
 	for i := len(p.Messages) - 1; i >= 0; i-- {
 		if text := piTextFromMessage(p.Messages[i]); text != "" {
@@ -2650,13 +2619,6 @@ func piAgentEndError(p piPayload) string {
 
 func piAgentEndAborted(p piPayload) bool {
 	return strings.EqualFold(strings.TrimSpace(p.StopReason), "aborted")
-}
-
-func piActivityText(p piPayload) string {
-	if strings.TrimSpace(p.Snippet) != "" {
-		return p.Snippet
-	}
-	return piLastMessageText(p)
 }
 
 func piTextFromMessage(value interface{}) string {

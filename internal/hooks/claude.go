@@ -20,6 +20,7 @@ var claudeEvents = []claudeEntry{
 	{Event: "UserPromptSubmit", Action: "working"},
 	{Event: "PreToolUse", Action: "tool_start"},
 	{Event: "PostToolUse", Action: "tool_end"},
+	{Event: "PostToolUseFailure", Action: "tool_end"},
 	{Event: "MessageDisplay", Action: "say", Async: true},
 	{Event: "Stop", Action: "done"},
 	{Event: "SubagentStop", Action: "subagent_stop"},

@@ -195,6 +195,7 @@ func TestClaudeInstallSkipsCurrentSettingsWithoutReformatting(t *testing.T) {
     "SessionStart": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh starting", "type": "command"}]}],
     "Stop": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh done", "type": "command"}]}],
     "PostToolUse": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh tool_end", "type": "command"}]}],
+    "PostToolUseFailure": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh tool_end", "type": "command"}]}],
     "MessageDisplay": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh say", "type": "command", "async": true}]}],
     "UserPromptSubmit": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh working", "type": "command"}]}]
   },
@@ -422,7 +423,7 @@ func TestClaudeInstallPreservesUserManagedHooks(t *testing.T) {
 	}
 
 	// Events without user-managed entries get a single questmaster block.
-	for _, ev := range []string{"UserPromptSubmit", "Notification", "SessionEnd", "SubagentStop", "PostToolUse"} {
+	for _, ev := range []string{"UserPromptSubmit", "Notification", "SessionEnd", "SubagentStop", "PostToolUse", "PostToolUseFailure"} {
 		arr, _ := hooks[ev].([]interface{})
 		if len(arr) != 1 {
 			t.Errorf("%s: want 1 questmaster entry, got %d", ev, len(arr))
@@ -518,7 +519,7 @@ func TestClaudeUninstallRemovesOnlyQuestmasterEntries(t *testing.T) {
 	}
 
 	// Events that only had questmaster content should now be absent.
-	for _, ev := range []string{"UserPromptSubmit", "Stop", "SubagentStop", "Notification", "SessionEnd", "PostToolUse"} {
+	for _, ev := range []string{"UserPromptSubmit", "Stop", "SubagentStop", "Notification", "SessionEnd", "PostToolUse", "PostToolUseFailure"} {
 		if _, present := hooks[ev]; present {
 			t.Errorf("%s should be pruned after uninstall, still present: %+v", ev, hooks[ev])
 		}
@@ -564,6 +565,25 @@ func TestClaudeStatus(t *testing.T) {
 	}
 	if got := c.Status(); got.Status != StatusCurrent {
 		t.Errorf("post-install status: %+v", got)
+	}
+	settings := readSettings(t, c)
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	delete(hooks, "PostToolUseFailure")
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		t.Fatalf("encode legacy settings: %v", err)
+	}
+	if err := os.WriteFile(c.settingsPath(), append(data, '\n'), 0o644); err != nil {
+		t.Fatalf("write legacy settings: %v", err)
+	}
+	if got := c.Status(); got.Status != StatusOutdated {
+		t.Fatalf("install without PostToolUseFailure should be Outdated: %+v", got)
+	}
+	if err := c.Install(); err != nil {
+		t.Fatalf("reinstall legacy settings: %v", err)
+	}
+	if got := c.Status(); got.Status != StatusCurrent {
+		t.Fatalf("status after reinstall: %+v", got)
 	}
 	// Mutate the script — should flip to Outdated.
 	if err := os.WriteFile(c.scriptPath(), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {

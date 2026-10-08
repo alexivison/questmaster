@@ -628,6 +628,36 @@ func runOpenCodeHookRaw(r *HookRunner, sessionID string, payload []byte) string 
 	return buf.String()
 }
 
+func TestHookOpenCodeUserPromptLeavesActivityUnchanged(t *testing.T) {
+	r, rec := newTestRunner(t)
+	const previousActivity = "previous activity"
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-opencode-prompt",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "opencode", State: "starting", Activity: previousActivity},
+		},
+	}
+	openCodeHookEvent(t, r, "qm-opencode-prompt", "session.status", map[string]interface{}{
+		"status": map[string]interface{}{"type": "busy"},
+	})
+	openCodeHookEvent(t, r, "qm-opencode-prompt", "message.part.updated", map[string]interface{}{
+		"part": map[string]interface{}{
+			"type": "text", "text": "keep this prompt private", "messageID": "user-message",
+		},
+	})
+	openCodeHookEvent(t, r, "qm-opencode-prompt", "message.updated", map[string]interface{}{
+		"info": map[string]interface{}{"id": "user-message", "role": "user"},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" {
+		t.Fatalf("state = %q, want working", pane.State)
+	}
+	if pane.Activity != previousActivity {
+		t.Fatalf("activity = %q, want previous value %q", pane.Activity, previousActivity)
+	}
+}
+
 func TestHookOpenCodeFixtureIgnoresUserPromptRecordsAssistantText(t *testing.T) {
 	r, rec := newTestRunner(t)
 	sessionID := "qm-opencode-role-fixture"
