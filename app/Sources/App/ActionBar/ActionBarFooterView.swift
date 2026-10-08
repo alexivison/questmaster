@@ -191,7 +191,7 @@ struct ActionBarFooterView: View {
                 symbolName: "bubble.left.and.bubble.right",
                 tooltip: tooltip("Open Worker Chat", Keymap.Command.toggleWorkerChatDock),
                 isActive: navState.dockVisible && model.dockContentMode == .workerChat,
-                isEnabled: model.sessionRole?.hasWorkerChat == true,
+                isEnabled: model.sessionRole != nil,
                 action: onOpenWorkerChat
             ),
             .empty, .empty, .empty, .empty,

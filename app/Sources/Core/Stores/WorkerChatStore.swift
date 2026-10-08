@@ -19,13 +19,12 @@ public struct WorkerFeedRequest: Equatable {
     }
 }
 
-/// The worker chat feed for the attached session's group: the master's workers, or a worker's
-/// siblings. It owns the cursors, the bounded history and the rendered `lines`; the app only
-/// executes the requests it hands out and feeds the responses back.
+/// The worker chat feed for an attached master and its workers. It owns the cursors, the bounded
+/// history and the rendered `lines`; the app only executes requests and feeds responses back.
 ///
 /// Pull policy: a request is handed out when the dock is visible and the attached master changed,
-/// the dock just opened, a worker of the group changed, or the last response said `has_more`. At
-/// most one request is in flight; a change that arrives meanwhile is picked up by the next one.
+/// the dock just opened, a worker changed, or the last response said `has_more`. At most one
+/// request is in flight; a change that arrives meanwhile is picked up by the next one.
 ///
 /// Not thread-safe; callers use it on the main thread.
 @Observable
@@ -233,9 +232,7 @@ public final class WorkerChatStore {
         switch SessionRoleKind(role: selected.role) {
         case .master:
             return selected.id
-        case .worker:
-            return selected.parentID.isEmpty ? nil : selected.parentID
-        case .standalone, .tmux, .orphan:
+        case .worker, .standalone, .tmux, .orphan:
             return nil
         }
     }

@@ -488,7 +488,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showDockContent(_ content: DockContent, focusDock: Bool) {
-        guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID, role: selectedSessionRole()) else {
+        guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID) else {
             if content == .workerChat {
                 NSSound.beep()
             }
@@ -931,7 +931,7 @@ enum DockCommandRouting {
 }
 
 enum DockContentRouting {
-    static func canShow(_ content: DockContent, sessionID: String?, role: SessionRoleKind? = nil) -> Bool {
+    static func canShow(_ content: DockContent, sessionID: String?) -> Bool {
         let hasSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         switch content {
         case .questList:
@@ -939,7 +939,7 @@ enum DockContentRouting {
         case .artifactList, .artifactViewer:
             return hasSession
         case .workerChat:
-            return hasSession && role?.hasWorkerChat == true
+            return hasSession
         }
     }
 }

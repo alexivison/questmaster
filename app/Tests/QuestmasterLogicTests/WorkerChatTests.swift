@@ -28,7 +28,7 @@ struct WorkerChatTests {
         failedPullRetriesOnNextSync()
         attachChangeResetsTheFeed()
         hiddenAttachmentChangesResetWhenReopened()
-        attachChangeWithinTheGroupPullsAgainKeepingCursors()
+        nonMasterRolesDoNotPull()
         unreadableWorkerShowsANoticeAndRetries()
         manyUnreadableWorkersShareOneBoundedNotice()
         removedWorkerHidesItsChatLines()
@@ -38,7 +38,6 @@ struct WorkerChatTests {
         removeAndReAddDuringPullKeepsHistory()
         standaloneIsUnattached()
         historyIsBounded()
-        roleAvailability()
         print("WorkerChatTests: all tests passed")
     }
 
@@ -340,26 +339,18 @@ struct WorkerChatTests {
         expect(request?.masterID == "m2" && store.lines.isEmpty, "opening on another master should reset and pull its feed")
     }
 
-    private static func attachChangeWithinTheGroupPullsAgainKeepingCursors() {
-        let store = makeStore()
-        let request = store.sync(selectedSessionID: "w2", sessions: group(), isVisible: true)
-        expect(request?.masterID == "m", "a worker should pull its master's feed")
-        expect(store.isAttached, "a worker with a master is attached")
-        let cursor = WorkerFeedCursor(offset: 7, fileID: "a")
-        _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "hi")], cursors: ["w1": cursor]), for: request!)
-
-        var changedSibling = group()
-        changedSibling[1].lastChatAt = base(1)
-        let siblingChange = store.sync(selectedSessionID: "w2", sessions: changedSibling, isVisible: true)
-        expect(siblingChange?.cursors == ["w1": cursor], "a selected worker should keep its sibling cursors")
-        _ = store.receive(WorkerFeedPayload(), for: siblingChange!)
-
-        let sameMaster = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
-        expect(sameMaster?.masterID == "m", "switching between a worker and its master should pull")
-        expect(sameMaster?.cursors == ["w1": cursor], "the switch should keep the cursors")
-        expect(store.isAttached && store.lines.count == 2, "the feed should survive the switch")
-        _ = store.receive(WorkerFeedPayload(), for: sameMaster!)
-        expect(store.sync(selectedSessionID: "m", sessions: group(), isVisible: true) == nil, "the same attachment should not pull again")
+    private static func nonMasterRolesDoNotPull() {
+        for role in ["worker", "standalone", "tmux", "orphan", "future-role"] {
+            let store = makeStore()
+            let sessions = [
+                TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+                TrackerSession(id: "selected", title: "Selected", repoName: "Repo", role: role, parentID: "m"),
+                TrackerSession(id: "w1", title: "Sibling", repoName: "Repo", role: "worker", parentID: "m"),
+            ]
+            let request = store.sync(selectedSessionID: "selected", sessions: sessions, isVisible: true)
+            expect(request == nil, "a selected \(role) session should not pull worker chat")
+            expect(!store.isAttached && store.lines.isEmpty && store.readNotice == nil, "a selected \(role) session should have no feed state")
+        }
     }
 
     private static func unreadableWorkerShowsANoticeAndRetries() {
@@ -536,11 +527,6 @@ struct WorkerChatTests {
         }
         expect(store.lines.last.map(lastText) == " line \(WorkerChatStore.maxLines + 99)", "the newest line should be kept")
         expect(!store.lines.contains { lastText($0) == " line 0" }, "the oldest lines should be dropped")
-    }
-
-    private static func roleAvailability() {
-        expect(SessionRoleKind.master.hasWorkerChat && SessionRoleKind.worker.hasWorkerChat, "masters and workers have a chat")
-        expect(!SessionRoleKind.standalone.hasWorkerChat && !SessionRoleKind.tmux.hasWorkerChat && !SessionRoleKind.orphan.hasWorkerChat, "other roles have none")
     }
 
     // MARK: - Helpers

@@ -86,11 +86,6 @@ public enum SessionRoleKind: String, Equatable, CaseIterable {
             self = .standalone
         }
     }
-
-    /// Only masters and workers belong to a group with a worker chat.
-    public var hasWorkerChat: Bool {
-        self == .master || self == .worker
-    }
 }
 
 public enum SessionActivityStatusKind: String, Equatable, CaseIterable {
