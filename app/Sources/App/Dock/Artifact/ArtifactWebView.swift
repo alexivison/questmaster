@@ -32,19 +32,27 @@ struct ArtifactWebView: NSViewRepresentable {
     /// targeted: `forMainFrameOnly` keeps this out of embedded iframes, and the selector is scoped
     /// to `html`/`body` rather than the bare `::-webkit-scrollbar` (which matches every scrollable
     /// element), so an artifact's own scrollable panels keep their scrollbar as their only visual
-    /// scroll affordance. A `data-` attribute (rather than reusing or overwriting the artifact's
-    /// own `id`) bumps the selector's specificity so it holds even if the artifact's own
-    /// stylesheet — which loads after this injection — declares a `!important` rule of its own.
+    /// scroll affordance.
+    ///
+    /// A bare `data-` attribute selector only ties, specificity-wise, with an ordinary class-based
+    /// artifact rule (e.g. `html.report::-webkit-scrollbar{width:16px!important}`) — and since the
+    /// artifact's own stylesheet loads after this injection, a tie goes to the artifact, not to us.
+    /// `:not(#__qm_no_scrollbar__)` is the standard specificity hack: `:not()` counts the
+    /// specificity of its own argument, so a `:not()` of an id — one guaranteed never to match any
+    /// real element — makes the whole selector carry id-level weight, which beats an ordinary
+    /// class- or attribute-based artifact rule regardless of load order, `!important` included. (An
+    /// artifact rule that itself reaches id-level specificity would still win; that's rare enough
+    /// not to be worth guarding against here.)
     private static let scrollbarHidingScript = WKUserScript(
         source: """
         (function() {
             document.documentElement.setAttribute('data-qm-no-scrollbar', '');
             var style = document.createElement('style');
             style.textContent =
-                'html[data-qm-no-scrollbar]::-webkit-scrollbar,' +
-                'html[data-qm-no-scrollbar] body::-webkit-scrollbar' +
+                'html:not(#__qm_no_scrollbar__)[data-qm-no-scrollbar]::-webkit-scrollbar,' +
+                'html:not(#__qm_no_scrollbar__)[data-qm-no-scrollbar] body::-webkit-scrollbar' +
                 '{width:0!important;height:0!important;background:transparent!important}' +
-                'html[data-qm-no-scrollbar]{scrollbar-width:none}';
+                'html:not(#__qm_no_scrollbar__)[data-qm-no-scrollbar]{scrollbar-width:none}';
             document.documentElement.appendChild(style);
         })();
         """,

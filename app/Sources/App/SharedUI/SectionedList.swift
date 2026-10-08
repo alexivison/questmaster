@@ -129,14 +129,15 @@ final class ScrollerHidingNSView: NSView {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            // NotificationCenter runs every `queue: .main` observer for this notification
-            // synchronously, in registration order, within `post()` itself — including whatever
-            // AppKit's own per-scroll-view response to a style-preference change is. Reapplying
-            // directly here can land before that response and still lose: AppKit's own reset then
-            // runs right behind us, in the same synchronous pass, with no further notification left
-            // to react to it. Deferring to the next main-runloop turn — a `DispatchQueue.main.async`
-            // chained from inside the handler only runs once `post()` has returned — runs us after
-            // everything that same synchronous pass did, AppKit's reset included.
+            // AppKit's own response to this same notification could land synchronously within
+            // `post()` itself, or be deferred onto the main queue alongside this handler —
+            // NotificationCenter doesn't document which, or how it orders multiple observers of
+            // one notification relative to each other. Reapplying directly here only beats an
+            // uncooperative AppKit reset by accident, if ours happens to run after it. Deferring
+            // to the next main-runloop turn instead — a `DispatchQueue.main.async` chained from
+            // inside this handler only runs once this turn (and `post()`) has already finished —
+            // guarantees we run after whatever this turn did, AppKit's reset included, regardless
+            // of which order the two were invoked in.
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     self?.reapplyIfWindowed()

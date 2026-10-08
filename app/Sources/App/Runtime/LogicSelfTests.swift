@@ -1964,13 +1964,13 @@ enum LogicSelfTests {
     /// AppKit's own response to that same notification isn't guaranteed to land before or after
     /// ours, so reapplying directly inside the notification handler can still race it: if ours
     /// runs first, an AppKit reset landing right behind it re-breaks the gutter with nothing left
-    /// to react to it. `NotificationCenter` runs every `queue: .main` observer for a given
-    /// notification synchronously, in registration order, within `post()` itself (verified: a
-    /// second observer registered after the hider's fires synchronously right after it, and a
-    /// `DispatchQueue.main.async` hop chained from inside a handler only runs once `post()` has
-    /// returned) — so a second observer registered after the hider's own is a deterministic stand-in
-    /// for an uncooperative AppKit reset landing on the very next turn, proving the fix actually
-    /// defers past it rather than merely winning by accident.
+    /// to react to it. `NotificationCenter` doesn't document how it orders multiple observers of
+    /// one notification, so the stand-in for AppKit's reset below doesn't rely on that: it's
+    /// plain, unconditionally-sequential code run right after `post()` returns, not a second
+    /// observer racing the first. A single-hop reapply can only "win" that race by having already
+    /// run *during* `post()`, before this stand-in gets to run at all; the deferred fix wins
+    /// regardless, by running on the *next* main-runloop turn instead — after the stand-in, not
+    /// racing it.
     private static func testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt() throws {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
@@ -1995,20 +1995,12 @@ enum LogicSelfTests {
             "clip view should fill the scroll view width once the scroller is hidden, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
         )
 
-        // Registered after the hider's own observer, so it runs right behind it in the same
-        // synchronous `post()` pass — a deterministic stand-in for AppKit's own reset.
-        let competingReset = NotificationCenter.default.addObserver(
-            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            scrollView.hasVerticalScroller = true
-            scrollView.scrollerStyle = .legacy
-            scrollView.tile()
-        }
-        defer { NotificationCenter.default.removeObserver(competingReset) }
-
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        // Plain synchronous code, right after `post()` returns — the stand-in for AppKit's own
+        // reset, landing deterministically before any run-loop turn gets pumped below.
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .legacy
+        scrollView.tile()
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))
 
         try expect(
