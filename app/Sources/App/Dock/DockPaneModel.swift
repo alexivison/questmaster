@@ -65,6 +65,8 @@ final class DockPaneModel: ObservableObject {
     private var questFilterSuggestionsHidden = false
     private var questProjectFilterIDs: Set<String> = []
     private var questFilterFocusNonce = 0
+    /// Shared between the quest and artifact lists: only one is ever on screen at a time.
+    private var listGTracker = GPrefixTracker()
 
     var currentMode: DockContentMode {
         switch currentDockContent {
@@ -95,6 +97,9 @@ final class DockPaneModel: ObservableObject {
         }
         if artifactScope != desired.artifactScope {
             artifactScope = desired.artifactScope
+        }
+        if currentDockContent != desired.dockContent {
+            listGTracker.reset()
         }
         currentDockContent = desired.dockContent
         if currentMode != .artifacts {
@@ -154,6 +159,17 @@ final class DockPaneModel: ObservableObject {
         if Self.isFilterFocusShortcut(event) {
             return focusArtifactFilter()
         }
+
+        if Self.isJumpToBottomShortcut(event) {
+            return moveArtifactSelectionToEdge(last: true, snapshot: snapshot)
+        }
+        if Self.isJumpPrefixShortcut(event) {
+            if listGTracker.handleG() == .jumpToTop {
+                return moveArtifactSelectionToEdge(last: false, snapshot: snapshot)
+            }
+            return true
+        }
+        listGTracker.reset()
 
         if let direction = Self.plainListDirection(from: event) {
             return handleArtifactListDirection(direction, snapshot: snapshot)
@@ -521,6 +537,16 @@ final class DockPaneModel: ObservableObject {
             updateQuestModel(snapshot: snapshot, selectedID: selectedQuestID)
             return true
         }
+        if Self.isJumpToBottomShortcut(event) {
+            return moveQuestSelectionToEdge(atStart: false, snapshot: snapshot)
+        }
+        if Self.isJumpPrefixShortcut(event) {
+            if listGTracker.handleG() == .jumpToTop {
+                return moveQuestSelectionToEdge(atStart: true, snapshot: snapshot)
+            }
+            return true
+        }
+        listGTracker.reset()
         let chars = Self.plainShortcutCharacter(from: event)
         switch chars {
         case "j":
@@ -562,6 +588,23 @@ final class DockPaneModel: ObservableObject {
             projectIDs: questProjectFilterIDs
         )
         guard let nextID = QuestDisplayState.movedSelection(current: selectedQuestID, delta: delta, in: sections) else {
+            return false
+        }
+        setSelectedQuestID(nextID)
+        questScrollTargetID = nextID
+        updateQuestModel(snapshot: snapshot, selectedID: nextID)
+        return true
+    }
+
+    private func moveQuestSelectionToEdge(atStart: Bool, snapshot: RuntimeSnapshot) -> Bool {
+        let sections = QuestDisplayState.sections(
+            quests: snapshot.tracker.quests,
+            repos: snapshot.tracker.repos,
+            projects: snapshot.tracker.projects,
+            query: questTextQuery(),
+            projectIDs: questProjectFilterIDs
+        )
+        guard let nextID = QuestDisplayState.edgeSelection(atStart: atStart, in: sections) else {
             return false
         }
         setSelectedQuestID(nextID)
@@ -767,6 +810,23 @@ final class DockPaneModel: ObservableObject {
         ), nextID != selectedArtifactID else {
             return false
         }
+        return applyArtifactSelection(nextID, visibleArtifacts: visibleArtifacts, snapshot: snapshot)
+    }
+
+    private func moveArtifactSelectionToEdge(last: Bool, snapshot: RuntimeSnapshot) -> Bool {
+        let artifacts = ArtifactDisplayState.currentArtifacts(
+            in: snapshot.tracker,
+            preferredSessionID: preferredArtifactSessionID,
+            scope: artifactScope
+        )
+        let visibleArtifacts = filteredArtifacts(artifacts, tracker: snapshot.tracker)
+        guard let nextID = (last ? visibleArtifacts.last : visibleArtifacts.first)?.id else {
+            return false
+        }
+        return applyArtifactSelection(nextID, visibleArtifacts: visibleArtifacts, snapshot: snapshot)
+    }
+
+    private func applyArtifactSelection(_ nextID: String, visibleArtifacts: [ArtifactReference], snapshot: RuntimeSnapshot) -> Bool {
         setSelectedArtifactID(nextID)
         var nextModel = artifactModel
         nextModel.selectedArtifactID = nextID
@@ -1374,6 +1434,24 @@ final class DockPaneModel: ObservableObject {
             return nil
         }
         return event.charactersIgnoringModifiers?.lowercased()
+    }
+
+    /// `plainShortcutCharacter`/`plainListDirection` lowercase ignoring Shift, so they can't tell
+    /// plain `g` from `G` — these two check Shift explicitly instead.
+    private static func isJumpPrefixShortcut(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isEmpty else {
+            return false
+        }
+        return Keymap.List.jumpPrefix.matches(event.charactersIgnoringModifiers)
+    }
+
+    private static func isJumpToBottomShortcut(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == [.shift] else {
+            return false
+        }
+        return Keymap.List.jumpToBottom.matchesExactly(event.characters)
     }
 
     private static func isArtifactViewerBack(_ event: NSEvent) -> Bool {

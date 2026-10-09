@@ -9,6 +9,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let newQuestPresenter: NewQuestSheetPresenter
     private let settingsPresenter: SettingsSheetPresenter
     private let workerChatStore: WorkerChatStore
+    private var readSurfaceGTracker = GPrefixTracker()
 
     init(
         store: RuntimeStore,
@@ -108,8 +109,19 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private func handleReadSurfaceScroll(_ event: NSEvent) -> Bool {
         let isArtifactViewer = model.currentMode == .artifacts && model.currentArtifactRoute == .viewer
         guard isArtifactViewer || model.currentMode == .workerChat else {
+            readSurfaceGTracker.reset()
             return false
         }
+        if Self.isJumpToBottomEvent(event) {
+            return jumpReadSurface(toBottom: true, isArtifactViewer: isArtifactViewer)
+        }
+        if Self.isJumpPrefixEvent(event) {
+            if readSurfaceGTracker.handleG() == .jumpToTop {
+                return jumpReadSurface(toBottom: false, isArtifactViewer: isArtifactViewer)
+            }
+            return true
+        }
+        readSurfaceGTracker.reset()
         let lineStep = isArtifactViewer ? Self.artifactViewerLineStep : Self.workerChatLineStep
         guard let points = Self.readSurfaceScrollPoints(for: event, lineStep: lineStep, viewportHeight: bounds.height) else {
             return false
@@ -123,6 +135,41 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         }
         scroll(scrollView, by: points)
         return true
+    }
+
+    /// Jumps to the far edge of whichever read surface is active. Reuses `scroll`'s existing
+    /// origin clamp (an out-of-range magnitude lands exactly on 0 or the max), so the worker chat's
+    /// `WorkerChatBottomFollower` observes the same bounds-change it would from any other scroll and
+    /// re-derives `isFollowing` itself — no separate hook needed to resume following at the bottom.
+    private func jumpReadSurface(toBottom: Bool, isArtifactViewer: Bool) -> Bool {
+        if isArtifactViewer, let webView = firstDescendant(WKWebView.self) {
+            let js = toBottom ? "window.scrollTo(0, document.body.scrollHeight);" : "window.scrollTo(0, 0);"
+            webView.evaluateJavaScript(js)
+            return true
+        }
+        guard let scrollView = firstDescendant(NSScrollView.self) else {
+            return false
+        }
+        scroll(scrollView, by: toBottom ? .greatestFiniteMagnitude : -.greatestFiniteMagnitude)
+        return true
+    }
+
+    /// `charactersIgnoringModifiers` still reflects Shift's case change, so these check Shift
+    /// explicitly to tell plain `g` from `G` (see `DockPaneModel`'s matching pair).
+    private static func isJumpPrefixEvent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isEmpty else {
+            return false
+        }
+        return Keymap.Viewer.jumpPrefix.matches(event.charactersIgnoringModifiers)
+    }
+
+    private static func isJumpToBottomEvent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == [.shift] else {
+            return false
+        }
+        return Keymap.Viewer.jumpToBottom.matchesExactly(event.characters)
     }
 
     private static func readSurfaceScrollPoints(for event: NSEvent, lineStep: CGFloat, viewportHeight: CGFloat) -> CGFloat? {

@@ -158,6 +158,10 @@ public enum Keymap {
         public static let delete = CharacterBinding(keys: ["d"])
         public static let toggleWorkersCollapsed = CharacterBinding(keys: ["c"])
         public static let toggleAllWorkersCollapsed = CharacterBinding(keys: ["C"], modifiers: [.shift])
+        /// First half of the vim `gg` jump-to-top chord; matched only with no modifiers (plain `g`)
+        /// so it never collides with `jumpToBottom`'s shifted `G`.
+        public static let jumpPrefix = CharacterBinding(keys: ["g"])
+        public static let jumpToBottom = CharacterBinding(keys: ["G"], modifiers: [.shift])
     }
 
     public enum Viewer {
@@ -170,6 +174,10 @@ public enum Keymap {
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let openRelated = CharacterBinding(keys: ["o"])
         public static let back = CharacterBinding(keys: ["h", "\u{1b}"])
+        /// First half of the vim `gg` jump-to-top chord; matched only with no modifiers (plain `g`)
+        /// so it never collides with `jumpToBottom`'s shifted `G`.
+        public static let jumpPrefix = CharacterBinding(keys: ["g"])
+        public static let jumpToBottom = CharacterBinding(keys: ["G"], modifiers: [.shift])
     }
 
     public enum NewSession {
