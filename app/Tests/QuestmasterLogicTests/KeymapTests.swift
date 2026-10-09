@@ -14,6 +14,8 @@ struct KeymapTests {
         controlHandoffMapsListControlDirections()
         trackerSessionSelectBindingsUsePlainCommandDigits()
         displayGlyphOrdersModifiersAndUppercasesTheKey()
+        gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter()
+        gPrefixTrackerResetClearsPendingState()
         print("KeymapTests: all tests passed")
     }
 
@@ -154,6 +156,30 @@ struct KeymapTests {
         expect(Keymap.ControlHandoff.direction(forKeyCode: 37) == .right, "plain ctrl-l should become list-right handoff")
         expect(Keymap.ControlHandoff.direction(forKeyCode: 38) == .down, "plain ctrl-j should stay list down")
         expect(Keymap.ControlHandoff.direction(forKeyCode: 40) == .up, "plain ctrl-k should stay list up")
+    }
+
+    private static func gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter() {
+        var tracker = GPrefixTracker()
+        let start = Date()
+        expect(tracker.handleG(now: start) == .pendingSecondG, "first g should arm the chord")
+        expect(tracker.handleG(now: start.addingTimeInterval(0.2)) == .jumpToTop, "second g within the window should resolve to jumpToTop")
+
+        expect(tracker.handleG(now: start.addingTimeInterval(1)) == .pendingSecondG, "g after a resolved chord should re-arm")
+        expect(
+            tracker.handleG(now: start.addingTimeInterval(1).addingTimeInterval(2)) == .pendingSecondG,
+            "g after the window expires should re-arm instead of resolving"
+        )
+    }
+
+    private static func gPrefixTrackerResetClearsPendingState() {
+        var tracker = GPrefixTracker()
+        let start = Date()
+        expect(tracker.handleG(now: start) == .pendingSecondG, "first g should arm the chord")
+        tracker.reset()
+        expect(
+            tracker.handleG(now: start.addingTimeInterval(0.1)) == .pendingSecondG,
+            "g after a reset should re-arm rather than resolve, as a non-g key between presses would require"
+        )
     }
 
     private static var commandBindings: [Keymap.CommandBinding] {

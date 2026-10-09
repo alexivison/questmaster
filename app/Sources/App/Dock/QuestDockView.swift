@@ -8,6 +8,9 @@ struct QuestDockModel: Equatable {
     var selectedQuestID: String?
     var selectedQuestIDs: Set<String>
     var scrollTargetID: String?
+    /// Bumped whenever `scrollTargetID` must scroll into view even if it didn't change (a `gg`/`G`
+    /// jump back to the already-selected edge row).
+    var scrollNonce: Int = 0
     var query: String
     var filterTokens: [ArtifactFilterToken]
     var filterSuggestions: [ArtifactFilterSuggestion]
@@ -113,7 +116,7 @@ struct QuestDockView: View {
         SectionedList(
             selectedID: model.selectedQuestID,
             scrollOnSelectionChange: false,
-            scrollTargetID: model.scrollTargetID
+            scrollTarget: model.scrollTargetID.map { ScrollTarget(id: $0, nonce: model.scrollNonce) }
         ) {
             ForEach(model.sections) { section in
                 let color = sectionColor(section)

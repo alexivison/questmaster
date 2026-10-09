@@ -33,6 +33,10 @@ enum LogicSelfTests {
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
+        ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
+        ("testQuestListGChordJumpsToEdgesAndForcesRescroll", testQuestListGChordJumpsToEdgesAndForcesRescroll),
+        ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
+        ("testListGChordPendingGResetsOnGAndOnInterveningKey", testListGChordPendingGResetsOnGAndOnInterveningKey),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
         ("testArtifactDockCopiesMultipleSelectedArtifactPathsWithY", testArtifactDockCopiesMultipleSelectedArtifactPathsWithY),
@@ -660,6 +664,127 @@ enum LogicSelfTests {
         )
         model.selectQuest("qst-b")
         try expect(coordinator.state(for: "qm-a").selectedQuestID == "qst-b", "quest selection should persist before the next render")
+    }
+
+    private static func testGChordShortcutDecidesFromCharacterIgnoringCapsLock() throws {
+        try expect(GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5)), "plain g should arm the chord")
+        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("g", keyCode: 5)), "plain g should not jump to bottom")
+
+        try expect(GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.shift])), "shift-G should jump to bottom")
+        try expect(!GChordShortcut.isPrefix(try keyEvent("G", keyCode: 5, modifierFlags: [.shift])), "shift-G should not arm the chord")
+
+        // Caps Lock alone types "G" without Shift being held; the decision must follow the
+        // resulting character, not a `flags == [.shift]` match.
+        try expect(GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.capsLock])), "caps-lock G should jump to bottom")
+        try expect(!GChordShortcut.isPrefix(try keyEvent("G", keyCode: 5, modifierFlags: [.capsLock])), "caps-lock G should not arm the chord")
+
+        // Caps Lock plus Shift cancel out back to lowercase "g".
+        try expect(GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5, modifierFlags: [.capsLock, .shift])), "caps-lock+shift g should arm the chord")
+        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("g", keyCode: 5, modifierFlags: [.capsLock, .shift])), "caps-lock+shift g should not jump to bottom")
+
+        try expect(!GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5, modifierFlags: [.command])), "command-g should not arm the chord")
+        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.command, .shift])), "command-shift-G should not jump to bottom")
+    }
+
+    private static func testQuestListGChordJumpsToEdgesAndForcesRescroll() throws {
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [],
+            quests: [
+                QuestItem(id: "qst-a", content: "A", updatedAt: "2026-07-03T01:00:00Z"),
+                QuestItem(id: "qst-b", content: "B", updatedAt: "2026-07-03T02:00:00Z"),
+                QuestItem(id: "qst-c", content: "C", updatedAt: "2026-07-03T03:00:00Z"),
+            ]
+        )
+        // Sorted newest first within the "no project" bucket: [qst-c, qst-b, qst-a].
+        let model = DockPaneModel()
+        _ = model.apply(
+            SessionViewState(dockContent: .questList, selectedQuestID: "qst-c"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+
+        let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
+        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should be handled")
+        try expect(model.questModel.selectedQuestID == "qst-a", "G should select the last quest")
+        let nonceAfterFirstJump = model.questModel.scrollNonce
+
+        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should still be handled when already at the last quest")
+        try expect(model.questModel.scrollNonce != nonceAfterFirstJump, "repeating G at the edge should still force a rescroll")
+
+        let g = try keyEvent("g", keyCode: 5)
+        try expect(model.handleKeyDown(g, snapshot: snapshot), "first g should arm the gg chord")
+        try expect(model.handleKeyDown(g, snapshot: snapshot), "second g within the window should jump to the first quest")
+        try expect(model.questModel.selectedQuestID == "qst-c", "gg should select the first quest")
+    }
+
+    private static func testArtifactListGChordJumpsToEdgesAndForcesRescroll() throws {
+        let first = ArtifactReference(kind: "html", path: "/tmp/first.html", label: "First", sessionID: "qm-a", addedAt: "")
+        let second = ArtifactReference(kind: "html", path: "/tmp/second.html", label: "Second", sessionID: "qm-a", addedAt: "")
+        let third = ArtifactReference(kind: "html", path: "/tmp/third.html", label: "Third", sessionID: "qm-a", addedAt: "")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: [first, second, third]),
+            ]),
+        ])
+
+        let model = DockPaneModel()
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: first.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+
+        let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
+        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should be handled")
+        try expect(model.artifactModel.selectedArtifactID == third.id, "G should select the last artifact")
+        let nonceAfterFirstJump = model.artifactModel.scrollNonce
+
+        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should still be handled when already at the last artifact")
+        try expect(model.artifactModel.scrollNonce != nonceAfterFirstJump, "repeating G at the edge should still force a rescroll")
+
+        let g = try keyEvent("g", keyCode: 5)
+        try expect(model.handleKeyDown(g, snapshot: snapshot), "first g should arm the gg chord")
+        try expect(model.handleKeyDown(g, snapshot: snapshot), "second g within the window should jump to the first artifact")
+        try expect(model.artifactModel.selectedArtifactID == first.id, "gg should select the first artifact")
+    }
+
+    private static func testListGChordPendingGResetsOnGAndOnInterveningKey() throws {
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [],
+            quests: [
+                QuestItem(id: "qst-a", content: "A", updatedAt: "2026-07-03T01:00:00Z"),
+                QuestItem(id: "qst-b", content: "B", updatedAt: "2026-07-03T02:00:00Z"),
+                QuestItem(id: "qst-c", content: "C", updatedAt: "2026-07-03T03:00:00Z"),
+            ]
+        )
+        let g = try keyEvent("g", keyCode: 5)
+        let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
+
+        let afterG = DockPaneModel()
+        _ = afterG.apply(
+            SessionViewState(dockContent: .questList, selectedQuestID: "qst-b"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+        try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
+        try expect(afterG.handleKeyDown(shiftG, snapshot: snapshot), "G should jump to the last quest, not continue the chord")
+        try expect(afterG.questModel.selectedQuestID == "qst-a", "G should select the last quest")
+        try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g right after G should re-arm rather than resolve")
+        try expect(afterG.questModel.selectedQuestID == "qst-a", "a freshly re-armed g alone should not move the selection")
+
+        let afterOtherKey = DockPaneModel()
+        _ = afterOtherKey.apply(
+            SessionViewState(dockContent: .questList, selectedQuestID: "qst-b"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+        try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
+        _ = afterOtherKey.handleKeyDown(try keyEvent("/", keyCode: 44), snapshot: snapshot)
+        try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g after an unrelated key should re-arm rather than resolve")
+        try expect(afterOtherKey.questModel.selectedQuestID == "qst-b", "a freshly re-armed g alone should not move the selection")
     }
 
     private static func testQuestDockCopiesSelectedQuestContentsWithY() throws {
@@ -2064,10 +2189,14 @@ enum LogicSelfTests {
     }
 
     private static func keyEvent(_ characters: String, keyCode: UInt16) throws -> NSEvent {
+        try keyEvent(characters, keyCode: keyCode, modifierFlags: [])
+    }
+
+    private static func keyEvent(_ characters: String, keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) throws -> NSEvent {
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [],
+            modifierFlags: modifierFlags,
             timestamp: 0,
             windowNumber: 0,
             context: nil,
