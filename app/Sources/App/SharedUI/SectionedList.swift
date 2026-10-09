@@ -2,11 +2,19 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
+/// A request to scroll a row into view. `nonce` lets a caller force a fresh scroll even when `id`
+/// repeats — e.g. `gg`/`G` landing back on the row that's already selected and scrolled off
+/// screen, where `SectionedList`'s other triggers (`selectedID`, this same `id`) wouldn't change.
+struct ScrollTarget: Equatable {
+    var id: String
+    var nonce: Int
+}
+
 struct SectionedList<Content: View>: View {
     let selectedID: String?
     var scrollOnAppear = false
     var scrollOnSelectionChange = true
-    var scrollTargetID: String?
+    var scrollTarget: ScrollTarget?
     private let content: () -> Content
     @State private var scrollDebounceTask: Task<Void, Never>?
 
@@ -14,13 +22,13 @@ struct SectionedList<Content: View>: View {
         selectedID: String?,
         scrollOnAppear: Bool = false,
         scrollOnSelectionChange: Bool = true,
-        scrollTargetID: String? = nil,
+        scrollTarget: ScrollTarget? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.selectedID = selectedID
         self.scrollOnAppear = scrollOnAppear
         self.scrollOnSelectionChange = scrollOnSelectionChange
-        self.scrollTargetID = scrollTargetID
+        self.scrollTarget = scrollTarget
         self.content = content
     }
 
@@ -47,8 +55,8 @@ struct SectionedList<Content: View>: View {
                 }
                 scheduleScroll(with: proxy, id: nextID)
             }
-            .onChange(of: scrollTargetID) { _, nextID in
-                scheduleScroll(with: proxy, id: nextID)
+            .onChange(of: scrollTarget) { _, next in
+                scheduleScroll(with: proxy, id: next?.id)
             }
         }
     }

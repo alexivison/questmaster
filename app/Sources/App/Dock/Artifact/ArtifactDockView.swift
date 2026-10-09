@@ -29,6 +29,9 @@ struct ArtifactDockModel: Equatable {
     var filterFocusNonce: Int = 0
     /// Bumped to force the viewer to reload the current artifact on demand.
     var reloadNonce: Int = 0
+    /// Bumped whenever the selected artifact must scroll into view even if its id didn't change (a
+    /// `gg`/`G` jump back to the already-selected edge row).
+    var scrollNonce: Int = 0
 
     static let empty = ArtifactDockModel(
         currentSessionTitle: "",
@@ -81,7 +84,11 @@ struct ArtifactDockView: View {
             case .empty:
                 selectorStatus(emptyTitle, detail: emptyDetail)
             case .missing, .unsupported, .viewing:
-                SectionedList(selectedID: model.selectedArtifactID, scrollOnAppear: true) {
+                SectionedList(
+                    selectedID: model.selectedArtifactID,
+                    scrollOnAppear: true,
+                    scrollTarget: model.selectedArtifactID.map { ScrollTarget(id: $0, nonce: model.scrollNonce) }
+                ) {
                     ForEach(model.artifacts) { artifact in
                         ArtifactRow(
                             artifact: artifact,
