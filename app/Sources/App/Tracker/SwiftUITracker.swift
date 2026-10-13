@@ -1132,11 +1132,12 @@ private struct TrackerWorkerSummaryPill: View {
 /// Main sets that text at 11pt, so every plate draws at 11/8 of its SVG, alike in x and y. Shapes, gaps, corner
 /// radii, the cap and the portrait all scale together, so the portrait keeps the SVG's share of the plate.
 ///
-/// Every outer edge, border included, lands on the SVG's outer edge times the scale: the app draws its 1.5pt border
-/// outside each fill, so a fill sits one border inside the SVG's outer edge. The SVG's frame path edges (y 22 and 46,
-/// x 281) are the plate body's outer edges, with its strips 1.5 inside, so the frame is the strips outset by 1.5
-/// and flush with the body's bottom and right. Only each plate's right edge stays where it was before the plates
-/// scaled.
+/// Every outer edge, border included, lands on the SVG's rasterised outer edge times the scale: the app draws its
+/// 1.5pt border outside each fill, so a fill sits one border inside the SVG's outer edge. The SVG's frame path
+/// carries a centred stroke (3pt on the master, 2pt on the worker), so the frame reaches half of it past the path's
+/// edges: on the master it spans y 20.5 to 47.5 and ends at x 282.5, 1.5 past the body's outer edge (y 4 to 46,
+/// x 281); on the worker it spans y 16 to 38 and ends at x 278.5, 0.5 past the body's (y 2.5 to 37.5, x 278).
+/// Only each plate's right edge stays where it was before the plates scaled.
 enum TrackerPlateDesign {
     static let scale: CGFloat = 11.0 / 8.0
     /// Canvas sizes in points. The canvas is as tall as the portrait. The master's portrait centre is the
@@ -1166,14 +1167,14 @@ enum TrackerPlateDesign {
     static let discStrokeWidth: CGFloat = 3
 
     /// Design x to canvas x. Left of the text, a design x scales about the portrait's centre line (the SVG disc's
-    /// centre). On the right, an outer edge at design x 281 (master) or 278 (worker) sits at the plate's outer
-    /// right edge, 294 or 283, and nearer x scale back from it.
+    /// centre). On the right, the frame's outer edge at design x 282.5 (master) or 278.5 (worker) sits at the plate's
+    /// outer right edge, 294 or 283, and nearer x scale back from it.
     private static func topLevelLeft(_ designX: CGFloat) -> CGFloat {
         topLevelPortraitCenter.x + scale * (designX - 28)
     }
 
     private static func topLevelRight(_ designX: CGFloat) -> CGFloat {
-        294 - scale * (281 - designX)
+        294 - scale * (282.5 - designX)
     }
 
     private static func workerLeft(_ designX: CGFloat) -> CGFloat {
@@ -1181,20 +1182,21 @@ enum TrackerPlateDesign {
     }
 
     private static func workerRight(_ designX: CGFloat) -> CGFloat {
-        283 - scale * (278 - designX)
+        283 - scale * (278.5 - designX)
     }
 
     /// A fill's edge for an SVG outer edge at design y: one border inside it, since the border is drawn outside.
     private static func fillTop(_ designY: CGFloat) -> CGFloat { designY * scale + outlineWidth }
     private static func fillBottom(_ designY: CGFloat) -> CGFloat { designY * scale - outlineWidth }
 
-    /// The plate's rectangles. The body and frame are flush at the bottom and right, so their borders coincide.
+    /// The plate's rectangles. The frame's top edge is inside the body, so it is a fill edge as it stands; its bottom
+    /// and right edges, and the body's top and right, are silhouette edges, a border inside the SVG's.
     static let topLevelBodyRect = CGRect(left: topLevelLeft(28.75), top: fillTop(4), right: topLevelRight(281) - outlineWidth, bottom: fillBottom(46))
-    static let topLevelFrameRect = CGRect(left: topLevelLeft(36.5), top: 22 * scale, right: topLevelRight(281) - outlineWidth, bottom: fillBottom(46))
+    static let topLevelFrameRect = CGRect(left: topLevelLeft(36.5), top: 20.5 * scale, right: topLevelRight(282.5) - outlineWidth, bottom: fillBottom(47.5))
     static let topLevelSummaryRect = CGRect(left: topLevelLeft(39.5), top: 23.5 * scale, right: topLevelRight(279.5), bottom: 34.5 * scale)
     static let topLevelBarRect = CGRect(left: topLevelLeft(39.5), top: 36.5 * scale, right: topLevelRight(279.5), bottom: 44.5 * scale)
     static let workerBodyRect = CGRect(left: workerLeft(15.75), top: fillTop(2.5), right: workerRight(278) - outlineWidth, bottom: fillBottom(37.5))
-    static let workerFrameRect = CGRect(left: workerLeft(24.5), top: 16.5 * scale, right: workerRight(278) - outlineWidth, bottom: fillBottom(37.5))
+    static let workerFrameRect = CGRect(left: workerLeft(24.5), top: 16 * scale, right: workerRight(278.5) - outlineWidth, bottom: fillBottom(38))
     static let workerSummaryRect = CGRect(left: workerLeft(26.5), top: 18 * scale, right: workerRight(276.5), bottom: 26 * scale)
     static let workerTimeRect = CGRect(left: workerLeft(26.5), top: 28 * scale, right: workerRight(276.5), bottom: 36 * scale)
 
@@ -1214,15 +1216,18 @@ enum TrackerPlateDesign {
         .applying(CGAffineTransform(translationX: topLevelPortraitCenter.x, y: topLevelPortraitCenter.y))
     private static let capScale: CGFloat = (42 * scale - 2 * outlineWidth) / 42
 
-    /// Corner radii are the SVG's, scaled. A silhouette corner's fill radius is its outer radius less the border.
+    /// Corner radii are the SVG's, scaled: a path radius plus half its stroke, which is the outer radius. A
+    /// silhouette corner's fill radius is its outer radius less the border.
     private static let bodyCornerRadius: CGFloat = 5 * scale - outlineWidth
+    private static let topLevelFrameCornerRadius: CGFloat = 6 * scale
+    private static let workerFrameCornerRadius: CGFloat = 5 * scale
 
     static let topLevelBody = trailingRounded(topLevelBodyRect, top: bodyCornerRadius, bottom: bodyCornerRadius)
-    static let topLevelFrame = trailingRounded(topLevelFrameRect, top: 4.5 * scale, bottom: bodyCornerRadius)
+    static let topLevelFrame = trailingRounded(topLevelFrameRect, top: topLevelFrameCornerRadius, bottom: topLevelFrameCornerRadius - outlineWidth)
     static let topLevelSummary = trailingRounded(topLevelSummaryRect, top: 2.5 * scale, bottom: 0)
     static let topLevelBar = trailingRounded(topLevelBarRect, top: 0, bottom: 2.5 * scale)
     static let workerBody = trailingRounded(workerBodyRect, top: bodyCornerRadius, bottom: bodyCornerRadius)
-    static let workerFrame = trailingRounded(workerFrameRect, top: 4 * scale, bottom: bodyCornerRadius)
+    static let workerFrame = trailingRounded(workerFrameRect, top: workerFrameCornerRadius, bottom: workerFrameCornerRadius - outlineWidth)
     static let workerSummary = trailingRounded(workerSummaryRect, top: 2.5 * scale, bottom: 0)
     static let workerTime = trailingRounded(workerTimeRect, top: 0, bottom: 2.5 * scale)
 

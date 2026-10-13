@@ -255,36 +255,50 @@ enum LogicSelfTests {
             try expect(abs(value - expected) < 0.01, "\(name) should be \(expected), got \(value)")
         }
 
-        // Every outer measure, border included, is the SVG's times the scale. Fills sit a border inside it.
-        let plates: [(name: String, portrait: CGFloat, centre: CGPoint, body: CGRect, frame: CGRect, strips: [(CGRect, CGFloat)], portraitOuter: CGFloat, bodyOuter: CGFloat)] = [
-            ("master", TrackerPlateDesign.portraitSideTopLevel, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.topLevelBodyRect, TrackerPlateDesign.topLevelFrameRect,
-             [(TrackerPlateDesign.topLevelSummaryRect, 11), (TrackerPlateDesign.topLevelBarRect, 8)], 50, 42),
-            ("worker", TrackerPlateDesign.portraitSideWorker, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.workerBodyRect, TrackerPlateDesign.workerFrameRect,
-             [(TrackerPlateDesign.workerSummaryRect, 8), (TrackerPlateDesign.workerTimeRect, 8)], 40, 35),
+        // Every outer measure, border included, is the SVG raster's times the scale. Fills sit a border inside it.
+        // The frame reaches half its path's stroke past the path: 1.5 on the master, 1 on the worker.
+        struct Plate {
+            let name: String
+            let portrait: CGFloat
+            let centre: CGPoint
+            let body: CGRect
+            let frame: CGRect
+            let strips: [CGRect]
+            let stripHeight: CGFloat
+            let discOuter: CGFloat
+            let plateOuter: CGFloat
+            let overhangAbove: CGFloat
+            let overhangBelow: CGFloat
+            let band: CGFloat
+            let frameBeyondBody: CGFloat
+        }
+        let plates = [
+            Plate(name: "master", portrait: TrackerPlateDesign.portraitSideTopLevel, centre: TrackerPlateDesign.topLevelPortraitCenter,
+                  body: TrackerPlateDesign.topLevelBodyRect, frame: TrackerPlateDesign.topLevelFrameRect,
+                  strips: [TrackerPlateDesign.topLevelSummaryRect, TrackerPlateDesign.topLevelBarRect], stripHeight: 11,
+                  discOuter: 50, plateOuter: 43.5, overhangAbove: 4, overhangBelow: 2.5, band: 3, frameBeyondBody: 1.5),
+            Plate(name: "worker", portrait: TrackerPlateDesign.portraitSideWorker, centre: TrackerPlateDesign.workerPortraitCenter,
+                  body: TrackerPlateDesign.workerBodyRect, frame: TrackerPlateDesign.workerFrameRect,
+                  strips: [TrackerPlateDesign.workerSummaryRect, TrackerPlateDesign.workerTimeRect], stripHeight: 8,
+                  discOuter: 40, plateOuter: 35.5, overhangAbove: 2.5, overhangBelow: 2, band: 2, frameBeyondBody: 0.5),
         ]
         for plate in plates {
-            try expectClose(plate.portrait + 2 * border, plate.portraitOuter * scale, "\(plate.name) disc outer diameter")
-            try expectClose(plate.body.height + 2 * border, plate.bodyOuter * scale, "\(plate.name) plate outer height")
-            for (strip, designHeight) in plate.strips {
-                try expectClose(strip.height, designHeight * scale, "\(plate.name) strip height")
-            }
+            try expectClose(plate.portrait + 2 * border, plate.discOuter * scale, "\(plate.name) disc outer diameter")
+            try expectClose(plate.frame.maxY + border - (plate.body.minY - border), plate.plateOuter * scale, "\(plate.name) plate outer height")
+            try expectClose(plate.strips[1].height, 8 * scale, "\(plate.name) bottom strip height")
+            try expectClose(plate.strips[0].height, plate.stripHeight * scale, "\(plate.name) first strip height")
 
-            // The plate is centred on the disc: the disc stands out as far above it as below.
+            // The disc stands out of the plate by the SVG's overhang, scaled.
             let discTop = plate.centre.y - plate.portrait / 2 - border
             let discBottom = plate.centre.y + plate.portrait / 2 + border
-            let above = plate.body.minY - border - discTop
-            let below = discBottom - (plate.body.maxY + border)
-            try expectClose(above, below, "\(plate.name) disc overhang above and below the plate")
+            try expectClose(plate.body.minY - border - discTop, plate.overhangAbove * scale, "\(plate.name) disc overhang above the plate")
+            try expectClose(discBottom - (plate.frame.maxY + border), plate.overhangBelow * scale, "\(plate.name) disc overhang below the plate")
 
-            // The frame is the strips outset by 1.5 (scaled) above, below and to the right, flush with the body's
-            // bottom and right edges.
-            let first = plate.strips[0].0
-            let last = plate.strips[1].0
-            try expectClose(first.minY - plate.frame.minY, 1.5 * scale, "\(plate.name) frame band above the strips")
-            try expectClose(plate.frame.maxY + border - last.maxY, 1.5 * scale, "\(plate.name) frame band below the strips")
-            try expectClose(plate.frame.maxX + border - first.maxX, 1.5 * scale, "\(plate.name) frame band right of the strips")
-            try expectClose(plate.frame.maxY, plate.body.maxY, "\(plate.name) frame and body bottom")
-            try expectClose(plate.frame.maxX, plate.body.maxX, "\(plate.name) frame and body right edge")
+            // The frame's bands round the strips are the SVG's, scaled, and its right edge reaches past the body's.
+            try expectClose(plate.strips[0].minY - plate.frame.minY, plate.band * scale, "\(plate.name) frame band above the strips")
+            try expectClose(plate.frame.maxY + border - plate.strips[1].maxY, plate.band * scale, "\(plate.name) frame band below the strips")
+            try expectClose(plate.frame.maxX + border - plate.strips[0].maxX, plate.band * scale, "\(plate.name) frame band right of the strips")
+            try expectClose(plate.frame.maxX - plate.body.maxX, plate.frameBeyondBody * scale, "\(plate.name) frame past the body on the right")
         }
 
         // The cap keeps the SVG's 56 x 42 shape and stands as tall as the body fill: it is scaled, never stretched.
