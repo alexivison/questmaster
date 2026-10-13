@@ -12,11 +12,12 @@ enum TrackerListMetrics {
     static let firstSectionTopInset: CGFloat = 0
     static let selectedPanelGap: CGFloat = 40
     static let verticalPadding: CGFloat = 20
-    static let sectionSpacing: CGFloat = 30
-    /// Between top-level items: two steps of the 5pt rhythm, so each plate's glow band (up to 3.5pt past its edge)
-    /// keeps clear space from the next plate.
-    static let itemSpacing: CGFloat = 10
-    /// Between a master and its workers, and between the workers: the same two steps.
+    /// Between project groups, from the bottom of one group's last item to the top of the next group's first.
+    static let sectionSpacing: CGFloat = 20
+    /// Between top-level items. Every gap runs from the visible bottom of the item above, its disc or its chips'
+    /// circles, to the top of the next disc, and each row is exactly that tall, so the spacing is the gap.
+    static let itemSpacing: CGFloat = 20
+    /// Between a master and its workers, and between the workers.
     static let masterBlockSpacing: CGFloat = 10
     /// The widest tracker content: the selected-session panel's 304pt design width, which the top-level
     /// plate (285pt) sits inside. The tracker column is sized to it plus the leading `sidePadding`.

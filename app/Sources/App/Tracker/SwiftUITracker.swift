@@ -1237,13 +1237,15 @@ enum TrackerNameplateRole: Equatable {
     var canvasSize: CGSize { isWorker ? TrackerPlateDesign.workerSize : TrackerPlateDesign.topLevelSize }
     var portraitSide: CGFloat { isWorker ? TrackerPlateDesign.portraitSideWorker : TrackerPlateDesign.portraitSideTopLevel }
     var portraitRingWidth: CGFloat { isWorker ? TrackerPlateDesign.portraitRingWidthWorker : TrackerPlateDesign.portraitRingWidthTopLevel }
-    /// The disc's own centre in canvas points, and the portrait's frame: centred on it, so the frame's
-    /// edge is the disc's outer edge.
+    /// The disc's own centre in canvas points, and the portrait's frame: the disc's outer diameter, centred on it.
+    /// The diameter is even and the centre sits on whole points, so the frame's origin does too. A frame on a
+    /// half point snaps to a whole pixel at 1x, which moves the disc and logo half a pixel off the outline.
     var portraitCenter: CGPoint {
         isWorker ? TrackerPlateDesign.workerPortraitCenter : TrackerPlateDesign.topLevelPortraitCenter
     }
+    var portraitDiameter: CGFloat { portraitSide + 2 * TrackerPlateDesign.outlineWidth }
     var portraitOrigin: CGPoint {
-        CGPoint(x: portraitCenter.x - portraitSide / 2, y: portraitCenter.y - portraitSide / 2)
+        CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
     /// The silhouette: the portrait's disc, its frame and the plate, as one shape. The outline and the working
     /// glow both follow it, so they can't drift apart. Its coordinates include the silhouette margin.
@@ -1318,9 +1320,9 @@ enum TrackerNameplateRole: Equatable {
     static let workerTitleTimeGap: CGFloat = 6
     /// Collapsed-worker chips centre under the portrait's centre line, so the first chip's circle sits on it.
     static let chipsX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x - TrackerWorkerSummaryPill.badgeSide / 2
-    /// The chips hang this far below the top-level canvas, which ends at the disc's outline. The gap keeps the
-    /// disc's status band and the first chip's band about 3pt apart.
-    static let chipsDrop: CGFloat = 8.5
+    /// The chips hang this far below the top-level canvas, which ends at the disc's outer edge, so the disc and the
+    /// chips' circles are 5pt apart.
+    static let chipsDrop: CGFloat = 5
 
     /// The time column's width: one monospaced cell per glyph of the string, rounded up so the text never truncates.
     /// Hours have no upper bound, so a long run reads `100:00:00`, one glyph wider than the usual eight.
@@ -1472,13 +1474,9 @@ private struct TrackerPlateArt: View {
     /// disc's own border is drawn under the plate's fills, which hide it there, so the rim's outer part is drawn
     /// again over the fills, in the rim's own tone.
     private func drawDiscRim(_ context: inout GraphicsContext) {
-        let side = role.portraitSide + 2 * TrackerPlateDesign.outlineWidth
-        let centre = role.portraitCenter
         context.clip(to: role.plateFills)
-        context.fill(
-            Path(ellipseIn: CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side)),
-            with: .color(AppPalette.line.swiftUI)
-        )
+        let disc = CGRect(origin: role.portraitOrigin, size: CGSize(width: role.portraitDiameter, height: role.portraitDiameter))
+        context.fill(Path(ellipseIn: disc), with: .color(AppPalette.line.swiftUI))
     }
 
     /// The frame is filled whole, then the strips draw over it, so the gaps between strips show the divider colour.
@@ -1820,7 +1818,7 @@ private struct TrackerSessionRowContent: View {
             TrackerAgentMark(
                 agent: session.agent,
                 shortcutNumber: shortcutNumber,
-                portraitSide: role.portraitSide,
+                diameter: role.portraitDiameter,
                 ringWidth: role.portraitRingWidth
             )
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
@@ -1930,20 +1928,23 @@ private struct TrackerStoppedDimming: ViewModifier {
 struct TrackerAgentMark: View {
     let agent: String
     let shortcutNumber: Int?
-    let portraitSide: CGFloat
+    /// The disc's outer diameter, outline included. The frame is this wide, so every layer inside it sits at a
+    /// whole-point offset from the frame's whole-point origin.
+    let diameter: CGFloat
     let ringWidth: CGFloat
 
-    /// The agent logo is 0.6 of the disc's outer diameter, outline included, as in the SVGs (30 of 50, 24 of 40).
-    private var iconSide: CGFloat { (portraitSide + 2 * TrackerPlateDesign.outlineWidth) * 0.6 }
+    /// The agent logo is 0.6 of the disc's outer diameter, as in the SVGs (30 of 50, 24 of 40).
+    private var iconSide: CGFloat { diameter * 0.6 }
 
     var body: some View {
         ZStack {
             // Flat fills only: the rim takes the plate's frame tone and the disc the panel tone, with no stroke or
-            // shadow between them.
+            // shadow between them. The outline's border draws outside the rim, in the plate's outline layer.
             Circle()
+                .inset(by: TrackerPlateDesign.outlineWidth)
                 .fill(AppPalette.line.swiftUI)
             Circle()
-                .inset(by: ringWidth)
+                .inset(by: TrackerPlateDesign.outlineWidth + ringWidth)
                 .fill(AppPalette.panel.swiftUI)
             if let image = Self.image(for: agent, side: iconSide, tint: AppPalette.muted) {
                 Image(nsImage: image)
@@ -1961,7 +1962,7 @@ struct TrackerAgentMark: View {
                     .foregroundStyle(AppPalette.bright.swiftUI)
             }
         }
-        .frame(width: portraitSide, height: portraitSide)
+        .frame(width: diameter, height: diameter)
     }
 
     static func image(for agentName: String, side: CGFloat = 12, tint: NSColor = AppPalette.bright) -> NSImage? {
@@ -2098,7 +2099,7 @@ private struct TrackerSkeletonPlaceholder: View {
 
     /// The placeholder spans the plate's drawn width, from the disc's outer left edge.
     private func placeholder(role: TrackerNameplateRole) -> some View {
-        let discLeft = role.portraitCenter.x - (role.portraitSide + 2 * TrackerPlateDesign.outlineWidth) / 2
+        let discLeft = role.portraitOrigin.x
         return RoundedRectangle(cornerRadius: Self.cornerRadius)
             .fill(AppPalette.dim.swiftUI)
             .opacity(pulseOpacity)

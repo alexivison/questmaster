@@ -34,7 +34,8 @@ enum RenderPreview {
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
-        render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
+        render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
+        render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
@@ -61,6 +62,7 @@ enum RenderPreview {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(selectedSessionPanelView(), size: CGSize(width: 304, height: 70), to: "\(outputDir)/selected-session-panel.png")
+        render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -313,9 +315,13 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func trackerView() -> some View {
-        TrackerRootView(
-            store: trackerPreviewStore(),
+    private static func trackerView(expandedMasterID: String? = nil) -> some View {
+        let store = trackerPreviewStore()
+        if let expandedMasterID {
+            store.toggleWorkersCollapsed(for: expandedMasterID)
+        }
+        return TrackerRootView(
+            store: store,
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
@@ -390,6 +396,22 @@ enum RenderPreview {
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// A master's and a worker's portrait with the Command-held shortcut number on, on whole-point origins,
+    /// to measure the number's centring on the disc.
+    @MainActor
+    private static func portraitNumbersView() -> some View {
+        let master = TrackerNameplateRole.master
+        let worker = TrackerNameplateRole.worker
+        return ZStack(alignment: .topLeading) {
+            TrackerAgentMark(agent: "codex", shortcutNumber: 3, diameter: master.portraitDiameter, ringWidth: master.portraitRingWidth)
+                .offset(x: 5, y: 5)
+            TrackerAgentMark(agent: "claude", shortcutNumber: 7, diameter: worker.portraitDiameter, ringWidth: worker.portraitRingWidth)
+                .offset(x: 75, y: 10)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.window.swiftUI)
     }
 
