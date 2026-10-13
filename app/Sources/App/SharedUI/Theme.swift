@@ -230,17 +230,14 @@ enum AppFonts {
     static let chat = monospaced(size: 12)
     static let chatName = monospaced(size: 12, weight: .bold)
 
-    /// Tracker plate and selected-session titles at 12pt, regular weight as the design draws them (the
-    /// shared 12.5pt `itemTitle` lands its caps on half rows).
+    /// Tracker plate titles at 12pt regular. The size is main's; the weight stays regular on the plates.
     static let trackerTitle = monospaced(size: 12)
-    /// Worker plate titles and the selected-session id, 10pt as `Tracker Item (Simplified).svg` sets them.
+    /// The selected-session id, 10pt as `Selected Session.svg` sets it.
     static let trackerTitleSmall = monospaced(size: 10)
-    /// Top-level plate summaries, 10pt italic.
-    static let trackerSummary = monospaced(size: 10, italic: true)
-    /// Project names on the project bar, 8pt.
+    /// Plate snippets at 11pt italic, as main set them.
+    static let trackerSummary = monospaced(size: 11, italic: true)
+    /// The selected-session project name, 8pt as `Selected Session.svg` sets it. Plates use `monoSmall`.
     static let trackerDetail = monospaced(size: 8)
-    /// Worker summaries and elapsed times, 8pt italic.
-    static let trackerDetailItalic = monospaced(size: 8, italic: true)
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 }

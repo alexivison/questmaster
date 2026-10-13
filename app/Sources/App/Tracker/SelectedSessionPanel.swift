@@ -47,9 +47,10 @@ struct SelectedSessionPanel: View {
     /// The text is centred on the strips' band (x 59 to 300), so its centre is x = 179.5.
     private static let textX: CGFloat = 59
     private static let textWidth: CGFloat = 241
-    private static let titleBaseline: CGFloat = 25.5
-    private static let idBaseline: CGFloat = 44.5
-    private static let projectBaseline: CGFloat = 56.5
+    /// Each line centres on its strip's midline, as the plates do.
+    private static let titleMidY: CGFloat = 21
+    private static let idMidY: CGFloat = 41
+    private static let projectMidY: CGFloat = 53.5
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -62,7 +63,7 @@ struct SelectedSessionPanel: View {
                 color: AppPalette.activeText,
                 x: Self.textX,
                 width: Self.textWidth,
-                baseline: Self.titleBaseline,
+                midY: Self.titleMidY,
                 alignment: .center
             )
             TrackerPlateLine(
@@ -71,7 +72,7 @@ struct SelectedSessionPanel: View {
                 color: AppPalette.dim,
                 x: Self.textX,
                 width: Self.textWidth,
-                baseline: Self.idBaseline,
+                midY: Self.idMidY,
                 alignment: .center
             )
             TrackerPlateLine(
@@ -80,7 +81,7 @@ struct SelectedSessionPanel: View {
                 color: AppPalette.activeText,
                 x: Self.textX,
                 width: Self.textWidth,
-                baseline: Self.projectBaseline,
+                midY: Self.projectMidY,
                 alignment: .center
             )
             Canvas { context, _ in

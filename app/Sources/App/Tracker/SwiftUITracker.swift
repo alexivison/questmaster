@@ -1134,50 +1134,69 @@ private struct TrackerWorkerSummaryPill: View {
 /// the design's own coordinates; each variant's origin is the design point its canvas starts at, so
 /// every path translates by that origin and the canvas's top-left lands on (0, 0).
 enum TrackerPlateDesign {
-    /// Each origin is the design point its canvas starts at. The design puts the two portraits 5pt apart, so
-    /// the origins shift each plate until its portrait centres on x = 38, the selected-session panel's centre.
-    static let topLevelOrigin = CGPoint(x: 2, y: 21)
-    static let workerOrigin = CGPoint(x: -3, y: 91)
-    static let topLevelSize = CGSize(width: 295, height: 50)
-    static let workerSize = CGSize(width: 295, height: 40)
+    /// Canvas sizes in points. The master's portrait centre is the selected-session panel's centre line, x = 38.
+    static let topLevelSize = CGSize(width: 293, height: 61)
+    static let workerSize = CGSize(width: 283, height: 58)
     /// The silhouette's outer border, 1.5pt. The outline strokes each silhouette part at twice this width, so
     /// only its outer half shows.
     static let outlineWidth: CGFloat = 1.5
-    /// Room around the canvas for the outline and the working glow, so the canvas doesn't clip them.
+    /// Round joins: a miter join spikes out past the border at the cap's sharp notch tips.
+    static let outlineStroke = StrokeStyle(lineWidth: outlineWidth * 2, lineJoin: .round)
+    /// Room around the canvas for the outline and the status band, so the canvas doesn't clip them.
     static let silhouetteMargin: CGFloat = 6
-    /// The visible width of a status glow band past its border. A plate draws the band under its 1.5pt border,
+    /// The visible width of a status band past its border. A plate draws the band under its 1.5pt border,
     /// so the band reaches the border's width further out.
     static let glowBandWidth: CGFloat = 2
 
-    /// The portrait discs' centres in canvas points, all on x = 38. The disc's 3pt stroke is centred on a
-    /// 23.5pt (top-level) or 18.5pt (worker) radius.
-    static let topLevelPortraitCenter = CGPoint(x: 38, y: 25)
-    static let workerPortraitCenter = CGPoint(x: 38, y: 20)
+    /// Each portrait's centre, with its disc centred on the plate body's middle.
+    static let topLevelPortraitCenter = CGPoint(x: 38, y: 30.5)
+    static let workerPortraitCenter = CGPoint(x: 38, y: 29)
     static let discStrokeWidth: CGFloat = 3
     static let portraitSideTopLevel: CGFloat = 50
     static let portraitSideWorker: CGFloat = 40
 
-    /// The notched cap behind the top-level portrait.
-    static let topLevelRing = path("M22.3369 67L57.6631 67C57.6631 67 57.8197 61.6655 60.6647 59.65C62.656 58.2393 64.8871 58 64.8871 58L68 46L64.8871 34C64.8871 34 62.656 33.7607 60.6647 32.35C57.8197 30.3346 57.6631 25 57.6631 25L22.3369 25C22.3369 25 22.1802 30.3345 19.3352 32.35C17.3439 33.7606 15.1129 34 15.1129 34L12 46L15.1129 58C15.1129 58 17.3439 58.2393 19.3352 59.65C22.1802 61.6654 22.3369 67 22.3369 67Z", origin: topLevelOrigin)
-    static let topLevelBody = path("M288 26C290.485 26 292.5 28.0147 292.5 30.5V61.5C292.5 63.9853 290.485 66 288 66H40.5V26H288Z", origin: topLevelOrigin)
-    static let topLevelFrame = path("M289 43C291.485 43 293.5 45.0147 293.5 47.5V62.5C293.5 64.9853 291.485 67 289 67H49.5V43H289Z", origin: topLevelOrigin)
-    static let topLevelSummary = path("M51 44.5H289.5C290.881 44.5 292 45.6193 292 47V55.5H51V44.5Z", origin: topLevelOrigin)
-    static let topLevelProjectBar = path("M51 57.5H292V63C292 64.3807 290.881 65.5 289.5 65.5H51V57.5Z", origin: topLevelOrigin)
+    /// Each text line centres vertically on its strip's midline. The top-level title sits above the frame.
+    static let topLevelTitleMidY: CGFloat = (4.75 + 20.5) / 2
+    static let topLevelSnippetMidY: CGFloat = (23.5 + 38.5) / 2
+    static let topLevelBarMidY: CGFloat = (40.5 + 55.5) / 2
+    static let workerTitleMidY: CGFloat = (4 + 19) / 2
+    static let workerSnippetMidY: CGFloat = (21 + 36) / 2
+    static let workerTimeMidY: CGFloat = (38 + 53) / 2
 
-    /// The worker plate is the design's shape narrowed 5pt on the right, so its outer edge stops where the
-    /// top-level plate's does.
-    static let workerBody = path("M283 94.5C285.485 94.5 287.5 96.5147 287.5 99V123C287.5 125.485 285.485 127.5 283 127.5H30.5V94.5H283Z", origin: workerOrigin)
-    static let workerFrame = path("M284 108C286.209 108 288 109.791 288 112V124C288 126.209 286.209 128 284 128H40V108H284Z", origin: workerOrigin)
-    static let workerSummary = path("M41 109H284.5C285.881 109 287 110.119 287 111.5V117H41V109Z", origin: workerOrigin)
-    static let workerTime = path("M41 119H287V124.5C287 125.881 285.881 127 284.5 127H41V119Z", origin: workerOrigin)
+    /// The plate's rectangles. Each frame is its centreline; its stroke runs half its width either side.
+    static let topLevelBodyRect = CGRect(x: 38.75, y: 4.75, width: 251.5, height: 51.5)
+    static let topLevelFrameRect = CGRect(x: 48, y: 22, width: 243, height: 35)
+    static let topLevelSummaryRect = CGRect(x: 49.5, y: 23.5, width: 240, height: 15)
+    static let topLevelBarRect = CGRect(x: 49.5, y: 40.5, width: 240, height: 15)
+    static let workerBodyRect = CGRect(x: 33.75, y: 4, width: 246.5, height: 50)
+    static let workerFrameRect = CGRect(x: 43.5, y: 20, width: 237, height: 34)
+    static let workerSummaryRect = CGRect(x: 44.5, y: 21, width: 235, height: 15)
+    static let workerTimeRect = CGRect(x: 44.5, y: 38, width: 235, height: 15)
 
-    /// The strip frames as filled regions: each frame's own stroke, so the frame's outer edge is the region's
-    /// edge and the silhouette and the fill share one shape.
+    /// The notched cap from the SVG, stretched so it stands 0.75pt past the body top and bottom, centred on the
+    /// portrait. Its SVG spans y 4 to 46, centred on 25.
+    static let topLevelRing = SVGPath.parse("M10.3369 46L45.6631 46C45.6631 46 45.8197 40.6655 48.6647 38.65C50.656 37.2393 52.8871 37 52.8871 37L56 25L52.8871 13C52.8871 13 50.656 12.7607 48.6647 11.35C45.8197 9.33455 45.6631 4 45.6631 4L10.3369 4C10.3369 4 10.1802 9.33451 7.33522 11.35C5.34389 12.7606 3.11286 13 3.11286 13L0 25L3.11286 37C3.11286 37 5.34389 37.2393 7.33522 38.65C10.1802 40.6654 10.3369 46 10.3369 46Z", dx: 10, dy: 0)
+        .applying(CGAffineTransform(a: 1, b: 0, c: 0, d: capStretch, tx: 0, ty: topLevelPortraitCenter.y - 25 * capStretch))
+    private static let capStretch: CGFloat = 53 / 42
+
+    static let topLevelBody = trailingRounded(topLevelBodyRect, top: 4.25, bottom: 4.25)
+    static let topLevelFrame = trailingRounded(topLevelFrameRect, top: 4.5, bottom: 4.5)
+    static let topLevelSummary = trailingRounded(topLevelSummaryRect, top: 2.5, bottom: 0)
+    static let topLevelBar = trailingRounded(topLevelBarRect, top: 0, bottom: 2.5)
+    static let workerBody = trailingRounded(workerBodyRect, top: 4.25, bottom: 4.25)
+    static let workerFrame = trailingRounded(workerFrameRect, top: 4, bottom: 4)
+    static let workerSummary = trailingRounded(workerSummaryRect, top: 2.5, bottom: 0)
+    static let workerTime = trailingRounded(workerTimeRect, top: 0, bottom: 2.5)
+
+    /// The frame's stroke as a filled region, so the frame's outer edge is part of the silhouette.
     static let topLevelFrameRegion = strokeRegion(topLevelFrame, width: discStrokeWidth)
-    static let workerFrameRegion = strokeRegion(workerFrame, width: 2)
+    static let workerFrameRegion = strokeRegion(workerFrame, width: workerFrameWidth)
+    static let topLevelFrameWidth: CGFloat = discStrokeWidth
+    static let workerFrameWidth: CGFloat = 2
 
-    static func path(_ d: String, origin: CGPoint) -> Path {
-        SVGPath.parse(d, dx: -origin.x, dy: -origin.y)
+    /// A strip with square left corners and rounded trailing corners.
+    private static func trailingRounded(_ rect: CGRect, top: CGFloat, bottom: CGFloat) -> Path {
+        UnevenRoundedRectangle(bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular).path(in: rect)
     }
 
     private static func strokeRegion(_ path: Path, width: CGFloat) -> Path {
@@ -1260,26 +1279,18 @@ enum TrackerNameplateRole: Equatable {
     }
     /// The project bar's flat fill, as a share of the way from the repo colour to its dark shade.
     static let projectBarFillStop: CGFloat = 0.6
-    /// Canvas x where a top-level title, summary or project name starts, clear of the portrait's outer edge.
-    static let topLevelTextX: CGFloat = 69
-    static let textTrailingInset: CGFloat = 12
+    /// The top-level text column centres the title and snippet on x = 174.5, the SVG's text centre. The project
+    /// name starts on the same left edge, and the elapsed time right-aligns at `timeRightEdge`.
+    static let topLevelTextX: CGFloat = 70
+    static let topLevelTextWidth: CGFloat = 209
     static let projectNameWidth: CGFloat = 120
-    /// The elapsed time right-aligns on the project bar, left of the bar's end.
-    static let timeRightEdge: CGFloat = 280
-    /// Worker text centres on x = 167, the worker strip's centre. The box stops at x = 274, short of the
-    /// portrait's outer edge (x = 58), so a long snippet truncates instead of running under the portrait.
-    static let workerTextX: CGFloat = 60
-    static let workerTextWidth: CGFloat = 214
-    /// Collapsed-worker chips start under the project bar's left edge.
-    static let chipsX: CGFloat = 49
-    static let topLevelSummaryX: CGFloat = 77
-    static let topLevelProjectX: CGFloat = 69
-    static let topLevelTitleBaseline: CGFloat = 17.5
-    static let topLevelSummaryBaseline: CGFloat = 32.5
-    static let topLevelProjectBaseline: CGFloat = 43.6
-    static let workerTitleBaseline: CGFloat = 13
-    static let workerSummaryBaseline: CGFloat = 25
-    static let workerTimeBaseline: CGFloat = 35
+    static let timeRightEdge: CGFloat = 279.5
+    /// The worker text column is centred on x = 164.5, ten points left of the top-level text, since the worker
+    /// plate is ten points narrower. It stops short of the portrait's outer edge (x = 58), so a long snippet truncates.
+    static let workerTextX: CGFloat = 62
+    static let workerTextWidth: CGFloat = 205
+    /// Collapsed-worker chips centre under the portrait's centre line, so the first chip's circle sits on it.
+    static let chipsX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x - TrackerWorkerSummaryPill.badgeSide / 2
     /// The chips hang this far below the top-level plate's bottom edge.
     static let chipsDrop: CGFloat = 5
 
@@ -1479,6 +1490,8 @@ private struct TrackerColorBarPulse: View {
 private struct TrackerPlateArt: View {
     let role: TrackerNameplateRole
     let barColor: NSColor
+    /// The outer border's colour. Every divider between strips takes it, so the gaps match the outline.
+    let dividerColor: NSColor
 
     var body: some View {
         Canvas { context, _ in
@@ -1493,16 +1506,22 @@ private struct TrackerPlateArt: View {
 
     private func drawTopLevel(_ context: inout GraphicsContext) {
         context.fill(TrackerPlateDesign.topLevelBody, with: .color(AppPalette.panel.swiftUI))
-        context.fill(TrackerPlateDesign.topLevelFrameRegion, with: .color(AppPalette.line.swiftUI))
+        drawFrame(&context, TrackerPlateDesign.topLevelFrame, width: TrackerPlateDesign.topLevelFrameWidth)
         context.fill(TrackerPlateDesign.topLevelSummary, with: .color(AppPalette.item.swiftUI))
-        context.fill(TrackerPlateDesign.topLevelProjectBar, with: .color(TrackerNameplateColor.barShade(barColor, stop: TrackerNameplateRole.projectBarFillStop).swiftUI))
+        context.fill(TrackerPlateDesign.topLevelBar, with: .color(TrackerNameplateColor.barShade(barColor, stop: TrackerNameplateRole.projectBarFillStop).swiftUI))
     }
 
     private func drawWorker(_ context: inout GraphicsContext) {
         context.fill(TrackerPlateDesign.workerBody, with: .color(AppPalette.panel.swiftUI))
-        context.fill(TrackerPlateDesign.workerFrameRegion, with: .color(AppPalette.line.swiftUI))
+        drawFrame(&context, TrackerPlateDesign.workerFrame, width: TrackerPlateDesign.workerFrameWidth)
         context.fill(TrackerPlateDesign.workerSummary, with: .color(AppPalette.item.swiftUI))
         context.fill(TrackerPlateDesign.workerTime, with: .color(AppPalette.item.swiftUI))
+    }
+
+    /// The frame is filled whole, then the strips draw over it, so the gaps between strips show the divider colour.
+    private func drawFrame(_ context: inout GraphicsContext, _ frame: Path, width: CGFloat) {
+        context.fill(frame, with: .color(dividerColor.swiftUI))
+        context.stroke(frame, with: .color(dividerColor.swiftUI), lineWidth: width)
     }
 }
 
@@ -1535,12 +1554,12 @@ private struct TrackerNameplateBackground<Text: View>: View {
             }
             TrackerSilhouetteOutline(parts: role.silhouetteParts, color: outlineColor)
                 .silhouetteFrame(role.canvasSize)
-            TrackerPlateArt(role: role, barColor: TrackerNameplateColor.barLightness(color))
+            TrackerPlateArt(role: role, barColor: TrackerNameplateColor.barLightness(color), dividerColor: outlineColor)
             if !role.isWorker {
                 TrackerColorBarPulse(
                     color: TrackerNameplateColor.barLightness(color),
                     isWorking: isWorking,
-                    shape: TrackerPlateShape(path: TrackerPlateDesign.topLevelProjectBar)
+                    shape: TrackerPlateShape(path: TrackerPlateDesign.topLevelBar)
                 )
             }
             text
@@ -1552,9 +1571,11 @@ private struct TrackerNameplateBackground<Text: View>: View {
     }
 }
 
-private extension TrackerStatusKind {
-    /// Every status but idle and stopped lights the silhouette glow, in its own status colour.
-    var drawsGlow: Bool { self != .idle && self != .stopped }
+extension TrackerStatusKind {
+    /// The active statuses light a breathing band in their own colour. Idle, stopped and done draw none.
+    var drawsGlow: Bool {
+        self == .working || self == .blocked || self == .needsInput || self == .error
+    }
 }
 
 private extension View {
@@ -1575,30 +1596,39 @@ private struct TrackerSilhouetteOutline: View {
     var body: some View {
         Canvas { context, _ in
             for part in parts {
-                context.stroke(part, with: .color(color.swiftUI), lineWidth: TrackerPlateDesign.outlineWidth * 2)
+                context.stroke(part, with: .color(color.swiftUI), style: TrackerPlateDesign.outlineStroke)
             }
         }
     }
 }
 
-/// The working glow: a solid band in the silhouette path's shape, so it hugs the whole plate and portrait.
-/// It is static; the layer is set once.
+/// The status band: a solid Core Animation shape in the silhouette path's shape, so it hugs the whole plate and
+/// portrait. It breathes while its status is active and motion is allowed.
 private struct TrackerGlowView: NSViewRepresentable {
     let path: CGPath
     let color: NSColor
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> TrackerGlowNSView {
         TrackerGlowNSView()
     }
 
     func updateNSView(_ view: TrackerGlowNSView, context: Context) {
-        view.configure(path: path, color: color)
+        view.configure(path: path, color: color, breathes: !reduceMotion)
     }
 }
 
-/// The glow is a solid band: a shape layer filled with the band path, with no shadow or blur, so its edge is hard.
+/// The band is a filled shape layer with no shadow or blur, so its edge is hard. It breathes: its opacity eases
+/// between `breathLowOpacity` and full over each `breathCycle`. Every band starts from one shared origin, so the
+/// whole list breathes in phase. The animation exists only while the band is in a window.
 final class TrackerGlowNSView: NSView {
+    static let breathCycle: CFTimeInterval = 2
+    static let breathLowOpacity: Float = 0.55
+    private static let breathKey = "breathe"
+    private static let breathOrigin = CACurrentMediaTime()
+
     override var isFlipped: Bool { true }
+    private var breathes = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1614,11 +1644,43 @@ final class TrackerGlowNSView: NSView {
         CAShapeLayer()
     }
 
-    func configure(path: CGPath, color: NSColor) {
+    /// Whether the breath animation is attached. Tests read it to check the breath's lifecycle.
+    var isBreathing: Bool {
+        layer?.animation(forKey: Self.breathKey) != nil
+    }
+
+    func configure(path: CGPath, color: NSColor, breathes: Bool) {
         guard let shape = layer as? CAShapeLayer else { return }
         shape.isGeometryFlipped = true
         shape.path = path
         shape.fillColor = color.cgColor
+        self.breathes = breathes
+        updateBreath()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateBreath()
+    }
+
+    /// Attaches the breath only while the band is in a window and allowed to move; otherwise the band stays solid.
+    private func updateBreath() {
+        guard let layer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.removeAnimation(forKey: Self.breathKey)
+        layer.opacity = 1
+        CATransaction.commit()
+        guard breathes, window != nil else { return }
+        let breath = CABasicAnimation(keyPath: "opacity")
+        breath.fromValue = Self.breathLowOpacity
+        breath.toValue = 1
+        breath.duration = Self.breathCycle / 2
+        breath.autoreverses = true
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.beginTime = Self.breathOrigin
+        layer.add(breath, forKey: Self.breathKey)
     }
 }
 
@@ -1633,24 +1695,26 @@ private struct TrackerPortraitBacking: View {
     }
 }
 
-/// One line of plate text: its left edge on `x`, its baseline on `baseline`, both in canvas points.
+/// One line of plate text. Its line box, ascender to descender as the font reports it, is centred on `midY`,
+/// and `x` and `width` set the box it aligns within.
 struct TrackerPlateLine: View {
     let text: String
     let font: NSFont
     let color: NSColor
     let x: CGFloat
     let width: CGFloat
-    let baseline: CGFloat
+    let midY: CGFloat
     var alignment: Alignment = .leading
 
     var body: some View {
+        let lineBox = font.ascender - font.descender + font.leading
         Text(text)
             .font(font.swiftUI)
             .foregroundStyle(color.swiftUI)
             .lineLimit(1)
             .truncationMode(.tail)
-            .frame(width: width, alignment: alignment)
-            .offset(x: x, y: baseline - font.ascender)
+            .frame(width: width, height: lineBox, alignment: alignment)
+            .offset(x: x, y: (midY - lineBox / 2).rounded())
     }
 }
 
@@ -1659,9 +1723,10 @@ private struct TrackerPlateTime: View {
     let session: TrackerSession
     let x: CGFloat
     let width: CGFloat
-    let baseline: CGFloat
+    let midY: CGFloat
     var alignment: Alignment = .leading
     var padded = false
+    var color: NSColor = AppPalette.dim
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
@@ -1669,11 +1734,11 @@ private struct TrackerPlateTime: View {
             if !duration.isEmpty {
                 TrackerPlateLine(
                     text: padded ? TrackerSession.paddedHours(duration) : duration,
-                    font: AppFonts.trackerDetailItalic,
-                    color: AppPalette.dim,
+                    font: AppFonts.monoSmall,
+                    color: color,
                     x: x,
                     width: width,
-                    baseline: baseline,
+                    midY: midY,
                     alignment: alignment
                 )
             }
@@ -1682,7 +1747,7 @@ private struct TrackerPlateTime: View {
 }
 
 /// The plate's text strips, drawn in the background under the portrait cap. A worker shows a centred title,
-/// summary and time; a top-level plate shows a left-aligned title and summary over the project bar.
+/// summary and time; a top-level plate shows a centred title and summary over a left-aligned project name and time.
 private struct TrackerPlateText: View {
     let rendered: TrackerRenderedSession
     let role: TrackerNameplateRole
@@ -1694,6 +1759,7 @@ private struct TrackerPlateText: View {
     private var title: String { showSessionID ? session.id : (session.title.isEmpty ? session.id : session.title) }
     private var snippet: String { TrackerRenderer.snippet(for: session) }
     private var isWorking: Bool { rendered.status.kind == .working }
+    private var titleColor: NSColor { isSelected ? AppPalette.bright : AppPalette.text }
 
     var body: some View {
         if role.isWorker {
@@ -1708,36 +1774,39 @@ private struct TrackerPlateText: View {
             TrackerPlateLine(
                 text: title,
                 font: AppFonts.trackerTitle,
-                color: isSelected ? AppPalette.bright : AppPalette.text,
+                color: titleColor,
                 x: TrackerNameplateRole.topLevelTextX,
-                width: role.canvasSize.width - TrackerNameplateRole.topLevelTextX - TrackerNameplateRole.textTrailingInset,
-                baseline: TrackerNameplateRole.topLevelTitleBaseline
+                width: TrackerNameplateRole.topLevelTextWidth,
+                midY: TrackerPlateDesign.topLevelTitleMidY,
+                alignment: .center
             )
             if !snippet.isEmpty {
                 TrackerPlateLine(
                     text: snippet,
                     font: AppFonts.trackerSummary,
                     color: AppPalette.dim,
-                    x: TrackerNameplateRole.topLevelSummaryX,
-                    width: role.canvasSize.width - TrackerNameplateRole.topLevelSummaryX - TrackerNameplateRole.textTrailingInset,
-                    baseline: TrackerNameplateRole.topLevelSummaryBaseline
+                    x: TrackerNameplateRole.topLevelTextX,
+                    width: TrackerNameplateRole.topLevelTextWidth,
+                    midY: TrackerPlateDesign.topLevelSnippetMidY,
+                    alignment: .center
                 )
             }
             TrackerPlateLine(
                 text: projectName,
-                font: AppFonts.trackerDetail,
+                font: AppFonts.monoSmall,
                 color: AppPalette.activeText,
-                x: TrackerNameplateRole.topLevelProjectX,
+                x: TrackerNameplateRole.topLevelTextX,
                 width: TrackerNameplateRole.projectNameWidth,
-                baseline: TrackerNameplateRole.topLevelProjectBaseline
+                midY: TrackerPlateDesign.topLevelBarMidY
             )
             if isWorking {
                 TrackerPlateTime(
                     session: session,
-                    x: TrackerNameplateRole.topLevelProjectX,
-                    width: TrackerNameplateRole.timeRightEdge - TrackerNameplateRole.topLevelProjectX,
-                    baseline: TrackerNameplateRole.topLevelProjectBaseline,
-                    alignment: .trailing
+                    x: TrackerNameplateRole.topLevelTextX,
+                    width: TrackerNameplateRole.timeRightEdge - TrackerNameplateRole.topLevelTextX,
+                    midY: TrackerPlateDesign.topLevelBarMidY,
+                    alignment: .trailing,
+                    color: AppPalette.bright
                 )
             }
         }
@@ -1747,21 +1816,21 @@ private struct TrackerPlateText: View {
         ZStack(alignment: .topLeading) {
             TrackerPlateLine(
                 text: title,
-                font: AppFonts.trackerTitleSmall,
-                color: isSelected ? AppPalette.bright : AppPalette.text,
+                font: AppFonts.trackerTitle,
+                color: titleColor,
                 x: TrackerNameplateRole.workerTextX,
                 width: TrackerNameplateRole.workerTextWidth,
-                baseline: TrackerNameplateRole.workerTitleBaseline,
+                midY: TrackerPlateDesign.workerTitleMidY,
                 alignment: .center
             )
             if !snippet.isEmpty {
                 TrackerPlateLine(
                     text: snippet,
-                    font: AppFonts.trackerDetailItalic,
+                    font: AppFonts.trackerSummary,
                     color: AppPalette.dim,
                     x: TrackerNameplateRole.workerTextX,
                     width: TrackerNameplateRole.workerTextWidth,
-                    baseline: TrackerNameplateRole.workerSummaryBaseline,
+                    midY: TrackerPlateDesign.workerSnippetMidY,
                     alignment: .center
                 )
             }
@@ -1770,7 +1839,7 @@ private struct TrackerPlateText: View {
                     session: session,
                     x: TrackerNameplateRole.workerTextX,
                     width: TrackerNameplateRole.workerTextWidth,
-                    baseline: TrackerNameplateRole.workerTimeBaseline,
+                    midY: TrackerPlateDesign.workerTimeMidY,
                     alignment: .center,
                     padded: true
                 )
