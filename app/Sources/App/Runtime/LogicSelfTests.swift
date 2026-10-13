@@ -2218,11 +2218,19 @@ enum LogicSelfTests {
         )
         window.contentView = scrollView
         window.orderFrontRegardless()
+        holdMotion(scrollView, true)
         return FollowerFixture(window: window, scrollView: scrollView, documentView: documentView, follower: follower)
     }
 
     private static func pump(_ seconds: TimeInterval) {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    /// Stops or restarts the clock for `view`'s layer tree. While it is stopped, a glide or fade holds its start
+    /// for as long as the run loop runs, so a check never races an animation that has run out on a slow host.
+    /// Restarting the clock runs the held animations from where they stopped.
+    private static func holdMotion(_ view: NSView, _ held: Bool) {
+        view.layer?.speed = held ? 0 : 1
     }
 
     /// Pumps the run loop until `condition` holds, for at most five seconds, and reports whether it did.
@@ -2351,6 +2359,7 @@ enum LogicSelfTests {
               let documentView = scrollView.documentView else {
             throw TestFailure("the worker chat feed should host a scroll view and its follower")
         }
+        holdMotion(scrollView, true)
         let viewport = { scrollView.contentView.bounds.height }
         let bottom = { documentView.frame.height - viewport() }
         try expect(waitUntil { documentView.frame.height > viewport() }, "the first layout should fill the feed")
@@ -2481,6 +2490,9 @@ enum LogicSelfTests {
         guard let first = fadeBands(on: fixture.documentView).first, let firstFade = first.animation(forKey: WorkerChatMotion.enterKey) else {
             throw TestFailure("the first arrival should add a fade band")
         }
+        // The clock is stopped, so the first fade is still in flight however long the run loop takes.
+        pump(0.5)
+        try expect(first.animation(forKey: WorkerChatMotion.enterKey) === firstFade, "a fade should hold while the clock is stopped")
 
         fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: true)
         fixture.grow(to: 1052)
@@ -2595,6 +2607,7 @@ enum LogicSelfTests {
             throw TestFailure("the worker chat feed should host a scroll view with a document")
         }
         let viewport = { scrollView.contentView.bounds.height }
+        holdMotion(scrollView, true)
         try expect(waitUntil { documentView.frame.height > viewport() }, "the first layout should fill the feed")
         try expect(waitUntil { abs(scrollView.contentView.bounds.origin.y - (documentView.frame.height - viewport())) < 1 }, "the first layout should pin to the bottom")
         try expect(documentView.layer?.mask == nil, "the first layout should not fade")
@@ -2604,12 +2617,16 @@ enum LogicSelfTests {
         guard let arrival = waitForArrival(on: documentView) else {
             throw TestFailure("an arrival while following should fade its rows in and glide them")
         }
+        pump(0.5)
+        try expect(arrival.band.animation(forKey: WorkerChatMotion.enterKey) === arrival.fade, "the fade should hold while the clock is stopped")
+        try expect(documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) === arrival.glide, "the glide should hold while the clock is stopped")
         try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
         try expectBand(arrival.band, from: heightBefore - WorkerChatMetrics.inset, to: documentView.frame.height - WorkerChatMetrics.inset)
         try expectFade(arrival.fade, on: arrival.band)
         try expectGlide(arrival.glide, on: documentView, startsBetween: 1, and: viewport())
         try expectRowsClearOfBand(arrival.band.frame, in: documentView.layer)
 
+        holdMotion(scrollView, false)
         try expect(waitUntil { documentView.layer?.mask == nil }, "a fade that runs out should remove the mask")
     }
 
@@ -2741,6 +2758,7 @@ enum LogicSelfTests {
             throw TestFailure("the worker chat feed should host a scroll view, a document and a follower")
         }
         let viewport = scrollView.contentView.bounds.height
+        holdMotion(scrollView, true)
         try expect(waitUntil { follower.frame.height > 0 }, "the first layout should size the rows")
         try expect(documentView.frame.height == viewport, "one entry should leave the feed shorter than the viewport, got \(documentView.frame.height)")
         try expect(documentView.layer?.mask == nil, "the first layout should not fade")
@@ -2754,12 +2772,16 @@ enum LogicSelfTests {
         guard let arrival = waitForArrival(on: documentView) else {
             throw TestFailure("an arrival in a short feed should fade its rows in and lift them into place")
         }
+        pump(0.5)
+        try expect(arrival.band.animation(forKey: WorkerChatMotion.enterKey) === arrival.fade, "the fade should hold while the clock is stopped")
+        try expect(documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) === arrival.glide, "the lift should hold while the clock is stopped")
         try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
         try expectBand(arrival.band, from: documentHeight - WorkerChatMetrics.inset - added, to: documentHeight - WorkerChatMetrics.inset)
         try expectFade(arrival.fade, on: arrival.band)
         try expectGlide(arrival.glide, on: documentView, startsBetween: added, and: added)
         try expectRowsClearOfBand(arrival.band.frame, in: documentView.layer)
 
+        holdMotion(scrollView, false)
         try expect(waitUntil { documentView.layer?.mask == nil }, "a fade that runs out should remove the mask")
     }
 
