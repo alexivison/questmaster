@@ -1473,24 +1473,19 @@ struct TrackerPlateLine: View {
     let text: String
     let font: NSFont
     let color: NSColor
-    var italic = false
     let x: CGFloat
     let width: CGFloat
     let baseline: CGFloat
     var alignment: Alignment = .leading
 
-    private var lineFont: NSFont {
-        italic ? NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) : font
-    }
-
     var body: some View {
         Text(text)
-            .font(lineFont.swiftUI)
+            .font(font.swiftUI)
             .foregroundStyle(color.swiftUI)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(width: width, alignment: alignment)
-            .offset(x: x, y: baseline - lineFont.ascender)
+            .offset(x: x, y: baseline - font.ascender)
     }
 }
 
@@ -1571,9 +1566,8 @@ private struct TrackerSessionRowContent: View {
             if !snippet.isEmpty {
                 TrackerPlateLine(
                     text: snippet,
-                    font: AppFonts.monoSmall,
+                    font: AppFonts.monoSmallItalic,
                     color: AppPalette.dim,
-                    italic: true,
                     x: TrackerNameplateRole.topLevelSummaryX,
                     width: role.canvasSize.width - TrackerNameplateRole.topLevelSummaryX - TrackerNameplateRole.textTrailingInset,
                     baseline: TrackerNameplateRole.topLevelSummaryBaseline
@@ -1613,9 +1607,8 @@ private struct TrackerSessionRowContent: View {
             if !snippet.isEmpty {
                 TrackerPlateLine(
                     text: snippet,
-                    font: AppFonts.monoSmall,
+                    font: AppFonts.monoSmallItalic,
                     color: AppPalette.dim,
-                    italic: true,
                     x: TrackerNameplateRole.workerTextX,
                     width: TrackerNameplateRole.workerTextWidth,
                     baseline: TrackerNameplateRole.workerSummaryBaseline,

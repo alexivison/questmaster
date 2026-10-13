@@ -172,15 +172,33 @@ enum AppPalette {
 }
 
 enum AppFonts {
-    // Every UI font is monospaced and follows the user's Ghostty font-family at Questmaster's own size and
-    // weight. It falls back to the system monospaced font when Ghostty sets no family or the family is not
-    // installed. Serif and proportional system fonts are not used for UI text.
+    // Every UI font is monospaced and follows the user's Ghostty font-family at Questmaster's own size, weight
+    // and style. A family that lacks the requested weight or italic falls back to the system monospaced font
+    // at that weight and style, so a missing face never renders as the wrong one. Serif and proportional system
+    // fonts are not used for UI text.
     static let mono = monospaced(size: 12.5)
     static let monoSmall = monospaced(size: 11)
+    static let monoSmallItalic = monospaced(size: 11, italic: true)
     static let monoBold = monospaced(size: 12.5, weight: .semibold)
 
-    static func monospaced(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        GhosttyFontFamily.font(size: size, weight: weight) ?? .monospacedSystemFont(ofSize: size, weight: weight)
+    static func monospaced(size: CGFloat, weight: NSFont.Weight = .regular, italic: Bool = false) -> NSFont {
+        font(family: GhosttyFontFamily.resolved, size: size, weight: weight, italic: italic)
+    }
+
+    /// `family`'s face at this size, weight and style, or the system monospaced font when the family has none.
+    static func font(family: String?, size: CGFloat, weight: NSFont.Weight, italic: Bool) -> NSFont {
+        if let family, let font = GhosttyFontFamily.face(family: family, size: size, weight: weight, italic: italic) {
+            return font
+        }
+        return systemMonospaced(size: size, weight: weight, italic: italic)
+    }
+
+    private static func systemMonospaced(size: CGFloat, weight: NSFont.Weight, italic: Bool) -> NSFont {
+        let upright = NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        guard italic, let font = NSFont(descriptor: upright.fontDescriptor.withSymbolicTraits(.italic), size: size) else {
+            return upright
+        }
+        return font
     }
 
     static let body = monospaced(size: 13)
@@ -190,10 +208,10 @@ enum AppFonts {
     /// Small caps-style modal field labels (e.g. "Path", "Agent").
     static let modalLabel = monospaced(size: 10, weight: .semibold)
     /// Italic flavor/helper text next to modal fields.
-    static let modalHelper = monospaced(size: 11.5)
+    static let modalHelper = monospaced(size: 11.5, italic: true)
     /// The Model row's effort sub-text — a touch larger than modalHelper
     /// since it stands alone on its own line rather than trailing a control.
-    static let modalHelperLarge = monospaced(size: 13)
+    static let modalHelperLarge = monospaced(size: 13, italic: true)
     /// Card-style list row titles (Tracker sessions, quests, artifacts).
     static let itemTitle = monospaced(size: 12.5, weight: .semibold)
     /// Artifact row titles; tracker titles keep `itemTitle`.
@@ -216,14 +234,6 @@ enum AppFonts {
     static let trackerTitle = monospaced(size: 12)
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
-}
-
-extension NSFont {
-    /// This font with the italic trait added.
-    var italic: NSFont {
-        let descriptor = fontDescriptor.withSymbolicTraits(.italic)
-        return NSFont(descriptor: descriptor, size: pointSize) ?? self
-    }
 }
 
 extension NSColor {

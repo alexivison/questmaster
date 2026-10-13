@@ -215,11 +215,10 @@ private struct SettingsFormFieldRow: View {
         HStack(alignment: .center, spacing: Token.Spacing.content) {
             VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
                 Text(title)
-                    .font(AppFonts.modalHelperLarge.swiftUI)
+                    .font(AppFonts.body.swiftUI)
                     .foregroundStyle(AppPalette.text.swiftUI)
                 Text(subtitle)
                     .font(AppFonts.modalHelper.swiftUI)
-                    .italic()
                     .foregroundStyle(AppPalette.dim.swiftUI)
                     .fixedSize(horizontal: false, vertical: true)
             }

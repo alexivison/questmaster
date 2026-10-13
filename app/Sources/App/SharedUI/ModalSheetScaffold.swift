@@ -159,7 +159,6 @@ struct ModalSelectRow: View {
     private var noteText: some View {
         Text(note)
             .font(AppFonts.modalHelper.swiftUI)
-            .italic()
             .foregroundStyle(AppPalette.dim.swiftUI)
             .lineLimit(1)
             .truncationMode(.tail)

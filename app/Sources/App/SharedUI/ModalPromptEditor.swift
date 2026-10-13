@@ -113,7 +113,7 @@ private final class ModalPromptEditorTextView: NSTextView {
             height: bounds.height - inset.height * 2
         )
         (placeholder as NSString).draw(in: rect, withAttributes: [
-            .font: AppFonts.monospaced(size: 13.5).italic,
+            .font: AppFonts.monospaced(size: 13.5, italic: true),
             .foregroundColor: AppPalette.dim
         ])
     }
