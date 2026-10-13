@@ -27,6 +27,8 @@ enum LogicSelfTests {
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
+        ("testTrackerSilhouetteOutlineStaysWithinItsBorder", testTrackerSilhouetteOutlineStaysWithinItsBorder),
+        ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
@@ -218,6 +220,46 @@ enum LogicSelfTests {
         band.configure(path: path, color: AppPalette.accent, breathes: true)
         guard !band.isBreathing else {
             throw TestFailure("a band outside a window should not breathe")
+        }
+    }
+
+    private static func testTrackerSilhouetteOutlineStaysWithinItsBorder() throws {
+        let style = TrackerPlateDesign.outlineStroke
+        let border = TrackerPlateDesign.outlineWidth
+        let body = TrackerPlateDesign.topLevelBodyRect
+        let cap = TrackerPlateDesign.topLevelRing.boundingRect
+        guard abs(cap.minY - body.minY) <= 1, abs(cap.maxY - body.maxY) <= 1.5 else {
+            throw TestFailure("the notched cap should stand level with the body's top and bottom, got \(cap)")
+        }
+        for role in [TrackerNameplateRole.master, .worker] {
+            for part in role.silhouetteParts {
+                let outline = part.cgPath.copy(
+                    strokingWithWidth: style.lineWidth,
+                    lineCap: style.lineCap,
+                    lineJoin: style.lineJoin,
+                    miterLimit: style.miterLimit
+                )
+                let allowed = part.cgPath.boundingBoxOfPath.insetBy(dx: -border - 0.01, dy: -border - 0.01)
+                guard allowed.contains(outline.boundingBoxOfPath) else {
+                    throw TestFailure("\(role) outline spikes past its border: \(outline.boundingBoxOfPath)")
+                }
+            }
+        }
+    }
+
+    private static func testSelectedSessionPanelNamesTheAttachedSessionsProject() throws {
+        let master = TrackerSession(id: "qm-attached", title: "Fix bug", repoName: "Preview", role: "master")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "preview", name: "Preview", sessions: [master])])
+        let repos = TrackerRenderer.tracker(snapshot)
+
+        let attached = SelectedSessionPanelContent.make(currentTerminalSessionID: "qm-attached", repos: repos)
+        guard attached.id == "qm-attached", attached.projectName == "Preview" else {
+            throw TestFailure("the panel should name the attached session's project, got \(attached.id) / \(attached.projectName)")
+        }
+        let shell = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, repos: repos)
+        guard shell.projectName.isEmpty else {
+            throw TestFailure("a shell with no attached session should show no project")
         }
     }
 

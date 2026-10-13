@@ -1134,59 +1134,69 @@ private struct TrackerWorkerSummaryPill: View {
 /// the design's own coordinates; each variant's origin is the design point its canvas starts at, so
 /// every path translates by that origin and the canvas's top-left lands on (0, 0).
 enum TrackerPlateDesign {
-    /// The SVGs draw each plate in its own coordinates. These origins shift the master and worker canvases so
-    /// both portraits land on x = 38, the selected-session panel's centre line.
-    static let topLevelOrigin = CGPoint(x: -10, y: 0)
-    static let workerOrigin = CGPoint(x: -18, y: 0)
-    static let topLevelSize = CGSize(width: 293, height: 50)
-    static let workerSize = CGSize(width: 297, height: 40)
+    /// Canvas sizes in points. The master's portrait centre is the selected-session panel's centre line, x = 38.
+    static let topLevelSize = CGSize(width: 293, height: 61)
+    static let workerSize = CGSize(width: 283, height: 58)
     /// The silhouette's outer border, 1.5pt. The outline strokes each silhouette part at twice this width, so
     /// only its outer half shows.
     static let outlineWidth: CGFloat = 1.5
+    /// Round joins: a miter join spikes out past the border at the cap's sharp notch tips.
+    static let outlineStroke = StrokeStyle(lineWidth: outlineWidth * 2, lineJoin: .round)
     /// Room around the canvas for the outline and the status band, so the canvas doesn't clip them.
     static let silhouetteMargin: CGFloat = 6
     /// The visible width of a status band past its border. A plate draws the band under its 1.5pt border,
     /// so the band reaches the border's width further out.
     static let glowBandWidth: CGFloat = 2
 
-    /// The portrait discs' centres in canvas points, both on x = 38. The disc's 3pt stroke is centred on a
-    /// 23.5pt (top-level) or 18.5pt (worker) radius.
-    static let topLevelPortraitCenter = CGPoint(x: 38, y: 25)
-    static let workerPortraitCenter = CGPoint(x: 38, y: 20)
+    /// Each portrait's centre, with its disc centred on the plate body's middle.
+    static let topLevelPortraitCenter = CGPoint(x: 38, y: 30.5)
+    static let workerPortraitCenter = CGPoint(x: 38, y: 29)
     static let discStrokeWidth: CGFloat = 3
     static let portraitSideTopLevel: CGFloat = 50
     static let portraitSideWorker: CGFloat = 40
 
-    /// Each text line centres vertically on the midline of its strip, from the SVG strip edges shifted into
-    /// canvas points.
+    /// Each text line centres vertically on its strip's midline. The top-level title sits above the frame.
     static let topLevelTitleMidY: CGFloat = (4.75 + 20.5) / 2
-    static let topLevelSnippetMidY: CGFloat = (23.5 + 34.5) / 2
-    static let topLevelBarMidY: CGFloat = (36.5 + 44.5) / 2
-    static let workerTitleMidY: CGFloat = (3.25 + 16) / 2
-    static let workerSnippetMidY: CGFloat = (18 + 26) / 2
-    static let workerTimeMidY: CGFloat = (28 + 36) / 2
+    static let topLevelSnippetMidY: CGFloat = (23.5 + 38.5) / 2
+    static let topLevelBarMidY: CGFloat = (40.5 + 55.5) / 2
+    static let workerTitleMidY: CGFloat = (4 + 19) / 2
+    static let workerSnippetMidY: CGFloat = (21 + 36) / 2
+    static let workerTimeMidY: CGFloat = (38 + 53) / 2
 
-    /// The notched cap behind the top-level portrait.
-    static let topLevelRing = path("M10.3369 46L45.6631 46C45.6631 46 45.8197 40.6655 48.6647 38.65C50.656 37.2393 52.8871 37 52.8871 37L56 25L52.8871 13C52.8871 13 50.656 12.7607 48.6647 11.35C45.8197 9.33455 45.6631 4 45.6631 4L10.3369 4C10.3369 4 10.1802 9.33451 7.33522 11.35C5.34389 12.7606 3.11286 13 3.11286 13L2.63883e-06 25L3.11286 37C3.11286 37 5.34389 37.2393 7.33522 38.65C10.1802 40.6654 10.3369 46 10.3369 46Z", origin: topLevelOrigin)
-    static let topLevelBody = path("M276 4.75C278.347 4.75 280.25 6.65279 280.25 9V41C280.25 43.3472 278.347 45.25 276 45.25H28.75V4.75H276Z", origin: topLevelOrigin)
-    static let topLevelFrame = path("M276.5 22C278.985 22 281 24.0147 281 26.5V41.5C281 43.9853 278.985 46 276.5 46H38V22H276.5Z", origin: topLevelOrigin)
-    static let topLevelSummary = path("M39.5 23.5H277C278.381 23.5 279.5 24.6193 279.5 26V34.5H39.5V23.5Z", origin: topLevelOrigin)
-    static let topLevelProjectBar = path("M39.5 36.5H279.5V42C279.5 43.3807 278.381 44.5 277 44.5H39.5V36.5Z", origin: topLevelOrigin)
+    /// The plate's rectangles. Each frame is its centreline; its stroke runs half its width either side.
+    static let topLevelBodyRect = CGRect(x: 38.75, y: 4.75, width: 251.5, height: 51.5)
+    static let topLevelFrameRect = CGRect(x: 48, y: 22, width: 243, height: 35)
+    static let topLevelSummaryRect = CGRect(x: 49.5, y: 23.5, width: 240, height: 15)
+    static let topLevelBarRect = CGRect(x: 49.5, y: 40.5, width: 240, height: 15)
+    static let workerBodyRect = CGRect(x: 33.75, y: 4, width: 246.5, height: 50)
+    static let workerFrameRect = CGRect(x: 43.5, y: 20, width: 237, height: 34)
+    static let workerSummaryRect = CGRect(x: 44.5, y: 21, width: 235, height: 15)
+    static let workerTimeRect = CGRect(x: 44.5, y: 38, width: 235, height: 15)
 
-    static let workerBody = path("M273 3.25C275.347 3.25 277.25 5.15279 277.25 7.5V32.5C277.25 34.8472 275.347 36.75 273 36.75H15.75V3.25H273Z", origin: workerOrigin)
-    static let workerFrame = path("M273.5 17C275.709 17 277.5 18.7909 277.5 21V33C277.5 35.2091 275.709 37 273.5 37H25.5V17H273.5Z", origin: workerOrigin)
-    static let workerSummary = path("M26.5 18H274C275.381 18 276.5 19.1193 276.5 20.5V26H26.5V18Z", origin: workerOrigin)
-    static let workerTime = path("M26.5 28H276.5V33.5C276.5 34.8807 275.381 36 274 36H26.5V28Z", origin: workerOrigin)
+    /// The notched cap from the SVG, stretched so it stands 0.75pt past the body top and bottom, centred on the
+    /// portrait. Its SVG spans y 4 to 46, centred on 25.
+    static let topLevelRing = SVGPath.parse("M10.3369 46L45.6631 46C45.6631 46 45.8197 40.6655 48.6647 38.65C50.656 37.2393 52.8871 37 52.8871 37L56 25L52.8871 13C52.8871 13 50.656 12.7607 48.6647 11.35C45.8197 9.33455 45.6631 4 45.6631 4L10.3369 4C10.3369 4 10.1802 9.33451 7.33522 11.35C5.34389 12.7606 3.11286 13 3.11286 13L0 25L3.11286 37C3.11286 37 5.34389 37.2393 7.33522 38.65C10.1802 40.6654 10.3369 46 10.3369 46Z", dx: 10, dy: 0)
+        .applying(CGAffineTransform(a: 1, b: 0, c: 0, d: capStretch, tx: 0, ty: topLevelPortraitCenter.y - 25 * capStretch))
+    private static let capStretch: CGFloat = 53 / 42
+
+    static let topLevelBody = trailingRounded(topLevelBodyRect, top: 4.25, bottom: 4.25)
+    static let topLevelFrame = trailingRounded(topLevelFrameRect, top: 4.5, bottom: 4.5)
+    static let topLevelSummary = trailingRounded(topLevelSummaryRect, top: 2.5, bottom: 0)
+    static let topLevelBar = trailingRounded(topLevelBarRect, top: 0, bottom: 2.5)
+    static let workerBody = trailingRounded(workerBodyRect, top: 4.25, bottom: 4.25)
+    static let workerFrame = trailingRounded(workerFrameRect, top: 4, bottom: 4)
+    static let workerSummary = trailingRounded(workerSummaryRect, top: 2.5, bottom: 0)
+    static let workerTime = trailingRounded(workerTimeRect, top: 0, bottom: 2.5)
 
     /// The frame's stroke as a filled region, so the frame's outer edge is part of the silhouette.
     static let topLevelFrameRegion = strokeRegion(topLevelFrame, width: discStrokeWidth)
-    static let workerFrameRegion = strokeRegion(workerFrame, width: 2)
-    /// The frame's stroke width, also the divider width between strips.
+    static let workerFrameRegion = strokeRegion(workerFrame, width: workerFrameWidth)
     static let topLevelFrameWidth: CGFloat = discStrokeWidth
     static let workerFrameWidth: CGFloat = 2
 
-    static func path(_ d: String, origin: CGPoint) -> Path {
-        SVGPath.parse(d, dx: -origin.x, dy: -origin.y)
+    /// A strip with square left corners and rounded trailing corners.
+    private static func trailingRounded(_ rect: CGRect, top: CGFloat, bottom: CGFloat) -> Path {
+        UnevenRoundedRectangle(bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular).path(in: rect)
     }
 
     private static func strokeRegion(_ path: Path, width: CGFloat) -> Path {
@@ -1275,10 +1285,10 @@ enum TrackerNameplateRole: Equatable {
     static let topLevelTextWidth: CGFloat = 209
     static let projectNameWidth: CGFloat = 120
     static let timeRightEdge: CGFloat = 279.5
-    /// The worker text column, centred on x = 174.5 like the top-level text. It stops short of the portrait's outer edge (x = 58),
-    /// so a long snippet truncates instead of running under the portrait.
+    /// The worker text column is centred on x = 164.5, ten points left of the top-level text, since the worker
+    /// plate is ten points narrower. It stops short of the portrait's outer edge (x = 58), so a long snippet truncates.
     static let workerTextX: CGFloat = 62
-    static let workerTextWidth: CGFloat = 225
+    static let workerTextWidth: CGFloat = 205
     /// Collapsed-worker chips centre under the portrait's centre line, so the first chip's circle sits on it.
     static let chipsX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x - TrackerWorkerSummaryPill.badgeSide / 2
     /// The chips hang this far below the top-level plate's bottom edge.
@@ -1498,7 +1508,7 @@ private struct TrackerPlateArt: View {
         context.fill(TrackerPlateDesign.topLevelBody, with: .color(AppPalette.panel.swiftUI))
         drawFrame(&context, TrackerPlateDesign.topLevelFrame, width: TrackerPlateDesign.topLevelFrameWidth)
         context.fill(TrackerPlateDesign.topLevelSummary, with: .color(AppPalette.item.swiftUI))
-        context.fill(TrackerPlateDesign.topLevelProjectBar, with: .color(TrackerNameplateColor.barShade(barColor, stop: TrackerNameplateRole.projectBarFillStop).swiftUI))
+        context.fill(TrackerPlateDesign.topLevelBar, with: .color(TrackerNameplateColor.barShade(barColor, stop: TrackerNameplateRole.projectBarFillStop).swiftUI))
     }
 
     private func drawWorker(_ context: inout GraphicsContext) {
@@ -1549,7 +1559,7 @@ private struct TrackerNameplateBackground<Text: View>: View {
                 TrackerColorBarPulse(
                     color: TrackerNameplateColor.barLightness(color),
                     isWorking: isWorking,
-                    shape: TrackerPlateShape(path: TrackerPlateDesign.topLevelProjectBar)
+                    shape: TrackerPlateShape(path: TrackerPlateDesign.topLevelBar)
                 )
             }
             text
@@ -1586,7 +1596,7 @@ private struct TrackerSilhouetteOutline: View {
     var body: some View {
         Canvas { context, _ in
             for part in parts {
-                context.stroke(part, with: .color(color.swiftUI), lineWidth: TrackerPlateDesign.outlineWidth * 2)
+                context.stroke(part, with: .color(color.swiftUI), style: TrackerPlateDesign.outlineStroke)
             }
         }
     }
@@ -1716,6 +1726,7 @@ private struct TrackerPlateTime: View {
     let midY: CGFloat
     var alignment: Alignment = .leading
     var padded = false
+    var color: NSColor = AppPalette.dim
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
@@ -1724,7 +1735,7 @@ private struct TrackerPlateTime: View {
                 TrackerPlateLine(
                     text: padded ? TrackerSession.paddedHours(duration) : duration,
                     font: AppFonts.monoSmall,
-                    color: AppPalette.dim,
+                    color: color,
                     x: x,
                     width: width,
                     midY: midY,
@@ -1782,7 +1793,7 @@ private struct TrackerPlateText: View {
             }
             TrackerPlateLine(
                 text: projectName,
-                font: AppFonts.trackerDetail,
+                font: AppFonts.monoSmall,
                 color: AppPalette.activeText,
                 x: TrackerNameplateRole.topLevelTextX,
                 width: TrackerNameplateRole.projectNameWidth,
@@ -1794,7 +1805,8 @@ private struct TrackerPlateText: View {
                     x: TrackerNameplateRole.topLevelTextX,
                     width: TrackerNameplateRole.timeRightEdge - TrackerNameplateRole.topLevelTextX,
                     midY: TrackerPlateDesign.topLevelBarMidY,
-                    alignment: .trailing
+                    alignment: .trailing,
+                    color: AppPalette.bright
                 )
             }
         }
