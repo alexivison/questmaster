@@ -67,6 +67,8 @@ enum AppPalette {
     static let chatSpeech = NSColor(hex: 0xd9dbb8)
     /// The chat design's Working tag amber. It was borrowed from `trackerNeedsInput` until that became blue.
     static let chatWorking = NSColor(hex: 0xe8b34a)
+    /// The black the tracker plates and the selected-session panel shade with, always at a partial opacity.
+    static let shadow = NSColor.black
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
         NSColor(hex: 0xd29922),
@@ -232,10 +234,10 @@ enum AppFonts {
 
     /// Tracker plate titles at 12pt regular. The size is main's; the weight stays regular on the plates.
     static let trackerTitle = monospaced(size: 12)
-    /// The selected-session id, 10pt as `Selected Session.svg` sets it.
-    static let trackerTitleSmall = monospaced(size: 10)
     /// Plate snippets at 11pt italic, as main set them.
     static let trackerSummary = monospaced(size: 11, italic: true)
+    /// The elapsed time on the plates, italic like the snippets.
+    static let trackerTime = trackerSummary
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 }
