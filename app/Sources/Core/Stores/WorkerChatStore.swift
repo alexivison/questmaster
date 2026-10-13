@@ -37,6 +37,8 @@ public final class WorkerChatStore {
     public private(set) var isAttached = false
     /// A single muted notice naming the workers whose log the last pull couldn't read; cleared by a clean pull.
     public private(set) var readNotice: String?
+    /// Changes with every replacement of `lines`, so a view can tell one update from the next.
+    public private(set) var revision = 0
     /// Counts the updates that trimmed `lines`, so a view can tell a trim from an arrival.
     public private(set) var trimCount = 0
 
@@ -142,7 +144,7 @@ public final class WorkerChatStore {
         fingerprint = ""
         pullWanted = false
         inFlight = false
-        lines = []
+        setLines([])
     }
 
     private func updateWorkerInfo(_ group: [TrackerSession]) {
@@ -199,22 +201,28 @@ public final class WorkerChatStore {
         }
         // ponytail: independent visible and hidden caps bound cached history at maxLines + trimTarget.
         records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
-        if built != lines {
-            lines = built
-        }
+        setLines(built)
         updateReadNotice()
     }
 
-    /// Keeps the newest `limit` lines and starts them on a time header. The header of the minute the
-    /// cut lands in stays, so the first kept entry is never orphaned from its header. The builder
-    /// opens every line list with a header, so the search before the cut always finds one.
+    private func setLines(_ next: [WorkerChatLine]) {
+        guard next != lines else {
+            return
+        }
+        lines = next
+        revision += 1
+    }
+
+    /// Keeps exactly the newest `limit` lines. When the cut lands inside a minute, the header of that
+    /// minute stays in front of the cut, so the kept lines start on a header and no line is lost to
+    /// a seek forward. The builder opens every line list with a header, so one is always found.
     private static func trimmed(_ built: [WorkerChatLine], to limit: Int) -> [WorkerChatLine] {
         let suffix = Array(built.suffix(limit))
-        if let firstHeader = suffix.firstIndex(where: isTimeHeader) {
-            return Array(suffix[firstHeader...])
+        if isTimeHeader(suffix[0]) {
+            return suffix
         }
         let header = built.dropLast(limit).last(where: isTimeHeader) ?? built[0]
-        return [header] + Array(suffix.dropFirst())
+        return [header] + suffix.dropFirst()
     }
 
     /// Drops the records behind the first entry that a trim kept, so the next rebuild doesn't bring

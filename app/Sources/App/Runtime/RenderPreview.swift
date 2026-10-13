@@ -203,7 +203,7 @@ enum RenderPreview {
     @MainActor
     private static func workerChatFeedView(rounds: Int, entryLimit: Int? = nil) -> some View {
         let (store, _) = workerChatStore(rounds: rounds, entryLimit: entryLimit)
-        return WorkerChatFeedView(lines: store.lines, trimCount: store.trimCount)
+        return WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount)
             .frame(width: DockWidthPreference.compactWidth)
             .background(AppPalette.panel.swiftUI)
     }

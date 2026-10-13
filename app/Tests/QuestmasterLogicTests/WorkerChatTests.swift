@@ -42,6 +42,8 @@ struct WorkerChatTests {
         historyIsBounded()
         historyGrowsToTheCapThenTrimsInOneUpdate()
         trimDoesNotResurfaceDroppedLines()
+        trimKeepsTheCapWhenItLandsInsideAMinute()
+        headerIDsStayTheSameAcrossRebuilds()
         historyKeepsLatestActionAndHeaderAtLineCap()
         historyKeepsHeaderWhenLineCapCutsThroughSameMinute()
         print("WorkerChatTests: all tests passed")
@@ -587,7 +589,7 @@ struct WorkerChatTests {
         let first = open(store)
         let entries = (0..<(WorkerChatStore.maxLines + 100)).map { entry(TimeInterval($0), "w1", "say", "line \($0)") }
         _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
-        expect(store.lines.count <= WorkerChatStore.trimTarget, "an overflowing history should trim to \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
+        expect(store.lines.count == WorkerChatStore.trimTarget, "an overflowing history should trim to \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
         expect(store.trimCount == 1, "one overflowing payload should trim once, got \(store.trimCount)")
         if case .timeHeader = store.lines.first?.content {} else {
             fail("the first kept line should still be a time header")
@@ -607,10 +609,49 @@ struct WorkerChatTests {
         _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "over the cap")]), for: first)
         expect(store.lines.count == WorkerChatStore.trimTarget, "one line over the cap should trim straight to \(WorkerChatStore.trimTarget), got \(store.lines.count)")
         expect(store.trimCount == 1, "the trim should count once, got \(store.trimCount)")
+        expect(store.revision > 0, "every replacement of the lines should advance the revision")
 
         _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "after trim")]), for: first)
         expect(store.trimCount == 1, "arrivals after a trim should grow the history again without trimming")
         expect(store.lines.count == WorkerChatStore.trimTarget + 1, "the next arrival should append, got \(store.lines.count)")
+    }
+
+    /// 399 entries in one minute, then a new minute of 200: the cut lands inside the first minute, so
+    /// the kept lines are its header plus the newest entries, not only the lines after the next header.
+    private static func trimKeepsTheCapWhenItLandsInsideAMinute() {
+        let store = makeStore()
+        let first = open(store)
+        let early = (0..<399).map { entry(0, "w1", "say", "a \($0)") }
+        let late = (0..<200).map { entry(60, "w1", "say", "b \($0)") }
+        _ = store.receive(WorkerFeedPayload(entries: early + late), for: first)
+
+        expect(store.trimCount == 1, "the overflow should trim once, got \(store.trimCount)")
+        expect(store.lines.count == WorkerChatStore.trimTarget, "a trim should keep exactly \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
+        if case .timeHeader(let label) = store.lines.first?.content {
+            expect(label == "[09:00]", "the kept lines should open with the cut minute's header, got \(label)")
+        } else {
+            fail("the kept lines should start on a time header")
+        }
+        expect(store.lines.last.map(lastText) == " b 199", "the newest line should be kept")
+        expect(store.lines.contains { lastText($0) == " a 398" }, "the newest entries of the cut minute should be kept")
+        expect(!store.lines.contains { lastText($0) == " a 0" }, "the oldest entries should be dropped")
+    }
+
+    /// A header keeps its id when the trim removes the entry it was first named after, so the feed's
+    /// row identity doesn't churn on the next rebuild.
+    private static func headerIDsStayTheSameAcrossRebuilds() {
+        let store = makeStore()
+        let entries = (0...WorkerChatStore.maxLines).map { entry(0, "w\($0)", "action", "Bash") }
+        feed(store, entries, tracker: false)
+        let headerID = store.lines.first?.id
+        expect(headerID != nil, "the trimmed feed should still open with a header")
+
+        var renamed = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+        renamed += (0...WorkerChatStore.maxLines).map { index in
+            TrackerSession(id: "w\(index)", title: index == 0 ? "Renamed" : "", repoName: "Repo", role: "worker", parentID: "m")
+        }
+        _ = store.sync(selectedSessionID: "m", sessions: renamed, isVisible: true)
+        expect(store.lines.first?.id == headerID, "the header id should not change on a rebuild, got \(String(describing: store.lines.first?.id)) for \(String(describing: headerID))")
     }
 
     private static func trimDoesNotResurfaceDroppedLines() {
@@ -636,7 +677,7 @@ struct WorkerChatTests {
         _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
 
         expect(!store.lines.isEmpty, "history trimming should keep the newest activity visible")
-        expect(store.lines.count <= WorkerChatStore.trimTarget, "rendered history should trim to \(WorkerChatStore.trimTarget) lines")
+        expect(store.lines.count == WorkerChatStore.trimTarget, "rendered history should trim to \(WorkerChatStore.trimTarget) lines")
         if case .timeHeader = store.lines.first?.content {} else {
             fail("trimmed history should start with a time header")
         }

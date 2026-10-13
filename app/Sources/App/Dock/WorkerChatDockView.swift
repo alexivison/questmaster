@@ -71,7 +71,7 @@ struct WorkerChatDockView: View {
             if store.lines.isEmpty {
                 emptyState
             } else {
-                WorkerChatFeedView(lines: store.lines, trimCount: store.trimCount)
+                WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount)
             }
             readNotice
         }
@@ -111,6 +111,7 @@ struct WorkerChatDockView: View {
 /// drifts off the bottom as lines arrive), and `WorkerChatBottomFollower` does the pinning.
 struct WorkerChatFeedView: View {
     let lines: [WorkerChatLine]
+    let revision: Int
     let trimCount: Int
 
     var body: some View {
@@ -121,7 +122,7 @@ struct WorkerChatFeedView: View {
                 }
                 .padding(WorkerChatMetrics.inset)
                 .frame(minHeight: viewport.size.height, alignment: .bottom)
-                .background(WorkerChatBottomFollower(trimCount: trimCount))
+                .background(WorkerChatBottomFollower(revision: revision, trimCount: trimCount))
                 .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
@@ -134,6 +135,7 @@ struct WorkerChatFeedView: View {
 /// document views directly, so mouse, trackpad and key scrolling all count, with no per-frame work.
 /// While following, arrivals glide in from their old place and the bottom edge fades.
 private struct WorkerChatBottomFollower: NSViewRepresentable {
+    let revision: Int
     let trimCount: Int
 
     func makeNSView(context: Context) -> WorkerChatBottomFollowerView {
@@ -141,7 +143,7 @@ private struct WorkerChatBottomFollower: NSViewRepresentable {
     }
 
     func updateNSView(_ view: WorkerChatBottomFollowerView, context: Context) {
-        view.noteTrimCount(trimCount)
+        view.noteLinesUpdate(revision: revision, trimCount: trimCount)
     }
 }
 
@@ -149,7 +151,8 @@ final class WorkerChatBottomFollowerView: NSView {
     private(set) var isFollowing = true
     private var lastOffset: CGFloat?
     private var lastHeights: Heights?
-    private var trimCount = 0
+    private var lastRevision = 0
+    private var lastTrimCount = 0
     private var isTrimUpdate = false
 
     private struct Heights: Equatable {
@@ -158,11 +161,16 @@ final class WorkerChatBottomFollowerView: NSView {
     }
     private var observers: [NSObjectProtocol] = []
 
-    /// Runs on SwiftUI updates that change the count, ahead of the layout that reports the new content
-    /// height. Arrivals don't always reach here, so `sync` consumes the flag at the layout.
-    func noteTrimCount(_ count: Int) {
-        isTrimUpdate = count != trimCount
-        trimCount = count
+    /// SwiftUI can render one lines update several times before its layout reports the new height.
+    /// Only a new revision starts another update, so the trim flag is set once per update and holds
+    /// until the next one, even when the trim leaves the height unchanged.
+    func noteLinesUpdate(revision: Int, trimCount: Int) {
+        guard revision != lastRevision else {
+            return
+        }
+        lastRevision = revision
+        isTrimUpdate = trimCount != lastTrimCount
+        lastTrimCount = trimCount
     }
 
     override func viewDidMoveToWindow() {
@@ -224,7 +232,6 @@ final class WorkerChatBottomFollowerView: NSView {
             // removes lines above the viewport, so the bottom shift it causes is not an arrival.
             let glides = lastHeights?.viewport == heights.viewport && !isTrimUpdate
             lastHeights = heights
-            isTrimUpdate = false
             WorkerChatMotion.updateBottomFade(scrollView, isFollowing: isFollowing)
             if isFollowing {
                 pinIfFollowing(scrollView, glides: glides)

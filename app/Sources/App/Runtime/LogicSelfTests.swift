@@ -68,6 +68,8 @@ enum LogicSelfTests {
         ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
         ("testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide", testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide),
         ("testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout", testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout),
+        ("testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide", testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide),
+        ("testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed", testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed),
         ("testWorkerChatBottomFadeIsOnlyWhileFollowing", testWorkerChatBottomFadeIsOnlyWhileFollowing),
         ("testWorkerChatLiveScrollCancelsGlide", testWorkerChatLiveScrollCancelsGlide),
         ("testWorkerChatTrimWithWrappedRowsSkipsGlide", testWorkerChatTrimWithWrappedRowsSkipsGlide),
@@ -2214,18 +2216,18 @@ enum LogicSelfTests {
     }
 
     /// Trims, viewport resizes and the first layout jump to the bottom without a glide. A trim
-    /// flag applies to the update it came with, so the next arrival still glides.
+    /// flag applies to the lines update it came with, so the next arrival still glides.
     private static func testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout() throws {
         let fixture = followerFixture(contentHeight: 1000)
         defer { fixture.window.close() }
 
-        fixture.follower.noteTrimCount(1)
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1)
         fixture.grow(to: 974)
         try expect(fixture.origin == 774, "a trim with shorter wrapped rows should pin to the bottom, got \(fixture.origin)")
         try expect(!fixture.isGliding, "a trim update should not glide")
         try expect(fixture.follower.isFollowing, "a trim update should keep following")
 
-        fixture.follower.noteTrimCount(1)
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 1)
         fixture.grow(to: 1000)
         try expect(fixture.isGliding, "an arrival after the trim update should glide again")
         pump(0.4)
@@ -2236,10 +2238,36 @@ enum LogicSelfTests {
         try expect(fixture.follower.isFollowing && fixture.origin == 760, "a resize should pin to the new bottom, got \(fixture.origin)")
     }
 
+    /// A trim that leaves the content height unchanged never reaches a height callback. The flag must
+    /// still not outlive that update: the next arrival glides.
+    private static func testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1)
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 1)
+        fixture.grow(to: 1026)
+        try expect(fixture.isGliding, "an arrival after an equal-height trim should glide")
+        try expect(fixture.origin == 826, "the arrival should pin to the bottom, got \(fixture.origin)")
+    }
+
+    /// SwiftUI can render one lines update twice before its layout. The second render must not clear
+    /// the trim flag, or the trim's layout would glide.
+    private static func testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1)
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1)
+        fixture.grow(to: 974)
+        try expect(!fixture.isGliding, "a trim should not glide even when rendered twice before layout")
+        try expect(fixture.origin == 774, "the trim should pin to the bottom, got \(fixture.origin)")
+    }
+
     /// The real feed, through SwiftUI's update path: a trim with wrapped rows (the content height
     /// drops by an amount no single row explains) pins without a glide, and the next arrival glides.
     private static func testWorkerChatTrimWithWrappedRowsSkipsGlide() throws {
-        let hosting = NSHostingView(rootView: wrappedFeed(count: 30, trimCount: 0))
+        let hosting = NSHostingView(rootView: wrappedFeed(count: 30, revision: 1, trimCount: 0))
         let window = NSWindow(
             contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
             styleMask: [.borderless], backing: .buffered, defer: false
@@ -2258,7 +2286,7 @@ enum LogicSelfTests {
         try expect(!isGliding(documentView), "the first layout should not glide")
 
         let heightBeforeTrim = documentView.frame.height
-        hosting.rootView = wrappedFeed(count: 22, trimCount: 1)
+        hosting.rootView = wrappedFeed(count: 22, revision: 2, trimCount: 1)
         pump(0.1)
         let maxOffset = documentView.frame.height - scrollView.contentView.bounds.height
         try expect(documentView.frame.height < heightBeforeTrim, "the trim should shorten the content")
@@ -2266,13 +2294,13 @@ enum LogicSelfTests {
         try expect(follower.isFollowing, "a trim should keep following")
         try expect(abs(scrollView.contentView.bounds.origin.y - maxOffset) < 1, "a trim should pin to the new bottom")
 
-        hosting.rootView = wrappedFeed(count: 23, trimCount: 1)
+        hosting.rootView = wrappedFeed(count: 23, revision: 3, trimCount: 1)
         pump(0.1)
         try expect(isGliding(documentView), "an arrival after the trim should glide")
     }
 
     /// Every third entry wraps to several lines at the 300pt test width.
-    private static func wrappedFeed(count: Int, trimCount: Int) -> some View {
+    private static func wrappedFeed(count: Int, revision: Int, trimCount: Int) -> some View {
         let wrapped = String(repeating: "wrapped words in a long line ", count: 6)
         var lines = [WorkerChatLine(id: "h0", content: .timeHeader("[09:00]"))]
         lines += (0..<count).map { index in
@@ -2281,7 +2309,7 @@ enum LogicSelfTests {
                 WorkerChatSegment(" \(index) \(index % 3 == 0 ? wrapped : "short")", .normal),
             ]))
         }
-        return WorkerChatFeedView(lines: lines, trimCount: trimCount).frame(width: 300, height: 200)
+        return WorkerChatFeedView(lines: lines, revision: revision, trimCount: trimCount).frame(width: 300, height: 200)
     }
 
     private static func isGliding(_ view: NSView) -> Bool {
