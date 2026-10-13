@@ -114,21 +114,15 @@ final class NewSessionSheetModel: ObservableObject {
     private let suggestionDebounceInterval: Duration = .milliseconds(175)
 
     /// Suggestions already resolved this sheet session, so returning to an
-    /// agent/role/model combination the user has already visited applies
+    /// agent/model combination the user has already visited applies
     /// instantly instead of resetting to the default entry and re-asking the
     /// backend. Cleared implicitly when the sheet is deallocated — there is no
     /// reason to persist it past one New Session sheet.
-    private var modelCache: [ModelScopeKey: ModelSuggestionResponse] = [:]
+    private var modelCache: [String: ModelSuggestionResponse] = [:]
     private var effortCache: [EffortScopeKey: ReasoningEffortSuggestionResponse] = [:]
-
-    private struct ModelScopeKey: Hashable {
-        let agent: String
-        let role: String
-    }
 
     private struct EffortScopeKey: Hashable {
         let agent: String
-        let role: String
         let model: String
     }
 
@@ -323,8 +317,7 @@ final class NewSessionSheetModel: ObservableObject {
         let requestID = modelRequestID
         let agent = state.model.selectedAgent
         let role = "master"
-        let key = ModelScopeKey(agent: agent, role: role)
-        if !refresh, let cached = modelCache[key] {
+        if !refresh, let cached = modelCache[agent] {
             state.model.setModelOptions(cached.models, defaultModel: cached.defaultModel)
             return
         }
@@ -339,7 +332,7 @@ final class NewSessionSheetModel: ObservableObject {
                 self.state.isRefreshingModels = false
                 switch result {
                 case .success(let response):
-                    self.modelCache[key] = response
+                    self.modelCache[agent] = response
                     self.state.model.setModelOptions(response.models, defaultModel: response.defaultModel)
                 case .failure:
                     self.state.model.resetModelOptions()
@@ -369,7 +362,7 @@ final class NewSessionSheetModel: ObservableObject {
         let agent = state.model.selectedAgent
         let role = "master"
         let model = state.model.selectedModel
-        let key = EffortScopeKey(agent: agent, role: role, model: model)
+        let key = EffortScopeKey(agent: agent, model: model)
         if let cached = effortCache[key] {
             state.model.setEffortOptions(cached.efforts, defaultLevel: cached.defaultEffort)
             return

@@ -746,7 +746,6 @@ enum RenderPreview {
         if let only = environment["RENDER_ONLY"], !only.split(separator: ",").contains(where: { path.hasSuffix("/\($0).png") }) {
             return
         }
-        let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
         let rootView = autoHeight ? AnyView(view.frame(width: size.width)) : AnyView(view.frame(width: size.width, height: size.height))
         renderView(NSHostingView(rootView: rootView), size: size, autoHeight: autoHeight, to: path)
     }
