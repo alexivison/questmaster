@@ -3,9 +3,11 @@ package session
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 // SpawnOpts configures a worker session spawned from a master.
@@ -61,7 +63,7 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 	child := *s
 	child.Registry = registry
 
-	return child.Start(ctx, StartOpts{
+	result, err := child.Start(ctx, StartOpts{
 		Title:           opts.Title,
 		Cwd:             cwd,
 		MasterID:        masterID,
@@ -74,6 +76,13 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 		Model:           opts.Model,
 		ReasoningEffort: opts.ReasoningEffort,
 	})
+	if err != nil {
+		return StartResult{}, err
+	}
+	if opts.Prompt != "" {
+		_ = workerfeed.RecordChatEntryAt(s.Store.Root(), result.SessionID, "instructions", opts.Prompt, time.Now().UTC())
+	}
+	return result, nil
 }
 
 // WorkerSpawnRegistry resolves the worker agent layout for a master. Workers
