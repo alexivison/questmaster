@@ -268,7 +268,7 @@ public final class WorkerChatStore {
         switch SessionRoleKind(role: selected.role) {
         case .master:
             return selected.id
-        case .worker, .standalone, .tmux, .orphan:
+        case .worker, .shell, .tmux, .orphan:
             return nil
         }
     }

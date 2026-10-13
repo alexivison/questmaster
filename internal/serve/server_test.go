@@ -466,7 +466,7 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 				ID:           "qm-demo",
 				Title:        "Serve runtime JSON",
 				Status:       "active",
-				SessionType:  "standalone",
+				SessionType:  "master",
 				PrimaryAgent: "codex",
 			}},
 		}, nil
@@ -581,7 +581,7 @@ func TestSnapshotterTrackerBroadRepoColorChangeCoalescedWithSessionRefreshes(t *
 				Title:        "Serve runtime JSON",
 				Status:       "active",
 				State:        "working",
-				SessionType:  "standalone",
+				SessionType:  "master",
 				PrimaryAgent: "codex",
 				RepoColor:    color,
 				DisplayColor: color,
@@ -749,7 +749,7 @@ func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
 	if err := store.Create(state.Manifest{
 		SessionID:   sessionID,
 		Title:       "Burst debounce",
-		SessionType: "standalone",
+		SessionType: "master",
 		Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
@@ -891,10 +891,9 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 					"primary": "codex",
 					"color":   "violet",
 					"prompt":  "start this",
-					"master":  "true",
 				},
 			},
-			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--master", "--prompt-file", "-", "--", "session title"},
+			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--prompt-file", "-", "--", "session title"},
 			wantStdin: "start this",
 		},
 		{
@@ -1728,8 +1727,8 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 		t.Fatalf("claude worker default after a rejected clear: def=%+v ok=%v err=%v, want the prior entry untouched", def, ok, err)
 	}
 
-	// standalone persists to its own bucket, independent of worker.
-	standaloneResp := sendMutation(t, socketPath, map[string]any{
+	// Removed roles are rejected rather than falling back to another bucket.
+	removedRole := sendRawMutation(t, socketPath, map[string]any{
 		"id":     "role-default-set-standalone",
 		"method": "role_default.set",
 		"data": map[string]any{
@@ -1739,14 +1738,14 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 			"reasoning_effort": "medium",
 		},
 	})
-	if !envelopeContains(standaloneResp, `"model":"sonnet"`) {
-		t.Fatalf("role_default.set standalone response = %#v, want sonnet persisted", standaloneResp)
+	if removedRole.OK == nil || *removedRole.OK || !strings.Contains(removedRole.Error, "role is required") {
+		t.Fatalf("role_default.set with a removed role = %#v, want validation error", removedRole)
 	}
 	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "worker"); err != nil || !ok || def.Model != "claude-opus-9-unreleased" {
-		t.Fatalf("claude worker default after a standalone set: def=%+v ok=%v err=%v, want unaffected by the standalone bucket", def, ok, err)
+		t.Fatalf("claude worker default after rejected role: def=%+v ok=%v err=%v, want prior value", def, ok, err)
 	}
-	if def, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "standalone"); err != nil || !ok || def.Model != "sonnet" {
-		t.Fatalf("claude standalone default = %+v ok=%v err=%v, want sonnet persisted separately from worker", def, ok, err)
+	if _, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("claude", "standalone"); err != nil || ok {
+		t.Fatalf("removed role default persisted: ok=%v err=%v", ok, err)
 	}
 
 	cancel()
@@ -1950,7 +1949,7 @@ func seedServeFixture(t *testing.T) serveFixture {
 		SessionID:   "qm-demo",
 		Title:       "Serve runtime JSON",
 		Cwd:         worktree,
-		SessionType: "standalone",
+		SessionType: "master",
 		Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
 	}
 	if err := store.Create(m); err != nil {

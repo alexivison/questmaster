@@ -18,13 +18,12 @@ import (
 // StartOpts configures a new session launch.
 //
 // Prompt is the initial user-turn message (Claude `-- <prompt>`, Codex
-// positional). SystemBrief is a rare standalone/worker system override that
-// is appended after the built-in standalone or worker system prompt.
+// positional). SystemBrief is a rare worker system override appended after
+// the built-in worker system prompt.
 type StartOpts struct {
 	Title    string
 	Cwd      string
 	Shell    bool
-	Master   bool
 	MasterID string // parent master session ID (for worker spawn)
 	// DisplayColor is the named display color persisted with session metadata.
 	DisplayColor string
@@ -47,15 +46,17 @@ type StartResult struct {
 	SessionID  string
 	RuntimeDir string
 	Cwd        string
+	Master     bool
 }
 
 // Start creates and launches a new questmaster session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
-	role := roleStandalone
-	if opts.Master {
-		role = roleMaster
-	} else if opts.MasterID != "" {
+	role := roleMaster
+	if opts.MasterID != "" {
 		role = roleWorker
+	}
+	if opts.Shell {
+		role = ""
 	}
 	cwd := opts.Cwd
 	if cwd == "" {
@@ -75,7 +76,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	if role != roleWorker && !titleLocked && opts.Prompt != "" {
 		opts.Title = TitleFromPrompt(opts.Prompt)
 	}
-	if opts.Shell && (opts.Master || opts.MasterID != "" || opts.Prompt != "" || opts.SystemBrief != "") {
+	if opts.Shell && (opts.MasterID != "" || opts.Prompt != "" || opts.SystemBrief != "") {
 		return StartResult{}, fmt.Errorf("start --shell: shell sessions cannot take a master/worker role or a prompt")
 	}
 	if role == roleWorker {
@@ -198,7 +199,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		AgentPath: agentPath,
 		Display:   s.startDisplayMetadata(opts),
 	}
-	if opts.Master {
+	if role == roleMaster {
 		m.SessionType = "master"
 	}
 	sessionID, err := s.claimSessionID(ctx, m)
@@ -276,7 +277,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		runtimeDir:  runtimeDir,
 		title:       opts.Title,
 		agentPath:   agentPath,
-		master:      opts.Master,
+		master:      role == roleMaster,
 		worker:      opts.MasterID != "",
 		shell:       opts.Shell,
 		agentCmds:   agentCmds,
@@ -286,7 +287,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, s.startRollbackError(ctx, sessionID, err)
 	}
 
-	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd}, nil
+	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd, Master: role == roleMaster}, nil
 }
 
 func validateWorkerTitle(title string) error {
@@ -528,7 +529,7 @@ fi
 rm -rf "/tmp/$W"
 # Manifests are NOT deleted on session close — the prune command handles
 # stale manifest cleanup with proper parent deregistration (7-day TTL).
-# Deleting here causes the picker to misclassify workers as standalone.
+# Keep the manifest so the tracker can derive this session's role from its parent.
 exit 0
 `, shellQuoteForScript(stateRoot), shellQuoteForScript(hookStateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID))
 

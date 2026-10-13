@@ -636,7 +636,6 @@ private struct TrackerEditSessionSheet: View {
         allowsColor = session.allowsColor
         _title = State(initialValue: session.title)
         let colorModel = NewSessionFormModel(
-            role: .standalone,
             initialPath: "",
             initialFocus: .color,
             initialColor: session.color
@@ -779,7 +778,6 @@ private struct TrackerEditRepoSheet: View {
         self.dismiss = dismiss
         self.save = save
         let colorModel = NewSessionFormModel(
-            role: .standalone,
             initialPath: "",
             initialFocus: .color,
             initialColor: repo.color
@@ -1154,10 +1152,10 @@ enum TrackerPlateDesign {
 
 }
 
-/// Which plate a session row draws. Masters and standalone sessions share the top-level plate; only
+/// Which plate a session row draws. Masters and shell sessions share the top-level plate; only
 /// `worker` changes the geometry. `isMaster` still gates the collapse menu item and the worker chips.
 enum TrackerNameplateRole: Equatable {
-    case standalone
+    case shell
     case master
     case worker
 
@@ -1168,7 +1166,7 @@ enum TrackerNameplateRole: Equatable {
         } else if TrackerPlateVariant(role: sessionRole) == .worker {
             self = .worker
         } else {
-            self = .standalone
+            self = .shell
         }
     }
 
@@ -2084,7 +2082,7 @@ private struct TrackerEmptyState: View {
 }
 
 /// A dim outline of the tracker while the service starts: a master with two workers, then a
-/// standalone session, each a plate-sized placeholder.
+/// shell session, each a plate-sized placeholder.
 private struct TrackerSkeletonPlaceholder: View {
     private static let cornerRadius: CGFloat = 6
 
@@ -2102,7 +2100,7 @@ private struct TrackerSkeletonPlaceholder: View {
                 placeholder(role: .worker)
                 placeholder(role: .worker)
             }
-            placeholder(role: .standalone)
+            placeholder(role: .shell)
         }
         .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.vertical, TrackerListMetrics.verticalPadding)

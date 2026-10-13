@@ -662,7 +662,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewSession() {
-        presentNewSession(role: .standalone)
+        presentNewSession()
     }
 
     @objc private func openSettings() {
@@ -709,11 +709,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewMasterSession() {
-        presentNewSession(role: .master)
+        presentNewSession()
     }
 
     private func presentNewSession(
-        role: NewSessionRole,
         initialPath: String? = nil,
         initialTitle: String = "",
         initialPrompt: String = "",
@@ -724,7 +723,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         newSessionPresenter.present(
-            role: role,
             initialPath: initialPath ?? config.workingDirectory,
             initialTitle: initialTitle,
             initialPrompt: initialPrompt,
@@ -826,7 +824,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let request = try ServeMutationRequests.startFromQuests(quests, title: nil, agent: NewSessionFormModel.defaultAgents[0])
             presentNewSession(
-                role: .standalone,
                 initialPath: request.data["cwd"],
                 initialPrompt: request.data["prompt"] ?? "",
                 initialFocus: .title

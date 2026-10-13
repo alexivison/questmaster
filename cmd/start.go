@@ -15,7 +15,6 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	var opts struct {
 		title           string
 		cwd             string
-		master          bool
 		masterID        string
 		shell           bool
 		agentFlags      sessionAgentFlags
@@ -65,7 +64,6 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				Title:           opts.title,
 				Cwd:             opts.cwd,
 				Shell:           opts.shell,
-				Master:          opts.master,
 				MasterID:        opts.masterID,
 				DisplayColor:    opts.displayColor,
 				ResumeIDs:       resumeIDs,
@@ -81,7 +79,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 
 			w := cmd.OutOrStdout()
 			if opts.attach {
-				if opts.master {
+				if result.Master {
 					fmt.Fprintf(w, "Master session '%s' started.\n", result.SessionID)
 				} else {
 					fmt.Fprintf(w, "Session '%s' started.\n", result.SessionID)
@@ -100,7 +98,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 					RuntimeDir: result.RuntimeDir,
 					Cwd:        result.Cwd,
 					Title:      opts.title,
-					Master:     opts.master,
+					Master:     result.Master,
 					MasterID:   opts.masterID,
 				}); err != nil {
 					return err
@@ -116,7 +114,6 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: current)")
 	cmd.Flags().BoolVar(&opts.shell, "shell", false, "start a plain terminal session")
-	cmd.Flags().BoolVar(&opts.master, "master", false, "start as a master session")
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.displayColor, "color", "", "session display color")

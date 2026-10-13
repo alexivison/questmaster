@@ -108,7 +108,7 @@ func listManifestJSON(m state.Manifest, live bool) listSessionJSON {
 		SessionID:   m.SessionID,
 		Title:       m.Title,
 		Cwd:         m.Cwd,
-		SessionType: m.SessionType,
+		SessionType: m.AgentSessionType(),
 		Live:        live,
 	}
 }

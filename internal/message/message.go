@@ -307,7 +307,7 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 
 	prefix := senderPrefix(sessionID)
 	pointer := peerPointer
-	if m.SessionType != "master" {
+	if m.AgentSessionType() != "master" {
 		prefix = "[WORKER:" + sessionID + "] "
 		pointer = reportPointer
 	}
@@ -319,7 +319,7 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 }
 
 func (s *Service) recordInstructions(senderID, workerID string, sender, recipient state.Manifest, text string) {
-	if sender.SessionType != "master" || recipient.SessionType == "master" || recipient.ExtraString("parent_session") != senderID {
+	if sender.AgentSessionType() != "master" || recipient.AgentSessionType() != "worker" || recipient.ExtraString("parent_session") != senderID {
 		return
 	}
 	_ = workerfeed.RecordChatEntryAt(s.store.Root(), workerID, "instructions", text, time.Now().UTC())
@@ -419,7 +419,7 @@ func senderPrefix(senderID string) string {
 }
 
 func recipientPrefix(senderID string, sender, recipient state.Manifest) string {
-	if sender.SessionType == "master" && recipient.SessionType != "master" && recipient.ExtraString("parent_session") == senderID {
+	if sender.AgentSessionType() == "master" && recipient.AgentSessionType() == "worker" && recipient.ExtraString("parent_session") == senderID {
 		return "[MASTER:" + senderID + "] "
 	}
 	return senderPrefix(senderID)

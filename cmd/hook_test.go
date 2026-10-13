@@ -3460,7 +3460,7 @@ func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new state store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-pi-master", SessionType: "master", Workers: []string{"qm-pi-worker"}}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-pi-master", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: []string{"qm-pi-worker"}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
 	workerManifest := state.Manifest{SessionID: "qm-pi-worker", Title: "Pi worker"}
@@ -3593,7 +3593,7 @@ func TestHookPiBatchStateWriteFailureKeepsFeedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new state store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: masterID, SessionType: "master", Workers: []string{sessionID}}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: []string{sessionID}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
 	workerManifest := state.Manifest{SessionID: sessionID, Title: "Pi worker"}

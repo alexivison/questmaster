@@ -49,7 +49,7 @@ func (c *Claude) BuildCmd(opts CmdOpts) string {
 	if opts.Model != "" {
 		cmd += " --model " + config.ShellQuote(opts.Model)
 	}
-	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
+	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
 	}

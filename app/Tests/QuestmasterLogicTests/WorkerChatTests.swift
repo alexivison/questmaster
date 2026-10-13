@@ -38,7 +38,7 @@ struct WorkerChatTests {
         membershipChangesWhilePullingDoNotQueueRequests()
         departedReadErrorsStayHiddenUntilReadded()
         removeAndReAddDuringPullKeepsHistory()
-        standaloneIsUnattached()
+        shellIsUnattached()
         historyIsBounded()
         historyGrowsToTheCapThenTrimsInOneUpdate()
         lastUpdateAppendedOnlyForLinesAddedAtTheEnd()
@@ -385,7 +385,7 @@ struct WorkerChatTests {
     }
 
     private static func nonMasterRolesDoNotPull() {
-        for role in ["worker", "standalone", "tmux", "orphan", "future-role"] {
+        for role in ["worker", "tmux", "orphan", "future-role"] {
             let store = makeStore()
             let sessions = [
                 TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
@@ -550,12 +550,12 @@ struct WorkerChatTests {
         expect(bLines[0].segments.first?.text == "Worker Two:", "the cached feed name should survive the omission")
     }
 
-    private static func standaloneIsUnattached() {
+    private static func shellIsUnattached() {
         let store = makeStore()
-        let standalone = [TrackerSession(id: "s", title: "Solo", repoName: "Repo", role: "standalone")]
-        expect(store.sync(selectedSessionID: "s", sessions: standalone, isVisible: true) == nil, "standalone has nothing to pull")
-        expect(!store.isAttached && store.lines.isEmpty, "standalone should be unattached and empty")
-        expect(store.sync(selectedSessionID: nil, sessions: standalone, isVisible: true) == nil, "no selection has nothing to pull")
+        let shell = [TrackerSession(id: "s", title: "Shell", repoName: "Repo", agent: "shell", role: "shell")]
+        expect(store.sync(selectedSessionID: "s", sessions: shell, isVisible: true) == nil, "shell has nothing to pull")
+        expect(!store.isAttached && store.lines.isEmpty, "shell should be unattached and empty")
+        expect(store.sync(selectedSessionID: nil, sessions: shell, isVisible: true) == nil, "no selection has nothing to pull")
         expect(!store.isAttached, "no selection is unattached")
     }
 

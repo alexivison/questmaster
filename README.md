@@ -4,7 +4,7 @@
 
 # questmaster
 
-`questmaster` is the tmux orchestration backend for Questmaster.app. The Go CLI starts sessions, promotes a session to master, spawns workers, relays messages, and exposes runtime state plus mutation RPCs to clients.
+`questmaster` is the tmux orchestration backend for Questmaster.app. The Go CLI starts managed agent sessions as masters, spawns workers, relays messages, and exposes runtime state plus mutation RPCs to clients. Plain shell sessions remain shells.
 
 Questmaster.app is the intended human client. The CLI is an agent-first and automation-first command surface for the native app, scripts, hooks, and local backend integrations; it is not designed as a standalone human UI.
 
@@ -50,7 +50,7 @@ These commands are intended for scripts, agents, and backend debugging. For norm
 
 ```sh
 questmaster start "fix-login-flow"
-questmaster start --master --primary codex "release-triage"
+questmaster start --primary codex "release-triage"
 questmaster spawn qm-master123 "smoke-test-worker" --prompt "Investigate the failing smoke test"
 questmaster send qm-worker123 "Try a smaller test case."
 questmaster send master "done: fixed parser edge case; regression test passes"
@@ -105,7 +105,7 @@ only for the Questmaster tmux session, so normal OpenCode sessions keep using
 the user's own config. `questmaster hooks install opencode` can refresh those
 files manually; Questmaster also refreshes them before launching OpenCode.
 Questmaster launches OpenCode with explicit role-default models
-(`openai/gpt-5.6-terra` for workers/standalone, `openai/gpt-5.6-sol` for masters); an
+(`openai/gpt-5.6-terra` for workers, `openai/gpt-5.6-sol` for masters); an
 explicit Questmaster model override still wins.
 
 OpenCode `--reasoning-effort` overrides require OpenCode 1.17.15 or newer. Only
@@ -113,7 +113,7 @@ those overridden launches use OpenCode's direct interactive split-footer mode
 (`opencode run --interactive`) rather than the full TUI; normal OpenCode
 sessions retain the 1.17.11+ full-TUI launch behavior.
 
-The installed role agents provide the Questmaster master, standalone, and worker
+The installed role agents provide the Questmaster master and worker
 prompts plus an OpenCode `permission` block that keeps those Questmaster agents
 in allow mode as an agent-policy fallback, including OpenCode's
 external-directory and doom-loop safety guards. Questmaster passes the role
@@ -146,8 +146,9 @@ When starting a session, leave the title blank and questmaster derives one from 
 
 ## Model selection
 
-Every harness launches on its role default model (workers and standalone on the
-worker tier, masters on the master tier). `start --model <id>` and
+Every harness launches on its role default model (workers on the worker tier,
+masters on the master tier). New managed agent sessions start as masters.
+`start --model <id>` and
 `spawn --model <id>` override it, and the value is passed to the harness
 verbatim — questmaster never validates a model id, so a model released today
 works today.
@@ -181,7 +182,7 @@ defaults and catalog sources in one place (`internal/agent`'s `ModelPolicy`).
 
 The native app's new-session sheet has a Model row backed by the same data over
 the serve `models` topic; leaving it on `default` keeps the role default. It
-resolves fresh on open and whenever the agent or role changes, always through
+resolves fresh on open and whenever the agent changes, always through
 the cache described above; its refresh button (or `r` while the row is
 focused) forces a refetch past that cache for the currently selected agent.
 

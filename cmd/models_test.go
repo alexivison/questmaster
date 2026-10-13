@@ -74,12 +74,12 @@ func TestModelsCmdTextAndRecents(t *testing.T) {
 		t.Fatalf("create manifest: %v", err)
 	}
 
-	if err := state.NewRoleDefaultsStore(store.Root()).Set("codex", "standalone", state.RoleDefault{Model: "gpt-9-unreleased", ReasoningEffort: "xhigh"}); err != nil {
+	if err := state.NewRoleDefaultsStore(store.Root()).Set("codex", "master", state.RoleDefault{Model: "gpt-9-unreleased", ReasoningEffort: "xhigh"}); err != nil {
 		t.Fatalf("seed role default: %v", err)
 	}
 
 	out := runCmd(t, store, runner, "models", "codex", "--text")
-	if !strings.Contains(out, "codex (standalone)") {
+	if !strings.Contains(out, "codex (master)") {
 		t.Errorf("text output missing the header:\n%s", out)
 	}
 	if !strings.Contains(out, "gpt-9-unreleased") {
@@ -105,8 +105,10 @@ func TestModelsCmdRejectsInvalidRole(t *testing.T) {
 	store := setupStore(t)
 	runner := idleRunner()
 
-	if _, err := runCmdErr(t, store, runner, "models", "claude", "--role", "wrker"); err == nil {
-		t.Fatal("expected an error for an invalid --role value, not a silent standalone fallback")
+	for _, role := range []string{"wrker", "standalone", "primary"} {
+		if _, err := runCmdErr(t, store, runner, "models", "claude", "--role", role); err == nil {
+			t.Fatalf("expected an error for invalid --role %q", role)
+		}
 	}
 }
 

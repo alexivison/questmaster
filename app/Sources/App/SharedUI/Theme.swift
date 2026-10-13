@@ -221,7 +221,7 @@ enum AppFonts {
     static let modalButtonLabel = monospaced(size: 12.5, weight: .semibold)
     /// Sectioned-list group titles (e.g. the repo name above a Tracker group).
     static let sectionTitle = monospaced(size: 11, weight: .semibold)
-    /// The Settings sheet's per-role group titles (Master/Standalone/Worker) —
+    /// The Settings sheet's per-role group titles (Master/Worker) —
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
     static let settingsSectionTitle = monospaced(size: 14.5, weight: .semibold)
 

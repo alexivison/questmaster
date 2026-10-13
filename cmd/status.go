@@ -76,7 +76,7 @@ func collectStatus(ctx context.Context, store *state.Store, client *tmux.Client,
 		return result, nil
 	}
 
-	stype := m.SessionType
+	stype := m.AgentSessionType()
 	if stype == "" {
 		stype = "regular"
 	}

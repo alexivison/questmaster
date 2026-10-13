@@ -157,6 +157,17 @@ func (m Manifest) ExtraString(key string) string {
 	return s
 }
 
+// AgentSessionType derives managed roles from the agent and parent fields.
+func (m Manifest) AgentSessionType() string {
+	if m.ExtraString("parent_session") != "" {
+		return "worker"
+	}
+	if len(m.Agents) == 0 {
+		return ""
+	}
+	return "master"
+}
+
 // SetExtra sets a string value in the manifest's Extra map.
 func (m *Manifest) SetExtra(key, value string) {
 	if m.Extra == nil {

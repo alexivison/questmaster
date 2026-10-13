@@ -76,7 +76,7 @@ struct TrackerSessionShortcutsTests {
         [
             TrackerSession(id: "master-1", title: "Master", repoName: "repo", role: "master"),
             TrackerSession(id: "worker-1", title: "Worker", repoName: "repo", role: "worker", parentID: "master-1"),
-            TrackerSession(id: "root-2", title: "Standalone", repoName: "repo"),
+            TrackerSession(id: "root-2", title: "Shell", repoName: "repo", agent: "shell", role: "shell"),
         ]
     }
 

@@ -1605,7 +1605,6 @@ enum LogicSelfTests {
     private static func testNewSessionArrowKeysNavigatePathSuggestions() throws {
         let model = NewSessionSheetModel(
             presentation: NewSessionSheetPresentation(
-                role: .standalone,
                 initialPath: "",
                 initialTitle: "",
                 initialPrompt: "",
@@ -1649,7 +1648,7 @@ enum LogicSelfTests {
         model.present()
         drainMainQueue()
         try expect(client.requests.first?.agent == "claude", "the sheet should resolve models for the initial agent")
-        try expect(client.requests.first?.role == "standalone", "a standalone sheet should ask for standalone defaults")
+        try expect(client.requests.first?.role == "master", "a new agent session should ask for master defaults")
         try expect(client.requests.first?.refresh == false, "the sheet's own resolve on open must not force a refetch")
         try expect(
             model.state.model.modelOptions.contains(where: { $0.id == "opus" }),
@@ -1935,7 +1934,6 @@ enum LogicSelfTests {
     ) -> NewSessionSheetModel {
         NewSessionSheetModel(
             presentation: NewSessionSheetPresentation(
-                role: .standalone,
                 initialPath: "/tmp/project",
                 initialTitle: "",
                 initialPrompt: "",

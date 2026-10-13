@@ -109,7 +109,7 @@ func serveContractFixtures() []contractFixture {
 		Current: &CurrentSession{
 			ID:          "qm-demo",
 			Title:       "Serve runtime JSON",
-			SessionType: "standalone",
+			SessionType: "master",
 		},
 		Sessions: []SessionSnapshot{{
 			ID:             "qm-demo",
@@ -123,7 +123,7 @@ func serveContractFixtures() []contractFixture {
 			LastKind:       "PreToolUse",
 			WorktreePath:   "/tmp/questmaster/worktrees/app-contract",
 			PrimaryAgent:   "codex",
-			SessionType:    "standalone",
+			SessionType:    "master",
 			WorkerCount:    1,
 			IsCurrent:      true,
 			Artifacts:      []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact},
@@ -152,7 +152,7 @@ func serveContractFixtures() []contractFixture {
 	// source) that the app decodes.
 	models := modelsuggest.Suggestions{
 		Agent:   "claude",
-		Role:    "standalone",
+		Role:    "master",
 		Default: "sonnet",
 		Models: []modelsuggest.Model{
 			{ID: "opus", Label: "opus", Note: "alias · tracks Claude Opus 5"},

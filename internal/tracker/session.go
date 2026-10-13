@@ -40,7 +40,7 @@ type SessionRow struct {
 	Cwd          string
 	PrimaryAgent string
 	Status       string // "active" or "stopped"
-	SessionType  string // "master", "worker", or "standalone"
+	SessionType  string // "master", "worker", or "shell"
 	ParentID     string
 	WorkerCount  int
 	DisplayColor string // effective (last-write-wins) gutter color
@@ -154,16 +154,12 @@ func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 	}
 }
 
-// SessionTypeForManifest normalizes persisted manifest metadata into the
-// tracker session-type vocabulary.
+// SessionTypeForManifest derives managed roles and preserves plain shells.
 func SessionTypeForManifest(m state.Manifest) string {
-	if m.SessionType == "master" {
-		return "master"
+	if role := m.AgentSessionType(); role != "" {
+		return role
 	}
-	if m.ExtraString("parent_session") != "" {
-		return "worker"
-	}
-	return "standalone"
+	return "shell"
 }
 
 // StableSessionOrderKey returns the newest-first sort key used by tracker rows.

@@ -6,6 +6,7 @@ struct RuntimeDecoderTests {
         serveContractDecodesTrackerTopic()
         runtimeUpdateDecodesNestedPayload()
         trackerSessionDecodesCanonicalKeysAndDurations()
+        trackerSessionRoleComesFromAgentAndParent()
         serveContractRejectsProtocolVersionMismatch()
         serveProtocolMismatchSurfacesUnavailableState()
         serveStoppedSurfacesUnavailableState()
@@ -56,7 +57,7 @@ struct RuntimeDecoderTests {
             expect(session.displayColor == "session-pink", "display_color did not decode")
             expect(session.worktreePath == "/worktree", "worktree_path did not decode")
             expect(session.agent == "codex", "primary_agent did not decode")
-            expect(session.role == "worker", "session_type did not decode")
+            expect(session.role == "worker", "a managed agent with a parent should decode as worker")
             expect(session.lifecycle == "stopped", "status did not decode")
             expect(session.state == "stopped", "stopped lifecycle should default state to stopped")
             expect(session.snippet == "Waiting", "latest_activity did not decode")
@@ -73,6 +74,34 @@ struct RuntimeDecoderTests {
             expect(session.duration(at: now) == "0:02:10", "elapsed_since should tick duration from fixed date")
         } catch {
             fail("tracker session canonical decode threw \(error)")
+        }
+    }
+
+    private static func trackerSessionRoleComesFromAgentAndParent() {
+        let oldRoot = """
+        {"id":"old-root","primary_agent":"codex","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
+        """
+        let oldWorker = """
+        {"id":"old-worker","primary_agent":"codex","session_type":"master","parent_id":"old-root","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
+        """
+        let parentWithoutAgent = """
+        {"id":"old-worker-no-agent","parent_id":"old-root","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
+        """
+        let shell = """
+        {"id":"shell","primary_agent":"shell","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
+        """
+
+        do {
+            let root = try decode(TrackerSession.self, oldRoot)
+            let worker = try decode(TrackerSession.self, oldWorker)
+            let workerWithoutAgent = try decode(TrackerSession.self, parentWithoutAgent)
+            let plainShell = try decode(TrackerSession.self, shell)
+            expect(root.role == "master", "an old managed root should derive as master")
+            expect(worker.role == "worker", "a parent-linked agent should derive as worker")
+            expect(workerWithoutAgent.role == "worker", "a parent link should derive as worker even without agent metadata")
+            expect(plainShell.role == "shell", "a plain shell should remain a shell")
+        } catch {
+            fail("derived tracker role decode threw \(error)")
         }
     }
 

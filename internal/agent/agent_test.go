@@ -138,7 +138,7 @@ func TestClaudeBuildCmd_ModelOverride(t *testing.T) {
 	claude := NewClaude(AgentConfig{})
 	base := CmdOpts{Binary: "/usr/local/bin/claude", AgentPath: "/tmp/bin:/usr/bin"}
 
-	for _, role := range []SessionRole{RoleWorker, RoleStandalone, RoleMaster} {
+	for _, role := range []SessionRole{RoleWorker, RoleMaster} {
 		got := claude.BuildCmd(withRole(base, role))
 		if strings.Contains(got, "--model '") {
 			t.Fatalf("role %v with no override should omit --model: %q", role, got)
@@ -441,27 +441,6 @@ func TestClaudeBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 	}
 }
 
-func TestClaudeBuildCmd_StandalonePromptAndSystemBrief(t *testing.T) {
-	t.Parallel()
-
-	claude := NewClaude(AgentConfig{})
-	brief := "Keep notes in the session log."
-	got := claude.BuildCmd(CmdOpts{
-		Binary:      "/usr/local/bin/claude",
-		AgentPath:   "/tmp/bin:/usr/bin",
-		Prompt:      "inspect the sidebar",
-		SystemBrief: brief,
-		Role:        RoleStandalone,
-	})
-	want := "--append-system-prompt '" + claude.StandalonePrompt() + "\n\n" + brief + "'"
-	if !strings.Contains(got, want) {
-		t.Fatalf("BuildCmd() missing %q in %q", want, got)
-	}
-	if !strings.Contains(got, "-- 'inspect the sidebar'") {
-		t.Fatalf("BuildCmd() should keep the standalone task as first user turn: %q", got)
-	}
-}
-
 func TestClaudeBuildCmd_Master(t *testing.T) {
 	t.Parallel()
 
@@ -471,7 +450,7 @@ func TestClaudeBuildCmd_Master(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleMaster,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --append-system-prompt '" + claude.MasterPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --append-system-prompt " + configShellQuote(claude.MasterPrompt())
 	if got != want {
 		t.Fatalf("BuildCmd(master) = %q, want %q", got, want)
 	}
@@ -545,7 +524,7 @@ func TestCodexBuildCmd_ModelAndReasoningOverride(t *testing.T) {
 	codex := NewCodex(AgentConfig{})
 	base := CmdOpts{Binary: "/opt/homebrew/bin/codex", AgentPath: "/tmp/bin:/usr/bin"}
 
-	for _, role := range []SessionRole{RoleWorker, RoleStandalone, RoleMaster} {
+	for _, role := range []SessionRole{RoleWorker, RoleMaster} {
 		got := codex.BuildCmd(withRole(base, role))
 		if strings.Contains(got, "--model '") {
 			t.Fatalf("codex role %v with no override should omit --model: %q", role, got)
@@ -596,27 +575,6 @@ func TestCodexBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, " -- 'tell the joke'") {
 		t.Fatalf("BuildCmd() should keep the worker task as positional user turn: %q", got)
-	}
-}
-
-func TestCodexBuildCmd_StandalonePromptAndSystemBrief(t *testing.T) {
-	t.Parallel()
-
-	codex := NewCodex(AgentConfig{})
-	brief := "Keep notes in the tracker."
-	got := codex.BuildCmd(CmdOpts{
-		Binary:      "/opt/homebrew/bin/codex",
-		AgentPath:   "/tmp/bin:/usr/bin",
-		Prompt:      "inspect the sidebar",
-		SystemBrief: brief,
-		Role:        RoleStandalone,
-	})
-	wantConfig := configShellQuote("developer_instructions=" + strconv.Quote(codex.StandalonePrompt()+"\n\n"+brief))
-	if !strings.Contains(got, "-c "+wantConfig) {
-		t.Fatalf("BuildCmd() missing %q in %q", "-c "+wantConfig, got)
-	}
-	if !strings.HasSuffix(got, " -- 'inspect the sidebar'") {
-		t.Fatalf("BuildCmd() should keep the standalone task as positional user turn: %q", got)
 	}
 }
 
@@ -690,7 +648,7 @@ func TestPiBuildCmd_ModelAndThinkingOverride(t *testing.T) {
 	pi := NewPi(AgentConfig{})
 	base := CmdOpts{Binary: "/opt/homebrew/bin/pi", AgentPath: "/tmp/bin:/usr/bin"}
 
-	for _, role := range []SessionRole{RoleWorker, RoleStandalone, RoleMaster} {
+	for _, role := range []SessionRole{RoleWorker, RoleMaster} {
 		got := pi.BuildCmd(withRole(base, role))
 		if strings.Contains(got, "--model '") {
 			t.Fatalf("pi role %v with no override should omit --model: %q", role, got)
@@ -725,9 +683,8 @@ func TestPromptsOmitCompanionAndTransportTokens(t *testing.T) {
 
 	for providerName, provider := range providers {
 		for promptName, prompt := range map[string]string{
-			"master":     provider.MasterPrompt(),
-			"standalone": provider.StandalonePrompt(),
-			"worker":     provider.WorkerPrompt(),
+			"master": provider.MasterPrompt(),
+			"worker": provider.WorkerPrompt(),
 		} {
 			for _, token := range banned {
 				if strings.Contains(prompt, token) {
@@ -757,17 +714,11 @@ func TestProviderMetadata(t *testing.T) {
 	if claude.MasterPrompt() == "" {
 		t.Fatal("Claude MasterPrompt() is empty")
 	}
-	if claude.StandalonePrompt() == "" {
-		t.Fatal("Claude StandalonePrompt() is empty")
-	}
 	if claude.WorkerPrompt() == "" {
 		t.Fatal("Claude WorkerPrompt() is empty")
 	}
 	if codex.MasterPrompt() == "" {
 		t.Fatal("Codex MasterPrompt() is empty")
-	}
-	if codex.StandalonePrompt() == "" {
-		t.Fatal("Codex StandalonePrompt() is empty")
 	}
 	if codex.WorkerPrompt() == "" {
 		t.Fatal("Codex WorkerPrompt() is empty")
@@ -775,7 +726,7 @@ func TestProviderMetadata(t *testing.T) {
 }
 
 func configShellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 func TestClaudePreLaunchSetup_UnsetsClaudeCode(t *testing.T) {
