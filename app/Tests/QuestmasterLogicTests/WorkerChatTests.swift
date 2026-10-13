@@ -45,6 +45,7 @@ struct WorkerChatTests {
         trimDoesNotResurfaceDroppedLines()
         droppedCastRunDoesNotComeBackOnRebuild()
         foldedActionsStayBounded()
+        capEvictingAShownLineCountsAsTrim()
         trimKeepsTheNewestLines()
         firstLineIDStaysTheSameAcrossRebuilds()
         historyKeepsNewestLinesAtLineCap()
@@ -694,6 +695,29 @@ struct WorkerChatTests {
         expect(store.lines.count == 1, "one worker's run in one minute should stay one line, got \(store.lines.count)")
         expect(store.lines.last?.segments.last?.text == "[Bash](x\(WorkerChatStore.maxRecords))", "the run should count only the \(WorkerChatStore.maxRecords) newest records, got \(store.lines.last?.segments.last?.text ?? "")")
         expect(store.trimCount == 0, "a folded run should not trim, got \(store.trimCount)")
+    }
+
+    /// A message, then 1,199 same-minute actions (two rows, 1,200 records). The next action makes the cap drop
+    /// the message, which leaves one row and no line trim. That still counts as a trim, so the follower doesn't
+    /// glide the surviving row.
+    private static func capEvictingAShownLineCountsAsTrim() {
+        let store = makeStore()
+        let first = open(store)
+        guard let followUp = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(0, "w1", "say", "old message")] + (0..<1199).map { _ in entry(0, "w1", "action", "Bash") },
+                hasMore: ["w1": true]
+            ),
+            for: first
+        ) else {
+            fail("has_more should request the next page")
+        }
+        expect(store.lines.count == 2 && store.trimCount == 0, "a message and its Cast run should be two rows with no trim, got \(store.lines.count) rows and \(store.trimCount) trims")
+
+        _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "action", "Bash")]), for: followUp)
+        expect(store.lines.count == 1, "the cap should evict the message, leaving one row, got \(store.lines.count)")
+        expect(store.lines.first?.segments.last?.text == "[Bash](x\(WorkerChatStore.maxRecords))", "the surviving row should be the Cast run, got \(String(describing: store.lines.first?.segments))")
+        expect(store.trimCount == 1, "evicting a line that was on screen should count as a trim, got \(store.trimCount)")
     }
 
     /// One action per minute for 601 minutes: the trim keeps the newest 500, from 10:41 to 19:00.
