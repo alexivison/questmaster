@@ -71,7 +71,7 @@ struct WorkerChatDockView: View {
             if store.lines.isEmpty {
                 emptyState
             } else {
-                WorkerChatFeedView(lines: store.lines)
+                WorkerChatFeedView(lines: store.lines, trimCount: store.trimCount)
             }
             readNotice
         }
@@ -111,6 +111,7 @@ struct WorkerChatDockView: View {
 /// drifts off the bottom as lines arrive), and `WorkerChatBottomFollower` does the pinning.
 struct WorkerChatFeedView: View {
     let lines: [WorkerChatLine]
+    let trimCount: Int
 
     var body: some View {
         GeometryReader { viewport in
@@ -120,7 +121,7 @@ struct WorkerChatFeedView: View {
                 }
                 .padding(WorkerChatMetrics.inset)
                 .frame(minHeight: viewport.size.height, alignment: .bottom)
-                .background(WorkerChatBottomFollower())
+                .background(WorkerChatBottomFollower(trimCount: trimCount))
                 .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
@@ -131,24 +132,38 @@ struct WorkerChatFeedView: View {
 /// Pins the enclosing scroll view to its bottom whenever the content resizes, until the user
 /// scrolls above the bottom; scrolling back down (or `G`) resumes following. Observes the clip and
 /// document views directly, so mouse, trackpad and key scrolling all count, with no per-frame work.
+/// While following, arrivals glide in from their old place and the bottom edge fades.
 private struct WorkerChatBottomFollower: NSViewRepresentable {
+    let trimCount: Int
+
     func makeNSView(context: Context) -> WorkerChatBottomFollowerView {
         WorkerChatBottomFollowerView()
     }
 
-    func updateNSView(_ view: WorkerChatBottomFollowerView, context: Context) {}
+    func updateNSView(_ view: WorkerChatBottomFollowerView, context: Context) {
+        view.noteTrimCount(trimCount)
+    }
 }
 
-private final class WorkerChatBottomFollowerView: NSView {
-    private var isFollowing = true
+final class WorkerChatBottomFollowerView: NSView {
+    private(set) var isFollowing = true
     private var lastOffset: CGFloat?
     private var lastHeights: Heights?
+    private var trimCount = 0
+    private var isTrimUpdate = false
 
     private struct Heights: Equatable {
-        let viewport: CGFloat
+        let viewport: CGSize
         let content: CGFloat
     }
     private var observers: [NSObjectProtocol] = []
+
+    /// Runs on SwiftUI updates that change the count, ahead of the layout that reports the new content
+    /// height. Arrivals don't always reach here, so `sync` consumes the flag at the layout.
+    func noteTrimCount(_ count: Int) {
+        isTrimUpdate = count != trimCount
+        trimCount = count
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -159,6 +174,7 @@ private final class WorkerChatBottomFollowerView: NSView {
               let documentView = scrollView.documentView else {
             return
         }
+        scrollView.wantsLayer = true
         let clipView = scrollView.contentView
         clipView.postsBoundsChangedNotifications = true
         clipView.postsFrameChangedNotifications = true
@@ -179,6 +195,11 @@ private final class WorkerChatBottomFollowerView: NSView {
                     if let scrollView { self?.sync(scrollView) }
                 }
             },
+            NotificationCenter.default.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: scrollView, queue: .main) { [weak scrollView] _ in
+                MainActor.assumeIsolated {
+                    if let scrollView { WorkerChatMotion.cancelGlide(scrollView) }
+                }
+            },
         ]
         sync(scrollView)
     }
@@ -196,18 +217,24 @@ private final class WorkerChatBottomFollowerView: NSView {
         guard let documentView = scrollView.documentView else {
             return
         }
-        let heights = Heights(viewport: clipView.bounds.height, content: documentView.bounds.height)
+        let heights = Heights(viewport: clipView.bounds.size, content: documentView.bounds.height)
         if heights != lastHeights {
+            // Content that grew or shrank under a steady viewport glides. The first layout doesn't (there
+            // is no old place to glide from), a viewport resize doesn't, and neither does a trim: it
+            // removes lines above the viewport, so the bottom shift it causes is not an arrival.
+            let glides = lastHeights?.viewport == heights.viewport && !isTrimUpdate
             lastHeights = heights
+            isTrimUpdate = false
+            WorkerChatMotion.updateBottomFade(scrollView, isFollowing: isFollowing)
             if isFollowing {
-                pinIfFollowing(scrollView)
+                pinIfFollowing(scrollView, glides: glides)
             } else {
                 lastOffset = clipView.bounds.origin.y
-                isFollowing = WorkerChatScroll.isAtBottom(
+                setFollowing(WorkerChatScroll.isAtBottom(
                     offset: clipView.bounds.origin.y,
-                    viewportHeight: heights.viewport,
+                    viewportHeight: heights.viewport.height,
                     contentHeight: heights.content
-                )
+                ), in: scrollView)
             }
             return
         }
@@ -215,14 +242,14 @@ private final class WorkerChatBottomFollowerView: NSView {
             return
         }
         lastOffset = clipView.bounds.origin.y
-        isFollowing = WorkerChatScroll.isAtBottom(
+        setFollowing(WorkerChatScroll.isAtBottom(
             offset: clipView.bounds.origin.y,
             viewportHeight: clipView.bounds.height,
             contentHeight: documentView.bounds.height
-        )
+        ), in: scrollView)
     }
 
-    private func pinIfFollowing(_ scrollView: NSScrollView) {
+    private func pinIfFollowing(_ scrollView: NSScrollView, glides: Bool) {
         let clipView = scrollView.contentView
         guard isFollowing,
               let documentView = scrollView.documentView,
@@ -230,8 +257,15 @@ private final class WorkerChatBottomFollowerView: NSView {
             return
         }
         lastOffset = bottom
-        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: bottom))
-        scrollView.reflectScrolledClipView(clipView)
+        WorkerChatMotion.scroll(scrollView, toOffset: bottom, glides: glides)
+    }
+
+    private func setFollowing(_ value: Bool, in scrollView: NSScrollView) {
+        guard isFollowing != value else {
+            return
+        }
+        isFollowing = value
+        WorkerChatMotion.updateBottomFade(scrollView, isFollowing: value)
     }
 }
 

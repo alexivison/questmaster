@@ -13,4 +13,10 @@ public enum WorkerChatScroll {
     public static func bottomOffset(viewportHeight: CGFloat, contentHeight: CGFloat) -> CGFloat? {
         contentHeight > viewportHeight ? contentHeight - viewportHeight : nil
     }
+
+    /// How far the content glides after the clip jumps from `shownOffset` (where the content still
+    /// appears) to `offset`. Capped at one viewport, so the rest of a long jump lands at once.
+    public static func glideDistance(from shownOffset: CGFloat, to offset: CGFloat, viewportHeight: CGFloat) -> CGFloat {
+        min(max(offset - shownOffset, -viewportHeight), viewportHeight)
+    }
 }

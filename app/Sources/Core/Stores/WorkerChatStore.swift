@@ -29,12 +29,16 @@ public struct WorkerFeedRequest: Equatable {
 /// Not thread-safe; callers use it on the main thread.
 @Observable
 public final class WorkerChatStore {
-    public static let maxLines = 500
+    /// History grows to this many rendered lines, then trims back to `trimTarget` in one update.
+    public static let maxLines = 600
+    public static let trimTarget = 500
 
     public private(set) var lines: [WorkerChatLine] = []
     public private(set) var isAttached = false
     /// A single muted notice naming the workers whose log the last pull couldn't read; cleared by a clean pull.
     public private(set) var readNotice: String?
+    /// Counts the updates that trimmed `lines`, so a view can tell a trim from an arrival.
+    public private(set) var trimCount = 0
 
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private var masterID: String?
@@ -185,31 +189,49 @@ public final class WorkerChatStore {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
         let visibleRecords = records.filter { agents[$0.workerID] != nil }
         let hiddenRecords = records.filter { agents[$0.workerID] == nil }
-        let visibleKept = Array(visibleRecords.suffix(Self.maxLines))
-        let hiddenKept = Array(hiddenRecords.suffix(Self.maxLines))
+        var visibleKept = Array(visibleRecords.suffix(Self.maxLines))
+        let hiddenKept = Array(hiddenRecords.suffix(Self.trimTarget))
         var built = WorkerChatLineBuilder.lines(from: visibleKept, names: names, agents: agents, calendar: calendar)
         if built.count > Self.maxLines {
-            let suffix = Array(built.suffix(Self.maxLines))
-            if let firstHeader = suffix.firstIndex(where: {
-                if case .timeHeader = $0.content { return true }
-                return false
-            }) {
-                built = Array(suffix[firstHeader...])
-            } else if let header = built.dropLast(Self.maxLines).last(where: {
-                if case .timeHeader = $0.content { return true }
-                return false
-            }) {
-                built = [header] + Array(suffix.dropFirst())
-            } else {
-                built = suffix
-            }
+            built = Self.trimmed(built, to: Self.trimTarget)
+            visibleKept = Self.recordsBehind(built, in: visibleKept)
+            trimCount += 1
         }
-        // ponytail: independent visible and hidden caps bound cached history at 2x maxLines.
+        // ponytail: independent visible and hidden caps bound cached history at maxLines + trimTarget.
         records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
         if built != lines {
             lines = built
         }
         updateReadNotice()
+    }
+
+    /// Keeps the newest `limit` lines and starts them on a time header. The header of the minute the
+    /// cut lands in stays, so the first kept entry is never orphaned from its header. The builder
+    /// opens every line list with a header, so the search before the cut always finds one.
+    private static func trimmed(_ built: [WorkerChatLine], to limit: Int) -> [WorkerChatLine] {
+        let suffix = Array(built.suffix(limit))
+        if let firstHeader = suffix.firstIndex(where: isTimeHeader) {
+            return Array(suffix[firstHeader...])
+        }
+        let header = built.dropLast(limit).last(where: isTimeHeader) ?? built[0]
+        return [header] + Array(suffix.dropFirst())
+    }
+
+    /// Drops the records behind the first entry that a trim kept, so the next rebuild doesn't bring
+    /// the trimmed lines back.
+    private static func recordsBehind(_ kept: [WorkerChatLine], in visible: [WorkerChatRecord]) -> [WorkerChatRecord] {
+        guard let sequence = WorkerChatLineBuilder.firstEntrySequence(in: kept),
+              let index = visible.firstIndex(where: { $0.sequence == sequence }) else {
+            return visible
+        }
+        return Array(visible[index...])
+    }
+
+    private static func isTimeHeader(_ line: WorkerChatLine) -> Bool {
+        if case .timeHeader = line.content {
+            return true
+        }
+        return false
     }
 
     private func updateReadNotice() {

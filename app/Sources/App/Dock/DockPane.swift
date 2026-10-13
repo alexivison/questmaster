@@ -213,8 +213,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
             return
         }
         let nextY = min(max(0, clipView.bounds.origin.y + points), maxY)
-        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
-        scrollView.reflectScrolledClipView(clipView)
+        WorkerChatMotion.scroll(scrollView, toOffset: nextY, glides: model.currentMode == .workerChat)
     }
 
     var onShowArtifactListIntent: (() -> Void)? {

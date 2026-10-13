@@ -128,6 +128,14 @@ enum WorkerChatLineBuilder {
         return lines
     }
 
+    /// Entry ids are `e<sequence>` of the entry's first record; header ids start with `h`.
+    static func firstEntrySequence(in lines: [WorkerChatLine]) -> Int? {
+        guard let entry = lines.first(where: { $0.id.hasPrefix("e") }) else {
+            return nil
+        }
+        return Int(entry.id.dropFirst())
+    }
+
     static func displayName(_ title: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > maxNameLength else {

@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import Foundation
 import QuestmasterCore
+import SwiftUI
 
 @MainActor
 enum LogicSelfTests {
@@ -65,6 +66,11 @@ enum LogicSelfTests {
         ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
         ("testActionBarFooterBottomGapMeasuresFromBarBand", testActionBarFooterBottomGapMeasuresFromBarBand),
         ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
+        ("testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide", testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide),
+        ("testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout", testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout),
+        ("testWorkerChatBottomFadeIsOnlyWhileFollowing", testWorkerChatBottomFadeIsOnlyWhileFollowing),
+        ("testWorkerChatLiveScrollCancelsGlide", testWorkerChatLiveScrollCancelsGlide),
+        ("testWorkerChatTrimWithWrappedRowsSkipsGlide", testWorkerChatTrimWithWrappedRowsSkipsGlide),
     ]
 
     static func runIfRequested() -> Bool {
@@ -2132,6 +2138,198 @@ enum LogicSelfTests {
             scrollView.contentView.bounds.width == scrollView.bounds.width,
             "clip view should still fill the scroll view width after a competing reset lands right behind the style-change notification, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
         )
+    }
+
+    /// Follower fixture: a flipped document in an offscreen window, so the clip origin reads like the
+    /// real feed (bottom = content - viewport). The window sits off screen, as in the scroller test.
+    @MainActor
+    private final class FlippedDocumentView: NSView {
+        override var isFlipped: Bool { true }
+    }
+
+    @MainActor
+    private struct FollowerFixture {
+        let window: NSWindow
+        let scrollView: NSScrollView
+        let documentView: NSView
+        let follower: WorkerChatBottomFollowerView
+
+        var origin: CGFloat { scrollView.contentView.bounds.origin.y }
+        var isGliding: Bool { !(documentView.layer?.animationKeys() ?? []).isEmpty }
+
+        func grow(to height: CGFloat) {
+            documentView.setFrameSize(NSSize(width: documentView.frame.width, height: height))
+            pump(0.02)
+        }
+
+        func scroll(to offset: CGFloat) {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            pump(0.02)
+        }
+    }
+
+    private static func followerFixture(contentHeight: CGFloat) -> FollowerFixture {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let documentView = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 300, height: contentHeight))
+        scrollView.documentView = documentView
+        scrollView.hasVerticalScroller = false
+        let follower = WorkerChatBottomFollowerView()
+        documentView.addSubview(follower)
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = scrollView
+        window.orderFrontRegardless()
+        pump(0.05)
+        return FollowerFixture(window: window, scrollView: scrollView, documentView: documentView, follower: follower)
+    }
+
+    private static func pump(_ seconds: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    /// A line arriving while the feed follows glides in, and a second arrival mid-glide keeps the
+    /// follower at the bottom. The clip bounds are the follow state, and they never animate.
+    private static func testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(fixture.follower.isFollowing, "a fresh feed should follow")
+        try expect(fixture.origin == 800, "the first layout should pin to the bottom, got \(fixture.origin)")
+        try expect(!fixture.isGliding, "the first layout should not glide")
+
+        fixture.grow(to: 1026)
+        try expect(fixture.origin == 826, "an arrival should move the clip to the new bottom at once, got \(fixture.origin)")
+        try expect(fixture.isGliding, "an arrival at a steady viewport should glide")
+
+        fixture.grow(to: 1052)
+        try expect(fixture.origin == 852, "a second arrival mid-glide should still pin, got \(fixture.origin)")
+        try expect(fixture.follower.isFollowing, "a line arriving mid-glide should keep following")
+        try expect(fixture.isGliding, "the mid-glide arrival should glide again")
+
+        pump(0.4)
+        try expect(!fixture.isGliding, "the glide should finish within 200ms")
+        try expect(fixture.follower.isFollowing && fixture.origin == 852, "the feed should end at the bottom and following")
+    }
+
+    /// Trims, viewport resizes and the first layout jump to the bottom without a glide. A trim
+    /// flag applies to the update it came with, so the next arrival still glides.
+    private static func testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+
+        fixture.follower.noteTrimCount(1)
+        fixture.grow(to: 974)
+        try expect(fixture.origin == 774, "a trim with shorter wrapped rows should pin to the bottom, got \(fixture.origin)")
+        try expect(!fixture.isGliding, "a trim update should not glide")
+        try expect(fixture.follower.isFollowing, "a trim update should keep following")
+
+        fixture.follower.noteTrimCount(1)
+        fixture.grow(to: 1000)
+        try expect(fixture.isGliding, "an arrival after the trim update should glide again")
+        pump(0.4)
+
+        fixture.scrollView.setFrameSize(NSSize(width: 300, height: 240))
+        pump(0.05)
+        try expect(!fixture.isGliding, "a viewport resize should not glide")
+        try expect(fixture.follower.isFollowing && fixture.origin == 760, "a resize should pin to the new bottom, got \(fixture.origin)")
+    }
+
+    /// The real feed, through SwiftUI's update path: a trim with wrapped rows (the content height
+    /// drops by an amount no single row explains) pins without a glide, and the next arrival glides.
+    private static func testWorkerChatTrimWithWrappedRowsSkipsGlide() throws {
+        let hosting = NSHostingView(rootView: wrappedFeed(count: 30, trimCount: 0))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        pump(0.3)
+
+        guard let scrollView = descendant(NSScrollView.self, in: hosting),
+              let follower = descendant(WorkerChatBottomFollowerView.self, in: hosting),
+              let documentView = scrollView.documentView else {
+            throw TestFailure("the worker chat feed should host a scroll view and its follower")
+        }
+        try expect(follower.isFollowing, "a fresh feed should follow")
+        try expect(!isGliding(documentView), "the first layout should not glide")
+
+        let heightBeforeTrim = documentView.frame.height
+        hosting.rootView = wrappedFeed(count: 22, trimCount: 1)
+        pump(0.1)
+        let maxOffset = documentView.frame.height - scrollView.contentView.bounds.height
+        try expect(documentView.frame.height < heightBeforeTrim, "the trim should shorten the content")
+        try expect(!isGliding(documentView), "a wrapped-row trim should not glide")
+        try expect(follower.isFollowing, "a trim should keep following")
+        try expect(abs(scrollView.contentView.bounds.origin.y - maxOffset) < 1, "a trim should pin to the new bottom")
+
+        hosting.rootView = wrappedFeed(count: 23, trimCount: 1)
+        pump(0.1)
+        try expect(isGliding(documentView), "an arrival after the trim should glide")
+    }
+
+    /// Every third entry wraps to several lines at the 300pt test width.
+    private static func wrappedFeed(count: Int, trimCount: Int) -> some View {
+        let wrapped = String(repeating: "wrapped words in a long line ", count: 6)
+        var lines = [WorkerChatLine(id: "h0", content: .timeHeader("[09:00]"))]
+        lines += (0..<count).map { index in
+            WorkerChatLine(id: "e\(index)", content: .entry(agent: "claude", segments: [
+                WorkerChatSegment("Worker One:", .name),
+                WorkerChatSegment(" \(index) \(index % 3 == 0 ? wrapped : "short")", .normal),
+            ]))
+        }
+        return WorkerChatFeedView(lines: lines, trimCount: trimCount).frame(width: 300, height: 200)
+    }
+
+    private static func isGliding(_ view: NSView) -> Bool {
+        !(view.layer?.animationKeys() ?? []).isEmpty
+    }
+
+    /// Finds the first descendant of `type`, for the SwiftUI-hosted feed.
+    private static func descendant<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
+        if let match = view as? T {
+            return match
+        }
+        for subview in view.subviews {
+            if let match = descendant(type, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    /// The fade covers the bottom inset band only while following. Its band is 20pt of the scroll view.
+    private static func testWorkerChatBottomFadeIsOnlyWhileFollowing() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        let fade = fixture.scrollView.layer?.mask as? CAGradientLayer
+        try expect(fade != nil, "a following feed should fade its bottom edge")
+        try expect(fade?.locations?.map { $0.doubleValue } == [0, 0.1, 1], "the fade band should be the 20pt inset of a 200pt view, got \(String(describing: fade?.locations))")
+        try expect(fade?.startPoint == CGPoint(x: 0.5, y: 0) && fade?.endPoint == CGPoint(x: 0.5, y: 1), "the fade should run from unit 0 to unit 1")
+        try expect(fade?.isGeometryFlipped == fixture.scrollView.layer?.isGeometryFlipped, "the fade should share the scroll layer's flip")
+
+        fixture.scroll(to: 0)
+        try expect(!fixture.follower.isFollowing, "scrolling to the top should stop following")
+        try expect(fixture.scrollView.layer?.mask == nil, "the fade should be off while not following")
+
+        fixture.scroll(to: 800)
+        try expect(fixture.follower.isFollowing, "scrolling back to the bottom should resume following")
+        try expect(fixture.scrollView.layer?.mask != nil, "the fade should return with following")
+    }
+
+    /// A live scroll takes over from a glide at once, so the content isn't left displaced.
+    private static func testWorkerChatLiveScrollCancelsGlide() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        fixture.grow(to: 1026)
+        try expect(fixture.isGliding, "the arrival should start a glide")
+
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: fixture.scrollView)
+        pump(0.02)
+        try expect(!fixture.isGliding, "a live scroll should cancel the glide")
     }
 
     private static func settingsSheetModel(
