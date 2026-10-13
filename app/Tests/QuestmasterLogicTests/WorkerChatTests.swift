@@ -43,6 +43,8 @@ struct WorkerChatTests {
         historyGrowsToTheCapThenTrimsInOneUpdate()
         lastUpdateAppendedOnlyForLinesAddedAtTheEnd()
         trimDoesNotResurfaceDroppedLines()
+        droppedCastRunDoesNotComeBackOnRebuild()
+        foldedActionsStayBounded()
         trimKeepsTheNewestLines()
         firstLineIDStaysTheSameAcrossRebuilds()
         historyKeepsNewestLinesAtLineCap()
@@ -650,6 +652,48 @@ struct WorkerChatTests {
         _ = store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
         expect(store.lines.count == trimmedCount, "a rebuild with no new records should keep the trimmed history, got \(store.lines.count)")
         expect(store.trimCount == 1, "a rebuild with no new records should not trim again, got \(store.trimCount)")
+    }
+
+    /// Worker One casts at 09:00:00 and 09:00:59, and Worker Two's 600 messages arrive later, timestamped
+    /// between them. The Cast run folds both actions into its first line, the trim drops that line, and the
+    /// 09:00:59 action must not come back when the feed is rebuilt.
+    private static func droppedCastRunDoesNotComeBackOnRebuild() {
+        let store = makeStore()
+        let first = open(store)
+        guard let followUp = store.receive(
+            WorkerFeedPayload(entries: [entry(0, "w1", "action", "Bash"), entry(59, "w1", "action", "Edit")], hasMore: ["w1": true]),
+            for: first
+        ) else {
+            fail("has_more should request the next page")
+        }
+        _ = store.receive(WorkerFeedPayload(entries: (0..<600).map { entry(TimeInterval(1 + $0 % 58), "w2", "say", "b \($0)") }), for: followUp)
+        expect(store.trimCount == 1, "the overflow should trim once, got \(store.trimCount)")
+        expect(store.lines.count == WorkerChatStore.trimTarget, "the trim should keep \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
+
+        var renamed = group()
+        renamed[1].title = "Renamed"
+        _ = store.sync(selectedSessionID: "m", sessions: renamed, isVisible: true)
+        expect(!store.lines.contains { $0.segments.first?.text == "Renamed:" }, "the dropped Cast run should not reappear after a rebuild")
+        expect(!store.lines.contains { $0.segments.contains { $0.text.contains("[Edit]") } }, "the 09:00:59 action should not survive the trim")
+        expect(store.lines.count == WorkerChatStore.trimTarget, "a rebuild should keep the trimmed history, got \(store.lines.count)")
+        expect(store.trimCount == 1, "a rebuild with no new records should not trim again, got \(store.trimCount)")
+    }
+
+    /// One worker's actions in one minute fold into a single line, so the line trim never fires. The raw
+    /// records must still stop at `maxRecords`, and the run counts only the newest of them.
+    private static func foldedActionsStayBounded() {
+        let store = makeStore()
+        let first = open(store)
+        guard let followUp = store.receive(
+            WorkerFeedPayload(entries: (0..<WorkerChatStore.maxRecords).map { _ in entry(0, "w1", "action", "Bash") }, hasMore: ["w1": true]),
+            for: first
+        ) else {
+            fail("has_more should request the next page")
+        }
+        _ = store.receive(WorkerFeedPayload(entries: (0..<500).map { _ in entry(0, "w1", "action", "Bash") }), for: followUp)
+        expect(store.lines.count == 1, "one worker's run in one minute should stay one line, got \(store.lines.count)")
+        expect(store.lines.last?.segments.last?.text == "[Bash](x\(WorkerChatStore.maxRecords))", "the run should count only the \(WorkerChatStore.maxRecords) newest records, got \(store.lines.last?.segments.last?.text ?? "")")
+        expect(store.trimCount == 0, "a folded run should not trim, got \(store.trimCount)")
     }
 
     /// One action per minute for 601 minutes: the trim keeps the newest 500, from 10:41 to 19:00.

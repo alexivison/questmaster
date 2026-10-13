@@ -61,6 +61,17 @@ struct WorkerChatRecord: Equatable {
     let text: String
 }
 
+/// Lines built from a record list. `sources[i]` lists the sequences of the records that line `i` shows.
+struct WorkerChatLineBuild {
+    var lines: [WorkerChatLine]
+    var sources: [[Int]]
+
+    /// The newest `count` lines, with the records they show.
+    func newest(_ count: Int) -> WorkerChatLineBuild {
+        WorkerChatLineBuild(lines: Array(lines.suffix(count)), sources: Array(sources.suffix(count)))
+    }
+}
+
 enum WorkerChatLineBuilder {
     static let maxNameLength = 16
     private static let actionVerb = "Cast"
@@ -80,23 +91,24 @@ enum WorkerChatLineBuilder {
         let timestamp: Date
         let workerID: String
         var sequence: Int
+        var sources: [Int]
         var body: Body
     }
 
     /// `records` must already be in chronological order. Same-worker actions in one minute fold
     /// unless a same-worker non-action or earlier-arriving other-worker line follows the run.
-    static func lines(
+    static func build(
         from records: [WorkerChatRecord],
         names: [String: String],
         agents: [String: String],
         calendar: Calendar
-    ) -> [WorkerChatLine] {
+    ) -> WorkerChatLineBuild {
         var drafts: [Draft] = []
         var openRuns: [String: Int] = [:]
         for record in records {
             guard case .action(let tool) = record.kind else {
                 openRuns[record.workerID] = nil
-                drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, body: .record(record)))
+                drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, sources: [record.sequence], body: .record(record)))
                 continue
             }
             if let index = openRuns[record.workerID],
@@ -109,26 +121,25 @@ enum WorkerChatLineBuilder {
                     tools.append(Tool(name: tool, count: 1))
                 }
                 drafts[index].sequence = min(drafts[index].sequence, record.sequence)
+                drafts[index].sources.append(record.sequence)
                 drafts[index].body = .run(tools)
                 continue
             }
             openRuns[record.workerID] = drafts.count
-            drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, body: .run([Tool(name: tool, count: 1)])))
+            drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, sources: [record.sequence], body: .run([Tool(name: tool, count: 1)])))
         }
 
-        return drafts.map { draft in
-            WorkerChatLine(
-                id: draft.id,
-                time: timeLabel(draft.timestamp, calendar: calendar),
-                agent: agents[draft.workerID] ?? "",
-                segments: [WorkerChatSegment(displayName(names[draft.workerID] ?? draft.workerID) + ":", .name)] + segments(for: draft.body)
-            )
-        }
-    }
-
-    /// Line ids are `e<sequence>` of the line's first record.
-    static func firstEntrySequence(in lines: [WorkerChatLine]) -> Int? {
-        lines.first.flatMap { Int($0.id.dropFirst()) }
+        return WorkerChatLineBuild(
+            lines: drafts.map { draft in
+                WorkerChatLine(
+                    id: draft.id,
+                    time: timeLabel(draft.timestamp, calendar: calendar),
+                    agent: agents[draft.workerID] ?? "",
+                    segments: [WorkerChatSegment(displayName(names[draft.workerID] ?? draft.workerID) + ":", .name)] + segments(for: draft.body)
+                )
+            },
+            sources: drafts.map(\.sources)
+        )
     }
 
     static func displayName(_ title: String) -> String {

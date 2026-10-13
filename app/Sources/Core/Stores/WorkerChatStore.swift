@@ -32,6 +32,10 @@ public final class WorkerChatStore {
     /// History grows to this many rendered lines, then trims back to `trimTarget` in one update.
     public static let maxLines = 600
     public static let trimTarget = 500
+    /// Raw records kept for the visible feed. Folded actions keep their records, so a run can grow without
+    /// adding lines; this bounds each rebuild even when no line trim fires. Twice `maxLines`, so one-line
+    /// entries still reach the line trim first.
+    public static let maxRecords = 2 * maxLines
 
     public private(set) var lines: [WorkerChatLine] = []
     public private(set) var isAttached = false
@@ -191,17 +195,19 @@ public final class WorkerChatStore {
 
     private func rebuild() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
-        var visibleKept = records.filter { agents[$0.workerID] != nil }
+        var visibleKept = Array(records.filter { agents[$0.workerID] != nil }.suffix(Self.maxRecords))
         let hiddenKept = Array(records.filter { agents[$0.workerID] == nil }.suffix(Self.trimTarget))
-        var built = WorkerChatLineBuilder.lines(from: visibleKept, names: names, agents: agents, calendar: calendar)
-        if built.count > Self.maxLines {
-            built = Array(built.suffix(Self.trimTarget))
-            visibleKept = Self.recordsBehind(built, in: visibleKept)
+        var build = WorkerChatLineBuilder.build(from: visibleKept, names: names, agents: agents, calendar: calendar)
+        if build.lines.count > Self.maxLines {
+            build = build.newest(Self.trimTarget)
+            // A trimmed line's records go with it, even ones that sort after the kept lines.
+            let kept = Set(build.sources.joined())
+            visibleKept = visibleKept.filter { kept.contains($0.sequence) }
             trimCount += 1
         }
-        // ponytail: the line trim bounds visible history; hidden history keeps only trimTarget records.
+        // ponytail: visible history is bounded by maxRecords and the line trim; hidden history keeps trimTarget records.
         records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
-        setLines(built)
+        setLines(build.lines)
         updateReadNotice()
     }
 
@@ -212,16 +218,6 @@ public final class WorkerChatStore {
         lastUpdateAppended = next.starts(with: lines)
         lines = next
         revision += 1
-    }
-
-    /// Drops the records behind the first line that a trim kept, so the next rebuild doesn't bring
-    /// the trimmed lines back.
-    private static func recordsBehind(_ kept: [WorkerChatLine], in visible: [WorkerChatRecord]) -> [WorkerChatRecord] {
-        guard let sequence = WorkerChatLineBuilder.firstEntrySequence(in: kept),
-              let index = visible.firstIndex(where: { $0.sequence == sequence }) else {
-            return visible
-        }
-        return Array(visible[index...])
     }
 
     private func updateReadNotice() {
