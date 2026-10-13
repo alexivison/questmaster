@@ -1105,7 +1105,8 @@ private struct TrackerWorkerSummaryPill: View {
     private func groupBadge(_ group: TrackerWorkerSummary.Group) -> some View {
         ZStack {
             Circle().fill(AppPalette.item.swiftUI)
-            TrackerStatusRing(kind: group.status, color: group.color, restingColor: AppPalette.lineSoft)
+            Circle()
+                .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
                 .frame(width: Self.badgeSide, height: Self.badgeSide)
             if let image = TrackerAgentMark.image(for: group.agent.rawValue, side: Self.iconSide) {
                 Image(nsImage: image)
@@ -1117,8 +1118,8 @@ private struct TrackerWorkerSummaryPill: View {
         }
         .frame(width: Self.badgeSide, height: Self.badgeSide)
         .background(alignment: .topLeading) {
-            if group.status == .working {
-                TrackerGlowView(path: Self.glowPath, color: AppPalette.trackerWorking)
+            if group.status.drawsGlow {
+                TrackerGlowView(path: Self.glowPath, color: group.color)
                     .silhouetteFrame(CGSize(width: Self.badgeSide, height: Self.badgeSide))
             }
         }
@@ -1503,20 +1504,20 @@ private struct TrackerNameplateBackground<Text: View>: View {
     let hovered: Bool
     let isRecoloring: Bool
     let isWorking: Bool
+    let glowColor: NSColor?
     let text: Text
 
-    /// Selection takes the silhouette's border in brass; hover dims it; a recolour hint takes the hover fill.
+    /// Selection and hover light the silhouette's border to `dim`, as before PR 277; a recolour hint takes the hover fill.
     private var outlineColor: NSColor {
         if isRecoloring { return AppPalette.hoverBackground }
-        if selected { return AppPalette.brassActive }
-        if hovered { return AppPalette.dim }
+        if selected || hovered { return AppPalette.dim }
         return AppPalette.line
     }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if isWorking {
-                TrackerGlowView(path: role.silhouettePath, color: AppPalette.trackerWorking)
+            if let glowColor {
+                TrackerGlowView(path: role.silhouettePath, color: glowColor)
                     .silhouetteFrame(role.canvasSize)
             }
             TrackerSilhouetteOutline(parts: role.silhouetteParts, color: outlineColor)
@@ -1536,6 +1537,11 @@ private struct TrackerNameplateBackground<Text: View>: View {
         }
         .frame(width: role.canvasSize.width, height: role.canvasSize.height, alignment: .topLeading)
     }
+}
+
+private extension TrackerStatusKind {
+    /// Every status but idle and stopped lights the silhouette glow, in its own status colour.
+    var drawsGlow: Bool { self != .idle && self != .stopped }
 }
 
 private extension View {
@@ -1580,8 +1586,8 @@ private struct TrackerGlowView: NSViewRepresentable {
 /// The glow's layer is a shape layer filled with the silhouette. The fill hides under the plate's own fills, so
 /// only the shadow shows. A shape layer keeps the shadow drawn from the same path.
 final class TrackerGlowNSView: NSView {
-    /// A blur of about 2pt, so the glow reads as a sharp rim rather than a haze.
-    private static let blurRadius: CGFloat = 2
+    /// A blur of about 3pt: a sharp rim that still reads at a glance on the dark background.
+    private static let blurRadius: CGFloat = 3
 
     override var isFlipped: Bool { true }
 
@@ -1784,7 +1790,6 @@ private struct TrackerSessionRowContent: View {
         ZStack(alignment: .topLeading) {
             TrackerAgentMark(
                 agent: session.agent,
-                status: rendered.status,
                 shortcutNumber: shortcutNumber,
                 portraitSide: role.portraitSide
             )
@@ -1834,6 +1839,7 @@ private struct TrackerSessionRow: View {
                     hovered: hovered,
                     isRecoloring: rendered.recolorEditHint != nil,
                     isWorking: rendered.status.kind == .working,
+                    glowColor: rendered.status.kind.drawsGlow ? rendered.status.color : nil,
                     text: TrackerPlateText(
                         rendered: rendered,
                         role: role,
@@ -1907,7 +1913,6 @@ private struct WholePointCentered: Layout {
 /// the tracker draws, rather than re-deriving it.
 struct TrackerAgentMark: View {
     let agent: String
-    let status: TrackerStatusStyle
     let shortcutNumber: Int?
     let portraitSide: CGFloat
 
@@ -1917,10 +1922,13 @@ struct TrackerAgentMark: View {
 
     var body: some View {
         ZStack {
+            // Flat fills only: the frame takes the notched cap's tone and the disc the panel tone, so the
+            // portrait reads as one piece with the cap, with no stroke or shadow between them.
             Circle()
+                .fill(AppPalette.line.swiftUI)
+            Circle()
+                .inset(by: Self.ringWidth)
                 .fill(AppPalette.panel.swiftUI)
-                .drawingGroup()
-            statusGlow
             if let image = Self.image(for: agent, side: iconSide, tint: AppPalette.muted) {
                 Image(nsImage: image)
                     .resizable()
@@ -1936,29 +1944,8 @@ struct TrackerAgentMark: View {
                     .font(AppFonts.monoBold.swiftUI)
                     .foregroundStyle(AppPalette.bright.swiftUI)
             }
-            statusFrame
         }
         .frame(width: portraitSide, height: portraitSide)
-    }
-
-    // The ring views stroke inside their frame, so the ring sits on the portrait edge
-    // and never lands on a half-point origin that would snap off-center.
-    private var statusFrame: some View {
-        TrackerStatusRing(kind: status.kind, color: status.color, restingColor: AppPalette.line, lineWidth: Self.ringWidth)
-            .frame(width: portraitSide, height: portraitSide)
-    }
-
-    @ViewBuilder
-    private var statusGlow: some View {
-        switch status.kind {
-        case .blocked:
-            Circle()
-                .fill(status.color.swiftUI.opacity(0.12))
-                .frame(width: iconSide, height: iconSide)
-                .blur(radius: 3)
-        case .working, .idle, .stopped, .needsInput, .error, .done:
-            EmptyView()
-        }
     }
 
     static func image(for agentName: String, side: CGFloat = 12, tint: NSColor = AppPalette.bright) -> NSImage? {
@@ -2030,110 +2017,6 @@ struct TrackerAgentMark: View {
     }
 }
 
-/// The portrait ring. It is the nameplate's only status indicator.
-private struct TrackerStatusRing: View {
-    let kind: TrackerStatusKind
-    let color: NSColor
-    let restingColor: NSColor
-    var lineWidth: CGFloat = 1
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        switch kind {
-        case .working, .idle, .stopped:
-            staticRing(restingColor)
-        case .blocked:
-            TrackerWorkingIconPulse(color: color, lineWidth: lineWidth)
-        case .done:
-            TrackerDoneIconPulse(color: color, restingColor: restingColor, lineWidth: lineWidth)
-        case .needsInput:
-            TrackerWorkingIconPulse(color: color, lineWidth: lineWidth, breathing: .needsInput)
-        case .error:
-            staticRing(color)
-        }
-    }
-
-    private func staticRing(_ ringColor: NSColor) -> some View {
-        Circle()
-            .strokeBorder(ringColor.swiftUI, lineWidth: lineWidth)
-            .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
-    }
-}
-
-/// A ring that breathes between two opacities on the shared pulse clock. The rasterized ring is
-/// static; only its opacity changes.
-private struct TrackerWorkingIconPulse: View {
-    struct Breathing {
-        let lowAlpha: Double
-        let peakAlpha: Double
-        let period: TimeInterval
-
-        static let blocked = Breathing(lowAlpha: 0.95, peakAlpha: 1, period: 2.7)
-        static let needsInput = Breathing(lowAlpha: 0.4, peakAlpha: 1, period: 4.2)
-
-        func alpha(at time: TimeInterval) -> Double {
-            let phase = time / period
-            return lowAlpha + (peakAlpha - lowAlpha) * (1 - cos(phase * 2 * .pi)) / 2
-        }
-    }
-
-    private static let glowInset: CGFloat = 3
-
-    let color: NSColor
-    let lineWidth: CGFloat
-    var breathing: Breathing = .blocked
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Circle()
-            .strokeBorder(color.swiftUI, lineWidth: lineWidth)
-            .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
-            .shadow(color: color.withAlphaComponent(0.55).swiftUI, radius: 0.75)
-            .padding(Self.glowInset)
-            .drawingGroup()
-            .padding(-Self.glowInset)
-            .opacity(reduceMotion ? breathing.peakAlpha : breathing.alpha(at: TrackerPulseClock.shared.time))
-            .modifier(TrackerPulseSubscription(isActive: !reduceMotion))
-    }
-}
-
-private struct TrackerDoneIconPulse: View {
-    let color: NSColor
-    let restingColor: NSColor
-    let lineWidth: CGFloat
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var didPulse = false
-
-    var body: some View {
-        ring(didPulse ? restingColor : color)
-            .overlay {
-                ring(color)
-                    .opacity(didPulse ? 0 : 0.8)
-                    .scaleEffect(didPulse ? 1.45 : 1)
-            }
-            .task(id: reduceMotion) {
-                guard !reduceMotion else {
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        didPulse = true
-                    }
-                    return
-                }
-                guard !didPulse else { return }
-                withAnimation(.easeOut(duration: 0.65)) {
-                    didPulse = true
-                }
-            }
-    }
-
-    private func ring(_ ringColor: NSColor) -> some View {
-        Circle()
-            .strokeBorder(ringColor.swiftUI, lineWidth: lineWidth)
-            .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
-            .shadow(color: ringColor.withAlphaComponent(0.55).swiftUI, radius: 0.75)
-    }
-}
 
 private struct TrackerEmptyState: View {
     let message: String

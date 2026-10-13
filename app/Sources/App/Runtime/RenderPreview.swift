@@ -57,7 +57,7 @@ enum RenderPreview {
             size: CGSize(width: 950, height: 900),
             to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
         )
-        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected"] {
+        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 320), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
@@ -321,6 +321,12 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// The status a nameplate fixture shows: the status flag in its name, or working.
+    private static func fixtureState(_ flags: Set<String>) -> String {
+        let states = [("error", "error"), ("idle", "idle"), ("blocked", "blocked"), ("done", "done"), ("needs", "needs-input")]
+        return states.first(where: { flags.contains($0.0) })?.1 ?? "working"
+    }
+
     /// One row of the Figma "Tracker Item" variants with the same strings, for side-by-side comparison.
     @MainActor
     private static func nameplateFixtureView(role fixture: String) -> some View {
@@ -332,7 +338,7 @@ enum RenderPreview {
         let displayColor = ["yellow", "magenta"].first(where: flags.contains) ?? "lime"
         let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
         let title = "Skills Improvements and stuff that ge..."
-        func session(_ id: String, role: String, agent: String = "codex", state: String = flags.contains("error") ? "error" : (flags.contains("idle") ? "idle" : "working"), lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
+        func session(_ id: String, role: String, agent: String = "codex", state: String = fixtureState(flags), lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
             TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
         }
         let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
