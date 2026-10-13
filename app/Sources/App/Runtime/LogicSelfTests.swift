@@ -2379,13 +2379,15 @@ enum LogicSelfTests {
     }
 
     /// Every third entry wraps to several lines at the 300pt test width.
-    private static func wrappedFeed(count: Int, revision: Int, trimCount: Int, appended: Bool) -> some View {
+    /// Every third entry wraps to several lines at the 300pt test width, unless `wraps` is false. The line count
+    /// depends on the font, so a test that needs a feed to stay short passes `wraps: false`.
+    private static func wrappedFeed(count: Int, revision: Int, trimCount: Int, appended: Bool, wraps: Bool = true) -> some View {
         let wrapped = String(repeating: "wrapped words in a long line ", count: 6)
         var lines = [WorkerChatLine(id: "h0", content: .timeHeader("[09:00]"))]
         lines += (0..<count).map { index in
             WorkerChatLine(id: "e\(index)", content: .entry(agent: "claude", segments: [
                 WorkerChatSegment("Worker One:", .name),
-                WorkerChatSegment(" \(index) \(index % 3 == 0 ? wrapped : "short")", .normal),
+                WorkerChatSegment(" \(index) \(wraps && index % 3 == 0 ? wrapped : "short")", .normal),
             ]))
         }
         return WorkerChatFeedView(lines: lines, revision: revision, trimCount: trimCount, appended: appended).frame(width: 300, height: 200)
@@ -2743,7 +2745,7 @@ enum LogicSelfTests {
     /// The real feed, hosted, while it fits the viewport: the document keeps its height, so an arrival shows
     /// only in the rows' frame. It fades the rows it added and lifts the rows into place.
     private static func testWorkerChatShortFeedArrivalFadesAndLifts() throws {
-        let hosting = NSHostingView(rootView: wrappedFeed(count: 1, revision: 1, trimCount: 0, appended: true))
+        let hosting = NSHostingView(rootView: wrappedFeed(count: 1, revision: 1, trimCount: 0, appended: true, wraps: false))
         let window = NSWindow(
             contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
             styleMask: [.borderless], backing: .buffered, defer: false
@@ -2765,7 +2767,7 @@ enum LogicSelfTests {
 
         let documentHeight = documentView.frame.height
         let rowsBefore = follower.frame.height
-        hosting.rootView = wrappedFeed(count: 2, revision: 2, trimCount: 0, appended: true)
+        hosting.rootView = wrappedFeed(count: 2, revision: 2, trimCount: 0, appended: true, wraps: false)
         try expect(waitUntil { follower.frame.height > rowsBefore }, "the arrival should grow the rows")
         let added = follower.frame.height - rowsBefore
         try expect(documentView.frame.height == documentHeight, "a feed that still fits should keep its document height")
