@@ -12,11 +12,13 @@ enum WorkerChatMotion {
     static let enterDuration: CFTimeInterval = 0.3
     static let enterKey = "workerChatEnter"
 
-    /// Moves the clip to `offset` at once. With `glides`, the document then eases from where it was
-    /// shown to where it now sits, capped at one viewport.
-    static func scroll(_ scrollView: NSScrollView, toOffset offset: CGFloat, glides: Bool) {
+    /// Moves the clip to `offset` at once. With `glides`, the content then eases from where it was shown
+    /// to where it now sits, capped at one viewport. `rowsShift` is how far the same layout moved the rows
+    /// in the document: the glide covers it too, so the rows keep their place on screen.
+    static func scroll(_ scrollView: NSScrollView, toOffset offset: CGFloat, rowsShift: CGFloat = 0, glides: Bool) {
         let clipView = scrollView.contentView
-        let shownOffset = clipView.bounds.origin.y - glideTranslation(scrollView)
+        // Where the content was shown, in the document's coordinates after the rows moved.
+        let shownOffset = clipView.bounds.origin.y - glideTranslation(scrollView) + rowsShift
         clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: offset))
         scrollView.reflectScrolledClipView(clipView)
         cancelGlide(scrollView)
@@ -24,18 +26,12 @@ enum WorkerChatMotion {
         guard glides, distance != 0, let layer = documentLayer(scrollView) else {
             return
         }
-        addGlide(to: layer, from: distance)
-    }
-
-    /// For a feed that fits the viewport, where the clip never moves: a layout has moved the rows up by
-    /// `rise`, so they show where they were and glide down into place. Keeps any glide still running.
-    static func glideRowsInPlace(_ scrollView: NSScrollView, rise: CGFloat) {
-        guard let layer = documentLayer(scrollView) else {
-            return
-        }
-        let residual = glideTranslation(scrollView)
-        cancelGlide(scrollView)
-        addGlide(to: layer, from: residual + rise)
+        let glide = CABasicAnimation(keyPath: "transform.translation.y")
+        glide.fromValue = distance
+        glide.toValue = 0
+        glide.duration = glideDuration
+        glide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(glide, forKey: glideKey)
     }
 
     /// Ends a glide at once, so the content sits at its true place when the user takes over.
@@ -49,13 +45,25 @@ enum WorkerChatMotion {
         guard let layer = documentLayer(scrollView) else {
             return
         }
-        let size = layer.bounds.size
         withoutActions {
-            let mask = layer.mask ?? startMask(on: layer, size: size, baseBottom: top)
-            mask.frame = CGRect(origin: .zero, size: size)
-            let band = solidLayer(CGRect(x: 0, y: top, width: size.width, height: bottom - top))
+            let mask = layer.mask ?? startMask(on: layer, baseBottom: top)
+            let band = solidLayer(CGRect(x: 0, y: top, width: layer.bounds.width, height: bottom - top))
             mask.addSublayer(band)
             band.add(fadeIn(reportingTo: layer), forKey: enterKey)
+        }
+    }
+
+    /// Keeps the mask the size of the document, and moves the running fades with the rows when a layout has
+    /// moved them in the document by `shift`. The base ends where the first fade starts.
+    static func moveFades(_ scrollView: NSScrollView, by shift: CGFloat) {
+        guard let layer = scrollView.documentView?.layer, let mask = layer.mask, let base = mask.sublayers?.first else {
+            return
+        }
+        let bands = mask.sublayers?.dropFirst() ?? []
+        withoutActions {
+            mask.frame = CGRect(origin: .zero, size: layer.bounds.size)
+            bands.forEach { $0.frame.origin.y += shift }
+            base.frame.size.height = bands.first?.frame.minY ?? base.frame.height
         }
     }
 
@@ -82,21 +90,13 @@ enum WorkerChatMotion {
     }
 
     /// The base is opaque from the top of the document down to the first fade's band.
-    private static func startMask(on layer: CALayer, size: CGSize, baseBottom: CGFloat) -> CALayer {
+    private static func startMask(on layer: CALayer, baseBottom: CGFloat) -> CALayer {
         let mask = CALayer()
+        mask.frame = CGRect(origin: .zero, size: layer.bounds.size)
         mask.isGeometryFlipped = layer.isGeometryFlipped
-        mask.addSublayer(solidLayer(CGRect(x: 0, y: 0, width: size.width, height: baseBottom)))
+        mask.addSublayer(solidLayer(CGRect(x: 0, y: 0, width: layer.bounds.width, height: baseBottom)))
         layer.mask = mask
         return mask
-    }
-
-    private static func addGlide(to layer: CALayer, from distance: CGFloat) {
-        let glide = CABasicAnimation(keyPath: "transform.translation.y")
-        glide.fromValue = distance
-        glide.toValue = 0
-        glide.duration = glideDuration
-        glide.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(glide, forKey: glideKey)
     }
 
     private static func fadeIn(reportingTo layer: CALayer) -> CABasicAnimation {
@@ -123,8 +123,16 @@ enum WorkerChatMotion {
         CATransaction.commit()
     }
 
+    /// The translation the content is shown at right now. A glide added since the last commit is not in the
+    /// presentation yet, so until then it shows its start.
     private static func glideTranslation(_ scrollView: NSScrollView) -> CGFloat {
-        scrollView.documentView?.layer?.presentation()?.transform.m42 ?? 0
+        guard let layer = scrollView.documentView?.layer, let glide = layer.animation(forKey: glideKey) as? CABasicAnimation else {
+            return 0
+        }
+        guard let presented = layer.presentation(), presented.animation(forKey: glideKey) != nil else {
+            return (glide.fromValue as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+        }
+        return presented.transform.m42
     }
 
     private static func documentLayer(_ scrollView: NSScrollView) -> CALayer? {

@@ -80,6 +80,9 @@ enum LogicSelfTests {
         ("testWorkerChatTrimWithWrappedRowsSkipsGlide", testWorkerChatTrimWithWrappedRowsSkipsGlide),
         ("testWorkerChatHostedArrivalGlidesAndFades", testWorkerChatHostedArrivalGlidesAndFades),
         ("testWorkerChatShortFeedArrivalFadesAndLifts", testWorkerChatShortFeedArrivalFadesAndLifts),
+        ("testWorkerChatRowsGrowingBeforeTheDocumentKeepTheMaskOverTheirFade", testWorkerChatRowsGrowingBeforeTheDocumentKeepTheMaskOverTheirFade),
+        ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
+        ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
     ]
 
     static func runIfRequested() -> Bool {
@@ -2166,12 +2169,20 @@ enum LogicSelfTests {
 
         var origin: CGFloat { scrollView.contentView.bounds.origin.y }
 
+        /// A layout of a document `height` tall, with its rows filling the padded height, as the feed lays out.
         func grow(to height: CGFloat) {
-            layout(rows: height - 2 * WorkerChatMetrics.inset)
+            show(rows: height - 2 * WorkerChatMetrics.inset)
         }
 
-        /// Lays the rows out the way the feed does: the document is at least a viewport tall, and the rows sit
-        /// at its bottom, so a short feed keeps the document's height while its rows move.
+        /// Lays `rows` out the way the feed does, then runs the follower on the result. The fixture reads the
+        /// state the layout just produced, so nothing here waits on a notification or an animation.
+        func show(rows: CGFloat) {
+            layout(rows: rows)
+            follower.sync(scrollView)
+        }
+
+        /// Sets the frames only: the document is at least a viewport tall, and the rows sit at its bottom, so a
+        /// short feed keeps the document's height while its rows move.
         func layout(rows: CGFloat) {
             let width = documentView.frame.width
             let height = max(rows + 2 * WorkerChatMetrics.inset, scrollView.contentView.bounds.height)
@@ -2182,16 +2193,24 @@ enum LogicSelfTests {
         func scroll(to offset: CGFloat) {
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
             scrollView.reflectScrolledClipView(scrollView.contentView)
+            follower.sync(scrollView)
+        }
+
+        func resize(height: CGFloat) {
+            scrollView.setFrameSize(NSSize(width: scrollView.frame.width, height: height))
+            follower.sync(scrollView)
         }
     }
 
-    private static func followerFixture(contentHeight: CGFloat) -> FollowerFixture {
+    /// A feed `contentHeight` tall whose rows are `rows` tall (the padded height by default), bottom-aligned.
+    private static func followerFixture(contentHeight: CGFloat, rows: CGFloat? = nil) -> FollowerFixture {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let documentView = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 300, height: contentHeight))
         scrollView.documentView = documentView
         scrollView.hasVerticalScroller = false
         let follower = WorkerChatBottomFollowerView()
-        follower.frame = NSRect(x: 0, y: WorkerChatMetrics.inset, width: 300, height: contentHeight - 2 * WorkerChatMetrics.inset)
+        let rowsHeight = rows ?? contentHeight - 2 * WorkerChatMetrics.inset
+        follower.frame = NSRect(x: 0, y: contentHeight - WorkerChatMetrics.inset - rowsHeight, width: 300, height: rowsHeight)
         documentView.addSubview(follower)
         let window = NSWindow(
             contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
@@ -2222,12 +2241,18 @@ enum LogicSelfTests {
         !(view.layer?.animationKeys() ?? []).isEmpty
     }
 
-    /// Checks the glide that was added on `view`: a y translation from a start in the given range to
-    /// zero, lasting the glide duration, with the model transform left at identity.
+    /// Checks the glide that was added on `view`. It reads the layer now, so call it right after the layout that
+    /// added the glide, before any run-loop wait.
     private static func expectGlideAdded(on view: NSView, startsBetween low: CGFloat, and high: CGFloat) throws {
         guard let glide = view.layer?.animation(forKey: WorkerChatMotion.glideKey) as? CABasicAnimation else {
             throw TestFailure("an arrival should add the glide animation under its key")
         }
+        try expectGlide(glide, on: view, startsBetween: low, and: high)
+    }
+
+    /// Checks a glide: a y translation from a start in the given range to zero, lasting the glide duration,
+    /// with the model transform on `view` left at identity.
+    private static func expectGlide(_ glide: CABasicAnimation, on view: NSView, startsBetween low: CGFloat, and high: CGFloat) throws {
         try expect(glide.keyPath == "transform.translation.y", "the glide should move the document's y translation, got \(String(describing: glide.keyPath))")
         try expect((glide.toValue as? NSNumber)?.doubleValue == 0, "the glide should end at zero, got \(String(describing: glide.toValue))")
         let start = (glide.fromValue as? NSNumber)?.doubleValue ?? .nan
@@ -2275,7 +2300,7 @@ enum LogicSelfTests {
         let resized = followerFixture(contentHeight: 1000)
         defer { resized.window.close() }
         try expect(waitUntil { resized.origin == 800 }, "a fresh feed should pin to the bottom, got \(resized.origin)")
-        resized.scrollView.setFrameSize(NSSize(width: 300, height: 240))
+        resized.resize(height: 240)
         try expect(waitUntil { resized.origin == 760 }, "a resize should pin to the new bottom, got \(resized.origin)")
         try expect(!hasGlide(resized.documentView), "a viewport resize should not glide")
         try expect(resized.follower.isFollowing, "a resize should keep following")
@@ -2370,12 +2395,17 @@ enum LogicSelfTests {
         return nil
     }
 
-    /// Checks the fade on a band: opacity from transparent to opaque over the enter duration. The model
-    /// stays opaque, so the rows are fully visible once the fade is gone.
+    /// Checks the fade on a band. It reads the band now, so call it right after the layout that added the fade.
     private static func expectFadeAdded(on band: CALayer) throws {
         guard let fade = band.animation(forKey: WorkerChatMotion.enterKey) as? CABasicAnimation else {
             throw TestFailure("a fade band should carry its fade under the enter key")
         }
+        try expectFade(fade, on: band)
+    }
+
+    /// Checks a fade: opacity from transparent to opaque over the enter duration. The model stays opaque, so
+    /// the rows are fully visible once the fade is gone.
+    private static func expectFade(_ fade: CABasicAnimation, on band: CALayer) throws {
         try expect(fade.keyPath == "opacity", "the fade should animate opacity, got \(String(describing: fade.keyPath))")
         try expect((fade.fromValue as? NSNumber)?.doubleValue == 0, "the fade should start transparent, got \(String(describing: fade.fromValue))")
         try expect((fade.toValue as? NSNumber)?.doubleValue == 1, "the fade should end opaque, got \(String(describing: fade.toValue))")
@@ -2511,9 +2541,6 @@ enum LogicSelfTests {
         try expect(waitUntil { !scrolled.follower.isFollowing }, "scrolling to the top should stop following")
         scrolled.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
         scrolled.grow(to: 1026)
-        // Scrolling back to the bottom is the wait: its bounds change is handled after the arrival's resize.
-        scrolled.scroll(to: 826)
-        try expect(waitUntil { scrolled.follower.isFollowing }, "scrolling back to the bottom should resume following")
         try expect(scrolled.documentView.layer?.mask == nil, "an arrival while scrolled up should not fade")
 
         let rewrapped = followerFixture(contentHeight: 1000)
@@ -2547,7 +2574,7 @@ enum LogicSelfTests {
         resized.grow(to: 1026)
         try expect(waitUntil { resized.origin == 826 }, "the arrival should pin to the bottom, got \(resized.origin)")
         try expect(resized.documentView.layer?.mask != nil, "the arrival should start a fade before the resize")
-        resized.scrollView.setFrameSize(NSSize(width: 300, height: 240))
+        resized.resize(height: 240)
         try expect(waitUntil { resized.origin == 786 }, "the resize should pin to the new bottom, got \(resized.origin)")
         try expect(resized.documentView.layer?.mask == nil, "a viewport resize should end the running fade")
     }
@@ -2574,17 +2601,14 @@ enum LogicSelfTests {
 
         let heightBefore = documentView.frame.height
         hosting.rootView = wrappedFeed(count: 31, revision: 2, trimCount: 0, appended: true)
-        try expect(waitUntil { documentView.layer?.mask != nil }, "an arrival while following should fade its rows in")
-        try expect(hasGlide(documentView), "the arrival should glide as well")
-        let bandEndsAtBottomPadding = {
-            abs((fadeBands(on: documentView).last?.frame.maxY ?? -.infinity) - (documentView.frame.height - WorkerChatMetrics.inset)) < 1
+        guard let arrival = waitForArrival(on: documentView) else {
+            throw TestFailure("an arrival while following should fade its rows in and glide them")
         }
-        try expect(waitUntil(bandEndsAtBottomPadding), "the band should end at the document's new bottom padding")
-        let bands = fadeBands(on: documentView)
-        try expect(bands.count == 1, "one arrival should add one fade band, got \(bands.count)")
-        try expectBand(bands[0], from: heightBefore - WorkerChatMetrics.inset, to: documentView.frame.height - WorkerChatMetrics.inset)
-        try expectFadeAdded(on: bands[0])
-        try expectRowsClearOfBand(bands[0].frame, in: documentView.layer)
+        try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
+        try expectBand(arrival.band, from: heightBefore - WorkerChatMetrics.inset, to: documentView.frame.height - WorkerChatMetrics.inset)
+        try expectFade(arrival.fade, on: arrival.band)
+        try expectGlide(arrival.glide, on: documentView, startsBetween: 1, and: viewport())
+        try expectRowsClearOfBand(arrival.band.frame, in: documentView.layer)
 
         try expect(waitUntil { documentView.layer?.mask == nil }, "a fade that runs out should remove the mask")
     }
@@ -2597,6 +2621,106 @@ enum LogicSelfTests {
         let rows = contentFrames(in: layer)
         try expect(rows.contains { isAboveOrInside($0) && $0.minY >= band.minY - 0.5 }, "the new row should sit in the band")
         try expect(rows.allSatisfy(isAboveOrInside), "no row should straddle the band's edge, so the band covers exactly the new rows")
+    }
+
+    /// SwiftUI can grow the rows before the document. A band added then sits past the document's old edge, so the
+    /// mask has to follow the document when it grows.
+    private static func testWorkerChatRowsGrowingBeforeTheDocumentKeepTheMaskOverTheirFade() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        fixture.grow(to: 1026)
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: true)
+        fixture.follower.frame = NSRect(x: 0, y: WorkerChatMetrics.inset, width: 300, height: 1012)
+        fixture.follower.sync(fixture.scrollView)
+        try expect(fadeBands(on: fixture.documentView).count == 1, "the rows should fade in before the document grows")
+
+        fixture.documentView.setFrameSize(NSSize(width: 300, height: 1052))
+        fixture.follower.sync(fixture.scrollView)
+        guard let mask = fixture.documentView.layer?.mask else {
+            throw TestFailure("the fade should still be running once the document has grown")
+        }
+        try expect(mask.frame.height == 1052, "the mask should follow the document, got \(mask.frame.height)")
+        try expectBand(fadeBands(on: fixture.documentView)[0], from: 1006, to: 1032)
+    }
+
+    /// An edit or a trim that keeps the rows' height moves nothing, so it ends a running fade on its own.
+    private static func testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        fixture.grow(to: 1026)
+        try expect(fixture.documentView.layer?.mask != nil, "the arrival should start a fade")
+
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: false)
+        try expect(fixture.documentView.layer?.mask == nil, "an edit that keeps the rows' height should end the fade")
+
+        fixture.follower.noteLinesUpdate(revision: 3, trimCount: 0, appended: true)
+        fixture.grow(to: 1052)
+        try expect(fixture.documentView.layer?.mask != nil, "a second arrival should start a fade")
+        fixture.follower.noteLinesUpdate(revision: 4, trimCount: 1, appended: false)
+        try expect(fixture.documentView.layer?.mask == nil, "an equal-height trim should end the fade")
+    }
+
+    /// A short feed that gains rows past the viewport turns tall. The clip moves down while the rows move up in the
+    /// document, so the glide covers both: the old rows start where they were on screen and glide to their place.
+    private static func testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace() throws {
+        let fixture = followerFixture(contentHeight: 200, rows: 100)
+        defer { fixture.window.close() }
+        try expect(fixture.origin == 0, "a short feed should sit at the top of the clip, got \(fixture.origin)")
+        let rowsTopBefore = fixture.follower.frame.minY
+        try expect(rowsTopBefore == 80, "100 pt of rows should sit on the bottom padding of a 200 pt feed, got \(rowsTopBefore)")
+
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        fixture.show(rows: 200)
+        try expect(fixture.origin == 40, "the crossing should pin to the new bottom, got \(fixture.origin)")
+        try expectGlideAdded(on: fixture.documentView, startsBetween: 100, and: 100)
+        guard let glide = fixture.documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) as? CABasicAnimation,
+              let start = (glide.fromValue as? NSNumber)?.doubleValue else {
+            throw TestFailure("the crossing should add a glide with a start value")
+        }
+        let shownTop = fixture.follower.frame.minY - fixture.origin + CGFloat(start)
+        try expect(abs(shownTop - rowsTopBefore) < 0.5, "the old rows should start where they were on screen, at \(rowsTopBefore), got \(shownTop)")
+        try expectBand(fadeBands(on: fixture.documentView)[0], from: 120, to: 220)
+
+        // Rows first: the rows reach their new place while the document is still short, then the document grows.
+        // The first glide starts from the rows' move, and the second, uncommitted, starts from the first glide's start.
+        let rowsFirst = followerFixture(contentHeight: 200, rows: 100)
+        defer { rowsFirst.window.close() }
+        rowsFirst.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        rowsFirst.follower.frame = NSRect(x: 0, y: WorkerChatMetrics.inset, width: 300, height: 200)
+        rowsFirst.follower.sync(rowsFirst.scrollView)
+        try expectBand(fadeBands(on: rowsFirst.documentView)[0], from: 120, to: 220)
+        try expect(rowsFirst.origin == 0, "the short feed should not move the clip yet, got \(rowsFirst.origin)")
+
+        rowsFirst.documentView.setFrameSize(NSSize(width: 300, height: 240))
+        rowsFirst.follower.sync(rowsFirst.scrollView)
+        try expect(rowsFirst.origin == 40, "the document's growth should pin to the new bottom, got \(rowsFirst.origin)")
+        try expectBand(fadeBands(on: rowsFirst.documentView)[0], from: 120, to: 220)
+        try expect(rowsFirst.documentView.layer?.mask?.frame.height == 240, "the mask should follow the document")
+        try expectGlideAdded(on: rowsFirst.documentView, startsBetween: 100, and: 100)
+    }
+
+    /// The fade band and the glide that one arrival added to a hosted feed.
+    private struct Arrival {
+        let band: CALayer
+        let fade: CABasicAnimation
+        let glide: CABasicAnimation
+    }
+
+    /// Pumps until a hosted feed shows an arrival's fade and glide, for at most five seconds. Both are captured in
+    /// the same check, so the arrival can be inspected even after its animations have run out.
+    private static func waitForArrival(on view: NSView) -> Arrival? {
+        var arrival: Arrival?
+        let found = waitUntil {
+            guard let band = fadeBands(on: view).last,
+                  let fade = band.animation(forKey: WorkerChatMotion.enterKey) as? CABasicAnimation,
+                  let glide = view.layer?.animation(forKey: WorkerChatMotion.glideKey) as? CABasicAnimation else {
+                return false
+            }
+            arrival = Arrival(band: band, fade: fade, glide: glide)
+            return true
+        }
+        return found ? arrival : nil
     }
 
     /// The real feed, hosted, while it fits the viewport: the document keeps its height, so an arrival shows
@@ -2627,15 +2751,14 @@ enum LogicSelfTests {
         try expect(waitUntil { follower.frame.height > rowsBefore }, "the arrival should grow the rows")
         let added = follower.frame.height - rowsBefore
         try expect(documentView.frame.height == documentHeight, "a feed that still fits should keep its document height")
-        try expect(waitUntil { documentView.layer?.mask != nil }, "an arrival in a short feed should fade its rows in")
-        try expect(hasGlide(documentView), "an arrival in a short feed should lift the rows into place")
-
-        let bands = fadeBands(on: documentView)
-        try expect(bands.count == 1, "one arrival should add one fade band, got \(bands.count)")
-        try expectBand(bands[0], from: documentHeight - WorkerChatMetrics.inset - added, to: documentHeight - WorkerChatMetrics.inset)
-        try expectFadeAdded(on: bands[0])
-        try expectGlideAdded(on: documentView, startsBetween: added, and: added)
-        try expectRowsClearOfBand(bands[0].frame, in: documentView.layer)
+        guard let arrival = waitForArrival(on: documentView) else {
+            throw TestFailure("an arrival in a short feed should fade its rows in and lift them into place")
+        }
+        try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
+        try expectBand(arrival.band, from: documentHeight - WorkerChatMetrics.inset - added, to: documentHeight - WorkerChatMetrics.inset)
+        try expectFade(arrival.fade, on: arrival.band)
+        try expectGlide(arrival.glide, on: documentView, startsBetween: added, and: added)
+        try expectRowsClearOfBand(arrival.band.frame, in: documentView.layer)
 
         try expect(waitUntil { documentView.layer?.mask == nil }, "a fade that runs out should remove the mask")
     }
