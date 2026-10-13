@@ -1518,10 +1518,12 @@ private struct TrackerNameplateBackground<Text: View>: View {
     let glowColor: NSColor?
     let text: Text
 
-    /// Selection and hover light the silhouette's border to `dim`, as before PR 277; a recolour hint takes the hover fill.
+    /// Selection lights the silhouette's border to the bright text token, so it still reads inside a status glow.
+    /// Hover lights it to `dim`; a recolour hint takes the hover fill.
     private var outlineColor: NSColor {
         if isRecoloring { return AppPalette.hoverBackground }
-        if selected || hovered { return AppPalette.dim }
+        if selected { return AppPalette.bright }
+        if hovered { return AppPalette.dim }
         return AppPalette.line
     }
 
