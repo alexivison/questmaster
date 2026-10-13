@@ -432,7 +432,7 @@ func (s *Snapshotter) currentSession() tracker.SessionInfo {
 		ID:          id,
 		Title:       m.Title,
 		Cwd:         m.Cwd,
-		SessionType: manifestSessionType(m),
+		SessionType: m.SessionRole(),
 		Manifest:    m,
 	}
 }
@@ -652,10 +652,6 @@ func timePtr(t time.Time) *time.Time {
 	}
 	utc := t.UTC()
 	return &utc
-}
-
-func manifestSessionType(m state.Manifest) string {
-	return tracker.SessionTypeForManifest(m)
 }
 
 func artifactsEqual(a, b []ArtifactSnapshot) bool {

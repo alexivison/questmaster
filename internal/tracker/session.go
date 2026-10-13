@@ -135,7 +135,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 
 // ManifestToSessionRow converts manifest data plus liveness into a tracker row.
 func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
-	sessionType := SessionTypeForManifest(m)
+	sessionType := m.SessionRole()
 	status := "stopped"
 	if alive {
 		status = "active"
@@ -152,14 +152,6 @@ func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 		WorkerCount:  len(m.Workers),
 		DisplayColor: m.DisplayColor(),
 	}
-}
-
-// SessionTypeForManifest derives managed roles and preserves plain shells.
-func SessionTypeForManifest(m state.Manifest) string {
-	if role := m.AgentSessionType(); role != "" {
-		return role
-	}
-	return "shell"
 }
 
 // StableSessionOrderKey returns the newest-first sort key used by tracker rows.
@@ -353,7 +345,7 @@ func buildCurrentSessionDetail(current SessionInfo, manifestByID map[string]stat
 			detail.Title = manifest.Title
 		}
 		if detail.SessionType == "" {
-			detail.SessionType = SessionTypeForManifest(manifest)
+			detail.SessionType = manifest.SessionRole()
 		}
 	}
 	return detail

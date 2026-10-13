@@ -264,6 +264,24 @@ func TestList_ActiveSessions(t *testing.T) {
 	}
 }
 
+func TestListAndStatus_ReportShellSessionType(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	if err := store.Create(state.Manifest{SessionID: "qm-shell"}); err != nil {
+		t.Fatalf("create shell manifest: %v", err)
+	}
+
+	list := decodeListOutput(t, runCmd(t, store, sessionsRunner("qm-shell"), "list"))
+	if got := list.Active[0].SessionType; got != "shell" {
+		t.Fatalf("list session_type = %q, want shell", got)
+	}
+
+	status := decodeStatusOutput(t, runCmd(t, store, sessionsRunner("qm-shell"), "status", "qm-shell"))
+	if got := status.Manifest.SessionType; got != "shell" {
+		t.Fatalf("status session_type = %q, want shell", got)
+	}
+}
+
 func TestList_JSON(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)

@@ -168,6 +168,14 @@ func (m Manifest) AgentSessionType() string {
 	return "master"
 }
 
+// SessionRole returns the visible role for a managed agent or plain shell session.
+func (m Manifest) SessionRole() string {
+	if role := m.AgentSessionType(); role != "" {
+		return role
+	}
+	return "shell"
+}
+
 // SetExtra sets a string value in the manifest's Extra map.
 func (m *Manifest) SetExtra(key, value string) {
 	if m.Extra == nil {
