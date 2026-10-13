@@ -44,10 +44,6 @@ enum WorkerChatMetrics {
         static let logoTint = ActionBarMetrics.SourceColor.logo
     }
 
-    static func font(for style: WorkerChatSegment.Style) -> NSFont {
-        style == .name ? AppFonts.chatName : AppFonts.chat
-    }
-
     static func color(for style: WorkerChatSegment.Style) -> NSColor {
         switch style {
         case .name, .normal: Color.text
@@ -331,8 +327,10 @@ struct WorkerChatRows: View {
     }
 }
 
-private struct WorkerChatLineView: View {
+struct WorkerChatLineView: View {
     let line: WorkerChatLine
+    var chatFont = AppFonts.chat
+    var nameFont = AppFonts.chatName
 
     var body: some View {
         text
@@ -346,21 +344,29 @@ private struct WorkerChatLineView: View {
 
     private var time: some View {
         Text(line.time)
-            .font(AppFonts.chat.swiftUI)
+            .font(chatFont.swiftUI)
             .foregroundStyle(WorkerChatMetrics.Color.time.swiftUI)
             .offset(y: -WorkerChatMetrics.timeLift)
     }
 
     /// A space kerned out to the name leads the first line. It sits on the first line only, so wrapped lines
-    /// start at the block's left edge and run under the time.
+    /// start at the block's left edge and run under the time. The kerning tops the space up to the full lead.
     private var text: Text {
         line.segments.reduce(
-            Text(" ").font(AppFonts.chat.swiftUI).kerning(WorkerChatMetrics.nameLead - AppFonts.chat.maximumAdvancement.width)
+            Text(" ").font(chatFont.swiftUI).kerning(WorkerChatMetrics.nameLead - spaceAdvance)
         ) { text, segment in
             text + Text(segment.text)
-                .font(WorkerChatMetrics.font(for: segment.style).swiftUI)
+                .font(font(for: segment.style).swiftUI)
                 .foregroundStyle(WorkerChatMetrics.color(for: segment.style).swiftUI)
         }
+    }
+
+    private var spaceAdvance: CGFloat {
+        (" " as NSString).size(withAttributes: [.font: chatFont]).width
+    }
+
+    private func font(for style: WorkerChatSegment.Style) -> NSFont {
+        style == .name ? nameFont : chatFont
     }
 
     @ViewBuilder
