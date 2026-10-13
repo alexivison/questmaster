@@ -24,12 +24,18 @@ enum WorkerChatMotion {
         guard glides, distance != 0, let layer = documentLayer(scrollView) else {
             return
         }
-        let glide = CABasicAnimation(keyPath: "transform.translation.y")
-        glide.fromValue = distance
-        glide.toValue = 0
-        glide.duration = glideDuration
-        glide.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(glide, forKey: glideKey)
+        addGlide(to: layer, from: distance)
+    }
+
+    /// For a feed that fits the viewport, where the clip never moves: a layout has moved the rows up by
+    /// `rise`, so they show where they were and glide down into place. Keeps any glide still running.
+    static func glideRowsInPlace(_ scrollView: NSScrollView, rise: CGFloat) {
+        guard let layer = documentLayer(scrollView) else {
+            return
+        }
+        let residual = glideTranslation(scrollView)
+        cancelGlide(scrollView)
+        addGlide(to: layer, from: residual + rise)
     }
 
     /// Ends a glide at once, so the content sits at its true place when the user takes over.
@@ -82,6 +88,15 @@ enum WorkerChatMotion {
         mask.addSublayer(solidLayer(CGRect(x: 0, y: 0, width: size.width, height: baseBottom)))
         layer.mask = mask
         return mask
+    }
+
+    private static func addGlide(to layer: CALayer, from distance: CGFloat) {
+        let glide = CABasicAnimation(keyPath: "transform.translation.y")
+        glide.fromValue = distance
+        glide.toValue = 0
+        glide.duration = glideDuration
+        glide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        layer.add(glide, forKey: glideKey)
     }
 
     private static func fadeIn(reportingTo layer: CALayer) -> CABasicAnimation {

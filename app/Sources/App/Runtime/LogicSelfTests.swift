@@ -79,6 +79,7 @@ enum LogicSelfTests {
         ("testWorkerChatLiveScrollCancelsGlide", testWorkerChatLiveScrollCancelsGlide),
         ("testWorkerChatTrimWithWrappedRowsSkipsGlide", testWorkerChatTrimWithWrappedRowsSkipsGlide),
         ("testWorkerChatHostedArrivalGlidesAndFades", testWorkerChatHostedArrivalGlidesAndFades),
+        ("testWorkerChatShortFeedArrivalFadesAndLifts", testWorkerChatShortFeedArrivalFadesAndLifts),
     ]
 
     static func runIfRequested() -> Bool {
@@ -2166,7 +2167,16 @@ enum LogicSelfTests {
         var origin: CGFloat { scrollView.contentView.bounds.origin.y }
 
         func grow(to height: CGFloat) {
-            documentView.setFrameSize(NSSize(width: documentView.frame.width, height: height))
+            layout(rows: height - 2 * WorkerChatMetrics.inset)
+        }
+
+        /// Lays the rows out the way the feed does: the document is at least a viewport tall, and the rows sit
+        /// at its bottom, so a short feed keeps the document's height while its rows move.
+        func layout(rows: CGFloat) {
+            let width = documentView.frame.width
+            let height = max(rows + 2 * WorkerChatMetrics.inset, scrollView.contentView.bounds.height)
+            documentView.setFrameSize(NSSize(width: width, height: height))
+            follower.frame = NSRect(x: 0, y: height - WorkerChatMetrics.inset - rows, width: width, height: rows)
         }
 
         func scroll(to offset: CGFloat) {
@@ -2181,6 +2191,7 @@ enum LogicSelfTests {
         scrollView.documentView = documentView
         scrollView.hasVerticalScroller = false
         let follower = WorkerChatBottomFollowerView()
+        follower.frame = NSRect(x: 0, y: WorkerChatMetrics.inset, width: 300, height: contentHeight - 2 * WorkerChatMetrics.inset)
         documentView.addSubview(follower)
         let window = NSWindow(
             contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
@@ -2573,13 +2584,58 @@ enum LogicSelfTests {
         try expect(bands.count == 1, "one arrival should add one fade band, got \(bands.count)")
         try expectBand(bands[0], from: heightBefore - WorkerChatMetrics.inset, to: documentView.frame.height - WorkerChatMetrics.inset)
         try expectFadeAdded(on: bands[0])
-        let band = bands[0].frame
-        let rows = contentFrames(in: documentView.layer)
+        try expectRowsClearOfBand(bands[0].frame, in: documentView.layer)
+
+        try expect(waitUntil { documentView.layer?.mask == nil }, "a fade that runs out should remove the mask")
+    }
+
+    /// No drawn row may straddle the band's edges, and at least one row must sit inside the band.
+    private static func expectRowsClearOfBand(_ band: CGRect, in layer: CALayer?) throws {
         let isAboveOrInside = { (row: CGRect) in
             row.maxY <= band.minY + 0.5 || (row.minY >= band.minY - 0.5 && row.maxY <= band.maxY + 0.5)
         }
+        let rows = contentFrames(in: layer)
         try expect(rows.contains { isAboveOrInside($0) && $0.minY >= band.minY - 0.5 }, "the new row should sit in the band")
         try expect(rows.allSatisfy(isAboveOrInside), "no row should straddle the band's edge, so the band covers exactly the new rows")
+    }
+
+    /// The real feed, hosted, while it fits the viewport: the document keeps its height, so an arrival shows
+    /// only in the rows' frame. It fades the rows it added and lifts the rows into place.
+    private static func testWorkerChatShortFeedArrivalFadesAndLifts() throws {
+        let hosting = NSHostingView(rootView: wrappedFeed(count: 1, revision: 1, trimCount: 0, appended: true))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
+        guard let scrollView = descendant(NSScrollView.self, in: hosting),
+              let documentView = scrollView.documentView,
+              let follower = descendant(WorkerChatBottomFollowerView.self, in: hosting) else {
+            throw TestFailure("the worker chat feed should host a scroll view, a document and a follower")
+        }
+        let viewport = scrollView.contentView.bounds.height
+        try expect(waitUntil { follower.frame.height > 0 }, "the first layout should size the rows")
+        try expect(documentView.frame.height == viewport, "one entry should leave the feed shorter than the viewport, got \(documentView.frame.height)")
+        try expect(documentView.layer?.mask == nil, "the first layout should not fade")
+
+        let documentHeight = documentView.frame.height
+        let rowsBefore = follower.frame.height
+        hosting.rootView = wrappedFeed(count: 2, revision: 2, trimCount: 0, appended: true)
+        try expect(waitUntil { follower.frame.height > rowsBefore }, "the arrival should grow the rows")
+        let added = follower.frame.height - rowsBefore
+        try expect(documentView.frame.height == documentHeight, "a feed that still fits should keep its document height")
+        try expect(waitUntil { documentView.layer?.mask != nil }, "an arrival in a short feed should fade its rows in")
+        try expect(hasGlide(documentView), "an arrival in a short feed should lift the rows into place")
+
+        let bands = fadeBands(on: documentView)
+        try expect(bands.count == 1, "one arrival should add one fade band, got \(bands.count)")
+        try expectBand(bands[0], from: documentHeight - WorkerChatMetrics.inset - added, to: documentHeight - WorkerChatMetrics.inset)
+        try expectFadeAdded(on: bands[0])
+        try expectGlideAdded(on: documentView, startsBetween: added, and: added)
+        try expectRowsClearOfBand(bands[0].frame, in: documentView.layer)
 
         try expect(waitUntil { documentView.layer?.mask == nil }, "a fade that runs out should remove the mask")
     }
