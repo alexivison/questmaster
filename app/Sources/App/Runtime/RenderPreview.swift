@@ -206,7 +206,7 @@ enum RenderPreview {
 
     /// The five text variants of `Chat Item Text.svg`. The artboard has no time column, so the item's left
     /// edge (where the time would start) sits at its 1pt border: the name lands at x 62 and wrapped lines
-    /// start at x 6, under the time. The plain item still wraps after "and": its first line is as wide as before.
+    /// start at x 11, under the time. The plain item still wraps after "and": its first line is as wide as before.
     @MainActor
     private static func chatItemTextDesignView() -> some View {
         let plain = [WorkerChatSegment("Worker name:", .name), WorkerChatSegment(" Finished the task given and reported to the master.", .normal)]
