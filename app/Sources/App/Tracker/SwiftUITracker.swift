@@ -1825,7 +1825,7 @@ struct TrackerAgentMark: View {
             }
             return AppSymbolStyle.glyphImage(
                 "□",
-                font: NSFont.systemFont(ofSize: side * 0.58, weight: .semibold),
+                font: AppFonts.monospaced(size: side * 0.58, weight: .semibold),
                 color: tint,
                 canvasSize: canvasSize
             )
@@ -1840,7 +1840,7 @@ struct TrackerAgentMark: View {
             }
             return AppSymbolStyle.glyphImage(
                 "π",
-                font: NSFont.systemFont(ofSize: side * 0.58, weight: .semibold),
+                font: AppFonts.monospaced(size: side * 0.58, weight: .semibold),
                 color: AppPalette.pi,
                 canvasSize: canvasSize
             )

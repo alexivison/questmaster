@@ -26,6 +26,7 @@ struct ArtifactMarkdownView: View {
                 Markdown(markdown, baseURL: baseURL, imageBaseURL: baseURL)
                     .markdownTheme(
                         .gitHub.text {
+                            FontFamily(GhosttyFontFamily.markdownFamily)
                             ForegroundColor(AppPalette.text.swiftUI)
                             BackgroundColor(Color.clear)
                             FontSize(16)

@@ -22,7 +22,7 @@ extension View {
         height: CGFloat = 36
     ) -> some View {
         textFieldStyle(.plain)
-            .font(.system(size: 13.5))
+            .font(AppFonts.monospaced(size: 13.5).swiftUI)
             .foregroundStyle(AppPalette.text.swiftUI)
             .lineLimit(1)
             .padding(.horizontal, Token.Spacing.card)

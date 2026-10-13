@@ -184,6 +184,7 @@ private struct QuestRow: View {
                     Markdown(QuestDisplayState.rowPreview(for: quest.content))
                         .markdownTheme(.basic)
                         .markdownTextStyle {
+                            FontFamily(GhosttyFontFamily.markdownFamily)
                             FontSize(AppFonts.itemTitle.pointSize)
                             ForegroundColor(markdownTextColor)
                         }

@@ -1,8 +1,9 @@
 import AppKit
+import MarkdownUI
 import QuestmasterCore
 
 /// The user's Ghostty `font-family`, resolved once on first use from the config files Ghostty itself
-/// loads (ghostty_config_get cannot return this repeatable key). nil means fall back to the system fonts.
+/// loads (ghostty_config_get cannot return this repeatable key). nil means fall back to the system mono.
 enum GhosttyFontFamily {
     static let resolved: String? = {
         let xdgHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] ?? NSHomeDirectory() + "/.config"
@@ -28,5 +29,13 @@ enum GhosttyFontFamily {
             .traits: [NSFontDescriptor.TraitKey.weight: weight],
         ])
         return NSFont(descriptor: descriptor, size: size)
+    }
+
+    /// The Markdown counterpart of `font(size:weight:)`: the same family, or the system mono when none is set.
+    static var markdownFamily: FontProperties.Family {
+        guard let resolved else {
+            return .system(.monospaced)
+        }
+        return .custom(resolved)
     }
 }

@@ -19,7 +19,7 @@ struct ModalSelectControl: View {
                     .frame(height: 13)
             } else {
                 Text(title)
-                    .font(.system(size: 13.5))
+                    .font(AppFonts.monospaced(size: 13.5).swiftUI)
                     .foregroundStyle(AppPalette.text.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
