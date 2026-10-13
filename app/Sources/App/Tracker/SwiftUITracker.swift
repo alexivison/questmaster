@@ -2073,8 +2073,8 @@ private struct TrackerSkeletonPlaceholder: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: TrackerListMetrics.itemSpacing) {
-            placeholder(role: .master)
             VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
+                placeholder(role: .master)
                 placeholder(role: .worker)
                 placeholder(role: .worker)
             }
