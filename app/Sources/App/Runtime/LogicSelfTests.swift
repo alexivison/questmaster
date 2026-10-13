@@ -311,10 +311,25 @@ enum LogicSelfTests {
             TrackerPlateDesign.workerSize.width < TrackerPlateDesign.topLevelSize.width,
             "workers should stay narrower than masters"
         )
-        try expect(
-            TrackerListMetrics.itemSpacing == TrackerListMetrics.masterBlockSpacing,
-            "top-level items should sit as far apart as a master and its workers"
-        )
+
+        // Every layer of a portrait sits at a whole-point origin. A frame on a half point snaps to a whole pixel at 1x
+        // and drifts half a pixel off the outline, which the plate canvas draws at exact geometry.
+        for role in [TrackerNameplateRole.master, .worker] {
+            for (name, value) in [("x", role.portraitOrigin.x), ("y", role.portraitOrigin.y), ("diameter", role.portraitDiameter)] {
+                try expect(value == value.rounded(), "the \(role) portrait's \(name) should be a whole point, got \(value)")
+            }
+            let logoSide = role.portraitDiameter * 0.6
+            let logoInset = (role.portraitDiameter - logoSide) / 2
+            try expect(logoSide == logoSide.rounded() && logoInset == logoInset.rounded(), "the \(role) logo should sit on whole points, got side \(logoSide) at \(logoInset)")
+        }
+
+        // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
+        try expectClose(TrackerListMetrics.sectionSpacing, 20, "gap between project groups")
+        try expectClose(TrackerListMetrics.itemSpacing, 20, "gap between top-level sessions")
+        try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers")
+        try expectClose(TrackerNameplateRole.chipsDrop, 5, "gap between a master and its chips")
+        let chipsRowHeight = TrackerNameplateRole.master.rowHeight(showsPills: true)
+        try expect(chipsRowHeight == chipsRowHeight.rounded(), "a master row with chips should end on a whole point, got \(chipsRowHeight)")
 
         // The body's and the frame's square left corners stay behind the disc instead of poking out under it.
         let hiddenParts: [(name: String, part: Path, centre: CGPoint, side: CGFloat)] = [
