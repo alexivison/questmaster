@@ -7,7 +7,7 @@ import QuestmasterCore
 @MainActor
 enum WorkerChatMotion {
     static let glideDuration: CFTimeInterval = 0.2
-    private static let glideKey = "workerChatGlide"
+    static let glideKey = "workerChatGlide"
 
     /// Moves the clip to `offset` at once. With `glides`, the document then eases from where it was
     /// shown to where it now sits, capped at one viewport.

@@ -114,7 +114,7 @@ enum WorkerChatLineBuilder {
             if lastHeader.map({ !calendar.isDate(draft.timestamp, equalTo: $0, toGranularity: .minute) }) ?? true {
                 let parts = calendar.dateComponents([.hour, .minute], from: draft.timestamp)
                 lines.append(WorkerChatLine(
-                    id: "h\(Int(draft.timestamp.timeIntervalSince1970 / 60))",
+                    id: "h\(Int(floor(draft.timestamp.timeIntervalSince1970 / 60)))",
                     content: .timeHeader(String(format: "[%02d:%02d]", parts.hour ?? 0, parts.minute ?? 0))
                 ))
                 lastHeader = draft.timestamp

@@ -67,7 +67,7 @@ enum LogicSelfTests {
         ("testActionBarFooterBottomGapMeasuresFromBarBand", testActionBarFooterBottomGapMeasuresFromBarBand),
         ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
         ("testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide", testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide),
-        ("testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout", testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout),
+        ("testWorkerChatFollowerDoesNotGlideOnTrimOrResize", testWorkerChatFollowerDoesNotGlideOnTrimOrResize),
         ("testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide", testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide),
         ("testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed", testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed),
         ("testWorkerChatBottomFadeIsOnlyWhileFollowing", testWorkerChatBottomFadeIsOnlyWhileFollowing),
@@ -2143,7 +2143,8 @@ enum LogicSelfTests {
     }
 
     /// Follower fixture: a flipped document in an offscreen window, so the clip origin reads like the
-    /// real feed (bottom = content - viewport). The window sits off screen, as in the scroller test.
+    /// real feed (bottom = content - viewport). Tests wait for the state they need with `waitUntil`,
+    /// and assert a glide as it is added. Nothing here waits for an animation to finish.
     @MainActor
     private final class FlippedDocumentView: NSView {
         override var isFlipped: Bool { true }
@@ -2157,17 +2158,14 @@ enum LogicSelfTests {
         let follower: WorkerChatBottomFollowerView
 
         var origin: CGFloat { scrollView.contentView.bounds.origin.y }
-        var isGliding: Bool { !(documentView.layer?.animationKeys() ?? []).isEmpty }
 
         func grow(to height: CGFloat) {
             documentView.setFrameSize(NSSize(width: documentView.frame.width, height: height))
-            pump(0.02)
         }
 
         func scroll(to offset: CGFloat) {
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
             scrollView.reflectScrolledClipView(scrollView.contentView)
-            pump(0.02)
         }
     }
 
@@ -2184,7 +2182,6 @@ enum LogicSelfTests {
         )
         window.contentView = scrollView
         window.orderFrontRegardless()
-        pump(0.05)
         return FollowerFixture(window: window, scrollView: scrollView, documentView: documentView, follower: follower)
     }
 
@@ -2192,50 +2189,79 @@ enum LogicSelfTests {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 
+    /// Pumps the run loop until `condition` holds, for at most five seconds, and reports whether it did.
+    private static func waitUntil(_ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while !condition() {
+            if Date() >= deadline {
+                return false
+            }
+            pump(0.005)
+        }
+        return true
+    }
+
+    private static func hasGlide(_ view: NSView) -> Bool {
+        !(view.layer?.animationKeys() ?? []).isEmpty
+    }
+
+    /// Checks the glide that was added on `view`: a y translation from a start in the given range to
+    /// zero, lasting the glide duration, with the model transform left at identity.
+    private static func expectGlideAdded(on view: NSView, startsBetween low: CGFloat, and high: CGFloat) throws {
+        guard let glide = view.layer?.animation(forKey: WorkerChatMotion.glideKey) as? CABasicAnimation else {
+            throw TestFailure("an arrival should add the glide animation under its key")
+        }
+        try expect(glide.keyPath == "transform.translation.y", "the glide should move the document's y translation, got \(String(describing: glide.keyPath))")
+        try expect((glide.toValue as? NSNumber)?.doubleValue == 0, "the glide should end at zero, got \(String(describing: glide.toValue))")
+        let start = (glide.fromValue as? NSNumber)?.doubleValue ?? .nan
+        try expect(start >= low - 0.001 && start <= high + 0.001, "the glide should start between \(low) and \(high) points, got \(start)")
+        try expect(glide.duration == WorkerChatMotion.glideDuration, "the glide should last \(WorkerChatMotion.glideDuration)s, got \(glide.duration)")
+        try expect(CATransform3DIsIdentity(view.layer?.transform ?? CATransform3DIdentity), "the model transform should stay at identity while the glide runs")
+    }
+
     /// A line arriving while the feed follows glides in, and a second arrival mid-glide keeps the
-    /// follower at the bottom. The clip bounds are the follow state, and they never animate.
+    /// follower at the bottom. Only the clip bounds decide follow state, and they never animate.
     private static func testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide() throws {
         let fixture = followerFixture(contentHeight: 1000)
         defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
         try expect(fixture.follower.isFollowing, "a fresh feed should follow")
-        try expect(fixture.origin == 800, "the first layout should pin to the bottom, got \(fixture.origin)")
-        try expect(!fixture.isGliding, "the first layout should not glide")
+        try expect(!hasGlide(fixture.documentView), "the first layout should not glide")
 
         fixture.grow(to: 1026)
-        try expect(fixture.origin == 826, "an arrival should move the clip to the new bottom at once, got \(fixture.origin)")
-        try expect(fixture.isGliding, "an arrival at a steady viewport should glide")
+        try expect(waitUntil { fixture.origin == 826 }, "an arrival should move the clip to the new bottom at once, got \(fixture.origin)")
+        try expectGlideAdded(on: fixture.documentView, startsBetween: 26, and: 26)
 
         fixture.grow(to: 1052)
-        try expect(fixture.origin == 852, "a second arrival mid-glide should still pin, got \(fixture.origin)")
+        try expect(waitUntil { fixture.origin == 852 }, "a second arrival mid-glide should still pin, got \(fixture.origin)")
         try expect(fixture.follower.isFollowing, "a line arriving mid-glide should keep following")
-        try expect(fixture.isGliding, "the mid-glide arrival should glide again")
-
-        pump(0.4)
-        try expect(!fixture.isGliding, "the glide should finish within 200ms")
-        try expect(fixture.follower.isFollowing && fixture.origin == 852, "the feed should end at the bottom and following")
+        try expectGlideAdded(on: fixture.documentView, startsBetween: 26, and: 52)
     }
 
-    /// Trims, viewport resizes and the first layout jump to the bottom without a glide. A trim
-    /// flag applies to the lines update it came with, so the next arrival still glides.
-    private static func testWorkerChatFollowerDoesNotGlideOnTrimResizeOrFirstLayout() throws {
-        let fixture = followerFixture(contentHeight: 1000)
-        defer { fixture.window.close() }
+    /// A trim pins to the bottom without a glide, and the next arrival still glides. A viewport resize
+    /// pins without a glide too. It runs on its own fixture, since a glide from an arrival may still
+    /// be in flight.
+    private static func testWorkerChatFollowerDoesNotGlideOnTrimOrResize() throws {
+        let trimmed = followerFixture(contentHeight: 1000)
+        defer { trimmed.window.close() }
+        try expect(waitUntil { trimmed.origin == 800 }, "a fresh feed should pin to the bottom, got \(trimmed.origin)")
+        trimmed.follower.noteLinesUpdate(revision: 1, trimCount: 1)
+        trimmed.grow(to: 974)
+        try expect(waitUntil { trimmed.origin == 774 }, "a trim with shorter wrapped rows should pin to the bottom, got \(trimmed.origin)")
+        try expect(!hasGlide(trimmed.documentView), "a trim update should not glide")
+        try expect(trimmed.follower.isFollowing, "a trim update should keep following")
 
-        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1)
-        fixture.grow(to: 974)
-        try expect(fixture.origin == 774, "a trim with shorter wrapped rows should pin to the bottom, got \(fixture.origin)")
-        try expect(!fixture.isGliding, "a trim update should not glide")
-        try expect(fixture.follower.isFollowing, "a trim update should keep following")
+        trimmed.follower.noteLinesUpdate(revision: 2, trimCount: 1)
+        trimmed.grow(to: 1000)
+        try expect(waitUntil { hasGlide(trimmed.documentView) }, "an arrival after the trim update should glide again")
 
-        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 1)
-        fixture.grow(to: 1000)
-        try expect(fixture.isGliding, "an arrival after the trim update should glide again")
-        pump(0.4)
-
-        fixture.scrollView.setFrameSize(NSSize(width: 300, height: 240))
-        pump(0.05)
-        try expect(!fixture.isGliding, "a viewport resize should not glide")
-        try expect(fixture.follower.isFollowing && fixture.origin == 760, "a resize should pin to the new bottom, got \(fixture.origin)")
+        let resized = followerFixture(contentHeight: 1000)
+        defer { resized.window.close() }
+        try expect(waitUntil { resized.origin == 800 }, "a fresh feed should pin to the bottom, got \(resized.origin)")
+        resized.scrollView.setFrameSize(NSSize(width: 300, height: 240))
+        try expect(waitUntil { resized.origin == 760 }, "a resize should pin to the new bottom, got \(resized.origin)")
+        try expect(!hasGlide(resized.documentView), "a viewport resize should not glide")
+        try expect(resized.follower.isFollowing, "a resize should keep following")
     }
 
     /// A trim that leaves the content height unchanged never reaches a height callback. The flag must
@@ -2243,12 +2269,13 @@ enum LogicSelfTests {
     private static func testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide() throws {
         let fixture = followerFixture(contentHeight: 1000)
         defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
 
         fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1)
         fixture.follower.noteLinesUpdate(revision: 2, trimCount: 1)
         fixture.grow(to: 1026)
-        try expect(fixture.isGliding, "an arrival after an equal-height trim should glide")
-        try expect(fixture.origin == 826, "the arrival should pin to the bottom, got \(fixture.origin)")
+        try expect(waitUntil { fixture.origin == 826 }, "the arrival should pin to the bottom, got \(fixture.origin)")
+        try expectGlideAdded(on: fixture.documentView, startsBetween: 26, and: 26)
     }
 
     /// SwiftUI can render one lines update twice before its layout. The second render must not clear
@@ -2256,12 +2283,13 @@ enum LogicSelfTests {
     private static func testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed() throws {
         let fixture = followerFixture(contentHeight: 1000)
         defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
 
         fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1)
         fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1)
         fixture.grow(to: 974)
-        try expect(!fixture.isGliding, "a trim should not glide even when rendered twice before layout")
-        try expect(fixture.origin == 774, "the trim should pin to the bottom, got \(fixture.origin)")
+        try expect(waitUntil { fixture.origin == 774 }, "the trim should pin to the bottom, got \(fixture.origin)")
+        try expect(!hasGlide(fixture.documentView), "a trim should not glide even when rendered twice before layout")
     }
 
     /// The real feed, through SwiftUI's update path: a trim with wrapped rows (the content height
@@ -2275,28 +2303,28 @@ enum LogicSelfTests {
         window.contentView = hosting
         window.orderFrontRegardless()
         defer { window.close() }
-        pump(0.3)
-
+        try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
         guard let scrollView = descendant(NSScrollView.self, in: hosting),
               let follower = descendant(WorkerChatBottomFollowerView.self, in: hosting),
               let documentView = scrollView.documentView else {
             throw TestFailure("the worker chat feed should host a scroll view and its follower")
         }
+        let viewport = { scrollView.contentView.bounds.height }
+        let bottom = { documentView.frame.height - viewport() }
+        try expect(waitUntil { documentView.frame.height > viewport() }, "the first layout should fill the feed")
+        try expect(waitUntil { abs(scrollView.contentView.bounds.origin.y - bottom()) < 1 }, "the first layout should pin to the bottom")
         try expect(follower.isFollowing, "a fresh feed should follow")
-        try expect(!isGliding(documentView), "the first layout should not glide")
+        try expect(!hasGlide(documentView), "the first layout should not glide")
 
         let heightBeforeTrim = documentView.frame.height
         hosting.rootView = wrappedFeed(count: 22, revision: 2, trimCount: 1)
-        pump(0.1)
-        let maxOffset = documentView.frame.height - scrollView.contentView.bounds.height
-        try expect(documentView.frame.height < heightBeforeTrim, "the trim should shorten the content")
-        try expect(!isGliding(documentView), "a wrapped-row trim should not glide")
+        try expect(waitUntil { documentView.frame.height < heightBeforeTrim }, "the trim should shorten the content")
+        try expect(waitUntil { abs(scrollView.contentView.bounds.origin.y - bottom()) < 1 }, "a trim should pin to the new bottom")
+        try expect(!hasGlide(documentView), "a wrapped-row trim should not glide")
         try expect(follower.isFollowing, "a trim should keep following")
-        try expect(abs(scrollView.contentView.bounds.origin.y - maxOffset) < 1, "a trim should pin to the new bottom")
 
         hosting.rootView = wrappedFeed(count: 23, revision: 3, trimCount: 1)
-        pump(0.1)
-        try expect(isGliding(documentView), "an arrival after the trim should glide")
+        try expect(waitUntil { hasGlide(documentView) }, "an arrival after the trim should glide")
     }
 
     /// Every third entry wraps to several lines at the 300pt test width.
@@ -2310,10 +2338,6 @@ enum LogicSelfTests {
             ]))
         }
         return WorkerChatFeedView(lines: lines, revision: revision, trimCount: trimCount).frame(width: 300, height: 200)
-    }
-
-    private static func isGliding(_ view: NSView) -> Bool {
-        !(view.layer?.animationKeys() ?? []).isEmpty
     }
 
     /// Finds the first descendant of `type`, for the SwiftUI-hosted feed.
@@ -2333,6 +2357,7 @@ enum LogicSelfTests {
     private static func testWorkerChatBottomFadeIsOnlyWhileFollowing() throws {
         let fixture = followerFixture(contentHeight: 1000)
         defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
         let fade = fixture.scrollView.layer?.mask as? CAGradientLayer
         try expect(fade != nil, "a following feed should fade its bottom edge")
         try expect(fade?.locations?.map { $0.doubleValue } == [0, 0.1, 1], "the fade band should be the 20pt inset of a 200pt view, got \(String(describing: fade?.locations))")
@@ -2340,11 +2365,11 @@ enum LogicSelfTests {
         try expect(fade?.isGeometryFlipped == fixture.scrollView.layer?.isGeometryFlipped, "the fade should share the scroll layer's flip")
 
         fixture.scroll(to: 0)
-        try expect(!fixture.follower.isFollowing, "scrolling to the top should stop following")
+        try expect(waitUntil { !fixture.follower.isFollowing }, "scrolling to the top should stop following")
         try expect(fixture.scrollView.layer?.mask == nil, "the fade should be off while not following")
 
         fixture.scroll(to: 800)
-        try expect(fixture.follower.isFollowing, "scrolling back to the bottom should resume following")
+        try expect(waitUntil { fixture.follower.isFollowing }, "scrolling back to the bottom should resume following")
         try expect(fixture.scrollView.layer?.mask != nil, "the fade should return with following")
     }
 
@@ -2352,12 +2377,12 @@ enum LogicSelfTests {
     private static func testWorkerChatLiveScrollCancelsGlide() throws {
         let fixture = followerFixture(contentHeight: 1000)
         defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
         fixture.grow(to: 1026)
-        try expect(fixture.isGliding, "the arrival should start a glide")
+        try expect(waitUntil { hasGlide(fixture.documentView) }, "the arrival should start a glide")
 
         NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: fixture.scrollView)
-        pump(0.02)
-        try expect(!fixture.isGliding, "a live scroll should cancel the glide")
+        try expect(waitUntil { !hasGlide(fixture.documentView) }, "a live scroll should cancel the glide")
     }
 
     private static func settingsSheetModel(
