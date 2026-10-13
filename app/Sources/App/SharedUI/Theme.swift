@@ -210,9 +210,10 @@ enum AppFonts {
     static let chat = monospaced(size: 12, weight: .regular)
     static let chatName = monospaced(size: 12, weight: .bold)
 
-    /// Tracker row titles at 12pt (the shared 12.5pt `itemTitle` lands its caps on half rows): the Ghostty font.
-    static let trackerTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
-        ?? .systemFont(ofSize: 12, weight: .semibold)
+    /// Tracker plate and selected-session titles at 12pt, regular weight as the design draws them (the
+    /// shared 12.5pt `itemTitle` lands its caps on half rows): the Ghostty font.
+    static let trackerTitle = GhosttyFontFamily.font(size: 12, weight: .regular)
+        ?? .systemFont(ofSize: 12, weight: .regular)
     /// Tracker section titles: the Ghostty font, else the serif of `sectionTitle`.
     static let trackerSectionTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
         ?? NSFont.systemFont(ofSize: 12, weight: .semibold).serif

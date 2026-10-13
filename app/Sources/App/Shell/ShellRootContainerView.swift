@@ -30,7 +30,7 @@ final class ShellRootContainerView: NSView {
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         footer.translatesAutoresizingMaskIntoConstraints = false
-        footerBottomConstraint = footer.bottomAnchor.constraint(equalTo: bottomAnchor)
+        footerBottomConstraint = footer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -CGFloat(ShellMetrics.footerBand.plateBottomInset(snapLeftover: 0)))
         addSubview(splitView)
         addSubview(footer)
         NSLayoutConstraint.activate([
@@ -52,6 +52,6 @@ final class ShellRootContainerView: NSView {
     }
 
     func setFooterBottomInset(_ inset: CGFloat) {
-        footerBottomConstraint.constant = -inset
+        footerBottomConstraint.constant = -CGFloat(ShellMetrics.footerBand.plateBottomInset(snapLeftover: Double(inset)))
     }
 }

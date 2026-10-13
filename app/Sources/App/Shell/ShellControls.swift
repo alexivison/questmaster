@@ -46,20 +46,21 @@ enum ShellMetrics {
     static let horizontalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.x))
     static let verticalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.y))
     static let trackerTrailingGap: CGFloat = horizontalFlushGap
+    /// The footer's reserved band: its plate, the shell gap below it, and the flush gap above it.
+    static let footerBand = FooterBand(
+        plateHeight: Double(ActionBarMetrics.footerHeight),
+        bottomGap: Double(gap),
+        topGap: Double(verticalFlushGap)
+    )
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
         dockDividerHitWidth: 7,
-        trackerMaxWidth: Double(TrackerListMetrics.rootPlateWidth) + Double(gap),
+        trackerMaxWidth: Double(TrackerListMetrics.contentWidth) + Double(gap),
         trackerLeadingInset: Double(trackerLeadingInset),
         trackerTrailingGap: Double(trackerTrailingGap),
         terminalToDockGap: Double(horizontalFlushGap),
         terminalTopInset: Double(verticalFlushGap),
-        footerReservedHeight: Double(ActionBarMetrics.footerHeight)
+        footerReservedHeight: footerBand.reservedHeight
     )
 }
 
-struct SelectedSessionChip: Equatable {
-    let title: String
-    let id: String
-    let agent: String
-}

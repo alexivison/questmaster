@@ -8,24 +8,6 @@ enum TerminalSessionChipResolver {
         QuestmasterCore.cleanSessionID(id)
     }
 
-    static func chip(currentTerminalSessionID: String?, sessions: [TrackerSession]) -> SelectedSessionChip? {
-        guard let currentID = cleanSessionID(currentTerminalSessionID) else {
-            return nil
-        }
-        let selectedSession = sessions.first { cleanSessionID($0.id) == currentID }
-
-        guard let selectedSession else {
-            return SelectedSessionChip(title: "Terminal", id: currentID, agent: "")
-        }
-
-        let title = selectedSession.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return SelectedSessionChip(
-            title: title.isEmpty ? selectedSession.id : title,
-            id: selectedSession.id,
-            agent: selectedSession.agent
-        )
-    }
-
     static func foregroundSessionID(after request: ServeMutationRequest, ack: ServeMutationAck) -> String? {
         guard request.method == "switch" else {
             return nil
@@ -135,8 +117,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
-            selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
-            selectedSessionRole: { [weak self] in self?.selectedSessionRole() },
             updateDockTabs: { [weak self] in self?.updateDockTabs() }
         )
         runtimeConnectionController = RuntimeConnectionController(
@@ -257,7 +237,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
-        handles.footerShell.onCopySessionID = { [weak self] sessionID in self?.copySessionIDToPasteboard(sessionID) }
         handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
         handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockShell.onCopyArtifactPath = { [weak self] in
@@ -415,25 +394,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             artifactRoute: dockView?.currentArtifactRoute ?? .list,
             artifactTitle: dockView?.currentArtifactTitle
         )
-    }
-
-    private func selectedSessionChip() -> SelectedSessionChip? {
-        let sessions = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
-        return TerminalSessionChipResolver.chip(
-            currentTerminalSessionID: runtimeStore.currentTerminalSessionID,
-            sessions: sessions
-        )
-    }
-
-    /// The action bar's session-panel variant keys off the selected session's role, read from the
-    /// same flat session list `selectedSessionChip` reads.
-    private func selectedSessionRole() -> SessionRoleKind? {
-        let sessions = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
-        guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
-              let selected = sessions.first(where: { $0.id == sessionID }) else {
-            return nil
-        }
-        return SessionRoleKind(role: selected.role)
     }
 
     /// Attaches the terminal to `sessionID` — the same path a tracker row click or a Cmd+1..9
