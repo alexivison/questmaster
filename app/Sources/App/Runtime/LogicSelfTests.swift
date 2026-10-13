@@ -27,6 +27,7 @@ enum LogicSelfTests {
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
+        ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
@@ -188,6 +189,36 @@ enum LogicSelfTests {
 
         try expect(freshColor.isEqual(AppPalette.muted), "fresh shell should use muted accent")
         try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
+    }
+
+    private static func testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        let path = CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil)
+        for status in [TrackerStatusKind.working, .blocked, .needsInput, .error] {
+            guard status.drawsGlow else {
+                throw TestFailure("\(status) should draw a status band")
+            }
+            let band = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+            window.contentView = band
+            band.configure(path: path, color: AppPalette.accent, breathes: true)
+            guard band.isBreathing else {
+                throw TestFailure("\(status) band should breathe in a window")
+            }
+            band.configure(path: path, color: AppPalette.accent, breathes: false)
+            guard !band.isBreathing else {
+                throw TestFailure("\(status) band should stop breathing under reduced motion")
+            }
+        }
+        for status in [TrackerStatusKind.idle, .done, .stopped] {
+            guard !status.drawsGlow else {
+                throw TestFailure("\(status) should draw no status band")
+            }
+        }
+        let band = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        band.configure(path: path, color: AppPalette.accent, breathes: true)
+        guard !band.isBreathing else {
+            throw TestFailure("a band outside a window should not breathe")
+        }
     }
 
     private static func testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount() throws {
