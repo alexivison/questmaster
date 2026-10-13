@@ -28,8 +28,8 @@ enum WorkerChatMetrics {
         lineHeight - (AppFonts.chat.ascender - AppFonts.chat.descender + AppFonts.chat.leading).rounded(.up)
     }
 
-    /// Design `#D8DEE9` and `#9DA7B1` land on the nearest palette tokens by RGB; `#768390` and
-    /// `#E8B34A` are exact. Worker free text is `#D9DBB8`, which has its own `chatSpeech` token. Tags are
+    /// Design `#D8DEE9` and `#9DA7B1` land on the nearest palette tokens by RGB; `#768390` is exact, and
+    /// `#E8B34A` has its own `chatWorking` token. Worker free text is `#D9DBB8`, which has its own `chatSpeech` token. Tags are
     /// named by RPG rarity: common (white) for tool calls, rare and epic for item tags. Status tags keep
     /// their status colours.
     enum Color {
@@ -40,7 +40,7 @@ enum WorkerChatMetrics {
         static let common = AppPalette.bright
         static let rare = AppPalette.rarityRare
         static let epic = AppPalette.rarityEpic
-        static let working = AppPalette.trackerNeedsInput
+        static let working = AppPalette.chatWorking
         static let done = AppPalette.trackerDone
         static let blocked = AppPalette.trackerBlocked
         static let logoTint = ActionBarMetrics.SourceColor.logo

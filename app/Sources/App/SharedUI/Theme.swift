@@ -56,7 +56,7 @@ enum AppPalette {
     static let trackerBlocked = NSColor(hex: 0xe5534b)
     static let trackerDone = NSColor(hex: 0x57ab5a)
     static let trackerIdle = NSColor(hex: 0x6f757c)
-    static let trackerNeedsInput = NSColor(hex: 0xe8b34a)
+    static let trackerNeedsInput = NSColor(hex: 0x58a6ff)
     static let trackerError = NSColor(hex: 0xe8743b)
     /// Chat item tags by RPG rarity. No existing token is close to rare. Epic is the magenta display
     /// colour, kept as its own token so renaming a display colour leaves chat tags alone.
@@ -65,6 +65,8 @@ enum AppPalette {
     /// Worker free text in the chat feed (say and message lines): a pale khaki. The nearest existing token
     /// (`text`) is about 43 RGB units away, so it gets its own token.
     static let chatSpeech = NSColor(hex: 0xd9dbb8)
+    /// The chat design's Working tag amber. It was borrowed from `trackerNeedsInput` until that became blue.
+    static let chatWorking = NSColor(hex: 0xe8b34a)
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
         NSColor(hex: 0xd29922),
