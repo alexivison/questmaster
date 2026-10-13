@@ -28,6 +28,7 @@ enum LogicSelfTests {
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
         ("testTrackerSilhouetteOutlineStaysWithinItsBorder", testTrackerSilhouetteOutlineStaysWithinItsBorder),
+        ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -243,6 +244,80 @@ enum LogicSelfTests {
                 guard allowed.contains(outline.boundingBoxOfPath) else {
                     throw TestFailure("\(role) outline spikes past its border: \(outline.boundingBoxOfPath)")
                 }
+            }
+        }
+    }
+
+    private static func testTrackerPlatesKeepTheDesignsProportions() throws {
+        let scale = TrackerPlateDesign.scale
+        let border = TrackerPlateDesign.outlineWidth
+        func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String) throws {
+            try expect(abs(value - expected) < 0.01, "\(name) should be \(expected), got \(value)")
+        }
+
+        // Every outer measure, border included, is the SVG raster's times the scale. Fills sit a border inside it.
+        // The frame reaches half its path's stroke past the path: 1.5 on the master, 1 on the worker.
+        struct Plate {
+            let name: String
+            let portrait: CGFloat
+            let centre: CGPoint
+            let body: CGRect
+            let frame: CGRect
+            let strips: [CGRect]
+            let stripHeight: CGFloat
+            let discOuter: CGFloat
+            let plateOuter: CGFloat
+            let overhangAbove: CGFloat
+            let overhangBelow: CGFloat
+            let band: CGFloat
+            let frameBeyondBody: CGFloat
+        }
+        let plates = [
+            Plate(name: "master", portrait: TrackerPlateDesign.portraitSideTopLevel, centre: TrackerPlateDesign.topLevelPortraitCenter,
+                  body: TrackerPlateDesign.topLevelBodyRect, frame: TrackerPlateDesign.topLevelFrameRect,
+                  strips: [TrackerPlateDesign.topLevelSummaryRect, TrackerPlateDesign.topLevelBarRect], stripHeight: 11,
+                  discOuter: 50, plateOuter: 43.5, overhangAbove: 4, overhangBelow: 2.5, band: 3, frameBeyondBody: 1.5),
+            Plate(name: "worker", portrait: TrackerPlateDesign.portraitSideWorker, centre: TrackerPlateDesign.workerPortraitCenter,
+                  body: TrackerPlateDesign.workerBodyRect, frame: TrackerPlateDesign.workerFrameRect,
+                  strips: [TrackerPlateDesign.workerSummaryRect, TrackerPlateDesign.workerTimeRect], stripHeight: 8,
+                  discOuter: 40, plateOuter: 35.5, overhangAbove: 2.5, overhangBelow: 2, band: 2, frameBeyondBody: 0.5),
+        ]
+        for plate in plates {
+            try expectClose(plate.portrait + 2 * border, plate.discOuter * scale, "\(plate.name) disc outer diameter")
+            try expectClose(plate.frame.maxY + border - (plate.body.minY - border), plate.plateOuter * scale, "\(plate.name) plate outer height")
+            try expectClose(plate.strips[1].height, 8 * scale, "\(plate.name) bottom strip height")
+            try expectClose(plate.strips[0].height, plate.stripHeight * scale, "\(plate.name) first strip height")
+
+            // The disc stands out of the plate by the SVG's overhang, scaled.
+            let discTop = plate.centre.y - plate.portrait / 2 - border
+            let discBottom = plate.centre.y + plate.portrait / 2 + border
+            try expectClose(plate.body.minY - border - discTop, plate.overhangAbove * scale, "\(plate.name) disc overhang above the plate")
+            try expectClose(discBottom - (plate.frame.maxY + border), plate.overhangBelow * scale, "\(plate.name) disc overhang below the plate")
+
+            // The frame's bands round the strips are the SVG's, scaled, and its right edge reaches past the body's.
+            try expectClose(plate.strips[0].minY - plate.frame.minY, plate.band * scale, "\(plate.name) frame band above the strips")
+            try expectClose(plate.frame.maxY + border - plate.strips[1].maxY, plate.band * scale, "\(plate.name) frame band below the strips")
+            try expectClose(plate.frame.maxX + border - plate.strips[0].maxX, plate.band * scale, "\(plate.name) frame band right of the strips")
+            try expectClose(plate.frame.maxX - plate.body.maxX, plate.frameBeyondBody * scale, "\(plate.name) frame past the body on the right")
+        }
+
+        // The cap keeps the SVG's 56 x 42 shape and stands as tall as the body fill: it is scaled, never stretched.
+        let cap = TrackerPlateDesign.topLevelRing.boundingRect
+        try expectClose(cap.width / cap.height, 56.0 / 42, "cap aspect ratio")
+        try expectClose(cap.height, TrackerPlateDesign.topLevelBodyRect.height, "cap height")
+
+        // The body's and the frame's square left corners stay behind the disc instead of poking out under it.
+        let hiddenParts: [(name: String, part: Path, centre: CGPoint, side: CGFloat)] = [
+            ("master body", TrackerPlateDesign.topLevelBody, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
+            ("master frame", TrackerPlateDesign.topLevelFrame, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
+            ("worker body", TrackerPlateDesign.workerBody, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
+            ("worker frame", TrackerPlateDesign.workerFrame, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
+        ]
+        for hidden in hiddenParts {
+            let bounds = hidden.part.boundingRect
+            for corner in [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.minX, y: bounds.maxY)] {
+                let distance = hypot(corner.x - hidden.centre.x, corner.y - hidden.centre.y)
+                try expect(distance < hidden.side / 2, "\(hidden.name)'s left corner \(corner) should sit inside the disc, \(distance) from its centre")
             }
         }
     }

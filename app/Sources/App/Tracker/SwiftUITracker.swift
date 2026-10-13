@@ -1127,16 +1127,23 @@ private struct TrackerWorkerSummaryPill: View {
     }
 }
 
-/// Nameplate geometry in whole points: the Figma layout grown for 12pt text, with room around the
-/// portrait and strips, and every size and position rounded so strips, rings and borders land on
-/// pixel edges on a 1x display.
-/// The design's plate geometry, 1:1 in points, traced from `Tracker Item (Simplified).svg`. Paths keep
-/// the design's own coordinates; each variant's origin is the design point its canvas starts at, so
-/// every path translates by that origin and the canvas's top-left lands on (0, 0).
+/// The plates' geometry in points, from `Type=Master.svg` (283 x 50) and `Type=Worker.svg` (279 x 40).
+/// Both SVGs set their smallest text at 8pt: the master's project bar, the worker's snippet and time strips.
+/// Main sets that text at 11pt, so every plate draws at 11/8 of its SVG, alike in x and y. Shapes, gaps, corner
+/// radii, the cap and the portrait all scale together, so the portrait keeps the SVG's share of the plate.
+///
+/// Every outer edge, border included, lands on the SVG's rasterised outer edge times the scale: the app draws its
+/// 1.5pt border outside each fill, so a fill sits one border inside the SVG's outer edge. The SVG's frame path
+/// carries a centred stroke (3pt on the master, 2pt on the worker), so the frame reaches half of it past the path's
+/// edges: on the master it spans y 20.5 to 47.5 and ends at x 282.5, 1.5 past the body's outer edge (y 4 to 46,
+/// x 281); on the worker it spans y 16 to 38 and ends at x 278.5, 0.5 past the body's (y 2.5 to 37.5, x 278).
+/// Only each plate's right edge stays where it was before the plates scaled.
 enum TrackerPlateDesign {
-    /// Canvas sizes in points. The master's portrait centre is the selected-session panel's centre line, x = 38.
-    static let topLevelSize = CGSize(width: 293, height: 61)
-    static let workerSize = CGSize(width: 283, height: 58)
+    static let scale: CGFloat = 11.0 / 8.0
+    /// Canvas sizes in points. The canvas is as tall as the portrait. The master's portrait centre is the
+    /// selected-session panel's centre line, x = 38.
+    static let topLevelSize = CGSize(width: 293, height: (50 * scale).rounded(.up))
+    static let workerSize = CGSize(width: 283, height: 40 * scale)
     /// The silhouette's outer border, 1.5pt. The outline strokes each silhouette part at twice this width, so
     /// only its outer half shows.
     static let outlineWidth: CGFloat = 1.5
@@ -1148,59 +1155,91 @@ enum TrackerPlateDesign {
     /// so the band reaches the border's width further out.
     static let glowBandWidth: CGFloat = 2
 
-    /// Each portrait's centre, with its disc centred on the plate body's middle.
-    static let topLevelPortraitCenter = CGPoint(x: 38, y: 30.5)
-    static let workerPortraitCenter = CGPoint(x: 38, y: 29)
+    /// Each portrait sits at its SVG disc's place: centred on the plate body's middle, its top on the canvas top.
+    /// The disc's border sits outside its fill, so the fill is a border narrower than the SVG's outer diameter
+    /// (50 and 40) on each side, and the rim (the SVG's 3pt stroke) is the ring plus the border.
+    static let topLevelPortraitCenter = CGPoint(x: 38, y: 25 * scale)
+    static let workerPortraitCenter = CGPoint(x: 38, y: 20 * scale)
+    static let portraitSideTopLevel: CGFloat = 50 * scale - 2 * outlineWidth
+    static let portraitSideWorker: CGFloat = 40 * scale - 2 * outlineWidth
+    static let portraitRingWidth: CGFloat = 3 * scale - outlineWidth
+    /// The selected-session panel draws the SVG's disc stroke as it is: 3pt, centred on the radius.
     static let discStrokeWidth: CGFloat = 3
-    static let portraitSideTopLevel: CGFloat = 50
-    static let portraitSideWorker: CGFloat = 40
 
-    /// Each text line centres vertically on its strip's midline. The top-level title sits above the frame.
-    static let topLevelTitleMidY: CGFloat = (4.75 + 20.5) / 2
-    static let topLevelSnippetMidY: CGFloat = (23.5 + 38.5) / 2
-    static let topLevelBarMidY: CGFloat = (40.5 + 55.5) / 2
-    static let workerTitleMidY: CGFloat = (4 + 19) / 2
-    static let workerSnippetMidY: CGFloat = (21 + 36) / 2
-    static let workerTimeMidY: CGFloat = (38 + 53) / 2
+    /// Design x to canvas x. Left of the text, a design x scales about the portrait's centre line (the SVG disc's
+    /// centre). On the right, the frame's outer edge at design x 282.5 (master) or 278.5 (worker) sits at the plate's
+    /// outer right edge, 294 or 283, and nearer x scale back from it.
+    private static func topLevelLeft(_ designX: CGFloat) -> CGFloat {
+        topLevelPortraitCenter.x + scale * (designX - 28)
+    }
 
-    /// The plate's rectangles. Each frame is its centreline; its stroke runs half its width either side.
-    static let topLevelBodyRect = CGRect(x: 38.75, y: 4.75, width: 251.5, height: 51.5)
-    static let topLevelFrameRect = CGRect(x: 48, y: 22, width: 243, height: 35)
-    static let topLevelSummaryRect = CGRect(x: 49.5, y: 23.5, width: 240, height: 15)
-    static let topLevelBarRect = CGRect(x: 49.5, y: 40.5, width: 240, height: 15)
-    static let workerBodyRect = CGRect(x: 33.75, y: 4, width: 246.5, height: 50)
-    static let workerFrameRect = CGRect(x: 43.5, y: 20, width: 237, height: 34)
-    static let workerSummaryRect = CGRect(x: 44.5, y: 21, width: 235, height: 15)
-    static let workerTimeRect = CGRect(x: 44.5, y: 38, width: 235, height: 15)
+    private static func topLevelRight(_ designX: CGFloat) -> CGFloat {
+        294 - scale * (282.5 - designX)
+    }
 
-    /// The notched cap from the SVG, stretched so it stands 0.75pt past the body top and bottom, centred on the
-    /// portrait. Its SVG spans y 4 to 46, centred on 25.
-    static let topLevelRing = SVGPath.parse("M10.3369 46L45.6631 46C45.6631 46 45.8197 40.6655 48.6647 38.65C50.656 37.2393 52.8871 37 52.8871 37L56 25L52.8871 13C52.8871 13 50.656 12.7607 48.6647 11.35C45.8197 9.33455 45.6631 4 45.6631 4L10.3369 4C10.3369 4 10.1802 9.33451 7.33522 11.35C5.34389 12.7606 3.11286 13 3.11286 13L0 25L3.11286 37C3.11286 37 5.34389 37.2393 7.33522 38.65C10.1802 40.6654 10.3369 46 10.3369 46Z", dx: 10, dy: 0)
-        .applying(CGAffineTransform(a: 1, b: 0, c: 0, d: capStretch, tx: 0, ty: topLevelPortraitCenter.y - 25 * capStretch))
-    private static let capStretch: CGFloat = 53 / 42
+    private static func workerLeft(_ designX: CGFloat) -> CGFloat {
+        workerPortraitCenter.x + scale * (designX - 20)
+    }
 
-    static let topLevelBody = trailingRounded(topLevelBodyRect, top: 4.25, bottom: 4.25)
-    static let topLevelFrame = trailingRounded(topLevelFrameRect, top: 4.5, bottom: 4.5)
-    static let topLevelSummary = trailingRounded(topLevelSummaryRect, top: 2.5, bottom: 0)
-    static let topLevelBar = trailingRounded(topLevelBarRect, top: 0, bottom: 2.5)
-    static let workerBody = trailingRounded(workerBodyRect, top: 4.25, bottom: 4.25)
-    static let workerFrame = trailingRounded(workerFrameRect, top: 4, bottom: 4)
-    static let workerSummary = trailingRounded(workerSummaryRect, top: 2.5, bottom: 0)
-    static let workerTime = trailingRounded(workerTimeRect, top: 0, bottom: 2.5)
+    private static func workerRight(_ designX: CGFloat) -> CGFloat {
+        283 - scale * (278.5 - designX)
+    }
 
-    /// The frame's stroke as a filled region, so the frame's outer edge is part of the silhouette.
-    static let topLevelFrameRegion = strokeRegion(topLevelFrame, width: discStrokeWidth)
-    static let workerFrameRegion = strokeRegion(workerFrame, width: workerFrameWidth)
-    static let topLevelFrameWidth: CGFloat = discStrokeWidth
-    static let workerFrameWidth: CGFloat = 2
+    /// A fill's edge for an SVG outer edge at design y: one border inside it, since the border is drawn outside.
+    private static func fillTop(_ designY: CGFloat) -> CGFloat { designY * scale + outlineWidth }
+    private static func fillBottom(_ designY: CGFloat) -> CGFloat { designY * scale - outlineWidth }
+
+    /// The plate's rectangles. The frame's top edge is inside the body, so it is a fill edge as it stands; its bottom
+    /// and right edges, and the body's top and right, are silhouette edges, a border inside the SVG's.
+    static let topLevelBodyRect = CGRect(left: topLevelLeft(28.75), top: fillTop(4), right: topLevelRight(281) - outlineWidth, bottom: fillBottom(46))
+    static let topLevelFrameRect = CGRect(left: topLevelLeft(36.5), top: 20.5 * scale, right: topLevelRight(282.5) - outlineWidth, bottom: fillBottom(47.5))
+    static let topLevelSummaryRect = CGRect(left: topLevelLeft(39.5), top: 23.5 * scale, right: topLevelRight(279.5), bottom: 34.5 * scale)
+    static let topLevelBarRect = CGRect(left: topLevelLeft(39.5), top: 36.5 * scale, right: topLevelRight(279.5), bottom: 44.5 * scale)
+    static let workerBodyRect = CGRect(left: workerLeft(15.75), top: fillTop(2.5), right: workerRight(278) - outlineWidth, bottom: fillBottom(37.5))
+    static let workerFrameRect = CGRect(left: workerLeft(24.5), top: 16 * scale, right: workerRight(278.5) - outlineWidth, bottom: fillBottom(38))
+    static let workerSummaryRect = CGRect(left: workerLeft(26.5), top: 18 * scale, right: workerRight(276.5), bottom: 26 * scale)
+    static let workerTimeRect = CGRect(left: workerLeft(26.5), top: 28 * scale, right: workerRight(276.5), bottom: 36 * scale)
+
+    /// Each text line centres vertically on its strip's midline. A title sits above the frame, between the body's
+    /// top edge and the frame's.
+    static let topLevelTitleMidY: CGFloat = (topLevelBodyRect.minY + topLevelFrameRect.minY) / 2
+    static let topLevelSnippetMidY: CGFloat = topLevelSummaryRect.midY
+    static let topLevelBarMidY: CGFloat = topLevelBarRect.midY
+    static let workerTitleMidY: CGFloat = (workerBodyRect.minY + workerFrameRect.minY) / 2
+    static let workerSnippetMidY: CGFloat = workerSummaryRect.midY
+    static let workerTimeMidY: CGFloat = workerTimeRect.midY
+
+    /// The notched cap from the SVG, centred on the portrait. The SVG's cap (y 4 to 46) is as tall as the plate's outer
+    /// border, so its fill is as tall as the body's, and it scales the same in x and y.
+    static let topLevelRing = SVGPath.parse("M10.3369 46L45.6631 46C45.6631 46 45.8197 40.6655 48.6647 38.65C50.656 37.2393 52.8871 37 52.8871 37L56 25L52.8871 13C52.8871 13 50.656 12.7607 48.6647 11.35C45.8197 9.33455 45.6631 4 45.6631 4L10.3369 4C10.3369 4 10.1802 9.33451 7.33522 11.35C5.34389 12.7606 3.11286 13 3.11286 13L0 25L3.11286 37C3.11286 37 5.34389 37.2393 7.33522 38.65C10.1802 40.6654 10.3369 46 10.3369 46Z", dx: -28, dy: -25)
+        .applying(CGAffineTransform(scaleX: capScale, y: capScale))
+        .applying(CGAffineTransform(translationX: topLevelPortraitCenter.x, y: topLevelPortraitCenter.y))
+    private static let capScale: CGFloat = (42 * scale - 2 * outlineWidth) / 42
+
+    /// Corner radii are the SVG's, scaled: a path radius plus half its stroke, which is the outer radius. A
+    /// silhouette corner's fill radius is its outer radius less the border.
+    private static let bodyCornerRadius: CGFloat = 5 * scale - outlineWidth
+    private static let topLevelFrameCornerRadius: CGFloat = 6 * scale
+    private static let workerFrameCornerRadius: CGFloat = 5 * scale
+
+    static let topLevelBody = trailingRounded(topLevelBodyRect, top: bodyCornerRadius, bottom: bodyCornerRadius)
+    static let topLevelFrame = trailingRounded(topLevelFrameRect, top: topLevelFrameCornerRadius, bottom: topLevelFrameCornerRadius - outlineWidth)
+    static let topLevelSummary = trailingRounded(topLevelSummaryRect, top: 2.5 * scale, bottom: 0)
+    static let topLevelBar = trailingRounded(topLevelBarRect, top: 0, bottom: 2.5 * scale)
+    static let workerBody = trailingRounded(workerBodyRect, top: bodyCornerRadius, bottom: bodyCornerRadius)
+    static let workerFrame = trailingRounded(workerFrameRect, top: workerFrameCornerRadius, bottom: workerFrameCornerRadius - outlineWidth)
+    static let workerSummary = trailingRounded(workerSummaryRect, top: 2.5 * scale, bottom: 0)
+    static let workerTime = trailingRounded(workerTimeRect, top: 0, bottom: 2.5 * scale)
 
     /// A strip with square left corners and rounded trailing corners.
     private static func trailingRounded(_ rect: CGRect, top: CGFloat, bottom: CGFloat) -> Path {
         UnevenRoundedRectangle(bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular).path(in: rect)
     }
+}
 
-    private static func strokeRegion(_ path: Path, width: CGFloat) -> Path {
-        Path(path.cgPath.copy(strokingWithWidth: width, lineCap: .butt, lineJoin: .miter, miterLimit: 10))
+private extension CGRect {
+    init(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) {
+        self.init(x: left, y: top, width: right - left, height: bottom - top)
     }
 }
 
@@ -1242,12 +1281,12 @@ enum TrackerNameplateRole: Equatable {
     private static let topLevelSilhouette = withMargin([
         TrackerPlateDesign.topLevelRing,
         TrackerPlateDesign.topLevelBody,
-        TrackerPlateDesign.topLevelFrameRegion,
+        TrackerPlateDesign.topLevelFrame,
         portraitDisc(centre: TrackerPlateDesign.topLevelPortraitCenter, side: TrackerPlateDesign.portraitSideTopLevel),
     ])
     private static let workerSilhouette = withMargin([
         TrackerPlateDesign.workerBody,
-        TrackerPlateDesign.workerFrameRegion,
+        TrackerPlateDesign.workerFrame,
         portraitDisc(centre: TrackerPlateDesign.workerPortraitCenter, side: TrackerPlateDesign.portraitSideWorker),
     ])
     private static let topLevelGlowPath = union(topLevelSilhouette.map(glowBand))
@@ -1279,20 +1318,23 @@ enum TrackerNameplateRole: Equatable {
     }
     /// The project bar's flat fill, as a share of the way from the repo colour to its dark shade.
     static let projectBarFillStop: CGFloat = 0.6
-    /// The top-level text column centres the title and snippet on x = 174.5, the SVG's text centre. The project
-    /// name starts on the same left edge, and the elapsed time right-aligns at `timeRightEdge`.
-    static let topLevelTextX: CGFloat = 70
-    static let topLevelTextWidth: CGFloat = 209
+    /// The top-level text column starts three points right of the cap's outline (x = 76) and ends eight points short
+    /// of the strips' right edge, wide enough for the SVG's own title and snippet at main's sizes. The title and
+    /// snippet centre in it; the project name starts on its left edge, and the elapsed time right-aligns at
+    /// `timeRightEdge`, ten points short of the bar's end.
+    static let topLevelTextX: CGFloat = 79
+    static let topLevelTextWidth: CGFloat = 205
     static let projectNameWidth: CGFloat = 120
-    static let timeRightEdge: CGFloat = 279.5
-    /// The worker text column is centred on x = 164.5, ten points left of the top-level text, since the worker
-    /// plate is ten points narrower. It stops short of the portrait's outer edge (x = 58), so a long snippet truncates.
-    static let workerTextX: CGFloat = 62
+    static let timeRightEdge: CGFloat = 282
+    /// The worker text column starts four and a half points right of the disc's outline (x = 65.5), so a long
+    /// snippet truncates instead of running under the portrait, and ends six points short of the strips' right edge.
+    static let workerTextX: CGFloat = 70
     static let workerTextWidth: CGFloat = 205
     /// Collapsed-worker chips centre under the portrait's centre line, so the first chip's circle sits on it.
     static let chipsX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x - TrackerWorkerSummaryPill.badgeSide / 2
-    /// The chips hang this far below the top-level plate's bottom edge.
-    static let chipsDrop: CGFloat = 5
+    /// The chips hang this far below the top-level canvas, which ends at the disc's outline. The gap keeps the
+    /// disc's status band and the first chip's band about 3pt apart.
+    static let chipsDrop: CGFloat = 8.5
 
     /// The row's height: the canvas, plus the chips under a master that shows them.
     func rowHeight(showsPills: Bool) -> CGFloat {
@@ -1506,22 +1548,21 @@ private struct TrackerPlateArt: View {
 
     private func drawTopLevel(_ context: inout GraphicsContext) {
         context.fill(TrackerPlateDesign.topLevelBody, with: .color(AppPalette.panel.swiftUI))
-        drawFrame(&context, TrackerPlateDesign.topLevelFrame, width: TrackerPlateDesign.topLevelFrameWidth)
+        drawFrame(&context, TrackerPlateDesign.topLevelFrame)
         context.fill(TrackerPlateDesign.topLevelSummary, with: .color(AppPalette.item.swiftUI))
         context.fill(TrackerPlateDesign.topLevelBar, with: .color(TrackerNameplateColor.barShade(barColor, stop: TrackerNameplateRole.projectBarFillStop).swiftUI))
     }
 
     private func drawWorker(_ context: inout GraphicsContext) {
         context.fill(TrackerPlateDesign.workerBody, with: .color(AppPalette.panel.swiftUI))
-        drawFrame(&context, TrackerPlateDesign.workerFrame, width: TrackerPlateDesign.workerFrameWidth)
+        drawFrame(&context, TrackerPlateDesign.workerFrame)
         context.fill(TrackerPlateDesign.workerSummary, with: .color(AppPalette.item.swiftUI))
         context.fill(TrackerPlateDesign.workerTime, with: .color(AppPalette.item.swiftUI))
     }
 
     /// The frame is filled whole, then the strips draw over it, so the gaps between strips show the divider colour.
-    private func drawFrame(_ context: inout GraphicsContext, _ frame: Path, width: CGFloat) {
+    private func drawFrame(_ context: inout GraphicsContext, _ frame: Path) {
         context.fill(frame, with: .color(dividerColor.swiftUI))
-        context.stroke(frame, with: .color(dividerColor.swiftUI), lineWidth: width)
     }
 }
 
@@ -1975,9 +2016,9 @@ struct TrackerAgentMark: View {
     let shortcutNumber: Int?
     let portraitSide: CGFloat
 
-    private static let ringWidth: CGFloat = TrackerPlateDesign.discStrokeWidth
-    /// The agent logo is 30pt in a 50pt top-level portrait and 24pt in a 40pt worker one.
-    private var iconSide: CGFloat { portraitSide * 0.6 }
+    private static let ringWidth: CGFloat = TrackerPlateDesign.portraitRingWidth
+    /// The agent logo is 0.6 of the disc's outer diameter, outline included, as in the SVGs (30 of 50, 24 of 40).
+    private var iconSide: CGFloat { (portraitSide + 2 * TrackerPlateDesign.outlineWidth) * 0.6 }
 
     var body: some View {
         ZStack {
