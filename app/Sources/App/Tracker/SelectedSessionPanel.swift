@@ -44,13 +44,14 @@ struct SelectedSessionPanel: View {
         subdirectory: "Brand",
         canvasSize: NSSize(width: canvasSize.width, height: canvasSize.height)
     )
-    /// The text is centred on the strips' band (x 59 to 300), so its centre is x = 179.5.
-    private static let textX: CGFloat = 59
-    private static let textWidth: CGFloat = 241
+    /// The text is centred in the band right of the cap: it starts four points past the cap's tip (x = 76), so a
+    /// long title truncates instead of running under the cap and disc, and ends eight points short of the strips.
+    private static let textX: CGFloat = 80
+    private static let textWidth: CGFloat = 212
     /// Each line centres on its strip's midline, as the plates do.
     private static let titleMidY: CGFloat = 21
-    private static let idMidY: CGFloat = 41
-    private static let projectMidY: CGFloat = 53.5
+    private static let idMidY: CGFloat = 40.5
+    private static let projectMidY: CGFloat = 53
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -127,6 +128,8 @@ private enum PanelDesign {
     static let ring = SVGPath.parse("M14.0287 66L61.9713 66C61.9713 66 62.1839 58.1252 66.045 55.15C68.7475 53.0676 71.7753 52.7143 71.7753 52.7143L76 35L71.7753 17.2857C71.7753 17.2857 68.7475 16.9324 66.045 14.85C62.1839 11.8748 61.9713 4 61.9713 4L14.0287 4C14.0287 4 13.816 11.8748 9.95494 14.8499C7.25242 16.9324 4.22459 17.2857 4.22459 17.2857L0 35L4.22459 52.7143C4.22459 52.7143 7.25243 53.0675 9.95494 55.15C13.816 58.1252 14.0287 66 14.0287 66Z")
     static let body = SVGPath.parse("M296 11C298.485 11 300.5 13.0147 300.5 15.5V54.5C300.5 56.9853 298.485 59 296 59H48.5V11H296Z")
     static let frame = SVGPath.parse("M297 34C299.485 34 301.5 36.0147 301.5 38.5V55.5C301.5 57.9853 299.485 60 297 60H57.5V34H297Z")
-    static let idStrip = SVGPath.parse("M59 35.5H297.5C298.881 35.5 300 36.6193 300 38V46.5H59V35.5Z")
-    static let projectBar = SVGPath.parse("M59 48.5H300V56C300 57.3807 298.881 58.5 297.5 58.5H59V48.5Z")
+    /// The project bar is 11pt high, like the tracker plates' (the SVG's 10), so the 11pt label sits in it the same way.
+    /// The id strip gives up the point.
+    static let idStrip = SVGPath.parse("M59 35.5H297.5C298.881 35.5 300 36.6193 300 38V45.5H59V35.5Z")
+    static let projectBar = SVGPath.parse("M59 47.5H300V56C300 57.3807 298.881 58.5 297.5 58.5H59V47.5Z")
 }

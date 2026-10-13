@@ -250,21 +250,44 @@ enum LogicSelfTests {
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
         let scale = TrackerPlateDesign.scale
+        let border = TrackerPlateDesign.outlineWidth
         func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String) throws {
             try expect(abs(value - expected) < 0.01, "\(name) should be \(expected), got \(value)")
         }
 
-        // Every height is the SVG's, scaled by the same factor, so the portrait keeps the SVG's share of the plate.
-        try expectClose(TrackerPlateDesign.portraitSideTopLevel, 50 * scale, "master portrait")
-        try expectClose(TrackerPlateDesign.topLevelBodyRect.height, 40.5 * scale, "master body")
-        try expectClose(TrackerPlateDesign.topLevelSummaryRect.height, 11 * scale, "master snippet strip")
-        try expectClose(TrackerPlateDesign.topLevelBarRect.height, 8 * scale, "master project bar")
-        try expectClose(TrackerPlateDesign.portraitSideWorker, 40 * scale, "worker portrait")
-        try expectClose(TrackerPlateDesign.workerBodyRect.height, 33.5 * scale, "worker body")
-        try expectClose(TrackerPlateDesign.workerSummaryRect.height, 8 * scale, "worker snippet strip")
-        try expectClose(TrackerPlateDesign.workerTimeRect.height, 8 * scale, "worker time strip")
+        // Every outer measure, border included, is the SVG's times the scale. Fills sit a border inside it.
+        let plates: [(name: String, portrait: CGFloat, centre: CGPoint, body: CGRect, frame: CGRect, strips: [(CGRect, CGFloat)], portraitOuter: CGFloat, bodyOuter: CGFloat)] = [
+            ("master", TrackerPlateDesign.portraitSideTopLevel, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.topLevelBodyRect, TrackerPlateDesign.topLevelFrameRect,
+             [(TrackerPlateDesign.topLevelSummaryRect, 11), (TrackerPlateDesign.topLevelBarRect, 8)], 50, 42),
+            ("worker", TrackerPlateDesign.portraitSideWorker, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.workerBodyRect, TrackerPlateDesign.workerFrameRect,
+             [(TrackerPlateDesign.workerSummaryRect, 8), (TrackerPlateDesign.workerTimeRect, 8)], 40, 35),
+        ]
+        for plate in plates {
+            try expectClose(plate.portrait + 2 * border, plate.portraitOuter * scale, "\(plate.name) disc outer diameter")
+            try expectClose(plate.body.height + 2 * border, plate.bodyOuter * scale, "\(plate.name) plate outer height")
+            for (strip, designHeight) in plate.strips {
+                try expectClose(strip.height, designHeight * scale, "\(plate.name) strip height")
+            }
 
-        // The cap keeps the SVG's 56 x 42 shape and stands as tall as the body: it is scaled, never stretched.
+            // The plate is centred on the disc: the disc stands out as far above it as below.
+            let discTop = plate.centre.y - plate.portrait / 2 - border
+            let discBottom = plate.centre.y + plate.portrait / 2 + border
+            let above = plate.body.minY - border - discTop
+            let below = discBottom - (plate.body.maxY + border)
+            try expectClose(above, below, "\(plate.name) disc overhang above and below the plate")
+
+            // The frame is the strips outset by 1.5 (scaled) above, below and to the right, flush with the body's
+            // bottom and right edges.
+            let first = plate.strips[0].0
+            let last = plate.strips[1].0
+            try expectClose(first.minY - plate.frame.minY, 1.5 * scale, "\(plate.name) frame band above the strips")
+            try expectClose(plate.frame.maxY + border - last.maxY, 1.5 * scale, "\(plate.name) frame band below the strips")
+            try expectClose(plate.frame.maxX + border - first.maxX, 1.5 * scale, "\(plate.name) frame band right of the strips")
+            try expectClose(plate.frame.maxY, plate.body.maxY, "\(plate.name) frame and body bottom")
+            try expectClose(plate.frame.maxX, plate.body.maxX, "\(plate.name) frame and body right edge")
+        }
+
+        // The cap keeps the SVG's 56 x 42 shape and stands as tall as the body fill: it is scaled, never stretched.
         let cap = TrackerPlateDesign.topLevelRing.boundingRect
         try expectClose(cap.width / cap.height, 56.0 / 42, "cap aspect ratio")
         try expectClose(cap.height, TrackerPlateDesign.topLevelBodyRect.height, "cap height")
@@ -272,9 +295,9 @@ enum LogicSelfTests {
         // The body's and the frame's square left corners stay behind the disc instead of poking out under it.
         let hiddenParts: [(name: String, part: Path, centre: CGPoint, side: CGFloat)] = [
             ("master body", TrackerPlateDesign.topLevelBody, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
-            ("master frame", TrackerPlateDesign.topLevelFrameRegion, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
+            ("master frame", TrackerPlateDesign.topLevelFrame, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
             ("worker body", TrackerPlateDesign.workerBody, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
-            ("worker frame", TrackerPlateDesign.workerFrameRegion, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
+            ("worker frame", TrackerPlateDesign.workerFrame, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
         ]
         for hidden in hiddenParts {
             let bounds = hidden.part.boundingRect
