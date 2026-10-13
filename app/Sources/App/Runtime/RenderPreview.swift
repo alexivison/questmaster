@@ -40,11 +40,12 @@ enum RenderPreview {
         }
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
-        render(workerChatView(), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/worker-chat.png")
-        render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.compactWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
-        render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.compactWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
+        render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
+        render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
+        render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
         render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
-        render(chatItemTextDesignView(), size: CGSize(width: 366, height: 174), to: "\(outputDir)/chat-item-text-design.png")
+        render(chatItemTextDesignView(), size: CGSize(width: 441, height: 174), to: "\(outputDir)/chat-item-text-design.png")
+        render(chatItemWrappedView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 120), autoHeight: true, to: "\(outputDir)/chat-item-wrapped.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
         render(actionBarFooterView(fixture: "master"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
@@ -197,7 +198,7 @@ enum RenderPreview {
         return VStack(alignment: .leading, spacing: 0) { WorkerChatRows(lines: store.lines) }
             .padding(WorkerChatMetrics.inset)
             .frame(maxHeight: .infinity, alignment: .top)
-            .frame(width: DockWidthPreference.compactWidth)
+            .frame(width: DockWidthPreference.workerChatWidth)
             .background(AppPalette.panel.swiftUI)
     }
 
@@ -206,7 +207,7 @@ enum RenderPreview {
     private static func workerChatFeedView(rounds: Int, entryLimit: Int? = nil) -> some View {
         let (store, _) = workerChatStore(rounds: rounds, entryLimit: entryLimit)
         return WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
-            .frame(width: DockWidthPreference.compactWidth)
+            .frame(width: DockWidthPreference.workerChatWidth)
             .background(AppPalette.panel.swiftUI)
     }
 
@@ -223,10 +224,9 @@ enum RenderPreview {
         .frame(width: 480, height: 32, alignment: .topLeading)
     }
 
-    /// The five text variants of `Chat Item Text.svg`. The artboard has no time column and its text
-    /// starts at x 21 (the 20pt inset plus a 1pt border), so the rows shift left past the time and logo columns.
-    /// The text column is 360pt: wide enough for the longest row, narrow enough that the plain item
-    /// wraps after "and" as the artboard does.
+    /// The five text variants of `Chat Item Text.svg`. The artboard has no time column, so the item's left
+    /// edge (where the time would start) sits at its 1pt border: the name lands at x 62 and wrapped lines
+    /// start at x 6, under the time. The plain item still wraps after "and": its first line is as wide as before.
     @MainActor
     private static func chatItemTextDesignView() -> some View {
         let plain = [WorkerChatSegment("Worker name:", .name), WorkerChatSegment(" Finished the task given and reported to the master.", .normal)]
@@ -255,8 +255,22 @@ enum RenderPreview {
         ])
         .padding(WorkerChatMetrics.inset)
         .frame(width: 441, alignment: .leading)
-        .offset(x: 1 - WorkerChatMetrics.timeColumnWidth - WorkerChatMetrics.logoColumnWidth, y: 1)
-        .frame(width: 366, height: 174, alignment: .topLeading)
+        .offset(x: 1 - WorkerChatMetrics.inset, y: 1)
+        .frame(width: 441, height: 174, alignment: .topLeading)
+    }
+
+    /// One item with its time, three lines long at the worker chat dock's width: wrapped lines should run under the time.
+    @MainActor
+    private static func chatItemWrappedView() -> some View {
+        WorkerChatRows(lines: [
+            WorkerChatLine(id: "wrapped", time: "08:20", agent: "codex", segments: [
+                WorkerChatSegment("Worker name:", .name),
+                WorkerChatSegment(" Finished the task given and reported to the master, then waited for the review while the tests ran again on the branch and the merge completed.", .normal),
+            ]),
+        ])
+        .padding(WorkerChatMetrics.inset)
+        .frame(width: DockWidthPreference.workerChatWidth, alignment: .leading)
+        .background(AppPalette.panel.swiftUI)
     }
 
     /// The slot bar with Caffeine active and the Artifacts dock open (Artifacts slot active too).

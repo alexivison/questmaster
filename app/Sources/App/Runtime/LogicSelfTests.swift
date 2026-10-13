@@ -83,6 +83,7 @@ enum LogicSelfTests {
         ("testWorkerChatRowsGrowingBeforeTheDocumentKeepTheMaskOverTheirFade", testWorkerChatRowsGrowingBeforeTheDocumentKeepTheMaskOverTheirFade),
         ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
         ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
+        ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
     ]
 
     static func runIfRequested() -> Bool {
@@ -2234,6 +2235,55 @@ enum LogicSelfTests {
     }
 
     /// Pumps the run loop until `condition` holds, for at most five seconds, and reports whether it did.
+    /// The name must start at its column past the logo in a proportional chat font too. A Ghostty family can be
+    /// proportional, where the lead's space is narrower than the font's widest glyph.
+    private static func testWorkerChatNameStartsPastLogoInAnyChatFont() throws {
+        let fonts: [(label: String, chat: NSFont, name: NSFont)] = [
+            ("monospace", AppFonts.chat, AppFonts.chatName),
+            ("proportional", .systemFont(ofSize: 12), .systemFont(ofSize: 12, weight: .bold)),
+        ]
+        let expectedNameX = WorkerChatMetrics.timeColumnWidth + WorkerChatMetrics.logoColumnWidth
+        for font in fonts {
+            let nameX = try nameInkX(chatFont: font.chat, nameFont: font.name)
+            try expect(abs(nameX - expectedNameX) <= 1, "the name should start at x \(expectedNameX) with a \(font.label) chat font, got \(nameX)")
+        }
+    }
+
+    /// The x in points of the first ink right of the logo column, drawn by the line view alone. The name is one
+    /// glyph, so the first ink is where the name starts: a gap between letters can't hide it.
+    private static func nameInkX(chatFont: NSFont, nameFont: NSFont) throws -> CGFloat {
+        let width: CGFloat = 300
+        let height = WorkerChatMetrics.lineHeight
+        let line = WorkerChatLine(id: "name", time: "08:20", agent: "codex", segments: [
+            WorkerChatSegment("I", .name),
+        ])
+        let hosting = NSHostingView(rootView: WorkerChatLineView(line: line, chatFont: chatFont, nameFont: nameFont)
+            .frame(width: width, height: height, alignment: .topLeading))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: width, height: height),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        hosting.layoutSubtreeIfNeeded()
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            throw TestFailure("the line view should capture to a bitmap")
+        }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / width
+        let logoEnd = WorkerChatMetrics.timeColumnWidth + WorkerChatMetrics.logoColumnWidth
+        for pixelX in Int(logoEnd * scale)..<bitmap.pixelsWide {
+            let hasInk = (0..<bitmap.pixelsHigh).contains { pixelY in
+                (bitmap.colorAt(x: pixelX, y: pixelY)?.alphaComponent ?? 0) > 0
+            }
+            if hasInk {
+                return CGFloat(pixelX) / scale
+            }
+        }
+        throw TestFailure("the name should draw past the logo")
+    }
+
     private static func waitUntil(_ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(5)
         while !condition() {

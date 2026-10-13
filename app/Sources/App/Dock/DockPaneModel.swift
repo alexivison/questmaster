@@ -79,7 +79,10 @@ final class DockPaneModel: ObservableObject {
     }
 
     var currentWidthMode: RightDockWidthMode {
-        currentMode != .artifacts || currentArtifactRoute == .list ? .compact : .standard
+        if currentMode == .workerChat {
+            return .workerChat
+        }
+        return currentMode != .artifacts || currentArtifactRoute == .list ? .compact : .standard
     }
 
     @discardableResult
