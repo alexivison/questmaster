@@ -15,6 +15,8 @@ struct ShellSplitLayoutTests {
         hiddenDockGivesTerminalRemainingWidth()
         hiddenTrackerKeepsTerminalAtWindowEdge()
         compactDockUsesCompactWidth()
+        workerChatDockUsesWorkerChatWidth()
+        workerChatDockKeepsTheMinimumTerminalWidth()
         dockResizeClampsFromDragDelta()
         zeroWidthDoesNotProduceLayout()
         footerReservationShortensOnlyTheTerminal()
@@ -81,6 +83,33 @@ struct ShellSplitLayoutTests {
         expect(layout.dockWidth == DockWidthPreference.compactWidth, "compact dock width mismatch")
         expect(layout.dockFrame.width == DockWidthPreference.compactWidth, "compact dock frame width mismatch")
         expect(layout.terminalFrame.width == 802, "compact terminal width mismatch")
+    }
+
+    private static func workerChatDockUsesWorkerChatWidth() {
+        let layout = requireLayout(
+            size: ShellSplitSize(width: 1520, height: 900),
+            trackerVisible: true,
+            dockVisible: true,
+            preferredDockWidth: 900,
+            dockWidthMode: .workerChat
+        )
+
+        expect(layout.dockWidth == DockWidthPreference.workerChatWidth, "worker chat dock width mismatch")
+        expect(layout.dockFrame.width == DockWidthPreference.workerChatWidth, "worker chat dock frame width mismatch")
+        expect(layout.terminalFrame.width == 722, "worker chat terminal width mismatch")
+    }
+
+    private static func workerChatDockKeepsTheMinimumTerminalWidth() {
+        let layout = requireLayout(
+            size: ShellSplitSize(width: 1000, height: 900),
+            trackerVisible: true,
+            dockVisible: true,
+            preferredDockWidth: nil,
+            dockWidthMode: .workerChat
+        )
+
+        expect(layout.dockWidth < DockWidthPreference.workerChatWidth, "a narrow window should clamp the worker chat dock, got \(layout.dockWidth)")
+        expect(layout.terminalFrame.width == DockWidthPreference.minTerminalWidth, "a narrow window should keep the terminal at its minimum, got \(layout.terminalFrame.width)")
     }
 
     private static func dockResizeClampsFromDragDelta() {

@@ -4,8 +4,8 @@ import SwiftUI
 
 /// Geometry measured from `Chat Item.svg` and `Chat Item Text.svg`: JetBrains Mono at 12pt (7.2pt
 /// advance, 16pt lines). Each item starts with its HH:MM time in a 41pt column (five characters, then
-/// a 5pt gap), then the agent logo and bold name in a 20pt logo column. Wrapped lines return to the
-/// logo's left edge, under the logo and clear of the time. Items sit 25pt apart (a 16pt line and a
+/// a 5pt gap), then the agent logo and bold name in a 20pt logo column. Wrapped lines start `wrapIndent`
+/// in from the item's left edge, so they run under the time. Items sit 25pt apart (a 16pt line and a
 /// 9pt gap), 20pt from the card edge on every side.
 enum WorkerChatMetrics {
     static let inset: CGFloat = 20
@@ -14,6 +14,10 @@ enum WorkerChatMetrics {
     static let timeColumnWidth: CGFloat = 41
     static let logoColumnWidth: CGFloat = 20
     static let logoSide: CGFloat = 15
+    /// Wrapped lines start this far in from the item's left edge, under the time.
+    static let wrapIndent: CGFloat = Token.Spacing.rowCompact
+    /// Where the name starts on the first line, measured from the wrapped lines' left edge.
+    static let nameLead: CGFloat = timeColumnWidth + logoColumnWidth - wrapIndent
     /// The design sets the time about half a point above the name's baseline.
     static let timeLift: CGFloat = 0.5
 
@@ -331,25 +335,27 @@ private struct WorkerChatLineView: View {
     let line: WorkerChatLine
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            Text(line.time)
-                .font(AppFonts.chat.swiftUI)
-                .foregroundStyle(WorkerChatMetrics.Color.time.swiftUI)
-                .offset(y: -WorkerChatMetrics.timeLift)
-                .frame(width: WorkerChatMetrics.timeColumnWidth, alignment: .leading)
-            text
-                .lineSpacing(WorkerChatMetrics.lineSlack)
-                .padding(.bottom, WorkerChatMetrics.lineSlack)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .overlay(alignment: .topLeading) { logo }
-        }
+        text
+            .lineSpacing(WorkerChatMetrics.lineSlack)
+            .padding(.bottom, WorkerChatMetrics.lineSlack)
+            .padding(.leading, WorkerChatMetrics.wrapIndent)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topLeading) { time }
+            .overlay(alignment: .topLeading) { logo }
     }
 
-    /// A space kerned out to the logo column leads the first line, so the name starts right of the logo.
-    /// It sits on the first line only; wrapped lines start at the block's left edge, under the logo.
+    private var time: some View {
+        Text(line.time)
+            .font(AppFonts.chat.swiftUI)
+            .foregroundStyle(WorkerChatMetrics.Color.time.swiftUI)
+            .offset(y: -WorkerChatMetrics.timeLift)
+    }
+
+    /// A space kerned out to the name leads the first line. It sits on the first line only, so wrapped lines
+    /// start at the block's left edge and run under the time.
     private var text: Text {
         line.segments.reduce(
-            Text(" ").font(AppFonts.chat.swiftUI).kerning(WorkerChatMetrics.logoColumnWidth - AppFonts.chat.maximumAdvancement.width)
+            Text(" ").font(AppFonts.chat.swiftUI).kerning(WorkerChatMetrics.nameLead - AppFonts.chat.maximumAdvancement.width)
         ) { text, segment in
             text + Text(segment.text)
                 .font(WorkerChatMetrics.font(for: segment.style).swiftUI)
@@ -364,6 +370,7 @@ private struct WorkerChatLineView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: WorkerChatMetrics.logoSide, height: WorkerChatMetrics.logoSide)
+                .padding(.leading, WorkerChatMetrics.timeColumnWidth)
         }
     }
 }
