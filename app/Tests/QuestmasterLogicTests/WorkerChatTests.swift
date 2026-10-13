@@ -41,6 +41,7 @@ struct WorkerChatTests {
         standaloneIsUnattached()
         historyIsBounded()
         historyGrowsToTheCapThenTrimsInOneUpdate()
+        lastUpdateAppendedOnlyForLinesAddedAtTheEnd()
         trimDoesNotResurfaceDroppedLines()
         trimKeepsTheCapWhenItLandsInsideAMinute()
         headerIDsStayTheSameAcrossRebuilds()
@@ -609,11 +610,26 @@ struct WorkerChatTests {
         _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "over the cap")]), for: first)
         expect(store.lines.count == WorkerChatStore.trimTarget, "one line over the cap should trim straight to \(WorkerChatStore.trimTarget), got \(store.lines.count)")
         expect(store.trimCount == 1, "the trim should count once, got \(store.trimCount)")
+        expect(!store.lastUpdateAppended, "a trim should not count as an append")
         expect(store.revision > 0, "every replacement of the lines should advance the revision")
 
         _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "after trim")]), for: first)
         expect(store.trimCount == 1, "arrivals after a trim should grow the history again without trimming")
         expect(store.lines.count == WorkerChatStore.trimTarget + 1, "the next arrival should append, got \(store.lines.count)")
+        expect(store.lastUpdateAppended, "an arrival after a trim should be an append")
+    }
+
+    /// The feed fades only arrivals that sit below the old rows, so the store reports when an update
+    /// added lines at the end and nothing else: an older line that sorts in above the newest is not one.
+    private static func lastUpdateAppendedOnlyForLinesAddedAtTheEnd() {
+        let store = makeStore()
+        let first = open(store)
+        _ = store.receive(WorkerFeedPayload(entries: [entry(10, "w1", "say", "one")]), for: first)
+        expect(store.lastUpdateAppended, "the first lines should count as an append")
+        _ = store.receive(WorkerFeedPayload(entries: [entry(20, "w1", "say", "two")]), for: first)
+        expect(store.lastUpdateAppended, "a newer line should be an append")
+        _ = store.receive(WorkerFeedPayload(entries: [entry(5, "w1", "say", "older")]), for: first)
+        expect(!store.lastUpdateAppended, "a line that sorts above the newest should not be an append")
     }
 
     /// 399 entries in one minute, then a new minute of 200: the cut lands inside the first minute, so

@@ -1,13 +1,16 @@
 import AppKit
 import QuestmasterCore
 
-/// Core Animation motion for the worker chat. Clip bounds move at once; a translation on the document
-/// layer carries the content from where it was on screen to its new place, and a static fade over the
-/// bottom inset lets rows fade in as they rise. Nothing here runs per frame on the main thread.
+/// Core Animation motion for the worker chat. Clip bounds move at once, and a translation on the
+/// document layer carries the content from where it was on screen to its new place. Arrivals while
+/// following also fade in through a mask on the document layer, so the fades move with the glide.
+/// Nothing here runs per frame on the main thread.
 @MainActor
 enum WorkerChatMotion {
     static let glideDuration: CFTimeInterval = 0.2
     static let glideKey = "workerChatGlide"
+    static let enterDuration: CFTimeInterval = 0.3
+    static let enterKey = "workerChatEnter"
 
     /// Moves the clip to `offset` at once. With `glides`, the document then eases from where it was
     /// shown to where it now sits, capped at one viewport.
@@ -18,7 +21,7 @@ enum WorkerChatMotion {
         scrollView.reflectScrolledClipView(clipView)
         cancelGlide(scrollView)
         let distance = WorkerChatScroll.glideDistance(from: shownOffset, to: offset, viewportHeight: clipView.bounds.height)
-        guard glides, distance != 0, let layer = glideLayer(scrollView) else {
+        guard glides, distance != 0, let layer = documentLayer(scrollView) else {
             return
         }
         let glide = CABasicAnimation(keyPath: "transform.translation.y")
@@ -34,40 +37,102 @@ enum WorkerChatMotion {
         scrollView.documentView?.layer?.removeAnimation(forKey: glideKey)
     }
 
-    /// The fade covers the bottom inset band of the scroll view while following, and is removed
-    /// otherwise. Its band tracks the scroll view's height, and it never animates on its own.
-    static func updateBottomFade(_ scrollView: NSScrollView, isFollowing: Bool) {
-        guard let layer = scrollView.layer else {
+    /// Fades the rows between `top` and `bottom` (document coordinates) in from transparent. Rows above
+    /// stay opaque, and a fade still running keeps its own band and timing.
+    static func fadeInRows(_ scrollView: NSScrollView, from top: CGFloat, to bottom: CGFloat) {
+        guard let layer = documentLayer(scrollView) else {
             return
         }
+        let size = layer.bounds.size
+        withoutActions {
+            let mask = layer.mask ?? startMask(on: layer, size: size, baseBottom: top)
+            mask.frame = CGRect(origin: .zero, size: size)
+            let band = solidLayer(CGRect(x: 0, y: top, width: size.width, height: bottom - top))
+            mask.addSublayer(band)
+            band.add(fadeIn(reportingTo: layer), forKey: enterKey)
+        }
+    }
+
+    /// Ends every fade at once. A trim, a resize or a re-wrap moves the rows the bands sit over.
+    static func clearFades(_ scrollView: NSScrollView) {
+        scrollView.documentView?.layer?.mask = nil
+    }
+
+    /// Folds each band whose fade has stopped into the base, top down, and drops the mask once only the
+    /// base is left. The sweep stops at a band still fading, so the base never covers one.
+    fileprivate static func sweepFades(in layer: CALayer?) {
+        guard let layer, let mask = layer.mask, let base = mask.sublayers?.first else {
+            return
+        }
+        withoutActions {
+            while let band = mask.sublayers?.dropFirst().first, band.animation(forKey: enterKey) == nil {
+                base.frame.size.height = band.frame.maxY
+                band.removeFromSuperlayer()
+            }
+            if mask.sublayers?.count == 1 {
+                layer.mask = nil
+            }
+        }
+    }
+
+    /// The base is opaque from the top of the document down to the first fade's band.
+    private static func startMask(on layer: CALayer, size: CGSize, baseBottom: CGFloat) -> CALayer {
+        let mask = CALayer()
+        mask.isGeometryFlipped = layer.isGeometryFlipped
+        mask.addSublayer(solidLayer(CGRect(x: 0, y: 0, width: size.width, height: baseBottom)))
+        layer.mask = mask
+        return mask
+    }
+
+    private static func fadeIn(reportingTo layer: CALayer) -> CABasicAnimation {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = enterDuration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        fade.delegate = FadeEnd(layer: layer)
+        return fade
+    }
+
+    private static func solidLayer(_ frame: CGRect) -> CALayer {
+        let layer = CALayer()
+        layer.frame = frame
+        layer.backgroundColor = NSColor.black.cgColor
+        return layer
+    }
+
+    private static func withoutActions(_ changes: () -> Void) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-        guard isFollowing, layer.bounds.height > 0 else {
-            layer.mask = nil
-            return
-        }
-        // Unit 0 is the bottom edge here: the mask shares the scroll layer's flip and starts at unit 0.
-        // Verified by compositor capture; a mismatched flip fades the top edge instead.
-        let fade = layer.mask as? CAGradientLayer ?? CAGradientLayer()
-        fade.frame = layer.bounds
-        fade.isGeometryFlipped = layer.isGeometryFlipped
-        fade.startPoint = CGPoint(x: 0.5, y: 0)
-        fade.endPoint = CGPoint(x: 0.5, y: 1)
-        fade.colors = [NSColor.clear.cgColor, NSColor.black.cgColor, NSColor.black.cgColor]
-        fade.locations = [0, NSNumber(value: WorkerChatMetrics.inset / layer.bounds.height), 1]
-        layer.mask = fade
+        changes()
+        CATransaction.commit()
     }
 
     private static func glideTranslation(_ scrollView: NSScrollView) -> CGFloat {
         scrollView.documentView?.layer?.presentation()?.transform.m42 ?? 0
     }
 
-    private static func glideLayer(_ scrollView: NSScrollView) -> CALayer? {
+    private static func documentLayer(_ scrollView: NSScrollView) -> CALayer? {
         guard let documentView = scrollView.documentView else {
             return nil
         }
         documentView.wantsLayer = true
         return documentView.layer
+    }
+}
+
+/// Called when a fade stops, whether it ran out or was removed, so the document's mask can drop the
+/// bands that are done. Core Animation calls it on the main thread.
+private final class FadeEnd: NSObject, CAAnimationDelegate {
+    private weak var layer: CALayer?
+
+    init(layer: CALayer) {
+        self.layer = layer
+    }
+
+    func animationDidStop(_ animation: CAAnimation, finished flag: Bool) {
+        MainActor.assumeIsolated {
+            WorkerChatMotion.sweepFades(in: layer)
+        }
     }
 }

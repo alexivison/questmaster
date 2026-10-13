@@ -41,6 +41,8 @@ public final class WorkerChatStore {
     public private(set) var revision = 0
     /// Counts the updates that trimmed `lines`, so a view can tell a trim from an arrival.
     public private(set) var trimCount = 0
+    /// Whether the last update only added lines at the end, so the new ones sit below the old ones.
+    public private(set) var lastUpdateAppended = false
 
     @ObservationIgnored private let calendar: Calendar
     @ObservationIgnored private var masterID: String?
@@ -209,6 +211,7 @@ public final class WorkerChatStore {
         guard next != lines else {
             return
         }
+        lastUpdateAppended = next.starts(with: lines)
         lines = next
         revision += 1
     }
