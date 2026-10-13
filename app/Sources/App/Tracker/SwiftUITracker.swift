@@ -1311,11 +1311,10 @@ enum TrackerNameplateRole: Equatable {
     static let timeRightEdge: CGFloat = 271.5
     /// The worker's title and snippet start ten points right of the strips' left edge and left-align. The snippet
     /// ends ten points short of the strips' right edge. The elapsed time right-aligns five points short of it, on
-    /// the title's row, and the title stops a gap short of the time while it shows.
+    /// the title's row, in a column as wide as its own string, and the title takes the row up to a gap short of it.
     static let workerTextX: CGFloat = 59.5
     static let workerSnippetWidth: CGFloat = 177
     static let workerTimeRightEdge: CGFloat = 241.5
-    static let workerTimeWidth: CGFloat = 8 * AppFonts.trackerTime.maximumAdvancement.width
     static let workerTitleTimeGap: CGFloat = 6
     /// Collapsed-worker chips centre under the portrait's centre line, so the first chip's circle sits on it.
     static let chipsX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x - TrackerWorkerSummaryPill.badgeSide / 2
@@ -1323,10 +1322,16 @@ enum TrackerNameplateRole: Equatable {
     /// disc's status band and the first chip's band about 3pt apart.
     static let chipsDrop: CGFloat = 8.5
 
-    /// The worker title's box: the snippet's width, shortened to clear the time while the time shows.
-    static func workerTitleWidth(showsTime: Bool) -> CGFloat {
-        guard showsTime else { return workerSnippetWidth }
-        return workerTimeRightEdge - workerTimeWidth - workerTitleTimeGap - workerTextX
+    /// The time column's width: one monospaced cell per glyph of the string, rounded up so the text never truncates.
+    /// Hours have no upper bound, so a long run reads `100:00:00`, one glyph wider than the usual eight.
+    static func workerTimeWidth(for time: String) -> CGFloat {
+        (CGFloat(time.count) * AppFonts.trackerTime.maximumAdvancement.width).rounded(.up)
+    }
+
+    /// The worker title's box: the snippet's width, shortened to clear the time while there is one.
+    static func workerTitleWidth(time: String) -> CGFloat {
+        guard !time.isEmpty else { return workerSnippetWidth }
+        return workerTimeRightEdge - workerTimeWidth(for: time) - workerTitleTimeGap - workerTextX
     }
 
     /// The row's height: the canvas, plus the chips under a master that shows them.
@@ -1666,29 +1671,15 @@ struct TrackerPlateLine: View {
     }
 }
 
-/// The elapsed time, shown while the session works. It refreshes on the shared duration timer and reads as
-/// `hh:mm:ss`, as the SVGs set it.
-private struct TrackerPlateTime: View {
+/// The elapsed time of a working session as `hh:mm:ss`, as the SVGs set it, refreshed on the shared duration
+/// timer. `content` gets the string, empty when the session has no time to show.
+private struct TrackerElapsedTime<Content: View>: View {
     let session: TrackerSession
-    let rightEdge: CGFloat
-    let width: CGFloat
-    let baseline: CGFloat
-    var color: NSColor = AppPalette.dim
+    @ViewBuilder let content: (String) -> Content
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
-            let duration = TrackerRenderer.durationLabel(for: session, now: context.date)
-            if !duration.isEmpty {
-                TrackerPlateLine(
-                    text: TrackerSession.paddedHours(duration),
-                    font: AppFonts.trackerTime,
-                    color: color,
-                    x: rightEdge - width,
-                    width: width,
-                    baseline: baseline,
-                    alignment: .trailing
-                )
-            }
+            content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session, now: context.date)))
         }
     }
 }
@@ -1747,27 +1738,32 @@ private struct TrackerPlateText: View {
                 baseline: TrackerPlateDesign.topLevelBarBaseline
             )
             if isWorking {
-                TrackerPlateTime(
-                    session: session,
-                    rightEdge: TrackerNameplateRole.timeRightEdge,
-                    width: TrackerNameplateRole.timeRightEdge - TrackerNameplateRole.topLevelTextX,
-                    baseline: TrackerPlateDesign.topLevelBarBaseline,
-                    color: AppPalette.bright
-                )
+                TrackerElapsedTime(session: session) { time in
+                    if !time.isEmpty {
+                        TrackerPlateLine(
+                            text: time,
+                            font: AppFonts.trackerTime,
+                            color: AppPalette.bright,
+                            x: TrackerNameplateRole.topLevelTextX,
+                            width: TrackerNameplateRole.timeRightEdge - TrackerNameplateRole.topLevelTextX,
+                            baseline: TrackerPlateDesign.topLevelBarBaseline,
+                            alignment: .trailing
+                        )
+                    }
+                }
             }
         }
     }
 
     private var workerText: some View {
         ZStack(alignment: .topLeading) {
-            TrackerPlateLine(
-                text: title,
-                font: AppFonts.monoSmall,
-                color: titleColor,
-                x: TrackerNameplateRole.workerTextX,
-                width: TrackerNameplateRole.workerTitleWidth(showsTime: isWorking),
-                baseline: TrackerPlateDesign.workerTitleBaseline
-            )
+            if isWorking {
+                TrackerElapsedTime(session: session) { time in
+                    workerTitleRow(time: time)
+                }
+            } else {
+                workerTitleRow(time: "")
+            }
             if !snippet.isEmpty {
                 TrackerPlateLine(
                     text: snippet,
@@ -1778,12 +1774,30 @@ private struct TrackerPlateText: View {
                     baseline: TrackerPlateDesign.workerSnippetBaseline
                 )
             }
-            if isWorking {
-                TrackerPlateTime(
-                    session: session,
-                    rightEdge: TrackerNameplateRole.workerTimeRightEdge,
-                    width: TrackerNameplateRole.workerTimeWidth,
-                    baseline: TrackerPlateDesign.workerTimeBaseline
+        }
+    }
+
+    /// The title, and the time right-aligned on its row while there is one. The time's column fits its string.
+    private func workerTitleRow(time: String) -> some View {
+        let timeWidth = TrackerNameplateRole.workerTimeWidth(for: time)
+        return ZStack(alignment: .topLeading) {
+            TrackerPlateLine(
+                text: title,
+                font: AppFonts.monoSmall,
+                color: titleColor,
+                x: TrackerNameplateRole.workerTextX,
+                width: TrackerNameplateRole.workerTitleWidth(time: time),
+                baseline: TrackerPlateDesign.workerTitleBaseline
+            )
+            if !time.isEmpty {
+                TrackerPlateLine(
+                    text: time,
+                    font: AppFonts.trackerTime,
+                    color: AppPalette.dim,
+                    x: TrackerNameplateRole.workerTimeRightEdge - timeWidth,
+                    width: timeWidth,
+                    baseline: TrackerPlateDesign.workerTimeBaseline,
+                    alignment: .trailing
                 )
             }
         }

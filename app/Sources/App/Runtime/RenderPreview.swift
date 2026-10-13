@@ -57,7 +57,7 @@ enum RenderPreview {
             size: CGSize(width: 950, height: 900),
             to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
         )
-        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle"] {
+        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(selectedSessionPanelView(), size: CGSize(width: 304, height: 70), to: "\(outputDir)/selected-session-panel.png")
@@ -356,7 +356,7 @@ enum RenderPreview {
         case "master":
             sessions = [session("a", role: "master", snippet: snippet)]
         case "worker":
-            sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: workerSnippet, parentID: "a", elapsed: 1_825_000)]
+            sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: workerSnippet, parentID: "a", elapsed: flags.contains("long") ? 360_000_000 : 1_825_000)]
         case "stopped":
             sessions = [session("a", role: "master", state: "stopped", lifecycle: "stopped", snippet: snippet)]
         default:

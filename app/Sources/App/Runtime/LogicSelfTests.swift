@@ -29,6 +29,7 @@ enum LogicSelfTests {
         ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
         ("testTrackerSilhouetteOutlineStaysWithinItsBorder", testTrackerSilhouetteOutlineStaysWithinItsBorder),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
+        ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -329,6 +330,36 @@ enum LogicSelfTests {
                 try expect(distance < hidden.side / 2, "\(hidden.name)'s left corner \(corner) should sit inside the disc, \(distance) from its centre")
             }
         }
+    }
+
+    private static func testWorkerTimeColumnFitsRunsPastNinetyNineHours() throws {
+        let hundredHours = 100 * 3600 * 1000
+        let usual = TrackerSession.paddedHours(TrackerSession.formatElapsed(30 * 60 * 1000 + 25_000) ?? "")
+        let long = TrackerSession.paddedHours(TrackerSession.formatElapsed(hundredHours) ?? "")
+        try expect(usual == "00:30:25", "a half-hour run should read 00:30:25, got \(usual)")
+        try expect(long == "100:00:00", "a 100-hour run should read 100:00:00, got \(long)")
+
+        let font = AppFonts.trackerTime
+        for time in [usual, long] {
+            let column = TrackerNameplateRole.workerTimeWidth(for: time)
+            let ink = (time as NSString).size(withAttributes: [.font: font]).width
+            try expect(column >= ink, "the time column for \(time) should hold its \(ink)pt of text, got \(column)")
+        }
+        try expect(
+            TrackerNameplateRole.workerTimeWidth(for: long) > TrackerNameplateRole.workerTimeWidth(for: usual),
+            "the 100-hour time should get a wider column"
+        )
+
+        // The title takes the row up to a gap short of the time, whatever the time's width.
+        for time in [usual, long] {
+            let titleRight = TrackerNameplateRole.workerTextX + TrackerNameplateRole.workerTitleWidth(time: time)
+            let timeLeft = TrackerNameplateRole.workerTimeRightEdge - TrackerNameplateRole.workerTimeWidth(for: time)
+            try expect(abs(timeLeft - titleRight - TrackerNameplateRole.workerTitleTimeGap) < 0.01, "the title should stop a gap short of \(time)")
+        }
+        try expect(
+            TrackerNameplateRole.workerTitleWidth(time: "") == TrackerNameplateRole.workerSnippetWidth,
+            "a worker with no time gives its title the snippet's width"
+        )
     }
 
     private static func testSelectedSessionPanelNamesTheAttachedSessionsProject() throws {
