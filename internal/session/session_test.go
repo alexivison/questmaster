@@ -263,18 +263,6 @@ func (m *mockRunner) hasCall(prefix ...string) bool {
 	return false
 }
 
-func (m *mockRunner) hasSendText(target, text string) bool {
-	for _, c := range m.calls {
-		if len(c.args) != 6 {
-			continue
-		}
-		if c.args[0] == "send-keys" && c.args[1] == "-t" && c.args[2] == target && c.args[3] == "-l" && c.args[4] == "--" && c.args[5] == text {
-			return true
-		}
-	}
-	return false
-}
-
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------

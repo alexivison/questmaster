@@ -30,7 +30,6 @@ func (s *Stub) ResumeFileName() string                                   { retur
 func (s *Stub) EnvVar() string                                           { return "STUB_SESSION_ID" }
 func (s *Stub) MasterPrompt() string                                     { return "" }
 func (s *Stub) WorkerPrompt() string                                     { return "" }
-func (s *Stub) DefaultModel(SessionRole) string                          { return "" }
 func (s *Stub) BinaryEnvVar() string                                     { return "STUB_BIN" }
 func (s *Stub) FallbackPath() string                                     { return "stub" }
 func (s *Stub) PreLaunchSetup(context.Context, TmuxClient, string) error { return nil }

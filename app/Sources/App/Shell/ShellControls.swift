@@ -1,10 +1,9 @@
 import AppKit
 import QuestmasterCore
 
-/// Shared shell layout metrics and the selected-session chip value type. The
-/// interactive AppKit controls that used to live here (segmented pills, icon
-/// button, session chip view, status leaves) are now SwiftUI — see
-/// `ShellChromeControls.swift`, `ShellTopBars.swift`, and `ShellStatusViews.swift`.
+/// Shared shell layout metrics. The interactive controls that used to live here
+/// are now SwiftUI — see `ShellChromeControls.swift`, `ShellTopBars.swift`, and
+/// `ShellStatusViews.swift`.
 
 enum ShellMetrics {
     static let dockTopBarHeight: CGFloat = 40

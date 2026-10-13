@@ -30,11 +30,6 @@ enum ActionBarMetrics {
         slotBarStartX + CGFloat(index) * slotSize
     }
 
-    /// `#B8B8B8` → `AppPalette.muted`: the agent-mark tint, shared with the worker chat dock.
-    enum SourceColor {
-        static let logo = AppPalette.muted
-    }
-
     /// The slot fills from the design's `action-bar-button`, reusing existing palette tokens.
     enum SlotFill {
         static let normal = AppPalette.item

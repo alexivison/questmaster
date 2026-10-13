@@ -63,6 +63,7 @@ Inspect state:
 questmaster list
 questmaster status qm-1234567890
 questmaster workers qm-master123
+questmaster chat qm-master123 --text
 questmaster read qm-worker123 --lines 20
 ```
 

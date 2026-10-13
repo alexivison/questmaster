@@ -1581,8 +1581,8 @@ private struct TrackerSilhouetteOutline: View {
     }
 }
 
-/// The working glow: a Core Animation shadow whose shape is the silhouette path, so the glow hugs the whole
-/// plate and portrait with no offscreen blur pass. It is static; the layer is set once.
+/// The working glow: a solid band in the silhouette path's shape, so it hugs the whole plate and portrait.
+/// It is static; the layer is set once.
 private struct TrackerGlowView: NSViewRepresentable {
     let path: CGPath
     let color: NSColor
@@ -1896,20 +1896,6 @@ private struct TrackerStoppedDimming: ViewModifier {
         } else {
             content
         }
-    }
-}
-
-/// Centres its child horizontally with a whole-point origin, so text starts on a pixel edge on a 1x display.
-private struct WholePointCentered: Layout {
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let size = subviews[0].sizeThatFits(proposal)
-        return CGSize(width: proposal.width ?? size.width, height: size.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let size = subviews[0].sizeThatFits(ProposedViewSize(width: bounds.width, height: bounds.height))
-        let x = bounds.minX + ((bounds.width - size.width) / 2).rounded(.down)
-        subviews[0].place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 

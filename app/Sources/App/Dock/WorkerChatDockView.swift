@@ -43,7 +43,7 @@ enum WorkerChatMetrics {
         static let working = AppPalette.chatWorking
         static let done = AppPalette.trackerDone
         static let blocked = AppPalette.trackerBlocked
-        static let logoTint = ActionBarMetrics.SourceColor.logo
+        static let logoTint = AppPalette.muted
     }
 
     static func color(for style: WorkerChatSegment.Style) -> NSColor {

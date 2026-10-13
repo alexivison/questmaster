@@ -1,4 +1,4 @@
-import CoreGraphics
+import Foundation
 
 /// When the worker chat feed follows new lines: it does while its bottom edge is in view, and it
 /// lets go the moment the user scrolls above that.
