@@ -32,6 +32,10 @@ public final class WorkerChatStore {
     /// History grows to this many rendered lines, then trims back to `trimTarget` in one update.
     public static let maxLines = 600
     public static let trimTarget = 500
+    /// Raw records kept for the visible feed. Folded actions keep their records, so a run can grow without
+    /// adding lines; this bounds each rebuild even when no line trim fires. Twice `maxLines`, so one-line
+    /// entries still reach the line trim first.
+    public static let maxRecords = 2 * maxLines
 
     public private(set) var lines: [WorkerChatLine] = []
     public private(set) var isAttached = false
@@ -51,6 +55,8 @@ public final class WorkerChatStore {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var cursors: [String: WorkerFeedCursor] = [:]
     @ObservationIgnored private var records: [WorkerChatRecord] = []
+    /// The records behind each line on screen, in line order, so a rebuild can tell when a line is gone.
+    @ObservationIgnored private var lineSources: [[Int]] = []
     @ObservationIgnored private var nextSequence = 0
     @ObservationIgnored private var trackerNames: [String: String] = [:]
     @ObservationIgnored private var feedNames: [String: String] = [:]
@@ -146,6 +152,7 @@ public final class WorkerChatStore {
         fingerprint = ""
         pullWanted = false
         inFlight = false
+        lineSources = []
         setLines([])
     }
 
@@ -191,20 +198,34 @@ public final class WorkerChatStore {
 
     private func rebuild() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
-        let visibleRecords = records.filter { agents[$0.workerID] != nil }
-        let hiddenRecords = records.filter { agents[$0.workerID] == nil }
-        var visibleKept = Array(visibleRecords.suffix(Self.maxLines))
-        let hiddenKept = Array(hiddenRecords.suffix(Self.trimTarget))
-        var built = WorkerChatLineBuilder.lines(from: visibleKept, names: names, agents: agents, calendar: calendar)
-        if built.count > Self.maxLines {
-            built = Self.trimmed(built, to: Self.trimTarget)
-            visibleKept = Self.recordsBehind(built, in: visibleKept)
+        let visible = records.filter { agents[$0.workerID] != nil }
+        var visibleKept = Array(visible.suffix(Self.maxRecords))
+        let hiddenKept = Array(records.filter { agents[$0.workerID] == nil }.suffix(Self.trimTarget))
+        var build = WorkerChatLineBuilder.build(from: visibleKept, names: names, agents: agents, calendar: calendar)
+        var didTrim = capRemovedShownLine(from: visible, keeping: visibleKept.count)
+        if build.lines.count > Self.maxLines {
+            build = build.newest(Self.trimTarget)
+            // A trimmed line's records go with it, even ones that sort after the kept lines.
+            let kept = Set(build.sources.joined())
+            visibleKept = visibleKept.filter { kept.contains($0.sequence) }
+            didTrim = true
+        }
+        if didTrim {
             trimCount += 1
         }
-        // ponytail: independent visible and hidden caps bound cached history at maxLines + trimTarget.
+        // ponytail: visible history is bounded by maxRecords and the line trim; hidden history keeps trimTarget records.
         records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
-        setLines(built)
+        lineSources = build.sources
+        setLines(build.lines)
         updateReadNotice()
+    }
+
+    /// True when the raw-record cap dropped every record of a line on screen. The cap drops the oldest
+    /// records, so this is an eviction at the top, which the follower must not glide. Partly evicted runs
+    /// keep their line and don't count.
+    private func capRemovedShownLine(from visible: [WorkerChatRecord], keeping kept: Int) -> Bool {
+        let evicted = Set(visible.prefix(visible.count - kept).map(\.sequence))
+        return !evicted.isEmpty && lineSources.contains { $0.allSatisfy(evicted.contains) }
     }
 
     private func setLines(_ next: [WorkerChatLine]) {
@@ -214,35 +235,6 @@ public final class WorkerChatStore {
         lastUpdateAppended = next.starts(with: lines)
         lines = next
         revision += 1
-    }
-
-    /// Keeps exactly the newest `limit` lines. When the cut lands inside a minute, the header of that
-    /// minute stays in front of the cut, so the kept lines start on a header and no line is lost to
-    /// a seek forward. The builder opens every line list with a header, so one is always found.
-    private static func trimmed(_ built: [WorkerChatLine], to limit: Int) -> [WorkerChatLine] {
-        let suffix = Array(built.suffix(limit))
-        if isTimeHeader(suffix[0]) {
-            return suffix
-        }
-        let header = built.dropLast(limit).last(where: isTimeHeader) ?? built[0]
-        return [header] + suffix.dropFirst()
-    }
-
-    /// Drops the records behind the first entry that a trim kept, so the next rebuild doesn't bring
-    /// the trimmed lines back.
-    private static func recordsBehind(_ kept: [WorkerChatLine], in visible: [WorkerChatRecord]) -> [WorkerChatRecord] {
-        guard let sequence = WorkerChatLineBuilder.firstEntrySequence(in: kept),
-              let index = visible.firstIndex(where: { $0.sequence == sequence }) else {
-            return visible
-        }
-        return Array(visible[index...])
-    }
-
-    private static func isTimeHeader(_ line: WorkerChatLine) -> Bool {
-        if case .timeHeader = line.content {
-            return true
-        }
-        return false
     }
 
     private func updateReadNotice() {
@@ -305,6 +297,7 @@ public final class WorkerChatStore {
         case "say": return .say
         case "message": return .message
         case "report": return .report
+        case "instructions": return .instructions
         default: return nil
         }
     }

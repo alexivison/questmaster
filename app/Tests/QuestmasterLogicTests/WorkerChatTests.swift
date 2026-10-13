@@ -14,14 +14,14 @@ struct WorkerChatTests {
         namesAreCappedAtSixteenCharacters()
         statusLinesMuteTheVerbAndColourTheTag()
         idleAndUnknownEntriesAreNotShown()
-        messageKeepsParagraphsAndReportMutesItsText()
+        messageKeepsParagraphsAndItemTagsCarryTheirRarity()
         actionRunCollapsesWithCountsAndNoCommas()
         actionRunSplitsAtCalendarMinute()
         lateNarrationSortsBeforeEarlierActionArrival()
         lateOtherWorkerEntryDoesNotSplitCastRun()
         actionRunClosesWhenAnotherWorkerAddsALine()
         actionRunClosesOnTheSameWorkersNextNonAction()
-        timeHeadersFollowTheClockMinuteOfTheLastHeader()
+        lineTimesFollowTheClockMinute()
         cursorsRoundTripUnchanged()
         hasMoreRepullsImmediately()
         toolOnlyTrackerChangesDoNotPull()
@@ -43,10 +43,12 @@ struct WorkerChatTests {
         historyGrowsToTheCapThenTrimsInOneUpdate()
         lastUpdateAppendedOnlyForLinesAddedAtTheEnd()
         trimDoesNotResurfaceDroppedLines()
-        trimKeepsTheCapWhenItLandsInsideAMinute()
-        headerIDsStayTheSameAcrossRebuilds()
-        historyKeepsLatestActionAndHeaderAtLineCap()
-        historyKeepsHeaderWhenLineCapCutsThroughSameMinute()
+        droppedCastRunDoesNotComeBackOnRebuild()
+        foldedActionsStayBounded()
+        capEvictingAShownLineCountsAsTrim()
+        trimKeepsTheNewestLines()
+        firstLineIDStaysTheSameAcrossRebuilds()
+        historyKeepsNewestLinesAtLineCap()
         print("WorkerChatTests: all tests passed")
     }
 
@@ -90,24 +92,35 @@ struct WorkerChatTests {
         expect(store.lines.isEmpty, "idle, unknown and blank entries should not produce lines, got \(store.lines)")
     }
 
-    private static func messageKeepsParagraphsAndReportMutesItsText() {
+    private static func messageKeepsParagraphsAndItemTagsCarryTheirRarity() {
         let store = makeStore()
         feed(store, [
             entry(0, "w1", "message", "First paragraph.\n\nSecond paragraph."),
             entry(1, "w1", "report", "Tests pass."),
+            entry(2, "w1", "instructions", "Write the migration first."),
         ])
         expect(
             segments(store, 0) == [WorkerChatSegment("Worker One:", .name), WorkerChatSegment(" First paragraph.\n\nSecond paragraph.", .normal)],
-            "message should keep its paragraphs, got \(segments(store, 0))"
+            "message should stay plain text and keep its paragraphs, got \(segments(store, 0))"
         )
         expect(
             segments(store, 1) == [
                 WorkerChatSegment("Worker One:", .name),
-                WorkerChatSegment(" [Report] ", .normal),
-                WorkerChatSegment("Tests pass.", .muted),
+                WorkerChatSegment(" Used item ", .muted),
+                WorkerChatSegment("[Debriefing Stone]", .rarity(.rare)),
             ],
             "report line mismatch: \(segments(store, 1))"
         )
+        expect(
+            segments(store, 2) == [
+                WorkerChatSegment("Worker One:", .name),
+                WorkerChatSegment(" Received item ", .muted),
+                WorkerChatSegment("[Scroll of Orders]", .rarity(.epic)),
+            ],
+            "instructions line mismatch: \(segments(store, 2))"
+        )
+        let drawn = store.lines.flatMap(\.segments).map(\.text).joined()
+        expect(!drawn.contains("Tests pass") && !drawn.contains("Write the migration"), "report and instruction text should not be drawn, got \(drawn)")
     }
 
     private static func actionRunCollapsesWithCountsAndNoCommas() {
@@ -121,12 +134,12 @@ struct WorkerChatTests {
             entry(5, "w1", "action", "Edit"),
             entry(6, "w1", "action", "Bash"),
         ])
-        expect(entryLines(store).count == 1, "one run should be one line, got \(entryLines(store).count)")
+        expect(store.lines.count == 1, "one run should be one line, got \(store.lines.count)")
         expect(
             segments(store, 0) == [
                 WorkerChatSegment("Worker One:", .name),
                 WorkerChatSegment(" Cast ", .muted),
-                WorkerChatSegment("[Bash](x3) [Edit](x4)", .normal),
+                WorkerChatSegment("[Bash](x3) [Edit](x4)", .rarity(.common)),
             ],
             "collapsed run mismatch: \(segments(store, 0))"
         )
@@ -144,14 +157,8 @@ struct WorkerChatTests {
             entry(60, "w1", "action", "Bash"),
         ])
 
-        let headers = store.lines.compactMap { line -> String? in
-            guard case .timeHeader(let label) = line.content else {
-                return nil
-            }
-            return label
-        }
-        let entries = entryLines(store)
-        expect(headers == ["[09:00]", "[09:01]"], "a next-minute action should start a new header, got \(headers)")
+        let entries = store.lines
+        expect(entries.map(\.time) == ["09:00", "09:01"], "a run should be stamped with its first action's minute, got \(entries.map(\.time))")
         expect(entries.count == 2, "same-minute actions should fold and the next minute should split, got \(entries.count)")
         expect(entries[0].segments.dropFirst().map(\.text) == [" Cast ", "[Bash] [Edit]"], "same-minute actions should fold, got \(entries[0].segments)")
         expect(entries[1].segments.dropFirst().map(\.text) == [" Cast ", "[Bash]"], "the next-minute action should start a fresh run, got \(entries[1].segments)")
@@ -168,13 +175,13 @@ struct WorkerChatTests {
             for: first
         )
         expect(followUp != nil, "has_more should request the next page")
-        expect(entryLines(store).count == 1, "adjacent actions should initially collapse into one Cast run")
+        expect(store.lines.count == 1, "adjacent actions should initially collapse into one Cast run")
         _ = store.receive(
             WorkerFeedPayload(entries: [entry(2, "w1", "say", "Reading the README.")]),
             for: followUp!
         )
 
-        let entries = entryLines(store)
+        let entries = store.lines
         expect(entries.count == 3, "expected action, say and action rows, got \(entries.count)")
         expect(entries[0].segments.dropFirst().map(\.text) == [" Cast ", "[Read]"], "first action should precede the late say")
         expect(entries[1].segments.last?.text == " Reading the README.", "late say should sort between the already displayed actions")
@@ -193,35 +200,16 @@ struct WorkerChatTests {
         ) else {
             fail("has_more should request the next page")
         }
-        let firstEntries = store.lines.compactMap { line -> WorkerChatLine? in
-            guard case .entry = line.content else {
-                return nil
-            }
-            return line
-        }
-        expect(firstEntries.count == 1, "the first pull should combine adjacent actions")
-        let originalID = firstEntries.first?.id
+        expect(store.lines.count == 1, "the first pull should combine adjacent actions")
+        let originalID = store.lines.first?.id
 
         _ = store.receive(WorkerFeedPayload(entries: [entry(2, "w2", "action", "Read")]), for: followUp)
 
-        let entries = store.lines.compactMap { line -> WorkerChatLine? in
-            guard case .entry = line.content else {
-                return nil
-            }
-            return line
-        }
+        let entries = store.lines
         expect(entries.count == 2, "a late other-worker entry should follow the existing Cast line, got \(entries.count)")
         expect(entries.first?.id == originalID, "the Cast line should keep its id after a late entry")
-        if case .entry(_, let segments) = entries.first?.content {
-            expect(segments.dropFirst().map(\.text) == [" Cast ", "[Read] [Edit]"], "the Cast line should remain folded, got \(segments)")
-        } else {
-            fail("the first line should remain the Cast run")
-        }
-        if case .entry(_, let segments) = entries.last?.content {
-            expect(segments.first?.text == "Worker Two:", "the late entry should follow the Cast line")
-        } else {
-            fail("the late entry should be a worker line")
-        }
+        expect(entries.first?.segments.dropFirst().map(\.text) == [" Cast ", "[Read] [Edit]"], "the Cast line should remain folded, got \(entries.first?.segments ?? [])")
+        expect(entries.last?.segments.first?.text == "Worker Two:", "the late entry should follow the Cast line")
     }
 
     private static func actionRunClosesWhenAnotherWorkerAddsALine() {
@@ -231,7 +219,7 @@ struct WorkerChatTests {
             entry(1, "w2", "action", "Read"),
             entry(2, "w1", "action", "Edit"),
         ])
-        let lines = entryLines(store)
+        let lines = store.lines
         expect(lines.count == 3, "interleaved workers should produce three Cast lines, got \(lines.count)")
         expect(lines.map { $0.segments.first?.text } == ["Worker One:", "Worker Two:", "Worker One:"], "Cast lines should keep arrival order, got \(lines)")
         expect(lines.map { $0.segments.last?.text } == ["[Bash]", "[Read]", "[Edit]"], "each interleaved action should keep its own Cast line, got \(lines)")
@@ -245,15 +233,15 @@ struct WorkerChatTests {
             entry(2, "w1", "action", "Bash"),
             entry(3, "w1", "action", "Bash"),
         ])
-        let lines = entryLines(store)
+        let lines = store.lines
         expect(lines.count == 3, "a say should close the run and the next action open a new one, got \(lines.count)")
         expect(lines[0].segments.last?.text == "[Bash]", "the closed run keeps its own count")
         expect(lines[2].segments.last?.text == "[Bash](x2)", "the new run counts only its own calls, got \(lines[2].segments)")
     }
 
-    // MARK: - Time headers
+    // MARK: - Times
 
-    private static func timeHeadersFollowTheClockMinuteOfTheLastHeader() {
+    private static func lineTimesFollowTheClockMinute() {
         let store = makeStore()
         feed(store, [
             entry(0, "w1", "say", "a"),
@@ -262,25 +250,13 @@ struct WorkerChatTests {
             entry(119, "w1", "say", "d"),
             entry(120 + 20 * 60, "w1", "say", "e"),
         ])
-        let kinds = store.lines.map { line -> String in
-            switch line.content {
-            case .timeHeader(let label): return label
-            case .entry(_, let segments): return segments.last?.text.trimmingCharacters(in: .whitespaces) ?? ""
-            }
-        }
-        expect(kinds == ["[09:00]", "a", "b", "[09:01]", "c", "d", "[09:22]", "e"], "header placement mismatch: \(kinds)")
+        expect(store.lines.map(\.time) == ["09:00", "09:00", "09:01", "09:01", "09:22"], "line time mismatch: \(store.lines.map(\.time))")
 
         var utc = Calendar(identifier: .gregorian)
         utc.timeZone = TimeZone(identifier: "UTC")!
         let utcStore = WorkerChatStore(calendar: utc)
         feed(utcStore, [entry(0, "w1", "say", "a"), entry(59, "w1", "say", "b"), entry(60, "w1", "say", "c")])
-        let utcHeaders = utcStore.lines.compactMap { line -> String? in
-            guard case .timeHeader(let label) = line.content else {
-                return nil
-            }
-            return label
-        }
-        expect(utcHeaders == ["[00:00]", "[00:01]"], "UTC line headers were \(utcHeaders)")
+        expect(utcStore.lines.map(\.time) == ["00:00", "00:00", "00:01"], "UTC line times were \(utcStore.lines.map(\.time))")
     }
 
     // MARK: - Pulling
@@ -374,7 +350,7 @@ struct WorkerChatTests {
             ),
             for: first
         )
-        expect(store.lines.count == 2, "header plus say expected, got \(store.lines.count)")
+        expect(store.lines.count == 1, "one say line expected, got \(store.lines.count)")
 
         let otherMaster = [
             TrackerSession(id: "m2", title: "Other", repoName: "Repo", role: "master"),
@@ -396,9 +372,9 @@ struct WorkerChatTests {
         let store = makeStore()
         let first = open(store)
         _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "hello")]), for: first)
-        expect(store.lines.count == 2, "the current feed should be visible before hiding")
+        expect(store.lines.count == 1, "the current feed should be visible before hiding")
         expect(store.sync(selectedSessionID: "m2", sessions: [], isVisible: false) == nil, "a hidden dock should not pull")
-        expect(store.lines.count == 2, "a hidden selection change should wait to reset the visible feed")
+        expect(store.lines.count == 1, "a hidden selection change should wait to reset the visible feed")
 
         let otherMaster = [
             TrackerSession(id: "m2", title: "Other", repoName: "Repo", role: "master"),
@@ -434,7 +410,7 @@ struct WorkerChatTests {
             for: request
         )
         expect(followUp == nil, "an error alone should not re-pull straight away")
-        expect(store.lines.count == 2, "the readable worker's entries should still show")
+        expect(store.lines.count == 1, "the readable worker's entries should still show")
         expect(store.readNotice == "Couldn't read Worker Two's activity", "notice mismatch: \(String(describing: store.readNotice))")
 
         let retry = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
@@ -472,13 +448,13 @@ struct WorkerChatTests {
             ),
             for: first
         )
-        let w2LinesBefore = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
+        let w2LinesBefore = store.lines.filter { $0.agent == "claude" }.map { $0.segments }
         expect(store.readNotice == "Couldn't read Worker One's activity", "the unreadable worker should have a notice before removal")
 
         let remainingGroup = group().filter { $0.id != "w1" }
         let next = store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true)
-        let w2LinesAfter = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
-        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "removed worker lines should disappear")
+        let w2LinesAfter = store.lines.filter { $0.agent == "claude" }.map { $0.segments }
+        expect(!store.lines.contains { $0.segments.first?.text == "Worker One:" }, "removed worker lines should disappear")
         expect(w2LinesAfter == w2LinesBefore && w2LinesAfter.count == 1, "remaining worker lines should be unchanged")
         expect(next?.cursors == ["w1": w1Cursor, "w2": w2Cursor], "the hidden worker cursor should be retained, got \(String(describing: next?.cursors))")
         expect(store.readNotice == nil, "removed worker read errors should disappear")
@@ -502,8 +478,8 @@ struct WorkerChatTests {
             for: first
         )
 
-        let w2Lines = entryLines(store).filter { $0.agent == "claude" }.map { $0.segments }
-        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "removed worker entries should be dropped")
+        let w2Lines = store.lines.filter { $0.agent == "claude" }.map { $0.segments }
+        expect(!store.lines.contains { $0.segments.first?.text == "Worker One:" }, "removed worker entries should be dropped")
         expect(w2Lines.count == 1 && w2Lines[0].last?.text == " late", "the remaining worker's new entry should be shown")
         expect(store.readNotice == nil, "removed worker read errors should be dropped")
         expect(followUp?.cursors == ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor], "the response cursors should be retained while the worker is hidden")
@@ -530,8 +506,8 @@ struct WorkerChatTests {
             for: first
         )
         expect(followUp?.cursors == ["w1": WorkerFeedCursor(offset: 9, fileID: "w1-file"), "w2": w2Cursor], "the completed pull should issue one follow-up with cached cursors")
-        expect(!entryLines(store).contains { $0.segments.first?.text == "Worker One:" }, "the final group should not show the removed worker")
-        expect(entryLines(store).contains { $0.segments.last?.text == " kept" }, "the final group should keep the remaining worker")
+        expect(!store.lines.contains { $0.segments.first?.text == "Worker One:" }, "the final group should not show the removed worker")
+        expect(store.lines.contains { $0.segments.last?.text == " kept" }, "the final group should keep the remaining worker")
         _ = store.receive(WorkerFeedPayload(errors: ["w1": "permission denied"]), for: followUp!)
         expect(store.readNotice == nil, "the removed worker error should stay hidden")
         expect(store.sync(selectedSessionID: "m", sessions: remainingGroup, isVisible: true) == nil, "a hidden worker error should not trigger retries")
@@ -562,14 +538,14 @@ struct WorkerChatTests {
         expect(pull != nil, "removing a worker should request the current group")
         let additions = (0..<100).map { _ in entry(1, "w1", "action", "Bash") }
         let pending = store.receive(WorkerFeedPayload(entries: additions, hasMore: ["w1": true]), for: pull!)
-        let aLines = entryLines(store).filter { $0.agent == "codex" }
+        let aLines = store.lines.filter { $0.agent == "codex" }
         expect(aLines.count == 1 && aLines[0].segments.last?.text == "[Bash](x200)", "visible worker history should keep all 200 actions")
         expect(pending != nil, "has_more should leave one pull in flight")
 
         var rejoinedGroup = group()
         rejoinedGroup[2].title = ""
         expect(store.sync(selectedSessionID: "m", sessions: rejoinedGroup, isVisible: true) == nil, "re-adding should keep the existing pull")
-        let bLines = entryLines(store).filter { $0.agent == "claude" }
+        let bLines = store.lines.filter { $0.agent == "claude" }
         expect(bLines.count == 1 && bLines[0].segments.last?.text == "[Read](x400)", "re-adding B should restore its retained hidden history")
         expect(bLines[0].segments.first?.text == "Worker Two:", "the cached feed name should survive the omission")
     }
@@ -592,9 +568,7 @@ struct WorkerChatTests {
         _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
         expect(store.lines.count == WorkerChatStore.trimTarget, "an overflowing history should trim to \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
         expect(store.trimCount == 1, "one overflowing payload should trim once, got \(store.trimCount)")
-        if case .timeHeader = store.lines.first?.content {} else {
-            fail("the first kept line should still be a time header")
-        }
+        expect(store.lines.first.map(lastText) == " line 200", "the kept lines should start at the oldest of the newest \(WorkerChatStore.trimTarget), got \(store.lines.first.map(lastText) ?? "")")
         expect(store.lines.last.map(lastText) == " line \(WorkerChatStore.maxLines + 99)", "the newest line should be kept")
         expect(!store.lines.contains { lastText($0) == " line 0" }, "the oldest lines should be dropped")
     }
@@ -602,7 +576,7 @@ struct WorkerChatTests {
     private static func historyGrowsToTheCapThenTrimsInOneUpdate() {
         let store = makeStore()
         let first = open(store)
-        let fill = (0..<(WorkerChatStore.maxLines - 1)).map { entry(0, "w1", "say", "line \($0)") }
+        let fill = (0..<WorkerChatStore.maxLines).map { entry(0, "w1", "say", "line \($0)") }
         _ = store.receive(WorkerFeedPayload(entries: fill), for: first)
         expect(store.lines.count == WorkerChatStore.maxLines, "history should grow to the cap without trimming, got \(store.lines.count)")
         expect(store.trimCount == 0, "history at the cap should not trim yet")
@@ -632,42 +606,37 @@ struct WorkerChatTests {
         expect(!store.lastUpdateAppended, "a line that sorts above the newest should not be an append")
     }
 
-    /// 399 entries in one minute, then a new minute of 200: the cut lands inside the first minute, so
-    /// the kept lines are its header plus the newest entries, not only the lines after the next header.
-    private static func trimKeepsTheCapWhenItLandsInsideAMinute() {
+    /// 400 entries in one minute, then 201 in the next: 601 lines, so the trim keeps the newest 500,
+    /// which starts 100 entries into the first minute.
+    private static func trimKeepsTheNewestLines() {
         let store = makeStore()
         let first = open(store)
-        let early = (0..<399).map { entry(0, "w1", "say", "a \($0)") }
-        let late = (0..<200).map { entry(60, "w1", "say", "b \($0)") }
+        let early = (0..<400).map { entry(0, "w1", "say", "a \($0)") }
+        let late = (0..<201).map { entry(60, "w1", "say", "b \($0)") }
         _ = store.receive(WorkerFeedPayload(entries: early + late), for: first)
 
         expect(store.trimCount == 1, "the overflow should trim once, got \(store.trimCount)")
         expect(store.lines.count == WorkerChatStore.trimTarget, "a trim should keep exactly \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
-        if case .timeHeader(let label) = store.lines.first?.content {
-            expect(label == "[09:00]", "the kept lines should open with the cut minute's header, got \(label)")
-        } else {
-            fail("the kept lines should start on a time header")
-        }
-        expect(store.lines.last.map(lastText) == " b 199", "the newest line should be kept")
-        expect(store.lines.contains { lastText($0) == " a 398" }, "the newest entries of the cut minute should be kept")
-        expect(!store.lines.contains { lastText($0) == " a 0" }, "the oldest entries should be dropped")
+        expect(store.lines.first.map(lastText) == " a 101", "the kept lines should start at the oldest of the newest entries, got \(store.lines.first.map(lastText) ?? "")")
+        expect(store.lines.last.map(lastText) == " b 200", "the newest line should be kept")
+        expect(!store.lines.contains { lastText($0) == " a 100" }, "the entry before the cut should be dropped")
     }
 
-    /// A header keeps its id when the trim removes the entry it was first named after, so the feed's
-    /// row identity doesn't churn on the next rebuild.
-    private static func headerIDsStayTheSameAcrossRebuilds() {
+    /// A line keeps its id when the trim leaves it first, so the feed's row identity doesn't churn on
+    /// the next rebuild.
+    private static func firstLineIDStaysTheSameAcrossRebuilds() {
         let store = makeStore()
         let entries = (0...WorkerChatStore.maxLines).map { entry(0, "w\($0)", "action", "Bash") }
         feed(store, entries, tracker: false)
-        let headerID = store.lines.first?.id
-        expect(headerID != nil, "the trimmed feed should still open with a header")
+        let firstID = store.lines.first?.id
+        expect(firstID == "e101", "the trimmed feed should open with the oldest kept line, got \(String(describing: firstID))")
 
         var renamed = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
         renamed += (0...WorkerChatStore.maxLines).map { index in
             TrackerSession(id: "w\(index)", title: index == 0 ? "Renamed" : "", repoName: "Repo", role: "worker", parentID: "m")
         }
         _ = store.sync(selectedSessionID: "m", sessions: renamed, isVisible: true)
-        expect(store.lines.first?.id == headerID, "the header id should not change on a rebuild, got \(String(describing: store.lines.first?.id)) for \(String(describing: headerID))")
+        expect(store.lines.first?.id == firstID, "the first line id should not change on a rebuild, got \(String(describing: store.lines.first?.id)) for \(String(describing: firstID))")
     }
 
     private static func trimDoesNotResurfaceDroppedLines() {
@@ -686,46 +655,82 @@ struct WorkerChatTests {
         expect(store.trimCount == 1, "a rebuild with no new records should not trim again, got \(store.trimCount)")
     }
 
-    private static func historyKeepsLatestActionAndHeaderAtLineCap() {
+    /// Worker One casts at 09:00:00 and 09:00:59, and Worker Two's 600 messages arrive later, timestamped
+    /// between them. The Cast run folds both actions into its first line, the trim drops that line, and the
+    /// 09:00:59 action must not come back when the feed is rebuilt.
+    private static func droppedCastRunDoesNotComeBackOnRebuild() {
         let store = makeStore()
         let first = open(store)
-        let entries = (0..<WorkerChatStore.maxLines).map { entry(TimeInterval($0 * 60), "w1", "action", "Bash") }
-        _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
+        guard let followUp = store.receive(
+            WorkerFeedPayload(entries: [entry(0, "w1", "action", "Bash"), entry(59, "w1", "action", "Edit")], hasMore: ["w1": true]),
+            for: first
+        ) else {
+            fail("has_more should request the next page")
+        }
+        _ = store.receive(WorkerFeedPayload(entries: (0..<600).map { entry(TimeInterval(1 + $0 % 58), "w2", "say", "b \($0)") }), for: followUp)
+        expect(store.trimCount == 1, "the overflow should trim once, got \(store.trimCount)")
+        expect(store.lines.count == WorkerChatStore.trimTarget, "the trim should keep \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
 
-        expect(!store.lines.isEmpty, "history trimming should keep the newest activity visible")
-        expect(store.lines.count == WorkerChatStore.trimTarget, "rendered history should trim to \(WorkerChatStore.trimTarget) lines")
-        if case .timeHeader = store.lines.first?.content {} else {
-            fail("trimmed history should start with a time header")
-        }
-        guard store.lines.count >= 2 else {
-            fail("the newest action and its header should remain visible")
-        }
-        if case .timeHeader(let label) = store.lines[store.lines.count - 2].content {
-            expect(label == "[18:59]", "the newest action should keep its minute header, got \(label)")
-        } else {
-            fail("the newest action should have its minute header immediately before it")
-        }
-        if case .entry(_, let segments) = store.lines.last?.content {
-            expect(segments.last?.text == "[Bash]", "the newest action should remain visible, got \(segments)")
-        } else {
-            fail("the newest line should be the latest Cast action")
-        }
+        var renamed = group()
+        renamed[1].title = "Renamed"
+        _ = store.sync(selectedSessionID: "m", sessions: renamed, isVisible: true)
+        expect(!store.lines.contains { $0.segments.first?.text == "Renamed:" }, "the dropped Cast run should not reappear after a rebuild")
+        expect(!store.lines.contains { $0.segments.contains { $0.text.contains("[Edit]") } }, "the 09:00:59 action should not survive the trim")
+        expect(store.lines.count == WorkerChatStore.trimTarget, "a rebuild should keep the trimmed history, got \(store.lines.count)")
+        expect(store.trimCount == 1, "a rebuild with no new records should not trim again, got \(store.trimCount)")
     }
 
-    private static func historyKeepsHeaderWhenLineCapCutsThroughSameMinute() {
+    /// One worker's actions in one minute fold into a single line, so the line trim never fires. The raw
+    /// records must still stop at `maxRecords`, and the run counts only the newest of them.
+    private static func foldedActionsStayBounded() {
         let store = makeStore()
-        let entries = (0..<WorkerChatStore.maxLines).map { entry(0, "w\($0)", "action", "Bash") }
-        feed(store, entries, tracker: false)
+        let first = open(store)
+        guard let followUp = store.receive(
+            WorkerFeedPayload(entries: (0..<WorkerChatStore.maxRecords).map { _ in entry(0, "w1", "action", "Bash") }, hasMore: ["w1": true]),
+            for: first
+        ) else {
+            fail("has_more should request the next page")
+        }
+        _ = store.receive(WorkerFeedPayload(entries: (0..<500).map { _ in entry(0, "w1", "action", "Bash") }), for: followUp)
+        expect(store.lines.count == 1, "one worker's run in one minute should stay one line, got \(store.lines.count)")
+        expect(store.lines.last?.segments.last?.text == "[Bash](x\(WorkerChatStore.maxRecords))", "the run should count only the \(WorkerChatStore.maxRecords) newest records, got \(store.lines.last?.segments.last?.text ?? "")")
+        expect(store.trimCount == 0, "a folded run should not trim, got \(store.trimCount)")
+    }
 
-        expect(store.lines.count == WorkerChatStore.trimTarget, "history should trim to \(WorkerChatStore.trimTarget) lines after retaining its header, got \(store.lines.count)")
-        if case .timeHeader = store.lines.first?.content {} else {
-            fail("same-minute history should start with its header")
+    /// A message, then 1,199 same-minute actions (two rows, 1,200 records). The next action makes the cap drop
+    /// the message, which leaves one row and no line trim. That still counts as a trim, so the follower doesn't
+    /// glide the surviving row.
+    private static func capEvictingAShownLineCountsAsTrim() {
+        let store = makeStore()
+        let first = open(store)
+        guard let followUp = store.receive(
+            WorkerFeedPayload(
+                entries: [entry(0, "w1", "say", "old message")] + (0..<1199).map { _ in entry(0, "w1", "action", "Bash") },
+                hasMore: ["w1": true]
+            ),
+            for: first
+        ) else {
+            fail("has_more should request the next page")
         }
-        if case .entry(_, let segments) = store.lines.last?.content {
-            expect(segments.last?.text == "[Bash]", "the latest same-minute action should remain visible, got \(segments)")
-        } else {
-            fail("the latest same-minute line should be an action")
-        }
+        expect(store.lines.count == 2 && store.trimCount == 0, "a message and its Cast run should be two rows with no trim, got \(store.lines.count) rows and \(store.trimCount) trims")
+
+        _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "action", "Bash")]), for: followUp)
+        expect(store.lines.count == 1, "the cap should evict the message, leaving one row, got \(store.lines.count)")
+        expect(store.lines.first?.segments.last?.text == "[Bash](x\(WorkerChatStore.maxRecords))", "the surviving row should be the Cast run, got \(String(describing: store.lines.first?.segments))")
+        expect(store.trimCount == 1, "evicting a line that was on screen should count as a trim, got \(store.trimCount)")
+    }
+
+    /// One action per minute for 601 minutes: the trim keeps the newest 500, from 10:41 to 19:00.
+    private static func historyKeepsNewestLinesAtLineCap() {
+        let store = makeStore()
+        let first = open(store)
+        let entries = (0...WorkerChatStore.maxLines).map { entry(TimeInterval($0 * 60), "w1", "action", "Bash") }
+        _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
+
+        expect(store.lines.count == WorkerChatStore.trimTarget, "rendered history should trim to \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
+        expect(store.lines.first?.time == "10:41", "the oldest kept line should be 10:41, got \(String(describing: store.lines.first?.time))")
+        expect(store.lines.last?.time == "19:00", "the newest line should keep its time, got \(String(describing: store.lines.last?.time))")
+        expect(store.lines.last?.segments.last?.text == "[Bash]", "the newest action should remain visible, got \(String(describing: store.lines.last?.segments))")
     }
 
     // MARK: - Helpers
@@ -781,25 +786,13 @@ struct WorkerChatTests {
         _ = store.receive(WorkerFeedPayload(entries: entries), for: request!)
     }
 
-    private static func entryLines(_ store: WorkerChatStore) -> [(agent: String, segments: [WorkerChatSegment])] {
-        store.lines.compactMap { line in
-            guard case .entry(let agent, let segments) = line.content else {
-                return nil
-            }
-            return (agent, segments)
-        }
-    }
-
     private static func segments(_ store: WorkerChatStore, _ index: Int) -> [WorkerChatSegment] {
-        let lines = entryLines(store)
+        let lines = store.lines
         return index < lines.count ? lines[index].segments : []
     }
 
     private static func lastText(_ line: WorkerChatLine) -> String {
-        if case .entry(_, let segments) = line.content {
-            return segments.last?.text ?? ""
-        }
-        return ""
+        line.segments.last?.text ?? ""
     }
 
     private static func fail(_ message: String) -> Never {

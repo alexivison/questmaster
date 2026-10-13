@@ -58,6 +58,10 @@ enum AppPalette {
     static let trackerIdle = NSColor(hex: 0x6f757c)
     static let trackerNeedsInput = NSColor(hex: 0xe8b34a)
     static let trackerError = NSColor(hex: 0xe8743b)
+    /// Chat item tags by RPG rarity. No existing token is close to rare. Epic is the magenta display
+    /// colour, kept as its own token so renaming a display colour leaves chat tags alone.
+    static let rarityRare = NSColor(hex: 0x006caa)
+    static let rarityEpic = NSColor(hex: 0xc578dd)
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
         NSColor(hex: 0xd29922),

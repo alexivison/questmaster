@@ -2378,17 +2378,15 @@ enum LogicSelfTests {
         try expect(waitUntil { hasGlide(documentView) }, "an arrival after the trim should glide")
     }
 
-    /// Every third entry wraps to several lines at the 300pt test width.
     /// Every third entry wraps to several lines at the 300pt test width, unless `wraps` is false. The line count
     /// depends on the font, so a test that needs a feed to stay short passes `wraps: false`.
     private static func wrappedFeed(count: Int, revision: Int, trimCount: Int, appended: Bool, wraps: Bool = true) -> some View {
         let wrapped = String(repeating: "wrapped words in a long line ", count: 6)
-        var lines = [WorkerChatLine(id: "h0", content: .timeHeader("[09:00]"))]
-        lines += (0..<count).map { index in
-            WorkerChatLine(id: "e\(index)", content: .entry(agent: "claude", segments: [
+        let lines = (0..<count).map { index in
+            WorkerChatLine(id: "e\(index)", time: "09:00", agent: "claude", segments: [
                 WorkerChatSegment("Worker One:", .name),
                 WorkerChatSegment(" \(index) \(wraps && index % 3 == 0 ? wrapped : "short")", .normal),
-            ]))
+            ])
         }
         return WorkerChatFeedView(lines: lines, revision: revision, trimCount: trimCount, appended: appended).frame(width: 300, height: 200)
     }

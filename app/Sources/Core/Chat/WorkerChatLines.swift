@@ -9,6 +9,7 @@ public struct WorkerChatSegment: Equatable {
         case working
         case done
         case blocked
+        case rarity(WorkerChatRarity)
     }
 
     public let text: String
@@ -20,18 +21,25 @@ public struct WorkerChatSegment: Equatable {
     }
 }
 
+/// The RPG tier a bracketed tag is drawn in. Tool calls are common; item tags carry their own tier.
+public enum WorkerChatRarity: Equatable {
+    case common
+    case rare
+    case epic
+}
+
+/// One feed entry: its HH:MM time, the agent whose logo it shows, and its text runs.
 public struct WorkerChatLine: Identifiable, Equatable {
-    public enum Content: Equatable {
-        case timeHeader(String)
-        case entry(agent: String, segments: [WorkerChatSegment])
-    }
-
     public let id: String
-    public let content: Content
+    public let time: String
+    public let agent: String
+    public let segments: [WorkerChatSegment]
 
-    public init(id: String, content: Content) {
+    public init(id: String, time: String, agent: String, segments: [WorkerChatSegment]) {
         self.id = id
-        self.content = content
+        self.time = time
+        self.agent = agent
+        self.segments = segments
     }
 }
 
@@ -43,6 +51,7 @@ struct WorkerChatRecord: Equatable {
         case say
         case message
         case report
+        case instructions
     }
 
     let sequence: Int
@@ -52,10 +61,20 @@ struct WorkerChatRecord: Equatable {
     let text: String
 }
 
+/// Lines built from a record list. `sources[i]` lists the sequences of the records that line `i` shows.
+struct WorkerChatLineBuild {
+    var lines: [WorkerChatLine]
+    var sources: [[Int]]
+
+    /// The newest `count` lines, with the records they show.
+    func newest(_ count: Int) -> WorkerChatLineBuild {
+        WorkerChatLineBuild(lines: Array(lines.suffix(count)), sources: Array(sources.suffix(count)))
+    }
+}
+
 enum WorkerChatLineBuilder {
     static let maxNameLength = 16
     private static let actionVerb = "Cast"
-    private static let reportTag = "[Report]"
 
     private struct Tool {
         let name: String
@@ -72,23 +91,24 @@ enum WorkerChatLineBuilder {
         let timestamp: Date
         let workerID: String
         var sequence: Int
+        var sources: [Int]
         var body: Body
     }
 
     /// `records` must already be in chronological order. Same-worker actions in one minute fold
     /// unless a same-worker non-action or earlier-arriving other-worker line follows the run.
-    static func lines(
+    static func build(
         from records: [WorkerChatRecord],
         names: [String: String],
         agents: [String: String],
         calendar: Calendar
-    ) -> [WorkerChatLine] {
+    ) -> WorkerChatLineBuild {
         var drafts: [Draft] = []
         var openRuns: [String: Int] = [:]
         for record in records {
             guard case .action(let tool) = record.kind else {
                 openRuns[record.workerID] = nil
-                drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, body: .record(record)))
+                drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, sources: [record.sequence], body: .record(record)))
                 continue
             }
             if let index = openRuns[record.workerID],
@@ -101,39 +121,25 @@ enum WorkerChatLineBuilder {
                     tools.append(Tool(name: tool, count: 1))
                 }
                 drafts[index].sequence = min(drafts[index].sequence, record.sequence)
+                drafts[index].sources.append(record.sequence)
                 drafts[index].body = .run(tools)
                 continue
             }
             openRuns[record.workerID] = drafts.count
-            drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, body: .run([Tool(name: tool, count: 1)])))
+            drafts.append(Draft(id: "e\(record.sequence)", timestamp: record.timestamp, workerID: record.workerID, sequence: record.sequence, sources: [record.sequence], body: .run([Tool(name: tool, count: 1)])))
         }
 
-        var lines: [WorkerChatLine] = []
-        var lastHeader: Date?
-        for draft in drafts {
-            if lastHeader.map({ !calendar.isDate(draft.timestamp, equalTo: $0, toGranularity: .minute) }) ?? true {
-                let parts = calendar.dateComponents([.hour, .minute], from: draft.timestamp)
-                lines.append(WorkerChatLine(
-                    id: "h\(Int(floor(draft.timestamp.timeIntervalSince1970 / 60)))",
-                    content: .timeHeader(String(format: "[%02d:%02d]", parts.hour ?? 0, parts.minute ?? 0))
-                ))
-                lastHeader = draft.timestamp
-            }
-            let name = displayName(names[draft.workerID] ?? draft.workerID) + ":"
-            lines.append(WorkerChatLine(
-                id: draft.id,
-                content: .entry(agent: agents[draft.workerID] ?? "", segments: [WorkerChatSegment(name, .name)] + segments(for: draft.body))
-            ))
-        }
-        return lines
-    }
-
-    /// Entry ids are `e<sequence>` of the entry's first record; header ids start with `h`.
-    static func firstEntrySequence(in lines: [WorkerChatLine]) -> Int? {
-        guard let entry = lines.first(where: { $0.id.hasPrefix("e") }) else {
-            return nil
-        }
-        return Int(entry.id.dropFirst())
+        return WorkerChatLineBuild(
+            lines: drafts.map { draft in
+                WorkerChatLine(
+                    id: draft.id,
+                    time: timeLabel(draft.timestamp, calendar: calendar),
+                    agent: agents[draft.workerID] ?? "",
+                    segments: [WorkerChatSegment(displayName(names[draft.workerID] ?? draft.workerID) + ":", .name)] + segments(for: draft.body)
+                )
+            },
+            sources: drafts.map(\.sources)
+        )
     }
 
     static func displayName(_ title: String) -> String {
@@ -144,13 +150,18 @@ enum WorkerChatLineBuilder {
         return String(trimmed.prefix(maxNameLength)) + "…"
     }
 
+    private static func timeLabel(_ date: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+    }
+
     private static func segments(for body: Body) -> [WorkerChatSegment] {
         switch body {
         case .run(let tools):
             let calls = tools.map { $0.count > 1 ? "[\($0.name)](x\($0.count))" : "[\($0.name)]" }
             return [
                 WorkerChatSegment(" \(actionVerb) ", .muted),
-                WorkerChatSegment(calls.joined(separator: " "), .normal),
+                WorkerChatSegment(calls.joined(separator: " "), .rarity(.common)),
             ]
         case .record(let record):
             return segments(for: record)
@@ -166,12 +177,19 @@ enum WorkerChatLineBuilder {
                 WorkerChatSegment("[\(text.capitalized)]", style),
             ]
         case .report:
-            return [
-                WorkerChatSegment(" \(reportTag) ", .normal),
-                WorkerChatSegment(text, .muted),
-            ]
+            return itemSegments(verb: "Used item", item: "Debriefing Stone", rarity: .rare)
+        case .instructions:
+            return itemSegments(verb: "Received item", item: "Scroll of Orders", rarity: .epic)
         case .say, .message, .action:
             return [WorkerChatSegment(" " + text, .normal)]
         }
+    }
+
+    /// Report and instruction entries show their item tag only; their text is never drawn.
+    private static func itemSegments(verb: String, item: String, rarity: WorkerChatRarity) -> [WorkerChatSegment] {
+        [
+            WorkerChatSegment(" \(verb) ", .muted),
+            WorkerChatSegment("[\(item)]", .rarity(rarity)),
+        ]
     }
 }
