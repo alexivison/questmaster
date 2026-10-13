@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 // allPassRunner returns a mock that accepts any tmux command and reports
@@ -600,11 +601,21 @@ func TestSpawnCmd_PromptSetsInitialPrompt(t *testing.T) {
 	createManifest(t, store, "qm-master", "orch", cwd, "master")
 
 	task := "inspect the worker startup flow"
-	runCmd(t, store, allPassRunner(), "spawn", "--prompt", task, "qm-master", "worker-title")
+	out := runCmd(t, store, allPassRunner(), "spawn", "--prompt", task, "qm-master", "worker-title")
 
 	m := readOnlyNewManifest(t, store, "qm-master")
 	if got := m.ExtraString("initial_prompt"); got != task {
 		t.Fatalf("initial_prompt = %q, want %q", got, task)
+	}
+	var spawned struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(out), &spawned); err != nil {
+		t.Fatalf("decode spawn result: %v", err)
+	}
+	page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
+	if err != nil || len(page.Entries) != 1 || page.Entries[0].WorkerID != spawned.SessionID || page.Entries[0].Kind != "instructions" || page.Entries[0].Text != task {
+		t.Fatalf("spawn worker chat entries = %#v, %v", page.Entries, err)
 	}
 }
 

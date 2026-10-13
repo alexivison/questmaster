@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 func TestMain(m *testing.M) {
@@ -441,6 +442,80 @@ func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
 	}
 }
 
+func TestRelayFrom_LogsInstructionsFromParentMaster(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "plain", text: "start with the failing test", want: "start with the failing test"},
+		{name: "capped", text: strings.Repeat("x", 2000), want: workerfeed.CapText(strings.Repeat("x", 2000))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := setupStore(t)
+			createManifest(t, store, "qm-master", "master", "master")
+			createWorkerManifest(t, store, "qm-worker", "qm-master")
+
+			svc := newService(store, idleAndSendRunner(new([]string)))
+			if err := svc.RelayFrom(t.Context(), "qm-master", "qm-worker", tc.text); err != nil {
+				t.Fatalf("relay from: %v", err)
+			}
+			page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
+			if err != nil {
+				t.Fatalf("read feed: %v", err)
+			}
+			if len(page.Entries) != 1 || page.Entries[0].Kind != "instructions" || page.Entries[0].Text != tc.want {
+				t.Fatalf("instruction entries = %#v", page.Entries)
+			}
+			ss, err := state.LoadSessionStateAt(store.Root(), "qm-worker")
+			if err != nil || ss == nil {
+				t.Fatalf("load worker state = %v, %v", ss, err)
+			}
+			if got := ss.Panes[primaryRole].LastChatAt; !got.Equal(page.Entries[0].Timestamp) {
+				t.Fatalf("LastChatAt = %s, want entry timestamp %s", got, page.Entries[0].Timestamp)
+			}
+		})
+	}
+}
+
+func TestRelayFrom_DoesNotLogInstructionsFromOtherSenders(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		workerSend bool
+	}{
+		{name: "other master"},
+		{name: "peer worker", workerSend: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := setupStore(t)
+			createManifest(t, store, "qm-master", "master", "master")
+			createManifest(t, store, "qm-other", "other master", "master")
+			createWorkerManifest(t, store, "qm-worker", "qm-master")
+			senderID := "qm-other"
+			if tc.workerSend {
+				senderID = "qm-peer"
+				createWorkerManifest(t, store, senderID, "qm-other")
+			}
+
+			svc := newService(store, idleAndSendRunner(new([]string)))
+			if err := svc.RelayFrom(t.Context(), senderID, "qm-worker", "hello"); err != nil {
+				t.Fatalf("relay from %s: %v", senderID, err)
+			}
+			page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
+			if err != nil {
+				t.Fatalf("read feed: %v", err)
+			}
+			if len(page.Entries) != 0 {
+				t.Fatalf("entries from non-parent sender = %#v", page.Entries)
+			}
+		})
+	}
+}
+
 func TestRelay_OpenCodeRequiresIdleHookState(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -732,6 +807,13 @@ func TestBroadcastFrom_OnlyActualChildrenGetMasterPrefix(t *testing.T) {
 	if result.Delivered != 2 || len(sent) != 2 || sent[0] != "[MASTER:qm-master] hello" || sent[1] != "[FROM:qm-master] hello" {
 		t.Fatalf("result = %+v, sent = %v", result, sent)
 	}
+	page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
+	if err != nil {
+		t.Fatalf("read feed: %v", err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].WorkerID != "qm-child" || page.Entries[0].Kind != "instructions" || page.Entries[0].Text != "hello" {
+		t.Fatalf("broadcast instruction entries = %#v", page.Entries)
+	}
 }
 
 func TestBroadcastFrom_UnrelatedWorkerGetsNeutralPointer(t *testing.T) {
@@ -863,6 +945,10 @@ func TestBroadcastFrom_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("broadcast to a live worker whose send failed must surface an error, not silently report zero delivery")
+	}
+	page, readErr := workerfeed.ReadSince(store.Root(), "qm-master", nil)
+	if readErr != nil || len(page.Entries) != 0 {
+		t.Fatalf("failed delivery chat entries = %#v, %v", page.Entries, readErr)
 	}
 }
 

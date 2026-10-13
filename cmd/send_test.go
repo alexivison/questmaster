@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 func TestSendIsMessagingHelpPath(t *testing.T) {
@@ -35,6 +36,10 @@ func TestSendDirectPreservesSender(t *testing.T) {
 	out := runCmd(t, store, runner, "send", "qm-worker", "hello")
 	if !strings.Contains(out, `"recipient": "qm-worker"`) || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
 		t.Fatalf("send output = %q, payloads = %v", out, runner.sends)
+	}
+	page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
+	if err != nil || len(page.Entries) != 1 || page.Entries[0].WorkerID != "qm-worker" || page.Entries[0].Kind != "instructions" || page.Entries[0].Text != "hello" {
+		t.Fatalf("worker chat entries = %#v, %v", page.Entries, err)
 	}
 }
 
@@ -68,6 +73,15 @@ func TestSendAllBroadcastsFromMaster(t *testing.T) {
 	}
 	if len(runner.sends) != 2 || runner.sends[0] != "[MASTER:qm-master] hello" || runner.sends[1] != runner.sends[0] {
 		t.Fatalf("broadcast payloads = %v", runner.sends)
+	}
+	page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
+	if err != nil || len(page.Entries) != 2 {
+		t.Fatalf("worker chat entries = %#v, %v", page.Entries, err)
+	}
+	for _, entry := range page.Entries {
+		if entry.Kind != "instructions" || entry.Text != "hello" {
+			t.Fatalf("broadcast entry = %#v", entry)
+		}
 	}
 }
 

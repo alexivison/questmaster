@@ -106,6 +106,34 @@ func CapText(text string) string {
 	return text
 }
 
+// RecordChatEntryAt appends a feed entry and advances the primary pane's chat timestamp.
+func RecordChatEntryAt(root, sessionID, kind, text string, at time.Time) error {
+	if !validChatKind(kind) {
+		return fmt.Errorf("invalid chat kind %q", kind)
+	}
+	chatText := CapText(text)
+	event := &state.StateEvent{
+		Ts:     at,
+		Action: kind,
+		Fields: map[string]interface{}{
+			"chat_entries": []interface{}{map[string]interface{}{"chat_kind": kind, "chat_text": chatText}},
+		},
+	}
+	return state.UpdateAndLogAt(root, sessionID, event, func(ss *state.SessionState) bool {
+		if chatText == "" {
+			return false
+		}
+		pane, ok := ss.Panes["primary"]
+		if !ok {
+			pane = state.PaneState{Role: "primary"}
+		}
+		pane.LastChatAt = event.Ts
+		ss.Panes["primary"] = pane
+		ss.SeenAt = event.Ts
+		return true
+	})
+}
+
 // ReadSince returns bounded new entries for the workers listed by a master's manifest.
 func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, error) {
 	workers, err := workersForMaster(root, masterID, "")
@@ -631,7 +659,7 @@ func deriveWorkerEvent(worker worker, fileID string, offset int64, event state.S
 
 func validChatKind(kind string) bool {
 	switch kind {
-	case "status", "action", "message", "report", "say":
+	case "status", "action", "message", "report", "say", "instructions":
 		return true
 	default:
 		return false
@@ -779,6 +807,8 @@ func renderEntry(entry Entry, expandTools bool) string {
 		return "Received status [" + label + "]"
 	case "report":
 		return "[Report] " + entry.Text
+	case "instructions":
+		return "[Instructions] " + entry.Text
 	case "message", "say":
 		return entry.Text
 	default:
