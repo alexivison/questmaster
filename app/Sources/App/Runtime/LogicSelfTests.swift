@@ -305,6 +305,8 @@ enum LogicSelfTests {
         let cap = TrackerPlateDesign.topLevelRing.boundingRect
         try expectClose(cap.width / cap.height, 56.0 / 42, "cap aspect ratio")
         try expectClose(cap.height, TrackerPlateDesign.topLevelBodyRect.height, "cap height")
+        try expectClose(cap.midX, TrackerPlateDesign.topLevelPortraitCenter.x, "cap centre against the disc's")
+        try expectClose(cap.midY, TrackerPlateDesign.topLevelPortraitCenter.y, "cap middle against the disc's")
 
         // The body's and the frame's square left corners stay behind the disc instead of poking out under it.
         let hiddenParts: [(name: String, part: Path, centre: CGPoint, side: CGFloat)] = [

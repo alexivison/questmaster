@@ -1726,11 +1726,14 @@ final class TrackerGlowNSView: NSView {
 }
 
 /// The notched cap behind a top-level portrait. It draws over the text, so the strips and text tuck under the
-/// portrait. Its outline comes from the silhouette beneath.
+/// portrait. Its outline comes from the silhouette beneath, which the plate's fills hide on the cap's right half:
+/// there the cap draws its own border over the plate's fill, so both tips stand the same border out of the cap.
 private struct TrackerPortraitBacking: View {
     var body: some View {
         Canvas { context, _ in
             context.fill(TrackerPlateDesign.topLevelRing, with: .color(AppPalette.line.swiftUI))
+            context.clip(to: TrackerPlateDesign.topLevelBody)
+            context.stroke(TrackerPlateDesign.topLevelRing, with: .color(AppPalette.line.swiftUI), style: TrackerPlateDesign.outlineStroke)
         }
         .frame(width: TrackerPlateDesign.topLevelSize.width, height: TrackerPlateDesign.topLevelSize.height)
     }
