@@ -77,7 +77,7 @@ struct SelectedSessionPanel: View {
             )
             TrackerPlateLine(
                 text: content.projectName,
-                font: AppFonts.trackerDetail,
+                font: AppFonts.monoSmall,
                 color: AppPalette.activeText,
                 x: Self.textX,
                 width: Self.textWidth,

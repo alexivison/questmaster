@@ -57,9 +57,10 @@ enum RenderPreview {
             size: CGSize(width: 950, height: 900),
             to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
         )
-        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected"] {
+        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
+        render(selectedSessionPanelView(), size: CGSize(width: 303, height: 70), to: "\(outputDir)/selected-session-panel.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -337,11 +338,15 @@ enum RenderPreview {
         let flags = Set(fixtureParts.dropFirst())
         let displayColor = ["yellow", "magenta"].first(where: flags.contains) ?? "lime"
         let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
-        let title = "Skills Improvements and stuff that ge..."
-        func session(_ id: String, role: String, agent: String = "codex", state: String = fixtureState(flags), lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
-            TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
+        // The "design" flag swaps in the strings the plate SVGs show, for side-by-side comparison with them.
+        let isDesign = flags.contains("design")
+        let title = isDesign ? "Improve fuzzy search ranking" : "Skills Improvements and stuff that ge..."
+        let repoName = isDesign ? "Scry" : "Title"
+        let defaultElapsed = isDesign ? 1_825_000 : 5_420_000
+        func session(_ id: String, role: String, agent: String = "codex", state: String = fixtureState(flags), lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int? = nil) -> TrackerSession {
+            TrackerSession(id: id, title: title, repoName: repoName, displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed ?? defaultElapsed)
         }
-        let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
+        let snippet = isDesign ? "Ranked exact matches and rec..." : "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
         var sessions: [TrackerSession]
         switch role {
         case "shell":
@@ -371,7 +376,7 @@ enum RenderPreview {
         )
         // The first row is the keyboard cursor, so park a throwaway row above the fixture.
         let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "shell", state: "active", snippet: "")
-        var repos = [TrackerRepo(id: "title", name: "Title", color: displayColor, sessions: sessions)]
+        var repos = [TrackerRepo(id: "title", name: repoName, color: displayColor, sessions: sessions)]
         if !highlightsFixtureRow {
             repos.insert(TrackerRepo(id: "cursor", name: "Cursor", color: "blue", sessions: [cursorRow]), at: 0)
         }
@@ -382,6 +387,21 @@ enum RenderPreview {
             navigation: NavigationStore(state: AppNavigationState(focusedRegion: focusedRegion)),
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The selected-session panel with the strings `Selected Session.svg` shows.
+    @MainActor
+    private static func selectedSessionPanelView() -> some View {
+        SelectedSessionPanel(
+            content: SelectedSessionPanelContent(
+                title: "Improve fuzzy search ranking",
+                id: "qm-1789532989",
+                projectName: "Questmaster",
+                projectColor: TrackerNameplateColor.barLightness(AppPalette.displayColorNames["blue"] ?? AppPalette.accent)
+            ),
+            onCopyID: { _ in }
         )
         .background(AppPalette.window.swiftUI)
     }

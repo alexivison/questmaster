@@ -236,8 +236,6 @@ enum AppFonts {
     static let trackerTitleSmall = monospaced(size: 10)
     /// Plate snippets at 11pt italic, as main set them.
     static let trackerSummary = monospaced(size: 11, italic: true)
-    /// The selected-session project name, 8pt as `Selected Session.svg` sets it. Plates use `monoSmall`.
-    static let trackerDetail = monospaced(size: 8)
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 }

@@ -28,6 +28,7 @@ enum LogicSelfTests {
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
         ("testTrackerSilhouetteOutlineStaysWithinItsBorder", testTrackerSilhouetteOutlineStaysWithinItsBorder),
+        ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -243,6 +244,43 @@ enum LogicSelfTests {
                 guard allowed.contains(outline.boundingBoxOfPath) else {
                     throw TestFailure("\(role) outline spikes past its border: \(outline.boundingBoxOfPath)")
                 }
+            }
+        }
+    }
+
+    private static func testTrackerPlatesKeepTheDesignsProportions() throws {
+        let scale = TrackerPlateDesign.scale
+        func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String) throws {
+            try expect(abs(value - expected) < 0.01, "\(name) should be \(expected), got \(value)")
+        }
+
+        // Every height is the SVG's, scaled by the same factor, so the portrait keeps the SVG's share of the plate.
+        try expectClose(TrackerPlateDesign.portraitSideTopLevel, 50 * scale, "master portrait")
+        try expectClose(TrackerPlateDesign.topLevelBodyRect.height, 40.5 * scale, "master body")
+        try expectClose(TrackerPlateDesign.topLevelSummaryRect.height, 11 * scale, "master snippet strip")
+        try expectClose(TrackerPlateDesign.topLevelBarRect.height, 8 * scale, "master project bar")
+        try expectClose(TrackerPlateDesign.portraitSideWorker, 40 * scale, "worker portrait")
+        try expectClose(TrackerPlateDesign.workerBodyRect.height, 33.5 * scale, "worker body")
+        try expectClose(TrackerPlateDesign.workerSummaryRect.height, 8 * scale, "worker snippet strip")
+        try expectClose(TrackerPlateDesign.workerTimeRect.height, 8 * scale, "worker time strip")
+
+        // The cap keeps the SVG's 56 x 42 shape and stands as tall as the body: it is scaled, never stretched.
+        let cap = TrackerPlateDesign.topLevelRing.boundingRect
+        try expectClose(cap.width / cap.height, 56.0 / 42, "cap aspect ratio")
+        try expectClose(cap.height, TrackerPlateDesign.topLevelBodyRect.height, "cap height")
+
+        // The body's and the frame's square left corners stay behind the disc instead of poking out under it.
+        let hiddenParts: [(name: String, part: Path, centre: CGPoint, side: CGFloat)] = [
+            ("master body", TrackerPlateDesign.topLevelBody, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
+            ("master frame", TrackerPlateDesign.topLevelFrameRegion, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
+            ("worker body", TrackerPlateDesign.workerBody, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
+            ("worker frame", TrackerPlateDesign.workerFrameRegion, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
+        ]
+        for hidden in hiddenParts {
+            let bounds = hidden.part.boundingRect
+            for corner in [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.minX, y: bounds.maxY)] {
+                let distance = hypot(corner.x - hidden.centre.x, corner.y - hidden.centre.y)
+                try expect(distance < hidden.side / 2, "\(hidden.name)'s left corner \(corner) should sit inside the disc, \(distance) from its centre")
             }
         }
     }
