@@ -178,7 +178,6 @@ enum AppFonts {
     // fonts are not used for UI text.
     static let mono = monospaced(size: 12.5)
     static let monoSmall = monospaced(size: 11)
-    static let monoSmallItalic = monospaced(size: 11, italic: true)
     static let monoBold = monospaced(size: 12.5, weight: .semibold)
 
     static func monospaced(size: CGFloat, weight: NSFont.Weight = .regular, italic: Bool = false) -> NSFont {
@@ -232,6 +231,14 @@ enum AppFonts {
     /// Tracker plate and selected-session titles at 12pt, regular weight as the design draws them (the
     /// shared 12.5pt `itemTitle` lands its caps on half rows).
     static let trackerTitle = monospaced(size: 12)
+    /// Worker plate titles and the selected-session id, 10pt as `Tracker Item (Simplified).svg` sets them.
+    static let trackerTitleSmall = monospaced(size: 10)
+    /// Top-level plate summaries, 10pt italic.
+    static let trackerSummary = monospaced(size: 10, italic: true)
+    /// Project names on the project bar, 8pt.
+    static let trackerDetail = monospaced(size: 8)
+    /// Worker summaries and elapsed times, 8pt italic.
+    static let trackerDetailItalic = monospaced(size: 8, italic: true)
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 }

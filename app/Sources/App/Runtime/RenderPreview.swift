@@ -57,8 +57,8 @@ enum RenderPreview {
             size: CGSize(width: 950, height: 900),
             to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
         )
-        for role in ["shell", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused"] {
-            render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
+        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected"] {
+            render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 320), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
@@ -332,7 +332,7 @@ enum RenderPreview {
         let displayColor = ["yellow", "magenta"].first(where: flags.contains) ?? "lime"
         let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
         let title = "Skills Improvements and stuff that ge..."
-        func session(_ id: String, role: String, agent: String = "codex", state: String = flags.contains("error") ? "error" : "working", lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
+        func session(_ id: String, role: String, agent: String = "codex", state: String = flags.contains("error") ? "error" : (flags.contains("idle") ? "idle" : "working"), lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
             TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
         }
         let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
