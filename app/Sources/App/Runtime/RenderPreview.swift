@@ -35,9 +35,7 @@ enum RenderPreview {
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
-        for fixture in ["master", "worker", "standalone", "none"] {
-            render(actionBarFooterView(fixture: fixture), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-\(fixture).png")
-        }
+        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
@@ -48,7 +46,7 @@ enum RenderPreview {
         render(chatItemWrappedView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 120), autoHeight: true, to: "\(outputDir)/chat-item-wrapped.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
-        render(actionBarFooterView(fixture: "master"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
+        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: false, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-tracker-hidden.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: false), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-dock-hidden.png")
@@ -121,35 +119,17 @@ enum RenderPreview {
         let footer = ActionBarShellView()
         footer.update(
             navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockVisible),
-            session: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
-            role: .master,
             dockContentMode: .artifacts
         )
         return ShellRootContainerView(splitView: splitView, footer: footer)
     }
 
-    /// `fixture` selects one of the footer's session-panel variants: a master, a worker, a
-    /// standalone session, or no session at all.
     @MainActor
-    private static func actionBarFooterView(fixture: String) -> some View {
-        let model = ActionBarFooterModel()
-        switch fixture {
-        case "master":
-            model.sessionChip = SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex")
-            model.sessionRole = .master
-        case "worker":
-            model.sessionChip = SelectedSessionChip(title: "Fix something longer than this", id: "worker-2", agent: "claude")
-            model.sessionRole = .worker
-        case "standalone":
-            model.sessionChip = SelectedSessionChip(title: "Refine shell aliases for faster navigation", id: "root-1", agent: "codex")
-            model.sessionRole = .standalone
-        default:
-            break
-        }
-        return ActionBarFooterView(
-            model: model,
+    private static func actionBarFooterView() -> some View {
+        ActionBarFooterView(
+            model: ActionBarFooterModel(),
             onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
-            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
+            onToggleCaffeine: {}, onOpenSettings: {}
         )
     }
 
@@ -278,15 +258,13 @@ enum RenderPreview {
     private static func actionBarSlotsView(dockContentMode: DockContentMode = .artifacts) -> some View {
         let model = ActionBarFooterModel(
             navigation: AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true),
-            sessionChip: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
-            sessionRole: .master,
             caffeineActive: true,
             dockContentMode: dockContentMode
         )
         return ActionBarFooterView(
             model: model,
             onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
-            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
+            onToggleCaffeine: {}, onOpenSettings: {}
         )
     }
 
@@ -516,8 +494,9 @@ enum RenderPreview {
                         .font(AppFonts.monoSmall.swiftUI)
                         .foregroundStyle(AppPalette.muted.swiftUI)
                         .frame(width: 108, alignment: .leading)
-                    TrackerColorBar(color: color, strokeColor: AppPalette.line, isWorking: false)
-                    TrackerDiamond(color: color)
+                    Rectangle()
+                        .fill(TrackerNameplateColor.barShade(TrackerNameplateColor.barLightness(color), stop: TrackerNameplateRole.projectBarFillStop).swiftUI)
+                        .frame(width: 241, height: 8)
                 }
                 .frame(height: 13)
             }

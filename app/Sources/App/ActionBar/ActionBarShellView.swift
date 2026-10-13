@@ -22,13 +22,12 @@ final class ActionBarShellView: NSView {
     var onOpenWorkerChat: (() -> Void)?
     var onToggleCaffeine: (() -> Void)?
     var onOpenSettings: (() -> Void)?
-    var onCopySessionID: ((String) -> Void)?
 
     init() {
         hostingView = ActionBarHostingView(rootView: ActionBarFooterView(
             model: model,
             onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
-            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }
+            onToggleCaffeine: {}, onOpenSettings: {}
         ))
         super.init(frame: .zero)
 
@@ -41,8 +40,7 @@ final class ActionBarShellView: NSView {
             onOpenQuests: { [weak self] in self?.onOpenQuests?() },
             onOpenWorkerChat: { [weak self] in self?.onOpenWorkerChat?() },
             onToggleCaffeine: { [weak self] in self?.onToggleCaffeine?() },
-            onOpenSettings: { [weak self] in self?.onOpenSettings?() },
-            onCopySessionID: { [weak self] sessionID in self?.onCopySessionID?(sessionID) }
+            onOpenSettings: { [weak self] in self?.onOpenSettings?() }
         )
 
         hostingView.translatesAutoresizingMaskIntoConstraints = false
@@ -61,14 +59,13 @@ final class ActionBarShellView: NSView {
     }
 
     /// Top-left origin, matching `ActionBarFooterView`'s own SwiftUI (and so `ActionBarMetrics`'s)
-    /// coordinate convention — so `hitTest`'s shape maths below doesn't need a separate flip.
+    /// coordinate convention, so `hitTest`'s rects need no separate flip.
     override var isFlipped: Bool { true }
 
-    /// The footer has no background (the window behind it already is `AppPalette.window`, and
-    /// painting one would hide the dock, now the window's full height, under the whole strip).
-    /// Hit-testing follows the same rule: only the actual plate/slot/pill shapes should claim a
-    /// click — everywhere else, including the margins outside the centred content block, must
-    /// fall through to whatever is behind (the dock, where the two overlap).
+    /// The footer has no background of its own: the dragon frame is opaque art, and everything else
+    /// is transparent. Hit-testing follows the same rule: only the bar and the slots claim a click,
+    /// and everything else, including the dragons and the margins, falls through to whatever is
+    /// behind (the dock, where the two overlap).
     override func hitTest(_ point: NSPoint) -> NSView? {
         let contentX = (bounds.width - ActionBarMetrics.plateWidth) / 2
         let local = CGPoint(x: point.x - contentX, y: point.y)
@@ -79,7 +76,7 @@ final class ActionBarShellView: NSView {
     }
 
     private func isOnActionBarShape(_ point: CGPoint) -> Bool {
-        if ActionBarPlateOutlines.slotBar.contains(point) || currentPanelPath.contains(point) {
+        if ActionBarMetrics.barHitRect.contains(point) {
             return true
         }
         return (0..<ActionBarMetrics.slotCount).contains { index in
@@ -87,27 +84,10 @@ final class ActionBarShellView: NSView {
         }
     }
 
-    private var currentPanelPath: Path {
-        switch ActionBarSessionPanelVariant(role: model.sessionRole) {
-        case .master: ActionBarPlateOutlines.masterPanel
-        case .standalone: ActionBarPlateOutlines.standalonePanel
-        case .worker: ActionBarPlateOutlines.workerPanel
-        }
-    }
-
-    func update(
-        navigation: AppNavigationState,
-        session: SelectedSessionChip?,
-        role: SessionRoleKind?,
-        dockContentMode: DockContentMode
-    ) {
+    func update(navigation: AppNavigationState, dockContentMode: DockContentMode) {
         if model.navigation != navigation {
             model.navigation = navigation
         }
-        if model.sessionChip != session {
-            model.sessionChip = session
-        }
-        model.sessionRole = role
         model.dockContentMode = dockContentMode
     }
 

@@ -64,7 +64,7 @@ enum LogicSelfTests {
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
         ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
-        ("testActionBarFooterBottomGapMeasuresFromBarBand", testActionBarFooterBottomGapMeasuresFromBarBand),
+        ("testActionBarSlotsCentreInsideFooter", testActionBarSlotsCentreInsideFooter),
         ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
         ("testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide", testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide),
         ("testWorkerChatFollowerDoesNotGlideOnTrimOrResize", testWorkerChatFollowerDoesNotGlideOnTrimOrResize),
@@ -211,6 +211,7 @@ enum LogicSelfTests {
         let distinctGroups: [(agent: String, state: String)] = [
             ("codex", "working"), ("codex", "idle"), ("claude", "working"), ("claude", "idle"),
             ("pi", "blocked"), ("opencode", "idle"), ("pi", "working"), ("opencode", "working"),
+            ("codex", "blocked"), ("claude", "blocked"), ("pi", "idle"), ("opencode", "blocked"),
         ]
         let fit = TrackerWorkerSummary.maxPills
         try expect(fit >= 2 && fit < distinctGroups.count, "pill capacity should be a small positive number, got \(fit)")
@@ -2081,21 +2082,18 @@ enum LogicSelfTests {
         )
     }
 
-    /// The footer's bottom gap is `ShellMetrics.gap` measured from the bar band's bottom edge, and
-    /// every panel variant's outline (shield tip included) stays inside the footer.
-    private static func testActionBarFooterBottomGapMeasuresFromBarBand() throws {
+    /// The slot run is centred on the frame, and the bar's hit area sits inside the footer.
+    private static func testActionBarSlotsCentreInsideFooter() throws {
+        let runStart = ActionBarMetrics.slotX(at: 0)
+        let runEnd = ActionBarMetrics.slotX(at: ActionBarMetrics.slotCount - 1) + ActionBarMetrics.slotSize
         try expect(
-            ActionBarMetrics.footerHeight - ActionBarMetrics.barBandBottomEdge == ShellMetrics.gap,
-            "footer bottom gap should be \(ShellMetrics.gap) from the bar band, got \(ActionBarMetrics.footerHeight - ActionBarMetrics.barBandBottomEdge)"
+            (runStart + runEnd) / 2 == ActionBarMetrics.plateWidth / 2,
+            "slot run should centre on the frame, got centre \((runStart + runEnd) / 2)"
         )
-        let panels = [ActionBarPlateOutlines.masterPanel, ActionBarPlateOutlines.standalonePanel, ActionBarPlateOutlines.workerPanel, ActionBarPlateOutlines.slotBar]
-        for panel in panels {
-            let bounds = panel.boundingRect
-            try expect(
-                bounds.minY >= 0 && bounds.maxY <= ActionBarMetrics.footerHeight,
-                "plate outline should sit inside the footer, got \(bounds.minY)...\(bounds.maxY) of \(ActionBarMetrics.footerHeight)"
-            )
-        }
+        try expect(
+            ActionBarMetrics.barHitRect.minY >= 0 && ActionBarMetrics.barHitRect.maxY <= ActionBarMetrics.footerHeight,
+            "bar hit area should sit inside the footer, got \(ActionBarMetrics.barHitRect)"
+        )
     }
 
     /// Root cause of the scrollbar gutter resisting four prior fix PRs (#222/#223/#225/#226):

@@ -12,8 +12,6 @@ final class ShellFocusCoordinator {
     private let trackerHosting: () -> NSView?
     private let dockView: () -> SwiftUIDockPane?
     private let terminalHost: () -> TerminalPaneHosting?
-    private let selectedSessionChip: () -> SelectedSessionChip?
-    private let selectedSessionRole: () -> SessionRoleKind?
     private let updateDockTabs: () -> Void
 
     init(
@@ -26,8 +24,6 @@ final class ShellFocusCoordinator {
         trackerHosting: @escaping () -> NSView?,
         dockView: @escaping () -> SwiftUIDockPane?,
         terminalHost: @escaping () -> TerminalPaneHosting?,
-        selectedSessionChip: @escaping () -> SelectedSessionChip?,
-        selectedSessionRole: @escaping () -> SessionRoleKind?,
         updateDockTabs: @escaping () -> Void
     ) {
         self.navigation = navigation
@@ -39,8 +35,6 @@ final class ShellFocusCoordinator {
         self.trackerHosting = trackerHosting
         self.dockView = dockView
         self.terminalHost = terminalHost
-        self.selectedSessionChip = selectedSessionChip
-        self.selectedSessionRole = selectedSessionRole
         self.updateDockTabs = updateDockTabs
     }
 
@@ -89,8 +83,6 @@ final class ShellFocusCoordinator {
         dockShell()?.setRegionActive(navigation.focusedRegion == .dock)
         footerShell()?.update(
             navigation: navigation.state,
-            session: selectedSessionChip(),
-            role: selectedSessionRole(),
             dockContentMode: dockView()?.currentMode ?? .artifacts
         )
         updateDockTabs()

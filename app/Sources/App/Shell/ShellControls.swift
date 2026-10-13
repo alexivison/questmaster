@@ -49,7 +49,7 @@ enum ShellMetrics {
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
         dockDividerHitWidth: 7,
-        trackerMaxWidth: Double(TrackerListMetrics.rootPlateWidth) + Double(gap),
+        trackerMaxWidth: Double(TrackerListMetrics.contentWidth) + Double(gap),
         trackerLeadingInset: Double(trackerLeadingInset),
         trackerTrailingGap: Double(trackerTrailingGap),
         terminalToDockGap: Double(horizontalFlushGap),
@@ -58,8 +58,3 @@ enum ShellMetrics {
     )
 }
 
-struct SelectedSessionChip: Equatable {
-    let title: String
-    let id: String
-    let agent: String
-}
