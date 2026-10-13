@@ -201,7 +201,7 @@ public struct TrackerSession: Decodable, Equatable {
         displayColor: String = "",
         worktreePath: String = "",
         agent: String = "",
-        role: String = "standalone",
+        role: String = "shell",
         state: String = "idle",
         lifecycle: String = "active",
         snippet: String = "",
@@ -276,13 +276,25 @@ public struct TrackerSession: Decodable, Equatable {
         agent = try container.decodeIfPresent(String.self, forKey: .agent)
             ?? container.decodeIfPresent(String.self, forKey: .primary_agent)
             ?? ""
-        role = try container.decodeIfPresent(String.self, forKey: .session_type) ?? "standalone"
+        let sessionType = try container.decodeIfPresent(String.self, forKey: .session_type) ?? ""
+        parentID = try container.decodeIfPresent(String.self, forKey: .parent_id) ?? ""
+		if !parentID.isEmpty {
+			role = "worker"
+		} else if AgentKind(name: agent) != .shell {
+			role = "master"
+        } else {
+            switch sessionType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "tmux", "orphan":
+                role = sessionType
+            default:
+                role = "shell"
+            }
+        }
         lifecycle = try container.decode(String.self, forKey: .status)
         state = try container.decodeIfPresent(String.self, forKey: .state)
             ?? (lifecycle == "stopped" ? "stopped" : "idle")
         snippet = try container.decodeIfPresent(String.self, forKey: .latest_activity) ?? ""
         lastKind = try container.decodeIfPresent(String.self, forKey: .last_kind) ?? ""
-        parentID = try container.decodeIfPresent(String.self, forKey: .parent_id) ?? ""
         workerCount = try container.decode(Int.self, forKey: .worker_count)
         elapsedSeedMS = try container.decode(Int.self, forKey: .elapsed_ms)
         elapsedSince = TrackerSession.parseInstant(

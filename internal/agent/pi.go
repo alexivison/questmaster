@@ -45,7 +45,7 @@ func (p *Pi) BuildCmd(opts CmdOpts) string {
 
 	cmd := fmt.Sprintf("export PATH=%s; exec %s",
 		config.ShellQuote(opts.AgentPath), config.ShellQuote(binary))
-	systemPrompt := systemPromptForRole(opts.Role, p.MasterPrompt(), p.StandalonePrompt(), p.WorkerPrompt(), opts.SystemBrief)
+	systemPrompt := systemPromptForRole(opts.Role, p.MasterPrompt(), p.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " --append-system-prompt " + config.ShellQuote(systemPrompt)
 	}

@@ -40,5 +40,5 @@ func (s *Store) SetDisplayColor(sessionID, color string) error {
 }
 
 func manifestIsWorker(m Manifest) bool {
-	return m.SessionType != "master" && m.ExtraString("parent_session") != ""
+	return m.AgentSessionType() == "worker"
 }

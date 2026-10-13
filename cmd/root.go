@@ -78,7 +78,6 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newStartCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newContinueCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newDeleteCmd(o.store, o.client, o.repoRoot))
-	root.AddCommand(newPromoteCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newSpawnCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newSendCmd(o.store, o.client))
 	root.AddCommand(newReadCmd(o.store, o.client))

@@ -218,7 +218,7 @@ func workersForMaster(root, masterID, filter string) ([]worker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read master manifest: %w", err)
 	}
-	if manifest.SessionType != "master" {
+	if manifest.AgentSessionType() != "master" {
 		return nil, fmt.Errorf("session %q is not a master", masterID)
 	}
 	if filter != "" && !state.IsValidSessionID(filter) {

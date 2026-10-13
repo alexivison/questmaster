@@ -42,7 +42,7 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 	if err != nil {
 		return StartResult{}, fmt.Errorf("read master manifest: %w", err)
 	}
-	if m.SessionType != "master" {
+	if m.AgentSessionType() != "master" {
 		return StartResult{}, fmt.Errorf("session %q is not a master", masterID)
 	}
 

@@ -41,7 +41,7 @@ struct ContractFixtureTests {
         expect(suggestions.recents == ["/tmp/project-app"], "dir_suggest recents did not decode")
 
         let models = try decodeFixture(ModelsFixture.self, "models_payload.json")
-        expect(models.agent == "claude" && models.role == "standalone", "models agent/role did not decode")
+        expect(models.agent == "claude" && models.role == "master", "models agent/role did not decode")
         expect(models.defaultModel == "sonnet", "models role default did not decode")
         expect(models.source == "catalog", "models source did not decode")
         expect(models.models.count == 3, "models list did not decode")

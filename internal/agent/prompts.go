@@ -76,7 +76,7 @@ var workerPromptMD string
 
 var artifactPromptGuide = strings.TrimSpace(artifactGuideMD)
 
-// commonPromptGuide covers the questmaster CLI surface (list/read/promote),
+// commonPromptGuide covers the questmaster CLI surface (list/read),
 // the sub-agent vs Questmaster worker delegation boundary, and the
 // worktree-before-spawn hint. It is injected into every role's prompt below.
 var commonPromptGuide = strings.TrimSpace(commonGuideMD)
@@ -88,11 +88,6 @@ var masterPrompt = strings.TrimRight(masterPromptMD, "\n") + `
 (7) ` + commonPromptGuide + `
 (8) ` + questPromptGuide + `
 (9) ` + artifactPromptGuide
-
-// standalonePrompt is the canonical system prompt for standalone sessions:
-// just the common guide plus the quest/artifact guides, no role-specific
-// rules.
-var standalonePrompt = commonPromptGuide + " " + questPromptGuide + " " + artifactPromptGuide
 
 // workerPrompt is the canonical system prompt for worker sessions.
 var workerPrompt = strings.TrimRight(workerPromptMD, "\n") + `

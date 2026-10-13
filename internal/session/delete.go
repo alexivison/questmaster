@@ -30,7 +30,7 @@ func (s *Service) DeleteWorkers(ctx context.Context, masterID string) error {
 		return err
 	}
 	m, err := s.Store.Read(masterID)
-	if err != nil || m.SessionType != "master" {
+	if err != nil || m.AgentSessionType() != "master" {
 		return nil
 	}
 	for _, workerID := range m.Workers {

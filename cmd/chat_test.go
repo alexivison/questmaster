@@ -228,7 +228,7 @@ func TestChatCommandDiscoversCurrentMaster(t *testing.T) {
 
 func createFeedManifests(t *testing.T, store *state.Store, masterID string, workers ...string) {
 	t.Helper()
-	manifest := state.Manifest{SessionID: masterID, SessionType: "master", Workers: workers}
+	manifest := state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: workers}
 	if err := store.Create(manifest); err != nil {
 		t.Fatal(err)
 	}

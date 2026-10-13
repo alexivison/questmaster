@@ -73,7 +73,7 @@ spawn --model accept any id the harness understands, listed or not.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.role, "role", "standalone", "role the model would launch in (standalone, master, worker)")
+	cmd.Flags().StringVar(&opts.role, "role", "master", "role the model would launch in (master or worker)")
 	cmd.Flags().StringVar(&opts.query, "query", "", "filter models by substring")
 	cmd.Flags().IntVar(&opts.limit, "limit", 0, "maximum models to list (0 uses the default)")
 	cmd.Flags().BoolVar(&opts.refresh, "refresh", false, "refetch the model catalog instead of using the cache")
@@ -81,20 +81,17 @@ spawn --model accept any id the harness understands, listed or not.`,
 	return cmd
 }
 
-// parseModelsRoleFlag validates --role against the values modelsuggest.ParseRole
-// treats meaningfully. ParseRole itself defaults anything unrecognized to
-// standalone with no error, which would otherwise let a typo like "wrker"
-// silently change semantics instead of failing loudly.
+// parseModelsRoleFlag validates --role before it reaches model resolution.
 func parseModelsRoleFlag(value string) (agent.SessionRole, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "standalone":
-		return agent.RoleStandalone, nil
-	case "master", "primary":
+	case "master":
 		return agent.RoleMaster, nil
 	case "worker":
 		return agent.RoleWorker, nil
+	case "":
+		return agent.RoleMaster, nil
 	default:
-		return agent.RoleStandalone, fmt.Errorf("invalid --role %q (want standalone, master, or worker)", value)
+		return agent.RoleMaster, fmt.Errorf("invalid --role %q (want master or worker)", value)
 	}
 }
 

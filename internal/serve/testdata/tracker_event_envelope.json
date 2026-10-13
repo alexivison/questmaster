@@ -7,7 +7,7 @@
     "current": {
       "id": "qm-demo",
       "title": "Serve runtime JSON",
-      "session_type": "standalone"
+      "session_type": "master"
     },
     "sessions": [
       {
@@ -22,7 +22,7 @@
         "last_kind": "PreToolUse",
         "worktree_path": "/tmp/questmaster/worktrees/app-contract",
         "primary_agent": "codex",
-        "session_type": "standalone",
+        "session_type": "master",
         "worker_count": 1,
         "is_current": true,
         "artifacts": [

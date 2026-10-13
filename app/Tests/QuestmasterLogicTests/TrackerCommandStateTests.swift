@@ -272,7 +272,7 @@ struct TrackerCommandStateTests {
         repoIdentity: String = "/repo/.git",
         displayColor: String = "",
         repoColor: String = "",
-        role: String = "standalone",
+        role: String = "master",
         state: String = "idle",
         lifecycle: String = "active",
         parentID: String = "",

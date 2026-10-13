@@ -76,13 +76,9 @@ func collectStatus(ctx context.Context, store *state.Store, client *tmux.Client,
 		return result, nil
 	}
 
-	stype := m.SessionType
-	if stype == "" {
-		stype = "regular"
-	}
 	result.Manifest = statusManifestJSON{
 		Present:     true,
-		SessionType: stype,
+		SessionType: m.SessionRole(),
 		Title:       m.Title,
 		Cwd:         m.Cwd,
 		CreatedAt:   m.CreatedAt,

@@ -21,8 +21,8 @@ func discoverMasterSession(ctx context.Context, store *state.Store, client *tmux
 	if err != nil {
 		return "", fmt.Errorf("read manifest for %q: %w", name, err)
 	}
-	if m.SessionType != "master" {
-		return "", fmt.Errorf("session %q is not a master session (type: %q)", name, m.SessionType)
+	if m.AgentSessionType() != "master" {
+		return "", fmt.Errorf("session %q is not a master session (type: %q)", name, m.AgentSessionType())
 	}
 	return name, nil
 }

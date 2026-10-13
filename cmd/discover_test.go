@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
@@ -75,7 +76,7 @@ func TestDiscoverSessionPrefersQuestmasterSessionEnv(t *testing.T) {
 func TestWorkersCmd_AutoDiscover_Success(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
 	store := setupStore(t)
-	createManifest(t, store, "qm-master", "master", "/tmp", "master")
+	createManifest(t, store, "qm-master", "master", "/tmp", "")
 	createWorkerManifest(t, store, "qm-w1", "qm-master")
 
 	out := runCmd(t, store, displayRunner("qm-master", "qm-w1"), "workers")
@@ -92,6 +93,9 @@ func TestWorkersCmd_AutoDiscover_NotMaster(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
 	store := setupStore(t)
 	createManifest(t, store, "qm-regular", "regular", "/tmp", "regular")
+	if err := store.Update("qm-regular", func(m *state.Manifest) { m.SetExtra("parent_session", "qm-parent") }); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := runCmdErr(t, store, displayRunner("qm-regular"), "workers")
 	if err == nil {

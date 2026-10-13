@@ -406,7 +406,7 @@ func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
 	store := setupStore(t)
 	createManifest(t, store, "qm-parent", "parent", "master")
 	createManifest(t, store, "qm-other-master", "other master", "master")
-	createManifest(t, store, "qm-standalone", "standalone", "")
+	createManifest(t, store, "qm-root", "root", "")
 	createWorkerManifest(t, store, "qm-worker", "qm-parent")
 	createWorkerManifest(t, store, "qm-child-parent", "qm-parent")
 	createWorkerManifest(t, store, "qm-nested", "qm-child-parent")
@@ -416,7 +416,7 @@ func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
 	for _, tc := range []struct{ sender, want string }{
 		{"qm-parent", "[MASTER:qm-parent] hello"},
 		{"qm-other-master", "[FROM:qm-other-master] hello"},
-		{"qm-standalone", "[FROM:qm-standalone] hello"},
+		{"qm-root", "[FROM:qm-root] hello"},
 	} {
 		if err := svc.RelayFrom(t.Context(), tc.sender, "qm-worker", "hello"); err != nil {
 			t.Fatal(err)
@@ -437,8 +437,8 @@ func TestRelayFrom_OnlyParentGetsMasterPrefix(t *testing.T) {
 	if err := svc.RelayFrom(t.Context(), "qm-parent", "qm-worker", "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if got := sent[len(sent)-1]; got != "[FROM:qm-parent] hello" {
-		t.Fatalf("promoted child was treated as worker: %q", got)
+	if got := sent[len(sent)-1]; got != "[MASTER:qm-parent] hello" {
+		t.Fatalf("parent-linked child lost worker semantics: %q", got)
 	}
 }
 
@@ -1351,33 +1351,30 @@ func TestReport_LogsCappedFeedEntry(t *testing.T) {
 	}
 }
 
-func TestReport_PromotedChildUsesFromPrefix(t *testing.T) {
+func TestReport_ParentLinkedSessionUsesWorkerPrefix(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-master", "master", "master")
 	createWorkerManifest(t, store, "qm-child", "qm-master")
-	if err := store.Update("qm-child", func(m *state.Manifest) { m.SessionType = "master" }); err != nil {
-		t.Fatal(err)
-	}
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	if err := svc.Report(t.Context(), "qm-child", "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if len(sent) != 1 || sent[0] != "[FROM:qm-child] hello" {
-		t.Fatalf("promoted child payloads = %v", sent)
+	if len(sent) != 1 || sent[0] != "[WORKER:qm-child] hello" {
+		t.Fatalf("worker report payloads = %v", sent)
 	}
 	if err := svc.Report(t.Context(), "qm-child", strings.Repeat("x", LargeMessageThreshold+1)); err != nil {
 		t.Fatal(err)
 	}
-	if len(sent) != 2 || !strings.HasPrefix(sent[1], "[FROM:qm-child] Message available at ") || strings.Contains(sent[1], "Worker report") {
-		t.Fatalf("promoted child pointer = %v", sent)
+	if len(sent) != 2 || !strings.HasPrefix(sent[1], "[WORKER:qm-child] Worker report available at ") {
+		t.Fatalf("worker report pointer = %v", sent)
 	}
 	path := relayFilePathFromPointer(t, sent[1])
 	t.Cleanup(func() { os.Remove(path) })
 	content, err := os.ReadFile(path)
-	if err != nil || !strings.HasPrefix(string(content), "[FROM:qm-child] ") {
-		t.Fatalf("promoted child file = %q, err = %v", content, err)
+	if err != nil || !strings.HasPrefix(string(content), "[WORKER:qm-child] ") {
+		t.Fatalf("worker report file = %q, err = %v", content, err)
 	}
 }
 

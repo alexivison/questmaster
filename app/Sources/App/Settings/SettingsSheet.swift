@@ -34,7 +34,7 @@ struct SettingsSheetView: View {
     @StateObject private var model: SettingsSheetModel
 
     /// Role groups shown for the active tab, top-to-bottom.
-    private static let roleGroups = [("master", "Master"), ("standalone", "Standalone"), ("worker", "Worker")]
+    private static let roleGroups = [("master", "Master"), ("worker", "Worker")]
 
     private enum Metrics {
         static let sidebarWidth: CGFloat = 224

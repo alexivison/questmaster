@@ -3,14 +3,14 @@ import QuestmasterCore
 
 struct TrackerPlateVariantTests {
     static func run() {
-        masterAndStandaloneShareTheTopLevelPlate()
+        masterAndShellShareTheTopLevelPlate()
         workersUseTheWorkerPlate()
         print("TrackerPlateVariantTests: all tests passed")
     }
 
-    private static func masterAndStandaloneShareTheTopLevelPlate() {
+    private static func masterAndShellShareTheTopLevelPlate() {
         expect(TrackerPlateVariant(role: .master) == .topLevel, "master should use the top-level plate")
-        expect(TrackerPlateVariant(role: .standalone) == .topLevel, "standalone should use the top-level plate")
+        expect(TrackerPlateVariant(role: .shell) == .topLevel, "shell should use the top-level plate")
         expect(TrackerPlateVariant(role: .tmux) == .topLevel, "tmux should use the top-level plate")
         expect(TrackerPlateVariant(role: .orphan) == .topLevel, "orphan should use the top-level plate")
     }

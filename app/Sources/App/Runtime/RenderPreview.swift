@@ -57,7 +57,7 @@ enum RenderPreview {
             size: CGSize(width: 950, height: 900),
             to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
         )
-        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "standalone-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused"] {
+        for role in ["shell", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
@@ -268,14 +268,14 @@ enum RenderPreview {
         )
     }
 
-    /// A list with a standalone, a shell row, a master with workers and a collapsed master with pills.
+    /// A list with a master, a shell row, a master with workers and a collapsed master with pills.
     @MainActor
     private static func breathingListView() -> some View {
-        func session(_ id: String, title: String, repo: String, color: String, agent: String = "codex", role: String = "standalone", state: String = "working", snippet: String, parentID: String = "", workers: Int = 0) -> TrackerSession {
+        func session(_ id: String, title: String, repo: String, color: String, agent: String = "codex", role: String = "master", state: String = "working", snippet: String, parentID: String = "", workers: Int = 0) -> TrackerSession {
             TrackerSession(id: id, title: title, repoName: repo, displayColor: color, agent: agent, role: role, state: state, snippet: snippet, parentID: parentID, workerCount: workers, elapsedSeedMS: 5_420_000)
         }
         let cursor = session("c", title: "Refine shell aliases for faster navigation", repo: "Dotfiles", color: "lime", snippet: "Implement request routing and recovery")
-        let shell = TrackerSession(id: "s", title: "Local shell", repoName: "Dotfiles", displayColor: "lime", agent: "shell", role: "standalone", state: "active", snippet: "")
+        let shell = TrackerSession(id: "s", title: "Local shell", repoName: "Dotfiles", displayColor: "lime", agent: "shell", role: "shell", state: "active", snippet: "")
         let master = session("m", title: "Design quest progression data model", repo: "Questmaster", color: "yellow", role: "master", snippet: "Update onboarding docs and reference", workers: 2)
         let workerA = session("m1", title: "Add worker grouping to renderer", repo: "Questmaster", color: "yellow", role: "worker", snippet: "Bash: rg -n sampleQuery src/", parentID: "m")
         let workerB = session("m2", title: "Review collapsed worker badges", repo: "Questmaster", color: "yellow", agent: "claude", role: "worker", state: "blocked", snippet: "Waiting for permission to edit files", parentID: "m")
@@ -338,14 +338,14 @@ enum RenderPreview {
         let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
         var sessions: [TrackerSession]
         switch role {
-        case "standalone":
-            sessions = [session("a", role: "standalone", snippet: snippet)]
+        case "shell":
+            sessions = [session("a", role: "shell", agent: "shell", snippet: snippet)]
         case "master":
             sessions = [session("a", role: "master", snippet: snippet)]
         case "worker":
             sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: snippet, parentID: "a", elapsed: 1_825_000)]
         case "stopped":
-            sessions = [session("a", role: "standalone", state: "stopped", lifecycle: "stopped", snippet: snippet)]
+            sessions = [session("a", role: "master", state: "stopped", lifecycle: "stopped", snippet: snippet)]
         default:
             sessions = [session("a", role: "master", snippet: snippet)]
             let twoGroups = [("codex", "working"), ("codex", "working"), ("claude", "idle"), ("claude", "idle")]
@@ -364,7 +364,7 @@ enum RenderPreview {
             expandedMasterIDs: role == "collapsed" || role == "overflow" ? [] : ["a"]
         )
         // The first row is the keyboard cursor, so park a throwaway row above the fixture.
-        let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "standalone", state: "active", snippet: "")
+        let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "shell", state: "active", snippet: "")
         var repos = [TrackerRepo(id: "title", name: "Title", color: displayColor, sessions: sessions)]
         if !highlightsFixtureRow {
             repos.insert(TrackerRepo(id: "cursor", name: "Cursor", color: "blue", sessions: [cursorRow]), at: 0)
@@ -389,7 +389,7 @@ enum RenderPreview {
             repoName: "Dotfiles",
             displayColor: "lime",
             agent: "codex",
-            role: "standalone",
+            role: "master",
             state: "working",
             snippet: "Implement request routing and recovery",
             elapsedSeedMS: 5_420_000
@@ -447,7 +447,7 @@ enum RenderPreview {
             repoName: "Dotfiles",
             displayColor: "lime",
             agent: "shell",
-            role: "standalone",
+            role: "shell",
             state: "active",
             lifecycle: "active",
             snippet: "cd /tmp"
@@ -458,7 +458,7 @@ enum RenderPreview {
             repoName: "Scry",
             displayColor: "magenta",
             agent: "claude",
-            role: "standalone",
+            role: "master",
             state: "needs-input",
             snippet: "Choose whether to keep the new adapter"
         )
@@ -468,7 +468,7 @@ enum RenderPreview {
             repoName: "Scry",
             displayColor: "magenta",
             agent: "claude",
-            role: "standalone",
+            role: "master",
             state: "blocked",
             snippet: "Adapter crashed while parsing",
             lastKind: "session.error"
@@ -673,7 +673,6 @@ enum RenderPreview {
     @MainActor
     private static func newSessionView() -> some View {
         let state = NewSessionViewState(model: NewSessionFormModel(
-            role: .standalone,
             initialPath: "/",
             initialFocus: .path
         ))
