@@ -191,17 +191,15 @@ public final class WorkerChatStore {
 
     private func rebuild() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
-        let visibleRecords = records.filter { agents[$0.workerID] != nil }
-        let hiddenRecords = records.filter { agents[$0.workerID] == nil }
-        var visibleKept = Array(visibleRecords.suffix(Self.maxLines))
-        let hiddenKept = Array(hiddenRecords.suffix(Self.trimTarget))
+        var visibleKept = records.filter { agents[$0.workerID] != nil }
+        let hiddenKept = Array(records.filter { agents[$0.workerID] == nil }.suffix(Self.trimTarget))
         var built = WorkerChatLineBuilder.lines(from: visibleKept, names: names, agents: agents, calendar: calendar)
         if built.count > Self.maxLines {
-            built = Self.trimmed(built, to: Self.trimTarget)
+            built = Array(built.suffix(Self.trimTarget))
             visibleKept = Self.recordsBehind(built, in: visibleKept)
             trimCount += 1
         }
-        // ponytail: independent visible and hidden caps bound cached history at maxLines + trimTarget.
+        // ponytail: the line trim bounds visible history; hidden history keeps only trimTarget records.
         records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
         setLines(built)
         updateReadNotice()
@@ -216,19 +214,7 @@ public final class WorkerChatStore {
         revision += 1
     }
 
-    /// Keeps exactly the newest `limit` lines. When the cut lands inside a minute, the header of that
-    /// minute stays in front of the cut, so the kept lines start on a header and no line is lost to
-    /// a seek forward. The builder opens every line list with a header, so one is always found.
-    private static func trimmed(_ built: [WorkerChatLine], to limit: Int) -> [WorkerChatLine] {
-        let suffix = Array(built.suffix(limit))
-        if isTimeHeader(suffix[0]) {
-            return suffix
-        }
-        let header = built.dropLast(limit).last(where: isTimeHeader) ?? built[0]
-        return [header] + suffix.dropFirst()
-    }
-
-    /// Drops the records behind the first entry that a trim kept, so the next rebuild doesn't bring
+    /// Drops the records behind the first line that a trim kept, so the next rebuild doesn't bring
     /// the trimmed lines back.
     private static func recordsBehind(_ kept: [WorkerChatLine], in visible: [WorkerChatRecord]) -> [WorkerChatRecord] {
         guard let sequence = WorkerChatLineBuilder.firstEntrySequence(in: kept),
@@ -236,13 +222,6 @@ public final class WorkerChatStore {
             return visible
         }
         return Array(visible[index...])
-    }
-
-    private static func isTimeHeader(_ line: WorkerChatLine) -> Bool {
-        if case .timeHeader = line.content {
-            return true
-        }
-        return false
     }
 
     private func updateReadNotice() {
@@ -305,6 +284,7 @@ public final class WorkerChatStore {
         case "say": return .say
         case "message": return .message
         case "report": return .report
+        case "instructions": return .instructions
         default: return nil
         }
     }

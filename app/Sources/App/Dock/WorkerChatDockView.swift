@@ -2,16 +2,20 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Geometry measured from `Chat Item Text v2.svg` and `Worker Chat v2.svg`: JetBrains Mono at 12pt
-/// (7.2pt advance, 16pt lines), rows 10pt apart, 8pt around a time header, the name starting 20pt
-/// right of the text edge (the logo column), 20pt from the card edge on every side.
+/// Geometry measured from `Chat Item.svg` and `Chat Item Text.svg`: JetBrains Mono at 12pt (7.2pt
+/// advance, 16pt lines). Each item starts with its HH:MM time in a 41pt column (five characters, then
+/// a 5pt gap), then the agent logo and bold name in a 20pt logo column. Wrapped lines return to the
+/// logo's left edge, under the logo and clear of the time. Items sit 25pt apart (a 16pt line and a
+/// 9pt gap), 20pt from the card edge on every side.
 enum WorkerChatMetrics {
     static let inset: CGFloat = 20
     static let lineHeight: CGFloat = 16
-    static let rowGap: CGFloat = 10
-    static let headerGap: CGFloat = 8
+    static let itemGap: CGFloat = 9
+    static let timeColumnWidth: CGFloat = 41
     static let logoColumnWidth: CGFloat = 20
     static let logoSide: CGFloat = 15
+    /// The design sets the time about half a point above the name's baseline.
+    static let timeLift: CGFloat = 0.5
 
     /// SwiftUI sizes a text line at the font's ceiled height (JetBrains Mono 12: 15.84 → 16). Any
     /// shortfall to `lineHeight` (a smaller fallback font) is added between wrapped lines and
@@ -20,12 +24,16 @@ enum WorkerChatMetrics {
         lineHeight - (AppFonts.chat.ascender - AppFonts.chat.descender + AppFonts.chat.leading).rounded(.up)
     }
 
-    /// Design `#D8DEE9`, `#9DA7B1`, `#768390` and the three tag colours; each lands on an existing
-    /// palette token (nearest by RGB for the first two, exact for the rest).
+    /// Design `#D8DEE9` and `#9DA7B1` land on the nearest palette tokens by RGB; `#768390` and
+    /// `#E8B34A` are exact. Tags are named by RPG rarity: common (white) for tool calls, rare and epic
+    /// for item tags. Status tags keep their status colours.
     enum Color {
         static let text = AppPalette.bright
         static let muted = AppPalette.dim
-        static let timeHeader = AppPalette.controlBorder
+        static let time = AppPalette.controlBorder
+        static let common = AppPalette.bright
+        static let rare = AppPalette.rarityRare
+        static let epic = AppPalette.rarityEpic
         static let working = AppPalette.trackerNeedsInput
         static let done = AppPalette.trackerDone
         static let blocked = AppPalette.trackerBlocked
@@ -43,21 +51,16 @@ enum WorkerChatMetrics {
         case .working: Color.working
         case .done: Color.done
         case .blocked: Color.blocked
+        case .rarity(let rarity): color(for: rarity)
         }
     }
 
-    static func topGap(before line: WorkerChatLine, after previous: WorkerChatLine?) -> CGFloat {
-        guard let previous else {
-            return 0
+    private static func color(for rarity: WorkerChatRarity) -> NSColor {
+        switch rarity {
+        case .common: Color.common
+        case .rare: Color.rare
+        case .epic: Color.epic
         }
-        return isTimeHeader(line) || isTimeHeader(previous) ? headerGap : rowGap
-    }
-
-    private static func isTimeHeader(_ line: WorkerChatLine) -> Bool {
-        if case .timeHeader = line.content {
-            return true
-        }
-        return false
     }
 }
 
@@ -315,22 +318,11 @@ final class WorkerChatBottomFollowerView: NSView {
 struct WorkerChatRows: View {
     let lines: [WorkerChatLine]
 
-    private struct Row: Identifiable {
-        let line: WorkerChatLine
-        let topGap: CGFloat
-        var id: String { line.id }
-    }
-
-    private var rows: [Row] {
-        lines.indices.map { index in
-            Row(line: lines[index], topGap: WorkerChatMetrics.topGap(before: lines[index], after: index > 0 ? lines[index - 1] : nil))
-        }
-    }
-
     var body: some View {
-        ForEach(rows) { row in
-            WorkerChatLineView(line: row.line)
-                .padding(.top, row.topGap)
+        VStack(alignment: .leading, spacing: WorkerChatMetrics.itemGap) {
+            ForEach(lines) { line in
+                WorkerChatLineView(line: line)
+            }
         }
     }
 }
@@ -339,40 +331,39 @@ private struct WorkerChatLineView: View {
     let line: WorkerChatLine
 
     var body: some View {
-        switch line.content {
-        case .timeHeader(let label):
-            Text(label)
+        HStack(alignment: .top, spacing: 0) {
+            Text(line.time)
                 .font(AppFonts.chat.swiftUI)
-                .foregroundStyle(WorkerChatMetrics.Color.timeHeader.swiftUI)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .frame(height: WorkerChatMetrics.lineHeight)
-        case .entry(let agent, let segments):
-            HStack(alignment: .top, spacing: 0) {
-                logo(agent: agent)
-                    .frame(width: WorkerChatMetrics.logoColumnWidth, height: WorkerChatMetrics.logoSide, alignment: .leading)
-                text(for: segments)
-                    .lineSpacing(WorkerChatMetrics.lineSlack)
-                    .padding(.bottom, WorkerChatMetrics.lineSlack)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+                .foregroundStyle(WorkerChatMetrics.Color.time.swiftUI)
+                .offset(y: -WorkerChatMetrics.timeLift)
+                .frame(width: WorkerChatMetrics.timeColumnWidth, alignment: .leading)
+            text
+                .lineSpacing(WorkerChatMetrics.lineSlack)
+                .padding(.bottom, WorkerChatMetrics.lineSlack)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .topLeading) { logo }
+        }
+    }
+
+    /// A space kerned out to the logo column leads the first line, so the name starts right of the logo.
+    /// It sits on the first line only; wrapped lines start at the block's left edge, under the logo.
+    private var text: Text {
+        line.segments.reduce(
+            Text(" ").font(AppFonts.chat.swiftUI).kerning(WorkerChatMetrics.logoColumnWidth - AppFonts.chat.maximumAdvancement.width)
+        ) { text, segment in
+            text + Text(segment.text)
+                .font(WorkerChatMetrics.font(for: segment.style).swiftUI)
+                .foregroundStyle(WorkerChatMetrics.color(for: segment.style).swiftUI)
         }
     }
 
     @ViewBuilder
-    private func logo(agent: String) -> some View {
-        if let image = TrackerAgentMark.image(for: agent, side: WorkerChatMetrics.logoSide, tint: WorkerChatMetrics.Color.logoTint) {
+    private var logo: some View {
+        if let image = TrackerAgentMark.image(for: line.agent, side: WorkerChatMetrics.logoSide, tint: WorkerChatMetrics.Color.logoTint) {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: WorkerChatMetrics.logoSide, height: WorkerChatMetrics.logoSide)
-        }
-    }
-
-    private func text(for segments: [WorkerChatSegment]) -> Text {
-        segments.reduce(Text("")) { text, segment in
-            text + Text(segment.text)
-                .font(WorkerChatMetrics.font(for: segment.style).swiftUI)
-                .foregroundStyle(WorkerChatMetrics.color(for: segment.style).swiftUI)
         }
     }
 }

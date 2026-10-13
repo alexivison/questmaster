@@ -43,6 +43,8 @@ enum RenderPreview {
         render(workerChatView(), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.compactWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.compactWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
+        render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
+        render(chatItemTextDesignView(), size: CGSize(width: 366, height: 174), to: "\(outputDir)/chat-item-text-design.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
         render(actionBarFooterView(fixture: "master"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
@@ -206,6 +208,55 @@ enum RenderPreview {
         return WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
             .frame(width: DockWidthPreference.compactWidth)
             .background(AppPalette.panel.swiftUI)
+    }
+
+    /// One item in the frame of `Chat Item.svg`: time, logo, bold name, text. No padding, so the
+    /// geometry lands on the SVG's own coordinates.
+    @MainActor
+    private static func chatItemDesignView() -> some View {
+        WorkerChatRows(lines: [
+            WorkerChatLine(id: "design", time: "08:20", agent: "codex", segments: [
+                WorkerChatSegment("Worker name:", .name),
+                WorkerChatSegment(" Finished the task given and reported to the master.", .normal),
+            ]),
+        ])
+        .frame(width: 480, height: 32, alignment: .topLeading)
+    }
+
+    /// The five text variants of `Chat Item Text.svg`. The artboard has no time column and its text
+    /// starts at x 21 (the 20pt inset plus a 1pt border), so the rows shift left past the time and logo columns.
+    /// The text column is 360pt: wide enough for the longest row, narrow enough that the plain item
+    /// wraps after "and" as the artboard does.
+    @MainActor
+    private static func chatItemTextDesignView() -> some View {
+        let plain = [WorkerChatSegment("Worker name:", .name), WorkerChatSegment(" Finished the task given and reported to the master.", .normal)]
+        return WorkerChatRows(lines: [
+            WorkerChatLine(id: "plain", time: "", agent: "", segments: plain),
+            WorkerChatLine(id: "status", time: "", agent: "", segments: [
+                WorkerChatSegment("Worker Name:", .name),
+                WorkerChatSegment(" Received status ", .muted),
+                WorkerChatSegment("[Working]", .working),
+            ]),
+            WorkerChatLine(id: "cast", time: "", agent: "", segments: [
+                WorkerChatSegment("Worker Name:", .name),
+                WorkerChatSegment(" Cast ", .muted),
+                WorkerChatSegment("[Bash](x2) [Edit](x4)", .rarity(.common)),
+            ]),
+            WorkerChatLine(id: "used", time: "", agent: "", segments: [
+                WorkerChatSegment("Worker Name:", .name),
+                WorkerChatSegment(" Used item ", .muted),
+                WorkerChatSegment("[Debriefing Stone]", .rarity(.rare)),
+            ]),
+            WorkerChatLine(id: "received", time: "", agent: "", segments: [
+                WorkerChatSegment("Worker Name:", .name),
+                WorkerChatSegment(" Received item ", .muted),
+                WorkerChatSegment("[Scroll of Orders]", .rarity(.epic)),
+            ]),
+        ])
+        .padding(WorkerChatMetrics.inset)
+        .frame(width: 441, alignment: .leading)
+        .offset(x: 1 - WorkerChatMetrics.timeColumnWidth - WorkerChatMetrics.logoColumnWidth, y: 1)
+        .frame(width: 366, height: 174, alignment: .topLeading)
     }
 
     /// The slot bar with Caffeine active and the Artifacts dock open (Artifacts slot active too).
