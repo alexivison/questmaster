@@ -56,7 +56,7 @@ enum AppPalette {
     static let trackerBlocked = NSColor(hex: 0xe5534b)
     static let trackerDone = NSColor(hex: 0x57ab5a)
     static let trackerIdle = NSColor(hex: 0x6f757c)
-    static let trackerNeedsInput = NSColor(hex: 0xe8b34a)
+    static let trackerNeedsInput = NSColor(hex: 0x58a6ff)
     static let trackerError = NSColor(hex: 0xe8743b)
     /// Chat item tags by RPG rarity. No existing token is close to rare. Epic is the magenta display
     /// colour, kept as its own token so renaming a display colour leaves chat tags alone.
@@ -65,6 +65,8 @@ enum AppPalette {
     /// Worker free text in the chat feed (say and message lines): a pale khaki. The nearest existing token
     /// (`text`) is about 43 RGB units away, so it gets its own token.
     static let chatSpeech = NSColor(hex: 0xd9dbb8)
+    /// The chat design's Working tag amber. It was borrowed from `trackerNeedsInput` until that became blue.
+    static let chatWorking = NSColor(hex: 0xe8b34a)
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
         NSColor(hex: 0xd29922),
@@ -178,7 +180,6 @@ enum AppFonts {
     // fonts are not used for UI text.
     static let mono = monospaced(size: 12.5)
     static let monoSmall = monospaced(size: 11)
-    static let monoSmallItalic = monospaced(size: 11, italic: true)
     static let monoBold = monospaced(size: 12.5, weight: .semibold)
 
     static func monospaced(size: CGFloat, weight: NSFont.Weight = .regular, italic: Bool = false) -> NSFont {
@@ -232,6 +233,14 @@ enum AppFonts {
     /// Tracker plate and selected-session titles at 12pt, regular weight as the design draws them (the
     /// shared 12.5pt `itemTitle` lands its caps on half rows).
     static let trackerTitle = monospaced(size: 12)
+    /// Worker plate titles and the selected-session id, 10pt as `Tracker Item (Simplified).svg` sets them.
+    static let trackerTitleSmall = monospaced(size: 10)
+    /// Top-level plate summaries, 10pt italic.
+    static let trackerSummary = monospaced(size: 10, italic: true)
+    /// Project names on the project bar, 8pt.
+    static let trackerDetail = monospaced(size: 8)
+    /// Worker summaries and elapsed times, 8pt italic.
+    static let trackerDetailItalic = monospaced(size: 8, italic: true)
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 }

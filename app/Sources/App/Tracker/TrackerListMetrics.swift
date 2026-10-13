@@ -14,7 +14,9 @@ enum TrackerListMetrics {
     static let verticalPadding: CGFloat = 20
     static let sectionSpacing: CGFloat = 30
     static let itemSpacing: CGFloat = 20
-    static let masterBlockSpacing: CGFloat = 5
+    /// Between a master and its workers, and between the workers: two steps of the 5pt rhythm, so each plate's glow
+    /// band (up to 3.5pt past its edge) keeps clear space from the next plate.
+    static let masterBlockSpacing: CGFloat = 10
     /// The widest tracker content: the selected-session panel's 303pt design width, which the top-level
     /// plate (283pt) sits inside. The tracker column is sized to it plus the leading `sidePadding`.
     static let contentWidth: CGFloat = 303

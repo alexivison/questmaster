@@ -44,21 +44,17 @@ struct SelectedSessionPanel: View {
         subdirectory: "Brand",
         canvasSize: NSSize(width: canvasSize.width, height: canvasSize.height)
     )
+    /// The text is centred on the strips' band (x 59 to 300), so its centre is x = 179.5.
     private static let textX: CGFloat = 59
     private static let textWidth: CGFloat = 241
     private static let titleBaseline: CGFloat = 25.5
-    private static let idBaseline: CGFloat = 44
-    private static let projectBaseline: CGFloat = 56
+    private static let idBaseline: CGFloat = 44.5
+    private static let projectBaseline: CGFloat = 56.5
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Canvas { context, _ in
-                draw(&context)
-            }
-            if let logo = Self.logo {
-                Image(nsImage: logo)
-                    .resizable()
-                    .frame(width: Self.canvasSize.width, height: Self.canvasSize.height)
+                drawStrips(&context)
             }
             TrackerPlateLine(
                 text: content.title,
@@ -71,7 +67,7 @@ struct SelectedSessionPanel: View {
             )
             TrackerPlateLine(
                 text: content.id,
-                font: AppFonts.monoSmall,
+                font: AppFonts.trackerTitleSmall,
                 color: AppPalette.dim,
                 x: Self.textX,
                 width: Self.textWidth,
@@ -80,13 +76,21 @@ struct SelectedSessionPanel: View {
             )
             TrackerPlateLine(
                 text: content.projectName,
-                font: AppFonts.monoSmall,
+                font: AppFonts.trackerDetail,
                 color: AppPalette.activeText,
                 x: Self.textX,
                 width: Self.textWidth,
                 baseline: Self.projectBaseline,
                 alignment: .center
             )
+            Canvas { context, _ in
+                drawPortrait(&context)
+            }
+            if let logo = Self.logo {
+                Image(nsImage: logo)
+                    .resizable()
+                    .frame(width: Self.canvasSize.width, height: Self.canvasSize.height)
+            }
         }
         .frame(width: Self.canvasSize.width, height: Self.canvasSize.height, alignment: .topLeading)
         .contentShape(Rectangle())
@@ -96,17 +100,22 @@ struct SelectedSessionPanel: View {
         }
     }
 
-    private func draw(_ context: inout GraphicsContext) {
-        let disc = Path(ellipseIn: CGRect(x: 38 - PanelDesign.discRadius, y: 35 - PanelDesign.discRadius, width: PanelDesign.discRadius * 2, height: PanelDesign.discRadius * 2))
-        context.fill(PanelDesign.ring, with: .color(AppPalette.line.swiftUI))
-        context.fill(disc, with: .color(AppPalette.panel.swiftUI))
-        context.stroke(disc, with: .color(AppPalette.line.swiftUI), lineWidth: TrackerPlateDesign.discStrokeWidth)
+    /// The plate behind the portrait. The text draws over it, and the portrait draws over both.
+    private func drawStrips(_ context: inout GraphicsContext) {
         context.fill(PanelDesign.body, with: .color(AppPalette.panel.swiftUI))
-        context.stroke(PanelDesign.body, with: .color(AppPalette.line.swiftUI), lineWidth: 1)
+        context.stroke(PanelDesign.body, with: .color(AppPalette.line.swiftUI), lineWidth: TrackerPlateDesign.outlineWidth)
         context.fill(PanelDesign.frame, with: .color(AppPalette.line.swiftUI))
         context.stroke(PanelDesign.frame, with: .color(AppPalette.line.swiftUI), lineWidth: TrackerPlateDesign.discStrokeWidth)
         context.fill(PanelDesign.idStrip, with: .color(AppPalette.item.swiftUI))
         context.fill(PanelDesign.projectBar, with: .color(TrackerNameplateColor.barShade(content.projectColor, stop: TrackerNameplateRole.projectBarFillStop).swiftUI))
+    }
+
+    /// The notched backing field and the disc, so the strips tuck under the portrait.
+    private func drawPortrait(_ context: inout GraphicsContext) {
+        let disc = Path(ellipseIn: CGRect(x: 38 - PanelDesign.discRadius, y: 35 - PanelDesign.discRadius, width: PanelDesign.discRadius * 2, height: PanelDesign.discRadius * 2))
+        context.fill(PanelDesign.ring, with: .color(AppPalette.line.swiftUI))
+        context.fill(disc, with: .color(AppPalette.panel.swiftUI))
+        context.stroke(disc, with: .color(AppPalette.line.swiftUI), lineWidth: TrackerPlateDesign.discStrokeWidth)
     }
 }
 
