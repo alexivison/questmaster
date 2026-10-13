@@ -66,10 +66,13 @@ final class ActionBarShellView: NSView {
     /// is transparent. Hit-testing follows the same rule: only the bar and the slots claim a click,
     /// and everything else, including the dragons and the margins, falls through to whatever is
     /// behind (the dock, where the two overlap).
+    /// `point` arrives in the superview's coordinates, so it is converted into this view's own (flipped)
+    /// space before it is compared with the plate and slot rects.
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
         let contentX = (bounds.width - ActionBarMetrics.plateWidth) / 2
-        let local = CGPoint(x: point.x - contentX, y: point.y)
-        guard isOnActionBarShape(local) else {
+        let platePoint = CGPoint(x: local.x - contentX, y: local.y)
+        guard isOnActionBarShape(platePoint) else {
             return nil
         }
         return super.hitTest(point)

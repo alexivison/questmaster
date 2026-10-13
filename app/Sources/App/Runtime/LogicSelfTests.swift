@@ -65,6 +65,7 @@ enum LogicSelfTests {
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
         ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
         ("testActionBarSlotsCentreInsideFooter", testActionBarSlotsCentreInsideFooter),
+        ("testActionBarHitTestUsesSuperviewCoordinates", testActionBarHitTestUsesSuperviewCoordinates),
         ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
         ("testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide", testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide),
         ("testWorkerChatFollowerDoesNotGlideOnTrimOrResize", testWorkerChatFollowerDoesNotGlideOnTrimOrResize),
@@ -2093,6 +2094,42 @@ enum LogicSelfTests {
         try expect(
             ActionBarMetrics.barHitRect.minY >= 0 && ActionBarMetrics.barHitRect.maxY <= ActionBarMetrics.footerHeight,
             "bar hit area should sit inside the footer, got \(ActionBarMetrics.barHitRect)"
+        )
+    }
+
+    /// `hitTest` receives its point in the superview's coordinates. The footer sits a shell gap plus a
+    /// row-snap leftover above the window bottom, so a click on a slot's or the plate's top edge must
+    /// still reach the footer, and a point in the gap above the plate must not.
+    private static func testActionBarHitTestUsesSuperviewCoordinates() throws {
+        let superview = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+        let footer = ActionBarShellView()
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        superview.addSubview(footer)
+        let rowSnapLeftover: CGFloat = 6
+        let bottomInset = ShellMetrics.gap + rowSnapLeftover
+        NSLayoutConstraint.activate([
+            footer.leadingAnchor.constraint(equalTo: superview.leadingAnchor),
+            footer.trailingAnchor.constraint(equalTo: superview.trailingAnchor),
+            footer.bottomAnchor.constraint(equalTo: superview.bottomAnchor, constant: -bottomInset),
+            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.footerHeight),
+        ])
+        superview.layoutSubtreeIfNeeded()
+
+        let plateLeft = (superview.bounds.width - ActionBarMetrics.plateWidth) / 2
+        let slotCentreX = plateLeft + ActionBarMetrics.slotX(at: 0) + ActionBarMetrics.slotSize / 2
+        let plateTopEdgeY = bottomInset + ActionBarMetrics.footerHeight
+        let slotTopEdgeY = plateTopEdgeY - ActionBarMetrics.slotTop - 0.5
+        try expect(
+            footer.hitTest(NSPoint(x: slotCentreX, y: slotTopEdgeY)) != nil,
+            "a click on a slot's top edge should reach the footer"
+        )
+        try expect(
+            footer.hitTest(NSPoint(x: plateLeft + 100, y: plateTopEdgeY - 0.5)) != nil,
+            "a click on the plate's top edge should reach the footer"
+        )
+        try expect(
+            footer.hitTest(NSPoint(x: slotCentreX, y: plateTopEdgeY + 1)) == nil,
+            "a click in the gap above the plate should fall through the footer"
         )
     }
 
