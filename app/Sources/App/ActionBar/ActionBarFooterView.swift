@@ -42,7 +42,7 @@ struct ActionBarFooterView: View {
         name: "action-bar-frame",
         fileExtension: "svg",
         subdirectory: "ActionBar",
-        canvasSize: NSSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight)
+        canvasSize: NSSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.canvasHeight)
     )
 
     var body: some View {
@@ -50,19 +50,18 @@ struct ActionBarFooterView: View {
             if let frame = Self.frameImage {
                 Image(nsImage: frame)
                     .resizable()
-                    .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight)
+                    .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.canvasHeight)
             }
             slotBar(navState: model.navigation)
         }
-        .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight, alignment: .topLeading)
+        .frame(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.canvasHeight, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .center)
-        .frame(height: ActionBarMetrics.footerHeight)
     }
 
     private func slotBar(navState: AppNavigationState) -> some View {
         ForEach(Array(slots(navState: navState).enumerated()), id: \.offset) { index, slot in
             ActionBarSlotButton(slot: slot)
-                .offset(x: ActionBarMetrics.slotX(at: index), y: ActionBarMetrics.slotTop)
+                .offset(x: ActionBarMetrics.slotX(at: index), y: ActionBarMetrics.slotTop + ActionBarMetrics.overflowTop)
         }
     }
 

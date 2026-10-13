@@ -46,7 +46,7 @@ final class ActionBarShellView: NSView {
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hostingView)
         NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: topAnchor),
+            hostingView.topAnchor.constraint(equalTo: topAnchor, constant: -ActionBarMetrics.overflowTop),
             hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),

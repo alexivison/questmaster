@@ -35,9 +35,9 @@ enum RenderPreview {
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
-        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar.png")
-        render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
-        render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
+        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
+        render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
+        render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
@@ -46,7 +46,7 @@ enum RenderPreview {
         render(chatItemWrappedView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 120), autoHeight: true, to: "\(outputDir)/chat-item-wrapped.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
-        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
+        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: false, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-tracker-hidden.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: false), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-dock-hidden.png")
