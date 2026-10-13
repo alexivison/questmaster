@@ -15,7 +15,7 @@ enum WorkerChatMetrics {
     static let logoColumnWidth: CGFloat = 20
     static let logoSide: CGFloat = 15
     /// Wrapped lines start this far in from the item's left edge, under the time.
-    static let wrapIndent: CGFloat = Token.Spacing.rowCompact
+    static let wrapIndent: CGFloat = Token.Spacing.element
     /// Where the name starts on the first line, measured from the wrapped lines' left edge.
     static let nameLead: CGFloat = timeColumnWidth + logoColumnWidth - wrapIndent
     /// The design sets the time about half a point above the name's baseline.
@@ -29,10 +29,12 @@ enum WorkerChatMetrics {
     }
 
     /// Design `#D8DEE9` and `#9DA7B1` land on the nearest palette tokens by RGB; `#768390` and
-    /// `#E8B34A` are exact. Tags are named by RPG rarity: common (white) for tool calls, rare and epic
-    /// for item tags. Status tags keep their status colours.
+    /// `#E8B34A` are exact. Worker free text is `#D9DBB8`, which has its own `chatSpeech` token. Tags are
+    /// named by RPG rarity: common (white) for tool calls, rare and epic for item tags. Status tags keep
+    /// their status colours.
     enum Color {
         static let text = AppPalette.bright
+        static let speech = AppPalette.chatSpeech
         static let muted = AppPalette.dim
         static let time = AppPalette.controlBorder
         static let common = AppPalette.bright
@@ -46,7 +48,8 @@ enum WorkerChatMetrics {
 
     static func color(for style: WorkerChatSegment.Style) -> NSColor {
         switch style {
-        case .name, .normal: Color.text
+        case .name: Color.text
+        case .normal: Color.speech
         case .muted: Color.muted
         case .working: Color.working
         case .done: Color.done

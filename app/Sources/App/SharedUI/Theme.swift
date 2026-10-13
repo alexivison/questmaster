@@ -62,6 +62,9 @@ enum AppPalette {
     /// colour, kept as its own token so renaming a display colour leaves chat tags alone.
     static let rarityRare = NSColor(hex: 0x006caa)
     static let rarityEpic = NSColor(hex: 0xc578dd)
+    /// Worker free text in the chat feed (say and message lines): a pale khaki. The nearest existing token
+    /// (`text`) is about 43 RGB units away, so it gets its own token.
+    static let chatSpeech = NSColor(hex: 0xd9dbb8)
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
         NSColor(hex: 0xd29922),
