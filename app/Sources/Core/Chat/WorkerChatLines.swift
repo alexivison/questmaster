@@ -114,7 +114,7 @@ enum WorkerChatLineBuilder {
             if lastHeader.map({ !calendar.isDate(draft.timestamp, equalTo: $0, toGranularity: .minute) }) ?? true {
                 let parts = calendar.dateComponents([.hour, .minute], from: draft.timestamp)
                 lines.append(WorkerChatLine(
-                    id: "h\(draft.id)",
+                    id: "h\(Int(floor(draft.timestamp.timeIntervalSince1970 / 60)))",
                     content: .timeHeader(String(format: "[%02d:%02d]", parts.hour ?? 0, parts.minute ?? 0))
                 ))
                 lastHeader = draft.timestamp
@@ -126,6 +126,14 @@ enum WorkerChatLineBuilder {
             ))
         }
         return lines
+    }
+
+    /// Entry ids are `e<sequence>` of the entry's first record; header ids start with `h`.
+    static func firstEntrySequence(in lines: [WorkerChatLine]) -> Int? {
+        guard let entry = lines.first(where: { $0.id.hasPrefix("e") }) else {
+            return nil
+        }
+        return Int(entry.id.dropFirst())
     }
 
     static func displayName(_ title: String) -> String {

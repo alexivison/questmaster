@@ -8,6 +8,7 @@ struct WorkerChatScrollTests {
         scrollingAboveTheBottomStopsFollowing()
         shortContentIsAlwaysAtTheBottomAndNeedsNoScroll()
         bottomOffsetShowsTheLastPoint()
+        glideDistanceIsCappedAtOneViewport()
         print("WorkerChatScrollTests: all tests passed")
     }
 
@@ -29,6 +30,14 @@ struct WorkerChatScrollTests {
 
     private static func bottomOffsetShowsTheLastPoint() {
         expect(WorkerChatScroll.bottomOffset(viewportHeight: 400, contentHeight: 1000) == 600, "bottom offset should be content minus viewport")
+    }
+
+    private static func glideDistanceIsCappedAtOneViewport() {
+        expect(WorkerChatScroll.glideDistance(from: 100, to: 126, viewportHeight: 400) == 26, "a line arrival should glide its full height")
+        expect(WorkerChatScroll.glideDistance(from: 80, to: 126, viewportHeight: 400) == 46, "a glide still in flight should add its distance to the new target")
+        expect(WorkerChatScroll.glideDistance(from: 0, to: 13_971, viewportHeight: 560) == 560, "a long jump down should glide one viewport")
+        expect(WorkerChatScroll.glideDistance(from: 13_971, to: 0, viewportHeight: 560) == -560, "a long jump up should glide one viewport up")
+        expect(WorkerChatScroll.glideDistance(from: 500, to: 500, viewportHeight: 400) == 0, "no move should not glide")
     }
 
     private static func expect(_ condition: Bool, _ message: String) {
