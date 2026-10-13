@@ -1046,11 +1046,12 @@ private struct TrackerWorkerSummaryPill: View {
     }
 
     fileprivate static let badgeSide: CGFloat = 18
-    /// The chip's circle as the working glow's silhouette, shifted by the margin like the plate's.
-    private static let glowPath = CGPath(
-        ellipseIn: CGRect(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin, width: badgeSide, height: badgeSide),
-        transform: nil
-    )
+    /// The chip's circle, outset by the glow band and shifted by the margin like the plate's.
+    private static let glowPath: CGPath = {
+        let inset = TrackerPlateDesign.silhouetteMargin - TrackerPlateDesign.glowBandWidth
+        let side = badgeSide + 2 * TrackerPlateDesign.glowBandWidth
+        return CGPath(ellipseIn: CGRect(x: inset, y: inset, width: side, height: side), transform: nil)
+    }()
     private static let iconSide: CGFloat = 14
     private static let capsuleWidth: CGFloat = 27
     private static let capsuleOverlap: CGFloat = 10
@@ -1144,6 +1145,9 @@ enum TrackerPlateDesign {
     static let outlineWidth: CGFloat = 1.5
     /// Room around the canvas for the outline and the working glow, so the canvas doesn't clip them.
     static let silhouetteMargin: CGFloat = 6
+    /// The visible width of a status glow band past its border. A plate draws the band under its 1.5pt border,
+    /// so the band reaches the border's width further out.
+    static let glowBandWidth: CGFloat = 2
 
     /// The portrait discs' centres in canvas points, all on x = 38. The disc's 3pt stroke is centred on a
     /// 23.5pt (top-level) or 18.5pt (worker) radius.
@@ -1214,7 +1218,7 @@ enum TrackerNameplateRole: Equatable {
     /// The silhouette: the portrait's disc, its frame and the plate, as one shape. The outline and the working
     /// glow both follow it, so they can't drift apart. Its coordinates include the silhouette margin.
     var silhouetteParts: [Path] { isWorker ? Self.workerSilhouette : Self.topLevelSilhouette }
-    var silhouettePath: CGPath { isWorker ? Self.workerSilhouettePath : Self.topLevelSilhouettePath }
+    var glowPath: CGPath { isWorker ? Self.workerGlowPath : Self.topLevelGlowPath }
 
     private static let topLevelSilhouette = withMargin([
         TrackerPlateDesign.topLevelRing,
@@ -1227,8 +1231,8 @@ enum TrackerNameplateRole: Equatable {
         TrackerPlateDesign.workerFrameRegion,
         portraitDisc(centre: TrackerPlateDesign.workerPortraitCenter, side: TrackerPlateDesign.portraitSideWorker),
     ])
-    private static let topLevelSilhouettePath = union(topLevelSilhouette)
-    private static let workerSilhouettePath = union(workerSilhouette)
+    private static let topLevelGlowPath = union(topLevelSilhouette.map(glowBand))
+    private static let workerGlowPath = union(workerSilhouette.map(glowBand))
 
     private static func portraitDisc(centre: CGPoint, side: CGFloat) -> Path {
         Path(ellipseIn: CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side))
@@ -1240,10 +1244,17 @@ enum TrackerNameplateRole: Equatable {
         return parts.map { $0.applying(CGAffineTransform(translationX: margin, y: margin)) }
     }
 
-    private static func union(_ parts: [Path]) -> CGPath {
+    /// The band a glow fills: each part stroked out past its edge by the border plus the band width. The half
+    /// inside the silhouette hides under the plate's fills, and the border covers the band's inner part outside it.
+    private static func glowBand(_ part: Path) -> CGPath {
+        let reach = TrackerPlateDesign.outlineWidth + TrackerPlateDesign.glowBandWidth
+        return part.cgPath.copy(strokingWithWidth: 2 * reach, lineCap: .round, lineJoin: .round, miterLimit: 10)
+    }
+
+    private static func union(_ paths: [CGPath]) -> CGPath {
         let combined = CGMutablePath()
-        for part in parts {
-            combined.addPath(part.cgPath)
+        for path in paths {
+            combined.addPath(path)
         }
         return combined
     }
@@ -1517,7 +1528,7 @@ private struct TrackerNameplateBackground<Text: View>: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let glowColor {
-                TrackerGlowView(path: role.silhouettePath, color: glowColor)
+                TrackerGlowView(path: role.glowPath, color: glowColor)
                     .silhouetteFrame(role.canvasSize)
             }
             TrackerSilhouetteOutline(parts: role.silhouetteParts, color: outlineColor)
@@ -1583,12 +1594,8 @@ private struct TrackerGlowView: NSViewRepresentable {
     }
 }
 
-/// The glow's layer is a shape layer filled with the silhouette. The fill hides under the plate's own fills, so
-/// only the shadow shows. A shape layer keeps the shadow drawn from the same path.
+/// The glow is a solid band: a shape layer filled with the band path, with no shadow or blur, so its edge is hard.
 final class TrackerGlowNSView: NSView {
-    /// A blur of about 3pt: a sharp rim that still reads at a glance on the dark background.
-    private static let blurRadius: CGFloat = 3
-
     override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {
@@ -1610,11 +1617,6 @@ final class TrackerGlowNSView: NSView {
         shape.isGeometryFlipped = true
         shape.path = path
         shape.fillColor = color.cgColor
-        shape.shadowPath = path
-        shape.shadowColor = color.cgColor
-        shape.shadowRadius = Self.blurRadius
-        shape.shadowOpacity = 1
-        shape.shadowOffset = .zero
     }
 }
 
