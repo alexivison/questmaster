@@ -169,7 +169,6 @@ struct NewSessionRootView: View {
             }
             Text(state.model.selectedEffortOption?.label ?? "Not configured")
                 .font(AppFonts.modalHelperLarge.swiftUI)
-                .italic()
                 .foregroundStyle(AppPalette.dim.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)

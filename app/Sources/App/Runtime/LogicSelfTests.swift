@@ -85,6 +85,10 @@ enum LogicSelfTests {
         ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
         ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
         ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
+        ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
+        ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
+        ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
+        ("testMarkdownFamilyNeedsEveryFaceItsThemesUse", testMarkdownFamilyNeedsEveryFaceItsThemesUse),
     ]
 
     static func runIfRequested() -> Bool {
@@ -2956,6 +2960,39 @@ enum LogicSelfTests {
             throw TestFailure("could not create \(characters) key event")
         }
         return event
+    }
+
+    /// Monaco ships Regular only. CoreText would hand back Regular for semibold, bold and italic requests, so each
+    /// request must fall through to the system mono at the requested weight and style.
+    private static func testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace() throws {
+        try expect(GhosttyFontFamily.face(family: "Monaco", size: 12, weight: .regular, italic: false) != nil, "Monaco should supply its regular face")
+        try expect(GhosttyFontFamily.face(family: "Monaco", size: 12, weight: .semibold, italic: false) == nil, "Monaco has no semibold face")
+        try expect(GhosttyFontFamily.face(family: "Monaco", size: 12, weight: .bold, italic: false) == nil, "Monaco has no bold face")
+        try expect(GhosttyFontFamily.face(family: "Monaco", size: 12, weight: .regular, italic: true) == nil, "Monaco has no italic face")
+        for (weight, italic) in [(NSFont.Weight.semibold, false), (.bold, false), (.regular, true)] {
+            let font = AppFonts.font(family: "Monaco", size: 12, weight: weight, italic: italic)
+            try expect(font.isFixedPitch, "the fallback for weight \(weight.rawValue) italic \(italic) should be monospaced")
+            try expect(GhosttyFontFamily.matches(font, weight: weight, italic: italic), "the fallback should keep weight \(weight.rawValue) and italic \(italic)")
+        }
+    }
+
+    /// Menlo has Bold but no Semibold. CoreText would substitute Bold for a semibold request, which is the wrong weight.
+    private static func testMenloSemiboldIsNotSubstitutedWithBold() throws {
+        try expect(GhosttyFontFamily.face(family: "Menlo", size: 12, weight: .semibold, italic: false) == nil, "Menlo has no semibold face")
+        try expect(GhosttyFontFamily.face(family: "Menlo", size: 12, weight: .bold, italic: false) != nil, "Menlo should supply its bold face")
+    }
+
+    private static func testAppFontsUseGhosttyFamilyWhenItHasTheFace() throws {
+        let font = AppFonts.font(family: "Menlo", size: 12, weight: .regular, italic: true)
+        try expect(font.familyName == "Menlo", "Menlo italic should resolve from Menlo, got \(font.familyName ?? "nil")")
+        try expect(GhosttyFontFamily.matches(font, weight: .regular, italic: true), "Menlo italic should keep its italic trait")
+    }
+
+    /// Markdown takes the family only when it has regular, semibold and italic faces. Monaco and Menlo lack semibold.
+    private static func testMarkdownFamilyNeedsEveryFaceItsThemesUse() throws {
+        try expect(GhosttyFontFamily.markdownFamily(for: nil) == .system(.monospaced), "no family should give the system mono")
+        try expect(GhosttyFontFamily.markdownFamily(for: "Monaco") == .system(.monospaced), "Monaco has no semibold, so Markdown should use the system mono")
+        try expect(GhosttyFontFamily.markdownFamily(for: "Menlo") == .system(.monospaced), "Menlo has no semibold, so Markdown should use the system mono")
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {

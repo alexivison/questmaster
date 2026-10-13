@@ -31,7 +31,7 @@ struct ModalPromptEditor: NSViewRepresentable {
         textView.placeholder = placeholder
         textView.isRichText = false
         textView.importsGraphics = false
-        textView.font = NSFont.systemFont(ofSize: 13.5)
+        textView.font = AppFonts.monospaced(size: 13.5)
         textView.textColor = AppPalette.text
         textView.backgroundColor = AppPalette.panelAlt
         textView.insertionPointColor = AppPalette.accent
@@ -113,7 +113,7 @@ private final class ModalPromptEditorTextView: NSTextView {
             height: bounds.height - inset.height * 2
         )
         (placeholder as NSString).draw(in: rect, withAttributes: [
-            .font: NSFont.systemFont(ofSize: 13.5).serif.italic,
+            .font: AppFonts.monospaced(size: 13.5, italic: true),
             .foregroundColor: AppPalette.dim
         ])
     }
