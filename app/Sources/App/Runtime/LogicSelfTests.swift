@@ -31,6 +31,7 @@ enum LogicSelfTests {
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
         ("testPlateAndCircleStatusDrawsOnlyForActiveStatuses", testPlateAndCircleStatusDrawsOnlyForActiveStatuses),
+        ("testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld", testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld),
         ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
         ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
         ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
@@ -294,10 +295,12 @@ enum LogicSelfTests {
         try expectClose(TrackerPlateDesign.collapsedCircleStroke, 1.5, "circle stroke")
     }
 
-    /// Hosted views: a plate's status view exists exactly while its status is active (selection does not hide it), holds
-    /// at its peak under hover, and a collapsed row has one for each active worker only. Each view is hosted beside a
-    /// control status that breathes; the control being mounted, configured and in the window proves the same update
-    /// pass mounted the subject too, so a missing status view is a real absence and not a slow host.
+    /// Hosted views: a plate's status view exists exactly while its status is active (selection does not hide it), is
+    /// configured not to breathe under hover, and a collapsed row has one for each active worker only. Each view is
+    /// hosted beside a control status; the control and every status view being configured proves the same update pass
+    /// mounted the subject too, so a missing status view is a real absence and not a slow host. Nothing here reads the
+    /// window or an animation, which depend on the host's display and its reduce-motion setting; the breath's lifecycle
+    /// is tested on the view itself, and its decision as a pure function.
     private static func testPlateAndCircleStatusDrawsOnlyForActiveStatuses() throws {
         let controlGeometry = TrackerPortraitStatusGeometry(center: .zero, pathRadius: 40, stroke: 1)
         func statusViews(in view: NSView) -> [TrackerPortraitStatusNSView] {
@@ -305,8 +308,8 @@ enum LogicSelfTests {
                 (subview as? TrackerPortraitStatusNSView).map { [$0] } ?? statusViews(in: subview)
             }
         }
-        /// Whether each of the subject's status views breathes.
-        func host<V: View>(_ subject: V, expecting description: String) throws -> [Bool] {
+        /// The status views the subject draws, and the control's.
+        func host<V: View>(_ subject: V, _ description: String) throws -> (subject: [TrackerPortraitStatusNSView], control: TrackerPortraitStatusNSView) {
             let hosting = NSHostingView(rootView: VStack {
                 subject
                 TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent)
@@ -316,13 +319,22 @@ enum LogicSelfTests {
             window.contentView = hosting
             window.orderFrontRegardless()
             defer { window.close() }
-            func mounted() -> Bool {
-                let views = statusViews(in: hosting)
-                let control = views.first { $0.geometry == controlGeometry }
-                return control?.breathAnimations.count == 2 && views.allSatisfy { $0.geometry != nil && $0.window != nil }
+            func control() -> TrackerPortraitStatusNSView? {
+                statusViews(in: hosting).first { $0.geometry == controlGeometry }
             }
-            try waitForMainQueue("\(description) to mount") { mounted() }
-            return statusViews(in: hosting).filter { $0.geometry != controlGeometry }.map { !$0.breathAnimations.isEmpty }
+            func unconfigured() -> Int {
+                statusViews(in: hosting).filter { $0.geometry == nil }.count
+            }
+            let deadline = Date().addingTimeInterval(10)
+            while (control() == nil || unconfigured() > 0), Date() < deadline {
+                hosting.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            }
+            guard let control = control() else {
+                throw TestFailure("\(description): the control status view never mounted (hosting subviews: \(hosting.subviews.count), status views: \(statusViews(in: hosting).count))")
+            }
+            try expect(unconfigured() == 0, "\(description): \(unconfigured()) status views never configured")
+            return (statusViews(in: hosting).filter { $0 !== control }, control)
         }
         func plate(status: NSColor?, selected: Bool = false, hovered: Bool = false) -> some View {
             TrackerNameplateBackground(
@@ -331,10 +343,13 @@ enum LogicSelfTests {
             )
         }
         let working = AppPalette.trackerWorking
-        try expect(try host(plate(status: nil), expecting: "an idle plate").isEmpty, "a plate with no active status should draw no status")
-        try expect(try host(plate(status: working), expecting: "a working plate") == [true], "a working plate should draw one breathing status")
-        try expect(try host(plate(status: working, selected: true), expecting: "a selected working plate").count == 1, "selection should not hide the status")
-        try expect(try host(plate(status: working, hovered: true), expecting: "a hovered working plate") == [false], "a hovered plate's status should hold at its peak")
+        try expect(try host(plate(status: nil), "an idle plate").subject.isEmpty, "a plate with no active status should draw no status")
+        let resting = try host(plate(status: working), "a working plate")
+        try expect(resting.subject.count == 1, "a working plate should draw one status, got \(resting.subject.count)")
+        try expect(resting.subject[0].isAllowedToBreathe == resting.control.isAllowedToBreathe, "a working plate should breathe whenever motion is allowed")
+        try expect(try host(plate(status: working, selected: true), "a selected working plate").subject.count == 1, "selection should not hide the status")
+        let hovered = try host(plate(status: working, hovered: true), "a hovered working plate")
+        try expect(hovered.subject.count == 1 && !hovered.subject[0].isAllowedToBreathe, "a hovered plate's status should be configured to hold at its peak")
 
         func worker(_ id: String, state: String) -> TrackerRenderedSession {
             let session = TrackerSession(id: id, title: id, repoName: "Preview", agent: "claude", role: "worker", state: state)
@@ -342,7 +357,19 @@ enum LogicSelfTests {
         }
         let states = ["working", "idle", "blocked", "done", "needs-input", "stopped", "error"]
         let row = TrackerWorkerSummaryRow(workers: states.enumerated().map { worker("w\($0.offset)", state: $0.element) })
-        try expect(try host(row, expecting: "a collapsed row").count == 4, "a collapsed row should draw a status for each active worker only")
+        let circles = try host(row, "a collapsed row").subject
+        try expect(circles.count == 4, "a collapsed row should draw a status for each active worker only, got \(circles.count)")
+    }
+
+    private static func testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld() throws {
+        for reduceMotion in [false, true] {
+            for holdsPeak in [false, true] {
+                try expect(
+                    TrackerPortraitStatus.breathes(reduceMotion: reduceMotion, holdsPeak: holdsPeak) == (!reduceMotion && !holdsPeak),
+                    "a status should breathe only with motion allowed and no hold (reduce motion \(reduceMotion), hold \(holdsPeak))"
+                )
+            }
+        }
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {

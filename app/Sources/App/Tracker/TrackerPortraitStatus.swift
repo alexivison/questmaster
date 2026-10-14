@@ -68,6 +68,11 @@ struct TrackerPortraitStatus: View {
     /// Holds the ring at its peak instead of breathing: a hovered plate.
     var holdsPeak = false
 
+    /// Whether the status is allowed to breathe: motion is allowed and the plate is not hovered.
+    static func breathes(reduceMotion: Bool, holdsPeak: Bool) -> Bool {
+        !reduceMotion && !holdsPeak
+    }
+
     var body: some View {
         let frame = geometry.frame
         TrackerPortraitStatusView(geometry: geometry, color: color, holdsPeak: holdsPeak)
@@ -87,7 +92,7 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: TrackerPortraitStatusNSView, context: Context) {
-        view.configure(geometry: geometry, color: color, breathes: !reduceMotion && !holdsPeak)
+        view.configure(geometry: geometry, color: color, breathes: TrackerPortraitStatus.breathes(reduceMotion: reduceMotion, holdsPeak: holdsPeak))
     }
 }
 
@@ -131,6 +136,9 @@ final class TrackerPortraitStatusNSView: NSView {
 
     /// The geometry the view is configured with, nil until the first `configure`. Tests read it to know the view mounted.
     var geometry: TrackerPortraitStatusGeometry? { applied?.geometry }
+
+    /// Whether the view was configured to breathe, whatever its window or display. Tests read it to check the decision.
+    var isAllowedToBreathe: Bool { applied?.breathes ?? false }
 
     /// The ring's and the glow's layer opacities at rest, as fractions of their peaks.
     var restingOpacities: [Float] { [ring.opacity, glow.opacity] }
