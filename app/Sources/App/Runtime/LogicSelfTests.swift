@@ -291,6 +291,13 @@ enum LogicSelfTests {
         try expectClose(TrackerListMetrics.masterBlockSpacing, 5, "gap between a master and its workers")
         try expectClose(TrackerNameplateRole.chipsDrop, 5, "gap between a master and its chips")
         try expectClose(TrackerNameplateRole.chipsX, TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.workerDiscDiameter / 2, "chips start on the worker's disc line")
+        // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents.
+        let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
+        let masterHitShape = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.artInset).path(in: masterRow).boundingRect
+        try expectClose(masterHitShape.height, TrackerPlateDesign.topLevel.size.height, "master hit shape height")
+        try expectClose(masterHitShape.minY, -TrackerPlateDesign.topLevelArtInset, "master hit shape top")
+        try expectClose(masterHitShape.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
+        try expect(TrackerNameplateRole.worker.artInset == 0, "the worker's row has no artwork past its frame")
         try expect(TrackerWorkerSummary.maxPills == 6, "the master's chip row should hold six chips, got \(TrackerWorkerSummary.maxPills)")
         try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
         let chipsRowHeight = TrackerNameplateRole.master.rowHeight(showsPills: true)

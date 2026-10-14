@@ -1706,6 +1706,7 @@ private struct TrackerSessionRow: View {
         ListRow(
             selected: isSelected,
             leadingInset: 0,
+            hitOutset: role.artInset,
             onTap: {
                 onSelect(session.id)
                 onActivate(session)
