@@ -2,10 +2,6 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-private enum TrackerSwiftUITiming {
-    static let durationRefreshInterval: TimeInterval = 1
-}
-
 func isServeStartingMessage(_ message: String?) -> Bool {
     let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     return normalized == "starting qm serve..."
@@ -1058,6 +1054,10 @@ enum TrackerNameplateRole: Equatable {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
 
+    /// When the plate shows its elapsed time. This is the one place the rule lives: a top-level plate shows it whenever
+    /// the session has one, a worker only while it works.
+    var timeRule: TrackerTimeRule { isWorker ? .whileWorking : .always }
+
     /// The project bar's 30% black overlay, as the SVGs draw it over the repo colour.
     static let projectBarOverlayOpacity: CGFloat = 0.3
     /// The top-level text column starts 4 points right of the disc. The title centres in it; the project name starts on
@@ -1137,27 +1137,44 @@ enum TrackerNameplateColor {
     }
 }
 
-/// One low-rate clock for every pulsing bar and ring in the list. Views that read `time` redraw at
-/// 15fps instead of at display rate, and the single timer runs only while some view is on screen and
-/// animating, so the redraw cost the terminal shares the main thread with stays small and flat.
+/// A low-rate clock shared by every view that animates or counts in the list: `shared` for the pulsing bars and
+/// rings (15 frames a second), `durations` for the live elapsed times (once a second). Views that read `time` redraw
+/// at the clock's rate instead of at display rate. Each clock has one timer, however many views read it, and it runs
+/// only while some view is on screen and using it, so the redraw cost the terminal shares the main thread with stays
+/// small and flat.
 @MainActor @Observable
 final class TrackerPulseClock {
-    static let shared = TrackerPulseClock()
-    private static let framesPerSecond = 15.0
+    static let shared = TrackerPulseClock(framesPerSecond: 15)
+    static let durations = TrackerPulseClock(framesPerSecond: 1)
 
+    let framesPerSecond: Double
     private(set) var time: TimeInterval = Date.now.timeIntervalSinceReferenceDate
+    /// How many ticks the clock has fired and how many timers it has started. Tests read them to check that the rate
+    /// does not grow with the number of subscribers.
+    @ObservationIgnored private(set) var ticks = 0
+    @ObservationIgnored private(set) var timersStarted = 0
     @ObservationIgnored private var subscribers = 0
     @ObservationIgnored private var timer: Timer?
+
+    var isRunning: Bool { timer != nil }
+
+    init(framesPerSecond: Double) {
+        self.framesPerSecond = framesPerSecond
+    }
 
     func subscribe() {
         subscribers += 1
         guard timer == nil else { return }
-        // Common modes keep the pulses running while the user scrolls the list or drags a split.
-        let timer = Timer(timeInterval: 1 / Self.framesPerSecond, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.time = Date.now.timeIntervalSinceReferenceDate }
+        // Common modes keep the clock running while the user scrolls the list or drags a split.
+        let timer = Timer(timeInterval: 1 / framesPerSecond, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.ticks += 1
+                self?.time = Date.now.timeIntervalSinceReferenceDate
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        timersStarted += 1
     }
 
     func unsubscribe() {
@@ -1168,14 +1185,15 @@ final class TrackerPulseClock {
     }
 }
 
-/// A view that reads the shared pulse clock only while it is on screen and motion is allowed.
+/// A view that reads a clock only while it is on screen and has something to show on it.
 private struct TrackerPulseSubscription: ViewModifier {
     let isActive: Bool
+    var clock = TrackerPulseClock.shared
 
     func body(content: Content) -> some View {
         content
-            .onAppear { if isActive { TrackerPulseClock.shared.subscribe() } }
-            .onDisappear { if isActive { TrackerPulseClock.shared.unsubscribe() } }
+            .onAppear { if isActive { clock.subscribe() } }
+            .onDisappear { if isActive { clock.unsubscribe() } }
     }
 }
 
@@ -1437,18 +1455,39 @@ struct TrackerPlateLine: View {
     }
 }
 
-/// The elapsed time of a session as `hh:mm:ss`, as the SVGs set it, refreshed on the shared duration timer. A
-/// worker shows it only while working; a top-level plate shows it whenever the session has one. `content` gets the
-/// string, empty when the session has no time to show.
-private struct TrackerElapsedTime<Content: View>: View {
+/// The elapsed time of a session as `hh:mm:ss`, as the SVGs set it. `content` gets the string, empty when the plate
+/// has no time to show under its role's rule. A time that counts from an instant redraws once a second on the shared
+/// duration clock while it is on screen; a fixed or empty one is drawn once, with no clock.
+struct TrackerElapsedTime<Content: View>: View {
     let session: TrackerSession
-    var onlyWhileWorking = true
+    let rule: TrackerTimeRule
     @ViewBuilder let content: (String) -> Content
 
+    /// Whether the string changes as time passes: the session counts from an instant and the rule shows it.
+    static func isLive(session: TrackerSession, rule: TrackerTimeRule) -> Bool {
+        session.elapsedSince != nil && !TrackerRenderer.durationLabel(for: session, rule: rule).isEmpty
+    }
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: TrackerSwiftUITiming.durationRefreshInterval)) { context in
-            content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session, now: context.date, onlyWhileWorking: onlyWhileWorking)))
+        if Self.isLive(session: session, rule: rule) {
+            TrackerLiveElapsedTime(session: session, rule: rule, content: content)
+        } else {
+            content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session, rule: rule)))
         }
+    }
+}
+
+/// A time that counts. It reads the duration clock, so it redraws once a second, and holds a subscription on it while on
+/// screen. The string comes from the instant of the redraw, so a stale tick never shows an old time.
+private struct TrackerLiveElapsedTime<Content: View>: View {
+    let session: TrackerSession
+    let rule: TrackerTimeRule
+    let content: (String) -> Content
+
+    var body: some View {
+        let _ = TrackerPulseClock.durations.time
+        content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session, rule: rule)))
+            .modifier(TrackerPulseSubscription(isActive: true, clock: .durations))
     }
 }
 
@@ -1465,7 +1504,6 @@ private struct TrackerPlateText: View {
     private var session: TrackerSession { rendered.session }
     private var title: String { showSessionID ? session.id : (session.title.isEmpty ? session.id : session.title) }
     private var snippet: String { TrackerRenderer.snippet(for: session) }
-    private var isWorking: Bool { rendered.status.kind == .working }
     private var titleColor: NSColor { isSelected ? AppPalette.bright : AppPalette.text }
 
     var body: some View {
@@ -1505,7 +1543,7 @@ private struct TrackerPlateText: View {
                 width: TrackerNameplateRole.projectNameWidth,
                 baseline: TrackerPlateDesign.topLevelBarBaseline
             )
-            TrackerElapsedTime(session: session, onlyWhileWorking: false) { time in
+            TrackerElapsedTime(session: session, rule: role.timeRule) { time in
                 if !time.isEmpty {
                     TrackerPlateLine(
                         text: time,
@@ -1523,12 +1561,8 @@ private struct TrackerPlateText: View {
 
     private var workerText: some View {
         ZStack(alignment: .topLeading) {
-            if isWorking {
-                TrackerElapsedTime(session: session) { time in
-                    workerTitleRow(time: time)
-                }
-            } else {
-                workerTitleRow(time: "")
+            TrackerElapsedTime(session: session, rule: role.timeRule) { time in
+                workerTitleRow(time: time)
             }
             if !snippet.isEmpty {
                 TrackerPlateLine(

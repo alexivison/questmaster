@@ -28,6 +28,12 @@ struct TrackerRenderedRepo {
     let groups: [TrackerRenderGroup]
 }
 
+/// When a plate shows the session's elapsed time: whatever the status, or only while the session works.
+enum TrackerTimeRule {
+    case always
+    case whileWorking
+}
+
 enum TrackerRenderer {
     private static let leadingDateRegex = try! NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}"#)
 
@@ -61,10 +67,10 @@ enum TrackerRenderer {
         return TrackerStatusStyle(classification: classification, color: color(for: classification.kind))
     }
 
-    /// The session's elapsed time, from the last time it started working or, failing that, its last event. A
-    /// worker's label is blank unless it is working; `onlyWhileWorking: false` lifts that for a top-level plate.
-    static func durationLabel(for session: TrackerSession, now: Date = Date(), onlyWhileWorking: Bool = true) -> String {
-        guard !onlyWhileWorking || status(for: session).kind == .working else {
+    /// The session's elapsed time, from the last time it started working or, failing that, its last event, blank
+    /// when the rule keeps it from showing.
+    static func durationLabel(for session: TrackerSession, now: Date = Date(), rule: TrackerTimeRule) -> String {
+        guard rule == .always || status(for: session).kind == .working else {
             return ""
         }
         let value = session.duration(at: now).trimmingCharacters(in: .whitespacesAndNewlines)

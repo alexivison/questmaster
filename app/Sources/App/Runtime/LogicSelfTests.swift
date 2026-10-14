@@ -30,7 +30,9 @@ enum LogicSelfTests {
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerBandPrecedenceAndSteadiness", testTrackerBandPrecedenceAndSteadiness),
         ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
-        ("testTopLevelPlateShowsItsTimeWhateverTheStatus", testTopLevelPlateShowsItsTimeWhateverTheStatus),
+        ("testElapsedTimeRuleAndLiveness", testElapsedTimeRuleAndLiveness),
+        ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
+        ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -354,20 +356,93 @@ enum LogicSelfTests {
         try expect(TrackerNameplateRole.worker.hitOutset == 0, "the worker's row has no artwork past its frame")
     }
 
-    private static func testTopLevelPlateShowsItsTimeWhateverTheStatus() throws {
-        func session(state: String, lifecycle: String = "active", elapsed: Int) -> TrackerSession {
-            TrackerSession(id: "master", title: "Master", repoName: "Preview", agent: "codex", role: "master", state: state, lifecycle: lifecycle, elapsedSeedMS: elapsed)
+    private static func testElapsedTimeRuleAndLiveness() throws {
+        func session(role: String = "master", state: String, lifecycle: String = "active", since: Date? = nil, seed: Int? = nil) -> TrackerSession {
+            TrackerSession(
+                id: "session", title: "Session", repoName: "Preview", agent: "codex", role: role, state: state,
+                lifecycle: lifecycle, elapsedSince: since, elapsedSeedMS: seed
+            )
         }
-        let working = session(state: "working", elapsed: 125_000)
-        let idle = session(state: "idle", elapsed: 125_000)
-        let stopped = session(state: "stopped", lifecycle: "stopped", elapsed: 0)
 
-        // A worker's time shows only while it works; a top-level plate shows whatever time the session has.
-        try expect(TrackerRenderer.durationLabel(for: working) == "0:02:05", "a working session should show its time")
-        try expect(TrackerRenderer.durationLabel(for: idle).isEmpty, "an idle worker should show no time")
-        try expect(TrackerRenderer.durationLabel(for: idle, onlyWhileWorking: false) == "0:02:05", "an idle master should show its time")
-        try expect(TrackerRenderer.durationLabel(for: working, onlyWhileWorking: false) == "0:02:05", "a working master should show its time")
-        try expect(TrackerRenderer.durationLabel(for: stopped, onlyWhileWorking: false).isEmpty, "a stopped session has no time to show")
+        // The rule is per role, in one place: a top-level plate shows its time whatever the status, a worker only while it works.
+        try expect(TrackerNameplateRole.master.timeRule == .always, "a master should show its time whatever the status")
+        try expect(TrackerNameplateRole.shell.timeRule == .always, "a shell row shares the top-level plate's rule")
+        try expect(TrackerNameplateRole.worker.timeRule == .whileWorking, "a worker should show its time only while working")
+        let working = session(state: "working", seed: 125_000)
+        let idle = session(state: "idle", seed: 125_000)
+        let stopped = session(state: "stopped", lifecycle: "stopped", seed: 0)
+        try expect(TrackerRenderer.durationLabel(for: working, rule: .whileWorking) == "0:02:05", "a working session should show its time")
+        try expect(TrackerRenderer.durationLabel(for: idle, rule: .whileWorking).isEmpty, "an idle session should show no time under the working-only rule")
+        try expect(TrackerRenderer.durationLabel(for: idle, rule: .always) == "0:02:05", "an idle session should show its time under the always rule")
+        try expect(TrackerRenderer.durationLabel(for: stopped, rule: .always).isEmpty, "a stopped session has no time to show")
+
+        // Only a time that counts from an instant is live, and only while its rule shows it.
+        let since = Date().addingTimeInterval(-60)
+        typealias Time = TrackerElapsedTime<EmptyView>
+        try expect(Time.isLive(session: session(state: "idle", since: since), rule: .always), "an idle master counting from an instant is live")
+        try expect(Time.isLive(session: session(state: "working", since: since), rule: .whileWorking), "a working worker is live")
+        try expect(!Time.isLive(session: session(state: "idle", since: since), rule: .whileWorking), "an idle worker shows no time, so it is not live")
+        try expect(!Time.isLive(session: idle, rule: .always), "a fixed time is not live")
+        try expect(!Time.isLive(session: session(state: "idle"), rule: .always), "a session with no time is not live")
+    }
+
+    /// One timer serves every reader: its rate is the clock's, not the number of subscribers times it.
+    private static func testDurationClockHasOneTimerWhateverTheSubscribers() throws {
+        try expect(TrackerPulseClock.durations.framesPerSecond == 1, "live times should tick once a second")
+        let clock = TrackerPulseClock(framesPerSecond: 20)
+        try expect(!clock.isRunning, "a clock with no subscribers should not run")
+        for _ in 0..<100 { clock.subscribe() }
+        try expect(clock.timersStarted == 1, "100 subscribers should share one timer, got \(clock.timersStarted)")
+        let start = Date()
+        try expect(waitUntil { clock.ticks >= 4 }, "the clock should tick")
+        let elapsed = Date().timeIntervalSince(start)
+        try expect(Double(clock.ticks) <= clock.framesPerSecond * elapsed + 2, "100 subscribers should not multiply the ticks: \(clock.ticks) in \(elapsed)s")
+        for _ in 0..<99 { clock.unsubscribe() }
+        try expect(clock.isRunning, "the clock should run while one subscriber is left")
+        clock.unsubscribe()
+        try expect(!clock.isRunning, "the clock should stop with its last subscriber")
+    }
+
+    /// Hosted views: fixed, empty and hidden times subscribe to nothing; live ones share the clock's one timer, and it
+    /// stops when they go.
+    private static func testOnlyLiveElapsedTimesSubscribeToTheDurationClock() throws {
+        let clock = TrackerPulseClock.durations
+        func session(state: String, role: String, since: Date? = nil, seed: Int? = nil) -> TrackerSession {
+            TrackerSession(
+                id: "session", title: "Session", repoName: "Preview", agent: "codex", role: role, state: state,
+                elapsedSince: since, elapsedSeedMS: seed
+            )
+        }
+        let since = Date().addingTimeInterval(-60)
+        let fixed = (session(state: "idle", role: "master", seed: 125_000), TrackerTimeRule.always)
+        let hidden = (session(state: "idle", role: "worker", since: since), TrackerTimeRule.whileWorking)
+        let live = (session(state: "idle", role: "master", since: since), TrackerTimeRule.always)
+        func column(_ entries: [(TrackerSession, TrackerTimeRule)]) -> AnyView {
+            AnyView(VStack {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    TrackerElapsedTime(session: entry.0, rule: entry.1) { Text($0) }
+                }
+            })
+        }
+        let idleEntries = Array(repeating: fixed, count: 30) + Array(repeating: hidden, count: 30)
+        let hosting = NSHostingView(rootView: column(idleEntries))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        let startedBefore = clock.timersStarted
+        pump(0.3)
+        try expect(!clock.isRunning && clock.timersStarted == startedBefore, "fixed and hidden times should not start the clock")
+
+        hosting.rootView = column(idleEntries + Array(repeating: live, count: 30))
+        try expect(waitUntil { clock.isRunning }, "live times should start the clock")
+        try expect(clock.timersStarted == startedBefore + 1, "30 live times should share one timer, got \(clock.timersStarted - startedBefore)")
+
+        hosting.rootView = column(idleEntries)
+        try expect(waitUntil { !clock.isRunning }, "the clock should stop when the live times go")
     }
 
     private static func testWorkerTimeColumnFitsRunsPastNinetyNineHours() throws {
