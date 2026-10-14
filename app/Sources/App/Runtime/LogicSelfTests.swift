@@ -273,16 +273,24 @@ enum LogicSelfTests {
             let edge = geometry.glowOpacity(at: outer)
             try expect(edge > 0.09 && edge < 0.11, "\(name) glow at the disc's edge should be about 0.098, got \(edge)")
             try expect(geometry.glowOpacity(at: outer + 1) < edge && geometry.glowOpacity(at: outer + 1) > 0.15 * 0.45, "\(name) glow should fall to half the peak by the dilated edge")
-            try expect(geometry.glowOpacity(at: geometry.halfSide) < 0.001, "\(name) glow should fade out within its layer, got \(geometry.glowOpacity(at: geometry.halfSide))")
+            try expect(geometry.glowOpacity(at: geometry.reach) < 0.001, "\(name) glow should fade out within its reach, got \(geometry.glowOpacity(at: geometry.reach))")
             try expect(geometry.glowOpacity(at: 0) == 0 && geometry.glowOpacity(at: 3 * outer) < 0.0001, "\(name) glow should be nothing in the disc and far away")
             let stops = geometry.glowStops
             try expect(stops.first?.location == 0 && stops.last?.location == 1, "\(name) stops should span the layer")
             try expect(zip(stops, stops.dropFirst()).allSatisfy { $0.location <= $1.location }, "\(name) stops should not run backwards")
             try expect(zip(stops.dropFirst(2), stops.dropFirst(3)).allSatisfy { $0.opacity >= $1.opacity }, "\(name) glow should only fall outward")
             try expect(stops[1].opacity == 0 && stops[2].opacity == edge && stops[1].location == stops[2].location, "\(name) glow should step in at the disc's edge")
-            try expect(geometry.frame.width == 2 * geometry.halfSide && geometry.halfSide == geometry.halfSide.rounded(), "\(name) layer should be a whole-point square")
-            try expectClose(geometry.frame.midX, geometry.center.x, "\(name) layer centre x")
-            try expectClose(geometry.frame.midY, geometry.center.y, "\(name) layer centre y")
+            let frame = geometry.frame
+            try expect(frame.minX == frame.minX.rounded() && frame.minY == frame.minY.rounded() && frame.width == frame.width.rounded() && frame.height == frame.height.rounded(), "\(name) layer should sit on whole points, got \(frame)")
+            try expect(frame.minX <= geometry.center.x - geometry.reach && frame.maxX >= geometry.center.x + geometry.reach && frame.minY <= geometry.center.y - geometry.reach && frame.maxY >= geometry.center.y + geometry.reach, "\(name) layer should hold the glow's whole reach")
+            try expectClose(geometry.layerCenter.x + frame.minX, geometry.center.x, "\(name) disc centre x in the layer")
+            try expectClose(geometry.layerCenter.y + frame.minY, geometry.center.y, "\(name) disc centre y in the layer")
+        }
+        // Whatever the disc's centre, even on a half or a quarter point, the layer's frame stays on whole points.
+        for center in [CGPoint(x: 12.5, y: 12.5), CGPoint(x: 100.25, y: 7.75), CGPoint(x: 30, y: 40.5)] {
+            let geometry = TrackerPortraitStatusGeometry(center: center, pathRadius: 11.75, stroke: 1.5)
+            let frame = geometry.frame
+            try expect([frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0 == $0.rounded() }, "a layer for a disc at \(center) should sit on whole points, got \(frame)")
         }
         try expect(TrackerPortraitStatusGeometry.glowPeakOpacity == 0.15 && TrackerPortraitStatusGeometry.glowSigma == 2.5 && TrackerPortraitStatusGeometry.glowSpread == 1, "the glow should be the filter's")
 

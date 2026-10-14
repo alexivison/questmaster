@@ -25,17 +25,23 @@ struct TrackerPortraitStatusGeometry: Equatable {
     /// The ring starts a point inside the stroke's inner edge and runs under the stroke to its path, where the stroke
     /// hides its far side, so the stroke's anti-aliased inner edge blends with the ring instead of the disc.
     var ringInnerRadius: CGFloat { pathRadius - stroke / 2 - Self.ringWidth }
-    /// The layer's half side: the glow's reach, rounded up to a whole point.
-    var halfSide: CGFloat { (outerRadius + Self.glowSpread + Self.glowReachSigmas * Self.glowSigma).rounded(.up) }
-    /// The layer's frame in the parent's points, centred on the disc.
+    /// How far the glow reaches from the disc's centre, to where it has faded to nothing.
+    var reach: CGFloat { outerRadius + Self.glowSpread + Self.glowReachSigmas * Self.glowSigma }
+    /// The layer's frame in the parent's points: the glow's reach around the disc, grown out to whole points. A frame
+    /// on a half point snaps to a whole pixel at 1x and slides the ring and glow off the stroke the parent draws at exact
+    /// geometry, so the frame sits on whole points whatever the disc's centre is, and the disc moves inside it.
     var frame: CGRect {
-        CGRect(x: center.x - halfSide, y: center.y - halfSide, width: 2 * halfSide, height: 2 * halfSide)
+        let minX = (center.x - reach).rounded(.down), maxX = (center.x + reach).rounded(.up)
+        let minY = (center.y - reach).rounded(.down), maxY = (center.y + reach).rounded(.up)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
+    /// The disc's centre in the layer's own points, measured from its top left.
+    var layerCenter: CGPoint { CGPoint(x: center.x - frame.minX, y: center.y - frame.minY) }
 
-    /// The ring's path in the layer's own points: one circle stroked across the ring's width.
-    var ringPath: CGPath {
+    /// The ring's path around the disc's centre in the layer's own coordinates: one circle stroked across the ring's width.
+    func ringPath(around middle: CGPoint) -> CGPath {
         let radius = (ringInnerRadius + pathRadius) / 2
-        return CGPath(ellipseIn: CGRect(x: halfSide - radius, y: halfSide - radius, width: 2 * radius, height: 2 * radius), transform: nil)
+        return CGPath(ellipseIn: CGRect(x: middle.x - radius, y: middle.y - radius, width: 2 * radius, height: 2 * radius), transform: nil)
     }
     var ringLineWidth: CGFloat { pathRadius - ringInnerRadius }
 
@@ -48,15 +54,15 @@ struct TrackerPortraitStatusGeometry: Equatable {
         return Self.glowPeakOpacity * 0.5 * CGFloat(erfc(Double(reach)))
     }
 
-    /// The glow as radial gradient stops across the layer's half side: clear inside the disc, a hard step at its edge,
-    /// then the falloff sampled every half point.
+    /// The glow as radial gradient stops across its reach: clear inside the disc, a hard step at its edge, then the
+    /// falloff sampled every half point.
     var glowStops: [(location: CGFloat, opacity: CGFloat)] {
-        let steps = Int(((halfSide - outerRadius) / Self.glowStep).rounded(.up))
+        let steps = Int(((reach - outerRadius) / Self.glowStep).rounded(.up))
         let falloff = (0...steps).map { step -> (location: CGFloat, opacity: CGFloat) in
-            let radius = min(outerRadius + CGFloat(step) * Self.glowStep, halfSide)
-            return (radius / halfSide, glowOpacity(at: radius))
+            let radius = min(outerRadius + CGFloat(step) * Self.glowStep, reach)
+            return (radius / reach, glowOpacity(at: radius))
         }
-        return [(0, 0), (outerRadius / halfSide, 0)] + falloff
+        return [(0, 0), (outerRadius / reach, 0)] + falloff
     }
 }
 
@@ -116,8 +122,6 @@ final class TrackerPortraitStatusNSView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         glow.type = .radial
-        glow.startPoint = CGPoint(x: 0.5, y: 0.5)
-        glow.endPoint = CGPoint(x: 1, y: 1)
         ring.fillColor = nil
         layer?.addSublayer(glow)
         layer?.addSublayer(ring)
@@ -149,12 +153,18 @@ final class TrackerPortraitStatusNSView: NSView {
         self.breathes = breathes
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let bounds = CGRect(x: 0, y: 0, width: 2 * geometry.halfSide, height: 2 * geometry.halfSide)
+        let bounds = CGRect(origin: .zero, size: geometry.frame.size)
+        // The layer's y runs up unless the view is flipped; the geometry measures from the top left.
+        let center = geometry.layerCenter
+        let middle = CGPoint(x: center.x, y: isFlipped ? center.y : bounds.height - center.y)
+        // The gradient's centre and radius are fractions of the layer's size.
+        glow.startPoint = CGPoint(x: middle.x / bounds.width, y: middle.y / bounds.height)
+        glow.endPoint = CGPoint(x: (middle.x + geometry.reach) / bounds.width, y: (middle.y + geometry.reach) / bounds.height)
         glow.frame = bounds
         glow.colors = geometry.glowStops.map { color.withAlphaComponent($0.opacity).cgColor }
         glow.locations = geometry.glowStops.map { NSNumber(value: Double($0.location)) }
         ring.frame = bounds
-        ring.path = geometry.ringPath
+        ring.path = geometry.ringPath(around: middle)
         ring.lineWidth = geometry.ringLineWidth
         ring.strokeColor = color.cgColor
         CATransaction.commit()
