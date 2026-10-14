@@ -892,9 +892,10 @@ private struct TrackerRepoSection: View {
     private var projectName: String { repo.repo.name.isEmpty ? "ungrouped" : repo.repo.name }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TrackerListMetrics.itemSpacing) {
-            ForEach(Array(repo.groups.enumerated()), id: \.offset) { _, group in
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(repo.groups.enumerated()), id: \.offset) { index, group in
                 let isCollapsed = !expandedMasterIDs.contains(group.root.session.id)
+                let gapAbove = index == 0 ? 0 : TrackerListMetrics.gap(afterSessionWithWorkers: !repo.groups[index - 1].workers.isEmpty)
                 VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
                     TrackerSessionRow(
                         rendered: group.root,
@@ -930,6 +931,7 @@ private struct TrackerRepoSection: View {
                         }
                     }
                 }
+                .padding(.top, gapAbove)
             }
         }
     }
@@ -1823,7 +1825,7 @@ private struct TrackerSkeletonPlaceholder: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TrackerListMetrics.itemSpacing) {
+        VStack(alignment: .leading, spacing: TrackerListMetrics.gap(afterSessionWithWorkers: true)) {
             VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
                 placeholder(role: .master)
                 placeholder(role: .worker)
