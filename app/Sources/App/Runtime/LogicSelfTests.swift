@@ -1890,6 +1890,7 @@ enum LogicSelfTests {
         let requestsBeforeReturn = client.requests.count
         try expect(model.handle(try keyEvent("h", keyCode: 4)), "h should cycle the agent select back")
         try expect(model.state.model.selectedAgent == "claude", "precondition: back to claude")
+        try waitForMainQueueTurn()
         try expect(
             client.requests.count == requestsBeforeReturn,
             "returning to an already-resolved agent must not re-ask the backend"
@@ -1943,6 +1944,7 @@ enum LogicSelfTests {
             !model.handle(try keyEvent("r", keyCode: 15)),
             "r should not be claimed by the sheet outside the model field"
         )
+        try waitForMainQueueTurn()
         try expect(
             client.requests.count == requestsBeforeAgentR,
             "r on another field must not trigger a model refetch"
@@ -2190,6 +2192,7 @@ enum LogicSelfTests {
         try waitForMainQueue("settings model suggestions", until: {
             model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
         })
+        try waitForMainQueueTurn()
         try expect(mutationClient.sentRequests.isEmpty, "resolving options alone must send nothing")
 
         model.focus(role: "master", field: .model)
