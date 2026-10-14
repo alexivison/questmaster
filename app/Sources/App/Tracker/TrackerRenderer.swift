@@ -61,6 +61,7 @@ enum TrackerRenderer {
         return TrackerStatusStyle(classification: classification, color: color(for: classification.kind))
     }
 
+    /// The session's elapsed time, shown only while it works.
     static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
         guard status(for: session).kind == .working else {
             return ""

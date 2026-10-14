@@ -238,8 +238,6 @@ enum AppFonts {
     static let trackerSummary = monospaced(size: 11, italic: true)
     /// The elapsed time on the plates, italic like the snippets.
     static let trackerTime = trackerSummary
-    /// The count on a collapsed-worker chip, 10pt regular as the list SVG sets it.
-    static let trackerChipCount = monospaced(size: 10)
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 }

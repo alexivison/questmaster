@@ -33,7 +33,7 @@ enum RenderPreview {
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
-        render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
+        render(skeletonView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
@@ -273,7 +273,7 @@ enum RenderPreview {
         )
     }
 
-    /// A list with a master, a shell row, a master with workers and a collapsed master with pills.
+    /// A list with a master, a shell row, a master with workers and a collapsed master with circles.
     @MainActor
     private static func breathingListView() -> some View {
         func session(_ id: String, title: String, repo: String, color: String, agent: String = "codex", role: String = "master", state: String = "working", snippet: String, parentID: String = "", workers: Int = 0) -> TrackerSession {
@@ -331,42 +331,41 @@ enum RenderPreview {
     }
 
     /// The tracker with the sessions `Property 1=Tracker (Simplified).svg` lays out: seven masters in three projects,
-    /// two workers under the second, and collapsed chips under the fourth and sixth. Every session idles, so no
-    /// status band surrounds a plate, and its strings are the SVG's.
+    /// two workers under the second, and collapsed circles under the fourth (nine workers) and sixth (three). Every
+    /// session idles, so no status band surrounds a plate, and its strings are the SVG's.
     @MainActor
     private static func trackerListDesignView() -> some View {
-        func session(_ id: String, repo: String, color: String, agent: String, role: String, parent: String = "", state: String = "idle") -> TrackerSession {
+        func session(_ id: String, repo: String, color: String, agent: String, role: String, parent: String = "") -> TrackerSession {
             TrackerSession(
                 id: id,
-                title: role == "worker" ? "worker-title-ti" : "Improve fuzzy search rank...",
+                title: role == "worker" ? "worker-title" : "Session Title",
                 repoName: repo,
                 displayColor: color,
                 agent: agent,
                 role: role,
-                state: state,
-                snippet: role == "worker" ? "Ranked exact matches a ..." : "Ranked exact matches and ro...",
+                state: "idle",
+                snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...",
                 parentID: parent
             )
         }
-        func workers(_ parent: String, repo: String, color: String, _ kinds: [(String, String)]) -> [TrackerSession] {
-            kinds.enumerated().map { session("\(parent)-w\($0.offset)", repo: repo, color: color, agent: $0.element.0, role: "worker", parent: parent, state: $0.element.1) }
+        func workers(_ parent: String, repo: String, color: String, _ agents: [String]) -> [TrackerSession] {
+            agents.enumerated().map { session("\(parent)-w\($0.offset)", repo: repo, color: color, agent: $0.element, role: "worker", parent: parent) }
         }
         let dotfiles = [
-            session("m1", repo: "Dotfiles", color: "lime", agent: "claude", role: "master"),
+            session("m1", repo: "Dotfiles", color: "lime", agent: "codex", role: "master"),
             session("m2", repo: "Dotfiles", color: "lime", agent: "codex", role: "master"),
-        ] + workers("m2", repo: "Dotfiles", color: "lime", [("codex", "idle"), ("codex", "idle")])
+        ] + workers("m2", repo: "Dotfiles", color: "lime", ["codex", "codex"])
         let questmaster = [
             session("m3", repo: "Questmaster", color: "yellow", agent: "codex", role: "master"),
-            session("m4", repo: "Questmaster", color: "yellow", agent: "claude", role: "master"),
+            session("m4", repo: "Questmaster", color: "yellow", agent: "codex", role: "master"),
         ] + workers("m4", repo: "Questmaster", color: "yellow", [
-            ("codex", "working"), ("claude", "working"), ("codex", "idle"), ("codex", "idle"), ("codex", "idle"), ("claude", "idle"),
-            ("pi", "idle"), ("opencode", "idle"), ("claude", "needs-input"),
+            "claude", "codex", "claude", "claude", "codex", "codex", "codex", "codex", "codex",
         ])
         let scry = [
-            session("m5", repo: "Scry", color: "blue", agent: "claude", role: "master"),
+            session("m5", repo: "Scry", color: "blue", agent: "codex", role: "master"),
             session("m6", repo: "Scry", color: "blue", agent: "codex", role: "master"),
-            session("m7", repo: "Scry", color: "blue", agent: "claude", role: "master"),
-        ] + workers("m6", repo: "Scry", color: "blue", [("codex", "idle"), ("claude", "idle")])
+            session("m7", repo: "Scry", color: "blue", agent: "codex", role: "master"),
+        ] + workers("m6", repo: "Scry", color: "blue", ["codex", "codex", "codex"])
         let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["m2"])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
             TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: dotfiles),
@@ -400,15 +399,15 @@ enum RenderPreview {
         let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
         // The "design" flag swaps in the strings the plate SVGs show, for side-by-side comparison with them.
         let isDesign = flags.contains("design")
-        let title = isDesign ? "Improve fuzzy search rank..." : "Skills Improvements and stuff that ge..."
-        let workerTitle = isDesign ? "worker-title-ti" : title
-        let repoName = isDesign ? "Scry" : "Title"
-        let defaultElapsed = isDesign ? 1_825_000 : 5_420_000
+        let title = isDesign ? "Session Title" : "Skills Improvements and stuff that ge..."
+        let workerTitle = isDesign ? "worker-title" : title
+        let repoName = isDesign ? "Project" : "Title"
+        let defaultElapsed = isDesign ? 1 : 5_420_000
         func session(_ id: String, role: String, agent: String = "codex", state: String = fixtureState(flags), lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int? = nil) -> TrackerSession {
             TrackerSession(id: id, title: role == "worker" ? workerTitle : title, repoName: repoName, displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed ?? defaultElapsed)
         }
-        let snippet = isDesign ? "Ranked exact matches and ro..." : "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
-        let workerSnippet = isDesign ? "Ranked exact matches en..." : snippet
+        let snippet = isDesign ? "Ranked exact matches and row..." : "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
+        let workerSnippet = isDesign ? "Ranked exact matches a..." : snippet
         var sessions: [TrackerSession]
         switch role {
         case "shell":
@@ -416,7 +415,7 @@ enum RenderPreview {
         case "master":
             sessions = [session("a", role: "master", snippet: snippet)]
         case "worker":
-            sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: workerSnippet, parentID: "a", elapsed: flags.contains("long") ? 360_000_000 : 1_825_000)]
+            sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: workerSnippet, parentID: "a", elapsed: flags.contains("long") ? 360_000_000 : defaultElapsed)]
         case "stopped":
             sessions = [session("a", role: "master", state: "stopped", lifecycle: "stopped", snippet: snippet)]
         default:
@@ -489,9 +488,9 @@ enum RenderPreview {
         let master = TrackerNameplateRole.master
         let worker = TrackerNameplateRole.worker
         return ZStack(alignment: .topLeading) {
-            TrackerAgentMark(agent: "codex", shortcutNumber: 3, diameter: master.portraitDiameter)
+            TrackerAgentMark(agent: "codex", shortcutNumber: 3, diameter: master.portraitDiameter, logoSide: master.logoSide)
                 .offset(x: 5, y: 5)
-            TrackerAgentMark(agent: "claude", shortcutNumber: 7, diameter: worker.portraitDiameter)
+            TrackerAgentMark(agent: "claude", shortcutNumber: 7, diameter: worker.portraitDiameter, logoSide: worker.logoSide)
                 .offset(x: 75, y: 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

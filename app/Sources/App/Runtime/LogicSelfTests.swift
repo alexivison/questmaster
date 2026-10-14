@@ -26,10 +26,13 @@ enum LogicSelfTests {
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
-        ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
+        ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerBandPrecedenceAndSteadiness", testTrackerBandPrecedenceAndSteadiness),
         ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
+        ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
+        ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
+        ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -268,44 +271,49 @@ enum LogicSelfTests {
         }
         let shift = TrackerPlateDesign.workerShift
 
-        // Sizes, from the SVGs: the master's canvas is 275 x 56, and its row the disc's 50 tall, 3 below the canvas top.
-        try expectClose(TrackerPlateDesign.topLevel.size.height, 56, "master canvas height")
+        // Sizes, from the SVGs: the master's canvas starts 2 above its 50 tall row, which is as wide as the plate.
+        try expectClose(TrackerPlateDesign.topLevel.size.width, 278, "master canvas width")
+        try expectClose(TrackerPlateDesign.topLevel.size.height, 55, "master canvas height")
         try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
-        try expectClose(TrackerPlateDesign.topLevel.size.height - 2 * TrackerPlateDesign.topLevelArtInset, TrackerPlateDesign.topLevelSize.height, "master crown reach past its row, above and below")
-        try expectClose(TrackerPlateDesign.topLevel.size.width, 275, "master canvas width")
-        try expectClose(TrackerPlateDesign.worker.size.width, 231 + shift, "worker canvas width")
+        try expectClose(TrackerPlateDesign.topLevelSize.width, 277, "master row width")
+        try expectClose(TrackerPlateDesign.topLevelArtInset, 2, "master canvas start above its row")
+        try expectClose(TrackerPlateDesign.worker.size.width, 230 + shift, "worker canvas width")
         try expectClose(TrackerPlateDesign.worker.size.height, 40, "worker canvas height")
 
-        // The paths are the SVGs', and each stroke is the SVG's, centred on its path.
+        // The paths are the SVGs', moved onto whole points, and each stroke is the SVG's, centred on its path.
         let master = TrackerPlateDesign.topLevel
-        try expectRect(master.body, 28.75, 6.75, 272.25, 49.25, "master body")
-        try expectRect(master.frame, 28, 23, 273, 50, "master frame")
-        try expectRect(master.summary, 29.5, 24.5, 271.5, 36.5, "master summary strip")
-        try expectRect(master.bar ?? Path(), 29.5, 38.5, 271.5, 48.5, "master project bar")
-        try expectRect(master.disc, 4.5, 4.5, 51.5, 51.5, "master disc")
-        try expectClose(master.bodyStroke, 1.5, "master body stroke")
-        try expectClose(master.frameStroke, 3, "master frame stroke")
+        try expectRect(master.titleStrip, 27.75, 7, 271.25, 21.5, "master title strip")
+        try expectRect(master.frame, 27.75, 21.5, 276.25, 47, "master frame")
+        try expectRect(master.summary, 30, 22.25, 277, 34.25, "master snippet strip")
+        try expectRect(master.summaryClip, 28.5, 22.25, 275.5, 34.25, "master snippet strip's clip")
+        try expectRect(master.bar ?? Path(), 30, 36.25, 277, 46.25, "master project bar")
+        try expectRect(master.disc, 3.5, 3.5, 50.5, 50.5, "master disc")
+        try expectClose(TrackerPlateArtwork.borderStroke, 1.5, "plate border stroke")
         try expectClose(master.discStroke, 3, "master disc stroke")
         let worker = TrackerPlateDesign.worker
-        try expectRect(worker.body, 20.75 + shift, 5.75, 229.25 + shift, 34.25, "worker body")
-        try expectRect(worker.frame, 30.5 + shift, 20.5, 229.5 + shift, 34.5, "worker frame")
-        try expectRect(worker.summary, 31.5 + shift, 21.5, 228.5 + shift, 33.5, "worker snippet strip")
+        try expectRect(worker.titleStrip, 20.75 + shift, 6, 224.25 + shift, 20.5, "worker title strip")
+        try expectRect(worker.frame, 20.75 + shift, 20.5, 229.25 + shift, 34, "worker frame")
+        try expectRect(worker.summary, 21.5 + shift, 21.25, 228.5 + shift, 33.25, "worker snippet strip")
         try expectRect(worker.disc, 1 + shift, 1, 39 + shift, 39, "worker disc")
-        try expectClose(worker.frameStroke, 2, "worker frame stroke")
         try expectClose(worker.discStroke, 2, "worker disc stroke")
         try expect(worker.bar == nil && worker.ornaments.isEmpty, "the worker has no project bar or ornaments")
 
-        // The ornaments reach the canvas's edges: the crown pieces its top and bottom, the diamonds its left side.
+        // The ornaments reach 2.17 past the disc: the crown pieces above and below, the diamonds on its sides.
         let ornamentBox = master.ornaments.reduce(CGRect.null) { $0.union($1.path.boundingRect) }
-        try expectRect(Path(ornamentBox), 0, 0, 56, 56, "master ornaments")
+        try expectRect(Path(ornamentBox), -0.1739, -0.1739, 54.1738, 54.1739, "master ornaments")
 
         // The disc is the row's height, and the row's centre is the disc's, in the row's points.
         try expectClose(TrackerPlateDesign.topLevelDiscDiameter, 2 * (23.5 + 1.5), "master disc outer diameter")
         try expectClose(TrackerPlateDesign.workerDiscDiameter, 2 * (19 + 1), "worker disc outer diameter")
         try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y, TrackerPlateDesign.topLevelSize.height / 2, "master disc centre in its row")
         try expectClose(TrackerPlateDesign.workerPortraitCenter.y, TrackerPlateDesign.workerSize.height / 2, "worker disc centre in its row")
-        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y + TrackerPlateDesign.topLevelArtInset, 28, "master disc centre in its canvas")
-        try expectClose(TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.topLevelPortraitCenter.x, 15, "worker indent")
+        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y + TrackerPlateDesign.topLevelArtInset, 27, "master disc centre in its canvas")
+        try expectClose(TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.topLevelPortraitCenter.x, 15, "worker disc indent")
+        try expectClose(
+            TrackerNameplateRole.worker.portraitOrigin.x - TrackerNameplateRole.master.portraitOrigin.x,
+            20,
+            "worker portrait indent"
+        )
 
         // Every layer of a portrait sits at a whole-point origin. A frame on a half point snaps to a whole pixel at 1x
         // and drifts half a pixel off the disc the plate's canvas draws at exact geometry.
@@ -313,7 +321,7 @@ enum LogicSelfTests {
             for (name, value) in [("x", role.portraitOrigin.x), ("y", role.portraitOrigin.y), ("diameter", role.portraitDiameter)] {
                 try expect(value == value.rounded(), "the \(role) portrait's \(name) should be a whole point, got \(value)")
             }
-            let logoSide = role.portraitDiameter * 0.6
+            let logoSide = role.logoSide
             let logoInset = (role.portraitDiameter - logoSide) / 2
             try expect(logoSide == logoSide.rounded() && logoInset == logoInset.rounded(), "the \(role) logo should sit on whole points, got side \(logoSide) at \(logoInset)")
         }
@@ -321,20 +329,115 @@ enum LogicSelfTests {
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.sectionSpacing, 20, "gap between project groups")
         try expectClose(TrackerListMetrics.itemSpacing, 20, "gap between top-level sessions")
-        try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers")
-        try expectClose(TrackerNameplateRole.chipsDrop, 5, "gap between a master and its chips")
-        try expectClose(TrackerNameplateRole.chipsX, TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.workerDiscDiameter / 2, "chips start on the worker's disc line")
-        // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents.
-        let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
-        let masterHitShape = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.artInset).path(in: masterRow).boundingRect
-        try expectClose(masterHitShape.height, TrackerPlateDesign.topLevel.size.height, "master hit shape height")
-        try expectClose(masterHitShape.minY, -TrackerPlateDesign.topLevelArtInset, "master hit shape top")
-        try expectClose(masterHitShape.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
-        try expect(TrackerNameplateRole.worker.artInset == 0, "the worker's row has no artwork past its frame")
-        try expect(TrackerWorkerSummary.maxPills == 6, "the master's chip row should hold six chips, got \(TrackerWorkerSummary.maxPills)")
+        try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers, and between workers")
         try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
-        let chipsRowHeight = TrackerNameplateRole.master.rowHeight(showsPills: true)
-        try expect(chipsRowHeight == chipsRowHeight.rounded(), "a master row with chips should end on a whole point, got \(chipsRowHeight)")
+
+        // The collapsed workers hang flush from the disc's bottom edge, 40 right of its left edge, and fill the plate's width.
+        let discLeft = TrackerNameplateRole.master.portraitOrigin.x
+        try expectClose(TrackerNameplateRole.circlesX - discLeft, 40, "first collapsed circle's offset from the disc's left edge")
+        try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
+        try expectClose(TrackerPlateDesign.collapsedCircleGap, 5, "gap between collapsed circles")
+        try expect(TrackerWorkerSummary.maxCircles == 8, "a master's collapsed row should hold eight circles, got \(TrackerWorkerSummary.maxCircles)")
+        let rowRight = TrackerNameplateRole.circlesX
+            + CGFloat(TrackerWorkerSummary.maxCircles) * TrackerPlateDesign.collapsedCircleDiameter
+            + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
+        try expectClose(rowRight, TrackerPlateDesign.topLevelSize.width, "the last collapsed circle's right edge against the plate's")
+        try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 75, "master row height with collapsed circles")
+        try expectClose(TrackerNameplateRole.worker.rowHeight(showsCircles: false), 40, "worker row height")
+
+        // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents, above
+        // the row and below it, past the crown's tip. The worker's has no artwork past its frame.
+        let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
+        let masterHit = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.hitOutset).path(in: masterRow).boundingRect
+        try expect(masterHit.minY <= -TrackerPlateDesign.topLevelArtInset, "master hit shape top should reach the canvas's top, got \(masterHit.minY)")
+        let crownBottom = ornamentBox.maxY - TrackerPlateDesign.topLevelArtInset
+        try expect(masterHit.maxY >= crownBottom, "master hit shape bottom should reach the crown's tip at \(crownBottom), got \(masterHit.maxY)")
+        try expectClose(masterHit.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
+        try expect(TrackerNameplateRole.worker.hitOutset == 0, "the worker's row has no artwork past its frame")
+    }
+
+    private static func testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting() throws {
+        func session(role: String, state: String, lifecycle: String = "active", since: Date? = nil, seed: Int? = nil) -> TrackerSession {
+            TrackerSession(
+                id: "session", title: "Session", repoName: "Preview", agent: "codex", role: role, state: state,
+                lifecycle: lifecycle, elapsedSince: since, elapsedSeedMS: seed
+            )
+        }
+
+        // Masters, shell rows and workers alike show their time only while they work.
+        for role in ["master", "worker"] {
+            try expect(TrackerRenderer.durationLabel(for: session(role: role, state: "working", seed: 125_000)) == "0:02:05", "a working \(role) should show its time")
+            try expect(TrackerRenderer.durationLabel(for: session(role: role, state: "idle", seed: 125_000)).isEmpty, "an idle \(role) should show no time")
+        }
+        let stopped = session(role: "master", state: "stopped", lifecycle: "stopped", seed: 0)
+        try expect(TrackerRenderer.durationLabel(for: stopped).isEmpty, "a stopped session has no time to show")
+
+        // Only a time that counts from an instant is live, and only while it shows.
+        let since = Date().addingTimeInterval(-60)
+        typealias Time = TrackerElapsedTime<EmptyView>
+        try expect(Time.isLive(session: session(role: "master", state: "working", since: since)), "a working session counting from an instant is live")
+        try expect(!Time.isLive(session: session(role: "worker", state: "idle", since: since)), "an idle session shows no time, so it is not live")
+        try expect(!Time.isLive(session: session(role: "master", state: "working", seed: 125_000)), "a fixed time is not live")
+        try expect(!Time.isLive(session: session(role: "master", state: "working")), "a session with no time is not live")
+    }
+
+    /// One timer serves every reader: its rate is the clock's, not the number of subscribers times it.
+    private static func testDurationClockHasOneTimerWhateverTheSubscribers() throws {
+        try expect(TrackerPulseClock.durations.framesPerSecond == 1, "live times should tick once a second")
+        let clock = TrackerPulseClock(framesPerSecond: 20)
+        try expect(!clock.isRunning, "a clock with no subscribers should not run")
+        for _ in 0..<100 { clock.subscribe() }
+        try expect(clock.timersStarted == 1, "100 subscribers should share one timer, got \(clock.timersStarted)")
+        let start = Date()
+        try expect(waitUntil { clock.ticks >= 4 }, "the clock should tick")
+        let elapsed = Date().timeIntervalSince(start)
+        try expect(Double(clock.ticks) <= clock.framesPerSecond * elapsed + 2, "100 subscribers should not multiply the ticks: \(clock.ticks) in \(elapsed)s")
+        for _ in 0..<99 { clock.unsubscribe() }
+        try expect(clock.isRunning, "the clock should run while one subscriber is left")
+        clock.unsubscribe()
+        try expect(!clock.isRunning, "the clock should stop with its last subscriber")
+    }
+
+    /// Hosted views: fixed, empty and hidden times subscribe to nothing; live ones share the clock's one timer, and it
+    /// stops when they go.
+    private static func testOnlyLiveElapsedTimesSubscribeToTheDurationClock() throws {
+        let clock = TrackerPulseClock.durations
+        func session(state: String, role: String, since: Date? = nil, seed: Int? = nil) -> TrackerSession {
+            TrackerSession(
+                id: "session", title: "Session", repoName: "Preview", agent: "codex", role: role, state: state,
+                elapsedSince: since, elapsedSeedMS: seed
+            )
+        }
+        let since = Date().addingTimeInterval(-60)
+        let fixed = session(state: "working", role: "master", seed: 125_000)
+        let hidden = session(state: "idle", role: "master", since: since)
+        let live = session(state: "working", role: "master", since: since)
+        func column(_ sessions: [TrackerSession]) -> AnyView {
+            AnyView(VStack {
+                ForEach(Array(sessions.enumerated()), id: \.offset) { _, session in
+                    TrackerElapsedTime(session: session) { Text($0) }
+                }
+            })
+        }
+        let idleEntries = Array(repeating: fixed, count: 30) + Array(repeating: hidden, count: 30)
+        let hosting = NSHostingView(rootView: column(idleEntries))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        let startedBefore = clock.timersStarted
+        pump(0.3)
+        try expect(!clock.isRunning && clock.timersStarted == startedBefore, "fixed and hidden times should not start the clock")
+
+        hosting.rootView = column(idleEntries + Array(repeating: live, count: 30))
+        try expect(waitUntil { clock.isRunning }, "live times should start the clock")
+        try expect(clock.timersStarted == startedBefore + 1, "30 live times should share one timer, got \(clock.timersStarted - startedBefore)")
+
+        hosting.rootView = column(idleEntries)
+        try expect(waitUntil { !clock.isRunning }, "the clock should stop when the live times go")
     }
 
     private static func testWorkerTimeColumnFitsRunsPastNinetyNineHours() throws {
@@ -383,17 +486,17 @@ enum LogicSelfTests {
         }
     }
 
-    private static func testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount() throws {
-        func pills(_ workers: [(agent: String, state: String)]) throws -> [TrackerWorkerSummary.Pill] {
+    private static func testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest() throws {
+        func entries(workerCount: Int) throws -> [TrackerWorkerSummary.Entry] {
             let master = TrackerSession(id: "master", title: "Master", repoName: "Preview", role: "master")
-            let sessions = [master] + workers.enumerated().map { index, worker in
+            let sessions = [master] + (0..<workerCount).map { index in
                 TrackerSession(
                     id: "worker-\(index)",
                     title: "Worker \(index)",
                     repoName: "Preview",
-                    agent: worker.agent,
+                    agent: index % 2 == 0 ? "codex" : "claude",
                     role: "worker",
-                    state: worker.state,
+                    state: index % 3 == 0 ? "working" : "idle",
                     parentID: master.id
                 )
             }
@@ -402,37 +505,29 @@ enum LogicSelfTests {
             guard let group = TrackerRenderer.tracker(snapshot).first?.groups.first else {
                 throw TestFailure("tracker renderer should keep the master group")
             }
-            return TrackerWorkerSummary.pills(for: group.workers)
+            return TrackerWorkerSummary.circles(for: group.workers)
         }
-
-        // Distinct (agent, status) groups, the first with two workers and the rest with one.
-        let distinctGroups: [(agent: String, state: String)] = [
-            ("codex", "working"), ("codex", "idle"), ("claude", "working"), ("claude", "idle"),
-            ("pi", "blocked"), ("opencode", "idle"), ("pi", "working"), ("opencode", "working"),
-            ("codex", "blocked"), ("claude", "blocked"), ("pi", "idle"), ("opencode", "blocked"),
-        ]
-        let fit = TrackerWorkerSummary.maxPills
-        try expect(fit >= 2 && fit < distinctGroups.count, "pill capacity should be a small positive number, got \(fit)")
-
-        let fitting = try pills(Array(distinctGroups.prefix(fit)))
-        try expect(fitting.count == fit, "\(fit) groups should show \(fit) pills, got \(fitting.count)")
-        try expect(fitting.allSatisfy { if case .group = $0 { true } else { false } }, "groups that fit should not overflow")
-
-        let crowded = Array(distinctGroups.prefix(fit + 3)) + [distinctGroups[0]]
-        let overflowing = try pills(crowded)
-        try expect(overflowing.count == fit, "more groups than fit should show \(fit) pills, got \(overflowing.count)")
-        var shownWorkers = 0
-        for pill in overflowing.prefix(fit - 1) {
-            guard case .group(let group) = pill else {
-                throw TestFailure("the first \(fit - 1) pills should be groups")
+        func workerIDs(_ entries: [TrackerWorkerSummary.Entry]) -> [String] {
+            entries.compactMap { entry in
+                if case .worker(let worker) = entry { worker.session.id } else { nil }
             }
-            shownWorkers += group.count
         }
-        guard case .overflow(let hiddenWorkers) = overflowing[fit - 1] else {
-            throw TestFailure("the last pill should be the overflow pill")
+
+        // Every worker gets a circle, in the order the expanded list shows them, while they fit.
+        let fit = TrackerWorkerSummary.maxCircles
+        try expect(fit >= 2, "circle capacity should be a small positive number, got \(fit)")
+        let fitting = try entries(workerCount: fit)
+        try expect(workerIDs(fitting) == (0..<fit).map { "worker-\($0)" }, "workers that fit should each show, in order")
+        try expect(fitting.count == fit, "\(fit) workers should show \(fit) circles, got \(fitting.count)")
+
+        // One more, and the last slot becomes a "+N" circle counting the workers past the first fit - 1.
+        let crowded = try entries(workerCount: fit + 3)
+        try expect(crowded.count == fit, "more workers than fit should show \(fit) circles, got \(crowded.count)")
+        try expect(workerIDs(crowded) == (0..<fit - 1).map { "worker-\($0)" }, "the first \(fit - 1) workers should show, in order")
+        guard case .overflow(let hiddenWorkers) = crowded[fit - 1] else {
+            throw TestFailure("the last circle should be the overflow circle")
         }
-        try expect(hiddenWorkers == crowded.count - shownWorkers, "overflow should count hidden workers (\(crowded.count - shownWorkers)), got \(hiddenWorkers)")
-        try expect(hiddenWorkers >= 4, "at least the four hidden groups should be counted, got \(hiddenWorkers)")
+        try expect(hiddenWorkers == 4, "overflow should count the \(fit + 3 - (fit - 1)) workers past the shown ones, got \(hiddenWorkers)")
     }
 
     private static func testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs() throws {
