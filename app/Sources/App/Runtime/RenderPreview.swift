@@ -37,6 +37,7 @@ enum RenderPreview {
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
+        render(trackerListStatusView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-status.png")
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
@@ -64,7 +65,7 @@ enum RenderPreview {
         }
         render(selectedSessionPanelView(), size: CGSize(width: 304, height: 76), to: "\(outputDir)/selected-session-panel.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
-        render(plateBandsView(), size: CGSize(width: 320, height: 600), to: "\(outputDir)/plate-bands.png")
+        render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -331,22 +332,24 @@ enum RenderPreview {
     }
 
     /// The tracker with the sessions `Property 1=Tracker (Simplified).svg` lays out: seven masters in three projects,
-    /// two workers under the second, and collapsed circles under the fourth (nine workers) and sixth (three). Every
-    /// session idles, so no status band surrounds a plate, and its strings are the SVG's.
+    /// two workers under the second, and collapsed circles under the fourth (nine workers) and sixth (three). Its strings
+    /// are the SVG's. Every session idles unless `states` gives its id one, and `selectedID` is the keyboard cursor.
     @MainActor
-    private static func trackerListDesignView() -> some View {
+    private static func trackerListDesignView(states: [String: String] = [:], selectedID: String? = nil) -> some View {
         func session(_ id: String, repo: String, color: String, agent: String, role: String, parent: String = "") -> TrackerSession {
-            TrackerSession(
+            var session = TrackerSession(
                 id: id,
                 title: role == "worker" ? "worker-title" : "Session Title",
                 repoName: repo,
                 displayColor: color,
                 agent: agent,
                 role: role,
-                state: "idle",
+                state: states[id] ?? "idle",
                 snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...",
                 parentID: parent
             )
+            session.isCurrent = id == selectedID
+            return session
         }
         func workers(_ parent: String, repo: String, color: String, _ agents: [String]) -> [TrackerSession] {
             agents.enumerated().map { session("\(parent)-w\($0.offset)", repo: repo, color: color, agent: $0.element, role: "worker", parent: parent) }
@@ -374,11 +377,27 @@ enum RenderPreview {
         ])))
         return TrackerRootView(
             store: store,
-            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: selectedID == nil ? .terminal : .tracker)),
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
         .background(AppPalette.window.swiftUI)
+    }
+
+    /// The list with every status on show: a working master, a selected one that works, its two expanded workers (one
+    /// working), a blocked master, and collapsed rows whose circles run through the statuses.
+    @MainActor
+    private static func trackerListStatusView() -> some View {
+        trackerListDesignView(
+            states: [
+                "m1": "working", "m2": "working", "m2-w0": "working",
+                "m4-w0": "working", "m4-w2": "blocked", "m4-w3": "needs-input", "m4-w4": "working", "m4-w5": "error",
+                "m5": "blocked",
+                "m6-w0": "working", "m6-w2": "error",
+                "m7": "error",
+            ],
+            selectedID: "m2"
+        )
     }
 
     /// The status a nameplate fixture shows: the status flag in its name, or working.
@@ -452,29 +471,39 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// One master plate per band state, 80 points apart from y 20: idle, hovered, selected, hovered with a working state,
-    /// working, being recoloured, and selected with a working state. Hover is a view state, so the plates are drawn
-    /// directly.
+    /// One master plate per state, 80 points apart from y 20, then two worker plates 60 apart: idle, hovered, selected,
+    /// hovered with a working status, working, being recoloured, selected with a working status, blocked; a working
+    /// worker, and a hovered one. Hover is a view state, so the plates are drawn directly, with their logos.
     @MainActor
     private static func plateBandsView() -> some View {
-        let working = AppPalette.trackerWorking
-        let states: [(selected: Bool, hovered: Bool, recoloring: Bool, status: NSColor?)] = [
-            (false, false, false, nil), (false, true, false, nil), (true, false, false, nil), (false, true, false, working),
-            (false, false, false, working), (false, false, true, nil), (true, false, false, working),
+        func status(_ state: String) -> NSColor {
+            TrackerRenderer.status(for: TrackerSession(id: "s", title: "", repoName: "", agent: "codex", role: "master", state: state)).color
+        }
+        let states: [(role: TrackerNameplateRole, selected: Bool, hovered: Bool, recoloring: Bool, status: NSColor?)] = [
+            (.master, false, false, false, nil), (.master, false, true, false, nil), (.master, true, false, false, nil),
+            (.master, false, true, false, status("working")), (.master, false, false, false, status("working")),
+            (.master, false, false, true, nil), (.master, true, false, false, status("working")),
+            (.master, false, false, false, status("blocked")),
+            (.worker, false, false, false, status("working")), (.worker, false, true, false, status("working")),
         ]
+        let rowYs = states.reduce(into: [CGFloat(20)]) { ys, state in ys.append(ys.last! + (state.role == .master ? 80 : 60)) }
         return ZStack(alignment: .topLeading) {
             ForEach(Array(states.enumerated()), id: \.offset) { index, state in
-                TrackerNameplateBackground(
-                    role: .master,
-                    color: AppPalette.displayColor("lime") ?? AppPalette.accent,
-                    selected: state.selected,
-                    hovered: state.hovered,
-                    isRecoloring: state.recoloring,
-                    isWorking: false,
-                    glowColor: state.status,
-                    text: EmptyView()
-                )
-                .offset(x: 20, y: 20 + 80 * CGFloat(index))
+                ZStack(alignment: .topLeading) {
+                    TrackerNameplateBackground(
+                        role: state.role,
+                        color: AppPalette.displayColor("lime") ?? AppPalette.accent,
+                        selected: state.selected,
+                        hovered: state.hovered,
+                        isRecoloring: state.recoloring,
+                        isWorking: false,
+                        statusColor: state.status,
+                        text: EmptyView()
+                    )
+                    TrackerAgentMark(agent: "codex", shortcutNumber: nil, diameter: state.role.portraitDiameter, logoSide: state.role.logoSide)
+                        .offset(x: state.role.portraitOrigin.x, y: state.role.portraitOrigin.y)
+                }
+                .offset(x: 20, y: rowYs[index])
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

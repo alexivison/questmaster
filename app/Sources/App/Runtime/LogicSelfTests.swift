@@ -28,13 +28,16 @@ enum LogicSelfTests {
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
-        ("testTrackerBandPrecedenceAndSteadiness", testTrackerBandPrecedenceAndSteadiness),
+        ("testTrackerBandPrecedence", testTrackerBandPrecedence),
+        ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
+        ("testPlateAndCircleStatusDrawsOnlyForActiveStatuses", testPlateAndCircleStatusDrawsOnlyForActiveStatuses),
+        ("testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld", testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld),
         ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
         ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
         ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
         ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
-        ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
+        ("testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed", testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
@@ -198,66 +201,175 @@ enum LogicSelfTests {
         try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
     }
 
-    private static func testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed() throws {
+    private static func testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
-        let path = CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil)
+        let geometry = TrackerPlateDesign.collapsedCircleStatus
         for status in [TrackerStatusKind.working, .blocked, .needsInput, .error] {
-            guard status.drawsGlow else {
-                throw TestFailure("\(status) should draw a status band")
-            }
-            let band = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-            window.contentView = band
-            band.configure(path: path, color: AppPalette.accent, breathes: true)
-            guard band.isBreathing else {
-                throw TestFailure("\(status) band should breathe in a window")
-            }
-            band.configure(path: path, color: AppPalette.accent, breathes: false)
-            guard !band.isBreathing else {
-                throw TestFailure("\(status) band should stop breathing under reduced motion")
-            }
+            try expect(status.drawsGlow, "\(status) should light the portrait's status")
         }
         for status in [TrackerStatusKind.idle, .done, .stopped] {
-            guard !status.drawsGlow else {
-                throw TestFailure("\(status) should draw no status band")
-            }
+            try expect(!status.drawsGlow, "\(status) should light nothing")
         }
-        let band = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        band.configure(path: path, color: AppPalette.accent, breathes: true)
-        guard !band.isBreathing else {
-            throw TestFailure("a band outside a window should not breathe")
+
+        let status = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        window.contentView = status
+        status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
+        let breaths = status.breathAnimations
+        try expect(breaths.count == 2, "the ring and the glow should each breathe in a window, got \(breaths.count)")
+        for breath in breaths {
+            let low = (breath.fromValue as? Float) ?? -1
+            try expect(low == TrackerPortraitStatusNSView.breathLowFraction && low == 0.4, "the breath should dip to 0.4 of the peak, got \(low)")
+            try expect((breath.toValue as? Float) == 1, "the breath should rise to the peak")
+            try expect(breath.duration == TrackerPortraitStatusNSView.breathCycle / 2 && breath.autoreverses, "the breath should take 2s up and down")
         }
-        guard band.layer?.opacity == TrackerGlowNSView.bandOpacity, TrackerGlowNSView.bandOpacity < 1,
-              TrackerGlowNSView.breathLowOpacity < TrackerGlowNSView.bandOpacity else {
-            throw TestFailure("a resting band should sit at its dimmed peak, with the breath's low point under it")
-        }
+        try expect(Set(breaths.map(\.beginTime)).count == 1, "the ring and the glow should breathe from one origin")
+        try expect(status.restingOpacities == [1, 1], "the layers should rest at their peaks")
+
+        status.configure(geometry: geometry, color: AppPalette.accent, breathes: false)
+        try expect(status.breathAnimations.isEmpty && status.restingOpacities == [1, 1], "a held status should sit at its peak, with no animation")
+        status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
+        try expect(status.breathAnimations.count == 2, "a status allowed to move again should breathe")
+
+        let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        outside.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
+        try expect(outside.breathAnimations.isEmpty, "a status outside a window should not breathe")
     }
 
-    private static func testTrackerBandPrecedenceAndSteadiness() throws {
-        let status = AppPalette.trackerWorking
-        func band(recoloring: Bool = false, selected: Bool = false, hovered: Bool = false, status: NSColor? = nil) -> TrackerPlateBand? {
-            TrackerPlateBand.make(isRecoloring: recoloring, selected: selected, hovered: hovered, status: status)
+    private static func testTrackerBandPrecedence() throws {
+        func band(recoloring: Bool = false, selected: Bool = false, hovered: Bool = false) -> NSColor? {
+            TrackerPlateBand.color(isRecoloring: recoloring, selected: selected, hovered: hovered)
         }
-        let steady = TrackerGlowNSView.steadyOpacity
-        try expect(band(selected: true, status: status) == TrackerPlateBand(color: AppPalette.bright, steadyOpacity: steady), "a selected row should show the steady selection band over its state's")
-        try expect(band(selected: true, hovered: true, status: status) == band(selected: true), "selection should beat hover and state")
-        try expect(band(hovered: true) == TrackerPlateBand(color: AppPalette.dim, steadyOpacity: steady), "a hovered row without a state should show the steady dim band")
-        try expect(band(status: status) == TrackerPlateBand(color: status, steadyOpacity: nil), "a row with a state should show its breathing band")
-        try expect(band(hovered: true, status: status) == TrackerPlateBand(color: status, steadyOpacity: TrackerGlowNSView.bandOpacity), "a hovered state band should hold at its peak")
-        try expect(band(recoloring: true, selected: true, status: status) == TrackerPlateBand(color: AppPalette.dim, steadyOpacity: steady), "the row being recoloured should show the dim band, over selection")
-        try expect(band() == nil, "an idle, unselected, unhovered row should show no band")
+        try expect(band(selected: true) == AppPalette.bright, "a selected row should show the bright band")
+        try expect(band(selected: true, hovered: true) == AppPalette.bright, "selection should beat hover")
+        try expect(band(hovered: true) == AppPalette.dim, "a hovered row should show the dim band")
+        try expect(band(recoloring: true, selected: true) == AppPalette.dim, "the row being recoloured should show the dim band, over selection")
+        try expect(band() == nil, "an unselected, unhovered row should show no band")
+        try expect(TrackerGlowNSView.bandOpacity == 0.6, "the band should hold 0.6")
 
-        // A steady band holds its opacity: it has no animation to vary it, in or out of a window.
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
-        let path = CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil)
         let held = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         window.contentView = held
-        held.configure(path: path, color: AppPalette.bright, breathes: true, steadyOpacity: steady)
-        try expect(!held.isBreathing && held.layer?.animationKeys()?.isEmpty != false, "a steady band should have no animation")
-        try expect(held.layer?.opacity == steady && held.restingOpacity == steady, "a steady band should hold its opacity")
-        let breathing = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        window.contentView = breathing
-        breathing.configure(path: path, color: AppPalette.accent, breathes: true)
-        try expect(breathing.isBreathing, "a state band should still breathe")
+        held.configure(path: CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil), color: AppPalette.bright)
+        try expect(held.layer?.animationKeys()?.isEmpty != false, "a band should have no animation")
+        try expect(held.layer?.opacity == TrackerGlowNSView.bandOpacity, "a band should hold its opacity")
+    }
+
+    /// The disc filters: erode 4 on the master's 3-stroke disc, 3 on the worker's 2-stroke one and 2.5 on the circle's
+    /// 1.5-stroke one (the stroke and a point); dilate 1, blur 2.5, opacity 0.15.
+    private static func testPortraitStatusFollowsTheFilterValues() throws {
+        func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String, tolerance: CGFloat = 0.01) throws {
+            try expect(abs(value - expected) < tolerance, "\(name) should be \(expected), got \(value)")
+        }
+        let master = TrackerPlateDesign.topLevel.statusGeometry
+        let worker = TrackerPlateDesign.worker.statusGeometry
+        let circle = TrackerPlateDesign.collapsedCircleStatus
+        for (name, geometry, erode, outer) in [("master", master, 4, 25), ("worker", worker, 3, 20), ("circle", circle, 2.5, 12.5)] as [(String, TrackerPortraitStatusGeometry, CGFloat, CGFloat)] {
+            try expectClose(geometry.outerRadius, outer, "\(name) disc outer radius")
+            try expectClose(geometry.outerRadius - geometry.ringInnerRadius, erode, "\(name) erode")
+            // The ring shows one point inside the stroke's inner edge, and runs under the stroke.
+            try expectClose(geometry.pathRadius - geometry.stroke / 2 - geometry.ringInnerRadius, 1, "\(name) visible ring width")
+            try expectClose(geometry.ringLineWidth, geometry.pathRadius - geometry.ringInnerRadius, "\(name) ring stroke width")
+            try expectClose(geometry.glowOpacity(at: outer - 0.01), 0, "\(name) glow inside the disc")
+            let edge = geometry.glowOpacity(at: outer)
+            try expect(edge > 0.09 && edge < 0.11, "\(name) glow at the disc's edge should be about 0.098, got \(edge)")
+            try expect(geometry.glowOpacity(at: outer + 1) < edge && geometry.glowOpacity(at: outer + 1) > 0.15 * 0.45, "\(name) glow should fall to half the peak by the dilated edge")
+            try expect(geometry.glowOpacity(at: geometry.halfSide) < 0.001, "\(name) glow should fade out within its layer, got \(geometry.glowOpacity(at: geometry.halfSide))")
+            try expect(geometry.glowOpacity(at: 0) == 0 && geometry.glowOpacity(at: 3 * outer) < 0.0001, "\(name) glow should be nothing in the disc and far away")
+            let stops = geometry.glowStops
+            try expect(stops.first?.location == 0 && stops.last?.location == 1, "\(name) stops should span the layer")
+            try expect(zip(stops, stops.dropFirst()).allSatisfy { $0.location <= $1.location }, "\(name) stops should not run backwards")
+            try expect(zip(stops.dropFirst(2), stops.dropFirst(3)).allSatisfy { $0.opacity >= $1.opacity }, "\(name) glow should only fall outward")
+            try expect(stops[1].opacity == 0 && stops[2].opacity == edge && stops[1].location == stops[2].location, "\(name) glow should step in at the disc's edge")
+            try expect(geometry.frame.width == 2 * geometry.halfSide && geometry.halfSide == geometry.halfSide.rounded(), "\(name) layer should be a whole-point square")
+            try expectClose(geometry.frame.midX, geometry.center.x, "\(name) layer centre x")
+            try expectClose(geometry.frame.midY, geometry.center.y, "\(name) layer centre y")
+        }
+        try expect(TrackerPortraitStatusGeometry.glowPeakOpacity == 0.15 && TrackerPortraitStatusGeometry.glowSigma == 2.5 && TrackerPortraitStatusGeometry.glowSpread == 1, "the glow should be the filter's")
+
+        // The layers sit on the discs: the master's centre is the canvas', the worker's the list's worker indent.
+        try expectClose(master.center.x, 27, "master status centre x")
+        try expectClose(master.center.y, 27, "master status centre y")
+        try expectClose(worker.center.x, 20 + TrackerPlateDesign.workerShift, "worker status centre x")
+        try expectClose(worker.center.y, 20, "worker status centre y")
+        try expectClose(circle.center.x, 12.5, "circle status centre")
+        try expectClose(TrackerPlateDesign.collapsedCircleStroke, 1.5, "circle stroke")
+    }
+
+    /// Hosted views: a plate's status view exists exactly while its status is active (selection does not hide it), is
+    /// configured not to breathe under hover, and a collapsed row has one for each active worker only. Each view is
+    /// hosted beside a control status; the control and every status view being configured proves the same update pass
+    /// mounted the subject too, so a missing status view is a real absence and not a slow host. Nothing here reads the
+    /// window or an animation, which depend on the host's display and its reduce-motion setting; the breath's lifecycle
+    /// is tested on the view itself, and its decision as a pure function.
+    private static func testPlateAndCircleStatusDrawsOnlyForActiveStatuses() throws {
+        let controlGeometry = TrackerPortraitStatusGeometry(center: .zero, pathRadius: 40, stroke: 1)
+        func statusViews(in view: NSView) -> [TrackerPortraitStatusNSView] {
+            view.subviews.flatMap { subview in
+                (subview as? TrackerPortraitStatusNSView).map { [$0] } ?? statusViews(in: subview)
+            }
+        }
+        /// The status views the subject draws, and the control's.
+        func host<V: View>(_ subject: V, _ description: String) throws -> (subject: [TrackerPortraitStatusNSView], control: TrackerPortraitStatusNSView) {
+            let hosting = NSHostingView(rootView: VStack {
+                subject
+                TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent)
+            })
+            hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 320, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            defer { window.close() }
+            func control() -> TrackerPortraitStatusNSView? {
+                statusViews(in: hosting).first { $0.geometry == controlGeometry }
+            }
+            func unconfigured() -> Int {
+                statusViews(in: hosting).filter { $0.geometry == nil }.count
+            }
+            let deadline = Date().addingTimeInterval(10)
+            while (control() == nil || unconfigured() > 0), Date() < deadline {
+                hosting.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            }
+            guard let control = control() else {
+                throw TestFailure("\(description): the control status view never mounted (hosting subviews: \(hosting.subviews.count), status views: \(statusViews(in: hosting).count))")
+            }
+            try expect(unconfigured() == 0, "\(description): \(unconfigured()) status views never configured")
+            return (statusViews(in: hosting).filter { $0 !== control }, control)
+        }
+        func plate(status: NSColor?, selected: Bool = false, hovered: Bool = false) -> some View {
+            TrackerNameplateBackground(
+                role: .master, color: AppPalette.accent, selected: selected, hovered: hovered, isRecoloring: false,
+                isWorking: false, statusColor: status, text: EmptyView()
+            )
+        }
+        let working = AppPalette.trackerWorking
+        try expect(try host(plate(status: nil), "an idle plate").subject.isEmpty, "a plate with no active status should draw no status")
+        let resting = try host(plate(status: working), "a working plate")
+        try expect(resting.subject.count == 1, "a working plate should draw one status, got \(resting.subject.count)")
+        try expect(resting.subject[0].isAllowedToBreathe == resting.control.isAllowedToBreathe, "a working plate should breathe whenever motion is allowed")
+        try expect(try host(plate(status: working, selected: true), "a selected working plate").subject.count == 1, "selection should not hide the status")
+        let hovered = try host(plate(status: working, hovered: true), "a hovered working plate")
+        try expect(hovered.subject.count == 1 && !hovered.subject[0].isAllowedToBreathe, "a hovered plate's status should be configured to hold at its peak")
+
+        func worker(_ id: String, state: String) -> TrackerRenderedSession {
+            let session = TrackerSession(id: id, title: id, repoName: "Preview", agent: "claude", role: "worker", state: state)
+            return TrackerRenderedSession(session: session, status: TrackerRenderer.status(for: session), groupColor: AppPalette.accent, recolorEditHint: nil)
+        }
+        let states = ["working", "idle", "blocked", "done", "needs-input", "stopped", "error"]
+        let row = TrackerWorkerSummaryRow(workers: states.enumerated().map { worker("w\($0.offset)", state: $0.element) })
+        let circles = try host(row, "a collapsed row").subject
+        try expect(circles.count == 4, "a collapsed row should draw a status for each active worker only, got \(circles.count)")
+    }
+
+    private static func testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld() throws {
+        for reduceMotion in [false, true] {
+            for holdsPeak in [false, true] {
+                try expect(
+                    TrackerPortraitStatus.breathes(reduceMotion: reduceMotion, holdsPeak: holdsPeak) == (!reduceMotion && !holdsPeak),
+                    "a status should breathe only with motion allowed and no hold (reduce motion \(reduceMotion), hold \(holdsPeak))"
+                )
+            }
+        }
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {

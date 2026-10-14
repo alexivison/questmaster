@@ -26,9 +26,9 @@ enum TrackerPlateDesign {
     static let topLevelSize = CGSize(width: 277, height: 50)
     static let workerSize = CGSize(width: 230 + workerShift, height: 40)
 
-    /// Room around a canvas for the status band, so the layer doesn't clip it.
+    /// Room around a canvas for the plate band, so the layer doesn't clip it.
     static let silhouetteMargin: CGFloat = 6
-    /// The visible width of a status band past the plate's edge.
+    /// The visible width of a plate band past the plate's edge.
     static let glowBandWidth: CGFloat = 2
 
     /// Each portrait's centre in row points, and its outer diameter: the SVG's disc path radius plus half its stroke
@@ -50,6 +50,12 @@ enum TrackerPlateDesign {
     static let collapsedCircleGap: CGFloat = 5
     static let collapsedCirclesInset: CGFloat = 40
     static let collapsedCircleStroke: CGFloat = 1.5
+    /// A collapsed circle's status ring and glow: centred on the circle, the stroke's path 0.75 inside its edge.
+    static let collapsedCircleStatus = TrackerPortraitStatusGeometry(
+        center: CGPoint(x: collapsedCircleDiameter / 2, y: collapsedCircleDiameter / 2),
+        pathRadius: (collapsedCircleDiameter - collapsedCircleStroke) / 2,
+        stroke: collapsedCircleStroke
+    )
     /// The "+N" circle's count, 11 points, its baseline in the circle's own points.
     static let collapsedCountBaseline: CGFloat = 16.4
 
@@ -107,7 +113,10 @@ struct TrackerPlateArtwork {
     let disc: Path
     let discStroke: CGFloat
     let ornaments: [(role: TrackerPlateShapes.Role, path: Path)]
-    /// The band a status glow fills, in the silhouette layer's coordinates (canvas plus the silhouette margin).
+    /// Where the disc's status ring and glow sit.
+    let statusGeometry: TrackerPortraitStatusGeometry
+    /// The band a selection, a hover or a recolour hint fills, in the silhouette layer's coordinates (canvas plus the
+    /// silhouette margin).
     let glow: CGPath
 
     /// `discReach` is how far the disc's visible edge sits past its path: the ring's outer edge on the master, the
@@ -135,6 +144,7 @@ struct TrackerPlateArtwork {
         let center = CGPoint(x: discCenter.x + offset.width, y: discCenter.y + offset.height)
         self.disc = Path(ellipseIn: CGRect(x: center.x - discRadius, y: center.y - discRadius, width: discRadius * 2, height: discRadius * 2))
         self.discStroke = discStroke
+        self.statusGeometry = TrackerPortraitStatusGeometry(center: center, pathRadius: discRadius, stroke: discStroke)
         self.ornaments = ornaments.map { (role: $0.role, path: SVGPath.parse($0.d, dx: offset.width, dy: offset.height)) }
 
         let reaches: [(Path, CGFloat)] = [(self.titleStrip, Self.borderStroke / 2), (self.frame, Self.borderStroke / 2), (self.disc, discReach)]
