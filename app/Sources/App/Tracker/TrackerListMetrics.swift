@@ -10,7 +10,9 @@ enum TrackerListMetrics {
     /// first row of text — see `ShellSplitLayoutPlanner`'s full-height tracker frame. The selected
     /// session panel lands on that line; the list below it starts `selectedPanelGap` lower.
     static let firstSectionTopInset: CGFloat = 0
-    static let selectedPanelGap: CGFloat = 40
+    /// From the selected-session panel's bottom edge (its 76pt canvas) to the first row's top, the first disc's top edge.
+    /// The master's crown pieces reach 3pt above it, so they start 34pt below the panel, as the reference layout has them.
+    static let selectedPanelGap: CGFloat = 37
     static let verticalPadding: CGFloat = 20
     /// Between project groups, from the bottom of one group's last item to the top of the next group's first.
     static let sectionSpacing: CGFloat = 20
@@ -18,8 +20,8 @@ enum TrackerListMetrics {
     /// circles, to the top of the next disc, and each row is exactly that tall, so the spacing is the gap.
     static let itemSpacing: CGFloat = 20
     /// Between a master and its workers, and between the workers.
-    static let masterBlockSpacing: CGFloat = 10
+    static let masterBlockSpacing: CGFloat = 5
     /// The widest tracker content: the selected-session panel's 304pt design width, which the top-level
-    /// plate (285pt) sits inside. The tracker column is sized to it plus the leading `sidePadding`.
+    /// plate (275pt) sits inside. The tracker column is sized to it plus the leading `sidePadding`.
     static let contentWidth: CGFloat = 304
 }

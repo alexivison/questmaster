@@ -948,7 +948,7 @@ struct TrackerWorkerSummaryRow: View {
 
     var body: some View {
         if !workers.isEmpty {
-            HStack(spacing: TrackerWorkerSummary.pillGap) {
+            HStack(alignment: .top, spacing: TrackerWorkerSummary.pillGap) {
                 ForEach(Array(TrackerWorkerSummary.pills(for: workers).enumerated()), id: \.offset) { _, pill in
                     switch pill {
                     case .group(let group):
@@ -963,7 +963,7 @@ struct TrackerWorkerSummaryRow: View {
 }
 
 enum TrackerWorkerSummary {
-    static let pillGap: CGFloat = 4
+    static let pillGap: CGFloat = 5
     /// How many pills fit between the chips' left edge and the plate's right edge.
     static let maxPills = Int(
         (TrackerPlateDesign.topLevelSize.width - 12 - TrackerNameplateRole.chipsX + pillGap)
@@ -1039,76 +1039,84 @@ enum TrackerWorkerSummary {
     }
 }
 
+/// A collapsed-worker chip, from the list SVG: the agent's circle, 20 wide, with a count capsule 15 tall hanging off its
+/// right side, top-aligned with it. The overflow chip is a bare capsule. Both borders are 1pt inside their shapes. The
+/// circle's ring is the chip's status: it takes the status colour while the status is active, and has no glow band.
 private struct TrackerWorkerSummaryPill: View {
     enum Badge {
         case group(TrackerWorkerSummary.Group)
         case overflow
     }
 
-    fileprivate static let badgeSide: CGFloat = 18
-    /// The chip's circle, outset by the glow band and shifted by the margin like the plate's.
-    private static let glowPath: CGPath = {
-        let inset = TrackerPlateDesign.silhouetteMargin - TrackerPlateDesign.glowBandWidth
-        let side = badgeSide + 2 * TrackerPlateDesign.glowBandWidth
-        return CGPath(ellipseIn: CGRect(x: inset, y: inset, width: side, height: side), transform: nil)
-    }()
+    fileprivate static let badgeSide: CGFloat = 20
+    private static let capsuleHeight: CGFloat = 15
+    private static let borderWidth: CGFloat = 1
+    fileprivate static let width: CGFloat = 35
+    private static let overflowWidth: CGFloat = 25
     private static let iconSide: CGFloat = 14
-    private static let capsuleWidth: CGFloat = 27
-    private static let capsuleOverlap: CGFloat = 10
-    fileprivate static let width = badgeSide + capsuleWidth - capsuleOverlap
-    // The count's glyph ink is centred on the capsule's height and on the part right of the circle, inside
-    // the capsule's border (x 18 to 34).
-    private static let countPosition = CGPoint(x: 26, y: badgeSide / 2)
+    private static let groupCapsule = SVGPath.parse(
+        "M52 358C55.3137 358 58 360.686 58 364V367C58 370.314 55.3137 373 52 373H41.6592C39.9299 375.988 36.7009 378 33 378C27.4772 378 23 373.523 23 368C23 362.477 27.4772 358 33 358H52Z",
+        dx: -23,
+        dy: -358
+    )
+    private static let overflowCapsule = SVGPath.parse(
+        "M242 358C245.314 358 248 360.686 248 364V367C248 370.314 245.314 373 242 373H229C225.686 373 223 370.314 223 367V364C223 360.686 225.686 358 229 358H242Z",
+        dx: -223,
+        dy: -358
+    )
+    /// The count's glyph ink is centred on the capsule's height and on the part right of the circle.
+    private static let countPosition = CGPoint(x: 26, y: capsuleHeight / 2)
+    private static let overflowCountPosition = CGPoint(x: overflowWidth / 2, y: capsuleHeight / 2)
 
     let badge: Badge
     let label: String
 
-    private var capsuleShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(bottomTrailingRadius: Self.badgeSide / 2, topTrailingRadius: Self.badgeSide / 2)
-    }
-
     var body: some View {
         switch badge {
         case .group(let group):
-            ZStack(alignment: .leading) {
-                capsuleShape
-                    .fill(AppPalette.hoverBackground.swiftUI)
-                    .overlay(capsuleShape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
-                    .frame(width: Self.capsuleWidth, height: Self.badgeSide)
-                    .offset(x: Self.badgeSide - Self.capsuleOverlap)
-                countText
-                    .position(Self.countPosition)
-                groupBadge(group)
+            ZStack(alignment: .topLeading) {
+                chipCanvas(capsule: Self.groupCapsule, ring: group.status.drawsGlow ? group.color : AppPalette.line)
+                countText.position(Self.countPosition)
+                logo(group)
             }
-            .frame(width: Self.width, height: Self.badgeSide)
+            .frame(width: Self.width, height: Self.badgeSide, alignment: .topLeading)
         case .overflow:
-            let shape = UnevenRoundedRectangle(
-                topLeadingRadius: Self.badgeSide / 2,
-                bottomLeadingRadius: Self.badgeSide / 2,
-                bottomTrailingRadius: Self.badgeSide / 2,
-                topTrailingRadius: Self.badgeSide / 2
-            )
-            shape
-                .fill(AppPalette.hoverBackground.swiftUI)
-                .overlay(shape.strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1))
-                .frame(width: Self.width, height: Self.badgeSide)
-                .overlay(countText)
+            ZStack(alignment: .topLeading) {
+                chipCanvas(capsule: Self.overflowCapsule, ring: nil)
+                countText.position(Self.overflowCountPosition)
+            }
+            .frame(width: Self.overflowWidth, height: Self.capsuleHeight, alignment: .topLeading)
+        }
+    }
+
+    /// The capsule and, for a group, the circle over its left end, each with its border inside it.
+    private func chipCanvas(capsule: Path, ring: NSColor?) -> some View {
+        Canvas { context, _ in
+            context.fill(capsule, with: .color(AppPalette.item.swiftUI))
+            border(&context, capsule, AppPalette.line)
+            guard let ring else { return }
+            let circle = Path(ellipseIn: CGRect(x: 0, y: 0, width: Self.badgeSide, height: Self.badgeSide))
+            context.fill(circle, with: .color(AppPalette.panel.swiftUI))
+            border(&context, circle, ring)
+        }
+        .frame(width: Self.width, height: Self.badgeSide)
+    }
+
+    private func border(_ context: inout GraphicsContext, _ shape: Path, _ color: NSColor) {
+        context.drawLayer { layer in
+            layer.clip(to: shape)
+            layer.stroke(shape, with: .color(color.swiftUI), lineWidth: 2 * Self.borderWidth)
         }
     }
 
     private var countText: some View {
         Text(label)
-            .font(AppFonts.monoBold.swiftUI)
+            .font(AppFonts.trackerChipCount.swiftUI)
             .foregroundStyle(AppPalette.muted.swiftUI)
     }
 
-    // Same ring treatment as the individual worker row the pill stands in for.
-    private func groupBadge(_ group: TrackerWorkerSummary.Group) -> some View {
+    private func logo(_ group: TrackerWorkerSummary.Group) -> some View {
         ZStack {
-            Circle().fill(AppPalette.item.swiftUI)
-            Circle()
-                .strokeBorder(AppPalette.lineSoft.swiftUI, lineWidth: 1)
-                .frame(width: Self.badgeSide, height: Self.badgeSide)
             if let image = TrackerAgentMark.image(for: group.agent.rawValue, side: Self.iconSide) {
                 Image(nsImage: image)
                     .resizable()
@@ -1118,99 +1126,6 @@ private struct TrackerWorkerSummaryPill: View {
             }
         }
         .frame(width: Self.badgeSide, height: Self.badgeSide)
-        .background(alignment: .topLeading) {
-            if group.status.drawsGlow {
-                TrackerGlowView(path: Self.glowPath, color: group.color)
-                    .silhouetteFrame(CGSize(width: Self.badgeSide, height: Self.badgeSide))
-            }
-        }
-    }
-}
-
-/// The plates' geometry in points, drawn at 1x from `Type=Master.svg` (275 x 50) and `Type=Worker.svg` (231 x 40).
-/// The SVGs were drawn at main's text sizes, so nothing scales. A plate's canvas is its SVG moved right until the
-/// disc's centre sits on the shared portrait centre line, the selected-session panel's disc centre at x = 38.
-///
-/// Every outer edge, border included, lands on the SVG's rasterised outer edge: the app draws its 1.5pt border
-/// outside each fill, so a fill sits one border inside the SVG's outer edge. The SVG's frame path carries a centred
-/// stroke (3pt on the master, 2pt on the worker), so the frame reaches half of it past the path's edges: on the
-/// master it spans y 18.5 to 48.5 and ends at x 274.5, 1.5 past the body's outer edge (y 3 to 47, x 273); on the
-/// worker it spans y 19.5 to 35.5 and ends at x 230.5, 0.5 past the body's (y 5 to 35, x 230).
-enum TrackerPlateDesign {
-    static let centreLineX: CGFloat = 38
-    private static let topLevelShift = centreLineX - 28
-    private static let workerShift = centreLineX - 20
-
-    /// Canvas sizes in points. The canvas is as tall as the disc's outer diameter.
-    static let topLevelSize = CGSize(width: 275 + topLevelShift, height: 50)
-    static let workerSize = CGSize(width: 231 + workerShift, height: 40)
-    /// The silhouette's outer border, 1.5pt. The outline strokes each silhouette part at twice this width, so
-    /// only its outer half shows.
-    static let outlineWidth: CGFloat = 1.5
-    /// Round joins keep the outline within its border at every corner.
-    static let outlineStroke = StrokeStyle(lineWidth: outlineWidth * 2, lineJoin: .round)
-    /// Room around the canvas for the outline and the status band, so the canvas doesn't clip them.
-    static let silhouetteMargin: CGFloat = 6
-    /// The visible width of a status band past its border. A plate draws the band under its 1.5pt border,
-    /// so the band reaches the border's width further out.
-    static let glowBandWidth: CGFloat = 2
-
-    /// Each portrait is the SVG's disc: r 23.5 with a 3pt stroke on the master, r 19 with a 2pt stroke on the worker.
-    /// The disc's border sits outside its fill, so the fill is a border narrower than the SVG's outer diameter
-    /// (50 and 40) on each side, and the rim (the SVG's stroke) is the ring plus the border.
-    static let topLevelPortraitCenter = CGPoint(x: centreLineX, y: 25)
-    static let workerPortraitCenter = CGPoint(x: centreLineX, y: 20)
-    static let portraitSideTopLevel: CGFloat = 50 - 2 * outlineWidth
-    static let portraitSideWorker: CGFloat = 40 - 2 * outlineWidth
-    static let portraitRingWidthTopLevel: CGFloat = 3 - outlineWidth
-    static let portraitRingWidthWorker: CGFloat = 2 - outlineWidth
-
-    private static func topLevel(_ designX: CGFloat) -> CGFloat { designX + topLevelShift }
-    private static func worker(_ designX: CGFloat) -> CGFloat { designX + workerShift }
-
-    /// The plate's rectangles, from the SVG's raster. The frame's top edge is inside the body, so it is a fill edge as
-    /// it stands; its bottom and right edges, and the body's top and right, are silhouette edges, a border inside
-    /// the SVG's outer edge. The body's and the frame's left edges sit behind the disc.
-    static let topLevelBodyRect = CGRect(left: topLevel(28.75), top: 3 + outlineWidth, right: topLevel(273) - outlineWidth, bottom: 47 - outlineWidth)
-    static let topLevelFrameRect = CGRect(left: topLevel(26.5), top: 18.5, right: topLevel(274.5) - outlineWidth, bottom: 48.5 - outlineWidth)
-    static let topLevelSummaryRect = CGRect(left: topLevel(29.5), top: 21.5, right: topLevel(271.5), bottom: 33.5)
-    static let topLevelBarRect = CGRect(left: topLevel(29.5), top: 35.5, right: topLevel(271.5), bottom: 45.5)
-    static let workerBodyRect = CGRect(left: worker(20.75), top: 5 + outlineWidth, right: worker(230) - outlineWidth, bottom: 35 - outlineWidth)
-    static let workerFrameRect = CGRect(left: worker(29.5), top: 19.5, right: worker(230.5) - outlineWidth, bottom: 35.5 - outlineWidth)
-    static let workerSummaryRect = CGRect(left: worker(31.5), top: 21.5, right: worker(228.5), bottom: 33.5)
-
-    /// Each text line's baseline, as the SVGs set it. The worker's time sits half a point below its title.
-    static let topLevelTitleBaseline: CGFloat = 15.5
-    static let topLevelSnippetBaseline: CGFloat = 31.5
-    static let topLevelBarBaseline: CGFloat = 44.5
-    static let workerTitleBaseline: CGFloat = 16.5
-    static let workerTimeBaseline: CGFloat = 17
-    static let workerSnippetBaseline: CGFloat = 31.5
-
-    /// Corner radii are the SVG's: a path radius plus half its stroke is the outer radius, and a silhouette
-    /// corner's fill radius is its outer radius less the border.
-    private static let bodyCornerRadius: CGFloat = 5 - outlineWidth
-    private static let topLevelFrameCornerRadius: CGFloat = 6
-    private static let workerFrameCornerRadius: CGFloat = 5
-    private static let stripCornerRadius: CGFloat = 2.5
-
-    static let topLevelBody = trailingRounded(topLevelBodyRect, top: bodyCornerRadius, bottom: bodyCornerRadius)
-    static let topLevelFrame = trailingRounded(topLevelFrameRect, top: topLevelFrameCornerRadius, bottom: topLevelFrameCornerRadius - outlineWidth)
-    static let topLevelSummary = trailingRounded(topLevelSummaryRect, top: stripCornerRadius, bottom: 0)
-    static let topLevelBar = trailingRounded(topLevelBarRect, top: 0, bottom: stripCornerRadius)
-    static let workerBody = trailingRounded(workerBodyRect, top: bodyCornerRadius, bottom: bodyCornerRadius)
-    static let workerFrame = trailingRounded(workerFrameRect, top: workerFrameCornerRadius, bottom: workerFrameCornerRadius - outlineWidth)
-    static let workerSummary = trailingRounded(workerSummaryRect, top: stripCornerRadius, bottom: stripCornerRadius)
-
-    /// A strip with square left corners and rounded trailing corners.
-    private static func trailingRounded(_ rect: CGRect, top: CGFloat, bottom: CGFloat) -> Path {
-        UnevenRoundedRectangle(bottomTrailingRadius: bottom, topTrailingRadius: top, style: .circular).path(in: rect)
-    }
-}
-
-private extension CGRect {
-    init(left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat) {
-        self.init(x: left, y: top, width: right - left, height: bottom - top)
     }
 }
 
@@ -1234,92 +1149,40 @@ enum TrackerNameplateRole: Equatable {
 
     var isWorker: Bool { self == .worker }
     var isMaster: Bool { self == .master }
+    /// The row's size: as tall as the disc's outer diameter, with the master's crown pieces and ring drawn past it.
     var canvasSize: CGSize { isWorker ? TrackerPlateDesign.workerSize : TrackerPlateDesign.topLevelSize }
-    var portraitSide: CGFloat { isWorker ? TrackerPlateDesign.portraitSideWorker : TrackerPlateDesign.portraitSideTopLevel }
-    var portraitRingWidth: CGFloat { isWorker ? TrackerPlateDesign.portraitRingWidthWorker : TrackerPlateDesign.portraitRingWidthTopLevel }
-    /// The disc's own centre in canvas points, and the portrait's frame: the disc's outer diameter, centred on it.
-    /// The diameter is even and the centre sits on whole points, so the frame's origin does too. A frame on a
-    /// half point snaps to a whole pixel at 1x, which moves the disc and logo half a pixel off the outline.
+    var artwork: TrackerPlateArtwork { isWorker ? TrackerPlateDesign.worker : TrackerPlateDesign.topLevel }
+    /// How far the plate's canvas starts above the row.
+    var artInset: CGFloat { isWorker ? 0 : TrackerPlateDesign.topLevelArtInset }
+    /// The disc's own centre in row points, and the portrait's frame: the disc's outer diameter, centred on it. The
+    /// diameter is even and the centre sits on whole points, so the frame's origin does too. A frame on a half point
+    /// snaps to a whole pixel at 1x, which moves the logo half a pixel off the disc.
     var portraitCenter: CGPoint {
         isWorker ? TrackerPlateDesign.workerPortraitCenter : TrackerPlateDesign.topLevelPortraitCenter
     }
-    var portraitDiameter: CGFloat { portraitSide + 2 * TrackerPlateDesign.outlineWidth }
+    var portraitDiameter: CGFloat { isWorker ? TrackerPlateDesign.workerDiscDiameter : TrackerPlateDesign.topLevelDiscDiameter }
     var portraitOrigin: CGPoint {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
-    /// The silhouette: the portrait's disc, its frame and the plate, as one shape. The outline and the working
-    /// glow both follow it, so they can't drift apart. Its coordinates include the silhouette margin.
-    var silhouetteParts: [Path] { isWorker ? Self.workerSilhouette : Self.topLevelSilhouette }
-    var glowPath: CGPath { isWorker ? Self.workerGlowPath : Self.topLevelGlowPath }
-    /// The body's and the frame's fills together: the area the plate covers behind the disc.
-    var plateFills: Path { isWorker ? Self.workerFills : Self.topLevelFills }
 
-    private static let topLevelFills = merged([TrackerPlateDesign.topLevelBody, TrackerPlateDesign.topLevelFrame])
-    private static let workerFills = merged([TrackerPlateDesign.workerBody, TrackerPlateDesign.workerFrame])
-
-    private static let topLevelSilhouette = withMargin([
-        TrackerPlateDesign.topLevelBody,
-        TrackerPlateDesign.topLevelFrame,
-        portraitDisc(centre: TrackerPlateDesign.topLevelPortraitCenter, side: TrackerPlateDesign.portraitSideTopLevel),
-    ])
-    private static let workerSilhouette = withMargin([
-        TrackerPlateDesign.workerBody,
-        TrackerPlateDesign.workerFrame,
-        portraitDisc(centre: TrackerPlateDesign.workerPortraitCenter, side: TrackerPlateDesign.portraitSideWorker),
-    ])
-    private static let topLevelGlowPath = union(topLevelSilhouette.map(glowBand))
-    private static let workerGlowPath = union(workerSilhouette.map(glowBand))
-
-    private static func portraitDisc(centre: CGPoint, side: CGFloat) -> Path {
-        Path(ellipseIn: CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side))
-    }
-
-    /// Shifts the parts by the silhouette margin, to match the layers' `silhouetteFrame` offset.
-    private static func withMargin(_ parts: [Path]) -> [Path] {
-        let margin = TrackerPlateDesign.silhouetteMargin
-        return parts.map { $0.applying(CGAffineTransform(translationX: margin, y: margin)) }
-    }
-
-    /// The band a glow fills: each part stroked out past its edge by the border plus the band width. The half
-    /// inside the silhouette hides under the plate's fills, and the border covers the band's inner part outside it.
-    private static func glowBand(_ part: Path) -> CGPath {
-        let reach = TrackerPlateDesign.outlineWidth + TrackerPlateDesign.glowBandWidth
-        return part.cgPath.copy(strokingWithWidth: 2 * reach, lineCap: .round, lineJoin: .round, miterLimit: 10)
-    }
-
-    private static func merged(_ parts: [Path]) -> Path {
-        var combined = Path()
-        for part in parts {
-            combined.addPath(part)
-        }
-        return combined
-    }
-
-    private static func union(_ paths: [CGPath]) -> CGPath {
-        let combined = CGMutablePath()
-        for path in paths {
-            combined.addPath(path)
-        }
-        return combined
-    }
     /// The project bar's 30% black overlay, as the SVGs draw it over the repo colour.
     static let projectBarOverlayOpacity: CGFloat = 0.3
     /// The top-level text column runs from 30 points right of the strips' left edge to ten points short of their
     /// right edge, as the SVG's text boxes do. The title and snippet centre in it; the project name starts on its
     /// left edge, and the elapsed time right-aligns at `timeRightEdge`.
-    static let topLevelTextX: CGFloat = 69.5
+    static let topLevelTextX: CGFloat = 59.5
     static let topLevelTextWidth: CGFloat = 202
     static let projectNameWidth: CGFloat = 120
-    static let timeRightEdge: CGFloat = 271.5
+    static let timeRightEdge: CGFloat = 261.5
     /// The worker's title and snippet start ten points right of the strips' left edge and left-align. The snippet
     /// ends ten points short of the strips' right edge. The elapsed time right-aligns five points short of it, on
     /// the title's row, in a column as wide as its own string, and the title takes the row up to a gap short of it.
-    static let workerTextX: CGFloat = 59.5
+    static let workerTextX: CGFloat = 41.5 + TrackerPlateDesign.workerShift
     static let workerSnippetWidth: CGFloat = 177
-    static let workerTimeRightEdge: CGFloat = 241.5
+    static let workerTimeRightEdge: CGFloat = 223.5 + TrackerPlateDesign.workerShift
     static let workerTitleTimeGap: CGFloat = 6
-    /// Collapsed-worker chips centre under the portrait's centre line, so the first chip's circle sits on it.
-    static let chipsX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x - TrackerWorkerSummaryPill.badgeSide / 2
+    /// Collapsed-worker chips start on the worker's disc line.
+    static let chipsX: CGFloat = TrackerPlateDesign.workerShift
     /// The chips hang this far below the top-level canvas, which ends at the disc's outer edge, so the disc and the
     /// chips' circles are 5pt apart.
     static let chipsDrop: CGFloat = 5
@@ -1435,58 +1298,62 @@ private struct TrackerColorBarPulse: View {
     }
 }
 
-/// The plate's own art, drawn in one canvas: the frame's bands around the strips and the project bar's base
-/// colour with its overlay. Only the bar's pulse and the text sit on top, as live views.
+/// The plate's art, in the SVG's order: the body and its border, the frame, the strips, and the project bar's base
+/// colour with its overlay. The bar's pulse sits over it as a live view.
 private struct TrackerPlateArt: View {
-    let role: TrackerNameplateRole
+    let artwork: TrackerPlateArtwork
     let barColor: NSColor
-    /// The outer border's colour. Every divider between strips takes it, so the gaps match the outline.
-    let dividerColor: NSColor
+    /// The plate's border colour: the body's border and the frame take it, so selection and hover light them together.
+    let outlineColor: NSColor
 
     var body: some View {
         Canvas { context, _ in
-            if role.isWorker {
-                drawWorker(&context)
-            } else {
-                drawTopLevel(&context)
+            let outline = outlineColor.swiftUI
+            context.fill(artwork.body, with: .color(AppPalette.panel.swiftUI))
+            context.stroke(artwork.body, with: .color(outline), lineWidth: artwork.bodyStroke)
+            context.fill(artwork.frame, with: .color(outline))
+            context.stroke(artwork.frame, with: .color(outline), lineWidth: artwork.frameStroke)
+            context.fill(artwork.summary, with: .color(AppPalette.item.swiftUI))
+            if let bar = artwork.bar {
+                context.fill(bar, with: .color(barColor.swiftUI))
+                context.fill(bar, with: .color(AppPalette.shadow.swiftUI.opacity(TrackerNameplateRole.projectBarOverlayOpacity)))
             }
         }
-        .frame(width: role.canvasSize.width, height: role.canvasSize.height)
-    }
-
-    private func drawTopLevel(_ context: inout GraphicsContext) {
-        context.fill(TrackerPlateDesign.topLevelBody, with: .color(AppPalette.panel.swiftUI))
-        drawFrame(&context, TrackerPlateDesign.topLevelFrame)
-        context.fill(TrackerPlateDesign.topLevelSummary, with: .color(AppPalette.item.swiftUI))
-        context.fill(TrackerPlateDesign.topLevelBar, with: .color(barColor.swiftUI))
-        context.fill(TrackerPlateDesign.topLevelBar, with: .color(AppPalette.shadow.swiftUI.opacity(TrackerNameplateRole.projectBarOverlayOpacity)))
-        drawDiscRim(&context)
-    }
-
-    private func drawWorker(_ context: inout GraphicsContext) {
-        context.fill(TrackerPlateDesign.workerBody, with: .color(AppPalette.panel.swiftUI))
-        drawFrame(&context, TrackerPlateDesign.workerFrame)
-        context.fill(TrackerPlateDesign.workerSummary, with: .color(AppPalette.item.swiftUI))
-        drawDiscRim(&context)
-    }
-
-    /// The SVGs draw the disc's stroke over the plate, so the rim is full width where the disc overlaps it. The
-    /// disc's own border is drawn under the plate's fills, which hide it there, so the rim's outer part is drawn
-    /// again over the fills, in the rim's own tone.
-    private func drawDiscRim(_ context: inout GraphicsContext) {
-        context.clip(to: role.plateFills)
-        let disc = CGRect(origin: role.portraitOrigin, size: CGSize(width: role.portraitDiameter, height: role.portraitDiameter))
-        context.fill(Path(ellipseIn: disc), with: .color(AppPalette.line.swiftUI))
-    }
-
-    /// The frame is filled whole, then the strips draw over it, so the gaps between strips show the divider colour.
-    private func drawFrame(_ context: inout GraphicsContext, _ frame: Path) {
-        context.fill(frame, with: .color(dividerColor.swiftUI))
+        .frame(width: artwork.size.width, height: artwork.size.height)
     }
 }
 
-/// The plate behind the portrait: its outline and status band, the strips, then the text. The portrait's disc is
-/// drawn over it in the row's content layer.
+/// The disc and the ornaments over the plate, so they sit above the bar's pulse. The worker's disc stroke and every
+/// outline-role ornament take the plate's border colour.
+private struct TrackerPortraitArt: View {
+    let artwork: TrackerPlateArtwork
+    let barColor: NSColor
+    let outlineColor: NSColor
+
+    var body: some View {
+        Canvas { context, _ in
+            context.fill(artwork.disc, with: .color(AppPalette.panel.swiftUI))
+            let discStroke = artwork.discStrokeIsOutline ? outlineColor : AppPalette.item
+            context.stroke(artwork.disc, with: .color(discStroke.swiftUI), lineWidth: artwork.discStroke)
+            for ornament in artwork.ornaments {
+                context.fill(ornament.path, with: .color(color(for: ornament.role)), style: FillStyle(eoFill: true))
+            }
+        }
+        .frame(width: artwork.size.width, height: artwork.size.height)
+    }
+
+    private func color(for role: TrackerPlateShapes.Role) -> Color {
+        switch role {
+        case .outline: outlineColor.swiftUI
+        case .panel: AppPalette.panel.swiftUI
+        case .project: barColor.swiftUI
+        }
+    }
+}
+
+/// The plate: its status band, then the art, the portrait's disc and the text over it. The canvas is the SVG's, so it
+/// starts above a master's row by the crown pieces' reach. The portrait's logo is drawn over it in the row's content
+/// layer.
 private struct TrackerNameplateBackground<Text: View>: View {
     let role: TrackerNameplateRole
     let color: NSColor
@@ -1497,7 +1364,7 @@ private struct TrackerNameplateBackground<Text: View>: View {
     let glowColor: NSColor?
     let text: Text
 
-    /// Selection lights the silhouette's border to the bright text token, so it still reads inside a status glow.
+    /// Selection lights the plate's border to the bright text token, so it still reads inside a status glow.
     /// Hover lights it to `dim`; a recolour hint takes the hover fill.
     private var outlineColor: NSColor {
         if isRecoloring { return AppPalette.hoverBackground }
@@ -1507,23 +1374,25 @@ private struct TrackerNameplateBackground<Text: View>: View {
     }
 
     var body: some View {
+        let artwork = role.artwork
         ZStack(alignment: .topLeading) {
             if let glowColor {
-                TrackerGlowView(path: role.glowPath, color: glowColor)
-                    .silhouetteFrame(role.canvasSize)
+                TrackerGlowView(path: artwork.glow, color: glowColor)
+                    .silhouetteFrame(artwork.size)
             }
-            TrackerSilhouetteOutline(parts: role.silhouetteParts, color: outlineColor)
-                .silhouetteFrame(role.canvasSize)
-            TrackerPlateArt(role: role, barColor: TrackerNameplateColor.barLightness(color), dividerColor: outlineColor)
-            if !role.isWorker {
+            TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color), outlineColor: outlineColor)
+            if let bar = artwork.bar {
                 TrackerColorBarPulse(
                     color: TrackerNameplateColor.barLightness(color),
                     isWorking: isWorking,
-                    shape: TrackerPlateShape(path: TrackerPlateDesign.topLevelBar)
+                    shape: TrackerPlateShape(path: bar)
                 )
             }
+            TrackerPortraitArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color), outlineColor: outlineColor)
             text
         }
+        .frame(width: artwork.size.width, height: artwork.size.height, alignment: .topLeading)
+        .offset(y: -role.artInset)
         .frame(width: role.canvasSize.width, height: role.canvasSize.height, alignment: .topLeading)
     }
 }
@@ -1541,21 +1410,6 @@ private extension View {
         let margin = TrackerPlateDesign.silhouetteMargin
         return frame(width: canvas.width + 2 * margin, height: canvas.height + 2 * margin)
             .offset(x: -margin, y: -margin)
-    }
-}
-
-/// The silhouette's 1.5pt outer border. Each part strokes at twice the border width, under the fills, so only
-/// the outer half shows and the inner half hides under them.
-private struct TrackerSilhouetteOutline: View {
-    let parts: [Path]
-    let color: NSColor
-
-    var body: some View {
-        Canvas { context, _ in
-            for part in parts {
-                context.stroke(part, with: .color(color.swiftUI), style: TrackerPlateDesign.outlineStroke)
-            }
-        }
     }
 }
 
@@ -1802,8 +1656,7 @@ private struct TrackerPlateText: View {
     }
 }
 
-/// The portrait, and under a master that collapses them, its worker chips. Drawn over the plate's background,
-/// so the disc sits on top of the strips and the text.
+/// The portrait's logo, and under a master that collapses them, its worker chips. Drawn over the plate's background.
 private struct TrackerSessionRowContent: View {
     let rendered: TrackerRenderedSession
     let role: TrackerNameplateRole
@@ -1818,8 +1671,7 @@ private struct TrackerSessionRowContent: View {
             TrackerAgentMark(
                 agent: session.agent,
                 shortcutNumber: shortcutNumber,
-                diameter: role.portraitDiameter,
-                ringWidth: role.portraitRingWidth
+                diameter: role.portraitDiameter
             )
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
             if showsPills {
@@ -1854,6 +1706,7 @@ private struct TrackerSessionRow: View {
         ListRow(
             selected: isSelected,
             leadingInset: 0,
+            hitOutset: role.artInset,
             onTap: {
                 onSelect(session.id)
                 onActivate(session)
@@ -1928,24 +1781,15 @@ private struct TrackerStoppedDimming: ViewModifier {
 struct TrackerAgentMark: View {
     let agent: String
     let shortcutNumber: Int?
-    /// The disc's outer diameter, outline included. The frame is this wide, so every layer inside it sits at a
-    /// whole-point offset from the frame's whole-point origin.
+    /// The disc's outer diameter. The frame is this wide, so the logo sits at a whole-point offset from the frame's
+    /// whole-point origin. The plate's canvas draws the disc itself.
     let diameter: CGFloat
-    let ringWidth: CGFloat
 
     /// The agent logo is 0.6 of the disc's outer diameter, as in the SVGs (30 of 50, 24 of 40).
     private var iconSide: CGFloat { diameter * 0.6 }
 
     var body: some View {
         ZStack {
-            // Flat fills only: the rim takes the plate's frame tone and the disc the panel tone, with no stroke or
-            // shadow between them. The outline's border draws outside the rim, in the plate's outline layer.
-            Circle()
-                .inset(by: TrackerPlateDesign.outlineWidth)
-                .fill(AppPalette.line.swiftUI)
-            Circle()
-                .inset(by: TrackerPlateDesign.outlineWidth + ringWidth)
-                .fill(AppPalette.panel.swiftUI)
             if let image = Self.image(for: agent, side: iconSide, tint: AppPalette.muted) {
                 Image(nsImage: image)
                     .resizable()

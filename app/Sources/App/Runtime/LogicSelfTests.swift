@@ -27,7 +27,6 @@ enum LogicSelfTests {
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
-        ("testTrackerSilhouetteOutlineStaysWithinItsBorder", testTrackerSilhouetteOutlineStaysWithinItsBorder),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
@@ -225,95 +224,58 @@ enum LogicSelfTests {
         }
     }
 
-    private static func testTrackerSilhouetteOutlineStaysWithinItsBorder() throws {
-        let style = TrackerPlateDesign.outlineStroke
-        let border = TrackerPlateDesign.outlineWidth
-        for role in [TrackerNameplateRole.master, .worker] {
-            for part in role.silhouetteParts {
-                let outline = part.cgPath.copy(
-                    strokingWithWidth: style.lineWidth,
-                    lineCap: style.lineCap,
-                    lineJoin: style.lineJoin,
-                    miterLimit: style.miterLimit
-                )
-                let allowed = part.cgPath.boundingBoxOfPath.insetBy(dx: -border - 0.01, dy: -border - 0.01)
-                guard allowed.contains(outline.boundingBoxOfPath) else {
-                    throw TestFailure("\(role) outline spikes past its border: \(outline.boundingBoxOfPath)")
-                }
-            }
-        }
-    }
-
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
-        let border = TrackerPlateDesign.outlineWidth
         func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String) throws {
             try expect(abs(value - expected) < 0.01, "\(name) should be \(expected), got \(value)")
         }
-
-        // Every outer measure, border included, is the SVG raster's, drawn at 1x. Fills sit a border inside it.
-        // The frame reaches half its path's stroke past the path: 1.5 on the master, 1 on the worker.
-        struct Plate {
-            let name: String
-            let canvas: CGSize
-            let portrait: CGFloat
-            let ringWidth: CGFloat
-            let centre: CGPoint
-            let body: CGRect
-            let frame: CGRect
-            let strips: [CGRect]
-            let stripHeights: [CGFloat]
-            let discOuter: CGFloat
-            let rim: CGFloat
-            let plateOuter: CGFloat
-            let overhangAbove: CGFloat
-            let overhangBelow: CGFloat
-            let band: CGFloat
-            let frameBeyondBody: CGFloat
+        func expectRect(_ path: Path, _ x0: CGFloat, _ y0: CGFloat, _ x1: CGFloat, _ y1: CGFloat, _ name: String) throws {
+            let box = path.boundingRect
+            let matches = abs(box.minX - x0) < 0.01 && abs(box.minY - y0) < 0.01 && abs(box.maxX - x1) < 0.01 && abs(box.maxY - y1) < 0.01
+            try expect(matches, "\(name) should span x \(x0)..\(x1), y \(y0)..\(y1), got \(box)")
         }
-        let plates = [
-            Plate(name: "master", canvas: TrackerPlateDesign.topLevelSize, portrait: TrackerPlateDesign.portraitSideTopLevel,
-                  ringWidth: TrackerPlateDesign.portraitRingWidthTopLevel, centre: TrackerPlateDesign.topLevelPortraitCenter,
-                  body: TrackerPlateDesign.topLevelBodyRect, frame: TrackerPlateDesign.topLevelFrameRect,
-                  strips: [TrackerPlateDesign.topLevelSummaryRect, TrackerPlateDesign.topLevelBarRect], stripHeights: [12, 10],
-                  discOuter: 50, rim: 3, plateOuter: 45.5, overhangAbove: 3, overhangBelow: 1.5, band: 3, frameBeyondBody: 1.5),
-            Plate(name: "worker", canvas: TrackerPlateDesign.workerSize, portrait: TrackerPlateDesign.portraitSideWorker,
-                  ringWidth: TrackerPlateDesign.portraitRingWidthWorker, centre: TrackerPlateDesign.workerPortraitCenter,
-                  body: TrackerPlateDesign.workerBodyRect, frame: TrackerPlateDesign.workerFrameRect,
-                  strips: [TrackerPlateDesign.workerSummaryRect], stripHeights: [12],
-                  discOuter: 40, rim: 2, plateOuter: 30.5, overhangAbove: 5, overhangBelow: 4.5, band: 2, frameBeyondBody: 0.5),
-        ]
-        for plate in plates {
-            try expectClose(plate.canvas.height, plate.discOuter, "\(plate.name) canvas height")
-            try expectClose(plate.centre.x, TrackerPlateDesign.centreLineX, "\(plate.name) portrait centre line")
-            try expectClose(plate.portrait + 2 * border, plate.discOuter, "\(plate.name) disc outer diameter")
-            try expectClose(plate.ringWidth + border, plate.rim, "\(plate.name) disc rim")
-            try expectClose(plate.frame.maxY + border - (plate.body.minY - border), plate.plateOuter, "\(plate.name) plate outer height")
-            for (strip, height) in zip(plate.strips, plate.stripHeights) {
-                try expectClose(strip.height, height, "\(plate.name) strip height")
-            }
+        let shift = TrackerPlateDesign.workerShift
 
-            // The disc stands out of the plate by the SVG's overhang.
-            let discTop = plate.centre.y - plate.portrait / 2 - border
-            let discBottom = plate.centre.y + plate.portrait / 2 + border
-            try expectClose(plate.body.minY - border - discTop, plate.overhangAbove, "\(plate.name) disc overhang above the plate")
-            try expectClose(discBottom - (plate.frame.maxY + border), plate.overhangBelow, "\(plate.name) disc overhang below the plate")
+        // Sizes, from the SVGs: the master's canvas is 275 x 56, and its row the disc's 50 tall, 3 below the canvas top.
+        try expectClose(TrackerPlateDesign.topLevel.size.height, 56, "master canvas height")
+        try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
+        try expectClose(TrackerPlateDesign.topLevel.size.height - 2 * TrackerPlateDesign.topLevelArtInset, TrackerPlateDesign.topLevelSize.height, "master crown reach past its row, above and below")
+        try expectClose(TrackerPlateDesign.topLevel.size.width, 275, "master canvas width")
+        try expectClose(TrackerPlateDesign.worker.size.width, 231 + shift, "worker canvas width")
+        try expectClose(TrackerPlateDesign.worker.size.height, 40, "worker canvas height")
 
-            // The frame's bands round the strips are the SVG's, and its right edge reaches past the body's.
-            let lastStrip = plate.strips[plate.strips.count - 1]
-            try expectClose(plate.strips[0].minY - plate.frame.minY, plate.band, "\(plate.name) frame band above the strips")
-            try expectClose(plate.frame.maxY + border - lastStrip.maxY, plate.band, "\(plate.name) frame band below the strips")
-            try expectClose(plate.frame.maxX + border - plate.strips[0].maxX, plate.band, "\(plate.name) frame band right of the strips")
-            try expectClose(plate.frame.maxX - plate.body.maxX, plate.frameBeyondBody, "\(plate.name) frame past the body on the right")
-            try expect(plate.frame.maxX + border <= plate.canvas.width, "\(plate.name) plate should end inside its canvas")
-        }
-        try expectClose(plates[0].strips[1].minY - plates[0].strips[0].maxY, 2, "master gap between strips")
-        try expect(
-            TrackerPlateDesign.workerSize.width < TrackerPlateDesign.topLevelSize.width,
-            "workers should stay narrower than masters"
-        )
+        // The paths are the SVGs', and each stroke is the SVG's, centred on its path.
+        let master = TrackerPlateDesign.topLevel
+        try expectRect(master.body, 28.75, 6.75, 272.25, 49.25, "master body")
+        try expectRect(master.frame, 28, 23, 273, 50, "master frame")
+        try expectRect(master.summary, 29.5, 24.5, 271.5, 36.5, "master summary strip")
+        try expectRect(master.bar ?? Path(), 29.5, 38.5, 271.5, 48.5, "master project bar")
+        try expectRect(master.disc, 4.5, 4.5, 51.5, 51.5, "master disc")
+        try expectClose(master.bodyStroke, 1.5, "master body stroke")
+        try expectClose(master.frameStroke, 3, "master frame stroke")
+        try expectClose(master.discStroke, 3, "master disc stroke")
+        let worker = TrackerPlateDesign.worker
+        try expectRect(worker.body, 20.75 + shift, 5.75, 229.25 + shift, 34.25, "worker body")
+        try expectRect(worker.frame, 30.5 + shift, 20.5, 229.5 + shift, 34.5, "worker frame")
+        try expectRect(worker.summary, 31.5 + shift, 21.5, 228.5 + shift, 33.5, "worker snippet strip")
+        try expectRect(worker.disc, 1 + shift, 1, 39 + shift, 39, "worker disc")
+        try expectClose(worker.frameStroke, 2, "worker frame stroke")
+        try expectClose(worker.discStroke, 2, "worker disc stroke")
+        try expect(worker.bar == nil && worker.ornaments.isEmpty, "the worker has no project bar or ornaments")
+
+        // The ornaments reach the canvas's edges: the crown pieces its top and bottom, the diamonds its left side.
+        let ornamentBox = master.ornaments.reduce(CGRect.null) { $0.union($1.path.boundingRect) }
+        try expectRect(Path(ornamentBox), 0, 0, 56, 56, "master ornaments")
+
+        // The disc is the row's height, and the row's centre is the disc's, in the row's points.
+        try expectClose(TrackerPlateDesign.topLevelDiscDiameter, 2 * (23.5 + 1.5), "master disc outer diameter")
+        try expectClose(TrackerPlateDesign.workerDiscDiameter, 2 * (19 + 1), "worker disc outer diameter")
+        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y, TrackerPlateDesign.topLevelSize.height / 2, "master disc centre in its row")
+        try expectClose(TrackerPlateDesign.workerPortraitCenter.y, TrackerPlateDesign.workerSize.height / 2, "worker disc centre in its row")
+        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y + TrackerPlateDesign.topLevelArtInset, 28, "master disc centre in its canvas")
+        try expectClose(TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.topLevelPortraitCenter.x, 15, "worker indent")
 
         // Every layer of a portrait sits at a whole-point origin. A frame on a half point snaps to a whole pixel at 1x
-        // and drifts half a pixel off the outline, which the plate canvas draws at exact geometry.
+        // and drifts half a pixel off the disc the plate's canvas draws at exact geometry.
         for role in [TrackerNameplateRole.master, .worker] {
             for (name, value) in [("x", role.portraitOrigin.x), ("y", role.portraitOrigin.y), ("diameter", role.portraitDiameter)] {
                 try expect(value == value.rounded(), "the \(role) portrait's \(name) should be a whole point, got \(value)")
@@ -326,25 +288,20 @@ enum LogicSelfTests {
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.sectionSpacing, 20, "gap between project groups")
         try expectClose(TrackerListMetrics.itemSpacing, 20, "gap between top-level sessions")
-        try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers")
+        try expectClose(TrackerListMetrics.masterBlockSpacing, 5, "gap between a master and its workers")
         try expectClose(TrackerNameplateRole.chipsDrop, 5, "gap between a master and its chips")
+        try expectClose(TrackerNameplateRole.chipsX, TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.workerDiscDiameter / 2, "chips start on the worker's disc line")
+        // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents.
+        let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
+        let masterHitShape = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.artInset).path(in: masterRow).boundingRect
+        try expectClose(masterHitShape.height, TrackerPlateDesign.topLevel.size.height, "master hit shape height")
+        try expectClose(masterHitShape.minY, -TrackerPlateDesign.topLevelArtInset, "master hit shape top")
+        try expectClose(masterHitShape.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
+        try expect(TrackerNameplateRole.worker.artInset == 0, "the worker's row has no artwork past its frame")
+        try expect(TrackerWorkerSummary.maxPills == 6, "the master's chip row should hold six chips, got \(TrackerWorkerSummary.maxPills)")
+        try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
         let chipsRowHeight = TrackerNameplateRole.master.rowHeight(showsPills: true)
         try expect(chipsRowHeight == chipsRowHeight.rounded(), "a master row with chips should end on a whole point, got \(chipsRowHeight)")
-
-        // The body's and the frame's square left corners stay behind the disc instead of poking out under it.
-        let hiddenParts: [(name: String, part: Path, centre: CGPoint, side: CGFloat)] = [
-            ("master body", TrackerPlateDesign.topLevelBody, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
-            ("master frame", TrackerPlateDesign.topLevelFrame, TrackerPlateDesign.topLevelPortraitCenter, TrackerPlateDesign.portraitSideTopLevel),
-            ("worker body", TrackerPlateDesign.workerBody, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
-            ("worker frame", TrackerPlateDesign.workerFrame, TrackerPlateDesign.workerPortraitCenter, TrackerPlateDesign.portraitSideWorker),
-        ]
-        for hidden in hiddenParts {
-            let bounds = hidden.part.boundingRect
-            for corner in [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.minX, y: bounds.maxY)] {
-                let distance = hypot(corner.x - hidden.centre.x, corner.y - hidden.centre.y)
-                try expect(distance < hidden.side / 2, "\(hidden.name)'s left corner \(corner) should sit inside the disc, \(distance) from its centre")
-            }
-        }
     }
 
     private static func testWorkerTimeColumnFitsRunsPastNinetyNineHours() throws {

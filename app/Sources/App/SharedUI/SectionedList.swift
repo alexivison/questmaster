@@ -224,9 +224,21 @@ struct SectionHeader: View {
     }
 }
 
+/// The row's own rectangle, grown above and below by `outset`, for a row whose artwork reaches past its layout frame.
+struct VerticallyOutsetRectangle: Shape {
+    let outset: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path(rect.insetBy(dx: 0, dy: -outset))
+    }
+}
+
 struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     let selected: Bool
     let leadingInset: CGFloat
+    /// How far the row's artwork reaches past its layout frame, above and below. Hover and taps cover it, so the
+    /// visible edges are live while the layout spacing stays the frame's.
+    let hitOutset: CGFloat
     var onTap: (() -> Void)?
     private let leadingDecoration: () -> LeadingDecoration
     private let background: (_ selected: Bool, _ hovered: Bool) -> Background
@@ -237,6 +249,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     init(
         selected: Bool,
         leadingInset: CGFloat,
+        hitOutset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
         @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
         @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
@@ -244,6 +257,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     ) {
         self.selected = selected
         self.leadingInset = leadingInset
+        self.hitOutset = hitOutset
         self.onTap = onTap
         self.leadingDecoration = leadingDecoration
         self.background = background
@@ -254,7 +268,6 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     var body: some View {
         if let onTap {
             rowContent
-                .contentShape(Rectangle())
                 .onTapGesture(perform: onTap)
         } else {
             rowContent
@@ -269,6 +282,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
             .overlay(alignment: .leading) {
                 leadingDecoration()
             }
+            .contentShape(VerticallyOutsetRectangle(outset: hitOutset))
             .onHover { isHovered = $0 }
     }
 }
