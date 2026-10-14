@@ -8,6 +8,11 @@ struct TrackerStatusStyle {
     var kind: TrackerStatusKind {
         classification.kind
     }
+
+    /// The colour of the status ring and glow on the session's portrait, or nil while its status lights none.
+    var glowColor: NSColor? {
+        kind.drawsGlow ? color : nil
+    }
 }
 
 struct TrackerRenderedSession {

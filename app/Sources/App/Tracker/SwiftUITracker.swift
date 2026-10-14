@@ -936,8 +936,8 @@ private struct TrackerRepoSection: View {
 }
 
 /// Replaces a collapsed master's worker rows: one circle per worker, in the workers' order, each with the agent's logo
-/// and a ring that shows the worker's status. Past what fits, the first (fit - 1) show and a "+N" circle counts the
-/// workers in the rest.
+/// and, while the worker's status is active, the status ring and glow. Past what fits, the first (fit - 1) show and a
+/// "+N" circle counts the workers in the rest.
 struct TrackerWorkerSummaryRow: View {
     let workers: [TrackerRenderedSession]
 
@@ -946,7 +946,7 @@ struct TrackerWorkerSummaryRow: View {
             ForEach(Array(TrackerWorkerSummary.circles(for: workers).enumerated()), id: \.offset) { _, circle in
                 switch circle {
                 case .worker(let worker):
-                    TrackerCollapsedCircle(ring: worker.status.kind.drawsGlow ? worker.status.color : AppPalette.line) {
+                    TrackerCollapsedCircle(status: worker.status.glowColor) {
                         TrackerAgentMark(
                             agent: worker.session.agent,
                             shortcutNumber: nil,
@@ -955,7 +955,7 @@ struct TrackerWorkerSummaryRow: View {
                         )
                     }
                 case .overflow(let hiddenWorkers):
-                    TrackerCollapsedCircle(ring: AppPalette.line) {
+                    TrackerCollapsedCircle(status: nil) {
                         TrackerPlateLine(
                             text: "+\(hiddenWorkers)",
                             font: AppFonts.monoSmall,
@@ -993,20 +993,27 @@ enum TrackerWorkerSummary {
     }
 }
 
-/// A collapsed-worker circle from the list SVG: the plate's panel colour inside a 1.5 border, the ring that takes a
-/// worker's status colour while the status is active. The border is centred on a circle 0.75 inside the frame.
+/// A collapsed-worker circle from the list SVG: the plate's panel colour inside a 1.5 border in the border colour. An
+/// active worker's status ring and glow sit between the two, under the border. The border is centred on a circle 0.75
+/// inside the frame.
 private struct TrackerCollapsedCircle<Content: View>: View {
-    let ring: NSColor
+    let status: NSColor?
     @ViewBuilder let content: Content
 
     var body: some View {
         let side = TrackerPlateDesign.collapsedCircleDiameter
         let stroke = TrackerPlateDesign.collapsedCircleStroke
         ZStack(alignment: .topLeading) {
+            let circle = Path(ellipseIn: CGRect(x: stroke / 2, y: stroke / 2, width: side - stroke, height: side - stroke))
             Canvas { context, _ in
-                let circle = Path(ellipseIn: CGRect(x: stroke / 2, y: stroke / 2, width: side - stroke, height: side - stroke))
                 context.fill(circle, with: .color(AppPalette.panel.swiftUI))
-                context.stroke(circle, with: .color(ring.swiftUI), lineWidth: stroke)
+            }
+            .frame(width: side, height: side)
+            if let status {
+                TrackerPortraitStatus(geometry: TrackerPlateDesign.collapsedCircleStatus, color: status)
+            }
+            Canvas { context, _ in
+                context.stroke(circle, with: .color(AppPalette.line.swiftUI), lineWidth: stroke)
             }
             .frame(width: side, height: side)
             content
@@ -1101,20 +1108,15 @@ private struct TrackerPlateShape: Shape {
     func path(in rect: CGRect) -> Path { path }
 }
 
-/// The band around a plate: a state's, a selection's, a hover's or a recolour hint's. Every band follows the same
-/// silhouette at the same width. A band with no `steadyOpacity` breathes; one with a value holds it.
-struct TrackerPlateBand: Equatable {
-    let color: NSColor
-    let steadyOpacity: Float?
-
-    /// What surrounds a plate. A recolour hint wins, as it always has, so the row being edited reads apart from the
-    /// selection; then selection, which hides the state, since the selected-session panel shows it. A state band
-    /// stays under hover and holds at its peak instead of breathing. A hovered plate without a state gets the dim band.
-    static func make(isRecoloring: Bool, selected: Bool, hovered: Bool, status: NSColor?) -> TrackerPlateBand? {
-        if isRecoloring { return TrackerPlateBand(color: AppPalette.dim, steadyOpacity: TrackerGlowNSView.steadyOpacity) }
-        if selected { return TrackerPlateBand(color: AppPalette.bright, steadyOpacity: TrackerGlowNSView.steadyOpacity) }
-        if let status { return TrackerPlateBand(color: status, steadyOpacity: hovered ? TrackerGlowNSView.bandOpacity : nil) }
-        if hovered { return TrackerPlateBand(color: AppPalette.dim, steadyOpacity: TrackerGlowNSView.steadyOpacity) }
+/// The band around a plate: a selection's, a hover's or a recolour hint's. Every band follows the same silhouette at the
+/// same width and holds one steady opacity. A plate's status is not a band: it lives on the portrait.
+enum TrackerPlateBand {
+    /// What surrounds a plate. A recolour hint wins, so the row being edited reads apart from the selection; then
+    /// selection, then hover.
+    static func color(isRecoloring: Bool, selected: Bool, hovered: Bool) -> NSColor? {
+        if isRecoloring { return AppPalette.dim }
+        if selected { return AppPalette.bright }
+        if hovered { return AppPalette.dim }
         return nil
     }
 }
@@ -1133,8 +1135,8 @@ enum TrackerNameplateColor {
     }
 }
 
-/// A low-rate clock shared by every view that animates or counts in the list: `shared` for the pulsing bars and
-/// rings (15 frames a second), `durations` for the live elapsed times (once a second). Views that read `time` redraw
+/// A low-rate clock shared by every view that animates or counts in the list: `shared` for the pulsing project
+/// bars (15 frames a second), `durations` for the live elapsed times (once a second). Views that read `time` redraw
 /// at the clock's rate instead of at display rate. Each clock has one timer, however many views read it, and it runs
 /// only while some view is on screen and using it, so the redraw cost the terminal shares the main thread with stays
 /// small and flat.
@@ -1249,15 +1251,26 @@ private struct TrackerPlateArt: View {
     }
 }
 
-/// The disc and the ornaments over the plate, so they sit above the bar's pulse. The disc's stroke and every
-/// outline-role ornament are the plate's border colour.
-private struct TrackerPortraitArt: View {
+/// The disc's fill over the plate, so it sits above the bar's pulse. The status ring and glow go over it.
+private struct TrackerPortraitDisc: View {
+    let artwork: TrackerPlateArtwork
+
+    var body: some View {
+        Canvas { context, _ in
+            context.fill(artwork.disc, with: .color(AppPalette.panel.swiftUI))
+        }
+        .frame(width: artwork.size.width, height: artwork.size.height)
+    }
+}
+
+/// The disc's stroke and the ornaments, over the status ring. The stroke and every outline-role ornament are the
+/// plate's border colour.
+private struct TrackerPortraitOutline: View {
     let artwork: TrackerPlateArtwork
     let barColor: NSColor
 
     var body: some View {
         Canvas { context, _ in
-            context.fill(artwork.disc, with: .color(AppPalette.panel.swiftUI))
             context.stroke(artwork.disc, with: .color(AppPalette.line.swiftUI), lineWidth: artwork.discStroke)
             for ornament in artwork.ornaments {
                 context.fill(ornament.path, with: .color(color(for: ornament.role)), style: FillStyle(eoFill: true))
@@ -1275,9 +1288,9 @@ private struct TrackerPortraitArt: View {
     }
 }
 
-/// The plate: its status band, then the art, the portrait's disc and the text over it. The canvas is the SVG's, so it
-/// starts above a master's row by the crown pieces' reach. The portrait's logo is drawn over it in the row's content
-/// layer.
+/// The plate: its selection or hover band, then the art, the portrait's disc with its status ring and glow, and the
+/// text over it. The canvas is the SVG's, so it starts above a master's row by the crown pieces' reach. The portrait's
+/// logo is drawn over it in the row's content layer.
 struct TrackerNameplateBackground<Text: View>: View {
     let role: TrackerNameplateRole
     let color: NSColor
@@ -1285,14 +1298,14 @@ struct TrackerNameplateBackground<Text: View>: View {
     let hovered: Bool
     let isRecoloring: Bool
     let isWorking: Bool
-    let glowColor: NSColor?
+    let statusColor: NSColor?
     let text: Text
 
     var body: some View {
         let artwork = role.artwork
         ZStack(alignment: .topLeading) {
-            if let band = TrackerPlateBand.make(isRecoloring: isRecoloring, selected: selected, hovered: hovered, status: glowColor) {
-                TrackerGlowView(path: artwork.glow, color: band.color, steadyOpacity: band.steadyOpacity)
+            if let band = TrackerPlateBand.color(isRecoloring: isRecoloring, selected: selected, hovered: hovered) {
+                TrackerGlowView(path: artwork.glow, color: band)
                     .silhouetteFrame(artwork.size)
             }
             TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
@@ -1303,7 +1316,11 @@ struct TrackerNameplateBackground<Text: View>: View {
                     shape: TrackerPlateShape(path: bar)
                 )
             }
-            TrackerPortraitArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
+            TrackerPortraitDisc(artwork: artwork)
+            if let statusColor {
+                TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, holdsPeak: hovered)
+            }
+            TrackerPortraitOutline(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
             text
         }
         .frame(width: artwork.size.width, height: artwork.size.height, alignment: .topLeading)
@@ -1313,7 +1330,7 @@ struct TrackerNameplateBackground<Text: View>: View {
 }
 
 extension TrackerStatusKind {
-    /// The active statuses light a breathing band in their own colour. Idle, stopped and done draw none.
+    /// The active statuses light the portrait's ring and glow in their own colour. Idle, stopped and done draw none.
     var drawsGlow: Bool {
         self == .working || self == .blocked || self == .needsInput || self == .error
     }
@@ -1328,42 +1345,25 @@ private extension View {
     }
 }
 
-/// The status band: a solid Core Animation shape in the silhouette path's shape, so it hugs the whole plate and
-/// portrait. It breathes while its status is active and motion is allowed.
+/// The plate band: a solid Core Animation shape in the silhouette path's shape, so it hugs the whole plate and portrait.
 private struct TrackerGlowView: NSViewRepresentable {
     let path: CGPath
     let color: NSColor
-    let steadyOpacity: Float?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> TrackerGlowNSView {
         TrackerGlowNSView()
     }
 
     func updateNSView(_ view: TrackerGlowNSView, context: Context) {
-        view.configure(path: path, color: color, breathes: !reduceMotion, steadyOpacity: steadyOpacity)
+        view.configure(path: path, color: color)
     }
 }
 
-/// The band is a filled shape layer with no shadow or blur, so its edge is hard. A state band breathes: its opacity
-/// eases between `breathLowOpacity` and `bandOpacity` over each `breathCycle`. Every breathing band starts from one
-/// shared origin, so the whole list breathes in phase. The animation exists only while the band is in a window. A band
-/// with a steady opacity (selection, hover, a state under hover) holds it, with no animation at all.
+/// The band is a filled shape layer with no shadow or blur, so its edge is hard. It holds one opacity, with no animation.
 final class TrackerGlowNSView: NSView {
-    static let breathCycle: CFTimeInterval = 2
-    /// The band's peak opacity, and the low point of its breath. They were 1 and 0.55; a band at full opacity read
-    /// too bright against the plates.
-    static let bandOpacity: Float = 0.7
-    static let breathLowOpacity: Float = 0.4
-    /// The opacity of the selection and hover bands, which hold still: halfway between the breath's two ends, a little
-    /// above its midpoint.
-    static let steadyOpacity: Float = 0.6
-    private static let breathKey = "breathe"
-    private static let breathOrigin = CACurrentMediaTime()
+    static let bandOpacity: Float = 0.6
 
     override var isFlipped: Bool { true }
-    private var breathes = false
-    private var steadyOpacity: Float?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1379,47 +1379,12 @@ final class TrackerGlowNSView: NSView {
         CAShapeLayer()
     }
 
-    /// Whether the breath animation is attached. Tests read it to check the breath's lifecycle.
-    var isBreathing: Bool {
-        layer?.animation(forKey: Self.breathKey) != nil
-    }
-
-    /// The band's opacity at rest: its steady one, or the breath's peak.
-    var restingOpacity: Float { steadyOpacity ?? Self.bandOpacity }
-
-    func configure(path: CGPath, color: NSColor, breathes: Bool, steadyOpacity: Float? = nil) {
+    func configure(path: CGPath, color: NSColor) {
         guard let shape = layer as? CAShapeLayer else { return }
         shape.isGeometryFlipped = true
         shape.path = path
         shape.fillColor = color.cgColor
-        self.breathes = breathes
-        self.steadyOpacity = steadyOpacity
-        updateBreath()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        updateBreath()
-    }
-
-    /// Attaches the breath only while a state band is in a window and allowed to move; otherwise the band stays solid.
-    private func updateBreath() {
-        guard let layer else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.removeAnimation(forKey: Self.breathKey)
-        layer.opacity = restingOpacity
-        CATransaction.commit()
-        guard breathes, steadyOpacity == nil, window != nil else { return }
-        let breath = CABasicAnimation(keyPath: "opacity")
-        breath.fromValue = Self.breathLowOpacity
-        breath.toValue = Self.bandOpacity
-        breath.duration = Self.breathCycle / 2
-        breath.autoreverses = true
-        breath.repeatCount = .infinity
-        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        breath.beginTime = Self.breathOrigin
-        layer.add(breath, forKey: Self.breathKey)
+        shape.opacity = Self.bandOpacity
     }
 }
 
@@ -1663,7 +1628,7 @@ private struct TrackerSessionRow: View {
                     hovered: hovered,
                     isRecoloring: rendered.recolorEditHint != nil,
                     isWorking: rendered.status.kind == .working,
-                    glowColor: rendered.status.kind.drawsGlow ? rendered.status.color : nil,
+                    statusColor: rendered.status.glowColor,
                     text: TrackerPlateText(
                         rendered: rendered,
                         role: role,
