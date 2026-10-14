@@ -8,6 +8,11 @@ struct TrackerStatusStyle {
     var kind: TrackerStatusKind {
         classification.kind
     }
+
+    /// The colour of the status ring and glow on the session's portrait, or nil while its status lights none.
+    var glowColor: NSColor? {
+        kind.drawsGlow ? color : nil
+    }
 }
 
 struct TrackerRenderedSession {
@@ -61,6 +66,7 @@ enum TrackerRenderer {
         return TrackerStatusStyle(classification: classification, color: color(for: classification.kind))
     }
 
+    /// The session's elapsed time, shown only while it works.
     static func durationLabel(for session: TrackerSession, now: Date = Date()) -> String {
         guard status(for: session).kind == .working else {
             return ""

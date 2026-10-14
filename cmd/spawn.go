@@ -26,7 +26,8 @@ func newSpawnCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		Long: `Spawn a worker session from a master.
 
 If master-id is omitted, discovers the current tmux session and validates
-it is a master session.`,
+it is a master session. A worker title is required and may contain at most
+16 Unicode characters (runes).`,
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

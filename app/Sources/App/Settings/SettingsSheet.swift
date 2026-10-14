@@ -34,7 +34,7 @@ struct SettingsSheetView: View {
     @StateObject private var model: SettingsSheetModel
 
     /// Role groups shown for the active tab, top-to-bottom.
-    private static let roleGroups = [("master", "Master"), ("standalone", "Standalone"), ("worker", "Worker")]
+    private static let roleGroups = [("master", "Master"), ("worker", "Worker")]
 
     private enum Metrics {
         static let sidebarWidth: CGFloat = 224
@@ -215,11 +215,10 @@ private struct SettingsFormFieldRow: View {
         HStack(alignment: .center, spacing: Token.Spacing.content) {
             VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
                 Text(title)
-                    .font(AppFonts.modalHelperLarge.swiftUI)
+                    .font(AppFonts.body.swiftUI)
                     .foregroundStyle(AppPalette.text.swiftUI)
                 Text(subtitle)
                     .font(AppFonts.modalHelper.swiftUI)
-                    .italic()
                     .foregroundStyle(AppPalette.dim.swiftUI)
                     .fixedSize(horizontal: false, vertical: true)
             }

@@ -33,16 +33,24 @@ enum RenderPreview {
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
-        render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
-        render(trackerView(), size: CGSize(width: 300, height: 700), to: "\(outputDir)/tracker.png")
-        for fixture in ["master-3", "worker-8-start", "worker-8-middle", "worker-8-end", "standalone", "none"] {
-            render(actionBarFooterView(fixture: fixture), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-\(fixture).png")
-        }
-        render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
-        render(actionBarFooterView(fixture: "worker-8-middle", stripFocused: true), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-strip-focused.png")
+        render(skeletonView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-skeleton.png")
+        render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
+        render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
+        render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
+        render(trackerListStatusView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-status.png")
+        render(trackerListGapsView(), size: CGSize(width: 340, height: 820), to: "\(outputDir)/tracker-list-gaps.png")
+        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
+        render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
+        render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
+        render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
+        render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
+        render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
+        render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
+        render(chatItemTextDesignView(), size: CGSize(width: 441, height: 174), to: "\(outputDir)/chat-item-text-design.png")
+        render(chatItemWrappedView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 120), autoHeight: true, to: "\(outputDir)/chat-item-wrapped.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
-        render(actionBarFooterView(fixture: "master-3"), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.footerHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
+        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: false, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-tracker-hidden.png")
         renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: false), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-dock-hidden.png")
@@ -53,9 +61,13 @@ enum RenderPreview {
             size: CGSize(width: 950, height: 900),
             to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
         )
-        for role in ["standalone", "master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "standalone-selected", "standalone-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "standalone-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused"] {
-            render(nameplateFixtureView(role: role), size: CGSize(width: 300, height: 260), to: "\(outputDir)/nameplate-\(role).png")
+        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long"] {
+            render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
+        render(selectedSessionPanelView(), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel.png")
+        render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
+        render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
+        render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -88,7 +100,7 @@ enum RenderPreview {
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
         splitView.addArrangedSubview(TrackerShellView(body: tracker))
         splitView.addArrangedSubview(TerminalShellView(body: terminalBody, dragHandleHeight: 0))
-        splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
+        splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
         splitView.sendTerminalToBack()
         splitView.trackerVisible = true
         splitView.setDockVisible(true, animated: false)
@@ -115,95 +127,163 @@ enum RenderPreview {
         let footer = ActionBarShellView()
         footer.update(
             navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockVisible),
-            session: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
-            role: .master,
-            workers: actionBarFixtureWorkers(count: 3),
-            highlightedWorkerID: nil,
             dockContentMode: .artifacts
         )
         return ShellRootContainerView(splitView: splitView, footer: footer)
     }
 
-    private static func actionBarFixtureWorkers(count: Int) -> [TrackerSession] {
-        let agents = ["codex", "claude", "pi", "opencode"]
-        let titles = ["Fix A", "Fix something longer than this", "Fix B", "Fix something else entirely", "Skill Improvements", "Review error paths", "Polish the footer", "Ship it"]
-        return (0..<count).map { index in
-            TrackerSession(
-                id: "worker-\(index + 1)",
-                title: titles[index % titles.count],
-                repoName: "Questmaster",
-                displayColor: "yellow",
-                agent: agents[index % agents.count],
-                role: "worker",
-                state: "working",
-                snippet: "",
-                parentID: "root-2"
-            )
-        }
+    @MainActor
+    private static func actionBarFooterView() -> some View {
+        ActionBarFooterView(
+            model: ActionBarFooterModel(),
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
+            onToggleCaffeine: {}, onOpenSettings: {}
+        )
     }
 
-    /// `fixture` selects one of the Verify checklist's footer scenarios: a master with 3 workers,
-    /// one with 8 (scrolled to the strip's start/middle/end, matching the brief's worked
-    /// example), a standalone session, and no session at all.
     @MainActor
-    private static func actionBarFooterView(fixture: String, stripFocused: Bool = false) -> some View {
-        let model = ActionBarFooterModel()
-        switch fixture {
-        case "master-3":
-            model.sessionChip = SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex")
-            model.sessionRole = .master
-            model.workers = actionBarFixtureWorkers(count: 3)
-        case "worker-8-start", "worker-8-middle", "worker-8-end":
-            let workers = actionBarFixtureWorkers(count: 8)
-            let selectedIndex = fixture == "worker-8-start" ? 0 : (fixture == "worker-8-middle" ? 6 : 7)
-            model.sessionChip = SelectedSessionChip(title: workers[selectedIndex].title, id: workers[selectedIndex].id, agent: workers[selectedIndex].agent)
-            model.sessionRole = .worker
-            model.workers = workers
-            model.highlightedWorkerID = workers[selectedIndex].id
-            let offset = fixture == "worker-8-start" ? 0 : (fixture == "worker-8-middle" ? 1 : 2)
-            model.workerStripState = ActionBarWorkerStripState(
-                isFocused: stripFocused,
-                selectedIndex: stripFocused ? selectedIndex : nil,
-                scrollOffset: offset
-            )
-        case "standalone":
-            model.sessionChip = SelectedSessionChip(title: "Refine shell aliases for faster navigation", id: "root-1", agent: "codex")
-            model.sessionRole = .standalone
-        default:
-            break
+    private static func workerChatStore(rounds: Int = 0, entryLimit: Int? = nil) -> (WorkerChatStore, WorkerFeedRequest?) {
+        let store = WorkerChatStore()
+        let tracker = [
+            TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+            TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w2", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "w3", title: "A worker title that is far too long", repoName: "Repo", agent: "pi", role: "worker", parentID: "m"),
+        ]
+        let request = store.sync(selectedSessionID: "m", sessions: tracker, isVisible: true)
+        var entries = [
+            entry(20, 0, "w1", "status", "working"),
+            entry(20, 5, "w1", "say", "Understood. I will start by looking at the ticket and the related files."),
+            entry(20, 9, "w2", "status", "working"),
+            entry(22, 1, "w2", "say", "I see the problem. I will spin two sub-agents to debug the problem to see why the first round did not fix the issue. I will report back to the master as instructed."),
+            entry(22, 20, "w1", "action", "Bash"), entry(22, 21, "w1", "action", "Edit"), entry(22, 22, "w1", "action", "Bash"),
+            entry(22, 23, "w3", "action", "Read"),
+            entry(25, 40, "w1", "message", "Found a contradiction in the referenced files, I should confirm this with the master."),
+            entry(31, 2, "w2", "report", "The fix is in and the tests pass."),
+            entry(31, 3, "w2", "status", "done"),
+            entry(31, 9, "w3", "status", "blocked"),
+        ]
+        for round in 0..<rounds {
+            entries.append(entry(40 + round, 1, "w2", "say", "Round \(round): a long narration line that wraps across several rows of the dock so the feed has to measure every wrapped row correctly."))
         }
-        return ActionBarFooterView(
-            model: model,
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
-            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }, onAttachWorker: { _ in }
-        )
+        if let entryLimit {
+            entries = Array(entries.prefix(entryLimit))
+        }
+        if let request {
+            _ = store.receive(WorkerFeedPayload(entries: entries), for: request)
+        }
+        return (store, request)
+    }
+
+    private static func entry(_ minute: Int, _ second: Int, _ worker: String, _ kind: String, _ text: String) -> WorkerFeedEntry {
+        WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
+    }
+
+    /// The chat feed's rows (static, so the off-screen renderer sees them all) over the dock's panel fill.
+    @MainActor
+    private static func workerChatView() -> some View {
+        let (store, _) = workerChatStore()
+        return VStack(alignment: .leading, spacing: 0) { WorkerChatRows(lines: store.lines) }
+            .padding(WorkerChatMetrics.inset)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .frame(width: DockWidthPreference.workerChatWidth)
+            .background(AppPalette.panel.swiftUI)
+    }
+
+    /// The real scrolling feed at the dock's width, for checking the bottom anchor.
+    @MainActor
+    private static func workerChatFeedView(rounds: Int, entryLimit: Int? = nil) -> some View {
+        let (store, _) = workerChatStore(rounds: rounds, entryLimit: entryLimit)
+        return WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
+            .frame(width: DockWidthPreference.workerChatWidth)
+            .background(AppPalette.panel.swiftUI)
+    }
+
+    /// One item in the frame of `Chat Item.svg`: time, logo, bold name, text. No padding, so the
+    /// geometry lands on the SVG's own coordinates.
+    @MainActor
+    private static func chatItemDesignView() -> some View {
+        WorkerChatRows(lines: [
+            WorkerChatLine(id: "design", time: "08:20", agent: "codex", segments: [
+                WorkerChatSegment("Worker name:", .name),
+                WorkerChatSegment(" Finished the task given and reported to the master.", .normal),
+            ]),
+        ])
+        .frame(width: 480, height: 32, alignment: .topLeading)
+    }
+
+    /// The five text variants of `Chat Item Text.svg`. The artboard has no time column, so the item's left
+    /// edge (where the time would start) sits at its 1pt border: the name lands at x 62 and wrapped lines
+    /// start at x 11, under the time. The plain item still wraps after "and": its first line is as wide as before.
+    @MainActor
+    private static func chatItemTextDesignView() -> some View {
+        let plain = [WorkerChatSegment("Worker name:", .name), WorkerChatSegment(" Finished the task given and reported to the master.", .normal)]
+        return WorkerChatRows(lines: [
+            WorkerChatLine(id: "plain", time: "", agent: "", segments: plain),
+            WorkerChatLine(id: "status", time: "", agent: "", segments: [
+                WorkerChatSegment("Worker Name:", .name),
+                WorkerChatSegment(" Received status ", .muted),
+                WorkerChatSegment("[Working]", .working),
+            ]),
+            WorkerChatLine(id: "cast", time: "", agent: "", segments: [
+                WorkerChatSegment("Worker Name:", .name),
+                WorkerChatSegment(" Cast ", .muted),
+                WorkerChatSegment("[Bash](x2) [Edit](x4)", .rarity(.common)),
+            ]),
+            WorkerChatLine(id: "used", time: "", agent: "", segments: [
+                WorkerChatSegment("Worker Name:", .name),
+                WorkerChatSegment(" Used item ", .muted),
+                WorkerChatSegment("[Debriefing Stone]", .rarity(.rare)),
+            ]),
+            WorkerChatLine(id: "received", time: "", agent: "", segments: [
+                WorkerChatSegment("Worker Name:", .name),
+                WorkerChatSegment(" Received item ", .muted),
+                WorkerChatSegment("[Scroll of Orders]", .rarity(.epic)),
+            ]),
+        ])
+        .padding(WorkerChatMetrics.inset)
+        .frame(width: 441, alignment: .leading)
+        .offset(x: 1 - WorkerChatMetrics.inset, y: 1)
+        .frame(width: 441, height: 174, alignment: .topLeading)
+    }
+
+    /// One item with its time, three lines long at the worker chat dock's width: wrapped lines should run under the time.
+    @MainActor
+    private static func chatItemWrappedView() -> some View {
+        WorkerChatRows(lines: [
+            WorkerChatLine(id: "wrapped", time: "08:20", agent: "codex", segments: [
+                WorkerChatSegment("Worker name:", .name),
+                WorkerChatSegment(" Finished the task given and reported to the master, then waited for the review while the tests ran again on the branch and the merge completed.", .normal),
+            ]),
+        ])
+        .padding(WorkerChatMetrics.inset)
+        .frame(width: DockWidthPreference.workerChatWidth, alignment: .leading)
+        .background(AppPalette.panel.swiftUI)
     }
 
     /// The slot bar with Caffeine active and the Artifacts dock open (Artifacts slot active too).
     @MainActor
-    private static func actionBarSlotsView() -> some View {
+    private static func actionBarSlotsView(dockContentMode: DockContentMode = .artifacts) -> some View {
         let model = ActionBarFooterModel(
             navigation: AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true),
-            sessionChip: SelectedSessionChip(title: "Design quest progression data model", id: "root-2", agent: "codex"),
-            sessionRole: .master,
             caffeineActive: true,
-            dockContentMode: .artifacts
+            dockContentMode: dockContentMode
         )
         return ActionBarFooterView(
             model: model,
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {},
-            onToggleCaffeine: {}, onOpenSettings: {}, onCopySessionID: { _ in }, onAttachWorker: { _ in }
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
+            onToggleCaffeine: {}, onOpenSettings: {}
         )
     }
 
-    /// A list with a standalone, a shell row, a master with workers and a collapsed master with pills.
+    /// A list with a master, a shell row, a master with workers and a collapsed master with circles.
     @MainActor
     private static func breathingListView() -> some View {
-        func session(_ id: String, title: String, repo: String, color: String, agent: String = "codex", role: String = "standalone", state: String = "working", snippet: String, parentID: String = "", workers: Int = 0) -> TrackerSession {
+        func session(_ id: String, title: String, repo: String, color: String, agent: String = "codex", role: String = "master", state: String = "working", snippet: String, parentID: String = "", workers: Int = 0) -> TrackerSession {
             TrackerSession(id: id, title: title, repoName: repo, displayColor: color, agent: agent, role: role, state: state, snippet: snippet, parentID: parentID, workerCount: workers, elapsedSeedMS: 5_420_000)
         }
         let cursor = session("c", title: "Refine shell aliases for faster navigation", repo: "Dotfiles", color: "lime", snippet: "Implement request routing and recovery")
-        let shell = TrackerSession(id: "s", title: "Local shell", repoName: "Dotfiles", displayColor: "lime", agent: "shell", role: "standalone", state: "active", snippet: "")
+        let shell = TrackerSession(id: "s", title: "Local shell", repoName: "Dotfiles", displayColor: "lime", agent: "shell", role: "shell", state: "active", snippet: "")
         let master = session("m", title: "Design quest progression data model", repo: "Questmaster", color: "yellow", role: "master", snippet: "Update onboarding docs and reference", workers: 2)
         let workerA = session("m1", title: "Add worker grouping to renderer", repo: "Questmaster", color: "yellow", role: "worker", snippet: "Bash: rg -n sampleQuery src/", parentID: "m")
         let workerB = session("m2", title: "Review collapsed worker badges", repo: "Questmaster", color: "yellow", agent: "claude", role: "worker", state: "blocked", snippet: "Waiting for permission to edit files", parentID: "m")
@@ -240,13 +320,128 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func trackerView() -> some View {
-        TrackerRootView(
-            store: trackerPreviewStore(),
+    private static func trackerView(expandedMasterID: String? = nil) -> some View {
+        let store = trackerPreviewStore()
+        if let expandedMasterID {
+            store.toggleWorkersCollapsed(for: expandedMasterID)
+        }
+        return TrackerRootView(
+            store: store,
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
         .background(AppPalette.window.swiftUI)
+    }
+
+    /// The tracker with the sessions `Property 1=Tracker (Simplified).svg` lays out: seven masters in three projects,
+    /// two workers under the second, and collapsed circles under the fourth (nine workers) and sixth (three). Its strings
+    /// are the SVG's. Every session idles unless `states` gives its id one, and `selectedID` is the keyboard cursor.
+    @MainActor
+    private static func trackerListDesignView(states: [String: String] = [:], selectedID: String? = nil) -> some View {
+        func session(_ id: String, repo: String, color: String, agent: String, role: String, parent: String = "") -> TrackerSession {
+            var session = TrackerSession(
+                id: id,
+                title: role == "worker" ? "worker-title" : "Session Title",
+                repoName: repo,
+                displayColor: color,
+                agent: agent,
+                role: role,
+                state: states[id] ?? "idle",
+                snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...",
+                parentID: parent
+            )
+            session.isCurrent = id == selectedID
+            return session
+        }
+        func workers(_ parent: String, repo: String, color: String, _ agents: [String]) -> [TrackerSession] {
+            agents.enumerated().map { session("\(parent)-w\($0.offset)", repo: repo, color: color, agent: $0.element, role: "worker", parent: parent) }
+        }
+        let dotfiles = [
+            session("m1", repo: "Dotfiles", color: "lime", agent: "codex", role: "master"),
+            session("m2", repo: "Dotfiles", color: "lime", agent: "codex", role: "master"),
+        ] + workers("m2", repo: "Dotfiles", color: "lime", ["codex", "codex"])
+        let questmaster = [
+            session("m3", repo: "Questmaster", color: "yellow", agent: "codex", role: "master"),
+            session("m4", repo: "Questmaster", color: "yellow", agent: "codex", role: "master"),
+        ] + workers("m4", repo: "Questmaster", color: "yellow", [
+            "claude", "codex", "claude", "claude", "codex", "codex", "codex", "codex", "codex",
+        ])
+        let scry = [
+            session("m5", repo: "Scry", color: "blue", agent: "codex", role: "master"),
+            session("m6", repo: "Scry", color: "blue", agent: "codex", role: "master"),
+            session("m7", repo: "Scry", color: "blue", agent: "codex", role: "master"),
+        ] + workers("m6", repo: "Scry", color: "blue", ["codex", "codex", "codex"])
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["m2"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: dotfiles),
+            TrackerRepo(id: "questmaster", name: "Questmaster", color: "yellow", sessions: questmaster),
+            TrackerRepo(id: "scry", name: "Scry", color: "blue", sessions: scry),
+        ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: selectedID == nil ? .terminal : .tracker)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// Every gap in a list, idle: plain sessions 20 apart, 10 after a session's expanded workers and after its collapsed
+    /// row of circles, and 20 between projects even after a session with workers. Project one has a plain session, one
+    /// with two expanded workers, two plain ones with a collapsed row of three between them; project two ends on a
+    /// session with a collapsed row; project three has one plain session.
+    @MainActor
+    private static func trackerListGapsView() -> some View {
+        let colors = ["Dotfiles": "lime", "Questmaster": "yellow", "Scry": "blue"]
+        func session(_ id: String, _ repo: String, role: String = "master", parent: String = "") -> TrackerSession {
+            TrackerSession(
+                id: id, title: role == "worker" ? "worker-title" : "Session Title", repoName: repo, displayColor: colors[repo] ?? "lime",
+                agent: "codex", role: role, state: "idle",
+                snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...", parentID: parent
+            )
+        }
+        func workers(_ parent: String, _ repo: String, _ count: Int) -> [TrackerSession] {
+            (0..<count).map { session("\(parent)-w\($0)", repo, role: "worker", parent: parent) }
+        }
+        let dotfiles = [session("a1", "Dotfiles"), session("a2", "Dotfiles")] + workers("a2", "Dotfiles", 2)
+            + [session("a3", "Dotfiles"), session("a4", "Dotfiles")] + workers("a4", "Dotfiles", 3) + [session("a5", "Dotfiles")]
+        let questmaster = [session("b1", "Questmaster")] + workers("b1", "Questmaster", 2)
+        let scry = [session("c1", "Scry")]
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["a2"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: dotfiles),
+            TrackerRepo(id: "questmaster", name: "Questmaster", color: "yellow", sessions: questmaster),
+            TrackerRepo(id: "scry", name: "Scry", color: "blue", sessions: scry),
+        ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The list with every status on show: a working master, a selected one that works, its two expanded workers (one
+    /// working), a blocked master, and collapsed rows whose circles run through the statuses.
+    @MainActor
+    private static func trackerListStatusView() -> some View {
+        trackerListDesignView(
+            states: [
+                "m1": "working", "m2": "working", "m2-w0": "working",
+                "m4-w0": "working", "m4-w2": "blocked", "m4-w3": "needs-input", "m4-w4": "working", "m4-w5": "error",
+                "m5": "blocked",
+                "m6-w0": "working", "m6-w2": "error",
+                "m7": "error",
+            ],
+            selectedID: "m2"
+        )
+    }
+
+    /// The status a nameplate fixture shows: the status flag in its name, or working.
+    private static func fixtureState(_ flags: Set<String>) -> String {
+        let states = [("error", "error"), ("idle", "idle"), ("blocked", "blocked"), ("done", "done"), ("needs", "needs-input")]
+        return states.first(where: { flags.contains($0.0) })?.1 ?? "working"
     }
 
     /// One row of the Figma "Tracker Item" variants with the same strings, for side-by-side comparison.
@@ -259,21 +454,27 @@ enum RenderPreview {
         let flags = Set(fixtureParts.dropFirst())
         let displayColor = ["yellow", "magenta"].first(where: flags.contains) ?? "lime"
         let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
-        let title = "Skills Improvements and stuff that ge..."
-        func session(_ id: String, role: String, agent: String = "codex", state: String = flags.contains("error") ? "error" : "working", lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int = 5_420_000) -> TrackerSession {
-            TrackerSession(id: id, title: title, repoName: "Title", displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed)
+        // The "design" flag swaps in the strings the plate SVGs show, for side-by-side comparison with them.
+        let isDesign = flags.contains("design")
+        let title = isDesign ? "Session Title" : "Skills Improvements and stuff that ge..."
+        let workerTitle = isDesign ? "worker-title" : title
+        let repoName = isDesign ? "Project" : "Title"
+        let defaultElapsed = isDesign ? 1 : 5_420_000
+        func session(_ id: String, role: String, agent: String = "codex", state: String = fixtureState(flags), lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int? = nil) -> TrackerSession {
+            TrackerSession(id: id, title: role == "worker" ? workerTitle : title, repoName: repoName, displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed ?? defaultElapsed)
         }
-        let snippet = "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
+        let snippet = isDesign ? "Ranked exact matches and row..." : "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
+        let workerSnippet = isDesign ? "Ranked exact matches a..." : snippet
         var sessions: [TrackerSession]
         switch role {
-        case "standalone":
-            sessions = [session("a", role: "standalone", snippet: snippet)]
+        case "shell":
+            sessions = [session("a", role: "shell", agent: "shell", snippet: snippet)]
         case "master":
             sessions = [session("a", role: "master", snippet: snippet)]
         case "worker":
-            sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: snippet, parentID: "a", elapsed: 1_825_000)]
+            sessions = [session("a", role: "master", snippet: snippet), session("b", role: "worker", snippet: workerSnippet, parentID: "a", elapsed: flags.contains("long") ? 360_000_000 : defaultElapsed)]
         case "stopped":
-            sessions = [session("a", role: "standalone", state: "stopped", lifecycle: "stopped", snippet: snippet)]
+            sessions = [session("a", role: "master", state: "stopped", lifecycle: "stopped", snippet: snippet)]
         default:
             sessions = [session("a", role: "master", snippet: snippet)]
             let twoGroups = [("codex", "working"), ("codex", "working"), ("claude", "idle"), ("claude", "idle")]
@@ -292,8 +493,8 @@ enum RenderPreview {
             expandedMasterIDs: role == "collapsed" || role == "overflow" ? [] : ["a"]
         )
         // The first row is the keyboard cursor, so park a throwaway row above the fixture.
-        let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "standalone", state: "active", snippet: "")
-        var repos = [TrackerRepo(id: "title", name: "Title", color: displayColor, sessions: sessions)]
+        let cursorRow = TrackerSession(id: "cursor", title: "Cursor", repoName: "Cursor", displayColor: "blue", agent: "shell", role: "shell", state: "active", snippet: "")
+        var repos = [TrackerRepo(id: "title", name: repoName, color: displayColor, sessions: sessions)]
         if !highlightsFixtureRow {
             repos.insert(TrackerRepo(id: "cursor", name: "Cursor", color: "blue", sessions: [cursorRow]), at: 0)
         }
@@ -308,6 +509,77 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// One master plate per state, 80 points apart from y 20, then two worker plates 60 apart: idle, hovered, selected,
+    /// hovered with a working status, working, being recoloured, selected with a working status, blocked; a working
+    /// worker, and a hovered one. Hover is a view state, so the plates are drawn directly, with their logos.
+    @MainActor
+    private static func plateBandsView() -> some View {
+        func status(_ state: String) -> NSColor {
+            TrackerRenderer.status(for: TrackerSession(id: "s", title: "", repoName: "", agent: "codex", role: "master", state: state)).color
+        }
+        let states: [(role: TrackerNameplateRole, selected: Bool, hovered: Bool, recoloring: Bool, status: NSColor?)] = [
+            (.master, false, false, false, nil), (.master, false, true, false, nil), (.master, true, false, false, nil),
+            (.master, false, true, false, status("working")), (.master, false, false, false, status("working")),
+            (.master, false, false, true, nil), (.master, true, false, false, status("working")),
+            (.master, false, false, false, status("blocked")),
+            (.worker, false, false, false, status("working")), (.worker, false, true, false, status("working")),
+        ]
+        let rowYs = states.reduce(into: [CGFloat(20)]) { ys, state in ys.append(ys.last! + (state.role == .master ? 80 : 60)) }
+        return ZStack(alignment: .topLeading) {
+            ForEach(Array(states.enumerated()), id: \.offset) { index, state in
+                ZStack(alignment: .topLeading) {
+                    TrackerNameplateBackground(
+                        role: state.role,
+                        color: AppPalette.displayColor("lime") ?? AppPalette.accent,
+                        selected: state.selected,
+                        hovered: state.hovered,
+                        isRecoloring: state.recoloring,
+                        isWorking: false,
+                        statusColor: state.status,
+                        text: EmptyView()
+                    )
+                    TrackerAgentMark(agent: "codex", shortcutNumber: nil, diameter: state.role.portraitDiameter, logoSide: state.role.logoSide)
+                        .offset(x: state.role.portraitOrigin.x, y: state.role.portraitOrigin.y)
+                }
+                .offset(x: 20, y: rowYs[index])
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// A master's and a worker's portrait with the Command-held shortcut number on, on whole-point origins,
+    /// to measure the number's centring on the disc.
+    @MainActor
+    private static func portraitNumbersView() -> some View {
+        let master = TrackerNameplateRole.master
+        let worker = TrackerNameplateRole.worker
+        return ZStack(alignment: .topLeading) {
+            TrackerAgentMark(agent: "codex", shortcutNumber: 3, diameter: master.portraitDiameter, logoSide: master.logoSide)
+                .offset(x: 5, y: 5)
+            TrackerAgentMark(agent: "claude", shortcutNumber: 7, diameter: worker.portraitDiameter, logoSide: worker.logoSide)
+                .offset(x: 75, y: 10)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The selected-session panel with the strings and the bar colour `Selected Session.svg` shows, or with no text, to
+    /// compare the plate alone against the SVG's raster.
+    @MainActor
+    private static func selectedSessionPanelView(withText: Bool = true) -> some View {
+        SelectedSessionPanel(
+            content: SelectedSessionPanelContent(
+                title: withText ? "Improve fuzzy search ranking" : "",
+                id: withText ? "qm-1789532989" : "",
+                projectName: withText ? "Questmaster" : "",
+                projectColor: NSColor(hex: 0x7A7AF0)
+            ),
+            onCopyID: { _ in }
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
     @MainActor
     private static func trackerPreviewStore() -> RuntimeStore {
         let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "root-1")
@@ -317,7 +589,7 @@ enum RenderPreview {
             repoName: "Dotfiles",
             displayColor: "lime",
             agent: "codex",
-            role: "standalone",
+            role: "master",
             state: "working",
             snippet: "Implement request routing and recovery",
             elapsedSeedMS: 5_420_000
@@ -375,7 +647,7 @@ enum RenderPreview {
             repoName: "Dotfiles",
             displayColor: "lime",
             agent: "shell",
-            role: "standalone",
+            role: "shell",
             state: "active",
             lifecycle: "active",
             snippet: "cd /tmp"
@@ -386,7 +658,7 @@ enum RenderPreview {
             repoName: "Scry",
             displayColor: "magenta",
             agent: "claude",
-            role: "standalone",
+            role: "master",
             state: "needs-input",
             snippet: "Choose whether to keep the new adapter"
         )
@@ -396,7 +668,7 @@ enum RenderPreview {
             repoName: "Scry",
             displayColor: "magenta",
             agent: "claude",
-            role: "standalone",
+            role: "master",
             state: "blocked",
             snippet: "Adapter crashed while parsing",
             lastKind: "session.error"
@@ -422,8 +694,10 @@ enum RenderPreview {
                         .font(AppFonts.monoSmall.swiftUI)
                         .foregroundStyle(AppPalette.muted.swiftUI)
                         .frame(width: 108, alignment: .leading)
-                    TrackerColorBar(color: color, strokeColor: AppPalette.line, isWorking: false)
-                    TrackerDiamond(color: color)
+                    Rectangle()
+                        .fill(TrackerNameplateColor.barLightness(color).swiftUI)
+                        .overlay(Rectangle().fill(AppPalette.shadow.swiftUI.opacity(TrackerNameplateRole.projectBarOverlayOpacity)))
+                        .frame(width: 241, height: 8)
                 }
                 .frame(height: 13)
             }
@@ -600,7 +874,6 @@ enum RenderPreview {
     @MainActor
     private static func newSessionView() -> some View {
         let state = NewSessionViewState(model: NewSessionFormModel(
-            role: .standalone,
             initialPath: "/",
             initialFocus: .path
         ))
@@ -668,7 +941,6 @@ enum RenderPreview {
         if let only = environment["RENDER_ONLY"], !only.split(separator: ",").contains(where: { path.hasSuffix("/\($0).png") }) {
             return
         }
-        let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
         let rootView = autoHeight ? AnyView(view.frame(width: size.width)) : AnyView(view.frame(width: size.width, height: size.height))
         renderView(NSHostingView(rootView: rootView), size: size, autoHeight: autoHeight, to: path)
     }

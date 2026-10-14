@@ -10,7 +10,7 @@ import Foundation
 /// `role_default.set`/`RoleDefaultsStore.Set`).
 public struct RoleDefaultRow: Equatable {
     public let agent: String
-    public let role: String // "master", "standalone" or "worker"
+    public let role: String // "master" or "worker"
 
     public private(set) var modelOptions: [SessionModelOption]
     public private(set) var selectedModelIndex: Int?
@@ -158,11 +158,11 @@ public enum RoleDefaultField: Equatable {
 }
 
 /// Backs the Settings sheet's default-model/reasoning-effort table: one tab
-/// per agent, each showing that agent's Master, Standalone and Worker rows,
+/// per agent, each showing that agent's Master and Worker rows,
 /// each with two independently focusable/cyclable controls (model, effort).
 public struct RoleDefaultsSettingsModel: Equatable {
     public static let defaultAgents = NewSessionFormModel.defaultAgents
-    public static let roles = ["master", "standalone", "worker"]
+    public static let roles = ["master", "worker"]
 
     public let agents: [String]
     public private(set) var rows: [RoleDefaultRow]

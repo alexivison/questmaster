@@ -79,6 +79,32 @@ func TestManifest_JSONFieldNames(t *testing.T) {
 	}
 }
 
+func TestManifestSessionRoleDerivesRoleFromAgentsAndParent(t *testing.T) {
+	t.Parallel()
+
+	agent := []AgentManifest{{Name: "codex", Role: "primary"}}
+	tests := []struct {
+		name string
+		m    Manifest
+		want string
+	}{
+		{name: "new master", m: Manifest{SessionType: "master", Agents: agent}, want: "master"},
+		{name: "old master", m: Manifest{Agents: agent}, want: "master"},
+		{name: "worker", m: Manifest{Agents: agent, Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)}}, want: "worker"},
+		{name: "parent without agent metadata", m: Manifest{Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)}}, want: "worker"},
+		{name: "parent wins over stale type", m: Manifest{SessionType: "master", Agents: agent, Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)}}, want: "worker"},
+		{name: "plain shell", m: Manifest{}, want: "shell"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.m.SessionRole(); got != tt.want {
+				t.Fatalf("Manifest.SessionRole() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewStoreTightensStateRootPermissions(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
 	if err := os.MkdirAll(root, 0o755); err != nil {

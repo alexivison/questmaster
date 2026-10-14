@@ -1,25 +1,15 @@
 import Foundation
 
-public enum NewSessionRole: Equatable {
-    case standalone
-    case master
-
-    public var isMaster: Bool {
-        self == .master
-    }
-}
-
 public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case path
     case title
-    case role
     case agent
     case model
     case color
     case prompt
 
     public var isSelect: Bool {
-        self == .agent || self == .color || self == .role || self == .model
+        self == .agent || self == .color || self == .model
     }
 }
 
@@ -77,16 +67,15 @@ public enum NewSessionPromptReturnAction: Equatable {
 }
 
 public struct NewSessionSubmitPayload: Equatable {
-    public let role: NewSessionRole
     public let path: String
     public let title: String?
     public let agent: String
     /// Empty means "no override for this launch": whatever Settings has
-    /// configured for this agent+role applies, or nothing if Settings has
+    /// configured for this agent's master role applies, or nothing if Settings has
     /// nothing configured either.
     public let model: String
     /// Empty means "no override for this launch": whatever Settings has
-    /// configured for this agent+role applies, or nothing if Settings has
+    /// configured for this agent's master role applies, or nothing if Settings has
     /// nothing configured either.
     public let reasoningEffort: String
     public let color: String
@@ -103,7 +92,6 @@ public struct NewSessionFormModel: Equatable {
         "gold", "lime", "teal", "sky", "indigo", "violet", "pink",
     ]
 
-    public private(set) var role: NewSessionRole
     public var focusedField: NewSessionField
     public var path: String
     public var title: String
@@ -118,18 +106,17 @@ public struct NewSessionFormModel: Equatable {
     public private(set) var selectedAgentIndex: Int
     public private(set) var selectedColorIndex: Int
     /// Nil means nothing is selected — no override for this launch, whatever
-    /// Settings has configured for this agent+role applies.
+    /// Settings has configured for this agent's master role applies.
     public private(set) var selectedModelIndex: Int?
     public private(set) var selectedEffortIndex: Int?
     /// False until `setModelOptions`/`setEffortOptions` first resolves this
-    /// agent+role's real list — first resolve pre-selects Settings' current
-    /// default (if any); a later re-resolve (agent/role change) instead
+    /// agent's master-role list — first resolve pre-selects Settings' current
+    /// default (if any); a later re-resolve (agent change) instead
     /// preserves whatever is currently selected.
     private var hasResolvedModelOptions = false
     private var hasResolvedEffortOptions = false
 
     public init(
-        role: NewSessionRole,
         initialPath: String,
         initialTitle: String = "",
         initialPrompt: String = "",
@@ -138,7 +125,6 @@ public struct NewSessionFormModel: Equatable {
         agents: [String] = NewSessionFormModel.defaultAgents,
         colors: [String] = NewSessionFormModel.defaultColors
     ) {
-        self.role = role
         focusedField = initialFocus
         path = initialPath
         title = initialTitle
@@ -185,19 +171,8 @@ public struct NewSessionFormModel: Equatable {
         selectedEffortIndex.flatMap { value(at: $0, in: effortOptions) }
     }
 
-    public mutating func setRole(_ role: NewSessionRole) {
-        guard self.role != role else {
-            return
-        }
-        self.role = role
-        // The role decides which default model (and reasoning effort) the
-        // harness applies, so the resolved lists no longer describe this form.
-        resetModelOptions()
-        resetEffortOptions()
-    }
-
     /// Replaces the model list with what the backend resolved for the current
-    /// agent and role. On the very first resolve for this agent+role, the
+    /// agent's master role. On the very first resolve, the
     /// selection seeds onto `defaultModel` (whatever Settings currently has
     /// configured, if anything) directly. A later re-resolve (the effort list
     /// refetching after the user changes the model) instead preserves
@@ -219,7 +194,7 @@ public struct NewSessionFormModel: Equatable {
     }
 
     /// Drops back to an empty, unresolved list, for when the resolved list
-    /// stops applying (the agent or role changed) or a fetch failed — the
+    /// stops applying (the agent changed) or a fetch failed — the
     /// next `setModelOptions` call is then treated as a fresh first resolve.
     public mutating func resetModelOptions() {
         modelOptions = []
@@ -228,7 +203,7 @@ public struct NewSessionFormModel: Equatable {
     }
 
     /// Replaces the reasoning-effort list with what the backend resolved for
-    /// the current agent, role and model. Mirrors `setModelOptions`'s
+    /// the current agent's master role and model. Mirrors `setModelOptions`'s
     /// first-resolve seeding.
     public mutating func setEffortOptions(_ levels: [String], defaultLevel: String = "") {
         let firstResolve = !hasResolvedEffortOptions
@@ -246,7 +221,7 @@ public struct NewSessionFormModel: Equatable {
     }
 
     /// Drops back to an empty, unresolved list, for when the resolved list
-    /// stops applying (the agent, role or model changed) or a fetch failed.
+    /// stops applying (the agent or model changed) or a fetch failed.
     public mutating func resetEffortOptions() {
         effortOptions = []
         selectedEffortIndex = nil
@@ -320,7 +295,6 @@ public struct NewSessionFormModel: Equatable {
         }
         errorMessage = nil
         return NewSessionSubmitPayload(
-            role: role,
             path: cleanPath,
             title: clean(title),
             agent: selectedAgent,
@@ -376,7 +350,7 @@ public struct NewSessionFormModel: Equatable {
             selectedAgentIndex = wrapped(selectedAgentIndex + delta, count: agents.count)
             // Model ids are harness-specific, so another agent's list never
             // carries over — the sheet resolves a fresh one. Only reset when
-            // the agent actually changed (mirrors setRole), so cycling a
+            // the agent actually changed, so cycling a
             // single-agent list doesn't needlessly drop an already-resolved
             // list.
             if selectedAgent != previousAgent {
@@ -387,10 +361,6 @@ public struct NewSessionFormModel: Equatable {
             selectedModelIndex = cycleOptionalIndex(selectedModelIndex, delta: delta, count: modelOptions.count)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
-        case .role:
-            let roles: [NewSessionRole] = [.standalone, .master]
-            let index = roles.firstIndex(of: role) ?? 0
-            setRole(roles[wrapped(index + delta, count: roles.count)])
         case .path, .title, .prompt:
             break
         }

@@ -27,6 +27,7 @@ type Result struct {
 	LastKind     string
 	LastEvent    time.Time
 	WorkingSince time.Time
+	LastChatAt   time.Time
 }
 
 // PrimaryKey namespaces a session's primary-pane activity key. Kept for
@@ -101,6 +102,7 @@ func FromState(ss *state.SessionState) Result {
 		LastKind:     p.LastKind,
 		LastEvent:    p.LastEvent,
 		WorkingSince: normalizeWorkingSince(stateName, p.WorkingSince, p.LastEvent),
+		LastChatAt:   p.LastChatAt,
 	}
 }
 

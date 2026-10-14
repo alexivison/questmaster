@@ -11,7 +11,7 @@ final class NewSessionViewState: ObservableObject {
     @Published var focusRequest: NewSessionField
     @Published var focusGeneration = 0
     /// Set only for an explicit refresh (button or `r`), not the sheet's own
-    /// resolves on open or agent/role change — those are silent.
+    /// resolves on open or agent change — those are silent.
     @Published var isRefreshingModels = false
 
     init(model: NewSessionFormModel) {
@@ -65,13 +65,6 @@ struct NewSessionRootView: View {
         ) {
             pathRow
             textRow(label: "Title", placeholder: "optional, auto-generated if blank", text: titleBinding, field: .title)
-            selectRow(
-                label: "Role",
-                field: .role,
-                note: "the shape it takes in the field",
-                title: roleTitle,
-                swatchColor: nil
-            )
             selectRow(
                 label: "Agent",
                 field: .agent,
@@ -169,7 +162,6 @@ struct NewSessionRootView: View {
             }
             Text(state.model.selectedEffortOption?.label ?? "Not configured")
                 .font(AppFonts.modalHelperLarge.swiftUI)
-                .italic()
                 .foregroundStyle(AppPalette.dim.swiftUI)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -273,7 +265,7 @@ struct NewSessionRootView: View {
 
     /// The model row's hint: the title already shows the selected model id,
     /// so this only needs to say what kind of value it is — that nothing is
-    /// configured for this role and the harness decides on its own, or the
+    /// configured for this agent's master role and the harness decides on its own, or the
     /// selected model's own annotation (vendor name or "recent") once one is
     /// picked. The `r`/`e` shortcuts are surfaced only while the row itself
     /// is focused, where they're actually live.
@@ -288,15 +280,6 @@ struct NewSessionRootView: View {
             return base
         }
         return state.isRefreshingModels ? "\(base) · refreshing…" : "\(base) · r refresh · e effort"
-    }
-
-    private var roleTitle: String {
-        switch state.model.role {
-        case .standalone:
-            return "Standalone"
-        case .master:
-            return "Master"
-        }
     }
 
     private func textRow(label: String, placeholder: String, text: Binding<String>, field: NewSessionField) -> some View {
@@ -401,7 +384,7 @@ struct NewSessionRootView: View {
         switch field {
         case .path, .title:
             focusedField = field
-        case .agent, .model, .color, .prompt, .role:
+        case .agent, .model, .color, .prompt:
             focusedField = nil
         }
     }

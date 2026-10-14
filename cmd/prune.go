@@ -92,7 +92,7 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 
 		// Try to parse manifest for master-with-workers guard; skip on parse failure (prune it).
 		m, readErr := store.Read(sessionID)
-		if readErr == nil && m.SessionType == "master" && len(m.Workers) > 0 {
+		if readErr == nil && m.AgentSessionType() == "master" && len(m.Workers) > 0 {
 			continue
 		}
 

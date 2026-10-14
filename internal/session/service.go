@@ -1,4 +1,4 @@
-// Package session manages lifecycle operations (start, delete, continue, promote, spawn).
+// Package session manages lifecycle operations (start, delete, continue, spawn).
 package session
 
 import (
@@ -75,9 +75,8 @@ func removeRuntimeDir(sessionID string) {
 type sessionRole string
 
 const (
-	roleStandalone sessionRole = ""
-	roleMaster     sessionRole = "master"
-	roleWorker     sessionRole = "worker"
+	roleMaster sessionRole = "master"
+	roleWorker sessionRole = "worker"
 )
 
 func agentSessionRole(role sessionRole) agent.SessionRole {
@@ -87,19 +86,19 @@ func agentSessionRole(role sessionRole) agent.SessionRole {
 	case roleWorker:
 		return agent.RoleWorker
 	default:
-		return agent.RoleStandalone
+		return agent.RoleMaster
 	}
 }
 
-// roleForManifest derives a session's role from its persisted manifest fields.
+// roleForManifest derives a managed role from the manifest's agent and parent fields.
 func roleForManifest(m state.Manifest) sessionRole {
-	switch {
-	case m.SessionType == "master":
+	switch m.AgentSessionType() {
+	case "master":
 		return roleMaster
-	case m.ExtraString("parent_session") != "":
+	case "worker":
 		return roleWorker
 	default:
-		return roleStandalone
+		return ""
 	}
 }
 

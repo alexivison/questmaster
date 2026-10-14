@@ -3,6 +3,8 @@ import Foundation
 enum QuestmasterLogicTests {
     static func main() throws {
         TrackerRendererTests.run()
+        TrackerPlateVariantTests.run()
+        FooterBandTests.run()
         TrackerRecolorLogicTests.run()
         TrackerCommandStateTests.run()
         MutationRequestTests.run()
@@ -30,9 +32,10 @@ enum QuestmasterLogicTests {
         QuestCoreTests.run()
         ShellChromeTests.run()
         CaffeineStateTests.run()
-        ActionBarWorkerStripTests.run()
         GhosttyConfigParserTests.run()
         TerminalDetachSignalTests.run()
+        WorkerChatTests.run()
+        WorkerChatScrollTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

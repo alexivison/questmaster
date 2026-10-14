@@ -3,9 +3,11 @@
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -67,6 +69,12 @@ type SessionState struct {
 	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
 
+type ClaudeOpenChatAction struct {
+	ToolUseID string    `json:"tool_use_id,omitempty"`
+	PromptID  string    `json:"prompt_id,omitempty"`
+	StartedAt time.Time `json:"started_at"`
+}
+
 // PaneState is the renderer-visible state for one role within a session.
 // WorkingSince timestamps the moment State transitioned to "working" and
 // is preserved across PreToolUse/PostToolUse cycles within the same turn,
@@ -83,6 +91,7 @@ type PaneState struct {
 	LastEvent    time.Time `json:"last_event"`
 	LastKind     string    `json:"last_kind"`
 	WorkingSince time.Time `json:"working_since,omitempty"`
+	LastChatAt   time.Time `json:"last_chat_at,omitempty"`
 
 	Recent            []string `json:"recent,omitempty"`
 	SessionFile       string   `json:"session_file,omitempty"`
@@ -93,8 +102,30 @@ type PaneState struct {
 	// author role is not yet known. The text is promoted to Activity/Recent only
 	// once the matching assistant message.updated arrives, so a user's prompt is
 	// never surfaced as the worker's activity.
-	PendingPartMsgID string `json:"pending_part_msg_id,omitempty"`
-	PendingPartText  string `json:"pending_part_text,omitempty"`
+	PendingPartMsgID    string `json:"pending_part_msg_id,omitempty"`
+	PendingPartText     string `json:"pending_part_text,omitempty"`
+	PendingFinalMessage string `json:"pending_final_message,omitempty"`
+	LastChatStatus      string `json:"last_chat_status,omitempty"`
+
+	ClaudePromptID               string                 `json:"claude_prompt_id,omitempty"`
+	ClaudeDisplayMessageID       string                 `json:"claude_display_message_id,omitempty"`
+	ClaudeDisplayPromptID        string                 `json:"claude_display_prompt_id,omitempty"`
+	ClaudeDisplayFirstBatchAt    *time.Time             `json:"claude_display_first_batch_at,omitempty"`
+	ClaudeDisplayEarliestBatchAt time.Time              `json:"claude_display_earliest_batch_at,omitempty"`
+	ClaudeDisplayChunks          map[int]string         `json:"claude_display_chunks,omitempty"`
+	ClaudeDisplayFinalIndex      int                    `json:"claude_display_final_index,omitempty"`
+	ClaudeDisplayFinal           bool                   `json:"claude_display_final,omitempty"`
+	ClaudeDisplayAbandoned       bool                   `json:"claude_display_abandoned,omitempty"`
+	ClaudeOpenChatActions        []ClaudeOpenChatAction `json:"claude_open_chat_actions,omitempty"`
+	ClaudeLastSayMessage         string                 `json:"claude_last_say_message,omitempty"`
+	ClaudeLastSayPromptID        string                 `json:"claude_last_say_prompt_id,omitempty"`
+	ClaudeLastSayTranscript      string                 `json:"claude_last_say_transcript,omitempty"`
+	ClaudeLastStopPromptID       string                 `json:"claude_last_stop_prompt_id,omitempty"`
+	ClaudeLastStopTranscript     string                 `json:"claude_last_stop_transcript,omitempty"`
+
+	CodexTranscriptPath         string `json:"codex_transcript_path,omitempty"`
+	CodexTranscriptOffset       int64  `json:"codex_transcript_offset,omitempty"`
+	CodexTranscriptSkippingLine bool   `json:"codex_transcript_skipping_line,omitempty"`
 }
 
 // StateRoot resolves the directory that holds per-session state. Honors
@@ -250,51 +281,179 @@ func UpdateSessionState(id string, mutate func(*SessionState) bool) error {
 
 // UpdateAndLog folds the JSONL event append and the state.json
 // read-modify-write into a single critical section so the per-event hook
-// path takes one flock instead of two. It always appends ev to state.jsonl
-// (matching AppendStateEvent's rotate-then-append behavior), then runs
-// mutate against the freshly-loaded SessionState and rewrites state.json
+// path takes one flock instead of two. It runs mutate against the freshly-loaded
+// SessionState, then appends the possibly enriched event and rewrites state.json
 // only when mutate returns true (matching UpdateSessionState).
 //
 // The event append uses appendRotatingJSONL directly rather than
 // AppendStateEvent: the shared per-session lockfile is already held here,
 // and re-locking the same file from this process would self-block.
 //
-// Both halves are best-effort relative to each other in the sense that a
-// failed state write does not undo the appended event line — but the append
-// runs first, so the event log always records the event even if the state
-// rewrite later fails.
-func UpdateAndLog(id string, ev StateEvent, mutate func(*SessionState) bool) error {
+// A failed state write does not undo the appended event line.
+func UpdateAndLog(id string, ev *StateEvent, mutate func(*SessionState) bool) error {
+	return UpdateAndLogAt(StateRoot(), id, ev, mutate)
+}
+
+// UpdateAndLogAt is UpdateAndLog with the state root supplied by the caller.
+func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool) error {
+	return UpdateAndLogWithEventsAt(root, id, ev, mutate, nil)
+}
+
+// UpdateAndLogWithEvents appends events produced from the primary event and
+// applies their state mutation under one lock.
+func UpdateAndLogWithEvents(id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
+	return UpdateAndLogWithEventsAt(StateRoot(), id, ev, mutate, extraEvents)
+}
+
+// UpdateAndLogWithEventsAt is UpdateAndLogWithEvents with the state root
+// supplied by the caller.
+func UpdateAndLogWithEventsAt(root, id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
 	if mutate == nil {
 		return errors.New("nil mutate function")
 	}
-	root := StateRoot()
 	if root == "" {
 		return errors.New("no state root resolved")
+	}
+	if ev == nil {
+		return errors.New("nil state event")
 	}
 	if ev.Ts.IsZero() {
 		ev.Ts = time.Now().UTC()
 	}
 	return withStateLock(root, id, func() error {
-		appendErr := appendRotatingJSONL(SessionStateLogPath(root, id), ev)
-
 		ss, err := loadSessionStateAt(root, id)
 		if err != nil {
-			return errors.Join(appendErr, err)
+			return errors.Join(appendRotatingJSONL(SessionStateLogPath(root, id), *ev), err)
 		}
 		if ss == nil {
-			ss = &SessionState{
-				SessionID: id,
-				Version:   SchemaVersion,
-				Panes:     map[string]PaneState{},
-			}
+			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
 		}
-		if !mutate(ss) {
+		changed := mutate(ss)
+		var extras []*StateEvent
+		if extraEvents != nil {
+			extras = extraEvents(ev)
+		}
+		appendErr := appendRotatingJSONL(SessionStateLogPath(root, id), *ev)
+		for _, extra := range extras {
+			if extra == nil {
+				appendErr = errors.Join(appendErr, errors.New("nil state event"))
+				continue
+			}
+			appendErr = errors.Join(appendErr, appendRotatingJSONL(SessionStateLogPath(root, id), *extra))
+		}
+		if !changed {
 			return appendErr
 		}
 		return errors.Join(appendErr, writeSessionStateLocked(root, id, ss))
+	})
+}
+
+// UpdateAndLogBatch applies a related group of hook events under one state
+// lock. Complete log lines remain visible if writing state.json fails.
+func UpdateAndLogBatch(id string, events []*StateEvent, mutate func(*SessionState) bool) error {
+	return updateAndLogBatchAt(StateRoot(), id, events, mutate, func(w io.Writer, data []byte) (int, error) {
+		return w.Write(data)
+	})
+}
+
+func updateAndLogBatchAt(root, id string, events []*StateEvent, mutate func(*SessionState) bool, writeEvents func(io.Writer, []byte) (int, error)) error {
+	if !IsValidSessionID(id) {
+		return fmt.Errorf("invalid session id: %q", id)
+	}
+	if mutate == nil {
+		return errors.New("nil mutate function")
+	}
+	if root == "" {
+		return errors.New("no state root resolved")
+	}
+	for _, ev := range events {
+		if ev == nil {
+			return errors.New("nil state event")
+		}
+		if ev.Ts.IsZero() {
+			ev.Ts = time.Now().UTC()
+		}
+	}
+	return withStateLock(root, id, func() error {
+		ss, err := loadSessionStateAt(root, id)
+		if err != nil {
+			return err
+		}
+		if ss == nil {
+			ss = &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{}}
+		}
+		changed := mutate(ss)
+		var eventData bytes.Buffer
+		encoder := json.NewEncoder(&eventData)
+		for _, ev := range events {
+			if err := encoder.Encode(ev); err != nil {
+				return fmt.Errorf("encode state event: %w", err)
+			}
+		}
+		logPath := SessionStateLogPath(root, id)
+		var log *os.File
+		var oldSize int64
+		if eventData.Len() > 0 {
+			log, err = os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+			if err != nil {
+				return fmt.Errorf("open state log: %w", err)
+			}
+			info, statErr := log.Stat()
+			if statErr != nil {
+				closeErr := log.Close()
+				log = nil
+				return errors.Join(fmt.Errorf("stat state log: %w", statErr), closeErr)
+			}
+			oldSize = info.Size()
+		}
+		if log != nil {
+			data := eventData.Bytes()
+			written, writeErr := writeEvents(log, data)
+			if writeErr == nil && written != len(data) {
+				writeErr = io.ErrShortWrite
+			}
+			closeErr := log.Close()
+			log = nil
+			if writeErr != nil {
+				writtenBytes := written
+				if writtenBytes < 0 {
+					writtenBytes = 0
+				}
+				if writtenBytes > len(data) {
+					writtenBytes = len(data)
+				}
+				completeBytes := 0
+				if newline := bytes.LastIndexByte(data[:writtenBytes], '\n'); newline >= 0 {
+					completeBytes = newline + 1
+				}
+				truncateErr := os.Truncate(logPath, oldSize+int64(completeBytes))
+				if truncateErr != nil {
+					truncateErr = fmt.Errorf("truncate incomplete state event: %w", truncateErr)
+				}
+				return errors.Join(fmt.Errorf("write state events: %w", writeErr), closeErr, truncateErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close state log: %w", closeErr)
+			}
+		}
+		if changed {
+			if err := writeSessionStateLocked(root, id, ss); err != nil {
+				return err
+			}
+		}
+		if eventData.Len() > 0 {
+			if info, err := os.Stat(logPath); err == nil && info.Size() >= StateJSONLMaxSize {
+				if err := os.Rename(logPath, logPath+".1"); err != nil {
+					return fmt.Errorf("rotate state log: %w", err)
+				}
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat state log for rotation: %w", err)
+			}
+		}
+		return nil
 	})
 }
 
@@ -929,15 +1088,17 @@ func InitStartingState(id string, agentsByRole map[string]string) error {
 // fixed columns belong in Fields so consumers parsing the log don't have
 // to keep up with a moving schema.
 type StateEvent struct {
-	Ts       time.Time              `json:"ts"`
-	Agent    string                 `json:"agent"`
-	Role     string                 `json:"role,omitempty"`
-	Action   string                 `json:"action"`
-	State    string                 `json:"state,omitempty"`
-	Activity string                 `json:"activity,omitempty"`
-	Tool     string                 `json:"tool,omitempty"`
-	Kind     string                 `json:"kind,omitempty"`
-	Fields   map[string]interface{} `json:"fields,omitempty"`
+	Ts        time.Time              `json:"ts"`
+	Agent     string                 `json:"agent"`
+	AgentID   string                 `json:"agent_id,omitempty"`
+	AgentType string                 `json:"agent_type,omitempty"`
+	Role      string                 `json:"role,omitempty"`
+	Action    string                 `json:"action"`
+	State     string                 `json:"state,omitempty"`
+	Activity  string                 `json:"activity,omitempty"`
+	Tool      string                 `json:"tool,omitempty"`
+	Kind      string                 `json:"kind,omitempty"`
+	Fields    map[string]interface{} `json:"fields,omitempty"`
 }
 
 // AppendStateEvent appends to state.jsonl and rotates the file when it
@@ -945,10 +1106,14 @@ type StateEvent struct {
 // session-state directory is created lazily). Rotation drops the previous
 // .1 file, so only one rolled file is retained on disk.
 func AppendStateEvent(id string, ev StateEvent) error {
+	return AppendStateEventAt(StateRoot(), id, ev)
+}
+
+// AppendStateEventAt appends an event under the given state root.
+func AppendStateEventAt(root, id string, ev StateEvent) error {
 	if !IsValidSessionID(id) {
 		return fmt.Errorf("invalid session id: %q", id)
 	}
-	root := StateRoot()
 	if root == "" {
 		return errors.New("no state root resolved")
 	}

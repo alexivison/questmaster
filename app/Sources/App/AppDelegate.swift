@@ -8,24 +8,6 @@ enum TerminalSessionChipResolver {
         QuestmasterCore.cleanSessionID(id)
     }
 
-    static func chip(currentTerminalSessionID: String?, sessions: [TrackerSession]) -> SelectedSessionChip? {
-        guard let currentID = cleanSessionID(currentTerminalSessionID) else {
-            return nil
-        }
-        let selectedSession = sessions.first { cleanSessionID($0.id) == currentID }
-
-        guard let selectedSession else {
-            return SelectedSessionChip(title: "Terminal", id: currentID, agent: "")
-        }
-
-        let title = selectedSession.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return SelectedSessionChip(
-            title: title.isEmpty ? selectedSession.id : title,
-            id: selectedSession.id,
-            agent: selectedSession.agent
-        )
-    }
-
     static func foregroundSessionID(after request: ServeMutationRequest, ack: ServeMutationAck) -> String? {
         guard request.method == "switch" else {
             return nil
@@ -42,6 +24,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var directorySuggestionClient: ServeDirectorySuggesting?
     private var modelSuggestionClient: ServeModelSuggesting?
     private var reasoningEffortSuggestionClient: ServeReasoningEffortSuggesting?
+    private var workerFeedClient: UnixSocketMutationClient?
     private let newSessionPresenter = NewSessionSheetPresenter()
     private let newQuestPresenter = NewQuestSheetPresenter()
     private let settingsPresenter = SettingsSheetPresenter()
@@ -54,8 +37,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didStartEnvironmentDependentServices = false
     private let navigation = NavigationStore()
     private let dockCoordinator = DockCoordinator()
+    private let workerChatStore = WorkerChatStore()
+    private lazy var workerChatController = WorkerChatController(
+        store: workerChatStore,
+        feedClient: { [weak self] in self?.workerFeedClient }
+    )
     private lazy var shellWindowController = ShellWindowController(
         runtimeStore: runtimeStore,
+        workerChatStore: workerChatStore,
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
         newQuestPresenter: newQuestPresenter,
@@ -128,8 +117,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
-            selectedSessionChip: { [weak self] in self?.selectedSessionChip() },
-            selectedSessionContext: { [weak self] in self?.selectedSessionContext() ?? (nil, [], nil) },
             updateDockTabs: { [weak self] in self?.updateDockTabs() }
         )
         runtimeConnectionController = RuntimeConnectionController(
@@ -177,10 +164,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
                 toggleQuestDock: #selector(toggleQuestDock),
+                toggleWorkerChatDock: #selector(toggleWorkerChatDock),
                 widenDock: #selector(widenDock),
                 narrowDock: #selector(narrowDock),
                 toggleCaffeine: #selector(toggleCaffeine),
-                selectWorkerStrip: #selector(selectWorkerStrip),
                 toggleAllWorkersCollapsed: #selector(toggleAllWorkersCollapsed),
                 copySessionID: #selector(copySessionID),
                 focusRegionLeft: #selector(focusRegionLeft),
@@ -196,6 +183,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         directorySuggestionClient = serveMutationClient
         modelSuggestionClient = serveMutationClient
         reasoningEffortSuggestionClient = serveMutationClient
+        workerFeedClient = serveMutationClient
         sessionCoordinator = makeSessionCoordinator(mutationClient: serveMutationClient)
         createWindow()
         do {
@@ -246,11 +234,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.footerShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
+        handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
-        handles.footerShell.onCopySessionID = { [weak self] sessionID in self?.copySessionIDToPasteboard(sessionID) }
-        handles.footerShell.onAttachWorker = { [weak self] sessionID in self?.attachSession(sessionID) }
-        handles.footerShell.onEscape = { [weak self] in self?.focusCoordinator.focusTerminal() }
         handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
         handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockShell.onCopyArtifactPath = { [weak self] in
@@ -388,6 +374,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             animateDockVisibility: animateDockVisibility,
             animateDockLayout: animateDockLayout
         )
+        syncWorkerChat()
+    }
+
+    private func syncWorkerChat() {
+        let sessionID = runtimeStore.currentTerminalSessionID
+        let isChatDockOpen = navigation.dockVisible && dockCoordinator.state(for: sessionID).dockContent == .workerChat
+        workerChatController.sync(
+            selectedSessionID: sessionID,
+            sessions: isChatDockOpen ? runtimeStore.snapshot.tracker.repos.flatMap(\.sessions) : [],
+            isVisible: isChatDockOpen
+        )
     }
 
     private func updateDockTabs() {
@@ -399,29 +396,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func selectedSessionChip() -> SelectedSessionChip? {
-        let sessions = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
-        return TerminalSessionChipResolver.chip(
-            currentTerminalSessionID: runtimeStore.currentTerminalSessionID,
-            sessions: sessions
-        )
-    }
-
-    /// The action bar's session-panel variant and worker strip both key off the selected
-    /// session's role — resolved once here from the same flat session list `selectedSessionChip`
-    /// reads, so both stay consistent with each other.
-    private func selectedSessionContext() -> (role: SessionRoleKind?, workers: [TrackerSession], highlightedWorkerID: String?) {
-        let sessions = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
-        guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
-              let selected = sessions.first(where: { $0.id == sessionID }) else {
-            return (nil, [], nil)
-        }
-        let resolution = ActionBarWorkerStripResolver.resolve(selectedSessionID: selected.id, sessions: sessions)
-        return (SessionRoleKind(role: selected.role), resolution.workers, resolution.highlightedWorkerID)
-    }
-
     /// Attaches the terminal to `sessionID` — the same path a tracker row click or a Cmd+1..9
-    /// menu selection uses (`selectTrackerSession`), reused here for a worker-pill click/Enter.
+    /// menu selection uses (`selectTrackerSession`).
     /// Activates by exact id, so it works whether or not `sessionID`'s master is collapsed in the
     /// tracker: `selectableSessions` hides a collapsed master's workers (right for Cmd+1..9's
     /// position-based lookup, which `selectTrackerSession` still uses to resolve the id first),
@@ -473,6 +449,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showDockContent(_ content: DockContent, focusDock: Bool) {
         guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID) else {
+            if content == .workerChat {
+                NSSound.beep()
+            }
             renderSnapshot()
             return
         }
@@ -515,6 +494,17 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         showDockContent(.questList, focusDock: true)
     }
 
+    @objc private func toggleWorkerChatDock() {
+        if navigation.dockVisible {
+            let desired = dockCoordinator.state(for: runtimeStore.currentTerminalSessionID)
+            if desired.dockContent == .workerChat {
+                hideDock()
+                return
+            }
+        }
+        showDockContent(.workerChat, focusDock: true)
+    }
+
     @objc private func toggleTracker() {
         focusCoordinator.applyNavigationOutcome(navigation.toggleTracker())
     }
@@ -531,10 +521,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         // (TrackerRootView.activate): .activate(openedID:) resolves the target session directly,
         // keeping continue-if-stopped / focus-if-current parity with a mouse click.
         attachSession(sessionID)
-    }
-
-    @objc private func selectWorkerStrip() {
-        shellHandles?.footerShell.focusWorkerStrip()
     }
 
     @objc private func deleteFocusedSession() {
@@ -676,7 +662,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewSession() {
-        presentNewSession(role: .standalone)
+        presentNewSession()
     }
 
     @objc private func openSettings() {
@@ -723,11 +709,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewMasterSession() {
-        presentNewSession(role: .master)
+        presentNewSession()
     }
 
     private func presentNewSession(
-        role: NewSessionRole,
         initialPath: String? = nil,
         initialTitle: String = "",
         initialPrompt: String = "",
@@ -738,7 +723,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         newSessionPresenter.present(
-            role: role,
             initialPath: initialPath ?? config.workingDirectory,
             initialTitle: initialTitle,
             initialPrompt: initialPrompt,
@@ -840,7 +824,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             let request = try ServeMutationRequests.startFromQuests(quests, title: nil, agent: NewSessionFormModel.defaultAgents[0])
             presentNewSession(
-                role: .standalone,
                 initialPath: request.data["cwd"],
                 initialPrompt: request.data["prompt"] ?? "",
                 initialFocus: .title
@@ -900,17 +883,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
 enum DockCommandRouting {
     static func shouldHideArtifactDock(isDockVisible: Bool, content: DockContent) -> Bool {
-        isDockVisible && content != .questList
+        isDockVisible && (content == .artifactList || content == .artifactViewer)
     }
 }
 
 enum DockContentRouting {
     static func canShow(_ content: DockContent, sessionID: String?) -> Bool {
+        let hasSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         switch content {
         case .questList:
             return true
-        case .artifactList, .artifactViewer:
-            return sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        case .artifactList, .artifactViewer, .workerChat:
+            return hasSession
         }
     }
 }

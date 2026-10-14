@@ -27,27 +27,23 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 		t.Errorf("stub should be omitted from the harness guide:\n%s", got)
 	}
 	// The shared role framing must still be present.
-	if !strings.Contains(got, "orchestrator") || !strings.Contains(got, "--primary <agent>") {
+	if !strings.Contains(got, "being a master does not mean every task needs a worker") || !strings.Contains(got, "Set --primary only when another harness is a clear fit") {
 		t.Errorf("master prompt lost its shared role framing")
 	}
-	for _, flag := range []string{"--model <id>", "--reasoning-effort <level>"} {
-		if !strings.Contains(got, flag) {
-			t.Errorf("master prompt missing %s escalation flag", flag)
-		}
-	}
-	for _, want := range []string{"OpenCode 1.17.15+", "direct interactive split-footer mode rather than the full TUI"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("master prompt missing OpenCode reasoning-effort guidance %q", want)
-		}
+	if strings.Contains(got, "promote") {
+		t.Errorf("master prompt still mentions promotion")
 	}
 }
 
 func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {
 	got := masterPromptWithGuide()
 	for _, want := range []string{
-		"Spawn plain Questmaster workers with questmaster spawn --cwd <worktree>",
-		"main/control checkout",
-		"worker manifest cwd is fixed at launch",
+		"Before spawning an implementation worker, create a dedicated worktree",
+		"questmaster spawn --cwd <worktree> <title>",
+		"Worker titles must be explicit and no longer than 16 Unicode characters (runes)",
+		"do not rely on the prompt to name the worker",
+		"base required by the repository (main when none is specified)",
+		"Worker manifest cwd is fixed at launch",
 		"Do not use sleep, polling, or watch loops to monitor workers",
 	} {
 		if !strings.Contains(got, want) {
@@ -56,27 +52,30 @@ func TestMasterPromptWorkersUseExplicitCWD(t *testing.T) {
 	}
 }
 
-func TestStandalonePromptKeepsWorkerSpawnExplicit(t *testing.T) {
-	if !strings.Contains(standalonePrompt, "questmaster spawn --cwd <worktree>") {
-		t.Fatalf("standalone prompt missing explicit worker spawn hint:\n%s", standalonePrompt)
+func TestMasterPromptUsesDirectWorkByDefault(t *testing.T) {
+	got := masterPromptWithGuide()
+	for _, want := range []string{
+		"Work directly by default on small, single-focus, quick tasks",
+		"Do not spawn a worker just to delegate a simple task",
+		"Delegate multi-step implementation",
+		"long-running work",
+		"when the user asks you to delegate",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("master prompt missing direct-work policy %q:\n%s", want, got)
+		}
 	}
 }
 
-func TestTopLevelPromptsDisambiguateSubagentsAndWorkers(t *testing.T) {
-	for name, got := range map[string]string{
-		"master":     masterPromptWithGuide(),
-		"standalone": standalonePrompt,
+func TestMasterPromptDisambiguatesSubagentsAndWorkers(t *testing.T) {
+	got := masterPromptWithGuide()
+	for _, want := range []string{
+		"Use sub-agents for explicit sub-agent requests",
+		"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
 	} {
-		t.Run(name, func(t *testing.T) {
-			for _, want := range []string{
-				"Use sub-agents for explicit sub-agent requests",
-				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
-			} {
-				if !strings.Contains(got, want) {
-					t.Fatalf("%s prompt missing delegation boundary %q:\n%s", name, want, got)
-				}
-			}
-		})
+		if !strings.Contains(got, want) {
+			t.Fatalf("master prompt missing delegation boundary %q:\n%s", want, got)
+		}
 	}
 }
 
@@ -93,8 +92,8 @@ func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
 }
 
 func TestSessionPromptsUseSendForMessaging(t *testing.T) {
-	if !strings.Contains(masterPromptWithGuide(), `questmaster send <worker-id> "message"`) ||
-		!strings.Contains(masterPromptWithGuide(), `questmaster send all "message"`) {
+	if !strings.Contains(masterPromptWithGuide(), `questmaster send <session-id> "message"`) ||
+		!strings.Contains(masterPromptWithGuide(), "masters use questmaster send all to broadcast") {
 		t.Fatal("master prompt must use send for direct and broadcast messages")
 	}
 	if !strings.Contains(workerPrompt, `questmaster send master "<result>"`) {
@@ -104,15 +103,15 @@ func TestSessionPromptsUseSendForMessaging(t *testing.T) {
 
 func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 	for name, got := range map[string]string{
-		"master":     masterPromptWithGuide(),
-		"standalone": standalonePrompt,
-		"worker":     workerPrompt,
+		"master": masterPromptWithGuide(),
+		"worker": workerPrompt,
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
 				"questmaster help",
 				"questmaster <command> --help",
-				"questmaster promote <session-id>",
+				"questmaster spawn --cwd <worktree> <title>",
+				"A worker title is required and may contain at most 16 Unicode characters (runes)",
 				"Use sub-agents for explicit sub-agent requests",
 				"Use Questmaster workers for Questmaster worker, session, or worktree-isolation requests",
 			} {
@@ -126,9 +125,8 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 
 func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 	for name, got := range map[string]string{
-		"master":     masterPromptWithGuide(),
-		"standalone": standalonePrompt,
-		"worker":     workerPrompt,
+		"master": masterPromptWithGuide(),
+		"worker": workerPrompt,
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
@@ -151,9 +149,8 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 
 func TestSessionPromptsDescribeQuestCommands(t *testing.T) {
 	for name, got := range map[string]string{
-		"master":     masterPromptWithGuide(),
-		"standalone": standalonePrompt,
-		"worker":     workerPrompt,
+		"master": masterPromptWithGuide(),
+		"worker": workerPrompt,
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{

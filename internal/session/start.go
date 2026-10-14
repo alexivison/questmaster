@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/repo"
@@ -17,13 +18,12 @@ import (
 // StartOpts configures a new session launch.
 //
 // Prompt is the initial user-turn message (Claude `-- <prompt>`, Codex
-// positional). SystemBrief is a rare standalone/worker system override that
-// is appended after the built-in standalone or worker system prompt.
+// positional). SystemBrief is a rare worker system override appended after
+// the built-in worker system prompt.
 type StartOpts struct {
 	Title    string
 	Cwd      string
 	Shell    bool
-	Master   bool
 	MasterID string // parent master session ID (for worker spawn)
 	// DisplayColor is the named display color persisted with session metadata.
 	DisplayColor string
@@ -46,10 +46,18 @@ type StartResult struct {
 	SessionID  string
 	RuntimeDir string
 	Cwd        string
+	Master     bool
 }
 
 // Start creates and launches a new questmaster session.
 func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error) {
+	role := roleMaster
+	if opts.MasterID != "" {
+		role = roleWorker
+	}
+	if opts.Shell {
+		role = ""
+	}
 	cwd := opts.Cwd
 	if cwd == "" {
 		var err error
@@ -65,18 +73,16 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	// blank" promise; otherwise it stays blank for the first-turn hook to
 	// fill in once the user's first message arrives.
 	titleLocked := strings.TrimSpace(opts.Title) != "" && !opts.Shell
-	if !titleLocked && opts.Prompt != "" {
+	if role != roleWorker && !titleLocked && opts.Prompt != "" {
 		opts.Title = TitleFromPrompt(opts.Prompt)
 	}
-
-	role := roleStandalone
-	if opts.Master {
-		role = roleMaster
-	} else if opts.MasterID != "" {
-		role = roleWorker
-	}
-	if opts.Shell && (opts.Master || opts.MasterID != "" || opts.Prompt != "" || opts.SystemBrief != "") {
+	if opts.Shell && (opts.MasterID != "" || opts.Prompt != "" || opts.SystemBrief != "") {
 		return StartResult{}, fmt.Errorf("start --shell: shell sessions cannot take a master/worker role or a prompt")
+	}
+	if role == roleWorker {
+		if err := validateWorkerTitle(opts.Title); err != nil {
+			return StartResult{}, err
+		}
 	}
 	agentRole := agentSessionRole(role)
 	agentPath := defaultAgentPath()
@@ -193,7 +199,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		AgentPath: agentPath,
 		Display:   s.startDisplayMetadata(opts),
 	}
-	if opts.Master {
+	if role == roleMaster {
 		m.SessionType = "master"
 	}
 	sessionID, err := s.claimSessionID(ctx, m)
@@ -271,7 +277,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		runtimeDir:  runtimeDir,
 		title:       opts.Title,
 		agentPath:   agentPath,
-		master:      opts.Master,
+		master:      role == roleMaster,
 		worker:      opts.MasterID != "",
 		shell:       opts.Shell,
 		agentCmds:   agentCmds,
@@ -281,7 +287,17 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		return StartResult{}, s.startRollbackError(ctx, sessionID, err)
 	}
 
-	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd}, nil
+	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd, Master: role == roleMaster}, nil
+}
+
+func validateWorkerTitle(title string) error {
+	if strings.TrimSpace(title) == "" {
+		return fmt.Errorf("worker title is required; provide an explicit title of at most 16 Unicode characters (runes)")
+	}
+	if count := utf8.RuneCountInString(title); count > 16 {
+		return fmt.Errorf("worker title must be at most 16 Unicode characters (runes); got %d", count)
+	}
+	return nil
 }
 
 func workerParentBrief(parentID, brief string) string {
@@ -513,7 +529,7 @@ fi
 rm -rf "/tmp/$W"
 # Manifests are NOT deleted on session close — the prune command handles
 # stale manifest cleanup with proper parent deregistration (7-day TTL).
-# Deleting here causes the picker to misclassify workers as standalone.
+# Keep the manifest so the tracker can derive this session's role from its parent.
 exit 0
 `, shellQuoteForScript(stateRoot), shellQuoteForScript(hookStateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID))
 

@@ -47,7 +47,7 @@ func (c *Codex) BuildCmd(opts CmdOpts) string {
 	if opts.ReasoningEffort != "" {
 		cmd += " -c " + config.ShellQuote("model_reasoning_effort="+strconv.Quote(opts.ReasoningEffort))
 	}
-	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.StandalonePrompt(), c.WorkerPrompt(), opts.SystemBrief)
+	systemPrompt := systemPromptForRole(opts.Role, c.MasterPrompt(), c.WorkerPrompt(), opts.SystemBrief)
 	if systemPrompt != "" {
 		cmd += " -c " + config.ShellQuote("developer_instructions="+strconv.Quote(systemPrompt))
 	}

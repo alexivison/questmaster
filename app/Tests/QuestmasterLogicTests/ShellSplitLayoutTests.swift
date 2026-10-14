@@ -15,6 +15,8 @@ struct ShellSplitLayoutTests {
         hiddenDockGivesTerminalRemainingWidth()
         hiddenTrackerKeepsTerminalAtWindowEdge()
         compactDockUsesCompactWidth()
+        workerChatDockUsesWorkerChatWidth()
+        workerChatDockKeepsTheMinimumTerminalWidth()
         dockResizeClampsFromDragDelta()
         zeroWidthDoesNotProduceLayout()
         footerReservationShortensOnlyTheTerminal()
@@ -83,6 +85,33 @@ struct ShellSplitLayoutTests {
         expect(layout.terminalFrame.width == 802, "compact terminal width mismatch")
     }
 
+    private static func workerChatDockUsesWorkerChatWidth() {
+        let layout = requireLayout(
+            size: ShellSplitSize(width: 1520, height: 900),
+            trackerVisible: true,
+            dockVisible: true,
+            preferredDockWidth: 900,
+            dockWidthMode: .workerChat
+        )
+
+        expect(layout.dockWidth == DockWidthPreference.workerChatWidth, "worker chat dock width mismatch")
+        expect(layout.dockFrame.width == DockWidthPreference.workerChatWidth, "worker chat dock frame width mismatch")
+        expect(layout.terminalFrame.width == 722, "worker chat terminal width mismatch")
+    }
+
+    private static func workerChatDockKeepsTheMinimumTerminalWidth() {
+        let layout = requireLayout(
+            size: ShellSplitSize(width: 1000, height: 900),
+            trackerVisible: true,
+            dockVisible: true,
+            preferredDockWidth: nil,
+            dockWidthMode: .workerChat
+        )
+
+        expect(layout.dockWidth < DockWidthPreference.workerChatWidth, "a narrow window should clamp the worker chat dock, got \(layout.dockWidth)")
+        expect(layout.terminalFrame.width == DockWidthPreference.minTerminalWidth, "a narrow window should keep the terminal at its minimum, got \(layout.terminalFrame.width)")
+    }
+
     private static func dockResizeClampsFromDragDelta() {
         let narrower = ShellSplitLayoutPlanner.resizedDockWidth(
             startWidth: 641,
@@ -126,7 +155,7 @@ struct ShellSplitLayoutTests {
             trackerMaxWidth: 300,
             trackerLeadingInset: 10,
             trackerTrailingGap: 0,
-            footerReservedHeight: 103
+            footerReservedHeight: 76
         )
         guard let layout = ShellSplitLayoutPlanner.layout(
             size: ShellSplitSize(width: 1520, height: 900),
@@ -141,9 +170,9 @@ struct ShellSplitLayoutTests {
         }
 
         // Tracker and dock both keep the full window height (y 8, height 884) — only the
-        // terminal's bottom edge stops above the 103pt footer reservation.
+        // terminal's bottom edge stops above the 76pt footer reservation.
         expect(layout.trackerFrame == ShellSplitRect(x: 10, y: 8, width: 300, height: 884), "tracker should keep the full window height, got \(layout.trackerFrame)")
-        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 103, width: 561, height: 797), "terminal should sit above the footer, got \(layout.terminalFrame)")
+        expect(layout.terminalFrame == ShellSplitRect(x: 310, y: 76, width: 561, height: 824), "terminal should sit above the footer, got \(layout.terminalFrame)")
         expect(layout.trackerFrame.maxY == layout.dockFrame.maxY, "tracker and dock should still share the same top edge, got \(layout.trackerFrame.maxY) vs \(layout.dockFrame.maxY)")
 
         // The dock and its divider ignore the reservation and keep the full 900pt height.

@@ -40,7 +40,7 @@ type SessionRow struct {
 	Cwd          string
 	PrimaryAgent string
 	Status       string // "active" or "stopped"
-	SessionType  string // "master", "worker", or "standalone"
+	SessionType  string // "master", "worker", or "shell"
 	ParentID     string
 	WorkerCount  int
 	DisplayColor string // effective (last-write-wins) gutter color
@@ -135,7 +135,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 
 // ManifestToSessionRow converts manifest data plus liveness into a tracker row.
 func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
-	sessionType := SessionTypeForManifest(m)
+	sessionType := m.SessionRole()
 	status := "stopped"
 	if alive {
 		status = "active"
@@ -152,18 +152,6 @@ func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 		WorkerCount:  len(m.Workers),
 		DisplayColor: m.DisplayColor(),
 	}
-}
-
-// SessionTypeForManifest normalizes persisted manifest metadata into the
-// tracker session-type vocabulary.
-func SessionTypeForManifest(m state.Manifest) string {
-	if m.SessionType == "master" {
-		return "master"
-	}
-	if m.ExtraString("parent_session") != "" {
-		return "worker"
-	}
-	return "standalone"
 }
 
 // StableSessionOrderKey returns the newest-first sort key used by tracker rows.
@@ -357,7 +345,7 @@ func buildCurrentSessionDetail(current SessionInfo, manifestByID map[string]stat
 			detail.Title = manifest.Title
 		}
 		if detail.SessionType == "" {
-			detail.SessionType = SessionTypeForManifest(manifest)
+			detail.SessionType = manifest.SessionRole()
 		}
 	}
 	return detail

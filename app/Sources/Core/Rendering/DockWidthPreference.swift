@@ -6,6 +6,8 @@ public enum DockWidthPreference {
     public static let defaultWindowFraction = 0.45
     public static let minWidth = 360.0
     public static let compactWidth = 400.0
+    /// The worker chat's width: the Chat Item artboard is 480pt wide.
+    public static let workerChatWidth = 480.0
     public static let resizeStep = 80.0
     public static let minTerminalWidth = 360.0
 

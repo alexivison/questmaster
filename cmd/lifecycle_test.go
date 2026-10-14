@@ -12,6 +12,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 // allPassRunner returns a mock that accepts any tmux command and reports
@@ -140,7 +141,7 @@ func TestStartCmd_JSONAndPromptFile(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("start output is not JSON: %v\n%s", err, out)
 	}
-	if got.SessionID == "" || got.RuntimeDir == "" || got.Cwd != cwd || got.Master || got.Title != "json-title" {
+	if got.SessionID == "" || got.RuntimeDir == "" || got.Cwd != cwd || !got.Master || got.Title != "json-title" {
 		t.Fatalf("start JSON mismatch: %#v", got)
 	}
 	m, err := store.Read(got.SessionID)
@@ -225,7 +226,6 @@ func TestStartCmd_RejectsShellConflicts(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string][]string{
-		"master":           {"start", "--shell", "--master"},
 		"worker":           {"start", "--shell", "--master-id", "qm-master"},
 		"prompt":           {"start", "--shell", "--prompt", "hello"},
 		"prompt-file":      {"start", "--shell", "--prompt-file", "-"},
@@ -246,38 +246,36 @@ func TestStartCmd_RejectsShellConflicts(t *testing.T) {
 }
 
 func TestStartCmd_ModelAndReasoningEffortReachPrimary(t *testing.T) {
-	for name, master := range map[string]bool{
-		"standalone": false,
-		"master":     true,
-	} {
-		t.Run(name, func(t *testing.T) {
-			store := setupStore(t)
-			cwd := t.TempDir()
-			writeAgentConfig(t, cwd)
-			prependStubQuestmasterToPath(t)
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	prependStubQuestmasterToPath(t)
 
-			var calls []string
-			runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
-				calls = append(calls, strings.Join(args, " "))
-				if len(args) > 0 && args[0] == "has-session" {
-					return "", &tmux.ExitError{Code: 1}
-				}
-				return "", nil
-			}}
-			args := []string{"start", "--cwd", cwd, "--primary", "codex"}
-			if master {
-				args = append(args, "--master")
-			}
-			args = append(args, "--model", "gpt-5.6-sol", "--reasoning-effort", "ultra")
-			runCmd(t, store, runner, args...)
+	var calls []string
+	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
+		calls = append(calls, strings.Join(args, " "))
+		if len(args) > 0 && args[0] == "has-session" {
+			return "", &tmux.ExitError{Code: 1}
+		}
+		return "", nil
+	}}
+	runCmd(t, store, runner, "start", "--cwd", cwd, "--primary", "codex", "--model", "gpt-5.6-sol", "--reasoning-effort", "ultra")
 
-			launch := strings.Join(calls, "\n")
-			for _, want := range []string{"--model 'gpt-5.6-sol'", `model_reasoning_effort="ultra"`} {
-				if !strings.Contains(launch, want) {
-					t.Fatalf("start launch missing %q in:\n%s", want, launch)
-				}
-			}
-		})
+	launch := strings.Join(calls, "\n")
+	for _, want := range []string{"--model 'gpt-5.6-sol'", `model_reasoning_effort="ultra"`} {
+		if !strings.Contains(launch, want) {
+			t.Fatalf("start launch missing %q in:\n%s", want, launch)
+		}
+	}
+}
+
+func TestStartCmdDoesNotExposeMasterFlag(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	for _, args := range [][]string{{"start", "--master"}, {"session", "new", "--master"}} {
+		if _, err := runCmdErr(t, store, allPassRunner(), args...); err == nil || !strings.Contains(err.Error(), "unknown flag") {
+			t.Fatalf("command %v master flag error = %v, want unknown flag", args, err)
+		}
 	}
 }
 
@@ -304,7 +302,7 @@ func TestStartCmd_MasterUsesPrimaryOnly(t *testing.T) {
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
 
-	runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--master", "--primary", "codex", "orchestrator")
+	runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--primary", "codex", "orchestrator")
 
 	m := readOnlyNewManifest(t, store)
 	if len(m.Agents) != 1 {
@@ -392,7 +390,7 @@ func TestContinueCmd_JSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("continue output is not JSON: %v\n%s", err, out)
 	}
-	if got.SessionID != "qm-alive" || !got.Reattach || got.Master {
+	if got.SessionID != "qm-alive" || !got.Reattach || !got.Master {
 		t.Fatalf("continue JSON mismatch: %#v", got)
 	}
 }
@@ -457,52 +455,6 @@ func TestDeleteCmd_NoArgs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// promote command tests
-// ---------------------------------------------------------------------------
-
-// TODO(cleanup): these cmd-level promote tests are thin wrappers around the
-// service tests and share a lot of fixture setup — fold them in or delete.
-
-func TestPromoteCmd_AlreadyMaster(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	createManifest(t, store, "qm-master", "orch", t.TempDir(), "master")
-
-	out := runCmd(t, store, hasSessionRunner("qm-master"), "promote", "qm-master")
-	var got struct {
-		SessionID   string `json:"session_id"`
-		SessionType string `json:"session_type"`
-		Promoted    bool   `json:"promoted"`
-	}
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatalf("promote output is not JSON: %v\n%s", err, out)
-	}
-	if got.SessionID != "qm-master" || got.SessionType != "master" || !got.Promoted {
-		t.Fatalf("promote JSON mismatch: %#v", got)
-	}
-}
-
-func TestPromoteCmd_JSON(t *testing.T) {
-	t.Parallel()
-	store := setupStore(t)
-	createManifest(t, store, "qm-regular", "regular", t.TempDir(), "master")
-
-	out := runCmd(t, store, hasSessionRunner("qm-regular"), "promote", "qm-regular")
-
-	var got struct {
-		SessionID   string `json:"session_id"`
-		SessionType string `json:"session_type"`
-		Promoted    bool   `json:"promoted"`
-	}
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatalf("promote output is not JSON: %v\n%s", err, out)
-	}
-	if got.SessionID != "qm-regular" || got.SessionType != "master" || !got.Promoted {
-		t.Fatalf("promote JSON mismatch: %#v", got)
-	}
-}
-
 func TestResizeCmd_Removed(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
@@ -538,6 +490,26 @@ func TestSpawnCmd_Basic(t *testing.T) {
 	}
 	if got.SessionID == "" || got.MasterID != "qm-master" || got.Title != "worker-title" {
 		t.Fatalf("spawn JSON mismatch: %#v", got)
+	}
+}
+
+func TestSpawnCmd_RejectsWorkerTitleOverRuneLimit(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "orch", t.TempDir(), "master")
+	_, err := runCmdErr(t, store, allPassRunner(), "spawn", "qm-master", strings.Repeat("界", 17))
+	if err == nil || !strings.Contains(err.Error(), "worker title") {
+		t.Fatalf("spawn error = %v, want worker title validation", err)
+	}
+}
+
+func TestSpawnCmd_RequiresWorkerTitle(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	createManifest(t, store, "qm-master", "orch", t.TempDir(), "master")
+	_, err := runCmdErr(t, store, allPassRunner(), "spawn", "qm-master", "")
+	if err == nil || !strings.Contains(err.Error(), "worker title is required") {
+		t.Fatalf("spawn error = %v, want explicit worker title validation", err)
 	}
 }
 
@@ -580,11 +552,21 @@ func TestSpawnCmd_PromptSetsInitialPrompt(t *testing.T) {
 	createManifest(t, store, "qm-master", "orch", cwd, "master")
 
 	task := "inspect the worker startup flow"
-	runCmd(t, store, allPassRunner(), "spawn", "--prompt", task, "qm-master", "worker-title")
+	out := runCmd(t, store, allPassRunner(), "spawn", "--prompt", task, "qm-master", "worker-title")
 
 	m := readOnlyNewManifest(t, store, "qm-master")
 	if got := m.ExtraString("initial_prompt"); got != task {
 		t.Fatalf("initial_prompt = %q, want %q", got, task)
+	}
+	var spawned struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(out), &spawned); err != nil {
+		t.Fatalf("decode spawn result: %v", err)
+	}
+	page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)
+	if err != nil || len(page.Entries) != 1 || page.Entries[0].WorkerID != spawned.SessionID || page.Entries[0].Kind != "instructions" || page.Entries[0].Text != task {
+		t.Fatalf("spawn worker chat entries = %#v, %v", page.Entries, err)
 	}
 }
 

@@ -56,8 +56,19 @@ enum AppPalette {
     static let trackerBlocked = NSColor(hex: 0xe5534b)
     static let trackerDone = NSColor(hex: 0x57ab5a)
     static let trackerIdle = NSColor(hex: 0x6f757c)
-    static let trackerNeedsInput = NSColor(hex: 0xe8b34a)
+    static let trackerNeedsInput = NSColor(hex: 0x58a6ff)
     static let trackerError = NSColor(hex: 0xe8743b)
+    /// Chat item tags by RPG rarity. No existing token is close to rare. Epic is the magenta display
+    /// colour, kept as its own token so renaming a display colour leaves chat tags alone.
+    static let rarityRare = NSColor(hex: 0x006caa)
+    static let rarityEpic = NSColor(hex: 0xc578dd)
+    /// Worker free text in the chat feed (say and message lines): a pale khaki. The nearest existing token
+    /// (`text`) is about 43 RGB units away, so it gets its own token.
+    static let chatSpeech = NSColor(hex: 0xd9dbb8)
+    /// The chat design's Working tag amber. It was borrowed from `trackerNeedsInput` until that became blue.
+    static let chatWorking = NSColor(hex: 0xe8b34a)
+    /// The black the tracker plates and the selected-session panel shade with, always at a partial opacity.
+    static let shadow = NSColor.black
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
         NSColor(hex: 0xd29922),
@@ -165,66 +176,70 @@ enum AppPalette {
 }
 
 enum AppFonts {
-    // The monospaced fonts (snippets, timers, pill counts, filter fields, session chips, dock rows and the
-    // new-session sheet) follow the user's Ghostty font-family at Questmaster's own sizes and weights,
-    // falling back to the system mono when Ghostty sets none or the family is not installed.
-    static let mono = monospaced(size: 12.5, weight: .regular)
-    static let monoSmall = monospaced(size: 11, weight: .regular)
+    // Every UI font is monospaced and follows the user's Ghostty font-family at Questmaster's own size, weight
+    // and style. A family that lacks the requested weight or italic falls back to the system monospaced font
+    // at that weight and style, so a missing face never renders as the wrong one. Serif and proportional system
+    // fonts are not used for UI text.
+    static let mono = monospaced(size: 12.5)
+    static let monoSmall = monospaced(size: 11)
     static let monoBold = monospaced(size: 12.5, weight: .semibold)
 
-    private static func monospaced(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        GhosttyFontFamily.font(size: size, weight: weight) ?? .monospacedSystemFont(ofSize: size, weight: weight)
+    static func monospaced(size: CGFloat, weight: NSFont.Weight = .regular, italic: Bool = false) -> NSFont {
+        font(family: GhosttyFontFamily.resolved, size: size, weight: weight, italic: italic)
     }
 
-    static let terminal = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-    static let body = NSFont.systemFont(ofSize: 13)
-    static let bodyBold = NSFont.systemFont(ofSize: 13, weight: .semibold)
-    /// Sheet/modal titles. Serif system design ("New York") with a graceful fallback
-    /// to the plain system font if the design trait can't be resolved.
-    static let title = NSFont.systemFont(ofSize: 15.5, weight: .semibold).serif
+    /// `family`'s face at this size, weight and style, or the system monospaced font when the family has none.
+    static func font(family: String?, size: CGFloat, weight: NSFont.Weight, italic: Bool) -> NSFont {
+        if let family, let font = GhosttyFontFamily.face(family: family, size: size, weight: weight, italic: italic) {
+            return font
+        }
+        return systemMonospaced(size: size, weight: weight, italic: italic)
+    }
+
+    private static func systemMonospaced(size: CGFloat, weight: NSFont.Weight, italic: Bool) -> NSFont {
+        let upright = NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        guard italic, let font = NSFont(descriptor: upright.fontDescriptor.withSymbolicTraits(.italic), size: size) else {
+            return upright
+        }
+        return font
+    }
+
+    static let body = monospaced(size: 13)
+    static let bodyBold = monospaced(size: 13, weight: .semibold)
+    /// Sheet/modal titles.
+    static let title = monospaced(size: 15.5, weight: .semibold)
     /// Small caps-style modal field labels (e.g. "Path", "Agent").
-    static let modalLabel = NSFont.systemFont(ofSize: 10, weight: .semibold).serif
+    static let modalLabel = monospaced(size: 10, weight: .semibold)
     /// Italic flavor/helper text next to modal fields.
-    static let modalHelper = NSFont.systemFont(ofSize: 11.5).serif
+    static let modalHelper = monospaced(size: 11.5, italic: true)
     /// The Model row's effort sub-text — a touch larger than modalHelper
     /// since it stands alone on its own line rather than trailing a control.
-    static let modalHelperLarge = NSFont.systemFont(ofSize: 13).serif
+    static let modalHelperLarge = monospaced(size: 13, italic: true)
     /// Card-style list row titles (Tracker sessions, quests, artifacts).
-    static let itemTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
-    /// Artifact rows alone use display typography; tracker titles keep `itemTitle`.
-    static let artifactTitle = NSFont.systemFont(ofSize: 12.5, weight: .semibold).serif
-    static let dockTabTitle = NSFont.systemFont(ofSize: 12, weight: .semibold).serif
-    static let dockTopBarTitle = NSFont.systemFont(ofSize: 11.5, weight: .semibold).serif
-    static let modalButtonLabel = NSFont.systemFont(ofSize: 12.5, weight: .semibold).serif
+    static let itemTitle = monospaced(size: 12.5, weight: .semibold)
+    /// Artifact row titles; tracker titles keep `itemTitle`.
+    static let artifactTitle = monospaced(size: 12.5, weight: .semibold)
+    static let dockTabTitle = monospaced(size: 12, weight: .semibold)
+    static let dockTopBarTitle = monospaced(size: 11.5, weight: .semibold)
+    static let modalButtonLabel = monospaced(size: 12.5, weight: .semibold)
     /// Sectioned-list group titles (e.g. the repo name above a Tracker group).
-    static let sectionTitle = NSFont.systemFont(ofSize: 11, weight: .semibold).serif
-    /// The Settings sheet's per-role group titles (Master/Standalone/Worker) —
+    static let sectionTitle = monospaced(size: 11, weight: .semibold)
+    /// The Settings sheet's per-role group titles (Master/Worker) —
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
-    static let settingsSectionTitle = NSFont.systemFont(ofSize: 14.5, weight: .semibold)
+    static let settingsSectionTitle = monospaced(size: 14.5, weight: .semibold)
 
-    /// Tracker row titles at 12pt (the shared 12.5pt `itemTitle` lands its caps on half rows): the Ghostty font.
-    static let trackerTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
-        ?? .systemFont(ofSize: 12, weight: .semibold)
-    /// Tracker section titles: the Ghostty font, else the serif of `sectionTitle`.
-    static let trackerSectionTitle = GhosttyFontFamily.font(size: 12, weight: .semibold)
-        ?? NSFont.systemFont(ofSize: 12, weight: .semibold).serif
-}
+    /// Worker chat lines at the design's 12pt.
+    static let chat = monospaced(size: 12)
+    static let chatName = monospaced(size: 12, weight: .bold)
 
-extension NSFont {
-    /// This font at the same size/weight but the serif system design ("New York"),
-    /// falling back to the plain font if the design trait can't be resolved.
-    var serif: NSFont {
-        guard let descriptor = fontDescriptor.withDesign(.serif) else {
-            return self
-        }
-        return NSFont(descriptor: descriptor, size: pointSize) ?? self
-    }
-
-    /// This font with the italic trait added.
-    var italic: NSFont {
-        let descriptor = fontDescriptor.withSymbolicTraits(.italic)
-        return NSFont(descriptor: descriptor, size: pointSize) ?? self
-    }
+    /// Tracker plate titles at 12pt regular. The size is main's; the weight stays regular on the plates.
+    static let trackerTitle = monospaced(size: 12)
+    /// Plate snippets at 11pt italic, as main set them.
+    static let trackerSummary = monospaced(size: 11, italic: true)
+    /// The elapsed time on the plates, italic like the snippets.
+    static let trackerTime = trackerSummary
+    /// Tracker section titles.
+    static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 }
 
 extension NSColor {

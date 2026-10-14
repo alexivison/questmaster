@@ -10,11 +10,13 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -93,7 +95,11 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	if strings.HasPrefix(prefix, "[MASTER:") {
 		pointer = relayPointer
 	}
-	return s.deliver(ctx, targetID, target, prefix+message, pointer, prefix)
+	if err := s.deliver(ctx, targetID, target, prefix+message, pointer, prefix); err != nil {
+		return err
+	}
+	s.recordInstructions(senderID, targetID, sender, recipient, message)
+	return nil
 }
 
 func (s *Service) deliver(ctx context.Context, sessionID, target, message string, pointer func(string) string, pointerPrefix string) error {
@@ -220,6 +226,7 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 			errs = append(errs, fmt.Errorf("send to %q: %w", wid, err))
 			continue
 		}
+		s.recordInstructions(senderID, wid, sender, recipient, message)
 		result.Delivered++
 	}
 	return result, errors.Join(errs...)
@@ -300,11 +307,22 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 
 	prefix := senderPrefix(sessionID)
 	pointer := peerPointer
-	if m.SessionType != "master" {
+	if m.AgentSessionType() != "master" {
 		prefix = "[WORKER:" + sessionID + "] "
 		pointer = reportPointer
 	}
-	return s.deliver(ctx, parent, target, prefix+message, pointer, prefix)
+	if err := s.deliver(ctx, parent, target, prefix+message, pointer, prefix); err != nil {
+		return err
+	}
+	_ = workerfeed.RecordChatEntryAt(s.store.Root(), sessionID, "report", message, time.Now().UTC())
+	return nil
+}
+
+func (s *Service) recordInstructions(senderID, workerID string, sender, recipient state.Manifest, text string) {
+	if sender.AgentSessionType() != "master" || recipient.AgentSessionType() != "worker" || recipient.ExtraString("parent_session") != senderID {
+		return
+	}
+	_ = workerfeed.RecordChatEntryAt(s.store.Root(), workerID, "instructions", text, time.Now().UTC())
 }
 
 // Workers returns status information for all workers of a master session.
@@ -401,7 +419,7 @@ func senderPrefix(senderID string) string {
 }
 
 func recipientPrefix(senderID string, sender, recipient state.Manifest) string {
-	if sender.SessionType == "master" && recipient.SessionType != "master" && recipient.ExtraString("parent_session") == senderID {
+	if sender.AgentSessionType() == "master" && recipient.AgentSessionType() == "worker" && recipient.ExtraString("parent_session") == senderID {
 		return "[MASTER:" + senderID + "] "
 	}
 	return senderPrefix(senderID)

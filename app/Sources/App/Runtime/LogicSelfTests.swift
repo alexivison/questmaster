@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import Foundation
 import QuestmasterCore
+import SwiftUI
 
 @MainActor
 enum LogicSelfTests {
@@ -25,13 +26,30 @@ enum LogicSelfTests {
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
-        ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
+        ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
+        ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
+        ("testTrackerBandPrecedence", testTrackerBandPrecedence),
+        ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
+        ("testPlateAndCircleStatusDrawsOnlyForActiveStatuses", testPlateAndCircleStatusDrawsOnlyForActiveStatuses),
+        ("testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld", testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld),
+        ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
+        ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
+        ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
+        ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
+        ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
+        ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
+        ("testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed", testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
         ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
+        ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
+        ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
+        ("testQuestListGChordJumpsToEdgesAndForcesRescroll", testQuestListGChordJumpsToEdgesAndForcesRescroll),
+        ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
+        ("testListGChordPendingGResetsOnGAndOnInterveningKey", testListGChordPendingGResetsOnGAndOnInterveningKey),
         ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
         ("testArtifactDockCopiesMultipleSelectedArtifactPathsWithY", testArtifactDockCopiesMultipleSelectedArtifactPathsWithY),
@@ -58,6 +76,31 @@ enum LogicSelfTests {
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
         ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
+        ("testActionBarSlotsCentreInsideFooter", testActionBarSlotsCentreInsideFooter),
+        ("testActionBarHitTestUsesSuperviewCoordinates", testActionBarHitTestUsesSuperviewCoordinates),
+        ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
+        ("testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide", testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide),
+        ("testWorkerChatFollowerDoesNotGlideOnTrimOrResize", testWorkerChatFollowerDoesNotGlideOnTrimOrResize),
+        ("testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide", testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide),
+        ("testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed", testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed),
+        ("testWorkerChatArrivalFadesItsRowsIn", testWorkerChatArrivalFadesItsRowsIn),
+        ("testWorkerChatArrivalDuringAFadeKeepsTheEarlierBand", testWorkerChatArrivalDuringAFadeKeepsTheEarlierBand),
+        ("testWorkerChatBurstFadesEveryNewRowInOneBand", testWorkerChatBurstFadesEveryNewRowInOneBand),
+        ("testWorkerChatFadesEndIntoTheBaseAndLeaveNoMask", testWorkerChatFadesEndIntoTheBaseAndLeaveNoMask),
+        ("testWorkerChatFadeNeedsFollowingAndAnAppend", testWorkerChatFadeNeedsFollowingAndAnAppend),
+        ("testWorkerChatTrimAndResizeEndARunningFade", testWorkerChatTrimAndResizeEndARunningFade),
+        ("testWorkerChatLiveScrollCancelsGlide", testWorkerChatLiveScrollCancelsGlide),
+        ("testWorkerChatTrimWithWrappedRowsSkipsGlide", testWorkerChatTrimWithWrappedRowsSkipsGlide),
+        ("testWorkerChatHostedArrivalGlidesAndFades", testWorkerChatHostedArrivalGlidesAndFades),
+        ("testWorkerChatShortFeedArrivalFadesAndLifts", testWorkerChatShortFeedArrivalFadesAndLifts),
+        ("testWorkerChatRowsGrowingBeforeTheDocumentKeepTheMaskOverTheirFade", testWorkerChatRowsGrowingBeforeTheDocumentKeepTheMaskOverTheirFade),
+        ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
+        ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
+        ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
+        ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
+        ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
+        ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
+        ("testMarkdownFamilyNeedsEveryFaceItsThemesUse", testMarkdownFamilyNeedsEveryFaceItsThemesUse),
     ]
 
     static func runIfRequested() -> Bool {
@@ -159,17 +202,453 @@ enum LogicSelfTests {
         try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
     }
 
-    private static func testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount() throws {
-        func pills(_ workers: [(agent: String, state: String)]) throws -> [TrackerWorkerSummary.Pill] {
+    private static func testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        let geometry = TrackerPlateDesign.collapsedCircleStatus
+        for status in [TrackerStatusKind.working, .blocked, .needsInput, .error] {
+            try expect(status.drawsGlow, "\(status) should light the portrait's status")
+        }
+        for status in [TrackerStatusKind.idle, .done, .stopped] {
+            try expect(!status.drawsGlow, "\(status) should light nothing")
+        }
+
+        let status = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        window.contentView = status
+        status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
+        let breaths = status.breathAnimations
+        try expect(breaths.count == 2, "the ring and the glow should each breathe in a window, got \(breaths.count)")
+        for breath in breaths {
+            let low = (breath.fromValue as? Float) ?? -1
+            try expect(low == TrackerPortraitStatusNSView.breathLowFraction && low == 0.4, "the breath should dip to 0.4 of the peak, got \(low)")
+            try expect((breath.toValue as? Float) == 1, "the breath should rise to the peak")
+            try expect(breath.duration == TrackerPortraitStatusNSView.breathCycle / 2 && breath.autoreverses, "the breath should take 2s up and down")
+        }
+        try expect(Set(breaths.map(\.beginTime)).count == 1, "the ring and the glow should breathe from one origin")
+        try expect(status.restingOpacities == [1, 1], "the layers should rest at their peaks")
+
+        status.configure(geometry: geometry, color: AppPalette.accent, breathes: false)
+        try expect(status.breathAnimations.isEmpty && status.restingOpacities == [1, 1], "a held status should sit at its peak, with no animation")
+        status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
+        try expect(status.breathAnimations.count == 2, "a status allowed to move again should breathe")
+
+        let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        outside.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
+        try expect(outside.breathAnimations.isEmpty, "a status outside a window should not breathe")
+    }
+
+    private static func testTrackerBandPrecedence() throws {
+        func band(recoloring: Bool = false, selected: Bool = false, hovered: Bool = false) -> NSColor? {
+            TrackerPlateBand.color(isRecoloring: recoloring, selected: selected, hovered: hovered)
+        }
+        try expect(band(selected: true) == AppPalette.bright, "a selected row should show the bright band")
+        try expect(band(selected: true, hovered: true) == AppPalette.bright, "selection should beat hover")
+        try expect(band(hovered: true) == AppPalette.dim, "a hovered row should show the dim band")
+        try expect(band(recoloring: true, selected: true) == AppPalette.dim, "the row being recoloured should show the dim band, over selection")
+        try expect(band() == nil, "an unselected, unhovered row should show no band")
+        try expect(TrackerGlowNSView.bandOpacity == 0.6, "the band should hold 0.6")
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        let held = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        window.contentView = held
+        held.configure(path: CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil), color: AppPalette.bright)
+        try expect(held.layer?.animationKeys()?.isEmpty != false, "a band should have no animation")
+        try expect(held.layer?.opacity == TrackerGlowNSView.bandOpacity, "a band should hold its opacity")
+    }
+
+    /// The disc filters: erode 4 on the master's 3-stroke disc, 3 on the worker's 2-stroke one and 2.5 on the circle's
+    /// 1.5-stroke one (the stroke and a point); dilate 1, blur 2.5, opacity 0.15.
+    private static func testPortraitStatusFollowsTheFilterValues() throws {
+        func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String, tolerance: CGFloat = 0.01) throws {
+            try expect(abs(value - expected) < tolerance, "\(name) should be \(expected), got \(value)")
+        }
+        let master = TrackerPlateDesign.topLevel.statusGeometry
+        let worker = TrackerPlateDesign.worker.statusGeometry
+        let circle = TrackerPlateDesign.collapsedCircleStatus
+        for (name, geometry, erode, outer) in [("master", master, 4, 25), ("worker", worker, 3, 20), ("circle", circle, 2.5, 12.5)] as [(String, TrackerPortraitStatusGeometry, CGFloat, CGFloat)] {
+            try expectClose(geometry.outerRadius, outer, "\(name) disc outer radius")
+            try expectClose(geometry.outerRadius - geometry.ringInnerRadius, erode, "\(name) erode")
+            // The ring shows one point inside the stroke's inner edge, and runs under the stroke.
+            try expectClose(geometry.pathRadius - geometry.stroke / 2 - geometry.ringInnerRadius, 1, "\(name) visible ring width")
+            try expectClose(geometry.ringLineWidth, geometry.pathRadius - geometry.ringInnerRadius, "\(name) ring stroke width")
+            try expectClose(geometry.glowOpacity(at: outer - 0.01), 0, "\(name) glow inside the disc")
+            let edge = geometry.glowOpacity(at: outer)
+            try expect(edge > 0.09 && edge < 0.11, "\(name) glow at the disc's edge should be about 0.098, got \(edge)")
+            try expect(geometry.glowOpacity(at: outer + 1) < edge && geometry.glowOpacity(at: outer + 1) > 0.15 * 0.45, "\(name) glow should fall to half the peak by the dilated edge")
+            try expect(geometry.glowOpacity(at: geometry.reach) < 0.001, "\(name) glow should fade out within its reach, got \(geometry.glowOpacity(at: geometry.reach))")
+            try expect(geometry.glowOpacity(at: 0) == 0 && geometry.glowOpacity(at: 3 * outer) < 0.0001, "\(name) glow should be nothing in the disc and far away")
+            let stops = geometry.glowStops
+            try expect(stops.first?.location == 0 && stops.last?.location == 1, "\(name) stops should span the layer")
+            try expect(zip(stops, stops.dropFirst()).allSatisfy { $0.location <= $1.location }, "\(name) stops should not run backwards")
+            try expect(zip(stops.dropFirst(2), stops.dropFirst(3)).allSatisfy { $0.opacity >= $1.opacity }, "\(name) glow should only fall outward")
+            try expect(stops[1].opacity == 0 && stops[2].opacity == edge && stops[1].location == stops[2].location, "\(name) glow should step in at the disc's edge")
+            let frame = geometry.frame
+            try expect(frame.minX == frame.minX.rounded() && frame.minY == frame.minY.rounded() && frame.width == frame.width.rounded() && frame.height == frame.height.rounded(), "\(name) layer should sit on whole points, got \(frame)")
+            try expect(frame.minX <= geometry.center.x - geometry.reach && frame.maxX >= geometry.center.x + geometry.reach && frame.minY <= geometry.center.y - geometry.reach && frame.maxY >= geometry.center.y + geometry.reach, "\(name) layer should hold the glow's whole reach")
+            try expectClose(geometry.layerCenter.x + frame.minX, geometry.center.x, "\(name) disc centre x in the layer")
+            try expectClose(geometry.layerCenter.y + frame.minY, geometry.center.y, "\(name) disc centre y in the layer")
+        }
+        // Whatever the disc's centre, even on a half or a quarter point, the layer's frame stays on whole points.
+        for center in [CGPoint(x: 12.5, y: 12.5), CGPoint(x: 100.25, y: 7.75), CGPoint(x: 30, y: 40.5)] {
+            let geometry = TrackerPortraitStatusGeometry(center: center, pathRadius: 11.75, stroke: 1.5)
+            let frame = geometry.frame
+            try expect([frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0 == $0.rounded() }, "a layer for a disc at \(center) should sit on whole points, got \(frame)")
+        }
+        try expect(TrackerPortraitStatusGeometry.glowPeakOpacity == 0.15 && TrackerPortraitStatusGeometry.glowSigma == 2.5 && TrackerPortraitStatusGeometry.glowSpread == 1, "the glow should be the filter's")
+
+        // The layers sit on the discs: the master's centre is the canvas', the worker's the list's worker indent.
+        try expectClose(master.center.x, 27, "master status centre x")
+        try expectClose(master.center.y, 27, "master status centre y")
+        try expectClose(worker.center.x, 20 + TrackerPlateDesign.workerShift, "worker status centre x")
+        try expectClose(worker.center.y, 20, "worker status centre y")
+        try expectClose(circle.center.x, 12.5, "circle status centre")
+        try expectClose(TrackerPlateDesign.collapsedCircleStroke, 1.5, "circle stroke")
+    }
+
+    /// Hosted views: a plate's status view exists exactly while its status is active (selection does not hide it), is
+    /// configured not to breathe under hover, and a collapsed row has one for each active worker only. Each view is
+    /// hosted beside a control status; the control and every status view being configured proves the same update pass
+    /// mounted the subject too, so a missing status view is a real absence and not a slow host. Nothing here reads the
+    /// window or an animation, which depend on the host's display and its reduce-motion setting; the breath's lifecycle
+    /// is tested on the view itself, and its decision as a pure function.
+    private static func testPlateAndCircleStatusDrawsOnlyForActiveStatuses() throws {
+        let controlGeometry = TrackerPortraitStatusGeometry(center: .zero, pathRadius: 40, stroke: 1)
+        func statusViews(in view: NSView) -> [TrackerPortraitStatusNSView] {
+            view.subviews.flatMap { subview in
+                (subview as? TrackerPortraitStatusNSView).map { [$0] } ?? statusViews(in: subview)
+            }
+        }
+        /// The status views the subject draws, and the control's.
+        func host<V: View>(_ subject: V, _ description: String) throws -> (subject: [TrackerPortraitStatusNSView], control: TrackerPortraitStatusNSView) {
+            let hosting = NSHostingView(rootView: VStack {
+                subject
+                TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent)
+            })
+            hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 320, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            defer { window.close() }
+            func control() -> TrackerPortraitStatusNSView? {
+                statusViews(in: hosting).first { $0.geometry == controlGeometry }
+            }
+            func unconfigured() -> Int {
+                statusViews(in: hosting).filter { $0.geometry == nil }.count
+            }
+            let deadline = Date().addingTimeInterval(10)
+            while (control() == nil || unconfigured() > 0), Date() < deadline {
+                hosting.layoutSubtreeIfNeeded()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            }
+            guard let control = control() else {
+                throw TestFailure("\(description): the control status view never mounted (hosting subviews: \(hosting.subviews.count), status views: \(statusViews(in: hosting).count))")
+            }
+            try expect(unconfigured() == 0, "\(description): \(unconfigured()) status views never configured")
+            return (statusViews(in: hosting).filter { $0 !== control }, control)
+        }
+        func plate(status: NSColor?, selected: Bool = false, hovered: Bool = false) -> some View {
+            TrackerNameplateBackground(
+                role: .master, color: AppPalette.accent, selected: selected, hovered: hovered, isRecoloring: false,
+                isWorking: false, statusColor: status, text: EmptyView()
+            )
+        }
+        let working = AppPalette.trackerWorking
+        try expect(try host(plate(status: nil), "an idle plate").subject.isEmpty, "a plate with no active status should draw no status")
+        let resting = try host(plate(status: working), "a working plate")
+        try expect(resting.subject.count == 1, "a working plate should draw one status, got \(resting.subject.count)")
+        try expect(resting.subject[0].isAllowedToBreathe == resting.control.isAllowedToBreathe, "a working plate should breathe whenever motion is allowed")
+        try expect(try host(plate(status: working, selected: true), "a selected working plate").subject.count == 1, "selection should not hide the status")
+        let hovered = try host(plate(status: working, hovered: true), "a hovered working plate")
+        try expect(hovered.subject.count == 1 && !hovered.subject[0].isAllowedToBreathe, "a hovered plate's status should be configured to hold at its peak")
+
+        func worker(_ id: String, state: String) -> TrackerRenderedSession {
+            let session = TrackerSession(id: id, title: id, repoName: "Preview", agent: "claude", role: "worker", state: state)
+            return TrackerRenderedSession(session: session, status: TrackerRenderer.status(for: session), groupColor: AppPalette.accent, recolorEditHint: nil)
+        }
+        let states = ["working", "idle", "blocked", "done", "needs-input", "stopped", "error"]
+        let row = TrackerWorkerSummaryRow(workers: states.enumerated().map { worker("w\($0.offset)", state: $0.element) })
+        let circles = try host(row, "a collapsed row").subject
+        try expect(circles.count == 4, "a collapsed row should draw a status for each active worker only, got \(circles.count)")
+    }
+
+    private static func testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld() throws {
+        for reduceMotion in [false, true] {
+            for holdsPeak in [false, true] {
+                try expect(
+                    TrackerPortraitStatus.breathes(reduceMotion: reduceMotion, holdsPeak: holdsPeak) == (!reduceMotion && !holdsPeak),
+                    "a status should breathe only with motion allowed and no hold (reduce motion \(reduceMotion), hold \(holdsPeak))"
+                )
+            }
+        }
+    }
+
+    private static func testTrackerPlatesKeepTheDesignsProportions() throws {
+        func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String) throws {
+            try expect(abs(value - expected) < 0.01, "\(name) should be \(expected), got \(value)")
+        }
+        func expectRect(_ path: Path, _ x0: CGFloat, _ y0: CGFloat, _ x1: CGFloat, _ y1: CGFloat, _ name: String) throws {
+            let box = path.boundingRect
+            let matches = abs(box.minX - x0) < 0.01 && abs(box.minY - y0) < 0.01 && abs(box.maxX - x1) < 0.01 && abs(box.maxY - y1) < 0.01
+            try expect(matches, "\(name) should span x \(x0)..\(x1), y \(y0)..\(y1), got \(box)")
+        }
+        let shift = TrackerPlateDesign.workerShift
+
+        // Sizes, from the SVGs: the master's canvas starts 2 above its 50 tall row, which is as wide as the plate.
+        try expectClose(TrackerPlateDesign.topLevel.size.width, 278, "master canvas width")
+        try expectClose(TrackerPlateDesign.topLevel.size.height, 55, "master canvas height")
+        try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
+        try expectClose(TrackerPlateDesign.topLevelSize.width, 277, "master row width")
+        try expectClose(TrackerPlateDesign.topLevelArtInset, 2, "master canvas start above its row")
+        try expectClose(TrackerPlateDesign.worker.size.width, 230 + shift, "worker canvas width")
+        try expectClose(TrackerPlateDesign.worker.size.height, 40, "worker canvas height")
+
+        // The paths are the SVGs', moved onto whole points, and each stroke is the SVG's, centred on its path.
+        let master = TrackerPlateDesign.topLevel
+        try expectRect(master.titleStrip, 27.75, 7, 271.25, 21.5, "master title strip")
+        try expectRect(master.frame, 27.75, 21.5, 276.25, 47, "master frame")
+        try expectRect(master.summary, 30, 22.25, 277, 34.25, "master snippet strip")
+        try expectRect(master.summaryClip, 28.5, 22.25, 275.5, 34.25, "master snippet strip's clip")
+        try expectRect(master.bar ?? Path(), 30, 36.25, 277, 46.25, "master project bar")
+        try expectRect(master.disc, 3.5, 3.5, 50.5, 50.5, "master disc")
+        try expectClose(TrackerPlateArtwork.borderStroke, 1.5, "plate border stroke")
+        try expectClose(master.discStroke, 3, "master disc stroke")
+        let worker = TrackerPlateDesign.worker
+        try expectRect(worker.titleStrip, 20.75 + shift, 6, 224.25 + shift, 20.5, "worker title strip")
+        try expectRect(worker.frame, 20.75 + shift, 20.5, 229.25 + shift, 34, "worker frame")
+        try expectRect(worker.summary, 21.5 + shift, 21.25, 228.5 + shift, 33.25, "worker snippet strip")
+        try expectRect(worker.disc, 1 + shift, 1, 39 + shift, 39, "worker disc")
+        try expectClose(worker.discStroke, 2, "worker disc stroke")
+        try expect(worker.bar == nil && worker.ornaments.isEmpty, "the worker has no project bar or ornaments")
+
+        // The ornaments reach 2.17 past the disc: the crown pieces above and below, the diamonds on its sides.
+        let ornamentBox = master.ornaments.reduce(CGRect.null) { $0.union($1.path.boundingRect) }
+        try expectRect(Path(ornamentBox), -0.1739, -0.1739, 54.1738, 54.1739, "master ornaments")
+
+        // The disc is the row's height, and the row's centre is the disc's, in the row's points.
+        try expectClose(TrackerPlateDesign.topLevelDiscDiameter, 2 * (23.5 + 1.5), "master disc outer diameter")
+        try expectClose(TrackerPlateDesign.workerDiscDiameter, 2 * (19 + 1), "worker disc outer diameter")
+        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y, TrackerPlateDesign.topLevelSize.height / 2, "master disc centre in its row")
+        try expectClose(TrackerPlateDesign.workerPortraitCenter.y, TrackerPlateDesign.workerSize.height / 2, "worker disc centre in its row")
+        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y + TrackerPlateDesign.topLevelArtInset, 27, "master disc centre in its canvas")
+        try expectClose(TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.topLevelPortraitCenter.x, 15, "worker disc indent")
+        try expectClose(
+            TrackerNameplateRole.worker.portraitOrigin.x - TrackerNameplateRole.master.portraitOrigin.x,
+            20,
+            "worker portrait indent"
+        )
+
+        // Every layer of a portrait sits at a whole-point origin. A frame on a half point snaps to a whole pixel at 1x
+        // and drifts half a pixel off the disc the plate's canvas draws at exact geometry.
+        for role in [TrackerNameplateRole.master, .worker] {
+            for (name, value) in [("x", role.portraitOrigin.x), ("y", role.portraitOrigin.y), ("diameter", role.portraitDiameter)] {
+                try expect(value == value.rounded(), "the \(role) portrait's \(name) should be a whole point, got \(value)")
+            }
+            let logoSide = role.logoSide
+            let logoInset = (role.portraitDiameter - logoSide) / 2
+            try expect(logoSide == logoSide.rounded() && logoInset == logoInset.rounded(), "the \(role) logo should sit on whole points, got side \(logoSide) at \(logoInset)")
+        }
+
+        // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
+        try expectClose(TrackerListMetrics.sectionSpacing, 20, "gap between project groups")
+        try expectClose(TrackerListMetrics.itemSpacing, 20, "gap between top-level sessions")
+        try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers, and between workers")
+        try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: true), 10, "gap after a session's workers or its collapsed row")
+        try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: false), 20, "gap after a session with no workers")
+        try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width, "tracker content width, the selected-session panel's")
+        try expectClose(SelectedSessionPanel.canvasSize.width, 289, "selected-session panel width")
+        try expectClose(SelectedSessionPanel.canvasSize.height, 76, "selected-session panel height")
+        try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
+
+        // The collapsed workers hang flush from the disc's bottom edge, 40 right of its left edge, and fill the plate's width.
+        let discLeft = TrackerNameplateRole.master.portraitOrigin.x
+        try expectClose(TrackerNameplateRole.circlesX - discLeft, 40, "first collapsed circle's offset from the disc's left edge")
+        try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
+        try expectClose(TrackerPlateDesign.collapsedCircleGap, 5, "gap between collapsed circles")
+        try expect(TrackerWorkerSummary.maxCircles == 8, "a master's collapsed row should hold eight circles, got \(TrackerWorkerSummary.maxCircles)")
+        let rowRight = TrackerNameplateRole.circlesX
+            + CGFloat(TrackerWorkerSummary.maxCircles) * TrackerPlateDesign.collapsedCircleDiameter
+            + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
+        try expectClose(rowRight, TrackerPlateDesign.topLevelSize.width, "the last collapsed circle's right edge against the plate's")
+        try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 75, "master row height with collapsed circles")
+        try expectClose(TrackerNameplateRole.worker.rowHeight(showsCircles: false), 40, "worker row height")
+
+        // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents, above
+        // the row and below it, past the crown's tip. The worker's has no artwork past its frame.
+        let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
+        let masterHit = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.hitOutset).path(in: masterRow).boundingRect
+        try expect(masterHit.minY <= -TrackerPlateDesign.topLevelArtInset, "master hit shape top should reach the canvas's top, got \(masterHit.minY)")
+        let crownBottom = ornamentBox.maxY - TrackerPlateDesign.topLevelArtInset
+        try expect(masterHit.maxY >= crownBottom, "master hit shape bottom should reach the crown's tip at \(crownBottom), got \(masterHit.maxY)")
+        try expectClose(masterHit.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
+        try expect(TrackerNameplateRole.worker.hitOutset == 0, "the worker's row has no artwork past its frame")
+    }
+
+    private static func testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting() throws {
+        func session(role: String, state: String, lifecycle: String = "active", since: Date? = nil, seed: Int? = nil) -> TrackerSession {
+            TrackerSession(
+                id: "session", title: "Session", repoName: "Preview", agent: "codex", role: role, state: state,
+                lifecycle: lifecycle, elapsedSince: since, elapsedSeedMS: seed
+            )
+        }
+
+        // Masters, shell rows and workers alike show their time only while they work.
+        for role in ["master", "worker"] {
+            try expect(TrackerRenderer.durationLabel(for: session(role: role, state: "working", seed: 125_000)) == "0:02:05", "a working \(role) should show its time")
+            try expect(TrackerRenderer.durationLabel(for: session(role: role, state: "idle", seed: 125_000)).isEmpty, "an idle \(role) should show no time")
+        }
+        let stopped = session(role: "master", state: "stopped", lifecycle: "stopped", seed: 0)
+        try expect(TrackerRenderer.durationLabel(for: stopped).isEmpty, "a stopped session has no time to show")
+
+        // Only a time that counts from an instant is live, and only while it shows.
+        let since = Date().addingTimeInterval(-60)
+        typealias Time = TrackerElapsedTime<EmptyView>
+        try expect(Time.isLive(session: session(role: "master", state: "working", since: since)), "a working session counting from an instant is live")
+        try expect(!Time.isLive(session: session(role: "worker", state: "idle", since: since)), "an idle session shows no time, so it is not live")
+        try expect(!Time.isLive(session: session(role: "master", state: "working", seed: 125_000)), "a fixed time is not live")
+        try expect(!Time.isLive(session: session(role: "master", state: "working")), "a session with no time is not live")
+    }
+
+    /// One timer serves every reader: its rate is the clock's, not the number of subscribers times it.
+    private static func testDurationClockHasOneTimerWhateverTheSubscribers() throws {
+        try expect(TrackerPulseClock.durations.framesPerSecond == 1, "live times should tick once a second")
+        let clock = TrackerPulseClock(framesPerSecond: 20)
+        try expect(!clock.isRunning, "a clock with no subscribers should not run")
+        for _ in 0..<100 { clock.subscribe() }
+        try expect(clock.timersStarted == 1, "100 subscribers should share one timer, got \(clock.timersStarted)")
+        let start = Date()
+        try expect(waitUntil { clock.ticks >= 4 }, "the clock should tick")
+        let elapsed = Date().timeIntervalSince(start)
+        try expect(Double(clock.ticks) <= clock.framesPerSecond * elapsed + 2, "100 subscribers should not multiply the ticks: \(clock.ticks) in \(elapsed)s")
+        for _ in 0..<99 { clock.unsubscribe() }
+        try expect(clock.isRunning, "the clock should run while one subscriber is left")
+        clock.unsubscribe()
+        try expect(!clock.isRunning, "the clock should stop with its last subscriber")
+    }
+
+    /// Hosted views: fixed, empty and hidden times subscribe to nothing; live ones share the clock's one timer, and it
+    /// stops when they go.
+    private static func testOnlyLiveElapsedTimesSubscribeToTheDurationClock() throws {
+        let clock = TrackerPulseClock.durations
+        func session(state: String, role: String, since: Date? = nil, seed: Int? = nil) -> TrackerSession {
+            TrackerSession(
+                id: "session", title: "Session", repoName: "Preview", agent: "codex", role: role, state: state,
+                elapsedSince: since, elapsedSeedMS: seed
+            )
+        }
+        let since = Date().addingTimeInterval(-60)
+        let fixed = session(state: "working", role: "master", seed: 125_000)
+        let hidden = session(state: "idle", role: "master", since: since)
+        let live = session(state: "working", role: "master", since: since)
+        func column(_ sessions: [TrackerSession]) -> AnyView {
+            AnyView(VStack {
+                ForEach(Array(sessions.enumerated()), id: \.offset) { _, session in
+                    TrackerElapsedTime(session: session) { Text($0) }
+                }
+            })
+        }
+        let idleEntries = Array(repeating: fixed, count: 30) + Array(repeating: hidden, count: 30)
+        let hosting = NSHostingView(rootView: column(idleEntries))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        let startedBefore = clock.timersStarted
+        pump(0.3)
+        try expect(!clock.isRunning && clock.timersStarted == startedBefore, "fixed and hidden times should not start the clock")
+
+        hosting.rootView = column(idleEntries + Array(repeating: live, count: 30))
+        try expect(waitUntil { clock.isRunning }, "live times should start the clock")
+        try expect(clock.timersStarted == startedBefore + 1, "30 live times should share one timer, got \(clock.timersStarted - startedBefore)")
+
+        hosting.rootView = column(idleEntries)
+        try expect(waitUntil { !clock.isRunning }, "the clock should stop when the live times go")
+    }
+
+    private static func testWorkerTimeColumnFitsRunsPastNinetyNineHours() throws {
+        let hundredHours = 100 * 3600 * 1000
+        let usual = TrackerSession.paddedHours(TrackerSession.formatElapsed(30 * 60 * 1000 + 25_000) ?? "")
+        let long = TrackerSession.paddedHours(TrackerSession.formatElapsed(hundredHours) ?? "")
+        try expect(usual == "00:30:25", "a half-hour run should read 00:30:25, got \(usual)")
+        try expect(long == "100:00:00", "a 100-hour run should read 100:00:00, got \(long)")
+
+        let font = AppFonts.trackerTime
+        for time in [usual, long] {
+            let column = TrackerNameplateRole.workerTimeWidth(for: time)
+            let ink = (time as NSString).size(withAttributes: [.font: font]).width
+            try expect(column >= ink, "the time column for \(time) should hold its \(ink)pt of text, got \(column)")
+        }
+        try expect(
+            TrackerNameplateRole.workerTimeWidth(for: long) > TrackerNameplateRole.workerTimeWidth(for: usual),
+            "the 100-hour time should get a wider column"
+        )
+
+        // The title takes the row up to a gap short of the time, whatever the time's width.
+        for time in [usual, long] {
+            let titleRight = TrackerNameplateRole.workerTextX + TrackerNameplateRole.workerTitleWidth(time: time)
+            let timeLeft = TrackerNameplateRole.workerTimeRightEdge - TrackerNameplateRole.workerTimeWidth(for: time)
+            try expect(abs(timeLeft - titleRight - TrackerNameplateRole.workerTitleTimeGap) < 0.01, "the title should stop a gap short of \(time)")
+        }
+        try expect(
+            TrackerNameplateRole.workerTitleWidth(time: "") == TrackerNameplateRole.workerSnippetWidth,
+            "a worker with no time gives its title the snippet's width"
+        )
+    }
+
+    /// Renders the panel's plate and reads the frame's top-right corner: the arc at (286, 36) is the frame's colour. A
+    /// square dark rect behind the id strip, which the SVG has and Figma does not show, ate it.
+    @MainActor
+    private static func testSelectedSessionPanelFrameKeepsItsRoundedCorners() throws {
+        let content = SelectedSessionPanelContent(title: "", id: "", projectName: "", projectColor: AppPalette.accent)
+        let renderer = ImageRenderer(content: SelectedSessionPanel(content: content, onCopyID: { _ in }))
+        renderer.scale = 2
+        guard let image = renderer.cgImage else {
+            throw TestFailure("the panel should render to an image")
+        }
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        try expect(bitmap.pixelsWide == 578 && bitmap.pixelsHigh == 152, "the panel should render 289 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
+            bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.usingColorSpace(.sRGB)
+        }
+        guard let arc = pixel(286, 36), let outside = pixel(288.5, 33) else {
+            throw TestFailure("the corner pixels should be readable")
+        }
+        try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
+        try expect(arc.alphaComponent > 0.9 && arc.redComponent > 0.22, "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
+        guard let bottomArc = pixel(285.5, 61) else {
+            throw TestFailure("the bottom-right pixel should be readable")
+        }
+        try expect(bottomArc.alphaComponent > 0.9 && bottomArc.redComponent > 0.22, "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
+    }
+
+    private static func testSelectedSessionPanelNamesTheAttachedSessionsProject() throws {
+        let master = TrackerSession(id: "qm-attached", title: "Fix bug", repoName: "Preview", role: "master")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "preview", name: "Preview", sessions: [master])])
+        let repos = TrackerRenderer.tracker(snapshot)
+
+        let attached = SelectedSessionPanelContent.make(currentTerminalSessionID: "qm-attached", repos: repos)
+        guard attached.id == "qm-attached", attached.projectName == "Preview" else {
+            throw TestFailure("the panel should name the attached session's project, got \(attached.id) / \(attached.projectName)")
+        }
+        let shell = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, repos: repos)
+        guard shell.projectName.isEmpty else {
+            throw TestFailure("a shell with no attached session should show no project")
+        }
+    }
+
+    private static func testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest() throws {
+        func entries(workerCount: Int) throws -> [TrackerWorkerSummary.Entry] {
             let master = TrackerSession(id: "master", title: "Master", repoName: "Preview", role: "master")
-            let sessions = [master] + workers.enumerated().map { index, worker in
+            let sessions = [master] + (0..<workerCount).map { index in
                 TrackerSession(
                     id: "worker-\(index)",
                     title: "Worker \(index)",
                     repoName: "Preview",
-                    agent: worker.agent,
+                    agent: index % 2 == 0 ? "codex" : "claude",
                     role: "worker",
-                    state: worker.state,
+                    state: index % 3 == 0 ? "working" : "idle",
                     parentID: master.id
                 )
             }
@@ -178,36 +657,29 @@ enum LogicSelfTests {
             guard let group = TrackerRenderer.tracker(snapshot).first?.groups.first else {
                 throw TestFailure("tracker renderer should keep the master group")
             }
-            return TrackerWorkerSummary.pills(for: group.workers)
+            return TrackerWorkerSummary.circles(for: group.workers)
         }
-
-        // Distinct (agent, status) groups, the first with two workers and the rest with one.
-        let distinctGroups: [(agent: String, state: String)] = [
-            ("codex", "working"), ("codex", "idle"), ("claude", "working"), ("claude", "idle"),
-            ("pi", "blocked"), ("opencode", "idle"), ("pi", "working"), ("opencode", "working"),
-        ]
-        let fit = TrackerWorkerSummary.maxPills
-        try expect(fit >= 2 && fit < distinctGroups.count, "pill capacity should be a small positive number, got \(fit)")
-
-        let fitting = try pills(Array(distinctGroups.prefix(fit)))
-        try expect(fitting.count == fit, "\(fit) groups should show \(fit) pills, got \(fitting.count)")
-        try expect(fitting.allSatisfy { if case .group = $0 { true } else { false } }, "groups that fit should not overflow")
-
-        let crowded = Array(distinctGroups.prefix(fit + 3)) + [distinctGroups[0]]
-        let overflowing = try pills(crowded)
-        try expect(overflowing.count == fit, "more groups than fit should show \(fit) pills, got \(overflowing.count)")
-        var shownWorkers = 0
-        for pill in overflowing.prefix(fit - 1) {
-            guard case .group(let group) = pill else {
-                throw TestFailure("the first \(fit - 1) pills should be groups")
+        func workerIDs(_ entries: [TrackerWorkerSummary.Entry]) -> [String] {
+            entries.compactMap { entry in
+                if case .worker(let worker) = entry { worker.session.id } else { nil }
             }
-            shownWorkers += group.count
         }
-        guard case .overflow(let hiddenWorkers) = overflowing[fit - 1] else {
-            throw TestFailure("the last pill should be the overflow pill")
+
+        // Every worker gets a circle, in the order the expanded list shows them, while they fit.
+        let fit = TrackerWorkerSummary.maxCircles
+        try expect(fit >= 2, "circle capacity should be a small positive number, got \(fit)")
+        let fitting = try entries(workerCount: fit)
+        try expect(workerIDs(fitting) == (0..<fit).map { "worker-\($0)" }, "workers that fit should each show, in order")
+        try expect(fitting.count == fit, "\(fit) workers should show \(fit) circles, got \(fitting.count)")
+
+        // One more, and the last slot becomes a "+N" circle counting the workers past the first fit - 1.
+        let crowded = try entries(workerCount: fit + 3)
+        try expect(crowded.count == fit, "more workers than fit should show \(fit) circles, got \(crowded.count)")
+        try expect(workerIDs(crowded) == (0..<fit - 1).map { "worker-\($0)" }, "the first \(fit - 1) workers should show, in order")
+        guard case .overflow(let hiddenWorkers) = crowded[fit - 1] else {
+            throw TestFailure("the last circle should be the overflow circle")
         }
-        try expect(hiddenWorkers == crowded.count - shownWorkers, "overflow should count hidden workers (\(crowded.count - shownWorkers)), got \(hiddenWorkers)")
-        try expect(hiddenWorkers >= 4, "at least the four hidden groups should be counted, got \(hiddenWorkers)")
+        try expect(hiddenWorkers == 4, "overflow should count the \(fit + 3 - (fit - 1)) workers past the shown ones, got \(hiddenWorkers)")
     }
 
     private static func testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs() throws {
@@ -659,6 +1131,127 @@ enum LogicSelfTests {
         try expect(coordinator.state(for: "qm-a").selectedQuestID == "qst-b", "quest selection should persist before the next render")
     }
 
+    private static func testGChordShortcutDecidesFromCharacterIgnoringCapsLock() throws {
+        try expect(GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5)), "plain g should arm the chord")
+        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("g", keyCode: 5)), "plain g should not jump to bottom")
+
+        try expect(GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.shift])), "shift-G should jump to bottom")
+        try expect(!GChordShortcut.isPrefix(try keyEvent("G", keyCode: 5, modifierFlags: [.shift])), "shift-G should not arm the chord")
+
+        // Caps Lock alone types "G" without Shift being held; the decision must follow the
+        // resulting character, not a `flags == [.shift]` match.
+        try expect(GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.capsLock])), "caps-lock G should jump to bottom")
+        try expect(!GChordShortcut.isPrefix(try keyEvent("G", keyCode: 5, modifierFlags: [.capsLock])), "caps-lock G should not arm the chord")
+
+        // Caps Lock plus Shift cancel out back to lowercase "g".
+        try expect(GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5, modifierFlags: [.capsLock, .shift])), "caps-lock+shift g should arm the chord")
+        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("g", keyCode: 5, modifierFlags: [.capsLock, .shift])), "caps-lock+shift g should not jump to bottom")
+
+        try expect(!GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5, modifierFlags: [.command])), "command-g should not arm the chord")
+        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.command, .shift])), "command-shift-G should not jump to bottom")
+    }
+
+    private static func testQuestListGChordJumpsToEdgesAndForcesRescroll() throws {
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [],
+            quests: [
+                QuestItem(id: "qst-a", content: "A", updatedAt: "2026-07-03T01:00:00Z"),
+                QuestItem(id: "qst-b", content: "B", updatedAt: "2026-07-03T02:00:00Z"),
+                QuestItem(id: "qst-c", content: "C", updatedAt: "2026-07-03T03:00:00Z"),
+            ]
+        )
+        // Sorted newest first within the "no project" bucket: [qst-c, qst-b, qst-a].
+        let model = DockPaneModel()
+        _ = model.apply(
+            SessionViewState(dockContent: .questList, selectedQuestID: "qst-c"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+
+        let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
+        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should be handled")
+        try expect(model.questModel.selectedQuestID == "qst-a", "G should select the last quest")
+        let nonceAfterFirstJump = model.questModel.scrollNonce
+
+        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should still be handled when already at the last quest")
+        try expect(model.questModel.scrollNonce != nonceAfterFirstJump, "repeating G at the edge should still force a rescroll")
+
+        let g = try keyEvent("g", keyCode: 5)
+        try expect(model.handleKeyDown(g, snapshot: snapshot), "first g should arm the gg chord")
+        try expect(model.handleKeyDown(g, snapshot: snapshot), "second g within the window should jump to the first quest")
+        try expect(model.questModel.selectedQuestID == "qst-c", "gg should select the first quest")
+    }
+
+    private static func testArtifactListGChordJumpsToEdgesAndForcesRescroll() throws {
+        let first = ArtifactReference(kind: "html", path: "/tmp/first.html", label: "First", sessionID: "qm-a", addedAt: "")
+        let second = ArtifactReference(kind: "html", path: "/tmp/second.html", label: "Second", sessionID: "qm-a", addedAt: "")
+        let third = ArtifactReference(kind: "html", path: "/tmp/third.html", label: "Third", sessionID: "qm-a", addedAt: "")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: [first, second, third]),
+            ]),
+        ])
+
+        let model = DockPaneModel()
+        _ = model.apply(
+            SessionViewState(dockContent: .artifactList, selectedArtifactID: first.id),
+            snapshot: snapshot,
+            preferredArtifactSessionID: "qm-a"
+        )
+
+        let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
+        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should be handled")
+        try expect(model.artifactModel.selectedArtifactID == third.id, "G should select the last artifact")
+        let nonceAfterFirstJump = model.artifactModel.scrollNonce
+
+        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should still be handled when already at the last artifact")
+        try expect(model.artifactModel.scrollNonce != nonceAfterFirstJump, "repeating G at the edge should still force a rescroll")
+
+        let g = try keyEvent("g", keyCode: 5)
+        try expect(model.handleKeyDown(g, snapshot: snapshot), "first g should arm the gg chord")
+        try expect(model.handleKeyDown(g, snapshot: snapshot), "second g within the window should jump to the first artifact")
+        try expect(model.artifactModel.selectedArtifactID == first.id, "gg should select the first artifact")
+    }
+
+    private static func testListGChordPendingGResetsOnGAndOnInterveningKey() throws {
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [],
+            quests: [
+                QuestItem(id: "qst-a", content: "A", updatedAt: "2026-07-03T01:00:00Z"),
+                QuestItem(id: "qst-b", content: "B", updatedAt: "2026-07-03T02:00:00Z"),
+                QuestItem(id: "qst-c", content: "C", updatedAt: "2026-07-03T03:00:00Z"),
+            ]
+        )
+        let g = try keyEvent("g", keyCode: 5)
+        let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
+
+        let afterG = DockPaneModel()
+        _ = afterG.apply(
+            SessionViewState(dockContent: .questList, selectedQuestID: "qst-b"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+        try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
+        try expect(afterG.handleKeyDown(shiftG, snapshot: snapshot), "G should jump to the last quest, not continue the chord")
+        try expect(afterG.questModel.selectedQuestID == "qst-a", "G should select the last quest")
+        try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g right after G should re-arm rather than resolve")
+        try expect(afterG.questModel.selectedQuestID == "qst-a", "a freshly re-armed g alone should not move the selection")
+
+        let afterOtherKey = DockPaneModel()
+        _ = afterOtherKey.apply(
+            SessionViewState(dockContent: .questList, selectedQuestID: "qst-b"),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+        try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
+        _ = afterOtherKey.handleKeyDown(try keyEvent("/", keyCode: 44), snapshot: snapshot)
+        try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g after an unrelated key should re-arm rather than resolve")
+        try expect(afterOtherKey.questModel.selectedQuestID == "qst-b", "a freshly re-armed g alone should not move the selection")
+    }
+
     private static func testQuestDockCopiesSelectedQuestContentsWithY() throws {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(
@@ -941,6 +1534,8 @@ enum LogicSelfTests {
         try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should still require a current session")
         try expect(!DockContentRouting.canShow(.artifactViewer, sessionID: ""), "artifact viewer should still require a current session")
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
+        try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo"), "worker chat should open for every attached session")
+        try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil), "worker chat should still require a current session")
     }
 
     private static func testArtifactDockCommandSwitchesFromQuests() throws {
@@ -951,6 +1546,10 @@ enum LogicSelfTests {
         try expect(
             !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .questList),
             "Cmd-3 should switch visible quests to artifacts"
+        )
+        try expect(
+            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .workerChat),
+            "Cmd-3 should switch a visible worker chat to artifacts"
         )
         try expect(
             DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .artifactList),
@@ -975,6 +1574,20 @@ enum LogicSelfTests {
 
         coordinator.recordDockVisibility(false, sessionID: nil)
         try expect(!coordinator.state(for: nil).dockVisible, "hiding no-session quest dock should persist")
+    }
+
+    private static func testDockCoordinatorShowsWorkerChatPerSession() throws {
+        let coordinator = DockCoordinator()
+
+        coordinator.showDockContent(.workerChat, sessionID: nil)
+        try expect(coordinator.state(for: nil) == .initial, "worker chat should not create no-session dock state")
+
+        coordinator.mutate("qm-master") { $0.selectedArtifactID = "artifact-1" }
+        coordinator.showDockContent(.workerChat, sessionID: "qm-master")
+        let state = coordinator.state(for: "qm-master")
+        try expect(state.dockVisible && state.dockContent == .workerChat, "worker chat should open for its session")
+        try expect(state.selectedArtifactID == nil, "opening worker chat should clear the artifact selection")
+        try expect(coordinator.state(for: "qm-other") == .initial, "worker chat should not leak into another session")
     }
 
     private static func testNewQuestFooterTextMatchesMode() throws {
@@ -1360,7 +1973,7 @@ enum LogicSelfTests {
         successfulCoordinator.sendMutation(request, label: "delete quest qst-1") {
             successes += 1
         }
-        drainMainQueue()
+        try waitForMainQueue("mutation success callback", until: { successes == 1 })
         try expect(successes == 1, "success callback should run after mutation ack")
         try expect(failures.value == 0, "successful mutation should not report failure")
 
@@ -1373,7 +1986,7 @@ enum LogicSelfTests {
         failingCoordinator.sendMutation(request, label: "delete quest qst-1") {
             successes += 1
         }
-        drainMainQueue()
+        try waitForMainQueue("mutation failure callback", until: { failures.value == 1 })
         try expect(successes == 0, "failed mutation should not run success callback")
         try expect(failures.value == 1, "failed mutation should report failure")
 
@@ -1393,7 +2006,7 @@ enum LogicSelfTests {
         ) {
             successes += 1
         }
-        drainMainQueue()
+        try waitForMainQueue("switch-before mutation success callback", until: { successes == 1 })
         try expect(switches.value == 1, "switch-before mutation should activate terminal first")
         try expect(successes == 1, "switch-before mutation should forward success callback")
         try expect(failures.value == 0, "switch-before mutation should not report failure")
@@ -1432,7 +2045,6 @@ enum LogicSelfTests {
     private static func testNewSessionArrowKeysNavigatePathSuggestions() throws {
         let model = NewSessionSheetModel(
             presentation: NewSessionSheetPresentation(
-                role: .standalone,
                 initialPath: "",
                 initialTitle: "",
                 initialPrompt: "",
@@ -1474,9 +2086,11 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .agent)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial model suggestions", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" })
+        })
         try expect(client.requests.first?.agent == "claude", "the sheet should resolve models for the initial agent")
-        try expect(client.requests.first?.role == "standalone", "a standalone sheet should ask for standalone defaults")
+        try expect(client.requests.first?.role == "master", "a new agent session should ask for master defaults")
         try expect(client.requests.first?.refresh == false, "the sheet's own resolve on open must not force a refetch")
         try expect(
             model.state.model.modelOptions.contains(where: { $0.id == "opus" }),
@@ -1499,7 +2113,9 @@ enum LogicSelfTests {
             model.state.model.selectedModel.isEmpty,
             "another harness's model must not carry over"
         )
-        drainMainQueue()
+        try waitForMainQueue("model suggestions for the selected agent", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" })
+        })
         try expect(client.requests.last?.agent == "codex", "changing the agent should re-resolve models")
         try expect(
             model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" }),
@@ -1511,7 +2127,7 @@ enum LogicSelfTests {
         let requestsBeforeReturn = client.requests.count
         try expect(model.handle(try keyEvent("h", keyCode: 4)), "h should cycle the agent select back")
         try expect(model.state.model.selectedAgent == "claude", "precondition: back to claude")
-        drainMainQueue()
+        try waitForMainQueueTurn()
         try expect(
             client.requests.count == requestsBeforeReturn,
             "returning to an already-resolved agent must not re-ask the backend"
@@ -1527,7 +2143,7 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .path)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueueTurn()
 
         // A failed resolve is not the user's problem: no options at all
         // still starts a session with no model override.
@@ -1547,13 +2163,16 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial model suggestions", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" })
+        })
 
         try expect(
             model.handle(try keyEvent("r", keyCode: 15)),
             "r should be consumed while the model field is focused"
         )
-        drainMainQueue()
+        try expect(model.state.isRefreshingModels, "r should start a model refresh")
+        try waitForMainQueue("model refresh completion", until: { !model.state.isRefreshingModels })
         try expect(client.requests.last?.refresh == true, "r should force a refetch past the catalog cache")
 
         model.state.model.focusedField = .agent
@@ -1562,7 +2181,7 @@ enum LogicSelfTests {
             !model.handle(try keyEvent("r", keyCode: 15)),
             "r should not be claimed by the sheet outside the model field"
         )
-        drainMainQueue()
+        try waitForMainQueueTurn()
         try expect(
             client.requests.count == requestsBeforeAgentR,
             "r on another field must not trigger a model refetch"
@@ -1579,12 +2198,14 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial model suggestions", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" })
+        })
         try expect(!model.state.isRefreshingModels, "the sheet's own resolve on open should not show as refreshing")
 
         model.refreshModels()
         try expect(model.state.isRefreshingModels, "a refresh should show as in-flight immediately")
-        drainMainQueue()
+        try waitForMainQueue("model refresh completion", until: { !model.state.isRefreshingModels })
         try expect(!model.state.isRefreshingModels, "the flag should clear once the refresh completes")
         try expect(client.requests.last?.refresh == true, "the refresh button should force a refetch")
     }
@@ -1606,7 +2227,10 @@ enum LogicSelfTests {
         // Fire the newer (refresh) request first, then the stale initial one
         // — the opposite of call order.
         client.fireCompletion(forRequestAt: 1)
-        drainMainQueue()
+        try waitForMainQueue("newer model response", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" })
+                && !model.state.isRefreshingModels
+        })
         try expect(
             model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" }),
             "the newer response should apply"
@@ -1614,7 +2238,7 @@ enum LogicSelfTests {
         try expect(!model.state.isRefreshingModels, "the newer (refresh) request completing should clear the flag")
 
         client.fireCompletion(forRequestAt: 0)
-        drainMainQueue()
+        try waitForMainQueueTurn()
         try expect(
             !model.state.model.modelOptions.contains(where: { $0.id == "opus-initial" }),
             "a stale response arriving after a newer one must be discarded, not applied on top of it"
@@ -1641,7 +2265,9 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: modelClient, effortClient: effortClient, initialFocus: .agent)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial reasoning-effort suggestions", until: {
+            model.state.model.effortOptions.contains(where: { $0.id == "low" })
+        })
         try expect(effortClient.requests.first?.agent == "claude", "the sheet should resolve efforts for the initial agent")
         try expect(effortClient.requests.first?.model.isEmpty == true, "the default entry sends no model override to resolve against")
         try expect(
@@ -1661,10 +2287,14 @@ enum LogicSelfTests {
         // re-resolve efforts against that model.
         model.state.model.focusedField = .agent
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent select")
-        drainMainQueue()
+        try waitForMainQueue("model suggestions for the selected agent", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" })
+        })
         model.state.model.focusedField = .model
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
-        drainMainQueue()
+        try waitForMainQueue("model-specific reasoning-effort suggestions", until: {
+            model.state.model.effortOptions.contains(where: { $0.id == "ultra" })
+        })
         try expect(model.state.model.selectedModel == "gpt-5.6-sol", "precondition: a real model is selected")
         try expect(effortClient.requests.last?.model == "gpt-5.6-sol", "selecting a model should re-resolve efforts against it")
         try expect(
@@ -1677,7 +2307,6 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: nil, effortClient: nil, initialFocus: .path)
 
         model.present()
-        drainMainQueue()
 
         // No client at all is the same shape as a failed resolve: no options
         // at all still starts a session with no effort override.
@@ -1739,7 +2368,9 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: nil, effortClient: effortClient, initialFocus: .model)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial reasoning-effort suggestions", until: {
+            model.state.model.effortOptions.contains(where: { $0.id == "low" })
+        })
         try expect(model.state.model.selectedEffortOption == nil, "precondition: nothing selected, since xhigh isn't in this resolved list")
 
         try expect(
@@ -1762,7 +2393,6 @@ enum LogicSelfTests {
     ) -> NewSessionSheetModel {
         NewSessionSheetModel(
             presentation: NewSessionSheetPresentation(
-                role: .standalone,
                 initialPath: "/tmp/project",
                 initialTitle: "",
                 initialPrompt: "",
@@ -1796,12 +2426,14 @@ enum LogicSelfTests {
         model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("settings model suggestions", until: {
+            model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
+        })
+        try waitForMainQueueTurn()
         try expect(mutationClient.sentRequests.isEmpty, "resolving options alone must send nothing")
 
         model.focus(role: "master", field: .model)
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
-        drainMainQueue()
 
         try expect(mutationClient.sentRequests.count == 1, "cycling a value should send its role_default.set immediately")
         guard let sent = mutationClient.sentRequests.first else {
@@ -1827,7 +2459,9 @@ enum LogicSelfTests {
         model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("settings model suggestions", until: {
+            model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
+        })
         model.focus(role: "master", field: .model)
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
         try expect(mutationClient.sentRequests.count == 1, "sanity: cycling sent one save that's still in flight")
@@ -1853,10 +2487,12 @@ enum LogicSelfTests {
         model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("settings model suggestions", until: {
+            model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
+        })
         model.focus(role: "master", field: .model)
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
-        drainMainQueue()
+        try waitForMainQueue("failed role-default save", until: { model.errorMessage != nil })
 
         try expect(model.errorMessage != nil, "a failed save must surface an error instead of silently dropping it")
         try expect(model.state.rows[0].isDirty, "a failed save must not get marked as saved")
@@ -1880,7 +2516,9 @@ enum LogicSelfTests {
         model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("settings model suggestions", until: {
+            model.state.rows[0].modelOptions.contains(where: { $0.id == "haiku" })
+        })
         try expect(model.state.rows[0].selectedModel == "opus", "sanity: seeded onto the persisted default")
 
         model.focus(role: "master", field: .model)
@@ -1897,21 +2535,820 @@ enum LogicSelfTests {
 
         // Acks land out of order: the newer send's ack arrives first.
         mutationClient.fireCompletion(forRequestAt: 1)
-        drainMainQueue()
+        try waitForMainQueue("newer role-default save ack", until: { !model.state.rows[0].isDirty })
         mutationClient.fireCompletion(forRequestAt: 0)
-        drainMainQueue()
+        try waitForMainQueue("older role-default save ack", until: { model.state.rows[0].isDirty })
 
         try expect(model.errorMessage == nil, "both saves succeeding should leave no error")
     }
 
     /// A fractional footer height puts every plate border and the snapped terminal edge on half
-    /// pixels at 1x, which renders blurry — guards the content-height rounding in
-    /// `ActionBarMetrics.footerHeight` against a future edit reintroducing a fractional sum.
+    /// pixels at 1x, which renders blurry — guards `ActionBarMetrics.footerHeight` against a
+    /// future edit reintroducing a fractional sum.
     private static func testActionBarFooterHeightIsIntegral() throws {
         try expect(
             ActionBarMetrics.footerHeight == ActionBarMetrics.footerHeight.rounded(),
             "footerHeight should be a whole point, got \(ActionBarMetrics.footerHeight)"
         )
+    }
+
+    /// The slot run is centred on the frame, and the bar's hit area sits inside the footer.
+    private static func testActionBarSlotsCentreInsideFooter() throws {
+        let runStart = ActionBarMetrics.slotX(at: 0)
+        let runEnd = ActionBarMetrics.slotX(at: ActionBarMetrics.slotCount - 1) + ActionBarMetrics.slotSize
+        try expect(
+            (runStart + runEnd) / 2 == ActionBarMetrics.plateWidth / 2,
+            "slot run should centre on the frame, got centre \((runStart + runEnd) / 2)"
+        )
+        try expect(
+            ActionBarMetrics.barHitRect.minY >= 0 && ActionBarMetrics.barHitRect.maxY <= ActionBarMetrics.footerHeight,
+            "bar hit area should sit inside the footer, got \(ActionBarMetrics.barHitRect)"
+        )
+    }
+
+    /// `hitTest` receives its point in the superview's coordinates. The footer sits a shell gap plus a
+    /// row-snap leftover above the window bottom, so a click on a slot's or the plate's top edge must
+    /// still reach the footer, and a point in the gap above the plate must not.
+    private static func testActionBarHitTestUsesSuperviewCoordinates() throws {
+        let superview = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+        let footer = ActionBarShellView()
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        superview.addSubview(footer)
+        let rowSnapLeftover: CGFloat = 6
+        let bottomInset = ShellMetrics.gap + rowSnapLeftover
+        NSLayoutConstraint.activate([
+            footer.leadingAnchor.constraint(equalTo: superview.leadingAnchor),
+            footer.trailingAnchor.constraint(equalTo: superview.trailingAnchor),
+            footer.bottomAnchor.constraint(equalTo: superview.bottomAnchor, constant: -bottomInset),
+            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.footerHeight),
+        ])
+        superview.layoutSubtreeIfNeeded()
+
+        let plateLeft = (superview.bounds.width - ActionBarMetrics.plateWidth) / 2
+        let slotCentreX = plateLeft + ActionBarMetrics.slotX(at: 0) + ActionBarMetrics.slotSize / 2
+        let plateTopEdgeY = bottomInset + ActionBarMetrics.footerHeight
+        let slotTopEdgeY = plateTopEdgeY - ActionBarMetrics.slotTop - 0.5
+        try expect(
+            footer.hitTest(NSPoint(x: slotCentreX, y: slotTopEdgeY)) != nil,
+            "a click on a slot's top edge should reach the footer"
+        )
+        try expect(
+            footer.hitTest(NSPoint(x: plateLeft + 100, y: plateTopEdgeY - 0.5)) != nil,
+            "a click on the plate's top edge should reach the footer"
+        )
+        try expect(
+            footer.hitTest(NSPoint(x: slotCentreX, y: plateTopEdgeY + 1)) == nil,
+            "a click in the gap above the plate should fall through the footer"
+        )
+    }
+
+    /// Root cause of the scrollbar gutter resisting four prior fix PRs (#222/#223/#225/#226):
+    /// hiding the scroller once from SwiftUI's `updateNSView` only reapplies when SwiftUI itself
+    /// re-renders. AppKit resets `NSScrollView.scrollerStyle` independently whenever
+    /// `NSScroller.preferredScrollerStyleDidChangeNotification` fires (e.g. a mouse connects while
+    /// "Show scroll bars" is Automatic), so the gutter can return with no SwiftUI state change to
+    /// trigger a reapply. `ScrollerHidingNSView` observes that notification directly instead.
+    ///
+    /// AppKit's own response to that same notification isn't guaranteed to land before or after
+    /// ours, so reapplying directly inside the notification handler can still race it: if ours
+    /// runs first, an AppKit reset landing right behind it re-breaks the gutter with nothing left
+    /// to react to it. `NotificationCenter` doesn't document how it orders multiple observers of
+    /// one notification, so the stand-in for AppKit's reset below doesn't rely on that: it's
+    /// plain, unconditionally-sequential code run right after `post()` returns, not a second
+    /// observer racing the first. A single-hop reapply can only "win" that race by having already
+    /// run *during* `post()`, before this stand-in gets to run at all; the deferred fix wins
+    /// regardless, by running on the *next* main-runloop turn instead — after the stand-in, not
+    /// racing it.
+    private static func testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt() throws {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 600))
+        scrollView.documentView = documentView
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .legacy
+
+        let hider = ScrollerHidingNSView()
+        documentView.addSubview(hider)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = scrollView
+        window.orderFrontRegardless()
+        defer { window.close() }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        try expect(
+            scrollView.contentView.bounds.width == scrollView.bounds.width,
+            "clip view should fill the scroll view width once the scroller is hidden, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
+        )
+
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        // Plain synchronous code, right after `post()` returns — the stand-in for AppKit's own
+        // reset, landing deterministically before any run-loop turn gets pumped below.
+        scrollView.hasVerticalScroller = true
+        scrollView.scrollerStyle = .legacy
+        scrollView.tile()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        try expect(
+            scrollView.contentView.bounds.width == scrollView.bounds.width,
+            "clip view should still fill the scroll view width after a competing reset lands right behind the style-change notification, got \(scrollView.contentView.bounds.width) of \(scrollView.bounds.width)"
+        )
+    }
+
+    /// Follower fixture: a flipped document in an offscreen window, so the clip origin reads like the
+    /// real feed (bottom = content - viewport). Tests wait for the state they need with `waitUntil`,
+    /// and assert a glide as it is added. Nothing here waits for an animation to finish.
+    @MainActor
+    private final class FlippedDocumentView: NSView {
+        override var isFlipped: Bool { true }
+    }
+
+    @MainActor
+    private struct FollowerFixture {
+        let window: NSWindow
+        let scrollView: NSScrollView
+        let documentView: NSView
+        let follower: WorkerChatBottomFollowerView
+
+        var origin: CGFloat { scrollView.contentView.bounds.origin.y }
+
+        /// A layout of a document `height` tall, with its rows filling the padded height, as the feed lays out.
+        func grow(to height: CGFloat) {
+            show(rows: height - 2 * WorkerChatMetrics.inset)
+        }
+
+        /// Lays `rows` out the way the feed does, then runs the follower on the result. The fixture reads the
+        /// state the layout just produced, so nothing here waits on a notification or an animation.
+        func show(rows: CGFloat) {
+            layout(rows: rows)
+            follower.sync(scrollView)
+        }
+
+        /// Sets the frames only: the document is at least a viewport tall, and the rows sit at its bottom, so a
+        /// short feed keeps the document's height while its rows move.
+        func layout(rows: CGFloat) {
+            let width = documentView.frame.width
+            let height = max(rows + 2 * WorkerChatMetrics.inset, scrollView.contentView.bounds.height)
+            documentView.setFrameSize(NSSize(width: width, height: height))
+            follower.frame = NSRect(x: 0, y: height - WorkerChatMetrics.inset - rows, width: width, height: rows)
+        }
+
+        func scroll(to offset: CGFloat) {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            follower.sync(scrollView)
+        }
+
+        func resize(height: CGFloat) {
+            scrollView.setFrameSize(NSSize(width: scrollView.frame.width, height: height))
+            follower.sync(scrollView)
+        }
+    }
+
+    /// A feed `contentHeight` tall whose rows are `rows` tall (the padded height by default), bottom-aligned.
+    private static func followerFixture(contentHeight: CGFloat, rows: CGFloat? = nil) -> FollowerFixture {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        let documentView = FlippedDocumentView(frame: NSRect(x: 0, y: 0, width: 300, height: contentHeight))
+        scrollView.documentView = documentView
+        scrollView.hasVerticalScroller = false
+        let follower = WorkerChatBottomFollowerView()
+        let rowsHeight = rows ?? contentHeight - 2 * WorkerChatMetrics.inset
+        follower.frame = NSRect(x: 0, y: contentHeight - WorkerChatMetrics.inset - rowsHeight, width: 300, height: rowsHeight)
+        documentView.addSubview(follower)
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = scrollView
+        window.orderFrontRegardless()
+        holdMotion(scrollView, true)
+        return FollowerFixture(window: window, scrollView: scrollView, documentView: documentView, follower: follower)
+    }
+
+    private static func pump(_ seconds: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    /// Stops or restarts the clock for `view`'s layer tree. While it is stopped, a glide or fade holds its start
+    /// for as long as the run loop runs, so a check never races an animation that has run out on a slow host.
+    /// Restarting the clock runs the held animations from where they stopped.
+    private static func holdMotion(_ view: NSView, _ held: Bool) {
+        view.layer?.speed = held ? 0 : 1
+    }
+
+    /// Pumps the run loop until `condition` holds, for at most five seconds, and reports whether it did.
+    /// The name must start at its column past the logo in a proportional chat font too. A Ghostty family can be
+    /// proportional, where the lead's space is narrower than the font's widest glyph.
+    private static func testWorkerChatNameStartsPastLogoInAnyChatFont() throws {
+        let fonts: [(label: String, chat: NSFont, name: NSFont)] = [
+            ("monospace", AppFonts.chat, AppFonts.chatName),
+            ("proportional", .systemFont(ofSize: 12), .systemFont(ofSize: 12, weight: .bold)),
+        ]
+        let expectedNameX = WorkerChatMetrics.timeColumnWidth + WorkerChatMetrics.logoColumnWidth
+        for font in fonts {
+            let nameX = try nameInkX(chatFont: font.chat, nameFont: font.name)
+            try expect(abs(nameX - expectedNameX) <= 1, "the name should start at x \(expectedNameX) with a \(font.label) chat font, got \(nameX)")
+        }
+    }
+
+    /// The x in points of the first ink right of the logo column, drawn by the line view alone. The name is one
+    /// glyph, so the first ink is where the name starts: a gap between letters can't hide it.
+    private static func nameInkX(chatFont: NSFont, nameFont: NSFont) throws -> CGFloat {
+        let width: CGFloat = 300
+        let height = WorkerChatMetrics.lineHeight
+        let line = WorkerChatLine(id: "name", time: "08:20", agent: "codex", segments: [
+            WorkerChatSegment("I", .name),
+        ])
+        let hosting = NSHostingView(rootView: WorkerChatLineView(line: line, chatFont: chatFont, nameFont: nameFont)
+            .frame(width: width, height: height, alignment: .topLeading))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: width, height: height),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        hosting.layoutSubtreeIfNeeded()
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            throw TestFailure("the line view should capture to a bitmap")
+        }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / width
+        let logoEnd = WorkerChatMetrics.timeColumnWidth + WorkerChatMetrics.logoColumnWidth
+        for pixelX in Int(logoEnd * scale)..<bitmap.pixelsWide {
+            let hasInk = (0..<bitmap.pixelsHigh).contains { pixelY in
+                (bitmap.colorAt(x: pixelX, y: pixelY)?.alphaComponent ?? 0) > 0
+            }
+            if hasInk {
+                return CGFloat(pixelX) / scale
+            }
+        }
+        throw TestFailure("the name should draw past the logo")
+    }
+
+    private static func waitUntil(_ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while !condition() {
+            if Date() >= deadline {
+                return false
+            }
+            pump(0.005)
+        }
+        return true
+    }
+
+    private static func hasGlide(_ view: NSView) -> Bool {
+        !(view.layer?.animationKeys() ?? []).isEmpty
+    }
+
+    /// Checks the glide that was added on `view`. It reads the layer now, so call it right after the layout that
+    /// added the glide, before any run-loop wait.
+    private static func expectGlideAdded(on view: NSView, startsBetween low: CGFloat, and high: CGFloat) throws {
+        guard let glide = view.layer?.animation(forKey: WorkerChatMotion.glideKey) as? CABasicAnimation else {
+            throw TestFailure("an arrival should add the glide animation under its key")
+        }
+        try expectGlide(glide, on: view, startsBetween: low, and: high)
+    }
+
+    /// Checks a glide: a y translation from a start in the given range to zero, lasting the glide duration,
+    /// with the model transform on `view` left at identity.
+    private static func expectGlide(_ glide: CABasicAnimation, on view: NSView, startsBetween low: CGFloat, and high: CGFloat) throws {
+        try expect(glide.keyPath == "transform.translation.y", "the glide should move the document's y translation, got \(String(describing: glide.keyPath))")
+        try expect((glide.toValue as? NSNumber)?.doubleValue == 0, "the glide should end at zero, got \(String(describing: glide.toValue))")
+        let start = (glide.fromValue as? NSNumber)?.doubleValue ?? .nan
+        try expect(start >= low - 0.001 && start <= high + 0.001, "the glide should start between \(low) and \(high) points, got \(start)")
+        try expect(glide.duration == WorkerChatMotion.glideDuration, "the glide should last \(WorkerChatMotion.glideDuration)s, got \(glide.duration)")
+        try expect(CATransform3DIsIdentity(view.layer?.transform ?? CATransform3DIdentity), "the model transform should stay at identity while the glide runs")
+    }
+
+    /// A line arriving while the feed follows glides in, and a second arrival mid-glide keeps the
+    /// follower at the bottom. Only the clip bounds decide follow state, and they never animate.
+    private static func testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
+        try expect(fixture.follower.isFollowing, "a fresh feed should follow")
+        try expect(!hasGlide(fixture.documentView), "the first layout should not glide")
+
+        fixture.grow(to: 1026)
+        try expect(waitUntil { fixture.origin == 826 }, "an arrival should move the clip to the new bottom at once, got \(fixture.origin)")
+        try expectGlideAdded(on: fixture.documentView, startsBetween: 26, and: 26)
+
+        fixture.grow(to: 1052)
+        try expect(waitUntil { fixture.origin == 852 }, "a second arrival mid-glide should still pin, got \(fixture.origin)")
+        try expect(fixture.follower.isFollowing, "a line arriving mid-glide should keep following")
+        try expectGlideAdded(on: fixture.documentView, startsBetween: 26, and: 52)
+    }
+
+    /// A trim pins to the bottom without a glide, and the next arrival still glides. A viewport resize
+    /// pins without a glide too. It runs on its own fixture, since a glide from an arrival may still
+    /// be in flight.
+    private static func testWorkerChatFollowerDoesNotGlideOnTrimOrResize() throws {
+        let trimmed = followerFixture(contentHeight: 1000)
+        defer { trimmed.window.close() }
+        try expect(waitUntil { trimmed.origin == 800 }, "a fresh feed should pin to the bottom, got \(trimmed.origin)")
+        trimmed.follower.noteLinesUpdate(revision: 1, trimCount: 1, appended: false)
+        trimmed.grow(to: 974)
+        try expect(waitUntil { trimmed.origin == 774 }, "a trim with shorter wrapped rows should pin to the bottom, got \(trimmed.origin)")
+        try expect(!hasGlide(trimmed.documentView), "a trim update should not glide")
+        try expect(trimmed.follower.isFollowing, "a trim update should keep following")
+
+        trimmed.follower.noteLinesUpdate(revision: 2, trimCount: 1, appended: false)
+        trimmed.grow(to: 1000)
+        try expect(waitUntil { hasGlide(trimmed.documentView) }, "an arrival after the trim update should glide again")
+
+        let resized = followerFixture(contentHeight: 1000)
+        defer { resized.window.close() }
+        try expect(waitUntil { resized.origin == 800 }, "a fresh feed should pin to the bottom, got \(resized.origin)")
+        resized.resize(height: 240)
+        try expect(waitUntil { resized.origin == 760 }, "a resize should pin to the new bottom, got \(resized.origin)")
+        try expect(!hasGlide(resized.documentView), "a viewport resize should not glide")
+        try expect(resized.follower.isFollowing, "a resize should keep following")
+    }
+
+    /// A trim that leaves the content height unchanged never reaches a height callback. The flag must
+    /// still not outlive that update: the next arrival glides.
+    private static func testWorkerChatEqualHeightTrimDoesNotSkipTheNextArrivalGlide() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
+
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1, appended: false)
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 1, appended: false)
+        fixture.grow(to: 1026)
+        try expect(waitUntil { fixture.origin == 826 }, "the arrival should pin to the bottom, got \(fixture.origin)")
+        try expectGlideAdded(on: fixture.documentView, startsBetween: 26, and: 26)
+    }
+
+    /// SwiftUI can render one lines update twice before its layout. The second render must not clear
+    /// the trim flag, or the trim's layout would glide.
+    private static func testWorkerChatRepeatedRenderBeforeLayoutKeepsTrimSuppressed() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
+
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1, appended: false)
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 1, appended: false)
+        fixture.grow(to: 974)
+        try expect(waitUntil { fixture.origin == 774 }, "the trim should pin to the bottom, got \(fixture.origin)")
+        try expect(!hasGlide(fixture.documentView), "a trim should not glide even when rendered twice before layout")
+    }
+
+    /// The real feed, through SwiftUI's update path: a trim with wrapped rows (the content height
+    /// drops by an amount no single row explains) pins without a glide, and the next arrival glides.
+    private static func testWorkerChatTrimWithWrappedRowsSkipsGlide() throws {
+        let hosting = NSHostingView(rootView: wrappedFeed(count: 30, revision: 1, trimCount: 0, appended: false))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
+        guard let scrollView = descendant(NSScrollView.self, in: hosting),
+              let follower = descendant(WorkerChatBottomFollowerView.self, in: hosting),
+              let documentView = scrollView.documentView else {
+            throw TestFailure("the worker chat feed should host a scroll view and its follower")
+        }
+        holdMotion(scrollView, true)
+        let viewport = { scrollView.contentView.bounds.height }
+        let bottom = { documentView.frame.height - viewport() }
+        try expect(waitUntil { documentView.frame.height > viewport() }, "the first layout should fill the feed")
+        try expect(waitUntil { abs(scrollView.contentView.bounds.origin.y - bottom()) < 1 }, "the first layout should pin to the bottom")
+        try expect(follower.isFollowing, "a fresh feed should follow")
+        try expect(!hasGlide(documentView), "the first layout should not glide")
+
+        let heightBeforeTrim = documentView.frame.height
+        hosting.rootView = wrappedFeed(count: 22, revision: 2, trimCount: 1, appended: false)
+        try expect(waitUntil { documentView.frame.height < heightBeforeTrim }, "the trim should shorten the content")
+        try expect(waitUntil { abs(scrollView.contentView.bounds.origin.y - bottom()) < 1 }, "a trim should pin to the new bottom")
+        try expect(!hasGlide(documentView), "a wrapped-row trim should not glide")
+        try expect(follower.isFollowing, "a trim should keep following")
+
+        hosting.rootView = wrappedFeed(count: 23, revision: 3, trimCount: 1, appended: true)
+        try expect(waitUntil { hasGlide(documentView) }, "an arrival after the trim should glide")
+    }
+
+    /// Every third entry wraps to several lines at the 300pt test width, unless `wraps` is false. The line count
+    /// depends on the font, so a test that needs a feed to stay short passes `wraps: false`.
+    private static func wrappedFeed(count: Int, revision: Int, trimCount: Int, appended: Bool, wraps: Bool = true) -> some View {
+        let wrapped = String(repeating: "wrapped words in a long line ", count: 6)
+        let lines = (0..<count).map { index in
+            WorkerChatLine(id: "e\(index)", time: "09:00", agent: "claude", segments: [
+                WorkerChatSegment("Worker One:", .name),
+                WorkerChatSegment(" \(index) \(wraps && index % 3 == 0 ? wrapped : "short")", .normal),
+            ])
+        }
+        return WorkerChatFeedView(lines: lines, revision: revision, trimCount: trimCount, appended: appended).frame(width: 300, height: 200)
+    }
+
+    /// Finds the first descendant of `type`, for the SwiftUI-hosted feed.
+    private static func descendant<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
+        if let match = view as? T {
+            return match
+        }
+        for subview in view.subviews {
+            if let match = descendant(type, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    /// Checks the fade on a band. It reads the band now, so call it right after the layout that added the fade.
+    private static func expectFadeAdded(on band: CALayer) throws {
+        guard let fade = band.animation(forKey: WorkerChatMotion.enterKey) as? CABasicAnimation else {
+            throw TestFailure("a fade band should carry its fade under the enter key")
+        }
+        try expectFade(fade, on: band)
+    }
+
+    /// Checks a fade: opacity from transparent to opaque over the enter duration. The model stays opaque, so
+    /// the rows are fully visible once the fade is gone.
+    private static func expectFade(_ fade: CABasicAnimation, on band: CALayer) throws {
+        try expect(fade.keyPath == "opacity", "the fade should animate opacity, got \(String(describing: fade.keyPath))")
+        try expect((fade.fromValue as? NSNumber)?.doubleValue == 0, "the fade should start transparent, got \(String(describing: fade.fromValue))")
+        try expect((fade.toValue as? NSNumber)?.doubleValue == 1, "the fade should end opaque, got \(String(describing: fade.toValue))")
+        try expect(fade.duration == WorkerChatMotion.enterDuration, "the fade should last \(WorkerChatMotion.enterDuration)s, got \(fade.duration)")
+        try expect(band.opacity == 1, "the band's model opacity should stay opaque, got \(band.opacity)")
+    }
+
+    /// A band must cover exactly the document rows from `top` to `bottom`.
+    private static func expectBand(_ band: CALayer, from top: CGFloat, to bottom: CGFloat) throws {
+        try expect(
+            abs(band.frame.minY - top) < 0.5 && abs(band.frame.maxY - bottom) < 0.5,
+            "the band should cover document rows \(top) to \(bottom), got \(band.frame)"
+        )
+    }
+
+    /// The fade bands on a document's mask, in the order they were added.
+    private static func fadeBands(on view: NSView) -> [CALayer] {
+        Array(view.layer?.mask?.sublayers?.dropFirst() ?? [])
+    }
+
+    /// The opaque base on a document's mask, which covers everything above the first band.
+    private static func maskBase(on view: NSView) -> CALayer? {
+        view.layer?.mask?.sublayers?.first
+    }
+
+    /// Where each drawn content layer under `layer` sits, in `layer`'s own coordinates. The rows are
+    /// drawn into layers like these, so their frames show where the rows are.
+    private static func contentFrames(in layer: CALayer?) -> [CGRect] {
+        guard let layer else {
+            return []
+        }
+        var frames: [CGRect] = []
+        func collect(_ parent: CALayer) {
+            for child in parent.sublayers ?? [] {
+                if child.contents != nil {
+                    frames.append(layer.convert(child.bounds, from: child))
+                }
+                collect(child)
+            }
+        }
+        collect(layer)
+        return frames
+    }
+
+    /// An arrival while following fades in its own rows: the band runs from the old bottom padding to
+    /// the new one, and the rows above it sit on the opaque base.
+    private static func testWorkerChatArrivalFadesItsRowsIn() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
+        try expect(fixture.documentView.layer?.mask == nil, "the first layout should not fade")
+
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        fixture.grow(to: 1026)
+        try expect(waitUntil { fixture.origin == 826 }, "the arrival should pin to the bottom, got \(fixture.origin)")
+        let bands = fadeBands(on: fixture.documentView)
+        try expect(bands.count == 1, "an arrival should add one fade band, got \(bands.count)")
+        try expectBand(bands[0], from: 980, to: 1006)
+        try expectFadeAdded(on: bands[0])
+        try expect(maskBase(on: fixture.documentView)?.frame.height == 980, "the base should end where the band starts")
+        try expect(fixture.documentView.layer?.mask?.frame.size == fixture.documentView.bounds.size, "the mask should span the document")
+    }
+
+    /// A second arrival during the first fade adds its own band below it. The first band keeps its fade,
+    /// so its rows keep their timing and don't restart from transparent.
+    private static func testWorkerChatArrivalDuringAFadeKeepsTheEarlierBand() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        fixture.grow(to: 1026)
+        try expect(waitUntil { fixture.origin == 826 }, "the first arrival should pin to the bottom, got \(fixture.origin)")
+        guard let first = fadeBands(on: fixture.documentView).first, let firstFade = first.animation(forKey: WorkerChatMotion.enterKey) else {
+            throw TestFailure("the first arrival should add a fade band")
+        }
+        // The clock is stopped, so the first fade is still in flight however long the run loop takes.
+        pump(0.5)
+        try expect(first.animation(forKey: WorkerChatMotion.enterKey) === firstFade, "a fade should hold while the clock is stopped")
+
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: true)
+        fixture.grow(to: 1052)
+        try expect(waitUntil { fixture.origin == 852 }, "the second arrival should pin to the bottom, got \(fixture.origin)")
+        try expect(fixture.follower.isFollowing, "an arrival during a fade should keep following")
+        let bands = fadeBands(on: fixture.documentView)
+        try expect(bands.count == 2, "an arrival during a fade should add a second band, got \(bands.count)")
+        try expect(bands[0] === first && bands[0].animation(forKey: WorkerChatMotion.enterKey) === firstFade, "the first band should keep its fade")
+        try expectBand(bands[1], from: 1006, to: 1032)
+        try expectFadeAdded(on: bands[1])
+        try expect(maskBase(on: fixture.documentView)?.frame.height == 980, "the base should still end where the first band starts")
+    }
+
+    /// A burst of lines in one update fades in as one band over all of them, and ends at the bottom.
+    private static func testWorkerChatBurstFadesEveryNewRowInOneBand() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        fixture.grow(to: 1156)
+        try expect(waitUntil { fixture.origin == 956 }, "a burst should pin to the bottom, got \(fixture.origin)")
+        let bands = fadeBands(on: fixture.documentView)
+        try expect(bands.count == 1, "a burst in one update should add one band, got \(bands.count)")
+        try expectBand(bands[0], from: 980, to: 1136)
+        try expectFadeAdded(on: bands[0])
+    }
+
+    /// A fade that ends folds its band into the base, and the last one leaves the document unmasked. The
+    /// end is driven by removing the fade, which runs the same completion as one that finishes on its own.
+    private static func testWorkerChatFadesEndIntoTheBaseAndLeaveNoMask() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        fixture.grow(to: 1026)
+        try expect(waitUntil { fixture.origin == 826 }, "the first arrival should pin to the bottom, got \(fixture.origin)")
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: true)
+        fixture.grow(to: 1052)
+        try expect(waitUntil { fixture.origin == 852 }, "the second arrival should pin to the bottom, got \(fixture.origin)")
+        let bands = fadeBands(on: fixture.documentView)
+        try expect(bands.count == 2, "two arrivals should leave two fade bands, got \(bands.count)")
+
+        bands[0].removeAnimation(forKey: WorkerChatMotion.enterKey)
+        try expect(waitUntil { bands[0].superlayer == nil }, "the first fade's end should drop its band")
+        try expect((maskBase(on: fixture.documentView)?.frame.height ?? .infinity) >= 1006 - 0.5, "the base should cover the first band, got \(String(describing: maskBase(on: fixture.documentView)?.frame))")
+
+        bands[1].removeAnimation(forKey: WorkerChatMotion.enterKey)
+        try expect(waitUntil { fixture.documentView.layer?.mask == nil }, "the last fade's end should remove the mask")
+    }
+
+    /// Scrolled up, an arrival adds no fade. An update that isn't an append adds none either, since its
+    /// rows don't sit below the old ones. The glide still runs for it.
+    private static func testWorkerChatFadeNeedsFollowingAndAnAppend() throws {
+        let scrolled = followerFixture(contentHeight: 1000)
+        defer { scrolled.window.close() }
+        try expect(waitUntil { scrolled.origin == 800 }, "a fresh feed should pin to the bottom, got \(scrolled.origin)")
+        scrolled.scroll(to: 0)
+        try expect(waitUntil { !scrolled.follower.isFollowing }, "scrolling to the top should stop following")
+        scrolled.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        scrolled.grow(to: 1026)
+        try expect(scrolled.documentView.layer?.mask == nil, "an arrival while scrolled up should not fade")
+
+        let rewrapped = followerFixture(contentHeight: 1000)
+        defer { rewrapped.window.close() }
+        try expect(waitUntil { rewrapped.origin == 800 }, "a fresh feed should pin to the bottom, got \(rewrapped.origin)")
+        rewrapped.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: false)
+        rewrapped.grow(to: 1026)
+        try expect(waitUntil { rewrapped.origin == 826 }, "the update should pin to the bottom, got \(rewrapped.origin)")
+        try expect(rewrapped.documentView.layer?.mask == nil, "an update that isn't an append should not fade")
+        try expectGlideAdded(on: rewrapped.documentView, startsBetween: 26, and: 26)
+    }
+
+    /// A trim or a viewport resize during a fade ends it at once, since the rows it sits over have moved.
+    private static func testWorkerChatTrimAndResizeEndARunningFade() throws {
+        let trimmed = followerFixture(contentHeight: 1000)
+        defer { trimmed.window.close() }
+        try expect(waitUntil { trimmed.origin == 800 }, "a fresh feed should pin to the bottom, got \(trimmed.origin)")
+        trimmed.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        trimmed.grow(to: 1026)
+        try expect(waitUntil { trimmed.origin == 826 }, "the arrival should pin to the bottom, got \(trimmed.origin)")
+        try expect(trimmed.documentView.layer?.mask != nil, "the arrival should start a fade")
+        trimmed.follower.noteLinesUpdate(revision: 2, trimCount: 1, appended: false)
+        trimmed.grow(to: 1000)
+        try expect(waitUntil { trimmed.origin == 800 }, "the trim should pin to the new bottom, got \(trimmed.origin)")
+        try expect(trimmed.documentView.layer?.mask == nil, "a trim should end the running fade")
+
+        let resized = followerFixture(contentHeight: 1000)
+        defer { resized.window.close() }
+        try expect(waitUntil { resized.origin == 800 }, "a fresh feed should pin to the bottom, got \(resized.origin)")
+        resized.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        resized.grow(to: 1026)
+        try expect(waitUntil { resized.origin == 826 }, "the arrival should pin to the bottom, got \(resized.origin)")
+        try expect(resized.documentView.layer?.mask != nil, "the arrival should start a fade before the resize")
+        resized.resize(height: 240)
+        try expect(waitUntil { resized.origin == 786 }, "the resize should pin to the new bottom, got \(resized.origin)")
+        try expect(resized.documentView.layer?.mask == nil, "a viewport resize should end the running fade")
+    }
+
+    /// The real feed, hosted: an arrival while following glides and fades in its rows, and the end of
+    /// the fade removes the mask. The band lines up with the document's own rows.
+    private static func testWorkerChatHostedArrivalGlidesAndFades() throws {
+        let hosting = NSHostingView(rootView: wrappedFeed(count: 30, revision: 1, trimCount: 0, appended: false))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
+        guard let scrollView = descendant(NSScrollView.self, in: hosting), let documentView = scrollView.documentView else {
+            throw TestFailure("the worker chat feed should host a scroll view with a document")
+        }
+        let viewport = { scrollView.contentView.bounds.height }
+        holdMotion(scrollView, true)
+        try expect(waitUntil { documentView.frame.height > viewport() }, "the first layout should fill the feed")
+        try expect(waitUntil { abs(scrollView.contentView.bounds.origin.y - (documentView.frame.height - viewport())) < 1 }, "the first layout should pin to the bottom")
+        try expect(documentView.layer?.mask == nil, "the first layout should not fade")
+
+        let heightBefore = documentView.frame.height
+        hosting.rootView = wrappedFeed(count: 31, revision: 2, trimCount: 0, appended: true)
+        guard let arrival = waitForArrival(on: documentView) else {
+            throw TestFailure("an arrival while following should fade its rows in and glide them")
+        }
+        pump(0.5)
+        try expect(arrival.band.animation(forKey: WorkerChatMotion.enterKey) === arrival.fade, "the fade should hold while the clock is stopped")
+        try expect(documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) === arrival.glide, "the glide should hold while the clock is stopped")
+        try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
+        try expectBand(arrival.band, from: heightBefore - WorkerChatMetrics.inset, to: documentView.frame.height - WorkerChatMetrics.inset)
+        try expectFade(arrival.fade, on: arrival.band)
+        try expectGlide(arrival.glide, on: documentView, startsBetween: 1, and: viewport())
+        try expectRowsClearOfBand(arrival.band.frame, in: documentView.layer)
+
+        holdMotion(scrollView, false)
+        try expect(waitUntil { documentView.layer?.mask == nil }, "a fade that runs out should remove the mask")
+    }
+
+    /// No drawn row may straddle the band's edges, and at least one row must sit inside the band.
+    private static func expectRowsClearOfBand(_ band: CGRect, in layer: CALayer?) throws {
+        let isAboveOrInside = { (row: CGRect) in
+            row.maxY <= band.minY + 0.5 || (row.minY >= band.minY - 0.5 && row.maxY <= band.maxY + 0.5)
+        }
+        let rows = contentFrames(in: layer)
+        try expect(rows.contains { isAboveOrInside($0) && $0.minY >= band.minY - 0.5 }, "the new row should sit in the band")
+        try expect(rows.allSatisfy(isAboveOrInside), "no row should straddle the band's edge, so the band covers exactly the new rows")
+    }
+
+    /// SwiftUI can grow the rows before the document. A band added then sits past the document's old edge, so the
+    /// mask has to follow the document when it grows.
+    private static func testWorkerChatRowsGrowingBeforeTheDocumentKeepTheMaskOverTheirFade() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        fixture.grow(to: 1026)
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: true)
+        fixture.follower.frame = NSRect(x: 0, y: WorkerChatMetrics.inset, width: 300, height: 1012)
+        fixture.follower.sync(fixture.scrollView)
+        try expect(fadeBands(on: fixture.documentView).count == 1, "the rows should fade in before the document grows")
+
+        fixture.documentView.setFrameSize(NSSize(width: 300, height: 1052))
+        fixture.follower.sync(fixture.scrollView)
+        guard let mask = fixture.documentView.layer?.mask else {
+            throw TestFailure("the fade should still be running once the document has grown")
+        }
+        try expect(mask.frame.height == 1052, "the mask should follow the document, got \(mask.frame.height)")
+        try expectBand(fadeBands(on: fixture.documentView)[0], from: 1006, to: 1032)
+    }
+
+    /// An edit or a trim that keeps the rows' height moves nothing, so it ends a running fade on its own.
+    private static func testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        fixture.grow(to: 1026)
+        try expect(fixture.documentView.layer?.mask != nil, "the arrival should start a fade")
+
+        fixture.follower.noteLinesUpdate(revision: 2, trimCount: 0, appended: false)
+        try expect(fixture.documentView.layer?.mask == nil, "an edit that keeps the rows' height should end the fade")
+
+        fixture.follower.noteLinesUpdate(revision: 3, trimCount: 0, appended: true)
+        fixture.grow(to: 1052)
+        try expect(fixture.documentView.layer?.mask != nil, "a second arrival should start a fade")
+        fixture.follower.noteLinesUpdate(revision: 4, trimCount: 1, appended: false)
+        try expect(fixture.documentView.layer?.mask == nil, "an equal-height trim should end the fade")
+    }
+
+    /// A short feed that gains rows past the viewport turns tall. The clip moves down while the rows move up in the
+    /// document, so the glide covers both: the old rows start where they were on screen and glide to their place.
+    private static func testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace() throws {
+        let fixture = followerFixture(contentHeight: 200, rows: 100)
+        defer { fixture.window.close() }
+        try expect(fixture.origin == 0, "a short feed should sit at the top of the clip, got \(fixture.origin)")
+        let rowsTopBefore = fixture.follower.frame.minY
+        try expect(rowsTopBefore == 80, "100 pt of rows should sit on the bottom padding of a 200 pt feed, got \(rowsTopBefore)")
+
+        fixture.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        fixture.show(rows: 200)
+        try expect(fixture.origin == 40, "the crossing should pin to the new bottom, got \(fixture.origin)")
+        try expectGlideAdded(on: fixture.documentView, startsBetween: 100, and: 100)
+        guard let glide = fixture.documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) as? CABasicAnimation,
+              let start = (glide.fromValue as? NSNumber)?.doubleValue else {
+            throw TestFailure("the crossing should add a glide with a start value")
+        }
+        let shownTop = fixture.follower.frame.minY - fixture.origin + CGFloat(start)
+        try expect(abs(shownTop - rowsTopBefore) < 0.5, "the old rows should start where they were on screen, at \(rowsTopBefore), got \(shownTop)")
+        try expectBand(fadeBands(on: fixture.documentView)[0], from: 120, to: 220)
+
+        // Rows first: the rows reach their new place while the document is still short, then the document grows.
+        // The first glide starts from the rows' move, and the second, uncommitted, starts from the first glide's start.
+        let rowsFirst = followerFixture(contentHeight: 200, rows: 100)
+        defer { rowsFirst.window.close() }
+        rowsFirst.follower.noteLinesUpdate(revision: 1, trimCount: 0, appended: true)
+        rowsFirst.follower.frame = NSRect(x: 0, y: WorkerChatMetrics.inset, width: 300, height: 200)
+        rowsFirst.follower.sync(rowsFirst.scrollView)
+        try expectBand(fadeBands(on: rowsFirst.documentView)[0], from: 120, to: 220)
+        try expect(rowsFirst.origin == 0, "the short feed should not move the clip yet, got \(rowsFirst.origin)")
+
+        rowsFirst.documentView.setFrameSize(NSSize(width: 300, height: 240))
+        rowsFirst.follower.sync(rowsFirst.scrollView)
+        try expect(rowsFirst.origin == 40, "the document's growth should pin to the new bottom, got \(rowsFirst.origin)")
+        try expectBand(fadeBands(on: rowsFirst.documentView)[0], from: 120, to: 220)
+        try expect(rowsFirst.documentView.layer?.mask?.frame.height == 240, "the mask should follow the document")
+        try expectGlideAdded(on: rowsFirst.documentView, startsBetween: 100, and: 100)
+    }
+
+    /// The fade band and the glide that one arrival added to a hosted feed.
+    private struct Arrival {
+        let band: CALayer
+        let fade: CABasicAnimation
+        let glide: CABasicAnimation
+    }
+
+    /// Pumps until a hosted feed shows an arrival's fade and glide, for at most five seconds. Both are captured in
+    /// the same check, so the arrival can be inspected even after its animations have run out.
+    private static func waitForArrival(on view: NSView) -> Arrival? {
+        var arrival: Arrival?
+        let found = waitUntil {
+            guard let band = fadeBands(on: view).last,
+                  let fade = band.animation(forKey: WorkerChatMotion.enterKey) as? CABasicAnimation,
+                  let glide = view.layer?.animation(forKey: WorkerChatMotion.glideKey) as? CABasicAnimation else {
+                return false
+            }
+            arrival = Arrival(band: band, fade: fade, glide: glide)
+            return true
+        }
+        return found ? arrival : nil
+    }
+
+    /// The real feed, hosted, while it fits the viewport: the document keeps its height, so an arrival shows
+    /// only in the rows' frame. It fades the rows it added and lifts the rows into place.
+    private static func testWorkerChatShortFeedArrivalFadesAndLifts() throws {
+        let hosting = NSHostingView(rootView: wrappedFeed(count: 1, revision: 1, trimCount: 0, appended: true, wraps: false))
+        let window = NSWindow(
+            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = hosting
+        window.orderFrontRegardless()
+        defer { window.close() }
+        try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
+        guard let scrollView = descendant(NSScrollView.self, in: hosting),
+              let documentView = scrollView.documentView,
+              let follower = descendant(WorkerChatBottomFollowerView.self, in: hosting) else {
+            throw TestFailure("the worker chat feed should host a scroll view, a document and a follower")
+        }
+        let viewport = scrollView.contentView.bounds.height
+        holdMotion(scrollView, true)
+        try expect(waitUntil { follower.frame.height > 0 }, "the first layout should size the rows")
+        try expect(documentView.frame.height == viewport, "one entry should leave the feed shorter than the viewport, got \(documentView.frame.height)")
+        try expect(documentView.layer?.mask == nil, "the first layout should not fade")
+
+        let documentHeight = documentView.frame.height
+        let rowsBefore = follower.frame.height
+        hosting.rootView = wrappedFeed(count: 2, revision: 2, trimCount: 0, appended: true, wraps: false)
+        try expect(waitUntil { follower.frame.height > rowsBefore }, "the arrival should grow the rows")
+        let added = follower.frame.height - rowsBefore
+        try expect(documentView.frame.height == documentHeight, "a feed that still fits should keep its document height")
+        guard let arrival = waitForArrival(on: documentView) else {
+            throw TestFailure("an arrival in a short feed should fade its rows in and lift them into place")
+        }
+        pump(0.5)
+        try expect(arrival.band.animation(forKey: WorkerChatMotion.enterKey) === arrival.fade, "the fade should hold while the clock is stopped")
+        try expect(documentView.layer?.animation(forKey: WorkerChatMotion.glideKey) === arrival.glide, "the lift should hold while the clock is stopped")
+        try expect(fadeBands(on: documentView).count == 1, "one arrival should add one fade band, got \(fadeBands(on: documentView).count)")
+        try expectBand(arrival.band, from: documentHeight - WorkerChatMetrics.inset - added, to: documentHeight - WorkerChatMetrics.inset)
+        try expectFade(arrival.fade, on: arrival.band)
+        try expectGlide(arrival.glide, on: documentView, startsBetween: added, and: added)
+        try expectRowsClearOfBand(arrival.band.frame, in: documentView.layer)
+
+        holdMotion(scrollView, false)
+        try expect(waitUntil { documentView.layer?.mask == nil }, "a fade that runs out should remove the mask")
+    }
+
+    /// A live scroll takes over from a glide at once, so the content isn't left displaced.
+    private static func testWorkerChatLiveScrollCancelsGlide() throws {
+        let fixture = followerFixture(contentHeight: 1000)
+        defer { fixture.window.close() }
+        try expect(waitUntil { fixture.origin == 800 }, "a fresh feed should pin to the bottom, got \(fixture.origin)")
+        fixture.grow(to: 1026)
+        try expect(waitUntil { hasGlide(fixture.documentView) }, "the arrival should start a glide")
+
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: fixture.scrollView)
+        try expect(waitUntil { !hasGlide(fixture.documentView) }, "a live scroll should cancel the glide")
     }
 
     private static func settingsSheetModel(
@@ -1951,8 +3388,24 @@ enum LogicSelfTests {
         )
     }
 
-    private static func drainMainQueue() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    private static func waitForMainQueue(
+        _ description: String,
+        timeout: TimeInterval = 10,
+        until condition: () -> Bool
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: min(Date().addingTimeInterval(0.01), deadline))
+        }
+        try expect(condition(), "timed out waiting for \(description) after \(Int(timeout)) seconds")
+    }
+
+    private static func waitForMainQueueTurn() throws {
+        var didRun = false
+        DispatchQueue.main.async {
+            didRun = true
+        }
+        try waitForMainQueue("queued main-thread work", until: { didRun })
     }
 
     private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
@@ -1969,10 +3422,14 @@ enum LogicSelfTests {
     }
 
     private static func keyEvent(_ characters: String, keyCode: UInt16) throws -> NSEvent {
+        try keyEvent(characters, keyCode: keyCode, modifierFlags: [])
+    }
+
+    private static func keyEvent(_ characters: String, keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) throws -> NSEvent {
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [],
+            modifierFlags: modifierFlags,
             timestamp: 0,
             windowNumber: 0,
             context: nil,
@@ -1984,6 +3441,39 @@ enum LogicSelfTests {
             throw TestFailure("could not create \(characters) key event")
         }
         return event
+    }
+
+    /// Monaco ships Regular only. CoreText would hand back Regular for semibold, bold and italic requests, so each
+    /// request must fall through to the system mono at the requested weight and style.
+    private static func testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace() throws {
+        try expect(GhosttyFontFamily.face(family: "Monaco", size: 12, weight: .regular, italic: false) != nil, "Monaco should supply its regular face")
+        try expect(GhosttyFontFamily.face(family: "Monaco", size: 12, weight: .semibold, italic: false) == nil, "Monaco has no semibold face")
+        try expect(GhosttyFontFamily.face(family: "Monaco", size: 12, weight: .bold, italic: false) == nil, "Monaco has no bold face")
+        try expect(GhosttyFontFamily.face(family: "Monaco", size: 12, weight: .regular, italic: true) == nil, "Monaco has no italic face")
+        for (weight, italic) in [(NSFont.Weight.semibold, false), (.bold, false), (.regular, true)] {
+            let font = AppFonts.font(family: "Monaco", size: 12, weight: weight, italic: italic)
+            try expect(font.isFixedPitch, "the fallback for weight \(weight.rawValue) italic \(italic) should be monospaced")
+            try expect(GhosttyFontFamily.matches(font, weight: weight, italic: italic), "the fallback should keep weight \(weight.rawValue) and italic \(italic)")
+        }
+    }
+
+    /// Menlo has Bold but no Semibold. CoreText would substitute Bold for a semibold request, which is the wrong weight.
+    private static func testMenloSemiboldIsNotSubstitutedWithBold() throws {
+        try expect(GhosttyFontFamily.face(family: "Menlo", size: 12, weight: .semibold, italic: false) == nil, "Menlo has no semibold face")
+        try expect(GhosttyFontFamily.face(family: "Menlo", size: 12, weight: .bold, italic: false) != nil, "Menlo should supply its bold face")
+    }
+
+    private static func testAppFontsUseGhosttyFamilyWhenItHasTheFace() throws {
+        let font = AppFonts.font(family: "Menlo", size: 12, weight: .regular, italic: true)
+        try expect(font.familyName == "Menlo", "Menlo italic should resolve from Menlo, got \(font.familyName ?? "nil")")
+        try expect(GhosttyFontFamily.matches(font, weight: .regular, italic: true), "Menlo italic should keep its italic trait")
+    }
+
+    /// Markdown takes the family only when it has regular, semibold and italic faces. Monaco and Menlo lack semibold.
+    private static func testMarkdownFamilyNeedsEveryFaceItsThemesUse() throws {
+        try expect(GhosttyFontFamily.markdownFamily(for: nil) == .system(.monospaced), "no family should give the system mono")
+        try expect(GhosttyFontFamily.markdownFamily(for: "Monaco") == .system(.monospaced), "Monaco has no semibold, so Markdown should use the system mono")
+        try expect(GhosttyFontFamily.markdownFamily(for: "Menlo") == .system(.monospaced), "Menlo has no semibold, so Markdown should use the system mono")
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {

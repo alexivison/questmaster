@@ -17,9 +17,8 @@ const (
 
 	// OpenCode role agent names installed by the hooks.OpenCodeInstaller and
 	// selected by OpenCode.BuildCmd.
-	OpenCodeMasterAgentName     = "questmaster-master"
-	OpenCodeStandaloneAgentName = "questmaster-standalone"
-	OpenCodeWorkerAgentName     = "questmaster-worker"
+	OpenCodeMasterAgentName = "questmaster-master"
+	OpenCodeWorkerAgentName = "questmaster-worker"
 )
 
 var openCodeSpec = Spec{
@@ -132,13 +131,9 @@ func (o *OpenCode) agentName(role SessionRole) string {
 		return o.openCodeAgent
 	}
 	switch role {
-	case RoleMaster:
-		return OpenCodeMasterAgentName
 	case RoleWorker:
 		return OpenCodeWorkerAgentName
-	case RoleStandalone:
-		fallthrough
 	default:
-		return OpenCodeStandaloneAgentName
+		return OpenCodeMasterAgentName
 	}
 }

@@ -8,19 +8,34 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let model: DockPaneModel
     private let newQuestPresenter: NewQuestSheetPresenter
     private let settingsPresenter: SettingsSheetPresenter
+    private let workerChatStore: WorkerChatStore
+    private var readSurfaceGTracker = GPrefixTracker()
 
-    init(store: RuntimeStore, newQuestPresenter: NewQuestSheetPresenter, settingsPresenter: SettingsSheetPresenter) {
+    init(
+        store: RuntimeStore,
+        workerChatStore: WorkerChatStore,
+        newQuestPresenter: NewQuestSheetPresenter,
+        settingsPresenter: SettingsSheetPresenter
+    ) {
         self.store = store
+        self.workerChatStore = workerChatStore
         self.newQuestPresenter = newQuestPresenter
         self.settingsPresenter = settingsPresenter
         let model = DockPaneModel()
         self.model = model
-        super.init(rootView: DockRootView(store: store, model: model, newQuestPresenter: newQuestPresenter, settingsPresenter: settingsPresenter))
+        super.init(rootView: DockRootView(
+            store: store,
+            workerChatStore: workerChatStore,
+            model: model,
+            newQuestPresenter: newQuestPresenter,
+            settingsPresenter: settingsPresenter
+        ))
         configureModelCallbacks()
     }
 
     required init(rootView: DockRootView) {
         self.store = rootView.store
+        self.workerChatStore = rootView.workerChatStore
         self.model = rootView.model
         self.newQuestPresenter = rootView.newQuestPresenter
         self.settingsPresenter = rootView.settingsPresenter
@@ -57,10 +72,16 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
             super.keyDown(with: event)
             return
         }
+        // Reset before dispatch, not inside `handleReadSurfaceScroll`: a lone `g` must not survive
+        // `G` (a complete action, not the chord's second half), nor a key `model.handleKeyDown`
+        // consumes first and that skips `handleReadSurfaceScroll` entirely.
+        if !GChordShortcut.isPrefix(event) {
+            readSurfaceGTracker.reset()
+        }
         if model.handleKeyDown(event, snapshot: store.snapshot) {
             return
         }
-        if handleArtifactViewerScroll(event) {
+        if handleReadSurfaceScroll(event) {
             return
         }
         super.keyDown(with: event)
@@ -76,8 +97,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         if focusDirection(from: event, includeHorizontal: true) != nil {
             return super.performKeyEquivalent(with: event)
         }
+        if !GChordShortcut.isPrefix(event) {
+            readSurfaceGTracker.reset()
+        }
         return model.handleKeyDown(event, snapshot: store.snapshot)
-            || handleArtifactViewerScroll(event)
+            || handleReadSurfaceScroll(event)
             || super.performKeyEquivalent(with: event)
     }
 
@@ -88,13 +112,28 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         return responder is NSTextView || responder is NSTextField
     }
 
-    private func handleArtifactViewerScroll(_ event: NSEvent) -> Bool {
-        guard model.currentMode == .artifacts,
-              model.currentArtifactRoute == .viewer,
-              let points = Self.artifactViewerScrollPoints(for: event, viewportHeight: bounds.height) else {
+    private static let artifactViewerLineStep: CGFloat = 54
+    private static let workerChatLineStep = WorkerChatMetrics.lineHeight * 3
+
+    private func handleReadSurfaceScroll(_ event: NSEvent) -> Bool {
+        let isArtifactViewer = model.currentMode == .artifacts && model.currentArtifactRoute == .viewer
+        guard isArtifactViewer || model.currentMode == .workerChat else {
             return false
         }
-        if let webView = firstDescendant(WKWebView.self) {
+        if GChordShortcut.isJumpToBottom(event) {
+            return jumpReadSurface(toBottom: true, isArtifactViewer: isArtifactViewer)
+        }
+        if GChordShortcut.isPrefix(event) {
+            if readSurfaceGTracker.handleG() == .jumpToTop {
+                return jumpReadSurface(toBottom: false, isArtifactViewer: isArtifactViewer)
+            }
+            return true
+        }
+        let lineStep = isArtifactViewer ? Self.artifactViewerLineStep : Self.workerChatLineStep
+        guard let points = Self.readSurfaceScrollPoints(for: event, lineStep: lineStep, viewportHeight: bounds.height) else {
+            return false
+        }
+        if isArtifactViewer, let webView = firstDescendant(WKWebView.self) {
             webView.evaluateJavaScript("window.scrollBy(0, \(points));")
             return true
         }
@@ -105,7 +144,28 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         return true
     }
 
-    private static func artifactViewerScrollPoints(for event: NSEvent, viewportHeight: CGFloat) -> CGFloat? {
+    /// Jumps to the far edge of whichever read surface is active. Reuses `scroll`'s existing
+    /// origin clamp (an out-of-range magnitude lands exactly on 0 or the max), so the worker chat's
+    /// `WorkerChatBottomFollower` observes the same bounds-change it would from any other scroll and
+    /// re-derives `isFollowing` itself — no separate hook needed to resume following at the bottom.
+    private func jumpReadSurface(toBottom: Bool, isArtifactViewer: Bool) -> Bool {
+        if isArtifactViewer, let webView = firstDescendant(WKWebView.self) {
+            // `document.body.scrollHeight` falls short when the root element is the taller one;
+            // `scrollingElement` is whichever of the two the browser actually scrolls.
+            let js = toBottom
+                ? "window.scrollTo(0, (document.scrollingElement || document.documentElement).scrollHeight);"
+                : "window.scrollTo(0, 0);"
+            webView.evaluateJavaScript(js)
+            return true
+        }
+        guard let scrollView = firstDescendant(NSScrollView.self) else {
+            return false
+        }
+        scroll(scrollView, by: toBottom ? .greatestFiniteMagnitude : -.greatestFiniteMagnitude)
+        return true
+    }
+
+    private static func readSurfaceScrollPoints(for event: NSEvent, lineStep: CGFloat, viewportHeight: CGFloat) -> CGFloat? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard !flags.contains(.command),
               !flags.contains(.control),
@@ -115,11 +175,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         }
         if Keymap.Viewer.moveUpKeyCodes.matches(event.keyCode)
             || Keymap.Viewer.moveUpCharacters.matches(event.charactersIgnoringModifiers) {
-            return -54
+            return -lineStep
         }
         if Keymap.Viewer.moveDownKeyCodes.matches(event.keyCode)
             || Keymap.Viewer.moveDownCharacters.matches(event.charactersIgnoringModifiers) {
-            return 54
+            return lineStep
         }
         if Keymap.Viewer.pageUp.matches(event.keyCode) {
             return -max(60, viewportHeight * 0.82)
@@ -149,9 +209,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private func scroll(_ scrollView: NSScrollView, by points: CGFloat) {
         let clipView = scrollView.contentView
         let maxY = max(0, scrollView.documentView.map { $0.bounds.height - clipView.bounds.height } ?? 0)
+        guard maxY > 0 else {
+            return
+        }
         let nextY = min(max(0, clipView.bounds.origin.y + points), maxY)
-        clipView.scroll(to: NSPoint(x: clipView.bounds.origin.x, y: nextY))
-        scrollView.reflectScrolledClipView(clipView)
+        WorkerChatMotion.scroll(scrollView, toOffset: nextY, glides: model.currentMode == .workerChat)
     }
 
     var onShowArtifactListIntent: (() -> Void)? {
@@ -224,17 +286,39 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onControlDirection = newValue }
     }
 
+    private enum ReadSurface: Equatable {
+        case workerChat
+        case artifactViewer
+    }
+
+    private var currentReadSurface: ReadSurface? {
+        if model.currentMode == .workerChat {
+            return .workerChat
+        }
+        if model.currentMode == .artifacts && model.currentArtifactRoute == .viewer {
+            return .artifactViewer
+        }
+        return nil
+    }
+
     @discardableResult
     func apply(
         _ desired: SessionViewState,
         snapshot: RuntimeSnapshot,
         preferredArtifactSessionID: String? = nil
     ) -> ArtifactDisplayUpdate {
-        model.apply(
+        let previousSurface = currentReadSurface
+        let update = model.apply(
             desired,
             snapshot: snapshot,
             preferredArtifactSessionID: preferredArtifactSessionID
         )
+        // A pending `g` from the worker chat must not resolve against the artifact viewer (or vice
+        // versa) after a switch between the two.
+        if currentReadSurface != previousSurface {
+            readSurfaceGTracker.reset()
+        }
+        return update
     }
 
     func focusCurrentRoute(in window: NSWindow?) {
@@ -277,6 +361,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 
 struct DockRootView: View {
     let store: RuntimeStore
+    let workerChatStore: WorkerChatStore
     @ObservedObject var model: DockPaneModel
     @ObservedObject var newQuestPresenter: NewQuestSheetPresenter
     @ObservedObject var settingsPresenter: SettingsSheetPresenter
@@ -311,6 +396,8 @@ struct DockRootView: View {
                     onStart: model.startSelectedQuests,
                     onEdit: model.editSelectedQuest
                 )
+            case .workerChat:
+                WorkerChatDockView(store: workerChatStore)
             }
         }
         .background(AppPalette.panel.swiftUI)

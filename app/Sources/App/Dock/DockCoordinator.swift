@@ -45,7 +45,7 @@ final class DockCoordinator {
             switch content {
             case .artifactList:
                 $0.selectedQuestID = nil
-            case .questList:
+            case .questList, .workerChat:
                 $0.selectedArtifactID = nil
             case .artifactViewer:
                 break

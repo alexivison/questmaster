@@ -38,7 +38,7 @@ struct TrackerRecolorLogicTests {
     private static func sessionScopeBuildsRecolorRequest() {
         let target = TrackerRecolorTarget(
             sessionID: "qm-a",
-            role: "standalone",
+            role: "master",
             repoIdentity: "/repo/.git",
             displayColor: "magenta",
             repoColor: "green"
@@ -66,7 +66,7 @@ struct TrackerRecolorLogicTests {
     private static func repoScopeCanClearWithEmptyColor() {
         let target = TrackerRecolorTarget(
             sessionID: "qm-a",
-            role: "standalone",
+            role: "master",
             repoIdentity: "/repo/.git",
             displayColor: "magenta",
             repoColor: "green"
@@ -118,7 +118,7 @@ struct TrackerRecolorLogicTests {
     private static func inlineSessionEditCyclesAndConfirms() {
         let target = TrackerRecolorTarget(
             sessionID: "qm-a",
-            role: "standalone",
+            role: "master",
             repoIdentity: "/repo/.git",
             displayColor: "magenta",
             repoColor: "green"
@@ -149,7 +149,7 @@ struct TrackerRecolorLogicTests {
     private static func inlineRepoEditCyclesBackwardAndCancels() {
         let target = TrackerRecolorTarget(
             sessionID: "qm-a",
-            role: "standalone",
+            role: "master",
             repoIdentity: "/repo/.git",
             displayColor: "magenta",
             repoColor: "green"

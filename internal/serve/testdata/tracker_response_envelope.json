@@ -9,7 +9,7 @@
     "current": {
       "id": "qm-demo",
       "title": "Serve runtime JSON",
-      "session_type": "standalone"
+      "session_type": "master"
     },
     "sessions": [
       {
@@ -19,11 +19,12 @@
         "state": "working",
         "elapsed_ms": 120000,
         "elapsed_since": "2026-06-19T04:18:00Z",
+        "last_chat_at": "2026-06-19T04:19:00Z",
         "latest_activity": "Bash: go test ./...",
         "last_kind": "PreToolUse",
         "worktree_path": "/tmp/questmaster/worktrees/app-contract",
         "primary_agent": "codex",
-        "session_type": "standalone",
+        "session_type": "master",
         "worker_count": 1,
         "is_current": true,
         "artifacts": [

@@ -88,9 +88,8 @@ func (b base) EnvVar() string         { return b.spec.EnvVar }
 func (b base) BinaryEnvVar() string   { return b.spec.BinaryEnvVar }
 func (b base) FallbackPath() string   { return b.spec.FallbackPath }
 
-func (b base) MasterPrompt() string     { return masterPromptWithGuide() }
-func (b base) StandalonePrompt() string { return standalonePrompt }
-func (b base) WorkerPrompt() string     { return workerPrompt }
+func (b base) MasterPrompt() string { return masterPromptWithGuide() }
+func (b base) WorkerPrompt() string { return workerPrompt }
 
 func (b base) PreLaunchSetup(context.Context, TmuxClient, string) error { return nil }
 

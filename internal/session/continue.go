@@ -39,7 +39,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		result := ContinueResult{SessionID: sessionID, Reattach: true}
 		// Cascade even on reattach — master may be alive but workers dead.
 		m, err := s.Store.Read(sessionID)
-		if err == nil && m.SessionType == "master" {
+		if err == nil && roleForManifest(m) == roleMaster {
 			result.Master = true
 			result.RevivedWorkers, result.FailedWorkers = s.cascadeWorkers(ctx, sessionID)
 		}
@@ -157,7 +157,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		return ContinueResult{}, s.continueRollback(ctx, sessionID, fmt.Errorf("create tmux session: %w", err))
 	}
 
-	isMaster := m.SessionType == "master"
+	isMaster := role == roleMaster
 
 	if err := s.launchSession(ctx, launchConfig{
 		sessionID:   sessionID,

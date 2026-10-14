@@ -46,7 +46,10 @@ func (s *Server) reasoningEfforts(req Request) (any, error) {
 		return nil, err
 	}
 	agentName = strings.ToLower(strings.TrimSpace(agentName))
-	role := modelsuggest.ParseRole(payload.Role)
+	role, err := modelsuggest.ParseRole(payload.Role)
+	if err != nil {
+		return nil, err
+	}
 
 	root := state.StateRoot()
 	if s.Snapshotter != nil {
