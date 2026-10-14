@@ -28,7 +28,7 @@ enum LogicSelfTests {
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
-        ("testTrackerSelectionIsABandThatWinsOverTheStatusBand", testTrackerSelectionIsABandThatWinsOverTheStatusBand),
+        ("testTrackerBandPrecedenceAndSteadiness", testTrackerBandPrecedenceAndSteadiness),
         ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
@@ -229,12 +229,32 @@ enum LogicSelfTests {
         }
     }
 
-    private static func testTrackerSelectionIsABandThatWinsOverTheStatusBand() throws {
+    private static func testTrackerBandPrecedenceAndSteadiness() throws {
         let status = AppPalette.trackerWorking
-        try expect(TrackerNameplateColor.band(selected: true, status: status) == AppPalette.bright, "a selected row should show the selection band over its state's")
-        try expect(TrackerNameplateColor.band(selected: true, status: nil) == AppPalette.bright, "a selected row without a state should show the selection band")
-        try expect(TrackerNameplateColor.band(selected: false, status: status) == status, "an unselected row should show its state's band")
-        try expect(TrackerNameplateColor.band(selected: false, status: nil) == nil, "an unselected row without a state should show no band")
+        func band(recoloring: Bool = false, selected: Bool = false, hovered: Bool = false, status: NSColor? = nil) -> TrackerPlateBand? {
+            TrackerPlateBand.make(isRecoloring: recoloring, selected: selected, hovered: hovered, status: status)
+        }
+        let steady = TrackerGlowNSView.steadyOpacity
+        try expect(band(selected: true, status: status) == TrackerPlateBand(color: AppPalette.bright, steadyOpacity: steady), "a selected row should show the steady selection band over its state's")
+        try expect(band(selected: true, hovered: true, status: status) == band(selected: true), "selection should beat hover and state")
+        try expect(band(hovered: true) == TrackerPlateBand(color: AppPalette.dim, steadyOpacity: steady), "a hovered row without a state should show the steady dim band")
+        try expect(band(status: status) == TrackerPlateBand(color: status, steadyOpacity: nil), "a row with a state should show its breathing band")
+        try expect(band(hovered: true, status: status) == TrackerPlateBand(color: status, steadyOpacity: TrackerGlowNSView.bandOpacity), "a hovered state band should hold at its peak")
+        try expect(band(recoloring: true, selected: true, status: status) == TrackerPlateBand(color: AppPalette.dim, steadyOpacity: steady), "the row being recoloured should show the dim band, over selection")
+        try expect(band() == nil, "an idle, unselected, unhovered row should show no band")
+
+        // A steady band holds its opacity: it has no animation to vary it, in or out of a window.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        let path = CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil)
+        let held = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        window.contentView = held
+        held.configure(path: path, color: AppPalette.bright, breathes: true, steadyOpacity: steady)
+        try expect(!held.isBreathing && held.layer?.animationKeys()?.isEmpty != false, "a steady band should have no animation")
+        try expect(held.layer?.opacity == steady && held.restingOpacity == steady, "a steady band should hold its opacity")
+        let breathing = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        window.contentView = breathing
+        breathing.configure(path: path, color: AppPalette.accent, breathes: true)
+        try expect(breathing.isBreathing, "a state band should still breathe")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
