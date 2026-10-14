@@ -1736,7 +1736,7 @@ enum LogicSelfTests {
         successfulCoordinator.sendMutation(request, label: "delete quest qst-1") {
             successes += 1
         }
-        drainMainQueue()
+        try waitForMainQueue("mutation success callback", until: { successes == 1 })
         try expect(successes == 1, "success callback should run after mutation ack")
         try expect(failures.value == 0, "successful mutation should not report failure")
 
@@ -1749,7 +1749,7 @@ enum LogicSelfTests {
         failingCoordinator.sendMutation(request, label: "delete quest qst-1") {
             successes += 1
         }
-        drainMainQueue()
+        try waitForMainQueue("mutation failure callback", until: { failures.value == 1 })
         try expect(successes == 0, "failed mutation should not run success callback")
         try expect(failures.value == 1, "failed mutation should report failure")
 
@@ -1769,7 +1769,7 @@ enum LogicSelfTests {
         ) {
             successes += 1
         }
-        drainMainQueue()
+        try waitForMainQueue("switch-before mutation success callback", until: { successes == 1 })
         try expect(switches.value == 1, "switch-before mutation should activate terminal first")
         try expect(successes == 1, "switch-before mutation should forward success callback")
         try expect(failures.value == 0, "switch-before mutation should not report failure")
@@ -1849,7 +1849,9 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .agent)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial model suggestions", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" })
+        })
         try expect(client.requests.first?.agent == "claude", "the sheet should resolve models for the initial agent")
         try expect(client.requests.first?.role == "master", "a new agent session should ask for master defaults")
         try expect(client.requests.first?.refresh == false, "the sheet's own resolve on open must not force a refetch")
@@ -1874,7 +1876,9 @@ enum LogicSelfTests {
             model.state.model.selectedModel.isEmpty,
             "another harness's model must not carry over"
         )
-        drainMainQueue()
+        try waitForMainQueue("model suggestions for the selected agent", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" })
+        })
         try expect(client.requests.last?.agent == "codex", "changing the agent should re-resolve models")
         try expect(
             model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" }),
@@ -1886,7 +1890,6 @@ enum LogicSelfTests {
         let requestsBeforeReturn = client.requests.count
         try expect(model.handle(try keyEvent("h", keyCode: 4)), "h should cycle the agent select back")
         try expect(model.state.model.selectedAgent == "claude", "precondition: back to claude")
-        drainMainQueue()
         try expect(
             client.requests.count == requestsBeforeReturn,
             "returning to an already-resolved agent must not re-ask the backend"
@@ -1902,7 +1905,7 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .path)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueueTurn()
 
         // A failed resolve is not the user's problem: no options at all
         // still starts a session with no model override.
@@ -1922,13 +1925,16 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial model suggestions", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" })
+        })
 
         try expect(
             model.handle(try keyEvent("r", keyCode: 15)),
             "r should be consumed while the model field is focused"
         )
-        drainMainQueue()
+        try expect(model.state.isRefreshingModels, "r should start a model refresh")
+        try waitForMainQueue("model refresh completion", until: { !model.state.isRefreshingModels })
         try expect(client.requests.last?.refresh == true, "r should force a refetch past the catalog cache")
 
         model.state.model.focusedField = .agent
@@ -1937,7 +1943,6 @@ enum LogicSelfTests {
             !model.handle(try keyEvent("r", keyCode: 15)),
             "r should not be claimed by the sheet outside the model field"
         )
-        drainMainQueue()
         try expect(
             client.requests.count == requestsBeforeAgentR,
             "r on another field must not trigger a model refetch"
@@ -1954,12 +1959,14 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial model suggestions", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "opus" })
+        })
         try expect(!model.state.isRefreshingModels, "the sheet's own resolve on open should not show as refreshing")
 
         model.refreshModels()
         try expect(model.state.isRefreshingModels, "a refresh should show as in-flight immediately")
-        drainMainQueue()
+        try waitForMainQueue("model refresh completion", until: { !model.state.isRefreshingModels })
         try expect(!model.state.isRefreshingModels, "the flag should clear once the refresh completes")
         try expect(client.requests.last?.refresh == true, "the refresh button should force a refetch")
     }
@@ -1981,7 +1988,10 @@ enum LogicSelfTests {
         // Fire the newer (refresh) request first, then the stale initial one
         // — the opposite of call order.
         client.fireCompletion(forRequestAt: 1)
-        drainMainQueue()
+        try waitForMainQueue("newer model response", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" })
+                && !model.state.isRefreshingModels
+        })
         try expect(
             model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" }),
             "the newer response should apply"
@@ -1989,7 +1999,7 @@ enum LogicSelfTests {
         try expect(!model.state.isRefreshingModels, "the newer (refresh) request completing should clear the flag")
 
         client.fireCompletion(forRequestAt: 0)
-        drainMainQueue()
+        try waitForMainQueueTurn()
         try expect(
             !model.state.model.modelOptions.contains(where: { $0.id == "opus-initial" }),
             "a stale response arriving after a newer one must be discarded, not applied on top of it"
@@ -2016,7 +2026,9 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: modelClient, effortClient: effortClient, initialFocus: .agent)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial reasoning-effort suggestions", until: {
+            model.state.model.effortOptions.contains(where: { $0.id == "low" })
+        })
         try expect(effortClient.requests.first?.agent == "claude", "the sheet should resolve efforts for the initial agent")
         try expect(effortClient.requests.first?.model.isEmpty == true, "the default entry sends no model override to resolve against")
         try expect(
@@ -2036,10 +2048,14 @@ enum LogicSelfTests {
         // re-resolve efforts against that model.
         model.state.model.focusedField = .agent
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent select")
-        drainMainQueue()
+        try waitForMainQueue("model suggestions for the selected agent", until: {
+            model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" })
+        })
         model.state.model.focusedField = .model
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
-        drainMainQueue()
+        try waitForMainQueue("model-specific reasoning-effort suggestions", until: {
+            model.state.model.effortOptions.contains(where: { $0.id == "ultra" })
+        })
         try expect(model.state.model.selectedModel == "gpt-5.6-sol", "precondition: a real model is selected")
         try expect(effortClient.requests.last?.model == "gpt-5.6-sol", "selecting a model should re-resolve efforts against it")
         try expect(
@@ -2052,7 +2068,6 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: nil, effortClient: nil, initialFocus: .path)
 
         model.present()
-        drainMainQueue()
 
         // No client at all is the same shape as a failed resolve: no options
         // at all still starts a session with no effort override.
@@ -2114,7 +2129,9 @@ enum LogicSelfTests {
         let model = newSessionSheetModel(modelClient: nil, effortClient: effortClient, initialFocus: .model)
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("initial reasoning-effort suggestions", until: {
+            model.state.model.effortOptions.contains(where: { $0.id == "low" })
+        })
         try expect(model.state.model.selectedEffortOption == nil, "precondition: nothing selected, since xhigh isn't in this resolved list")
 
         try expect(
@@ -2170,12 +2187,13 @@ enum LogicSelfTests {
         model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("settings model suggestions", until: {
+            model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
+        })
         try expect(mutationClient.sentRequests.isEmpty, "resolving options alone must send nothing")
 
         model.focus(role: "master", field: .model)
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
-        drainMainQueue()
 
         try expect(mutationClient.sentRequests.count == 1, "cycling a value should send its role_default.set immediately")
         guard let sent = mutationClient.sentRequests.first else {
@@ -2201,7 +2219,9 @@ enum LogicSelfTests {
         model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("settings model suggestions", until: {
+            model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
+        })
         model.focus(role: "master", field: .model)
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
         try expect(mutationClient.sentRequests.count == 1, "sanity: cycling sent one save that's still in flight")
@@ -2227,10 +2247,12 @@ enum LogicSelfTests {
         model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("settings model suggestions", until: {
+            model.state.rows[0].modelOptions.contains(where: { $0.id == "sonnet" })
+        })
         model.focus(role: "master", field: .model)
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
-        drainMainQueue()
+        try waitForMainQueue("failed role-default save", until: { model.errorMessage != nil })
 
         try expect(model.errorMessage != nil, "a failed save must surface an error instead of silently dropping it")
         try expect(model.state.rows[0].isDirty, "a failed save must not get marked as saved")
@@ -2254,7 +2276,9 @@ enum LogicSelfTests {
         model.state = RoleDefaultsSettingsModel(agents: ["claude"])
 
         model.present()
-        drainMainQueue()
+        try waitForMainQueue("settings model suggestions", until: {
+            model.state.rows[0].modelOptions.contains(where: { $0.id == "haiku" })
+        })
         try expect(model.state.rows[0].selectedModel == "opus", "sanity: seeded onto the persisted default")
 
         model.focus(role: "master", field: .model)
@@ -2271,9 +2295,9 @@ enum LogicSelfTests {
 
         // Acks land out of order: the newer send's ack arrives first.
         mutationClient.fireCompletion(forRequestAt: 1)
-        drainMainQueue()
+        try waitForMainQueue("newer role-default save ack", until: { !model.state.rows[0].isDirty })
         mutationClient.fireCompletion(forRequestAt: 0)
-        drainMainQueue()
+        try waitForMainQueue("older role-default save ack", until: { model.state.rows[0].isDirty })
 
         try expect(model.errorMessage == nil, "both saves succeeding should leave no error")
     }
@@ -3124,8 +3148,24 @@ enum LogicSelfTests {
         )
     }
 
-    private static func drainMainQueue() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    private static func waitForMainQueue(
+        _ description: String,
+        timeout: TimeInterval = 10,
+        until condition: () -> Bool
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: min(Date().addingTimeInterval(0.01), deadline))
+        }
+        try expect(condition(), "timed out waiting for \(description) after \(Int(timeout)) seconds")
+    }
+
+    private static func waitForMainQueueTurn() throws {
+        var didRun = false
+        DispatchQueue.main.async {
+            didRun = true
+        }
+        try waitForMainQueue("queued main-thread work", until: { didRun })
     }
 
     private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
