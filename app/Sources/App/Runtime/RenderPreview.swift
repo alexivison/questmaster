@@ -36,6 +36,7 @@ enum RenderPreview {
         render(skeletonView(), size: CGSize(width: 300, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
+        render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
@@ -61,7 +62,7 @@ enum RenderPreview {
         for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
-        render(selectedSessionPanelView(), size: CGSize(width: 304, height: 70), to: "\(outputDir)/selected-session-panel.png")
+        render(selectedSessionPanelView(), size: CGSize(width: 304, height: 76), to: "\(outputDir)/selected-session-panel.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
@@ -328,6 +329,58 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// The tracker with the sessions `Property 1=Tracker (Simplified).svg` lays out: seven masters in three projects,
+    /// two workers under the second, and collapsed chips under the fourth and sixth. Every session idles, so no
+    /// status band surrounds a plate, and its strings are the SVG's.
+    @MainActor
+    private static func trackerListDesignView() -> some View {
+        func session(_ id: String, repo: String, color: String, agent: String, role: String, parent: String = "", state: String = "idle") -> TrackerSession {
+            TrackerSession(
+                id: id,
+                title: role == "worker" ? "worker-title-ti" : "Improve fuzzy search rank...",
+                repoName: repo,
+                displayColor: color,
+                agent: agent,
+                role: role,
+                state: state,
+                snippet: role == "worker" ? "Ranked exact matches a ..." : "Ranked exact matches and ro...",
+                parentID: parent
+            )
+        }
+        func workers(_ parent: String, repo: String, color: String, _ kinds: [(String, String)]) -> [TrackerSession] {
+            kinds.enumerated().map { session("\(parent)-w\($0.offset)", repo: repo, color: color, agent: $0.element.0, role: "worker", parent: parent, state: $0.element.1) }
+        }
+        let dotfiles = [
+            session("m1", repo: "Dotfiles", color: "lime", agent: "claude", role: "master"),
+            session("m2", repo: "Dotfiles", color: "lime", agent: "codex", role: "master"),
+        ] + workers("m2", repo: "Dotfiles", color: "lime", [("codex", "idle"), ("codex", "idle")])
+        let questmaster = [
+            session("m3", repo: "Questmaster", color: "yellow", agent: "codex", role: "master"),
+            session("m4", repo: "Questmaster", color: "yellow", agent: "claude", role: "master"),
+        ] + workers("m4", repo: "Questmaster", color: "yellow", [
+            ("codex", "working"), ("claude", "working"), ("codex", "idle"), ("codex", "idle"), ("codex", "idle"), ("claude", "idle"),
+            ("pi", "idle"), ("opencode", "idle"), ("claude", "needs-input"),
+        ])
+        let scry = [
+            session("m5", repo: "Scry", color: "blue", agent: "claude", role: "master"),
+            session("m6", repo: "Scry", color: "blue", agent: "codex", role: "master"),
+            session("m7", repo: "Scry", color: "blue", agent: "claude", role: "master"),
+        ] + workers("m6", repo: "Scry", color: "blue", [("codex", "idle"), ("claude", "idle")])
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["m2"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: dotfiles),
+            TrackerRepo(id: "questmaster", name: "Questmaster", color: "yellow", sessions: questmaster),
+            TrackerRepo(id: "scry", name: "Scry", color: "blue", sessions: scry),
+        ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
     /// The status a nameplate fixture shows: the status flag in its name, or working.
     private static func fixtureState(_ flags: Set<String>) -> String {
         let states = [("error", "error"), ("idle", "idle"), ("blocked", "blocked"), ("done", "done"), ("needs", "needs-input")]
@@ -406,9 +459,9 @@ enum RenderPreview {
         let master = TrackerNameplateRole.master
         let worker = TrackerNameplateRole.worker
         return ZStack(alignment: .topLeading) {
-            TrackerAgentMark(agent: "codex", shortcutNumber: 3, diameter: master.portraitDiameter, ringWidth: master.portraitRingWidth)
+            TrackerAgentMark(agent: "codex", shortcutNumber: 3, diameter: master.portraitDiameter)
                 .offset(x: 5, y: 5)
-            TrackerAgentMark(agent: "claude", shortcutNumber: 7, diameter: worker.portraitDiameter, ringWidth: worker.portraitRingWidth)
+            TrackerAgentMark(agent: "claude", shortcutNumber: 7, diameter: worker.portraitDiameter)
                 .offset(x: 75, y: 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
