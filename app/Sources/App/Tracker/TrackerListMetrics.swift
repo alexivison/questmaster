@@ -11,13 +11,13 @@ enum TrackerListMetrics {
     /// session panel lands on that line; the list below it starts `selectedPanelGap` lower.
     static let firstSectionTopInset: CGFloat = 0
     /// From the selected-session panel's bottom edge (its 76pt canvas) to the first row's top, the first disc's top edge.
-    /// The master's crown pieces reach 3pt above it, so they start 34pt below the panel, as the reference layout has them.
+    /// The master's crown pieces reach 2pt above it, so they start 35pt below the panel.
     static let selectedPanelGap: CGFloat = 37
     static let verticalPadding: CGFloat = 20
     /// Between project groups, from the bottom of one group's last item to the top of the next group's first.
     static let sectionSpacing: CGFloat = 20
-    /// Between top-level items. Every gap runs from the visible bottom of the item above, its disc or its chips'
-    /// circles, to the top of the next disc, and each row is exactly that tall, so the spacing is the gap.
+    /// Between top-level items. Every gap runs from the visible bottom of the item above, its disc or its collapsed
+    /// workers' circles, to the top of the next disc, and each row is exactly that tall, so the spacing is the gap.
     static let itemSpacing: CGFloat = 20
     /// Between a master and its workers, and between the workers.
     static let masterBlockSpacing: CGFloat = 10
