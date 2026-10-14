@@ -16,12 +16,21 @@ enum TrackerListMetrics {
     static let verticalPadding: CGFloat = 20
     /// Between project groups, from the bottom of one group's last item to the top of the next group's first.
     static let sectionSpacing: CGFloat = 20
-    /// Between top-level items. Every gap runs from the visible bottom of the item above, its disc or its collapsed
-    /// workers' circles, to the top of the next disc, and each row is exactly that tall, so the spacing is the gap.
+    /// Between top-level items with no workers under them. Every gap runs from the visible bottom of the item above, its
+    /// disc or its collapsed workers' circles, to the top of the next disc, and each row is exactly that tall, so the
+    /// spacing is the gap.
     static let itemSpacing: CGFloat = 20
     /// Between a master and its workers, and between the workers.
     static let masterBlockSpacing: CGFloat = 10
-    /// The widest tracker content: the selected-session panel's 304pt design width, which the top-level
-    /// plate (275pt) sits inside. The tracker column is sized to it plus the leading `sidePadding`.
-    static let contentWidth: CGFloat = 304
+    /// After a session's workers, its last expanded worker or its collapsed row of circles, to the next session in the
+    /// project. The gap between project groups stays `sectionSpacing`.
+    static let afterWorkersSpacing: CGFloat = 10
+    /// The widest tracker content: the selected-session panel's design width, which the top-level plate (277pt) sits
+    /// inside. The tracker column is sized to it plus the leading `sidePadding`.
+    static let contentWidth: CGFloat = SelectedSessionPanel.canvasSize.width
+
+    /// The gap above a session in a project, from the one before it.
+    static func gap(afterSessionWithWorkers hasWorkers: Bool) -> CGFloat {
+        hasWorkers ? afterWorkersSpacing : itemSpacing
+    }
 }

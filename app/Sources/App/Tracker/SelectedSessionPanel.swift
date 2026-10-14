@@ -37,7 +37,7 @@ struct SelectedSessionPanel: View {
     let content: SelectedSessionPanelContent
     let onCopyID: (String) -> Void
 
-    private static let canvasSize = CGSize(width: 304, height: 76)
+    static let canvasSize = CGSize(width: 289, height: 76)
     /// The logo's own canvas, the panel's: drawn at that size so it is never stretched.
     private static let logoSize = canvasSize
     private static let logo = AppSymbolStyle.resourceImage(
@@ -46,14 +46,14 @@ struct SelectedSessionPanel: View {
         subdirectory: "Brand",
         canvasSize: NSSize(width: logoSize.width, height: logoSize.height)
     )
-    /// The text centres on the strips' middle line, x = 179.5. Its box is as wide as the SVG's title and starts right
-    /// of the ornaments' tips (x = 76), so a long title truncates instead of running under the ring and disc.
-    private static let textX: CGFloat = 78.5
+    /// The text centres on x = 175.5, as the SVG sets it. Its box is as wide as the SVG's title, so a long title
+    /// truncates instead of running under the plate's right edge.
+    private static let textX: CGFloat = 74.5
     private static let textWidth: CGFloat = 202
     /// Each line's baseline, as the SVG sets it.
-    private static let titleBaseline: CGFloat = 27
-    private static let idBaseline: CGFloat = 47
-    private static let projectBaseline: CGFloat = 61
+    private static let titleBaseline: CGFloat = 28.75
+    private static let idBaseline: CGFloat = 45.25
+    private static let projectBaseline: CGFloat = 59.25
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -104,31 +104,32 @@ struct SelectedSessionPanel: View {
         }
     }
 
-    /// The plate behind the portrait, in the SVG's order. The text draws over it, and the portrait draws over both.
+    /// The plate behind the portrait, in the SVG's order. The text draws over it, and the portrait draws over both. The
+    /// SVG's black square behind the id strip, which shows in the strip's rounded top-right corner, is drawn as it is.
     private func drawStrips(_ context: inout GraphicsContext) {
         let line = AppPalette.line.swiftUI
         let shadow = AppPalette.shadow.swiftUI
-        context.fill(PanelDesign.body, with: .color(AppPalette.panel.swiftUI))
         context.fill(PanelDesign.titleZone, with: .color(AppPalette.panel.swiftUI))
-        drawInnerShadow(&context, PanelDesign.titleZone, color: shadow.opacity(PanelDesign.titleShadowOpacity))
-        // The border draws over the title zone, which reaches the body's path: at 1.5pt its inner quarter point would
-        // otherwise hide under it.
-        context.stroke(PanelDesign.body, with: .color(line), lineWidth: PanelDesign.bodyBorderWidth)
+        context.stroke(PanelDesign.titleStrip, with: .color(AppPalette.item.swiftUI), lineWidth: PanelDesign.borderWidth)
+        drawInnerShadow(&context, PanelDesign.titleZone, color: shadow.opacity(PanelDesign.titleShadowOpacity), depth: PanelDesign.titleShadowDepth)
 
         context.drawLayer { layer in
             layer.opacity = PanelDesign.frameDropShadowOpacity
             layer.addFilter(.blur(radius: PanelDesign.shadowBlur))
             layer.translateBy(x: 0, y: -PanelDesign.frameDropShadowDrop)
-            layer.fill(PanelDesign.frameOutline, with: .color(shadow))
-            layer.stroke(PanelDesign.frameOutline, with: .color(shadow), lineWidth: PanelDesign.frameBorderWidth)
+            layer.fill(PanelDesign.frameFill, with: .color(shadow))
         }
         context.fill(PanelDesign.frameFill, with: .color(line))
-        context.fill(PanelDesign.idStrip, with: .color(AppPalette.item.swiftUI))
-        drawInnerShadow(&context, PanelDesign.idStrip, color: shadow.opacity(PanelDesign.idShadowOpacity))
+        context.stroke(PanelDesign.frameStroke, with: .color(line), lineWidth: PanelDesign.borderWidth)
+        context.drawLayer { clipped in
+            clipped.clip(to: PanelDesign.idClip)
+            clipped.fill(PanelDesign.idClip, with: .color(.black))
+            clipped.fill(PanelDesign.idStrip, with: .color(AppPalette.item.swiftUI))
+            drawInnerShadow(&clipped, PanelDesign.idClip, color: shadow.opacity(PanelDesign.idShadowOpacity))
+        }
         context.fill(PanelDesign.projectBar, with: .color(content.projectColor.swiftUI))
         drawInnerShadow(&context, PanelDesign.projectBar, color: PanelDesign.barRimColor(content.projectColor).swiftUI)
         context.fill(PanelDesign.projectBar, with: .color(shadow.opacity(TrackerNameplateRole.projectBarOverlayOpacity)))
-        context.stroke(PanelDesign.frameOutline, with: .color(line), lineWidth: PanelDesign.frameBorderWidth)
     }
 
     /// The SVG's inner shadow: the shape's edge, `depth` points deep, softened by half a point.
@@ -160,22 +161,21 @@ struct SelectedSessionPanel: View {
     }
 }
 
-/// The selected-session panel's shapes from `Selected Session.svg`, in the panel's own 304 x 76 coordinates.
+/// The selected-session panel's shapes from `Selected Session.svg`, in the panel's own 289 x 76 coordinates.
 private enum PanelDesign {
     static let discCenter = CGPoint(x: 38, y: 38)
     static let discRadius: CGFloat = 32
     static let disc = Path(ellipseIn: CGRect(x: discCenter.x - discRadius, y: discCenter.y - discRadius, width: discRadius * 2, height: discRadius * 2))
-    /// The body's border is 1.5pt, as the plates', and the frame's stroke 3pt, both centred on their paths. The SVG's
-    /// body stroke has no width, so it draws 1; the user wants 1.5.
-    static let bodyBorderWidth: CGFloat = 1.5
-    static let frameBorderWidth: CGFloat = 3
-    /// The SVG's inner shadows are the shape's edge a point deep, blurred by half a point: black at 25% on the title
-    /// zone and 10% on the id strip, and a lifted tone of the bar's own colour on the project bar. The disc's is
-    /// three points deep at 15%. The frame casts a 10% black shadow one point up.
+    /// The title strip's and the frame's borders are 1.5pt, as the plates', centred on their paths.
+    static let borderWidth = TrackerPlateArtwork.borderStroke
+    /// The SVG's inner shadows are the shape's edge `depth` points deep, blurred by half a point: black at 10% on the
+    /// title zone (three deep) and on the id strip (one), and a lifted tone of the bar's own colour on the project bar.
+    /// The disc's is three points deep at 15%. The frame casts a 10% black shadow one point up.
     static let innerShadowDepth: CGFloat = 1
+    static let titleShadowDepth: CGFloat = 3
     static let discShadowDepth: CGFloat = 3
     static let shadowBlur: CGFloat = 0.5
-    static let titleShadowOpacity: CGFloat = 0.25
+    static let titleShadowOpacity: CGFloat = 0.1
     static let idShadowOpacity: CGFloat = 0.1
     static let discShadowOpacity: CGFloat = 0.15
     static let frameDropShadowOpacity: CGFloat = 0.1
@@ -183,11 +183,13 @@ private enum PanelDesign {
     /// The SVG's bar rim (141, 141, 255) lifts its bar (122, 122, 240) by 19 of 255 on each channel, up to white.
     private static let barRimLift: CGFloat = 19.0 / 255
 
-    static let body = SVGPath.parse(TrackerPlateShapes.panelBody)
     static let titleZone = SVGPath.parse(TrackerPlateShapes.panelTitleZone)
+    static let titleStrip = SVGPath.parse(TrackerPlateShapes.panelTitleStrip)
     static let frameFill = SVGPath.parse(TrackerPlateShapes.panelFrameFill)
-    static let frameOutline = SVGPath.parse(TrackerPlateShapes.panelFrameOutline)
+    static let frameStroke = SVGPath.parse(TrackerPlateShapes.panelFrameStroke)
     static let idStrip = SVGPath.parse(TrackerPlateShapes.panelIDStrip)
+    /// The id strip's clip, and the black square the SVG draws under the strip inside it.
+    static let idClip = Path(CGRect(x: 39.5, y: 35.25, width: 247, height: 12))
     static let projectBar = SVGPath.parse(TrackerPlateShapes.panelBar)
     static let ornaments = TrackerPlateShapes.panelOrnaments.map { (role: $0.role, path: SVGPath.parse($0.d)) }
 

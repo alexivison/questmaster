@@ -38,6 +38,7 @@ enum RenderPreview {
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
         render(trackerListStatusView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-status.png")
+        render(trackerListGapsView(), size: CGSize(width: 340, height: 820), to: "\(outputDir)/tracker-list-gaps.png")
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
@@ -63,7 +64,8 @@ enum RenderPreview {
         for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
-        render(selectedSessionPanelView(), size: CGSize(width: 304, height: 76), to: "\(outputDir)/selected-session-panel.png")
+        render(selectedSessionPanelView(), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel.png")
+        render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
@@ -384,6 +386,42 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// Every gap in a list, idle: plain sessions 20 apart, 10 after a session's expanded workers and after its collapsed
+    /// row of circles, and 20 between projects even after a session with workers. Project one has a plain session, one
+    /// with two expanded workers, two plain ones with a collapsed row of three between them; project two ends on a
+    /// session with a collapsed row; project three has one plain session.
+    @MainActor
+    private static func trackerListGapsView() -> some View {
+        let colors = ["Dotfiles": "lime", "Questmaster": "yellow", "Scry": "blue"]
+        func session(_ id: String, _ repo: String, role: String = "master", parent: String = "") -> TrackerSession {
+            TrackerSession(
+                id: id, title: role == "worker" ? "worker-title" : "Session Title", repoName: repo, displayColor: colors[repo] ?? "lime",
+                agent: "codex", role: role, state: "idle",
+                snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...", parentID: parent
+            )
+        }
+        func workers(_ parent: String, _ repo: String, _ count: Int) -> [TrackerSession] {
+            (0..<count).map { session("\(parent)-w\($0)", repo, role: "worker", parent: parent) }
+        }
+        let dotfiles = [session("a1", "Dotfiles"), session("a2", "Dotfiles")] + workers("a2", "Dotfiles", 2)
+            + [session("a3", "Dotfiles"), session("a4", "Dotfiles")] + workers("a4", "Dotfiles", 3) + [session("a5", "Dotfiles")]
+        let questmaster = [session("b1", "Questmaster")] + workers("b1", "Questmaster", 2)
+        let scry = [session("c1", "Scry")]
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["a2"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: dotfiles),
+            TrackerRepo(id: "questmaster", name: "Questmaster", color: "yellow", sessions: questmaster),
+            TrackerRepo(id: "scry", name: "Scry", color: "blue", sessions: scry),
+        ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
     /// The list with every status on show: a working master, a selected one that works, its two expanded workers (one
     /// working), a blocked master, and collapsed rows whose circles run through the statuses.
     @MainActor
@@ -526,15 +564,16 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The selected-session panel with the strings `Selected Session.svg` shows.
+    /// The selected-session panel with the strings and the bar colour `Selected Session.svg` shows, or with no text, to
+    /// compare the plate alone against the SVG's raster.
     @MainActor
-    private static func selectedSessionPanelView() -> some View {
+    private static func selectedSessionPanelView(withText: Bool = true) -> some View {
         SelectedSessionPanel(
             content: SelectedSessionPanelContent(
-                title: "Improve fuzzy search ranking",
-                id: "qm-1789532989",
-                projectName: "Questmaster",
-                projectColor: TrackerNameplateColor.barLightness(AppPalette.displayColorNames["blue"] ?? AppPalette.accent)
+                title: withText ? "Improve fuzzy search ranking" : "",
+                id: withText ? "qm-1789532989" : "",
+                projectName: withText ? "Questmaster" : "",
+                projectColor: NSColor(hex: 0x7A7AF0)
             ),
             onCopyID: { _ in }
         )

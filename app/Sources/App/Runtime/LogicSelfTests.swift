@@ -450,6 +450,11 @@ enum LogicSelfTests {
         try expectClose(TrackerListMetrics.sectionSpacing, 20, "gap between project groups")
         try expectClose(TrackerListMetrics.itemSpacing, 20, "gap between top-level sessions")
         try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers, and between workers")
+        try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: true), 10, "gap after a session's workers or its collapsed row")
+        try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: false), 20, "gap after a session with no workers")
+        try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width, "tracker content width, the selected-session panel's")
+        try expectClose(SelectedSessionPanel.canvasSize.width, 289, "selected-session panel width")
+        try expectClose(SelectedSessionPanel.canvasSize.height, 76, "selected-session panel height")
         try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
 
         // The collapsed workers hang flush from the disc's bottom edge, 40 right of its left edge, and fill the plate's width.
