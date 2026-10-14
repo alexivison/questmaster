@@ -28,6 +28,7 @@ enum LogicSelfTests {
         ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
         ("testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount", testWorkerSummaryCapsPillsAtWhatFitsWithHiddenWorkerCount),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
+        ("testTrackerSelectionIsABandThatWinsOverTheStatusBand", testTrackerSelectionIsABandThatWinsOverTheStatusBand),
         ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed", testTrackerStatusBandsBreatheOnlyWhileActiveAndMotionAllowed),
@@ -222,6 +223,18 @@ enum LogicSelfTests {
         guard !band.isBreathing else {
             throw TestFailure("a band outside a window should not breathe")
         }
+        guard band.layer?.opacity == TrackerGlowNSView.bandOpacity, TrackerGlowNSView.bandOpacity < 1,
+              TrackerGlowNSView.breathLowOpacity < TrackerGlowNSView.bandOpacity else {
+            throw TestFailure("a resting band should sit at its dimmed peak, with the breath's low point under it")
+        }
+    }
+
+    private static func testTrackerSelectionIsABandThatWinsOverTheStatusBand() throws {
+        let status = AppPalette.trackerWorking
+        try expect(TrackerNameplateColor.band(selected: true, status: status) == AppPalette.bright, "a selected row should show the selection band over its state's")
+        try expect(TrackerNameplateColor.band(selected: true, status: nil) == AppPalette.bright, "a selected row without a state should show the selection band")
+        try expect(TrackerNameplateColor.band(selected: false, status: status) == status, "an unselected row should show its state's band")
+        try expect(TrackerNameplateColor.band(selected: false, status: nil) == nil, "an unselected row without a state should show no band")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
@@ -288,7 +301,7 @@ enum LogicSelfTests {
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
         try expectClose(TrackerListMetrics.sectionSpacing, 20, "gap between project groups")
         try expectClose(TrackerListMetrics.itemSpacing, 20, "gap between top-level sessions")
-        try expectClose(TrackerListMetrics.masterBlockSpacing, 5, "gap between a master and its workers")
+        try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers")
         try expectClose(TrackerNameplateRole.chipsDrop, 5, "gap between a master and its chips")
         try expectClose(TrackerNameplateRole.chipsX, TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.workerDiscDiameter / 2, "chips start on the worker's disc line")
         // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents.
