@@ -129,6 +129,9 @@ final class TrackerPortraitStatusNSView: NSView {
         [ring, glow].compactMap { $0.animation(forKey: Self.breathKey) as? CABasicAnimation }
     }
 
+    /// The geometry the view is configured with, nil until the first `configure`. Tests read it to know the view mounted.
+    var geometry: TrackerPortraitStatusGeometry? { applied?.geometry }
+
     /// The ring's and the glow's layer opacities at rest, as fractions of their peaks.
     var restingOpacities: [Float] { [ring.opacity, glow.opacity] }
 
