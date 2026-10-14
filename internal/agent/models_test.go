@@ -9,9 +9,8 @@ func TestRoleDefaultsKey(t *testing.T) {
 		role SessionRole
 		want string
 	}{
-		"master":     {role: RoleMaster, want: "master"},
-		"worker":     {role: RoleWorker, want: "worker"},
-		"standalone": {role: RoleStandalone, want: "standalone"},
+		"master": {role: RoleMaster, want: "master"},
+		"worker": {role: RoleWorker, want: "worker"},
 	}
 
 	for name, tc := range cases {

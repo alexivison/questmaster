@@ -13,6 +13,74 @@ public enum ServeContract {
     }
 }
 
+public struct WorkerFeedPayload: Decodable, Equatable {
+    public var entries: [WorkerFeedEntry]
+    public var cursors: [String: WorkerFeedCursor]
+    public var hasMore: [String: Bool]
+    public var errors: [String: String]?
+
+    public init(
+        entries: [WorkerFeedEntry] = [],
+        cursors: [String: WorkerFeedCursor] = [:],
+        hasMore: [String: Bool] = [:],
+        errors: [String: String]? = nil
+    ) {
+        self.entries = entries
+        self.cursors = cursors
+        self.hasMore = hasMore
+        self.errors = errors
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case entries, cursors, errors
+        case hasMore = "has_more"
+    }
+}
+
+public struct WorkerFeedEntry: Decodable, Equatable {
+    public var timestamp: String
+    public var workerID: String
+    public var workerTitle: String?
+    public var kind: String
+    public var text: String
+
+    public init(
+        timestamp: String,
+        workerID: String,
+        workerTitle: String? = nil,
+        kind: String,
+        text: String
+    ) {
+        self.timestamp = timestamp
+        self.workerID = workerID
+        self.workerTitle = workerTitle
+        self.kind = kind
+        self.text = text
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case timestamp, kind, text
+        case workerID = "worker_id"
+        case workerTitle = "worker_title"
+    }
+}
+
+/// Opaque to the app: whatever the backend returned for a worker is sent back unchanged.
+public struct WorkerFeedCursor: Codable, Equatable {
+    public var offset: Int64
+    public var fileID: String?
+
+    public init(offset: Int64, fileID: String? = nil) {
+        self.offset = offset
+        self.fileID = fileID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case offset
+        case fileID = "file_id"
+    }
+}
+
 private struct ServeEnvelope: Decodable {
     var update: RuntimeUpdate?
 

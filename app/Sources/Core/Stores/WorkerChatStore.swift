@@ -1,0 +1,315 @@
+import Foundation
+import Observation
+
+/// One `worker_feed` pull. The cursors are the backend's own, sent back unchanged.
+public struct WorkerFeedRequest: Equatable {
+    public let masterID: String
+    public let cursors: [String: WorkerFeedCursor]
+    let generation: Int
+
+    public func jsonObject(id: String) -> [String: Any] {
+        let cursorObjects = cursors.mapValues { cursor in
+            ["offset": cursor.offset, "file_id": cursor.fileID ?? ""] as [String: Any]
+        }
+        return [
+            "id": id,
+            "method": "worker_feed",
+            "data": ["master_id": masterID, "cursors": cursorObjects] as [String: Any],
+        ]
+    }
+}
+
+/// The worker chat feed for an attached master and its workers. It owns the cursors, the bounded
+/// history and the rendered `lines`; the app only executes requests and feeds responses back.
+///
+/// Pull policy: a request is handed out when the dock is visible and the attached master changed,
+/// the dock just opened, a worker changed, or the last response said `has_more`. At most one
+/// request is in flight; a change that arrives meanwhile is picked up by the next one.
+///
+/// Not thread-safe; callers use it on the main thread.
+@Observable
+public final class WorkerChatStore {
+    /// History grows to this many rendered lines, then trims back to `trimTarget` in one update.
+    public static let maxLines = 600
+    public static let trimTarget = 500
+    /// Raw records kept for the visible feed. Folded actions keep their records, so a run can grow without
+    /// adding lines; this bounds each rebuild even when no line trim fires. Twice `maxLines`, so one-line
+    /// entries still reach the line trim first.
+    public static let maxRecords = 2 * maxLines
+
+    public private(set) var lines: [WorkerChatLine] = []
+    public private(set) var isAttached = false
+    /// A single muted notice naming the workers whose log the last pull couldn't read; cleared by a clean pull.
+    public private(set) var readNotice: String?
+    /// Changes with every replacement of `lines`, so a view can tell one update from the next.
+    public private(set) var revision = 0
+    /// Counts the updates that trimmed `lines`, so a view can tell a trim from an arrival.
+    public private(set) var trimCount = 0
+    /// Whether the last update only added lines at the end, so the new ones sit below the old ones.
+    public private(set) var lastUpdateAppended = false
+
+    @ObservationIgnored private let calendar: Calendar
+    @ObservationIgnored private var masterID: String?
+    @ObservationIgnored private var selectedSessionID: String?
+    @ObservationIgnored private var readErrorWorkerIDs: [String] = []
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var cursors: [String: WorkerFeedCursor] = [:]
+    @ObservationIgnored private var records: [WorkerChatRecord] = []
+    /// The records behind each line on screen, in line order, so a rebuild can tell when a line is gone.
+    @ObservationIgnored private var lineSources: [[Int]] = []
+    @ObservationIgnored private var nextSequence = 0
+    @ObservationIgnored private var trackerNames: [String: String] = [:]
+    @ObservationIgnored private var feedNames: [String: String] = [:]
+    @ObservationIgnored private var agents: [String: String] = [:]
+    @ObservationIgnored private var fingerprint = ""
+    @ObservationIgnored private var isVisible = false
+    @ObservationIgnored private var pullWanted = false
+    @ObservationIgnored private var inFlight = false
+
+    public init(calendar: Calendar = .autoupdatingCurrent) {
+        self.calendar = calendar
+    }
+
+    /// Call on every runtime update and dock change. Returns the pull to run now, if any.
+    public func sync(selectedSessionID: String?, sessions: [TrackerSession], isVisible: Bool) -> WorkerFeedRequest? {
+        guard isVisible else {
+            self.selectedSessionID = selectedSessionID
+            self.isVisible = false
+            return nil
+        }
+        let nextMasterID = Self.masterID(selectedSessionID: selectedSessionID, sessions: sessions)
+        if nextMasterID != masterID {
+            reset(to: nextMasterID)
+        }
+        let attachmentChanged = selectedSessionID != self.selectedSessionID
+        self.selectedSessionID = selectedSessionID
+        if (isVisible && !self.isVisible)
+            || (attachmentChanged && nextMasterID != nil)
+            || readErrorWorkerIDs.contains(where: { agents[$0] != nil }) {
+            pullWanted = true
+        }
+        self.isVisible = isVisible
+
+        let group = masterID.map { id in sessions.filter { $0.parentID == id } } ?? []
+        let nextFingerprint = Self.fingerprint(of: group)
+        if nextFingerprint != fingerprint {
+            fingerprint = nextFingerprint
+            pullWanted = masterID != nil
+        }
+        updateWorkerInfo(group)
+        return nextRequest()
+    }
+
+    /// Applies a response and returns the follow-up pull (`has_more`, or a change seen meanwhile).
+    public func receive(_ payload: WorkerFeedPayload, for request: WorkerFeedRequest) -> WorkerFeedRequest? {
+        guard request.generation == generation else {
+            return nil
+        }
+        inFlight = false
+        for (workerID, cursor) in payload.cursors {
+            cursors[workerID] = cursor
+        }
+        if payload.hasMore.values.contains(true) {
+            pullWanted = true
+        }
+        let previousErrors = readErrorWorkerIDs
+        readErrorWorkerIDs = (payload.errors ?? [:]).keys.sorted()
+        if !payload.entries.isEmpty {
+            merge(payload.entries)
+        } else if previousErrors != readErrorWorkerIDs {
+            updateReadNotice()
+        }
+        return nextRequest()
+    }
+
+    /// A failed pull is retried by the next `sync`.
+    public func fail(_ request: WorkerFeedRequest) {
+        guard request.generation == generation else {
+            return
+        }
+        inFlight = false
+        pullWanted = true
+    }
+
+    private func nextRequest() -> WorkerFeedRequest? {
+        guard let masterID, isVisible, pullWanted, !inFlight else {
+            return nil
+        }
+        pullWanted = false
+        inFlight = true
+        return WorkerFeedRequest(masterID: masterID, cursors: cursors, generation: generation)
+    }
+
+    private func reset(to nextMasterID: String?) {
+        masterID = nextMasterID
+        isAttached = nextMasterID != nil
+        generation += 1
+        cursors = [:]
+        records = []
+        feedNames = [:]
+        readErrorWorkerIDs = []
+        readNotice = nil
+        fingerprint = ""
+        pullWanted = false
+        inFlight = false
+        lineSources = []
+        setLines([])
+    }
+
+    private func updateWorkerInfo(_ group: [TrackerSession]) {
+        var names: [String: String] = [:]
+        var nextAgents: [String: String] = [:]
+        for worker in group {
+            let title = worker.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty {
+                names[worker.id] = title
+            }
+            nextAgents[worker.id] = worker.agent
+        }
+        guard names != trackerNames || nextAgents != agents else {
+            return
+        }
+        trackerNames = names
+        agents = nextAgents
+        rebuild()
+    }
+
+    private func merge(_ entries: [WorkerFeedEntry]) {
+        for entry in entries {
+            guard let timestamp = Self.parseTimestamp(entry.timestamp),
+                  let kind = Self.recordKind(for: entry) else {
+                continue
+            }
+            if let title = entry.workerTitle, !title.isEmpty {
+                feedNames[entry.workerID] = title
+            }
+            records.append(WorkerChatRecord(
+                sequence: nextSequence,
+                timestamp: timestamp,
+                workerID: entry.workerID,
+                kind: kind,
+                text: entry.text
+            ))
+            nextSequence += 1
+        }
+        records.sort { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
+        rebuild()
+    }
+
+    private func rebuild() {
+        let names = feedNames.merging(trackerNames) { _, tracker in tracker }
+        let visible = records.filter { agents[$0.workerID] != nil }
+        var visibleKept = Array(visible.suffix(Self.maxRecords))
+        let hiddenKept = Array(records.filter { agents[$0.workerID] == nil }.suffix(Self.trimTarget))
+        var build = WorkerChatLineBuilder.build(from: visibleKept, names: names, agents: agents, calendar: calendar)
+        var didTrim = capRemovedShownLine(from: visible, keeping: visibleKept.count)
+        if build.lines.count > Self.maxLines {
+            build = build.newest(Self.trimTarget)
+            // A trimmed line's records go with it, even ones that sort after the kept lines.
+            let kept = Set(build.sources.joined())
+            visibleKept = visibleKept.filter { kept.contains($0.sequence) }
+            didTrim = true
+        }
+        if didTrim {
+            trimCount += 1
+        }
+        // ponytail: visible history is bounded by maxRecords and the line trim; hidden history keeps trimTarget records.
+        records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
+        lineSources = build.sources
+        setLines(build.lines)
+        updateReadNotice()
+    }
+
+    /// True when the raw-record cap dropped every record of a line on screen. The cap drops the oldest
+    /// records, so this is an eviction at the top, which the follower must not glide. Partly evicted runs
+    /// keep their line and don't count.
+    private func capRemovedShownLine(from visible: [WorkerChatRecord], keeping kept: Int) -> Bool {
+        let evicted = Set(visible.prefix(visible.count - kept).map(\.sequence))
+        return !evicted.isEmpty && lineSources.contains { $0.allSatisfy(evicted.contains) }
+    }
+
+    private func setLines(_ next: [WorkerChatLine]) {
+        guard next != lines else {
+            return
+        }
+        lastUpdateAppended = next.starts(with: lines)
+        lines = next
+        revision += 1
+    }
+
+    private func updateReadNotice() {
+        let names = feedNames.merging(trackerNames) { _, tracker in tracker }
+        let currentErrors = readErrorWorkerIDs.filter { agents[$0] != nil }
+        let notice = Self.readNotice(for: currentErrors.map { WorkerChatLineBuilder.displayName(names[$0] ?? $0) })
+        if notice != readNotice {
+            readNotice = notice
+        }
+    }
+
+    private static let maxNamedInReadNotice = 2
+
+    private static func readNotice(for names: [String]) -> String? {
+        guard let first = names.first else {
+            return nil
+        }
+        guard names.count > 1 else {
+            return "Couldn't read \(first)'s activity"
+        }
+        let listed = names.prefix(maxNamedInReadNotice).joined(separator: ", ")
+        let hidden = names.count - maxNamedInReadNotice
+        return "Couldn't read activity for \(listed)" + (hidden > 0 ? " (+\(hidden))" : "")
+    }
+
+    private static func masterID(selectedSessionID: String?, sessions: [TrackerSession]) -> String? {
+        guard let selectedSessionID,
+              let selected = sessions.first(where: { $0.id == selectedSessionID }) else {
+            return nil
+        }
+        switch SessionRoleKind(role: selected.role) {
+        case .master:
+            return selected.id
+        case .worker, .shell, .tmux, .orphan:
+            return nil
+        }
+    }
+
+    private static func fingerprint(of workers: [TrackerSession]) -> String {
+        workers
+            .sorted { $0.id < $1.id }
+            .map { "\($0.id)|\($0.lastChatAt.map { String($0.timeIntervalSince1970) } ?? "nil")" }
+            .joined(separator: "\n")
+    }
+
+    private static func recordKind(for entry: WorkerFeedEntry) -> WorkerChatRecord.Kind? {
+        let text = entry.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            return nil
+        }
+        switch entry.kind {
+        case "status":
+            switch text.lowercased() {
+            case "working": return .status(.working)
+            case "done": return .status(.done)
+            case "blocked": return .status(.blocked)
+            default: return nil
+            }
+        case "action": return .action(tool: text)
+        case "say": return .say
+        case "message": return .message
+        case "report": return .report
+        case "instructions": return .instructions
+        default: return nil
+        }
+    }
+
+    private static let fractionalTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let plainTimestampFormatter = ISO8601DateFormatter()
+
+    private static func parseTimestamp(_ raw: String) -> Date? {
+        fractionalTimestampFormatter.date(from: raw) ?? plainTimestampFormatter.date(from: raw)
+    }
+}

@@ -216,7 +216,11 @@ func TestStoreSetDisplayColorIgnoresWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	worker := Manifest{SessionID: "qm-worker", Display: &DisplayMetadata{Color: "cyan"}}
+	worker := Manifest{
+		SessionID: "qm-worker",
+		Agents:    []AgentManifest{{Name: "claude", Role: "primary"}},
+		Display:   &DisplayMetadata{Color: "cyan"},
+	}
 	worker.SetExtra("parent_session", "qm-master")
 	if err := store.Create(worker); err != nil {
 		t.Fatalf("create worker: %v", err)

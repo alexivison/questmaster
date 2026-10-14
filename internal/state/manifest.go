@@ -157,6 +157,25 @@ func (m Manifest) ExtraString(key string) string {
 	return s
 }
 
+// AgentSessionType derives managed roles from the agent and parent fields.
+func (m Manifest) AgentSessionType() string {
+	if m.ExtraString("parent_session") != "" {
+		return "worker"
+	}
+	if len(m.Agents) == 0 {
+		return ""
+	}
+	return "master"
+}
+
+// SessionRole returns the visible role for a managed agent or plain shell session.
+func (m Manifest) SessionRole() string {
+	if role := m.AgentSessionType(); role != "" {
+		return role
+	}
+	return "shell"
+}
+
 // SetExtra sets a string value in the manifest's Extra map.
 func (m *Manifest) SetExtra(key, value string) {
 	if m.Extra == nil {

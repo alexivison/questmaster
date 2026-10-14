@@ -5,18 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
+	"github.com/spf13/cobra"
 )
 
 func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
@@ -32,6 +36,9 @@ func newTestRunner(t *testing.T) (*HookRunner, *recordedHookCalls) {
 		LoadTranscriptTail: func(path string) ([]byte, error) {
 			rec.transcriptPaths = append(rec.transcriptPaths, path)
 			return rec.transcriptTail, nil
+		},
+		LoadState: func(string) (*state.SessionState, error) {
+			return rec.lastState, nil
 		},
 		Update: func(sessionID string, mutate func(*state.SessionState) bool) error {
 			rec.updateCalls++
@@ -60,6 +67,986 @@ type recordedHookCalls struct {
 	lastState       *state.SessionState
 	transcriptPaths []string
 	transcriptTail  []byte
+}
+
+func chatEntries(event state.StateEvent) []map[string]interface{} {
+	if entries, ok := event.Fields["chat_entries"].([]interface{}); ok {
+		out := make([]map[string]interface{}, 0, len(entries))
+		for _, raw := range entries {
+			if fields, ok := raw.(map[string]interface{}); ok {
+				out = append(out, fields)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func chatKinds(event state.StateEvent) []string {
+	entries := chatEntries(event)
+	kinds := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		kind, _ := entry["chat_kind"].(string)
+		kinds = append(kinds, kind)
+	}
+	return kinds
+}
+
+func chatTextFor(event state.StateEvent, kind string) string {
+	for _, entry := range chatEntries(event) {
+		if entry["chat_kind"] == kind {
+			text, _ := entry["chat_text"].(string)
+			return text
+		}
+	}
+	return ""
+}
+
+func TestHookChatEntriesForHarnesses(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		agent      string
+		action     string
+		payload    map[string]interface{}
+		final      string
+		finalEvent string
+	}{
+		{name: "claude", agent: "claude", action: "tool_start", payload: map[string]interface{}{"tool_name": "Bash"}, final: "last_assistant_message", finalEvent: "done"},
+		{name: "codex", agent: "codex", action: "tool_start", payload: map[string]interface{}{"tool_name": "Bash"}, final: "last_assistant_message", finalEvent: "done"},
+		{name: "pi", agent: "pi", action: "tool_execution_start", payload: map[string]interface{}{"toolName": "Bash"}, final: "text", finalEvent: "agent_end"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, tc.agent, tc.action, "qm-chat", tc.payload)
+			if got := chatKinds(rec.events[len(rec.events)-1]); !slices.Equal(got, []string{"status", "action"}) {
+				t.Fatalf("tool event chat kinds = %v, want status and action", got)
+			}
+
+			finalText := strings.Join([]string{strings.Repeat("猫", 1501), "second paragraph", "third paragraph", "fourth"}, "\n\n")
+			payload := map[string]interface{}{tc.final: finalText}
+			if tc.agent == "pi" {
+				payload = map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": finalText}}
+			}
+			runHookWithStdin(r, tc.agent, tc.finalEvent, "qm-chat", payload)
+			last := rec.events[len(rec.events)-1]
+			message := chatTextFor(last, "message")
+			if len([]rune(message)) != 1500 || strings.Contains(message, "fourth") {
+				runes := []rune(message)
+				if len(runes) > 4 {
+					runes = runes[len(runes)-4:]
+				}
+				t.Fatalf("capped final message runes=%d, suffix=%q", len([]rune(message)), string(runes))
+			}
+			if !slices.Contains(chatKinds(last), "status") || last.Fields["chat_summary"] != nil {
+				t.Fatalf("final event chat kinds/summary = %v/%v", chatKinds(last), last.Fields["chat_summary"])
+			}
+		})
+	}
+}
+
+func TestHookSubagentTaggingAndChatExclusion(t *testing.T) {
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, agent, "tool_start", "qm-chat", map[string]interface{}{
+				"agent_id": "task-42", "agent_type": "explorer", "tool_name": "Bash",
+			})
+			event := rec.events[len(rec.events)-1]
+			if event.AgentID != "task-42" || event.AgentType != "explorer" || len(chatEntries(event)) != 0 {
+				t.Fatalf("subagent event = %+v, feed entries %v", event, chatEntries(event))
+			}
+			if event.Fields["agent_id"] != nil || event.Fields["agent_type"] != nil {
+				t.Fatalf("duplicate subagent fields: %#v", event.Fields)
+			}
+		})
+	}
+}
+
+func TestHookClaudeMessageDisplay(t *testing.T) {
+	cases := []struct {
+		name   string
+		inputs []struct {
+			action  string
+			payload map[string]interface{}
+		}
+		wantSay     []string
+		wantMessage []string
+		checkSayIn  bool
+		sayInput    int
+		sayInHook   string
+	}{
+		{
+			name: "assembles indexed batches and emits in the completing hook",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m1", "prompt_id": "p1", "index": 1, "final": true, "delta": "layout."}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m1", "prompt_id": "p1", "index": 0, "delta": "Checking the\n"}},
+			},
+			wantSay:    []string{"Checking the\nlayout."},
+			checkSayIn: true,
+			sayInput:   1,
+			sayInHook:  "Checking the\nlayout.",
+		},
+		{
+			name: "Stop skips the final message after emitting the same say",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m2", "prompt_id": "p2", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Done."}},
+				{action: "done", payload: map[string]interface{}{"prompt_id": "p2", "transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
+			},
+			wantSay:    []string{"Done."},
+			checkSayIn: true,
+			sayInput:   0,
+			sayInHook:  "Done.",
+		},
+		{
+			name: "late same-turn display callback is suppressed after Stop",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "done", payload: map[string]interface{}{"prompt_id": "p3", "transcript_path": "/tmp/t.jsonl", "last_assistant_message": "Done."}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m3", "prompt_id": "p3", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Checking files"}},
+			},
+			wantMessage: []string{"Done."},
+			checkSayIn:  true,
+			sayInput:    1,
+		},
+		{
+			name: "subagent display is excluded",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"agent_id": "task-1", "message_id": "m4", "index": 0, "final": true, "delta": "private subagent text"}},
+			},
+		},
+		{
+			name: "say text uses the shared cap",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m5", "index": 0, "final": true, "delta": strings.Repeat("猫", 1501)}},
+			},
+			wantSay:    []string{strings.Repeat("猫", 1500)},
+			checkSayIn: true,
+			sayInput:   0,
+			sayInHook:  strings.Repeat("猫", 1500),
+		},
+		{
+			name: "single oversized batch is capped before storage limit",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m8", "index": 0, "final": true, "delta": strings.Repeat("x", maxClaudeDisplayBytes+1)}},
+			},
+			wantSay:    []string{strings.Repeat("x", 1500)},
+			checkSayIn: true,
+			sayInput:   0,
+			sayInHook:  strings.Repeat("x", 1500),
+		},
+		{
+			name: "leading whitespace does not consume the cap",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m6", "index": 0, "final": true, "delta": strings.Repeat(" ", 2000) + "visible"}},
+			},
+			wantSay:    []string{"visible"},
+			checkSayIn: true,
+			sayInput:   0,
+			sayInHook:  "visible",
+		},
+		{
+			name: "out of order leading whitespace batches do not consume the cap",
+			inputs: []struct {
+				action  string
+				payload map[string]interface{}
+			}{
+				{action: "say", payload: map[string]interface{}{"message_id": "m7", "index": 2, "final": true, "delta": "visible"}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m7", "index": 1, "delta": strings.Repeat(" ", 2000)}},
+				{action: "say", payload: map[string]interface{}{"message_id": "m7", "index": 0, "delta": strings.Repeat(" ", 2000)}},
+			},
+			wantSay:    []string{"visible"},
+			checkSayIn: true,
+			sayInput:   2,
+			sayInHook:  "visible",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			for _, input := range tc.inputs {
+				runHookWithStdin(r, "claude", input.action, "qm-chat", input.payload)
+			}
+			if tc.checkSayIn {
+				if got := chatTextFor(rec.events[tc.sayInput], "say"); got != tc.sayInHook {
+					t.Fatalf("completing hook say = %q, want %q", got, tc.sayInHook)
+				}
+			}
+			var say, messages []string
+			for _, event := range rec.events {
+				for _, entry := range chatEntries(event) {
+					text, _ := entry["chat_text"].(string)
+					switch entry["chat_kind"] {
+					case "say":
+						say = append(say, text)
+					case "message":
+						messages = append(messages, text)
+					}
+				}
+			}
+			if !slices.Equal(say, tc.wantSay) || !slices.Equal(messages, tc.wantMessage) {
+				t.Fatalf("say/messages = %#v/%#v, want %#v/%#v", say, messages, tc.wantSay, tc.wantMessage)
+			}
+			var lastChatAt time.Time
+			if rec.lastState != nil {
+				lastChatAt = rec.lastState.Panes["primary"].LastChatAt
+			}
+			if len(tc.wantSay)+len(tc.wantMessage) == 0 {
+				if !lastChatAt.IsZero() {
+					t.Fatalf("excluded narration changed LastChatAt: %s", lastChatAt)
+				}
+			} else if want := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC); !lastChatAt.Equal(want) {
+				t.Fatalf("LastChatAt = %s, want %s", lastChatAt, want)
+			}
+		})
+	}
+}
+
+func TestHookClaudeSayUsesFirstBatchTimestamp(t *testing.T) {
+	r, rec := newTestRunner(t)
+	firstBatchAt := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	now := firstBatchAt
+	r.Now = func() time.Time { return now }
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "m1", "prompt_id": "p1", "index": 0, "delta": "Reading the README.",
+	})
+
+	now = firstBatchAt.Add(2 * time.Second)
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "m1", "prompt_id": "p1", "index": 1, "final": true, "delta": "",
+	})
+
+	sayEvent := rec.events[len(rec.events)-1]
+	if sayEvent.Ts != now {
+		t.Fatalf("say hook timestamp = %s, want completion time %s", sayEvent.Ts, now)
+	}
+	entries := chatEntries(sayEvent)
+	if len(entries) != 1 {
+		t.Fatalf("say entries = %#v, want one", entries)
+	}
+	got, ok := entries[0]["chat_timestamp"].(time.Time)
+	if !ok || !got.Equal(firstBatchAt) {
+		t.Fatalf("say chat_timestamp = %#v, want first batch time %s", entries[0]["chat_timestamp"], firstBatchAt)
+	}
+}
+
+func TestHookClaudeNarrationPrecedesActionsInTrace(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	r, setNow := newClaudeChatFeedRunner(t, store, time.Date(2026, 10, 7, 13, 44, 35, 451021000, time.UTC), "trace-turn")
+	trace := []struct {
+		actionOffset time.Duration
+		delay        time.Duration
+		tool         string
+		narration    string
+	}{
+		{0, 25_235 * time.Microsecond, "Read", "Reading the README to understand the project's main purpose."},
+		{2_971_751 * time.Microsecond, 2_869 * time.Microsecond, "Bash", "Listing packages in the internal/ directory to count them."},
+		{6_181_758 * time.Microsecond, 8_144 * time.Microsecond, "Read", "Reading cmd/root.go to understand what it sets up."},
+		{9_539_589 * time.Microsecond, 27_352 * time.Microsecond, "Read", "Reading the first 40 lines of AGENTS.md to identify rules."},
+	}
+	base := time.Date(2026, 10, 7, 13, 44, 35, 451021000, time.UTC)
+	var want []string
+	for i, event := range trace {
+		actionAt := base.Add(event.actionOffset)
+		setNow(actionAt)
+		runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+			"prompt_id": "trace-turn", "tool_use_id": fmt.Sprintf("trace-tool-%d", i), "tool_name": event.tool,
+		})
+		setNow(actionAt.Add(event.delay))
+		runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+			"message_id": fmt.Sprintf("trace-%d", i), "prompt_id": "trace-turn", "index": 0,
+			"final": true, "delta": event.narration,
+		})
+		want = append(want, "Worker qm-w1: "+event.narration, "Worker qm-w1: Cast ["+event.tool+"]")
+	}
+
+	got := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
+	var chatLines []string
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		if strings.HasPrefix(line, "Worker qm-w1: ") {
+			chatLines = append(chatLines, line)
+		}
+	}
+	if !slices.Equal(chatLines, want) {
+		t.Fatalf("chat --text lines = %#v, want trace narration/action pairs %#v; full output:\n%s", chatLines, want, got)
+	}
+}
+
+func TestHookClaudeParallelNarrationPrecedesEarliestOpenAction(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	r, setNow := newClaudeChatFeedRunner(t, store, time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC), "parallel-turn")
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "parallel-turn", "tool_use_id": "read-1", "tool_name": "Read",
+	})
+	setNow(base.Add(20 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "parallel-turn", "tool_use_id": "grep-1", "tool_name": "Grep",
+	})
+	setNow(base.Add(25 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_end", "qm-w1", map[string]interface{}{
+		"prompt_id": "parallel-turn", "tool_use_id": "grep-1", "tool_name": "Grep",
+	})
+	setNow(base.Add(30 * time.Millisecond))
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "parallel", "prompt_id": "parallel-turn", "index": 0, "final": true,
+		"delta": "Checking both files.",
+	})
+
+	got := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
+	lines := []string{"Worker qm-w1: Checking both files.", "Worker qm-w1: Cast [Read] [Grep]"}
+	last := -1
+	for _, line := range lines {
+		at := strings.Index(got, line)
+		if at <= last {
+			t.Fatalf("chat --text = %q; want %q after offset %d", got, line, last)
+		}
+		last = at
+	}
+	page, err := workerfeed.ReadHistory(store.Root(), "qm-master", "qm-w1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 3 || page.Entries[0].Kind != "say" || !page.Entries[0].Timestamp.Equal(base.Add(-time.Millisecond)) {
+		t.Fatalf("parallel history = %#v; want narration timestamp 1 ms before earliest open action", page.Entries)
+	}
+}
+
+func TestHookClaudeFastToolResultKeepsArrivalTime(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r, setNow := newClaudeChatFeedRunner(t, store, base, "fast-turn")
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "fast-turn", "tool_use_id": "read-fast", "tool_name": "Read",
+	})
+	setNow(base.Add(40 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_end", "qm-w1", map[string]interface{}{
+		"prompt_id": "fast-turn", "tool_use_id": "read-fast", "tool_name": "Read",
+	})
+	sayAt := base.Add(1500 * time.Millisecond)
+	setNow(sayAt)
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "fast-result", "prompt_id": "fast-turn", "index": 0, "final": true, "delta": "Read completed.",
+	})
+
+	page, err := workerfeed.ReadHistory(store.Root(), "qm-master", "qm-w1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 2 || page.Entries[0].Kind != "action" || page.Entries[1].Kind != "say" || !page.Entries[1].Timestamp.Equal(sayAt) {
+		t.Fatalf("fast tool history = %#v; want Cast then result narration at arrival time", page.Entries)
+	}
+}
+
+func TestHookClaudeStreamedNarrationKeepsBatchZeroTime(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r, setNow := newClaudeChatFeedRunner(t, store, base, "stream-turn")
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "stream", "prompt_id": "stream-turn", "index": 0, "delta": "Reading both files.",
+	})
+	setNow(base.Add(10 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "stream-turn", "tool_use_id": "read-stream", "tool_name": "Read",
+	})
+	setNow(base.Add(2100 * time.Millisecond))
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "stream-turn", "tool_use_id": "grep-stream", "tool_name": "Grep",
+	})
+	setNow(base.Add(2200 * time.Millisecond))
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "stream", "prompt_id": "stream-turn", "index": 1, "final": true,
+	})
+
+	got := runCmd(t, store, &mockRunner{}, "chat", "qm-master", "--text")
+	want := []string{"Worker qm-w1: Reading both files.", "Worker qm-w1: Cast [Read] [Grep]"}
+	last := -1
+	for _, line := range want {
+		at := strings.Index(got, line)
+		if at <= last {
+			t.Fatalf("chat --text = %q; want %q after offset %d", got, line, last)
+		}
+		last = at
+	}
+	page, err := workerfeed.ReadHistory(store.Root(), "qm-master", "qm-w1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 3 || page.Entries[0].Kind != "say" || !page.Entries[0].Timestamp.Equal(base) {
+		t.Fatalf("streamed history = %#v; want the batch-0 timestamp before both actions", page.Entries)
+	}
+}
+
+func TestHookClaudeStaleOpenActionKeepsSayArrivalTime(t *testing.T) {
+	store := setupStore(t)
+	createFeedManifests(t, store, "qm-master", "qm-w1")
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r, setNow := newClaudeChatFeedRunner(t, store, base, "stale-turn")
+	runHookWithStdin(r, "claude", "tool_start", "qm-w1", map[string]interface{}{
+		"prompt_id": "stale-turn", "tool_use_id": "read-stale", "tool_name": "Read",
+	})
+	sayAt := base.Add(300 * time.Millisecond)
+	setNow(sayAt)
+	runHookWithStdin(r, "claude", "say", "qm-w1", map[string]interface{}{
+		"message_id": "stale", "prompt_id": "stale-turn", "index": 0, "final": true, "delta": "The old read is still open.",
+	})
+
+	page, err := workerfeed.ReadHistory(store.Root(), "qm-master", "qm-w1", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 2 || page.Entries[0].Kind != "action" || page.Entries[1].Kind != "say" || !page.Entries[1].Timestamp.Equal(sayAt) {
+		t.Fatalf("stale open action history = %#v; want arrival time after Cast", page.Entries)
+	}
+}
+
+func TestHookClaudeSayIgnoresActionFromDifferentTurn(t *testing.T) {
+	r, rec := newTestRunner(t)
+	now := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r.Now = func() time.Time { return now }
+	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "old-turn"})
+	now = now.Add(time.Millisecond)
+	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{"prompt_id": "old-turn", "tool_use_id": "old-read", "tool_name": "Read"})
+	now = now.Add(time.Millisecond)
+	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "new-turn"})
+	if got := rec.lastState.Panes["primary"].ClaudeOpenChatActions; len(got) != 0 {
+		t.Fatalf("UserPromptSubmit left open actions: %#v", got)
+	}
+	now = now.Add(time.Millisecond)
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "new-message", "prompt_id": "new-turn", "index": 0, "final": true, "delta": "New turn narration.",
+	})
+
+	event := rec.events[len(rec.events)-1]
+	entries := chatEntries(event)
+	if len(entries) != 1 {
+		t.Fatalf("say entries = %#v, want one", entries)
+	}
+	if got, ok := entries[0]["chat_timestamp"].(time.Time); ok && !got.Equal(event.Ts) {
+		t.Fatalf("different-turn action timestamp = %s, want say arrival %s", got, event.Ts)
+	}
+}
+
+func TestHookClaudeStopClearsOpenActions(t *testing.T) {
+	r, rec := newTestRunner(t)
+	now := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r.Now = func() time.Time { return now }
+	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "stop-turn"})
+	now = now.Add(time.Millisecond)
+	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{
+		"prompt_id": "stop-turn", "tool_use_id": "stop-read", "tool_name": "Read",
+	})
+	now = now.Add(time.Millisecond)
+	runHookWithStdin(r, "claude", "done", "qm-chat", map[string]interface{}{"prompt_id": "stop-turn"})
+	if got := rec.lastState.Panes["primary"].ClaudeOpenChatActions; len(got) != 0 {
+		t.Fatalf("Stop left open actions: %#v", got)
+	}
+}
+
+func newClaudeChatFeedRunner(t *testing.T, store *state.Store, start time.Time, promptID string) (*HookRunner, func(time.Time)) {
+	t.Helper()
+	root := store.Root()
+	var now = start
+	r, _ := newTestRunner(t)
+	r.Now = func() time.Time { return now }
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
+	}
+	seed := state.StateEvent{Ts: start, Agent: "claude", Action: "test_seed"}
+	if err := state.UpdateAndLogAt(root, "qm-w1", &seed, func(ss *state.SessionState) bool {
+		ss.Panes["primary"] = state.PaneState{
+			Role: "primary", Agent: "claude", State: "working", LastChatStatus: "working", ClaudePromptID: promptID,
+		}
+		return true
+	}); err != nil {
+		t.Fatalf("seed hook state: %v", err)
+	}
+	return r, func(at time.Time) { now = at }
+}
+
+func TestHookClaudeOutOfOrderDisplayDeltasKeepStateBounded(t *testing.T) {
+	root := t.TempDir()
+	r, _ := newTestRunner(t)
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
+	}
+	for index := 1; index <= 2; index++ {
+		runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+			"message_id": "pending", "index": index, "delta": strings.Repeat("x", 1<<20),
+		})
+	}
+	info, err := os.Stat(state.SessionStatePath(root, "qm-chat"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 32*1024 {
+		t.Fatalf("state.json grew to %d bytes from out-of-order deltas", info.Size())
+	}
+	t.Logf("state.json after two out-of-order 1 MiB deltas: %d bytes", info.Size())
+}
+
+func TestHookCodexLargeChatEventsStayWithinReaderWindow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	root := t.TempDir()
+	var rollout strings.Builder
+	for i := 0; i < 300; i++ {
+		rollout.WriteString(codexCommentaryLine(strings.Repeat("x", 1_000)))
+		rollout.WriteByte('\n')
+	}
+	if err := os.WriteFile(path, []byte(rollout.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := newTestRunner(t)
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogWithEventsAt(root, sessionID, event, mutate, extraEvents)
+	}
+	runHookWithStdin(r, "codex", "tool_start", "qm-chat", map[string]interface{}{"transcript_path": path})
+	data, err := os.ReadFile(state.SessionStateLogPath(root, "qm-chat"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, maxLineBytes := 0, 0
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	if len(lines) < 2 {
+		t.Fatalf("large chat event stayed in %d state log line(s)", len(lines))
+	}
+	for _, line := range lines {
+		var event state.StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatal(err)
+		}
+		if len(line)+1 > 64*1024 {
+			t.Fatalf("state log line is %d bytes, exceeds 64 KiB", len(line)+1)
+		}
+		if len(line)+1 > maxLineBytes {
+			maxLineBytes = len(line) + 1
+		}
+		entries += len(chatEntries(event))
+	}
+	if entries != 300 {
+		t.Fatalf("chat entries = %d, want 300", entries)
+	}
+	ss, err := state.LoadSessionStateAt(root, "qm-chat")
+	if err != nil || ss == nil || ss.Panes["primary"].LastChatAt.IsZero() {
+		t.Fatalf("LastChatAt not committed with split lines: state=%#v err=%v", ss, err)
+	}
+	t.Logf("split 300 chat entries across %d lines; max line %d bytes", len(lines), maxLineBytes)
+}
+
+func TestHookClaudeClearsAbandonedDisplayAtLifecycleBoundary(t *testing.T) {
+	for _, action := range []string{"working", "done"} {
+		t.Run(action, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{"message_id": "pending", "prompt_id": "p1", "index": 0, "delta": "partial"})
+			payload := map[string]interface{}{"prompt_id": "p2"}
+			if action == "done" {
+				payload["prompt_id"] = "p1"
+				payload["last_assistant_message"] = "complete final"
+			}
+			runHookWithStdin(r, "claude", action, "qm-chat", payload)
+			pane := rec.lastState.Panes["primary"]
+			if pane.ClaudeDisplayMessageID != "" || len(pane.ClaudeDisplayChunks) != 0 {
+				t.Fatalf("pending display remained after %s: %+v", action, pane)
+			}
+		})
+	}
+}
+
+func TestHookClaudeDoesNotAccumulateLateDisplayAfterStop(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "claude", "done", "qm-chat", map[string]interface{}{"prompt_id": "p1", "transcript_path": "/tmp/t.jsonl"})
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "late", "prompt_id": "p1", "transcript_path": "/tmp/t.jsonl", "index": 0, "delta": "partial",
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.ClaudeDisplayMessageID != "" || len(pane.ClaudeDisplayChunks) != 0 {
+		t.Fatalf("late display remained in pane state: %+v", pane)
+	}
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "" {
+		t.Fatalf("late display narration = %q", got)
+	}
+}
+
+func TestReadCodexCommentaryFiltersAndAdvancesOffset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	appendCodexRollout(t, path, codexRolloutLine("commentary", "Checking layout"))
+	appendCodexRollout(t, path, codexRolloutLine("final_answer", "Done"))
+	commentary, offset, _, err := readCodexCommentary(path, 0, false)
+	if err != nil {
+		t.Fatalf("read rollout: %v", err)
+	}
+	if !slices.Equal(codexCommentaryTexts(commentary), []string{"Checking layout"}) {
+		t.Fatalf("commentary = %#v", commentary)
+	}
+	appendCodexRollout(t, path, codexCommentaryLine("Reading code"))
+	commentary, next, _, err := readCodexCommentary(path, offset, false)
+	if err != nil {
+		t.Fatalf("read next rollout chunk: %v", err)
+	}
+	if !slices.Equal(codexCommentaryTexts(commentary), []string{"Reading code"}) || next <= offset {
+		t.Fatalf("incremental read = %#v offset %d, previous %d", commentary, next, offset)
+	}
+	commentary, repeated, _, err := readCodexCommentary(path, next, false)
+	if err != nil || len(commentary) != 0 || repeated != next {
+		t.Fatalf("repeat read = %#v offset %d err %v", commentary, repeated, err)
+	}
+}
+
+func TestReadCodexCommentaryRealRolloutFixture(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "real-rollout.jsonl")
+	data, err := os.ReadFile("testdata/codex_real_rollout_trimmed.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commentary, _, _, err := readCodexCommentary(path, 0, false)
+	if err != nil {
+		t.Fatalf("read real rollout: %v", err)
+	}
+	want := []string{
+		"I’ll read `README.md` to identify the project’s purpose.",
+		"I’ll list the immediate package directories under `internal/` and count them.",
+		"I’ll read `cmd/root.go` to see what the root command configures.",
+		"I’ll send the requested two-sentence findings to the master.",
+	}
+	if !slices.Equal(codexCommentaryTexts(commentary), want) {
+		t.Fatalf("commentary = %#v, want %#v", codexCommentaryTexts(commentary), want)
+	}
+	if got, want := commentary[0].timestamp, time.UnixMilli(1791378229960).UTC(); !got.Equal(want) {
+		t.Fatalf("first commentary timestamp = %s, want completed_at_ms %s", got, want)
+	}
+}
+
+func TestHookCodexRealRolloutUsesRecordTimestamps(t *testing.T) {
+	path := filepath.Join("testdata", "codex_real_rollout_trimmed.jsonl")
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "codex", "tool_start", "qm-codex", map[string]interface{}{"transcript_path": path})
+
+	var sayEntries []map[string]interface{}
+	for _, entry := range chatEntries(rec.events[len(rec.events)-1]) {
+		if entry["chat_kind"] == "say" {
+			sayEntries = append(sayEntries, entry)
+		}
+	}
+	if len(sayEntries) != 4 {
+		t.Fatalf("say entries = %d, want four commentary records", len(sayEntries))
+	}
+	got, ok := sayEntries[0]["chat_timestamp"].(time.Time)
+	if !ok || !got.Equal(time.UnixMilli(1791378229960).UTC()) {
+		t.Fatalf("first say timestamp = %#v, want completed_at_ms 1791378229960", sayEntries[0]["chat_timestamp"])
+	}
+}
+
+func TestReadCodexCommentaryJoinsTextParts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	appendCodexRollout(t, path, codexRolloutLineParts("commentary", "Read ", "README.md"))
+	commentary, _, _, err := readCodexCommentary(path, 0, false)
+	if err != nil || !slices.Equal(codexCommentaryTexts(commentary), []string{"Read README.md"}) {
+		t.Fatalf("joined commentary = %#v, err %v", codexCommentaryTexts(commentary), err)
+	}
+}
+
+func TestReadCodexCommentaryLongLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	line := []byte(codexCommentaryLine(strings.Repeat("x", 100_000)))
+	if err := os.WriteFile(path, append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commentary, offset, _, err := readCodexCommentary(path, 0, false)
+	gotTextLen := 0
+	if len(commentary) == 1 {
+		gotTextLen = len(commentary[0].text)
+	}
+	if err != nil || len(commentary) != 1 || gotTextLen != 100_000 || offset != int64(len(line)+1) {
+		t.Fatalf("long line read = %d entries/%d chars offset=%d err=%v", len(commentary), gotTextLen, offset, err)
+	}
+}
+
+func TestReadCodexCommentarySkipsOversizedLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	valid := codexCommentaryLine("after oversized line")
+	contents := append([]byte(strings.Repeat("x", codexRolloutReadLimit+100)+"\n"), []byte(valid+"\n")...)
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commentary, offset, skipping, err := readCodexCommentary(path, 0, false)
+	if err != nil || len(commentary) != 0 || !skipping || offset != codexRolloutReadLimit {
+		t.Fatalf("first oversized read = %#v offset=%d skipping=%t err=%v", commentary, offset, skipping, err)
+	}
+	commentary, offset, skipping, err = readCodexCommentary(path, offset, skipping)
+	if err != nil || !slices.Equal(codexCommentaryTexts(commentary), []string{"after oversized line"}) || skipping || offset != int64(len(contents)) {
+		t.Fatalf("oversized continuation = %#v offset=%d skipping=%t err=%v", commentary, offset, skipping, err)
+	}
+}
+
+func TestHookCodexRolloutPathChangeAndSubagentExclusion(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "first.jsonl")
+	second := filepath.Join(t.TempDir(), "second.jsonl")
+	child := filepath.Join(t.TempDir(), "child.jsonl")
+	appendCodexRollout(t, first, codexCommentaryLine("old"))
+	appendCodexRollout(t, second, codexCommentaryLine("new parent rollout"))
+	appendCodexRollout(t, second, codexCommentaryLine("another narration"))
+	appendCodexRollout(t, child, codexCommentaryLine("child text"))
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
+		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: first, CodexTranscriptOffset: 10_000},
+	}}
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": second})
+	var narration []string
+	for _, entry := range chatEntries(rec.events[len(rec.events)-1]) {
+		if entry["chat_kind"] == "say" {
+			narration = append(narration, entry["chat_text"].(string))
+		}
+	}
+	if !slices.Equal(narration, []string{"new parent rollout", "another narration"}) {
+		t.Fatalf("path-change narration = %q", narration)
+	}
+	pane := rec.lastState.Panes["primary"]
+	if pane.CodexTranscriptPath != second {
+		t.Fatalf("stored path = %q, want %q", pane.CodexTranscriptPath, second)
+	}
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"agent_id": "task-1", "transcript_path": child})
+	last := rec.events[len(rec.events)-1]
+	if len(chatEntries(last)) != 0 || rec.lastState.Panes["primary"].CodexTranscriptPath != second {
+		t.Fatalf("subagent rollout changed feed or offset: event=%+v pane=%+v", last, rec.lastState.Panes["primary"])
+	}
+}
+
+func TestHookCodexRetriesWhenRolloutOffsetChangesDuringRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	first := codexCommentaryLine("already consumed")
+	second := codexCommentaryLine("appended during overlap")
+	appendCodexRollout(t, path, first)
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
+		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: path},
+	}}
+	firstCommit := true
+	r.Update = func(sessionID string, mutate func(*state.SessionState) bool) error {
+		rec.updateCalls++
+		if firstCommit {
+			firstCommit = false
+			pane := rec.lastState.Panes["primary"]
+			pane.CodexTranscriptOffset = int64(len(first) + 1)
+			rec.lastState.Panes["primary"] = pane
+			appendCodexRollout(t, path, second)
+		}
+		if mutate(rec.lastState) {
+			rec.writeCalls++
+		}
+		return nil
+	}
+
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
+	var narration []string
+	for _, event := range rec.events {
+		for _, entry := range chatEntries(event) {
+			if entry["chat_kind"] == "say" {
+				narration = append(narration, entry["chat_text"].(string))
+			}
+		}
+	}
+	if !slices.Equal(narration, []string{"appended during overlap"}) {
+		t.Fatalf("overlapping hook narration = %q", narration)
+	}
+	if got := rec.lastState.Panes["primary"].CodexTranscriptOffset; got != int64(len(first+"\n"+second+"\n")) {
+		t.Fatalf("stored offset = %d, want %d", got, len(first+"\n"+second+"\n"))
+	}
+}
+
+func TestHookCodexStopCatchesUpAfterRepeatedRolloutConflicts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	rolloutLine := codexCommentaryLine
+	appendCodexRollout(t, path, rolloutLine("seed"))
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
+		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: path},
+	}}
+	conflicts := []string{"after stop", "after retry 1", "after retry 2", "after retry 3"}
+	updateCalls := 0
+	r.Update = func(sessionID string, mutate func(*state.SessionState) bool) error {
+		updateCalls++
+		if updateCalls <= len(conflicts) {
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pane := rec.lastState.Panes["primary"]
+			pane.CodexTranscriptOffset = info.Size()
+			rec.lastState.Panes["primary"] = pane
+			appendCodexRollout(t, path, rolloutLine(conflicts[updateCalls-1]))
+		}
+		if mutate(rec.lastState) {
+			rec.writeCalls++
+		}
+		return nil
+	}
+
+	runHookWithStdin(r, "codex", "done", "qm-codex", map[string]interface{}{
+		"transcript_path":        path,
+		"last_assistant_message": "Stop final",
+	})
+	var narration []string
+	for _, event := range rec.events {
+		for _, entry := range chatEntries(event) {
+			if entry["chat_kind"] == "say" {
+				narration = append(narration, entry["chat_text"].(string))
+			}
+		}
+	}
+	if !slices.Equal(narration, []string{"after retry 3"}) {
+		t.Fatalf("Stop catch-up narration = %q", narration)
+	}
+	if updateCalls != maxCodexRolloutRetries+2 {
+		t.Fatalf("state updates = %d, want Stop + %d retries + final catch-up", updateCalls, maxCodexRolloutRetries)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rec.lastState.Panes["primary"].CodexTranscriptOffset; got != info.Size() {
+		t.Fatalf("stored offset = %d, want end of rollout %d", got, info.Size())
+	}
+}
+
+func TestHookCodexMissingAndRotatedRollout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
+	if rec.lastState.Panes["primary"].CodexTranscriptPath != path {
+		t.Fatalf("missing rollout path = %q", rec.lastState.Panes["primary"].CodexTranscriptPath)
+	}
+	appendCodexRollout(t, path, codexCommentaryLine("first"))
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "first" {
+		t.Fatalf("first rollout narration = %q", got)
+	}
+	oldOffset := rec.lastState.Panes["primary"].CodexTranscriptOffset
+	short := codexCommentaryLine("new") + "\n"
+	if err := os.WriteFile(path, []byte(short), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(short)) >= oldOffset {
+		t.Fatalf("test setup failed: replacement size %d >= old offset %d", len(short), oldOffset)
+	}
+	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "new" {
+		t.Fatalf("rotated rollout narration = %q", got)
+	}
+}
+
+func appendCodexRollout(t *testing.T, path, line string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(line + "\n"); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func codexCommentaryLine(text string) string {
+	return codexRolloutLine("commentary", text)
+}
+
+func codexRolloutLine(phase, text string) string {
+	return codexRolloutLineParts(phase, text)
+}
+
+func codexRolloutLineParts(phase string, parts ...string) string {
+	content := make([]map[string]string, len(parts))
+	for i, text := range parts {
+		content[i] = map[string]string{"type": "Text", "text": text}
+	}
+	line, err := json.Marshal(map[string]interface{}{
+		"timestamp": "2026-10-07T13:03:49.961Z",
+		"ordinal":   11,
+		"type":      "event_msg",
+		"payload": map[string]interface{}{
+			"type":            "item_completed",
+			"thread_id":       "thread_123",
+			"turn_id":         "turn_123",
+			"item":            map[string]interface{}{"type": "AgentMessage", "id": "msg_123", "content": content, "phase": phase},
+			"started_at_ms":   int64(1791378229501),
+			"completed_at_ms": int64(1791378229960),
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return string(line)
+}
+
+func codexCommentaryTexts(entries []codexCommentaryEntry) []string {
+	texts := make([]string, len(entries))
+	for i, entry := range entries {
+		texts[i] = entry.text
+	}
+	return texts
+}
+
+func TestHookClaudeTaskNotificationDoesNotExposePrompt(t *testing.T) {
+	r, rec := newTestRunner(t)
+	prompt := "<task-notification>private task details</task-notification>"
+	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt": prompt})
+	if got := rec.lastState.Panes["primary"].Activity; got != "Background agent resumed" {
+		t.Fatalf("notification activity = %q", got)
+	}
+	if strings.Contains(rec.events[0].Activity, prompt) || strings.Contains(rec.events[0].Activity, "private task details") {
+		t.Fatalf("task notification leaked in event: %+v", rec.events[0])
+	}
+}
+
+func TestHookChatStatusDedupesAcrossStarting(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{SessionID: "qm-chat", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
+		"primary": {Role: "primary", Agent: "claude", State: "starting", LastChatStatus: "working"},
+	}}
+	for _, action := range []string{"working", "blocked", "blocked", "done"} {
+		runHookWithStdin(r, "claude", action, "qm-chat", map[string]interface{}{"last_assistant_message": "finished"})
+	}
+	var statuses []string
+	for _, event := range rec.events {
+		for _, entry := range chatEntries(event) {
+			if entry["chat_kind"] == "status" {
+				status, _ := entry["chat_text"].(string)
+				statuses = append(statuses, status)
+			}
+		}
+	}
+	if !slices.Equal(statuses, []string{"blocked", "done"}) {
+		t.Fatalf("status feed = %v, want blocked then done (no duplicate working or idle)", statuses)
+	}
 }
 
 type manifestStoreStub struct {
@@ -185,6 +1172,32 @@ func TestReadStdinNonBlockingReadsPipedInput(t *testing.T) {
 	}
 }
 
+func TestReadStdinNonBlockingAcceptsPayloadsOver64KiB(t *testing.T) {
+	orig := stdinLooksInteractive
+	t.Cleanup(func() { stdinLooksInteractive = orig })
+	stdinLooksInteractive = func(io.Reader) bool { return false }
+
+	want := strings.Repeat("x", 128*1024)
+	data, err := readStdinNonBlocking(strings.NewReader(want))
+	if err != nil {
+		t.Fatalf("readStdinNonBlocking: %v", err)
+	}
+	if string(data) != want {
+		t.Fatalf("read %d bytes, want %d", len(data), len(want))
+	}
+}
+
+func TestHookFastPathLogsOversizedStdin(t *testing.T) {
+	var stderr bytes.Buffer
+	handled, err := executeHookFastPath([]string{"pi", "batch"}, strings.NewReader(strings.Repeat("x", (1<<20)+1)), &stderr)
+	if err != nil || !handled {
+		t.Fatalf("executeHookFastPath = %t, %v", handled, err)
+	}
+	if !strings.Contains(stderr.String(), "stdin exceeds 1048576-byte limit") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestHookNoSessionExitsCleanly(t *testing.T) {
 	t.Setenv("QUESTMASTER_SESSION", "")
 	r, rec := newTestRunner(t)
@@ -247,7 +1260,6 @@ func TestHookStartingSnippetIsStarted(t *testing.T) {
 		{agent: "codex", action: "starting"},
 		{agent: "pi", action: "session_start"},
 		{agent: "pi", action: "before_agent_start"},
-		{agent: "pi", action: "agent_start"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.agent+"/"+tc.action, func(t *testing.T) {
@@ -320,6 +1332,13 @@ func TestHookClaudeStartingAllowedAfterStopped(t *testing.T) {
 
 func TestHookClaudeUserPromptSubmit(t *testing.T) {
 	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "claude", State: "starting", Activity: "started"},
+		},
+	}
 	runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{
 		"prompt": "What's the time?\nSecond line ignored",
 	})
@@ -327,11 +1346,62 @@ func TestHookClaudeUserPromptSubmit(t *testing.T) {
 	if pane.State != "working" {
 		t.Errorf("want state=working, got %q", pane.State)
 	}
-	if pane.Activity != "You: What's the time?" {
-		t.Errorf("activity: %q", pane.Activity)
+	if pane.Activity != "started" {
+		t.Errorf("activity: want previous value %q, got %q", "started", pane.Activity)
 	}
 	if pane.LastKind != "UserPromptSubmit" {
 		t.Errorf("last_kind: %q", pane.LastKind)
+	}
+}
+
+func TestHookCodexUserPromptSubmitLeavesActivityUnchanged(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "codex", State: "idle", Activity: "previous activity"},
+		},
+	}
+	runHookWithStdin(r, "codex", "working", "qm-abc", map[string]interface{}{"prompt": "keep this prompt private"})
+	pane := rec.lastState.Panes["primary"]
+	if pane.State != "working" {
+		t.Fatalf("state = %q, want working", pane.State)
+	}
+	if pane.Activity != "previous activity" {
+		t.Fatalf("activity = %q, want previous activity", pane.Activity)
+	}
+	if pane.LastKind != "UserPromptSubmit" {
+		t.Fatalf("last_kind = %q, want UserPromptSubmit", pane.LastKind)
+	}
+}
+
+func TestHookPiBeforeAgentStartLeavesActivityUnchanged(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "pi", State: "starting", Activity: "started"},
+		},
+	}
+	runHookWithStdin(r, "pi", "session_start", "qm-abc", map[string]interface{}{"prompt": "session prompt"})
+	if got := rec.lastState.Panes["primary"].Activity; got != "started" {
+		t.Fatalf("session_start activity = %q, want started", got)
+	}
+	runHookWithStdin(r, "pi", "before_agent_start", "qm-abc", map[string]interface{}{"prompt": "keep this prompt private"})
+	pane := rec.lastState.Panes["primary"]
+	if pane.Activity != "started" {
+		t.Fatalf("before_agent_start activity = %q, want previous value %q", pane.Activity, "started")
+	}
+	runHookWithStdin(r, "pi", "before_agent_start", "qm-abc", map[string]interface{}{"text": "private fallback prompt"})
+	if got := rec.lastState.Panes["primary"].Activity; got != "started" {
+		t.Fatalf("before_agent_start fallback activity = %q, want previous value %q", got, "started")
+	}
+	runHookWithStdin(r, "pi", "agent_start", "qm-abc", nil)
+	pane = rec.lastState.Panes["primary"]
+	if pane.State != "working" || pane.Activity != "started" {
+		t.Fatalf("agent_start pane = %+v, want working with previous activity", pane)
 	}
 }
 
@@ -371,7 +1441,7 @@ func TestHookClaudePreToolUseBashStripsEnvAssignments(t *testing.T) {
 	}
 }
 
-func TestHookClaudeIdenticalToolStartSkipsStateWrite(t *testing.T) {
+func TestHookClaudeToolStartWritesChatTimestamp(t *testing.T) {
 	r, rec := newTestRunner(t)
 	prior := time.Date(2026, 5, 20, 11, 59, 0, 0, time.UTC)
 	rec.lastState = &state.SessionState{
@@ -401,8 +1471,11 @@ func TestHookClaudeIdenticalToolStartSkipsStateWrite(t *testing.T) {
 	if rec.updateCalls != 1 {
 		t.Fatalf("updateCalls = %d, want 1", rec.updateCalls)
 	}
-	if rec.writeCalls != 0 {
-		t.Fatalf("writeCalls = %d, want 0 for timestamp-only repeat", rec.writeCalls)
+	if rec.writeCalls != 1 {
+		t.Fatalf("writeCalls = %d, want 1 for LastChatAt", rec.writeCalls)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("LastChatAt = %s, want %s", got, r.Now())
 	}
 	if len(rec.events) != 1 {
 		t.Fatalf("events = %d, want 1", len(rec.events))
@@ -429,6 +1502,55 @@ func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 	}
 	if pane.LastKind != "PostToolUse" {
 		t.Errorf("PostToolUse did not update LastKind: %q", pane.LastKind)
+	}
+}
+
+func TestHookClaudeToolFailureClosesToolAndPreventsBackdating(t *testing.T) {
+	base := time.Date(2026, 10, 7, 13, 0, 0, 0, time.UTC)
+	r, rec := newTestRunner(t)
+	r.Now = func() time.Time { return base.Add(50 * time.Millisecond) }
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {
+				Role: "primary", Agent: "claude", State: "working", Activity: "Read: file.go", Tool: "Read",
+				ClaudePromptID: "failure-turn",
+				ClaudeOpenChatActions: []state.ClaudeOpenChatAction{{
+					ToolUseID: "read-failed", PromptID: "failure-turn", StartedAt: base,
+				}, {
+					ToolUseID: "other-tool", PromptID: "other-turn", StartedAt: base,
+				}},
+			},
+		},
+	}
+	runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{
+		"prompt_id": "failure-turn", "tool_use_id": "read-failed", "tool_name": "Read",
+		"error": "Exit code 1", "is_interrupt": false,
+	})
+	if entries := chatEntries(rec.events[len(rec.events)-1]); len(entries) != 0 {
+		t.Fatalf("failed tool end added chat entries: %#v", entries)
+	}
+	pane := rec.lastState.Panes["primary"]
+	if pane.Tool != "" {
+		t.Fatalf("tool = %q, want cleared", pane.Tool)
+	}
+	if len(pane.ClaudeOpenChatActions) != 1 || pane.ClaudeOpenChatActions[0].ToolUseID != "other-tool" {
+		t.Fatalf("open actions = %#v, want only unrelated action left", pane.ClaudeOpenChatActions)
+	}
+
+	sayAt := base.Add(100 * time.Millisecond)
+	r.Now = func() time.Time { return sayAt }
+	runHookWithStdin(r, "claude", "say", "qm-abc", map[string]interface{}{
+		"message_id": "failure-result", "prompt_id": "failure-turn", "index": 0,
+		"final": true, "delta": "The read failed.",
+	})
+	entries := chatEntries(rec.events[len(rec.events)-1])
+	if len(entries) != 1 {
+		t.Fatalf("failure narration entries = %#v, want one", entries)
+	}
+	if got, ok := entries[0]["chat_timestamp"].(time.Time); ok && !got.Equal(sayAt) {
+		t.Fatalf("failure narration timestamp = %s, want arrival time %s", got, sayAt)
 	}
 }
 
@@ -609,28 +1731,39 @@ func TestHookClaudeSubagentToolEventRecoversParentStateFromIdle(t *testing.T) {
 	}
 }
 
-func TestHookClaudeSubagentStopUpdatesActivityOnly(t *testing.T) {
+func TestHookClaudeSubagentStopDoesNotChangePane(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", LastKind: "PreToolUse"},
+			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse"},
 		},
 	}
 	runHookWithStdin(r, "claude", "subagent_stop", "qm-abc", map[string]interface{}{
-		"agent_id": "task-42",
-		"result":   "Reviewed 12 files.\nDetails follow…",
+		"agent_id":   "task-42",
+		"agent_type": "general-purpose",
+		"result":     "Reviewed 12 files.\nDetails follow…",
 	})
 	pane := rec.lastState.Panes["primary"]
 	if pane.State != "working" {
 		t.Errorf("subagent_stop should never change State, got %q", pane.State)
 	}
-	if pane.Activity != "Subagent: Reviewed 12 files." {
-		t.Errorf("subagent_stop activity: %q", pane.Activity)
+	if pane.Activity != "Edit: foo.go" {
+		t.Errorf("subagent_stop changed Activity: %q", pane.Activity)
+	}
+	if pane.Tool != "Edit" {
+		t.Errorf("subagent_stop changed Tool: %q", pane.Tool)
 	}
 	if pane.LastKind != "SubagentStop" {
 		t.Errorf("subagent_stop LastKind: %q", pane.LastKind)
+	}
+	event := rec.events[len(rec.events)-1]
+	if event.AgentType != "general-purpose" {
+		t.Errorf("subagent_stop agent_type = %q", event.AgentType)
+	}
+	if got := event.Fields["subagent_result"]; got != "Reviewed 12 files.\nDetails follow…" {
+		t.Errorf("subagent_stop result field = %#v", got)
 	}
 }
 
@@ -1700,7 +2833,7 @@ func TestHookCodexEndToEnd(t *testing.T) {
 			action:       "working",
 			payload:      map[string]interface{}{"hook_event_name": "UserPromptSubmit", "prompt": "What changed?\nignore"},
 			wantState:    "working",
-			wantActivity: "You: What changed?",
+			wantActivity: "started",
 			wantKind:     "UserPromptSubmit",
 		},
 		{
@@ -1922,18 +3055,6 @@ func TestHookCodexRequestUserInputToolEndClearsQuestion(t *testing.T) {
 	}
 }
 
-func TestPiPromptActivityUsesUserPrefix(t *testing.T) {
-	if got := piPromptActivity(piPayload{Prompt: "Fix this\nignore"}); got != "You: Fix this" {
-		t.Fatalf("prompt activity: want %q, got %q", "You: Fix this", got)
-	}
-	if got := piPromptActivity(piPayload{Text: "Fallback text"}); got != "You: Fallback text" {
-		t.Fatalf("text activity: want %q, got %q", "You: Fallback text", got)
-	}
-	if got := piPromptActivity(piPayload{}); got != "" {
-		t.Fatalf("empty prompt activity: want empty, got %q", got)
-	}
-}
-
 func TestPiToolActivityUsesClaudeVocabulary(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1998,9 +3119,11 @@ func TestHookPiMessageActivityUsesStreamingText(t *testing.T) {
 		want    string
 	}{
 		{
-			action:  "message_update",
-			payload: map[string]interface{}{"snippet": "Streaming answer\nignored"},
-			want:    "Streaming answer",
+			action: "message_update",
+			payload: map[string]interface{}{
+				"assistantMessageEvent": map[string]interface{}{"type": "text_end", "content": "Streaming answer\nignored"},
+			},
+			want: "Streaming answer",
 		},
 		{
 			action: "message_end",
@@ -2030,10 +3153,43 @@ func TestHookPiMessageActivityFallsBackWhenTextMissing(t *testing.T) {
 	for _, action := range []string{"message_update", "message_end"} {
 		t.Run(action, func(t *testing.T) {
 			r, rec := newTestRunner(t)
+			rec.lastState = &state.SessionState{
+				SessionID: "qm-abc",
+				Version:   state.SchemaVersion,
+				Panes: map[string]state.PaneState{
+					"primary": {Role: "primary", Agent: "pi", State: "working", Activity: "previous activity"},
+				},
+			}
 			runHookWithStdin(r, "pi", action, "qm-abc", nil)
 			pane := rec.lastState.Panes["primary"]
-			if pane.Activity != "Replying…" {
-				t.Fatalf("activity: want %q, got %q", "Replying…", pane.Activity)
+			if pane.Activity != "previous activity" {
+				t.Fatalf("activity: want previous value %q, got %q", "previous activity", pane.Activity)
+			}
+		})
+	}
+}
+
+func TestHookPiPromptOnlyFallbackDoesNotUpdateActivityOrSay(t *testing.T) {
+	for _, action := range []string{"message_update", "message_end", "say"} {
+		t.Run(action, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			rec.lastState = &state.SessionState{
+				SessionID: "qm-abc",
+				Version:   state.SchemaVersion,
+				Panes: map[string]state.PaneState{
+					"primary": {Role: "primary", Agent: "pi", State: "working", Activity: "previous activity"},
+				},
+			}
+			runHookWithStdin(r, "pi", action, "qm-abc", map[string]interface{}{
+				"prompt": "private prompt", "text": "private prompt", "snippet": "You: private prompt",
+				"recent": []string{"private prompt"},
+			})
+			pane := rec.lastState.Panes["primary"]
+			if pane.Activity != "previous activity" {
+				t.Fatalf("activity = %q, want previous value %q", pane.Activity, "previous activity")
+			}
+			if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "" {
+				t.Fatalf("prompt-only event emitted say entry %q", got)
 			}
 		})
 	}
@@ -2067,6 +3223,9 @@ func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 	if pane.State != "blocked" || pane.Activity != "Question: Pick a deployment target" || pane.LastKind != "waiting_for_user" {
 		t.Fatalf("tool heartbeat should preserve blocked question, got %+v", pane)
 	}
+	if got := chatKinds(rec.events[len(rec.events)-1]); !slices.Equal(got, []string{"action"}) {
+		t.Fatalf("blocked tool action chat kinds = %v, want [action]", got)
+	}
 
 	runHookWithStdin(r, "pi", "tool_execution_end", "qm-abc", map[string]interface{}{"toolName": "ask_user"})
 	pane = rec.lastState.Panes["primary"]
@@ -2096,8 +3255,8 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 			wantActivity: "started",
 		},
 		{action: "before_agent_start", wantState: "starting", wantActivity: "started"},
-		{action: "agent_start", wantState: "starting", wantActivity: "started"},
-		{action: "message_update", wantState: "working", wantActivity: "Replying…"},
+		{action: "agent_start", wantState: "working", wantActivity: "started"},
+		{action: "message_update", wantState: "working", wantActivity: "started"},
 		{
 			action: "message_end",
 			payload: map[string]interface{}{
@@ -2172,6 +3331,519 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 	}
 	if rec.updateCalls != len(steps) || rec.writeCalls != len(steps) {
 		t.Errorf("updates/writes: want %d/%d, got %d/%d", len(steps), len(steps), rec.updateCalls, rec.writeCalls)
+	}
+}
+
+func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "session_start", "qm-chat", nil)
+	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+	if got := rec.lastState.Panes["primary"].State; got != "working" {
+		t.Fatalf("agent_start state = %q, want working", got)
+	}
+
+	pane := rec.lastState.Panes["primary"]
+	pane.LastChatAt = time.Time{}
+	rec.lastState.Panes["primary"] = pane
+	runHookWithStdin(r, "pi", "say", "qm-chat", map[string]interface{}{
+		"message": map[string]interface{}{"role": "assistant", "content": "Checking the config\nbefore editing"},
+		"recent":  []string{"Checking the config", "before editing"},
+		"turn":    map[string]interface{}{"index": float64(1), "status": "running"},
+		"usage":   map[string]interface{}{"last": map[string]interface{}{"input": float64(12)}},
+	})
+	say := rec.events[len(rec.events)-1]
+	if got := chatKinds(say); !slices.Equal(got, []string{"say"}) {
+		t.Fatalf("say chat kinds = %v, want [say]", got)
+	}
+	if got := chatTextFor(say, "say"); got != "Checking the config\nbefore editing" {
+		t.Fatalf("say text = %q", got)
+	}
+	if say.Fields["turn"] == nil || say.Fields["usage"] == nil {
+		t.Fatalf("turn/usage metadata missing from event fields: %#v", say.Fields)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("say LastChatAt = %s, want %s", got, r.Now())
+	}
+
+	pane = rec.lastState.Panes["primary"]
+	pane.LastChatAt = time.Time{}
+	rec.lastState.Panes["primary"] = pane
+	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
+		"tool": map[string]interface{}{"name": "bash", "summary": "bash: go test ./..."},
+	})
+	tool := rec.events[len(rec.events)-1]
+	if !slices.Contains(chatKinds(tool), "action") || chatTextFor(tool, "action") != "bash" {
+		t.Fatalf("tool chat entries = %#v", chatEntries(tool))
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("action LastChatAt = %s, want %s", got, r.Now())
+	}
+	runHookWithStdin(r, "pi", "tool_execution_end", "qm-chat", nil)
+	if rec.lastState.Panes["primary"].Tool != "" || len(chatEntries(rec.events[len(rec.events)-1])) != 0 {
+		t.Fatalf("tool end did not clear tool without a chat entry: pane=%+v event=%+v", rec.lastState.Panes["primary"], rec.events[len(rec.events)-1])
+	}
+
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"message": map[string]interface{}{"role": "assistant", "content": "All tests passed.\nReady to merge."},
+		"snippet": "Ready to merge.",
+		"recent":  []string{"All tests passed.", "Ready to merge."},
+	})
+	final := rec.events[len(rec.events)-1]
+	if got := chatTextFor(final, "message"); got != "All tests passed.\nReady to merge." {
+		t.Fatalf("final message = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].Activity; got != "Ready to merge." {
+		t.Fatalf("final activity snippet = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("message LastChatAt = %s, want %s", got, r.Now())
+	}
+	if !slices.Contains(chatKinds(final), "status") || rec.lastState.Panes["primary"].State != "done" {
+		t.Fatalf("final event/state = %#v/%q", chatEntries(final), rec.lastState.Panes["primary"].State)
+	}
+
+	runHookWithStdin(r, "pi", "waiting_for_user", "qm-chat", map[string]interface{}{"prompt": "Choose a target"})
+	blocked := rec.events[len(rec.events)-1]
+	if rec.lastState.Panes["primary"].State != "blocked" || chatTextFor(blocked, "status") != "blocked" {
+		t.Fatalf("blocked event/state = %#v/%q", chatEntries(blocked), rec.lastState.Panes["primary"].State)
+	}
+	runHookWithStdin(r, "pi", "session_shutdown", "qm-chat", nil)
+	if rec.lastState.Panes["primary"].State != "stopped" {
+		t.Fatalf("shutdown state = %q, want stopped", rec.lastState.Panes["primary"].State)
+	}
+}
+
+func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
+	r, rec := newTestRunner(t)
+	stderr := runHookWithStdin(r, "pi", "batch", "qm-chat", map[string]interface{}{
+		"events": []interface{}{
+			map[string]interface{}{"action": "session_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "agent_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "say", "payload": map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": "Checking the config"}}},
+			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{"tool": map[string]interface{}{"name": "bash"}}},
+			map[string]interface{}{"action": "waiting_for_user", "payload": map[string]interface{}{"prompt": "Continue?"}},
+			map[string]interface{}{"action": "tool_execution_end", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "agent_end", "payload": map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": "Finished."}}},
+		},
+	})
+	if stderr != "" {
+		t.Fatalf("batch stderr: %q", stderr)
+	}
+	if len(rec.events) != 7 || rec.updateCalls != 1 {
+		t.Fatalf("batch events/updates = %d/%d, want 7/1", len(rec.events), rec.updateCalls)
+	}
+	if got := chatTextFor(rec.events[2], "say"); got != "Checking the config" {
+		t.Fatalf("say entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[3], "action"); got != "bash" {
+		t.Fatalf("action entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[4], "status"); got != "blocked" {
+		t.Fatalf("blocked status entry = %q", got)
+	}
+	if got := chatTextFor(rec.events[6], "message"); got != "Finished." {
+		t.Fatalf("message entry = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "done" {
+		t.Fatalf("final pane state = %q", got)
+	}
+	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+		t.Fatalf("batch LastChatAt = %s, want %s", got, r.Now())
+	}
+}
+
+func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	t.Setenv("QUESTMASTER_SESSION", "qm-pi-worker")
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new state store: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: "qm-pi-master", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: []string{"qm-pi-worker"}}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	workerManifest := state.Manifest{SessionID: "qm-pi-worker", Title: "Pi worker"}
+	workerManifest.SetExtra("parent_session", "qm-pi-master")
+	if err := store.Create(workerManifest); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+	input := `{"events":[
+		{"action":"agent_start","payload":{}},
+		{"action":"tool_execution_start","payload":{"toolName":"bash","args":{"command":"go test ./..."}}},
+		{"action":"say","payload":{"message":{"role":"assistant","content":"Running the checks."}}},
+		{"action":"agent_end","payload":{"message":{"role":"assistant","content":"All checks passed."}}}
+	]}`
+	var stderr bytes.Buffer
+	if err := executeWithArgs([]string{"hook", "pi", "batch"}, strings.NewReader(input), &bytes.Buffer{}, &stderr, func() *cobra.Command { return NewRootCmd() }); err != nil {
+		t.Fatalf("execute real hook fast path: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("hook stderr: %q", stderr.String())
+	}
+
+	logData, err := os.ReadFile(state.SessionStateLogPath(root, "qm-pi-worker"))
+	if err != nil {
+		t.Fatalf("read event log: %v", err)
+	}
+	var events []state.StateEvent
+	for _, line := range bytes.Split(bytes.TrimSpace(logData), []byte("\n")) {
+		var event state.StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		events = append(events, event)
+	}
+	if len(events) != 4 {
+		t.Fatalf("event count = %d, want 4", len(events))
+	}
+	if got := []string{events[0].Action, events[1].Action, events[2].Action, events[3].Action}; !slices.Equal(got, []string{"agent_start", "tool_execution_start", "say", "agent_end"}) {
+		t.Fatalf("event order = %v", got)
+	}
+	ss, err := state.LoadSessionStateAt(root, "qm-pi-worker")
+	if err != nil {
+		t.Fatalf("load worker state: %v", err)
+	}
+	if pane := ss.Panes["primary"]; pane.State != "done" || pane.LastChatAt.IsZero() {
+		t.Fatalf("saved worker pane = %+v", pane)
+	}
+
+	history, err := workerfeed.ReadHistory(root, "qm-pi-master", "qm-pi-worker", "", 50)
+	if err != nil {
+		t.Fatalf("read worker chat: %v", err)
+	}
+	kinds := make(map[string]bool)
+	for _, entry := range history.Entries {
+		kinds[entry.Kind] = true
+	}
+	for _, kind := range []string{"status", "action", "say", "message"} {
+		if !kinds[kind] {
+			t.Errorf("chat history missing %q: %#v", kind, history.Entries)
+		}
+	}
+	if rendered := workerfeed.RenderText(history.Entries, true); !strings.Contains(rendered, "Bash: go test ./...") || !strings.Contains(rendered, "Running the checks.") || !strings.Contains(rendered, "All checks passed.") {
+		t.Fatalf("rendered worker chat = %q", rendered)
+	}
+}
+
+func TestHookPiBatchedEntriesKeepOccurrenceOrderBeforeReport(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new state store: %v", err)
+	}
+	createFeedManifests(t, store, "qm-master", "qm-pi-worker")
+	base := time.Date(2026, 10, 8, 1, 0, 0, 0, time.UTC)
+	sayAt, actionAt, reportAt, processedAt := base, base.Add(100*time.Millisecond), base.Add(200*time.Millisecond), base.Add(time.Second)
+	if err := state.UpdateAndLogAt(root, "qm-pi-worker", &state.StateEvent{Ts: base.Add(-time.Second), Action: "seed"}, func(ss *state.SessionState) bool {
+		ss.Panes["primary"] = state.PaneState{Role: "primary", Agent: "pi", State: "working", LastChatStatus: "working"}
+		return true
+	}); err != nil {
+		t.Fatalf("seed worker state: %v", err)
+	}
+	if err := state.AppendStateEventAt(root, "qm-pi-worker", state.StateEvent{
+		Ts: reportAt, Action: "report", Fields: map[string]interface{}{
+			"chat_entries": []interface{}{map[string]interface{}{"chat_kind": "report", "chat_text": "Finished the smoke test."}},
+		},
+	}); err != nil {
+		t.Fatalf("append report event: %v", err)
+	}
+	r, _ := newTestRunner(t)
+	r.Now = func() time.Time { return processedAt }
+	r.UpdateAndLog = func(sessionID string, event *state.StateEvent, mutate func(*state.SessionState) bool, extraEvents func(*state.StateEvent) []*state.StateEvent) error {
+		return state.UpdateAndLogAt(root, sessionID, event, mutate)
+	}
+	r.UpdateAndLogEvents = state.UpdateAndLogBatch
+	stderr := runHookWithStdin(r, "pi", "batch", "qm-pi-worker", map[string]interface{}{
+		"events": []interface{}{
+			map[string]interface{}{"action": "say", "payload": map[string]interface{}{
+				"message": map[string]interface{}{"role": "assistant", "content": "Running the final smoke test."}, "occurred_at_ms": sayAt.UnixMilli(),
+			}},
+			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{
+				"occurred_at_ms": actionAt.UnixMilli(), "tool": map[string]interface{}{"name": "bash", "summary": "bash: questmaster send master"},
+			}},
+		},
+	})
+	if stderr != "" {
+		t.Fatalf("Pi hook stderr: %q", stderr)
+	}
+	history, err := workerfeed.ReadHistory(root, "qm-master", "qm-pi-worker", "", 50)
+	if err != nil {
+		t.Fatalf("read worker chat: %v", err)
+	}
+	rendered := workerfeed.RenderText(history.Entries, true)
+	sayIndex := strings.Index(rendered, "Running the final smoke test.")
+	actionIndex := strings.Index(rendered, "Cast [bash]")
+	reportIndex := strings.Index(rendered, "[Report] Finished the smoke test.")
+	if sayIndex < 0 || actionIndex < 0 || reportIndex < 0 || !(sayIndex < actionIndex && actionIndex < reportIndex) {
+		t.Fatalf("rendered worker chat = %q, want say, Cast, then Report", rendered)
+	}
+	if !history.Entries[0].Timestamp.Equal(sayAt) || !history.Entries[1].Timestamp.Equal(actionAt) || !history.Entries[2].Timestamp.Equal(reportAt) {
+		t.Fatalf("entry timestamps = %v, want say %s, action %s, report %s", []time.Time{history.Entries[0].Timestamp, history.Entries[1].Timestamp, history.Entries[2].Timestamp}, sayAt, actionAt, reportAt)
+	}
+}
+
+func TestHookPiBatchStateWriteFailureKeepsFeedRecords(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(state.StateRootEnv, root)
+	const sessionID = "qm-pi-atomic"
+	const masterID = "qm-pi-atomic-master"
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new state store: %v", err)
+	}
+	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: []string{sessionID}}); err != nil {
+		t.Fatalf("create master manifest: %v", err)
+	}
+	workerManifest := state.Manifest{SessionID: sessionID, Title: "Pi worker"}
+	workerManifest.SetExtra("parent_session", masterID)
+	if err := store.Create(workerManifest); err != nil {
+		t.Fatalf("create worker manifest: %v", err)
+	}
+	initial := &state.SessionState{
+		SessionID: sessionID,
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"primary": {Role: "primary", Agent: "pi", State: "idle", LastKind: "agent_end"},
+		},
+	}
+	if err := state.SaveSessionState(sessionID, initial); err != nil {
+		t.Fatalf("save initial state: %v", err)
+	}
+	if err := state.AppendStateEventAt(root, sessionID, state.StateEvent{Action: "before"}); err != nil {
+		t.Fatalf("seed event log: %v", err)
+	}
+	statePath := state.SessionStatePath(root, sessionID)
+	logPath := state.SessionStateLogPath(root, sessionID)
+	stateBefore, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read initial state: %v", err)
+	}
+	logBefore, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read initial event log: %v", err)
+	}
+	initialFeed, err := workerfeed.ReadSince(root, masterID, nil)
+	if err != nil {
+		t.Fatalf("read initial worker feed: %v", err)
+	}
+	if err := os.Mkdir(statePath+".tmp", 0o700); err != nil {
+		t.Fatalf("make state write fail: %v", err)
+	}
+	r := newHookRunner(state.OpenStore(root), &tmuxEnvStub{})
+	stderr := runHookWithStdin(r, "pi", "batch", sessionID, map[string]interface{}{
+		"events": []interface{}{
+			map[string]interface{}{"action": "agent_start", "payload": map[string]interface{}{}},
+			map[string]interface{}{"action": "tool_execution_start", "payload": map[string]interface{}{"toolName": "bash"}},
+		},
+	})
+	if !strings.Contains(stderr, "write tmp state") {
+		t.Fatalf("batch failure stderr = %q", stderr)
+	}
+	stateAfter, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read state after failed batch: %v", err)
+	}
+	logAfter, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read event log after failed batch: %v", err)
+	}
+	if !bytes.Equal(stateAfter, stateBefore) {
+		t.Fatalf("state changed after failed batch:\nbefore %s\nafter  %s", stateBefore, stateAfter)
+	}
+	if bytes.Equal(logAfter, logBefore) {
+		t.Fatal("complete batch records were removed after state write failure")
+	}
+	var actions []string
+	for _, line := range bytes.Split(bytes.TrimSpace(logAfter), []byte("\n")) {
+		var event state.StateEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("decode retained event: %v", err)
+		}
+		actions = append(actions, event.Action)
+	}
+	if !slices.Equal(actions, []string{"before", "agent_start", "tool_execution_start"}) {
+		t.Fatalf("retained event order = %v", actions)
+	}
+	failedFeed, err := workerfeed.ReadSince(root, masterID, initialFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed after state write failure: %v", err)
+	}
+	if len(failedFeed.Entries) != 2 || failedFeed.Entries[0].Kind != "status" || failedFeed.Entries[1].Kind != "action" {
+		t.Fatalf("feed after failed state write = %#v, want status and action once", failedFeed.Entries)
+	}
+	duplicateFeed, err := workerfeed.ReadSince(root, masterID, failedFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed again after failed state write: %v", err)
+	}
+	if len(duplicateFeed.Entries) != 0 {
+		t.Fatalf("batch records repeated after cursor advance: %#v", duplicateFeed.Entries)
+	}
+	if err := os.Remove(statePath + ".tmp"); err != nil {
+		t.Fatalf("remove state write blocker: %v", err)
+	}
+	if stderr := runHookWithStdin(r, "pi", "agent_end", sessionID, map[string]interface{}{"message": map[string]interface{}{"role": "assistant", "content": "Finished."}}); stderr != "" {
+		t.Fatalf("follow-up hook stderr: %q", stderr)
+	}
+	laterFeed, err := workerfeed.ReadSince(root, masterID, failedFeed.Cursors)
+	if err != nil {
+		t.Fatalf("read feed after later append: %v", err)
+	}
+	if len(laterFeed.Entries) != 2 || laterFeed.Entries[0].Kind != "message" || laterFeed.Entries[1].Kind != "status" {
+		t.Fatalf("later feed = %#v, want only final message and done status", laterFeed.Entries)
+	}
+}
+
+func TestHookPiThinkingIsNotChat(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "message_update", "qm-chat", map[string]interface{}{
+		"assistantMessageEvent": map[string]interface{}{"type": "thinking_delta", "delta": "private reasoning"},
+	})
+	if got := chatEntries(rec.events[len(rec.events)-1]); len(got) != 1 || got[0]["chat_kind"] != "status" {
+		t.Fatalf("thinking produced unexpected chat entries: %#v", got)
+	}
+}
+
+func TestHookPiAgentEndDoesNotUseActivityFallbackForChat(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
+		"tool": map[string]interface{}{"name": "bash", "summary": "bash: echo done"},
+	})
+	previousActivity := rec.lastState.Panes["primary"].Activity
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"prompt":  "You are a smoke-test worker",
+		"text":    "You are a smoke-test worker",
+		"snippet": "You: You are a smoke-test worker",
+		"recent":  []string{"You are a smoke-test worker"},
+	})
+	final := rec.events[len(rec.events)-1]
+	if got := chatTextFor(final, "message"); got != "" {
+		t.Fatalf("empty turn message = %q, want no message", got)
+	}
+	if !slices.Contains(chatKinds(final), "status") || chatTextFor(final, "status") != "done" {
+		t.Fatalf("empty turn entries = %#v, want only done status", chatEntries(final))
+	}
+	if got := rec.lastState.Panes["primary"].State; got != "done" {
+		t.Fatalf("empty turn state = %q, want done", got)
+	}
+	if got := rec.lastState.Panes["primary"].Activity; got != previousActivity {
+		t.Fatalf("empty turn activity = %q, want previous %q", got, previousActivity)
+	}
+}
+
+func TestHookPiAgentEndReplaysAuthErrorTurnWithoutPromptEcho(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+	working := rec.events[len(rec.events)-1]
+	if got := chatTextFor(working, "status"); got != "working" {
+		t.Fatalf("agent start status = %q, want working", got)
+	}
+	prompt := "You are a smoke-test worker"
+	errorMessage := "Your authentication token has expired. Please try refreshing it."
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"prompt":       prompt,
+		"text":         prompt,
+		"snippet":      "You: " + prompt,
+		"recent":       []string{prompt},
+		"stopReason":   "error",
+		"errorMessage": errorMessage,
+	})
+	final := rec.events[len(rec.events)-1]
+	if got := rec.lastState.Panes["primary"].State; got != "blocked" {
+		t.Fatalf("error turn state = %q, want blocked", got)
+	}
+	if got := chatTextFor(final, "status"); got != "blocked" {
+		t.Fatalf("error turn status = %q, want blocked", got)
+	}
+	want := "Error: " + errorMessage
+	if got := chatTextFor(final, "message"); got != want {
+		t.Fatalf("error turn message = %q, want %q", got, want)
+	}
+	if strings.Contains(chatTextFor(final, "message"), prompt) {
+		t.Fatalf("error turn echoed prompt in chat entry: %#v", chatEntries(final))
+	}
+	if got := rec.lastState.Panes["primary"].Activity; !strings.HasPrefix(got, "Error: Your authentication token has expired.") || len([]rune(got)) > 180 {
+		t.Fatalf("error turn activity = %q, want a capped Error line", got)
+	}
+}
+
+func TestHookPiAgentEndAbortDoesNotReportError(t *testing.T) {
+	r, rec := newTestRunner(t)
+	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
+		"tool": map[string]interface{}{"name": "bash", "summary": "bash: echo done"},
+	})
+	previousActivity := rec.lastState.Panes["primary"].Activity
+	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
+		"prompt":       "You are a smoke-test worker",
+		"message":      map[string]interface{}{"role": "assistant", "content": "Partial output before cancellation"},
+		"snippet":      "You: You are a smoke-test worker",
+		"recent":       []string{"You are a smoke-test worker"},
+		"stopReason":   "aborted",
+		"errorMessage": "Request aborted",
+	})
+
+	final := rec.events[len(rec.events)-1]
+	if got := rec.lastState.Panes["primary"].State; got != "done" || chatTextFor(final, "status") != "done" {
+		t.Fatalf("aborted turn state/status = %q/%q, want done/done", got, chatTextFor(final, "status"))
+	}
+	if got := chatTextFor(final, "message"); got != "" {
+		t.Fatalf("aborted turn message = %q, want no message", got)
+	}
+	if got := rec.lastState.Panes["primary"].Activity; got != previousActivity {
+		t.Fatalf("aborted turn activity = %q, want previous %q", got, previousActivity)
+	}
+}
+
+func TestHookPiOccurredAtOutsideWindowFallsBackToHookTime(t *testing.T) {
+	r, rec := newTestRunner(t)
+	now := r.Now()
+	for _, tc := range []struct {
+		name string
+		at   time.Time
+	}{
+		{name: "far past", at: now.Add(-6 * time.Minute)},
+		{name: "far future", at: now.Add(6 * time.Minute)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runHookWithStdin(r, "pi", "say", "qm-chat", map[string]interface{}{
+				"message":        map[string]interface{}{"role": "assistant", "content": "Reply"},
+				"occurred_at_ms": tc.at.UnixMilli(),
+			})
+			entries := chatEntries(rec.events[len(rec.events)-1])
+			var sayEntry map[string]interface{}
+			for _, entry := range entries {
+				if entry["chat_kind"] == "say" {
+					sayEntry = entry
+					break
+				}
+			}
+			if sayEntry == nil {
+				t.Fatalf("say entries = %#v, want a say", entries)
+			}
+			if got, ok := sayEntry["chat_timestamp"].(time.Time); ok && !got.Equal(now) {
+				t.Fatalf("chat timestamp = %s, want hook time %s", got, now)
+			}
+		})
+	}
+}
+
+func TestHookPiAgentEndErrorCanBeInferredFromEitherField(t *testing.T) {
+	for _, payload := range []map[string]interface{}{
+		{"errorMessage": "provider failed"},
+		{"stopReason": "error"},
+	} {
+		r, rec := newTestRunner(t)
+		runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
+		runHookWithStdin(r, "pi", "agent_end", "qm-chat", payload)
+		final := rec.events[len(rec.events)-1]
+		if got := rec.lastState.Panes["primary"].State; got != "blocked" || chatTextFor(final, "status") != "blocked" {
+			t.Fatalf("error payload %#v state/status = %q/%q, want blocked/blocked", payload, got, chatTextFor(final, "status"))
+		}
+		if got := chatTextFor(final, "message"); !strings.HasPrefix(got, "Error: ") {
+			t.Fatalf("error payload %#v message = %q, want Error prefix", payload, got)
+		}
 	}
 }
 

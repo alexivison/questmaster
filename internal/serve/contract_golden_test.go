@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 var updateContractGoldens = flag.Bool("update", false, "update serve contract golden files")
@@ -50,6 +51,7 @@ type contractFixture struct {
 func serveContractFixtures() []contractFixture {
 	observedAt := time.Date(2026, 6, 19, 4, 20, 0, 0, time.UTC)
 	since := observedAt.Add(-2 * time.Minute)
+	lastChatAt := observedAt.Add(-time.Minute)
 	artifact := ArtifactSnapshot{
 		Kind:      "html",
 		Path:      "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
@@ -107,7 +109,7 @@ func serveContractFixtures() []contractFixture {
 		Current: &CurrentSession{
 			ID:          "qm-demo",
 			Title:       "Serve runtime JSON",
-			SessionType: "standalone",
+			SessionType: "master",
 		},
 		Sessions: []SessionSnapshot{{
 			ID:             "qm-demo",
@@ -116,11 +118,12 @@ func serveContractFixtures() []contractFixture {
 			State:          "working",
 			ElapsedMS:      int64((2 * time.Minute).Milliseconds()),
 			ElapsedSince:   &since,
+			LastChatAt:     &lastChatAt,
 			LatestActivity: "Bash: go test ./...",
 			LastKind:       "PreToolUse",
 			WorktreePath:   "/tmp/questmaster/worktrees/app-contract",
 			PrimaryAgent:   "codex",
-			SessionType:    "standalone",
+			SessionType:    "master",
 			WorkerCount:    1,
 			IsCurrent:      true,
 			Artifacts:      []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact},
@@ -149,7 +152,7 @@ func serveContractFixtures() []contractFixture {
 	// source) that the app decodes.
 	models := modelsuggest.Suggestions{
 		Agent:   "claude",
-		Role:    "standalone",
+		Role:    "master",
 		Default: "sonnet",
 		Models: []modelsuggest.Model{
 			{ID: "opus", Label: "opus", Note: "alias · tracks Claude Opus 5"},
@@ -166,12 +169,41 @@ func serveContractFixtures() []contractFixture {
 		Default: "xhigh",
 		Efforts: []string{"minimal", "low", "medium", "high", "xhigh"},
 	}
+	workerFeed := workerfeed.Response{
+		Entries: []workerfeed.Entry{{
+			Timestamp:   observedAt,
+			WorkerID:    "qm-worker",
+			WorkerTitle: "Worker",
+			Kind:        "status",
+			Text:        "working",
+		}, {
+			Timestamp:   observedAt.Add(time.Second),
+			WorkerID:    "qm-worker",
+			WorkerTitle: "Worker",
+			Kind:        "action",
+			Text:        "Bash",
+			Summary:     "Bash: go test ./...",
+		}},
+		Cursors: map[string]workerfeed.Cursor{
+			"qm-worker": {Offset: 128, FileID: "1:42"},
+		},
+		HasMore: map[string]bool{"qm-worker": true},
+		Errors:  map[string]string{"qm-other": "permission denied"},
+	}
 
 	return []contractFixture{
 		{name: "tracker_payload.json", value: tracker},
 		{name: "dir_suggest_payload.json", value: dirSuggest},
 		{name: "models_payload.json", value: models},
 		{name: "reasoning_efforts_payload.json", value: reasoningEfforts},
+		{name: "worker_feed_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion,
+			Type:            "response",
+			ID:              json.RawMessage(`"worker-feed-request"`),
+			OK:              boolPtr(true),
+			Topic:           topicWorkerFeed,
+			Data:            workerFeed,
+		}},
 		{name: "tracker_event_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
 			Type:            "event",

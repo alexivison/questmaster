@@ -69,7 +69,7 @@ struct EmptyStatePane: View {
                 .frame(width: symbolCanvasSize.width, height: symbolCanvasSize.height)
         } else if !symbolFallback.isEmpty {
             Text(symbolFallback)
-                .font(.system(size: symbolPointSize, weight: .regular, design: .monospaced))
+                .font(AppFonts.monospaced(size: symbolPointSize).swiftUI)
                 .foregroundStyle(symbolColor.swiftUI)
                 .frame(width: symbolCanvasSize.width, height: symbolCanvasSize.height)
         }

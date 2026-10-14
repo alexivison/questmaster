@@ -156,9 +156,9 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	store := setupStore(t)
 	for _, manifest := range []state.Manifest{
 		{
-			SessionID:   "qm-standalone",
-			Title:       "standalone",
-			Cwd:         "/tmp/standalone",
+			SessionID:   "qm-root",
+			Title:       "root",
+			Cwd:         "/tmp/root",
 			CreatedAt:   "2026-04-21T00:00:01Z",
 			Agents:      []state.AgentManifest{{Name: "claude", Role: "primary"}},
 			SessionType: "",
@@ -201,12 +201,12 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		switch args[0] {
 		case "list-sessions":
-			return "qm-orphan\nqm-standalone\nqm-worker\nqm-master", nil
+			return "qm-orphan\nqm-root\nqm-worker\nqm-master", nil
 		case "list-panes":
 			return strings.Join([]string{
 				"qm-master\t1 0 primary",
 				"qm-worker\t1 0 primary",
-				"qm-standalone\t1 0 primary",
+				"qm-root\t1 0 primary",
 				"qm-orphan\t1 0 primary",
 			}, "\n"), nil
 		case "capture-pane":
@@ -221,7 +221,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	}
 
 	gotOrder := []string{rows[0].SessionID, rows[1].SessionID, rows[2].SessionID, rows[3].SessionID}
-	wantOrder := []string{"qm-master", "qm-worker", "qm-standalone", "qm-orphan"}
+	wantOrder := []string{"qm-master", "qm-worker", "qm-root", "qm-orphan"}
 	if strings.Join(gotOrder, ",") != strings.Join(wantOrder, ",") {
 		t.Fatalf("order: got %v, want %v", gotOrder, wantOrder)
 	}
@@ -235,8 +235,8 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 	if rows[1].ParentSession != "qm-master" {
 		t.Fatalf("worker parent_session: got %q, want %q", rows[1].ParentSession, "qm-master")
 	}
-	if rows[2].SessionType != "standalone" {
-		t.Fatalf("standalone session_type: got %q, want %q", rows[2].SessionType, "standalone")
+	if rows[2].SessionType != "master" {
+		t.Fatalf("root session_type: got %q, want %q", rows[2].SessionType, "master")
 	}
 }
 

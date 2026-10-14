@@ -101,7 +101,6 @@ public enum ServeMutationRequests {
     }
 
     public static func start(
-        role: NewSessionRole,
         title: String?,
         cwd: String,
         agent: String,
@@ -126,9 +125,6 @@ public enum ServeMutationRequests {
         }
         if let color = cleanOptional(color) {
             data["color"] = color
-        }
-        if role.isMaster {
-            data["master"] = "true"
         }
         if let title = cleanOptional(title) {
             data["title"] = title
@@ -216,7 +212,7 @@ public enum ServeMutationRequests {
         let prompt = quests
             .map { "- " + $0.content.replacingOccurrences(of: "\n", with: "\n  ") }
             .joined(separator: "\n")
-        return try start(role: .standalone, title: title, cwd: path, agent: agent, color: color, prompt: prompt)
+        return try start(title: title, cwd: path, agent: agent, color: color, prompt: prompt)
     }
 
     private static func required(_ field: String, _ value: String) throws -> String {

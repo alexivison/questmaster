@@ -26,6 +26,7 @@ const (
 	topicDirSuggest       = "dir_suggest"
 	topicModels           = "models"
 	topicReasoningEfforts = "reasoning_efforts"
+	topicWorkerFeed       = "worker_feed"
 )
 
 // Request is one JSON line sent by a client.
@@ -219,6 +220,17 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 				continue
 			}
 			if err := s.writeResponse(ctx, enc, req.ID, topicReasoningEfforts, data); err != nil {
+				return
+			}
+			continue
+		}
+		if req.Method == topicWorkerFeed {
+			data, err := s.workerFeed(req)
+			if err != nil {
+				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
+				continue
+			}
+			if err := s.writeResponse(ctx, enc, req.ID, topicWorkerFeed, data); err != nil {
 				return
 			}
 			continue

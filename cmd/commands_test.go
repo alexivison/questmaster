@@ -192,7 +192,7 @@ func TestList_NoSessions(t *testing.T) {
 func TestColorCommands_UpdateSessionAndRepo(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
-	createManifest(t, store, "qm-color", "color", t.TempDir(), "standalone")
+	createManifest(t, store, "qm-color", "color", t.TempDir(), "master")
 
 	sessionOut := runCmd(t, store, sessionsRunner(), "session", "color", "qm-color", "violet")
 	var sessionResp struct {
@@ -264,11 +264,29 @@ func TestList_ActiveSessions(t *testing.T) {
 	}
 }
 
+func TestListAndStatus_ReportShellSessionType(t *testing.T) {
+	t.Parallel()
+	store := setupStore(t)
+	if err := store.Create(state.Manifest{SessionID: "qm-shell"}); err != nil {
+		t.Fatalf("create shell manifest: %v", err)
+	}
+
+	list := decodeListOutput(t, runCmd(t, store, sessionsRunner("qm-shell"), "list"))
+	if got := list.Active[0].SessionType; got != "shell" {
+		t.Fatalf("list session_type = %q, want shell", got)
+	}
+
+	status := decodeStatusOutput(t, runCmd(t, store, sessionsRunner("qm-shell"), "status", "qm-shell"))
+	if got := status.Manifest.SessionType; got != "shell" {
+		t.Fatalf("status session_type = %q, want shell", got)
+	}
+}
+
 func TestList_JSON(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-live", "active", "/tmp/a", "regular")
-	createManifest(t, store, "qm-stale", "stopped", "/tmp/b", "master")
+	createManifest(t, store, "qm-stale", "stopped", "/tmp/b", "")
 
 	out := runCmd(t, store, sessionsRunner("qm-live"), "list")
 
@@ -291,7 +309,7 @@ func TestList_JSON(t *testing.T) {
 	if len(got.Active) != 1 || got.Active[0].SessionID != "qm-live" || !got.Active[0].Live || got.Active[0].Title != "active" {
 		t.Fatalf("active JSON mismatch: %#v", got.Active)
 	}
-	if len(got.Resumable) != 1 || got.Resumable[0].SessionID != "qm-stale" || got.Resumable[0].Live {
+	if len(got.Resumable) != 1 || got.Resumable[0].SessionID != "qm-stale" || got.Resumable[0].Live || got.Resumable[0].SessionType != "master" {
 		t.Fatalf("resumable JSON mismatch: %#v", got.Resumable)
 	}
 }

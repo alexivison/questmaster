@@ -42,19 +42,12 @@ func TestQueryRendersCatalogInEachHarnessVocabulary(t *testing.T) {
 	}{
 		{
 			// Claude takes bare concrete ids; no family aliases are offered.
-			name:      "claude standalone",
-			agent:     "claude",
-			role:      agent.RoleStandalone,
-			wantFirst: "claude-opus-5",
-			wantIDs:   []string{"claude-opus-5", "claude-sonnet-4-6"},
-			absentIDs: []string{"anthropic/claude-opus-5", "text-embedding-x"},
-		},
-		{
 			name:      "claude master",
 			agent:     "claude",
 			role:      agent.RoleMaster,
 			wantFirst: "claude-opus-5",
-			wantIDs:   []string{"claude-opus-5"},
+			wantIDs:   []string{"claude-opus-5", "claude-sonnet-4-6"},
+			absentIDs: []string{"anthropic/claude-opus-5", "text-embedding-x"},
 		},
 		{
 			// Codex takes bare OpenAI ids and no aliases.
@@ -67,9 +60,9 @@ func TestQueryRendersCatalogInEachHarnessVocabulary(t *testing.T) {
 		},
 		{
 			// Pi qualifies ids with its own provider naming.
-			name:      "pi standalone",
+			name:      "pi master",
 			agent:     "pi",
-			role:      agent.RoleStandalone,
+			role:      agent.RoleMaster,
 			wantFirst: "openai-codex/gpt-5.6-terra",
 			wantIDs:   []string{"openai-codex/gpt-5.6-terra"},
 			absentIDs: []string{"gpt-5.6-terra"},
@@ -110,7 +103,7 @@ func TestQueryRendersCatalogInEachHarnessVocabulary(t *testing.T) {
 func TestQueryOffersNoFamilyAliases(t *testing.T) {
 	t.Parallel()
 
-	got := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleStandalone, Catalog: testCatalog(t)})
+	got := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleMaster, Catalog: testCatalog(t)})
 	for _, model := range got.Models {
 		if strings.HasPrefix(model.Note, "alias ·") {
 			t.Errorf("models %v should offer no family alias, found one at %q", ids(got.Models), model.ID)
@@ -129,7 +122,7 @@ func TestQueryPrefersHarnessEnumerationOverCatalog(t *testing.T) {
 	}
 	got := Query(context.Background(), Options{
 		Agent:   "opencode",
-		Role:    agent.RoleStandalone,
+		Role:    agent.RoleMaster,
 		Catalog: testCatalog(t),
 		Probe:   probe,
 	})
@@ -254,7 +247,7 @@ func TestQueryLeadsWithRecentlyLaunchedModels(t *testing.T) {
 	})
 	got := Query(context.Background(), Options{
 		Agent:   "claude",
-		Role:    agent.RoleStandalone,
+		Role:    agent.RoleMaster,
 		Catalog: testCatalog(t),
 		Store:   store,
 	})
@@ -281,7 +274,7 @@ func TestQueryDedupsAcrossRecentsAndCatalog(t *testing.T) {
 	})
 	got := Query(context.Background(), Options{
 		Agent:   "claude",
-		Role:    agent.RoleStandalone,
+		Role:    agent.RoleMaster,
 		Catalog: testCatalog(t),
 		Store:   store,
 	})
@@ -298,22 +291,32 @@ func TestQueryDedupsAcrossRecentsAndCatalog(t *testing.T) {
 // set: a persisted state.RoleDefaultsStore entry for this exact agent+role.
 // Nothing is reported when nothing is persisted — there is no hardcoded
 // fallback to report instead.
-func TestQueryReportsPersistedRoleDefault(t *testing.T) {
+func TestQueryIgnoresRemovedRoleDefault(t *testing.T) {
 	t.Parallel()
 
 	store := seedStore(t, nil)
 	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "standalone", state.RoleDefault{Model: "claude-opus-9-unreleased"}); err != nil {
-		t.Fatalf("seed role default: %v", err)
+		t.Fatalf("seed old role default: %v", err)
 	}
 
 	got := Query(context.Background(), Options{
 		Agent:   "claude",
-		Role:    agent.RoleStandalone,
+		Role:    agent.RoleMaster,
 		Catalog: testCatalog(t),
 		Store:   store,
 	})
-	if got.Default != "claude-opus-9-unreleased" {
-		t.Fatalf("default = %q, want the persisted standalone role default", got.Default)
+	if got.Default != "" {
+		t.Fatalf("master default = %q, want the old role default ignored", got.Default)
+	}
+}
+
+// Master and worker defaults remain independent.
+func TestQueryMasterAndWorkerRoleDefaultsAreIndependent(t *testing.T) {
+	t.Parallel()
+
+	store := seedStore(t, nil)
+	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "worker", state.RoleDefault{Model: "claude-opus-9-unreleased"}); err != nil {
+		t.Fatalf("seed worker role default: %v", err)
 	}
 
 	master := Query(context.Background(), Options{
@@ -322,30 +325,8 @@ func TestQueryReportsPersistedRoleDefault(t *testing.T) {
 		Catalog: testCatalog(t),
 		Store:   store,
 	})
-	if master.Default != "" {
-		t.Fatalf("master default = %q, want empty when nothing is persisted for master", master.Default)
-	}
-}
-
-// TestQueryStandaloneAndWorkerRoleDefaultsAreIndependent guards the fix for
-// standalone silently sharing the worker bucket: a persisted worker default
-// must not leak into a standalone query.
-func TestQueryStandaloneAndWorkerRoleDefaultsAreIndependent(t *testing.T) {
-	t.Parallel()
-
-	store := seedStore(t, nil)
-	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "worker", state.RoleDefault{Model: "claude-opus-9-unreleased"}); err != nil {
-		t.Fatalf("seed worker role default: %v", err)
-	}
-
-	standalone := Query(context.Background(), Options{
-		Agent:   "claude",
-		Role:    agent.RoleStandalone,
-		Catalog: testCatalog(t),
-		Store:   store,
-	})
-	if standalone.Default == "claude-opus-9-unreleased" {
-		t.Fatalf("standalone query picked up the worker-only override: %+v", standalone)
+	if master.Default == "claude-opus-9-unreleased" {
+		t.Fatalf("master query picked up the worker-only override: %+v", master)
 	}
 }
 
@@ -354,7 +335,7 @@ func TestQueryFiltersAndCaps(t *testing.T) {
 
 	catalog := testCatalog(t)
 
-	filtered := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleStandalone, Catalog: catalog, Query: "SONNET"})
+	filtered := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleMaster, Catalog: catalog, Query: "SONNET"})
 	if len(filtered.Models) == 0 {
 		t.Fatal("filtered models are empty")
 	}
@@ -364,7 +345,7 @@ func TestQueryFiltersAndCaps(t *testing.T) {
 		}
 	}
 
-	capped := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleStandalone, Catalog: catalog, Limit: 2})
+	capped := Query(context.Background(), Options{Agent: "claude", Role: agent.RoleMaster, Catalog: catalog, Limit: 2})
 	if len(capped.Models) != 2 {
 		t.Errorf("capped models = %d, want 2", len(capped.Models))
 	}
@@ -373,7 +354,7 @@ func TestQueryFiltersAndCaps(t *testing.T) {
 func TestQueryUnknownAgentOffersNothingButFailsSoftly(t *testing.T) {
 	t.Parallel()
 
-	got := Query(context.Background(), Options{Agent: "brand-new-harness", Role: agent.RoleStandalone, Catalog: testCatalog(t)})
+	got := Query(context.Background(), Options{Agent: "brand-new-harness", Role: agent.RoleMaster, Catalog: testCatalog(t)})
 	if got.Default != "" {
 		t.Errorf("default = %q, want empty", got.Default)
 	}
@@ -407,16 +388,20 @@ func TestRecentModelsAreScopedPerAgentAndDeduped(t *testing.T) {
 func TestRoleNamesRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	for _, role := range []agent.SessionRole{agent.RoleStandalone, agent.RoleMaster, agent.RoleWorker} {
-		if got := ParseRole(RoleName(role)); got != role {
+	for _, role := range []agent.SessionRole{agent.RoleMaster, agent.RoleWorker} {
+		got, err := ParseRole(RoleName(role))
+		if err != nil || got != role {
 			t.Errorf("ParseRole(RoleName(%v)) = %v", role, got)
 		}
 	}
-	if got := ParseRole("nonsense"); got != agent.RoleStandalone {
-		t.Errorf("ParseRole(nonsense) = %v, want standalone", got)
+	if _, err := ParseRole("standalone"); err == nil {
+		t.Error("ParseRole(standalone) succeeded, want role validation error")
 	}
-	if got := ParseRole("primary"); got != agent.RoleMaster {
-		t.Errorf("ParseRole(primary) = %v, want master", got)
+	if _, err := ParseRole("primary"); err == nil {
+		t.Error("ParseRole(primary) succeeded, want role validation error")
+	}
+	if got, err := ParseRole(""); err != nil || got != agent.RoleMaster {
+		t.Errorf("ParseRole(empty) = %v, want master", got)
 	}
 }
 
@@ -438,7 +423,6 @@ func countID(models []Model, id string) int {
 	}
 	return count
 }
-
 
 // seedStore writes one session manifest per agent entry, newest last, so
 // recents ordering is exercised through the real manifest discovery path.

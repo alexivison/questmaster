@@ -7,6 +7,7 @@ struct QuestCoreTests {
         displayFallsBackToProjectColorWithoutLiveSession()
         displayFiltersByProjectID()
         displayRecoversDeletedSelectionToPreviousQuest()
+        edgeSelectionJumpsToFirstAndLastAcrossSections()
         newQuestFormBuildsPayload()
         startFromQuestsBuildsPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
@@ -29,6 +30,21 @@ struct QuestCoreTests {
         expect(sections[0].quests.map(\.id) == ["qst-b"], "repo-b active quests mismatch")
         expect(QuestDisplayState.recoveredSelection(current: nil, in: sections) == "qst-b", "selection should recover first visible quest")
         expect(QuestDisplayState.movedSelection(current: "qst-b", delta: 1, in: sections) == "qst-a", "selection should move across sections")
+    }
+
+    private static func edgeSelectionJumpsToFirstAndLastAcrossSections() {
+        let quests = [
+            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Alpha Beta", updatedAt: "2026-07-03T01:00:00Z"),
+            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Zeta Repo", updatedAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-none", content: "No project", updatedAt: "2026-07-03T04:00:00Z"),
+        ]
+        let repos = [
+            TrackerRepo(id: "repo-a", name: "Zeta Repo", color: "green", sessions: []),
+        ]
+        let sections = QuestDisplayState.sections(quests: quests, repos: repos)
+        expect(QuestDisplayState.edgeSelection(atStart: true, in: sections) == "qst-b", "gg should land on the first quest across sections")
+        expect(QuestDisplayState.edgeSelection(atStart: false, in: sections) == "qst-none", "G should land on the last quest across sections")
+        expect(QuestDisplayState.edgeSelection(atStart: true, in: []) == nil, "edge selection with no quests should be nil")
     }
 
     private static func displayFallsBackToProjectColorWithoutLiveSession() {

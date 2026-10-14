@@ -21,7 +21,6 @@ struct MutationRequestTests {
     private static func startTrimsOptionalFields() {
         do {
             let request = try ServeMutationRequests.start(
-                role: .master,
                 title: " orchestrator ",
                 cwd: " /tmp/project ",
                 agent: " claude ",
@@ -31,7 +30,7 @@ struct MutationRequestTests {
             let object = request.jsonObject(id: "start") as NSDictionary
             expect(object["method"] as? String == "start", "method mismatch")
             let data = object["data"] as? NSDictionary
-            expect(data?["master"] as? String == "true", "master role was not encoded")
+            expect(data?["master"] == nil, "managed agent starts should use the server's master default")
             expect(data?["title"] as? String == "orchestrator", "title was not trimmed")
             expect(data?["cwd"] as? String == "/tmp/project", "cwd was not trimmed")
             expect(data?["primary"] as? String == "claude", "agent was not encoded as primary")
@@ -45,7 +44,6 @@ struct MutationRequestTests {
     private static func startOmitsNoColor() {
         do {
             let request = try ServeMutationRequests.start(
-                role: .standalone,
                 title: nil,
                 cwd: " /tmp/project ",
                 agent: " codex ",
@@ -67,7 +65,6 @@ struct MutationRequestTests {
             // An unknown id is encoded as typed: the harness decides whether a
             // model exists, so a model released today works today.
             let override = try ServeMutationRequests.start(
-                role: .standalone,
                 title: nil,
                 cwd: "/tmp/project",
                 agent: "claude",
@@ -82,7 +79,6 @@ struct MutationRequestTests {
             )
 
             let defaulted = try ServeMutationRequests.start(
-                role: .standalone,
                 title: nil,
                 cwd: "/tmp/project",
                 agent: "claude",
@@ -100,7 +96,6 @@ struct MutationRequestTests {
     private static func startEncodesReasoningEffortOverrideAndOmitsDefault() {
         do {
             let override = try ServeMutationRequests.start(
-                role: .standalone,
                 title: nil,
                 cwd: "/tmp/project",
                 agent: "claude",
@@ -115,7 +110,6 @@ struct MutationRequestTests {
             )
 
             let defaulted = try ServeMutationRequests.start(
-                role: .standalone,
                 title: nil,
                 cwd: "/tmp/project",
                 agent: "claude",

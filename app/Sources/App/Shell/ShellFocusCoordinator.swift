@@ -12,8 +12,6 @@ final class ShellFocusCoordinator {
     private let trackerHosting: () -> NSView?
     private let dockView: () -> SwiftUIDockPane?
     private let terminalHost: () -> TerminalPaneHosting?
-    private let selectedSessionChip: () -> SelectedSessionChip?
-    private let selectedSessionContext: () -> (role: SessionRoleKind?, workers: [TrackerSession], highlightedWorkerID: String?)
     private let updateDockTabs: () -> Void
 
     init(
@@ -26,8 +24,6 @@ final class ShellFocusCoordinator {
         trackerHosting: @escaping () -> NSView?,
         dockView: @escaping () -> SwiftUIDockPane?,
         terminalHost: @escaping () -> TerminalPaneHosting?,
-        selectedSessionChip: @escaping () -> SelectedSessionChip?,
-        selectedSessionContext: @escaping () -> (role: SessionRoleKind?, workers: [TrackerSession], highlightedWorkerID: String?),
         updateDockTabs: @escaping () -> Void
     ) {
         self.navigation = navigation
@@ -39,8 +35,6 @@ final class ShellFocusCoordinator {
         self.trackerHosting = trackerHosting
         self.dockView = dockView
         self.terminalHost = terminalHost
-        self.selectedSessionChip = selectedSessionChip
-        self.selectedSessionContext = selectedSessionContext
         self.updateDockTabs = updateDockTabs
     }
 
@@ -87,13 +81,8 @@ final class ShellFocusCoordinator {
         splitView()?.trackerVisible = navigation.trackerVisible
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
         dockShell()?.setRegionActive(navigation.focusedRegion == .dock)
-        let context = selectedSessionContext()
         footerShell()?.update(
             navigation: navigation.state,
-            session: selectedSessionChip(),
-            role: context.role,
-            workers: context.workers,
-            highlightedWorkerID: context.highlightedWorkerID,
             dockContentMode: dockView()?.currentMode ?? .artifacts
         )
         updateDockTabs()

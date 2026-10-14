@@ -26,7 +26,7 @@ func TestSessionNew_JSONAndPromptFile(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("session new output is not JSON: %v\n%s", err, out)
 	}
-	if got.SessionID == "" || got.RuntimeDir == "" || got.Cwd != cwd || got.Title != "json-session" || got.Master {
+	if got.SessionID == "" || got.RuntimeDir == "" || got.Cwd != cwd || got.Title != "json-session" || !got.Master {
 		t.Fatalf("session new JSON mismatch: %#v", got)
 	}
 	m, err := store.Read(got.SessionID)

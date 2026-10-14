@@ -239,8 +239,7 @@ public enum TrackerSelection {
     }
 
     private static func normalizedRole(_ role: String) -> String {
-        let value = role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return value == "primary" ? "master" : value
+        role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private static func normalizedLifecycle(_ lifecycle: String) -> String {

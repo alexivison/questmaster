@@ -40,9 +40,8 @@ func ModelPolicyOf(name string) ModelPolicy {
 	return specsByName[name].Models
 }
 
-// RoleDefaultsKey maps a session role to its own bucket in the persisted
-// role-defaults store: standalone, master and worker each persist an
-// independent default.
+// RoleDefaultsKey maps a session role to its bucket in the persisted
+// role-defaults store.
 func RoleDefaultsKey(role SessionRole) string {
 	switch role {
 	case RoleMaster:
@@ -50,7 +49,7 @@ func RoleDefaultsKey(role SessionRole) string {
 	case RoleWorker:
 		return "worker"
 	default:
-		return "standalone"
+		return "master"
 	}
 }
 

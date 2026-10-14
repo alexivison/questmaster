@@ -466,7 +466,7 @@ struct TrackerRendererTests {
         lifecycle: String = "active",
         lastKind: String = "",
         agent: String = "codex",
-        role: String = "standalone",
+        role: String = "master",
         parentID: String = ""
     ) -> TrackerSession {
         TrackerSession(

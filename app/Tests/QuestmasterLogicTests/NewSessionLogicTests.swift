@@ -3,21 +3,19 @@ import QuestmasterCore
 
 struct NewSessionLogicTests {
     static func run() {
-        roleControlsMasterFlag()
         focusMovesThroughFieldsWithControlJAndK()
-        focusCycleIncludesRole()
+        focusCycleWrapsThroughFields()
         defaultAgentListIncludesOpenCode()
         modelSelectStartsUnconfiguredAndTakesResolvedOptions()
         modelSelectSeedsOntoSettingsCurrentDefaultOnFirstResolveOnly()
         modelSelectionSurvivesARefreshThatStillOffersIt()
-        agentAndRoleChangesDropAnotherHarnessModel()
+        agentChangeDropsAnotherHarnessModel()
         setModelOptionsDropsWhitespaceOnlyIDs()
         cyclingASingleAgentListDoesNotResetModelOptions()
         effortSelectStartsUnconfiguredAndTakesResolvedOptions()
-        roleAndAgentChangesDropTheResolvedEffortList()
+        agentChangeDropsTheResolvedEffortList()
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
-        roleSelectsWithArrowKeys()
         defaultColorSelectIncludesNone()
         initialColorUsesTheSameColorCycle()
         colorSelectCyclesDirectly()
@@ -30,22 +28,12 @@ struct NewSessionLogicTests {
         print("NewSessionLogicTests: all tests passed")
     }
 
-    private static func roleControlsMasterFlag() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
-        expect(!model.role.isMaster, "standalone should not be master")
-
-        model.setRole(.master)
-        expect(model.role.isMaster, "master should encode --master")
-    }
-
     private static func focusMovesThroughFieldsWithControlJAndK() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         expect(model.focusedField == .path, "initial focus should be path")
 
         model.handle(.controlJ)
         expect(model.focusedField == .title, "control-j should move to title")
-        model.handle(.controlJ)
-        expect(model.focusedField == .role, "control-j should move to role")
         model.handle(.controlJ)
         expect(model.focusedField == .agent, "control-j should move to agent")
         model.handle(.controlJ)
@@ -56,8 +44,8 @@ struct NewSessionLogicTests {
         expect(model.focusedField == .model, "control-k should move back to model")
     }
 
-    private static func focusCycleIncludesRole() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+    private static func focusCycleWrapsThroughFields() {
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         model.handle(.controlK)
         expect(model.focusedField == .prompt, "control-k from path should wrap to prompt")
         model.handle(.controlK)
@@ -76,7 +64,7 @@ struct NewSessionLogicTests {
     // synthetic "default" entry: "nothing selected" is a fact about the
     // form's own selection state, not a member of the options list.
     private static func modelSelectStartsUnconfiguredAndTakesResolvedOptions() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         expect(model.modelOptions.isEmpty, "the picker should start with no options at all")
         expect(model.selectedModelOption == nil, "nothing should be selected before anything resolves")
         expect(model.selectedModel.isEmpty, "an unconfigured picker should send no model override")
@@ -111,7 +99,7 @@ struct NewSessionLogicTests {
     // still be overridden for this one launch — the override never writes
     // back to Settings.
     private static func modelSelectSeedsOntoSettingsCurrentDefaultOnFirstResolveOnly() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         model.setModelOptions(
             [SessionModelOption(id: "sonnet", label: "sonnet"), SessionModelOption(id: "opus", label: "opus")],
             defaultModel: "sonnet"
@@ -124,7 +112,7 @@ struct NewSessionLogicTests {
     }
 
     private static func modelSelectionSurvivesARefreshThatStillOffersIt() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
         model.focusedField = .model
         model.handle(.right)
@@ -143,9 +131,8 @@ struct NewSessionLogicTests {
         expect(model.selectedModel.isEmpty, "a refresh without the model should fall back to the default")
     }
 
-    private static func agentAndRoleChangesDropAnotherHarnessModel() {
+    private static func agentChangeDropsAnotherHarnessModel() {
         var model = NewSessionFormModel(
-            role: .standalone,
             initialPath: "/tmp/project",
             agents: ["claude", "codex"]
         )
@@ -165,8 +152,6 @@ struct NewSessionLogicTests {
         model.handle(.right)
         expect(model.selectedModel == "gpt-5.6-sol", "precondition: codex model selected")
 
-        model.setRole(.master)
-        expect(model.selectedModel.isEmpty, "the role decides the default model, so its list is re-resolved")
     }
 
     // A whitespace-only id would otherwise render as "selected" in the picker
@@ -174,7 +159,7 @@ struct NewSessionLogicTests {
     // submit time — setModelOptions must drop it rather than offer a
     // selection that lies about what actually launches.
     private static func setModelOptionsDropsWhitespaceOnlyIDs() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         model.setModelOptions(
             [
                 SessionModelOption(id: "opus", label: "opus"),
@@ -191,7 +176,6 @@ struct NewSessionLogicTests {
     // selection, so an already-resolved model list must survive it.
     private static func cyclingASingleAgentListDoesNotResetModelOptions() {
         var model = NewSessionFormModel(
-            role: .standalone,
             initialPath: "/tmp/project",
             agents: ["claude"]
         )
@@ -211,7 +195,7 @@ struct NewSessionLogicTests {
     // Model field is focused — so it is exercised directly rather than
     // through focus + left/right.
     private static func effortSelectStartsUnconfiguredAndTakesResolvedOptions() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         expect(model.effortOptions.isEmpty, "the picker should start with no options at all")
         expect(model.selectedEffortOption == nil, "nothing should be selected before anything resolves")
         expect(model.selectedReasoningEffort.isEmpty, "an unconfigured picker should send no effort override")
@@ -231,12 +215,11 @@ struct NewSessionLogicTests {
         expect(model.submitPayload()?.reasoningEffort == "low", "a picked level should reach the payload")
     }
 
-    // Mirrors agentAndRoleChangesDropAnotherHarnessModel: valid effort levels
+    // Valid effort levels
     // are per harness (and per model, for Codex/OpenCode), so a stale
     // resolved list must not survive an agent or role change.
-    private static func roleAndAgentChangesDropTheResolvedEffortList() {
+    private static func agentChangeDropsTheResolvedEffortList() {
         var model = NewSessionFormModel(
-            role: .standalone,
             initialPath: "/tmp/project",
             agents: ["claude", "codex"]
         )
@@ -254,13 +237,10 @@ struct NewSessionLogicTests {
         model.cycleReasoningEffort()
         expect(model.selectedReasoningEffort == "minimal", "precondition: codex effort selected")
 
-        model.setRole(.master)
-        expect(model.selectedReasoningEffort.isEmpty, "the role decides the default effort, so its list is re-resolved")
     }
 
     private static func selectorsCycleOnlyOnSelectableFields() {
         var model = NewSessionFormModel(
-            role: .standalone,
             initialPath: "/tmp/project",
             agents: ["claude", "codex"],
             colors: ["blue", "violet"]
@@ -281,14 +261,10 @@ struct NewSessionLogicTests {
         model.handle(.left)
         expect(model.selectedColor == "blue", "color left arrow should cycle backward")
 
-        model.focusedField = .role
-        model.handle(.right)
-        expect(model.role == .master, "role right arrow should select master")
     }
 
     private static func selectShortcutsCycleOnlyOnSelectableFields() {
         var model = NewSessionFormModel(
-            role: .standalone,
             initialPath: "/tmp/project",
             agents: ["claude", "codex"],
             colors: ["blue", "violet"]
@@ -315,21 +291,8 @@ struct NewSessionLogicTests {
         expect(model.selectedAgent == "claude", "prompt shortcut should not cycle agent")
     }
 
-    private static func roleSelectsWithArrowKeys() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
-        model.focusedField = .role
-        model.handle(.right)
-        expect(model.role == .master, "right should select master role")
-        model.handle(.right)
-        expect(model.role == .standalone, "right from master should wrap to standalone")
-        expect(model.handleSelectShortcut("h"), "role should consume h select-left")
-        expect(model.role == .master, "h from standalone should wrap to master")
-        model.handle(.left)
-        expect(model.role == .standalone, "left from master should wrap to standalone")
-    }
-
     private static func defaultColorSelectIncludesNone() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         expect(model.selectedColor == NewSessionFormModel.noColor, "default color should be no color")
         expect(model.selectedColorLabel == "none", "no-color label should render as none")
 
@@ -345,7 +308,6 @@ struct NewSessionLogicTests {
 
     private static func initialColorUsesTheSameColorCycle() {
         var model = NewSessionFormModel(
-            role: .standalone,
             initialPath: "/tmp/project",
             initialColor: "green"
         )
@@ -360,7 +322,6 @@ struct NewSessionLogicTests {
 
     private static func colorSelectCyclesDirectly() {
         var model = NewSessionFormModel(
-            role: .standalone,
             initialPath: "/tmp/project",
             colors: ["blue", "green", "violet"]
         )
@@ -377,7 +338,7 @@ struct NewSessionLogicTests {
     }
 
     private static func enterCreatesOutsidePromptWherePromptViewHandlesReturn() {
-        var model = NewSessionFormModel(role: .standalone, initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
         model.focusedField = .title
         expect(model.creationRequested(by: .enter), "enter outside prompt should create")
         expect(!model.creationRequested(by: .controlS), "control-s outside prompt should not create")
@@ -393,12 +354,11 @@ struct NewSessionLogicTests {
     }
 
     private static func submitPayloadTrimsFieldsAndRequiresPath() {
-        var model = NewSessionFormModel(role: .master, initialPath: " /tmp/project ")
+        var model = NewSessionFormModel(initialPath: " /tmp/project ")
         model.title = "  "
         model.prompt = "  hello\n "
         let payload = model.submitPayload()
         expect(payload != nil, "valid model should create a payload")
-        expect(payload?.role == .master, "payload role mismatch")
         expect(payload?.path == "/tmp/project", "path should be trimmed")
         expect(payload?.title == nil, "blank title should stay auto-generated")
         expect(payload?.prompt == "hello", "prompt should be trimmed")

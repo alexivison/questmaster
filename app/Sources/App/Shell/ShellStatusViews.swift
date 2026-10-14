@@ -13,7 +13,7 @@ struct TerminalMessageOverlay: View {
         EmptyStatePane(
             title: title,
             message: detail,
-            titleFont: .system(size: 18, weight: .semibold),
+            titleFont: AppFonts.monospaced(size: 18, weight: .semibold).swiftUI,
             titleColor: AppPalette.text.swiftUI,
             alignment: .center,
             textAlignment: .center,

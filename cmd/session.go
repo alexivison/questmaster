@@ -48,7 +48,6 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 	var opts struct {
 		cwd        string
 		shell      bool
-		master     bool
 		masterID   string
 		agentFlags sessionAgentFlags
 		prompt     string
@@ -92,7 +91,6 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 				Title:     opts.title,
 				Cwd:       opts.cwd,
 				Shell:     opts.shell,
-				Master:    opts.master,
 				MasterID:  opts.masterID,
 				ResumeIDs: resumeIDs,
 				Prompt:    userPrompt,
@@ -119,7 +117,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 					RuntimeDir: result.RuntimeDir,
 					Cwd:        result.Cwd,
 					Title:      opts.title,
-					Master:     opts.master,
+					Master:     result.Master,
 					MasterID:   opts.masterID,
 				}); err != nil {
 					return err
@@ -135,7 +133,6 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: current)")
 	cmd.Flags().BoolVar(&opts.shell, "shell", false, "start a plain terminal session")
-	cmd.Flags().BoolVar(&opts.master, "master", false, "start as a master session")
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")

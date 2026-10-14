@@ -36,6 +36,8 @@ enum TrackerHeaderAlignmentMetrics {
         // The tracker pane's own top already sits `ShellMetrics.gap` below the window's top (the
         // same value, by construction — `ShellMetrics.sideCardInset` is defined as `gap`), so the
         // padding applied from the pane's own top is that much less than the window-relative value.
-        return CGFloat(windowTopOffset) - ShellMetrics.sideCardInset
+        // Rounded to a whole point: a fractional inset would put every plate's disc and rim on fractional
+        // pixels at 1x, where they snap and drift against each other.
+        return (CGFloat(windowTopOffset) - ShellMetrics.sideCardInset).rounded()
     }
 }

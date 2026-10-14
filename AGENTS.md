@@ -7,8 +7,9 @@ Keep this file accurate when you change something it describes.
 ## What this is
 
 `questmaster` is a **tmux orchestration backend** (a Go CLI) for AI coding
-agents: it starts sessions, promotes one to a master, spawns workers, relays
-messages, and exposes runtime state over a local socket.
+agents: managed agent sessions are masters by default, they spawn workers, and
+the CLI relays messages and exposes runtime state over a local socket. Plain
+shell sessions remain shells.
 
 `Questmaster.app` is the **native macOS human client** over that backend. It has
 an AppKit shell with SwiftUI content surfaces, launches/connects to `qm serve`,

@@ -70,7 +70,6 @@ func TestStartShellSessionRejectsAgentOnlyOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]StartOpts{
-		"master": {Shell: true, Master: true},
 		"worker": {Shell: true, MasterID: "qm-master"},
 		"prompt": {Shell: true, Prompt: "do work"},
 		"system": {Shell: true, SystemBrief: "brief"},
@@ -86,24 +85,6 @@ func TestStartShellSessionRejectsAgentOnlyOptions(t *testing.T) {
 				t.Fatalf("Start shell conflict error = %v, want start --shell guard", err)
 			}
 		})
-	}
-}
-
-func TestPromoteRejectsPlainTerminalSession(t *testing.T) {
-	t.Parallel()
-
-	svc, runner := setupService(t)
-	sessionID := "qm-plain-promote"
-	if err := svc.Store.Create(state.Manifest{SessionID: sessionID, Cwd: t.TempDir()}); err != nil {
-		t.Fatalf("create manifest: %v", err)
-	}
-
-	err := svc.Promote(t.Context(), sessionID)
-	if err == nil || !strings.Contains(err.Error(), "plain terminal session has no agent") {
-		t.Fatalf("Promote plain session error = %v", err)
-	}
-	if runner.hasCall("rename-window") {
-		t.Fatalf("plain promote should fail before tmux mutation, calls=%v", runner.calls)
 	}
 }
 
@@ -210,6 +191,7 @@ func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
 	result, err := svc.Start(t.Context(), StartOpts{
 		Cwd:      t.TempDir(),
 		MasterID: masterID,
+		Title:    "rollback-worker",
 	})
 	if err == nil {
 		t.Fatal("Start error = nil, want tmux create failure")
@@ -256,6 +238,7 @@ func TestStartRollsBackManifestWhenWorkerRegistrationFails(t *testing.T) {
 	_, err := svc.Start(t.Context(), StartOpts{
 		Cwd:      t.TempDir(),
 		MasterID: "qm-ghost-master", // valid ID, but no manifest on disk
+		Title:    "ghost-worker",
 	})
 	if err == nil {
 		t.Fatal("Start error = nil, want worker registration failure")
@@ -485,7 +468,7 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 }
 
 // Cleanup script must NOT delete worker manifests — prune handles that.
-// Premature deletion causes the picker to misclassify workers as standalone.
+// Premature deletion loses the parent data needed to classify workers.
 func TestWriteCleanupScript_DoesNotDeleteWorkerManifest(t *testing.T) {
 	t.Parallel()
 
@@ -568,7 +551,7 @@ func TestWriteCleanupScript_NoParent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cleanup.sh")
 
-	if err := writeCleanupScript(path, "/tmp/state", "qm-standalone", ""); err != nil {
+	if err := writeCleanupScript(path, "/tmp/state", "qm-shell", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -578,8 +561,8 @@ func TestWriteCleanupScript_NoParent(t *testing.T) {
 	}
 	script := string(data)
 
-	// Standalone sessions should still clean up runtime dir.
+	// Plain sessions should still clean up runtime dir.
 	if !strings.Contains(script, "rm -rf") {
-		t.Error("cleanup script should remove runtime dir for standalone sessions")
+		t.Error("cleanup script should remove runtime dir for plain sessions")
 	}
 }

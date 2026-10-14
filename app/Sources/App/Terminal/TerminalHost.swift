@@ -145,7 +145,7 @@ private final class TerminalUnavailableView: NSView {
         wantsLayer = true
         layer?.backgroundColor = AppPalette.terminal.cgColor
 
-        titleLabel.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
+        titleLabel.font = AppFonts.monospaced(size: 18, weight: .semibold)
         titleLabel.textColor = AppPalette.text
         titleLabel.alignment = .center
 

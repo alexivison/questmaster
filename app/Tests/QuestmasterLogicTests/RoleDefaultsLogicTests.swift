@@ -20,13 +20,13 @@ struct RoleDefaultsLogicTests {
 
     private static func rowsCoverEveryAgentAndRoleInOrder() {
         let model = RoleDefaultsSettingsModel(agents: ["claude", "codex"])
-        expect(model.rows.count == 6, "2 agents x 3 roles should produce 6 rows, got \(model.rows.count)")
+        expect(model.rows.count == 4, "2 agents x 2 roles should produce 4 rows, got \(model.rows.count)")
         expect(
             model.rows.map { "\($0.agent):\($0.role)" } ==
-                ["claude:master", "claude:standalone", "claude:worker", "codex:master", "codex:standalone", "codex:worker"],
-            "rows should be agent-major, master-then-standalone-then-worker: \(model.rows)"
+                ["claude:master", "claude:worker", "codex:master", "codex:worker"],
+            "rows should be agent-major, master-then-worker: \(model.rows)"
         )
-        expect(model.index(agent: "codex", role: "master") == 3, "index should locate the matching row")
+        expect(model.index(agent: "codex", role: "master") == 2, "index should locate the matching row")
         expect(model.index(agent: "pi", role: "worker") == nil, "index should return nil for an agent not in the model")
     }
 
@@ -188,16 +188,10 @@ struct RoleDefaultsLogicTests {
         expect(model.focusedRoleIndex == 0 && model.focusedField == .effort, "moveFocus(1) should advance to the master-effort field")
 
         model.moveFocus(1)
-        expect(model.focusedRoleIndex == 1 && model.focusedField == .model, "moveFocus(1) should advance to the standalone-model field")
+        expect(model.focusedRoleIndex == 1 && model.focusedField == .model, "moveFocus(1) should advance to the worker-model field")
 
         model.moveFocus(1)
-        expect(model.focusedRoleIndex == 1 && model.focusedField == .effort, "moveFocus(1) should advance to the standalone-effort field")
-
-        model.moveFocus(1)
-        expect(model.focusedRoleIndex == 2 && model.focusedField == .model, "moveFocus(1) should advance to the worker-model field")
-
-        model.moveFocus(1)
-        expect(model.focusedRoleIndex == 2 && model.focusedField == .effort, "moveFocus(1) should advance to the worker-effort field")
+        expect(model.focusedRoleIndex == 1 && model.focusedField == .effort, "moveFocus(1) should advance to the worker-effort field")
 
         model.moveFocus(1)
         expect(
@@ -207,7 +201,7 @@ struct RoleDefaultsLogicTests {
 
         model.moveFocus(-1)
         expect(
-            model.selectedAgentIndex == 0 && model.focusedRoleIndex == 2 && model.focusedField == .effort,
+            model.selectedAgentIndex == 0 && model.focusedRoleIndex == 1 && model.focusedField == .effort,
             "moveFocus should wrap backward within the tab"
         )
     }

@@ -68,22 +68,24 @@ public enum AgentKind: String, Equatable, CaseIterable {
 public enum SessionRoleKind: String, Equatable, CaseIterable {
     case master
     case worker
+    case shell
     case tmux
     case orphan
-    case standalone
 
     public init(role: String) {
         switch role.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "master", "primary":
+        case "master":
             self = .master
         case "worker":
             self = .worker
+        case "shell":
+            self = .shell
         case "tmux":
             self = .tmux
         case "orphan":
             self = .orphan
         default:
-            self = .standalone
+            self = .shell
         }
     }
 }

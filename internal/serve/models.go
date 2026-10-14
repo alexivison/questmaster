@@ -44,6 +44,10 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 	if limit <= 0 || limit > maxServeModelSuggestions {
 		limit = maxServeModelSuggestions
 	}
+	role, err := modelsuggest.ParseRole(payload.Role)
+	if err != nil {
+		return nil, err
+	}
 
 	root := state.StateRoot()
 	if s.Snapshotter != nil {
@@ -55,7 +59,7 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 
 	return modelsuggest.Resolve(ctx, modelsuggest.ResolveOptions{
 		Agent:   agentName,
-		Role:    modelsuggest.ParseRole(payload.Role),
+		Role:    role,
 		Query:   strings.TrimSpace(payload.Query),
 		Limit:   limit,
 		Refresh: payload.Refresh,

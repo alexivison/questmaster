@@ -68,7 +68,7 @@ func TestOpenCodeBuildCmd_ModelOverride(t *testing.T) {
 	o := NewOpenCode(AgentConfig{})
 	base := CmdOpts{Binary: "/bin/opencode", AgentPath: "/p"}
 
-	for _, role := range []SessionRole{RoleWorker, RoleStandalone, RoleMaster} {
+	for _, role := range []SessionRole{RoleWorker, RoleMaster} {
 		got := o.BuildCmd(withRole(base, role))
 		if strings.Contains(got, "--model '") {
 			t.Fatalf("opencode role %v with no override should omit --model: %q", role, got)
@@ -92,7 +92,6 @@ func TestOpenCodeBuildCmd_RoleSpecificAgentNames(t *testing.T) {
 		want string
 	}{
 		{role: RoleMaster, want: " --agent 'questmaster-master'"},
-		{role: RoleStandalone, want: " --agent 'questmaster-standalone'"},
 		{role: RoleWorker, want: " --agent 'questmaster-worker'"},
 	}
 	for _, tc := range cases {

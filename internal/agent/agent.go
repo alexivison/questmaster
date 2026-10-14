@@ -10,8 +10,7 @@ import (
 type SessionRole int
 
 const (
-	RoleStandalone SessionRole = iota
-	RoleMaster
+	RoleMaster SessionRole = iota
 	RoleWorker
 )
 
@@ -35,7 +34,6 @@ type Agent interface {
 	ResumeFileName() string
 	EnvVar() string
 	MasterPrompt() string
-	StandalonePrompt() string
 	WorkerPrompt() string
 
 	FilterPaneLines(raw string, max int) []string
@@ -48,9 +46,9 @@ type Agent interface {
 // CmdOpts controls agent launch command construction.
 //
 // Prompt is an initial user-turn message injected after launch (what the
-// user would type first). SystemBrief is appended after the standalone or
-// worker system prompt so rare session-specific overrides still load as
-// persistent identity rather than conversational input.
+// user would type first). SystemBrief is appended after the worker system
+// prompt so rare session-specific overrides still load as persistent
+// identity rather than conversational input.
 type CmdOpts struct {
 	Binary      string
 	AgentPath   string
@@ -150,15 +148,11 @@ func joinSystemPrompt(base, brief string) string {
 	return base + "\n\n" + brief
 }
 
-func systemPromptForRole(role SessionRole, master, standalone, worker, brief string) string {
+func systemPromptForRole(role SessionRole, master, worker, brief string) string {
 	switch role {
-	case RoleMaster:
-		return master
 	case RoleWorker:
 		return joinSystemPrompt(worker, brief)
-	case RoleStandalone:
-		fallthrough
 	default:
-		return joinSystemPrompt(standalone, brief)
+		return master
 	}
 }

@@ -1,6 +1,6 @@
 {
   "agent": "claude",
-  "role": "standalone",
+  "role": "master",
   "default": "sonnet",
   "default_reasoning_effort": "",
   "models": [

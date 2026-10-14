@@ -73,7 +73,6 @@ type mutationPayload struct {
 	Role            string         `json:"role"`
 	Primary         string         `json:"primary"`
 	Color           string         `json:"color"`
-	Master          string         `json:"master"`
 	Shell           string         `json:"shell"`
 	Model           string         `json:"model"`
 	ReasoningEffort string         `json:"reasoning_effort"`
@@ -265,9 +264,6 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 	if color := strings.TrimSpace(payload.Color); color != "" {
 		args = append(args, "--color", color)
 	}
-	if mutationTruthy(payload.Master) {
-		args = append(args, "--master")
-	}
 	if mutationTruthy(payload.Shell) {
 		args = append(args, "--shell")
 	}
@@ -366,9 +362,9 @@ func (s *Server) mutateRoleDefaultSet(payload mutationPayload) (any, error) {
 
 	role := strings.ToLower(strings.TrimSpace(payload.Role))
 	switch role {
-	case "worker", "master", "standalone":
+	case "worker", "master":
 	default:
-		return nil, fmt.Errorf("role is required (want master, standalone or worker)")
+		return nil, fmt.Errorf("role is required (want master or worker)")
 	}
 
 	model := strings.TrimSpace(payload.Model)

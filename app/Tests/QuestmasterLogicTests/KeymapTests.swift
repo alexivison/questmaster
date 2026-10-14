@@ -14,6 +14,8 @@ struct KeymapTests {
         controlHandoffMapsListControlDirections()
         trackerSessionSelectBindingsUsePlainCommandDigits()
         displayGlyphOrdersModifiersAndUppercasesTheKey()
+        gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter()
+        gPrefixTrackerResetClearsPendingState()
         print("KeymapTests: all tests passed")
     }
 
@@ -105,6 +107,7 @@ struct KeymapTests {
         expect(Keymap.Command.focusTerminal.modifiers == [.command, .option], "focus terminal moved to command-option to free Cmd+2 for session select")
         expect(Keymap.Command.toggleDock.modifiers == [.command, .shift], "toggle dock should be command-shift-a, freeing Cmd+3 for session select")
         expect(Keymap.Command.toggleQuestDock.modifiers == [.command, .shift], "toggle quests should be command-shift-t, freeing Cmd+4 for session select")
+        expect(Keymap.Command.toggleWorkerChatDock.displayGlyph == "⇧⌘W", "toggle worker chat glyph was \(Keymap.Command.toggleWorkerChatDock.displayGlyph)")
         expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .shift], "toggle caffeinate should be command-shift, matching the other dock toggle chords")
         expect(Keymap.Command.copySessionID.keyEquivalent == "y", "copy session id key was \(Keymap.Command.copySessionID.keyEquivalent)")
         expect(Keymap.Command.copySessionID.modifiers == [.command], "copy session id should be command")
@@ -155,6 +158,30 @@ struct KeymapTests {
         expect(Keymap.ControlHandoff.direction(forKeyCode: 40) == .up, "plain ctrl-k should stay list up")
     }
 
+    private static func gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter() {
+        var tracker = GPrefixTracker()
+        let start = Date()
+        expect(tracker.handleG(now: start) == .pendingSecondG, "first g should arm the chord")
+        expect(tracker.handleG(now: start.addingTimeInterval(0.2)) == .jumpToTop, "second g within the window should resolve to jumpToTop")
+
+        expect(tracker.handleG(now: start.addingTimeInterval(1)) == .pendingSecondG, "g after a resolved chord should re-arm")
+        expect(
+            tracker.handleG(now: start.addingTimeInterval(1).addingTimeInterval(2)) == .pendingSecondG,
+            "g after the window expires should re-arm instead of resolving"
+        )
+    }
+
+    private static func gPrefixTrackerResetClearsPendingState() {
+        var tracker = GPrefixTracker()
+        let start = Date()
+        expect(tracker.handleG(now: start) == .pendingSecondG, "first g should arm the chord")
+        tracker.reset()
+        expect(
+            tracker.handleG(now: start.addingTimeInterval(0.1)) == .pendingSecondG,
+            "g after a reset should re-arm rather than resolve, as a non-g key between presses would require"
+        )
+    }
+
     private static var commandBindings: [Keymap.CommandBinding] {
         [
             Keymap.Command.quitQuestmaster,
@@ -169,6 +196,7 @@ struct KeymapTests {
             Keymap.Command.focusTerminal,
             Keymap.Command.toggleDock,
             Keymap.Command.toggleQuestDock,
+            Keymap.Command.toggleWorkerChatDock,
             Keymap.Command.widenDock,
             Keymap.Command.narrowDock,
             Keymap.Command.toggleCaffeine,

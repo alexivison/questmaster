@@ -2,11 +2,19 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
+/// A request to scroll a row into view. `nonce` lets a caller force a fresh scroll even when `id`
+/// repeats — e.g. `gg`/`G` landing back on the row that's already selected and scrolled off
+/// screen, where `SectionedList`'s other triggers (`selectedID`, this same `id`) wouldn't change.
+struct ScrollTarget: Equatable {
+    var id: String
+    var nonce: Int
+}
+
 struct SectionedList<Content: View>: View {
     let selectedID: String?
     var scrollOnAppear = false
     var scrollOnSelectionChange = true
-    var scrollTargetID: String?
+    var scrollTarget: ScrollTarget?
     private let content: () -> Content
     @State private var scrollDebounceTask: Task<Void, Never>?
 
@@ -14,13 +22,13 @@ struct SectionedList<Content: View>: View {
         selectedID: String?,
         scrollOnAppear: Bool = false,
         scrollOnSelectionChange: Bool = true,
-        scrollTargetID: String? = nil,
+        scrollTarget: ScrollTarget? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.selectedID = selectedID
         self.scrollOnAppear = scrollOnAppear
         self.scrollOnSelectionChange = scrollOnSelectionChange
-        self.scrollTargetID = scrollTargetID
+        self.scrollTarget = scrollTarget
         self.content = content
     }
 
@@ -32,7 +40,7 @@ struct SectionedList<Content: View>: View {
                 }
                 .padding(.bottom, 5)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(SectionedListScrollerHider())
+                .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
             .onAppear {
@@ -47,8 +55,8 @@ struct SectionedList<Content: View>: View {
                 }
                 scheduleScroll(with: proxy, id: nextID)
             }
-            .onChange(of: scrollTargetID) { _, nextID in
-                scheduleScroll(with: proxy, id: nextID)
+            .onChange(of: scrollTarget) { _, next in
+                scheduleScroll(with: proxy, id: next?.id)
             }
         }
     }
@@ -80,18 +88,95 @@ struct SectionedList<Content: View>: View {
 
 }
 
-private struct SectionedListScrollerHider: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        NSView()
+/// Drop into any `ScrollView` via `.background(ScrollerHider())` to keep its enclosing
+/// `NSScrollView` scroller forced hidden, including across a system scroller-style change.
+struct ScrollerHider: NSViewRepresentable {
+    var onApply: (NSScrollView) -> Void = hideScroller
+
+    func makeNSView(context: Context) -> ScrollerHidingNSView {
+        let view = ScrollerHidingNSView()
+        view.onApply = onApply
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
+    func updateNSView(_ nsView: ScrollerHidingNSView, context: Context) {
+        nsView.onApply = onApply
         DispatchQueue.main.async {
-            guard let scrollView = nsView.enclosingScrollView else {
-                return
-            }
-            hideScroller(on: scrollView)
+            nsView.reapply()
         }
+    }
+}
+
+/// An invisible view that keeps its enclosing `NSScrollView`'s scroller forced hidden for as long
+/// as it's in the view hierarchy.
+///
+/// Reapplying only from SwiftUI's `updateNSView` — the prior mechanism — misses one trigger:
+/// AppKit resets `NSScrollView.scrollerStyle` to the system's current preferred style whenever
+/// `NSScroller.preferredScrollerStyleDidChangeNotification` fires (e.g. a mouse connects while
+/// "Show scroll bars" is Automatic), independent of whether SwiftUI re-renders. With "Show scroll
+/// bars" on Automatic and a mouse attached, that preferred style is `.legacy`, which reserves
+/// gutter width regardless of whether a scroller is shown — so the gutter could come back on its
+/// own, with no state change for SwiftUI to diff against. Observing that notification directly
+/// closes the gap.
+final class ScrollerHidingNSView: NSView {
+    var onApply: (NSScrollView) -> Void = hideScroller
+    private var styleObserver: NSObjectProtocol?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else {
+            removeStyleObserver()
+            return
+        }
+        reapply()
+        guard styleObserver == nil else {
+            return
+        }
+        styleObserver = NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // AppKit's own response to this same notification could land synchronously within
+            // `post()` itself, or be deferred onto the main queue alongside this handler —
+            // NotificationCenter doesn't document which, or how it orders multiple observers of
+            // one notification relative to each other. Reapplying directly here only beats an
+            // uncooperative AppKit reset by accident, if ours happens to run after it. Deferring
+            // to the next main-runloop turn instead — a `DispatchQueue.main.async` chained from
+            // inside this handler only runs once this turn (and `post()`) has already finished —
+            // guarantees we run after whatever this turn did, AppKit's reset included, regardless
+            // of which order the two were invoked in.
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.reapplyIfWindowed()
+                }
+            }
+        }
+    }
+
+    func reapply() {
+        guard let scrollView = enclosingScrollView else {
+            return
+        }
+        onApply(scrollView)
+    }
+
+    private func reapplyIfWindowed() {
+        guard window != nil else {
+            return
+        }
+        reapply()
+    }
+
+    private func removeStyleObserver() {
+        if let styleObserver {
+            NotificationCenter.default.removeObserver(styleObserver)
+        }
+        styleObserver = nil
+    }
+
+    deinit {
+        removeStyleObserver()
     }
 }
 
@@ -102,9 +187,8 @@ private struct SectionedListScrollerHider: NSViewRepresentable {
 /// does not retroactively re-run the scroll view's internal layout pass, and
 /// `.legacy` scroller style reserves gutter width independent of whether a
 /// scroller is actually shown. `.overlay` style never reserves space, and an
-/// explicit `tile()` (AppKit's private but widely-relied-on relayout trigger
-/// for exactly this scenario) forces the content view to pick up the new
-/// settings immediately instead of on whatever layout pass happens next.
+/// explicit `tile()` forces the content view to pick up the new settings
+/// immediately instead of on whatever layout pass happens next.
 func hideScroller(on scrollView: NSScrollView) {
     scrollView.scrollerStyle = .overlay
     scrollView.hasVerticalScroller = false
@@ -112,7 +196,7 @@ func hideScroller(on scrollView: NSScrollView) {
     scrollView.automaticallyAdjustsContentInsets = false
     scrollView.contentInsets = NSEdgeInsetsZero
     scrollView.scrollerInsets = NSEdgeInsetsZero
-    scrollView.perform(NSSelectorFromString("tile"))
+    scrollView.tile()
 }
 
 struct SectionHeader: View {
@@ -140,9 +224,21 @@ struct SectionHeader: View {
     }
 }
 
+/// The row's own rectangle, grown above and below by `outset`, for a row whose artwork reaches past its layout frame.
+struct VerticallyOutsetRectangle: Shape {
+    let outset: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path(rect.insetBy(dx: 0, dy: -outset))
+    }
+}
+
 struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     let selected: Bool
     let leadingInset: CGFloat
+    /// How far the row's artwork reaches past its layout frame, above and below. Hover and taps cover it, so the
+    /// visible edges are live while the layout spacing stays the frame's.
+    let hitOutset: CGFloat
     var onTap: (() -> Void)?
     private let leadingDecoration: () -> LeadingDecoration
     private let background: (_ selected: Bool, _ hovered: Bool) -> Background
@@ -153,6 +249,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     init(
         selected: Bool,
         leadingInset: CGFloat,
+        hitOutset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
         @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
         @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
@@ -160,6 +257,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     ) {
         self.selected = selected
         self.leadingInset = leadingInset
+        self.hitOutset = hitOutset
         self.onTap = onTap
         self.leadingDecoration = leadingDecoration
         self.background = background
@@ -170,7 +268,6 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     var body: some View {
         if let onTap {
             rowContent
-                .contentShape(Rectangle())
                 .onTapGesture(perform: onTap)
         } else {
             rowContent
@@ -185,6 +282,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
             .overlay(alignment: .leading) {
                 leadingDecoration()
             }
+            .contentShape(VerticallyOutsetRectangle(outset: hitOutset))
             .onHover { isHovered = $0 }
     }
 }

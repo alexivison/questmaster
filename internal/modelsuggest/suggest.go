@@ -18,6 +18,7 @@ package modelsuggest
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -220,20 +221,21 @@ func RoleName(role agent.SessionRole) string {
 	case agent.RoleWorker:
 		return "worker"
 	default:
-		return "standalone"
+		return "master"
 	}
 }
 
-// ParseRole reads a role name from a request or flag. Anything unrecognized
-// (including an empty value) is standalone, which is the sheet's default.
-func ParseRole(value string) agent.SessionRole {
+// ParseRole reads a role name from a request, defaulting an omitted role to master.
+func ParseRole(value string) (agent.SessionRole, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "master", "primary":
-		return agent.RoleMaster
+	case "master":
+		return agent.RoleMaster, nil
 	case "worker":
-		return agent.RoleWorker
+		return agent.RoleWorker, nil
+	case "":
+		return agent.RoleMaster, nil
 	default:
-		return agent.RoleStandalone
+		return agent.RoleMaster, fmt.Errorf("invalid role %q (want master or worker)", value)
 	}
 }
 

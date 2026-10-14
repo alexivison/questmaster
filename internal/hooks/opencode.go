@@ -142,14 +142,6 @@ func openCodeManagedFiles(configDir string) []openCodeManagedFile {
 			Kind: "agent",
 		},
 		{
-			Path: filepath.Join(configDir, "agents", qmagent.OpenCodeStandaloneAgentName+".md"),
-			Body: openCodeAgentMarkdown(
-				"Questmaster standalone session",
-				provider.StandalonePrompt(),
-			),
-			Kind: "agent",
-		},
-		{
 			Path: filepath.Join(configDir, "agents", qmagent.OpenCodeWorkerAgentName+".md"),
 			Body: openCodeAgentMarkdown("Questmaster worker session", provider.WorkerPrompt()),
 			Kind: "agent",

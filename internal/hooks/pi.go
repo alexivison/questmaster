@@ -12,13 +12,12 @@ import (
 //go:embed assets/questmaster-pi-messaging.ts
 var piMessagingExtension string
 
-// QuestmasterSidecarVersion is the marker version emitted by the Pi
-// activity-sidecar contract that shells out to `questmaster hook pi`.
+// QuestmasterSidecarVersion is the marker version emitted by installed Pi and
+// OpenCode extensions that call `questmaster hook`.
 const QuestmasterSidecarVersion = "phase2-v2"
 
-// PiInstaller manages the Pi activity-sidecar marker file. The TypeScript
-// sidecar writes the same marker at runtime so `questmaster hooks status pi`
-// can detect stale non-symlink installs.
+// PiInstaller manages the Pi extension marker and bundled TypeScript extension.
+// The extension also refreshes the marker at runtime.
 type PiInstaller struct {
 	// Home is the resolved Pi config directory ($PI_HOME or ~/.pi).
 	// Override only in tests.
@@ -41,17 +40,19 @@ func NewPiInstaller(home string) *PiInstaller {
 // Name implements Installer.
 func (p *PiInstaller) Name() string { return "pi" }
 
-// Install implements Installer. It writes the current sidecar marker
-// atomically and is idempotent.
+// Install implements Installer.
 func (p *PiInstaller) Install() error {
 	return p.InstallWithOptions(InstallOptions{})
 }
 
-// InstallWithOptions writes the current marker.
+// InstallWithOptions writes the current marker and extension.
 func (p *PiInstaller) InstallWithOptions(opts InstallOptions) error {
 	opts = opts.normalized()
 	if p.Home == "" {
 		return errors.New("pi home not resolved (set $PI_HOME or $HOME)")
+	}
+	if warning := p.legacySidecarWarning(); warning != "" {
+		logf(opts, "questmaster: warning: %s", warning)
 	}
 	if opts.DryRun {
 		if existing, err := os.ReadFile(p.markerPath()); err != nil || strings.TrimSpace(string(existing)) != QuestmasterSidecarVersion {
@@ -90,6 +91,9 @@ func (p *PiInstaller) Status() Report {
 	if p.Home == "" {
 		return Report{Agent: "pi", Status: StatusNotInstalled, Detail: "home dir not resolved"}
 	}
+	if warning := p.legacySidecarWarning(); warning != "" {
+		return Report{Agent: "pi", Status: StatusOutdated, Detail: warning}
+	}
 	for _, path := range p.markerPaths() {
 		data, err := os.ReadFile(path)
 		if errors.Is(err, os.ErrNotExist) {
@@ -109,6 +113,55 @@ func (p *PiInstaller) Status() Report {
 		return Report{Agent: "pi", Status: StatusOutdated, Detail: fmt.Sprintf("marker version %q != %q", version, QuestmasterSidecarVersion)}
 	}
 	return Report{Agent: "pi", Status: StatusNotInstalled}
+}
+
+func (p *PiInstaller) legacySidecarWarning() string {
+	var files, settings []string
+	for _, path := range p.legacyExtensionPaths() {
+		if _, err := os.Stat(path); err == nil {
+			files = append(files, path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Sprintf("could not check legacy Pi sidecar %s: %v", path, err)
+		}
+	}
+	for _, path := range p.settingsPaths() {
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Sprintf("could not check Pi settings %s for the legacy activity sidecar: %v", path, err)
+		}
+		if strings.Contains(string(data), "activity-sidecar.ts") {
+			settings = append(settings, path)
+		}
+	}
+	if len(files) == 0 && len(settings) == 0 {
+		return ""
+	}
+	locations := append(files, settings...)
+	return fmt.Sprintf("legacy Pi activity sidecar detected at %s; remove the activity-sidecar.ts file and its settings.json extension reference", strings.Join(locations, ", "))
+}
+
+func (p *PiInstaller) legacyExtensionPaths() []string {
+	paths := []string{
+		filepath.Join(p.Home, "agent", "extensions", "activity-sidecar.ts"),
+		filepath.Join(p.Home, "extensions", "activity-sidecar.ts"),
+	}
+	if dir := os.Getenv("PI_CODING_AGENT_DIR"); dir != "" {
+		paths = append(paths, filepath.Join(dir, "extensions", "activity-sidecar.ts"))
+	}
+	return paths
+}
+
+func (p *PiInstaller) settingsPaths() []string {
+	if dir := os.Getenv("PI_CODING_AGENT_DIR"); dir != "" {
+		return []string{filepath.Join(dir, "settings.json")}
+	}
+	return []string{
+		filepath.Join(p.Home, "agent", "settings.json"),
+		filepath.Join(p.Home, "settings.json"),
+	}
 }
 
 func (p *PiInstaller) extensionPath() string {

@@ -57,7 +57,7 @@ func TestOpenCodeInstallPopulatesRoleAgents(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	for _, name := range []string{qmagent.OpenCodeMasterAgentName, qmagent.OpenCodeStandaloneAgentName, qmagent.OpenCodeWorkerAgentName} {
+	for _, name := range []string{qmagent.OpenCodeMasterAgentName, qmagent.OpenCodeWorkerAgentName} {
 		data, err := os.ReadFile(o.agentPath(name))
 		if err != nil {
 			t.Fatalf("read agent %s: %v", name, err)

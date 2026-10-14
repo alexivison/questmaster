@@ -3,6 +3,7 @@ import Foundation
 public enum RightDockWidthMode: Equatable {
     case standard
     case compact
+    case workerChat
 }
 
 public struct ShellSplitLayoutMetrics: Equatable {
@@ -265,6 +266,8 @@ public enum ShellSplitLayoutPlanner {
             return preferredDockWidth ?? DockWidthPreference.defaultWidth(forWindowWidth: windowWidth)
         case .compact:
             return DockWidthPreference.compactWidth
+        case .workerChat:
+            return DockWidthPreference.workerChatWidth
         }
     }
 

@@ -38,11 +38,11 @@ struct DisplayClassificationTests {
 
     private static func sessionRoleKindParsesAliasesAndFallsBack() {
         expect(SessionRoleKind(role: "master") == .master, "master mismatch")
-        expect(SessionRoleKind(role: "primary") == .master, "primary alias should map to master")
         expect(SessionRoleKind(role: "worker") == .worker, "worker mismatch")
         expect(SessionRoleKind(role: "tmux") == .tmux, "tmux mismatch")
         expect(SessionRoleKind(role: "orphan") == .orphan, "orphan mismatch")
-        expect(SessionRoleKind(role: "freeform") == .standalone, "unknown role should be standalone")
+        expect(SessionRoleKind(role: "primary") == .shell, "unrecognized role aliases should default to shell")
+        expect(SessionRoleKind(role: "freeform") == .shell, "unknown role should default to shell")
     }
 
     private static func sessionActivityStatusKindParsesKnownStatuses() {
