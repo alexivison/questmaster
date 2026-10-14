@@ -37,6 +37,7 @@ enum LogicSelfTests {
         ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
         ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
+        ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
         ("testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed", testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
@@ -593,6 +594,32 @@ enum LogicSelfTests {
             TrackerNameplateRole.workerTitleWidth(time: "") == TrackerNameplateRole.workerSnippetWidth,
             "a worker with no time gives its title the snippet's width"
         )
+    }
+
+    /// Renders the panel's plate and reads the frame's top-right corner: the arc at (286, 36) is the frame's colour. A
+    /// square dark rect behind the id strip, which the SVG has and Figma does not show, ate it.
+    @MainActor
+    private static func testSelectedSessionPanelFrameKeepsItsRoundedCorners() throws {
+        let content = SelectedSessionPanelContent(title: "", id: "", projectName: "", projectColor: AppPalette.accent)
+        let renderer = ImageRenderer(content: SelectedSessionPanel(content: content, onCopyID: { _ in }))
+        renderer.scale = 2
+        guard let image = renderer.cgImage else {
+            throw TestFailure("the panel should render to an image")
+        }
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        try expect(bitmap.pixelsWide == 578 && bitmap.pixelsHigh == 152, "the panel should render 289 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
+            bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.usingColorSpace(.sRGB)
+        }
+        guard let arc = pixel(286, 36), let outside = pixel(288.5, 33) else {
+            throw TestFailure("the corner pixels should be readable")
+        }
+        try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
+        try expect(arc.alphaComponent > 0.9 && arc.redComponent > 0.22, "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
+        guard let bottomArc = pixel(285.5, 61) else {
+            throw TestFailure("the bottom-right pixel should be readable")
+        }
+        try expect(bottomArc.alphaComponent > 0.9 && bottomArc.redComponent > 0.22, "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
     }
 
     private static func testSelectedSessionPanelNamesTheAttachedSessionsProject() throws {

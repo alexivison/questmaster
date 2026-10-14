@@ -105,7 +105,8 @@ struct SelectedSessionPanel: View {
     }
 
     /// The plate behind the portrait, in the SVG's order. The text draws over it, and the portrait draws over both. The
-    /// SVG's black square behind the id strip, which shows in the strip's rounded top-right corner, is drawn as it is.
+    /// SVG's clip group has a black square behind the id strip, which Figma does not show and which would eat the
+    /// frame's rounded corner, so it is not drawn.
     private func drawStrips(_ context: inout GraphicsContext) {
         let line = AppPalette.line.swiftUI
         let shadow = AppPalette.shadow.swiftUI
@@ -121,12 +122,8 @@ struct SelectedSessionPanel: View {
         }
         context.fill(PanelDesign.frameFill, with: .color(line))
         context.stroke(PanelDesign.frameStroke, with: .color(line), lineWidth: PanelDesign.borderWidth)
-        context.drawLayer { clipped in
-            clipped.clip(to: PanelDesign.idClip)
-            clipped.fill(PanelDesign.idClip, with: .color(.black))
-            clipped.fill(PanelDesign.idStrip, with: .color(AppPalette.item.swiftUI))
-            drawInnerShadow(&clipped, PanelDesign.idClip, color: shadow.opacity(PanelDesign.idShadowOpacity))
-        }
+        context.fill(PanelDesign.idStrip, with: .color(AppPalette.item.swiftUI))
+        drawInnerShadow(&context, PanelDesign.idStrip, color: shadow.opacity(PanelDesign.idShadowOpacity))
         context.fill(PanelDesign.projectBar, with: .color(content.projectColor.swiftUI))
         drawInnerShadow(&context, PanelDesign.projectBar, color: PanelDesign.barRimColor(content.projectColor).swiftUI)
         context.fill(PanelDesign.projectBar, with: .color(shadow.opacity(TrackerNameplateRole.projectBarOverlayOpacity)))
@@ -188,8 +185,6 @@ private enum PanelDesign {
     static let frameFill = SVGPath.parse(TrackerPlateShapes.panelFrameFill)
     static let frameStroke = SVGPath.parse(TrackerPlateShapes.panelFrameStroke)
     static let idStrip = SVGPath.parse(TrackerPlateShapes.panelIDStrip)
-    /// The id strip's clip, and the black square the SVG draws under the strip inside it.
-    static let idClip = Path(CGRect(x: 39.5, y: 35.25, width: 247, height: 12))
     static let projectBar = SVGPath.parse(TrackerPlateShapes.panelBar)
     static let ornaments = TrackerPlateShapes.panelOrnaments.map { (role: $0.role, path: SVGPath.parse($0.d)) }
 
