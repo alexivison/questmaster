@@ -64,6 +64,7 @@ enum RenderPreview {
         }
         render(selectedSessionPanelView(), size: CGSize(width: 304, height: 76), to: "\(outputDir)/selected-session-panel.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
+        render(plateBandsView(), size: CGSize(width: 320, height: 600), to: "\(outputDir)/plate-bands.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -449,6 +450,35 @@ enum RenderPreview {
             newSessionPresenter: NewSessionSheetPresenter(),
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// One master plate per band state, 80 points apart from y 20: idle, hovered, selected, hovered with a working state,
+    /// working, being recoloured, and selected with a working state. Hover is a view state, so the plates are drawn
+    /// directly.
+    @MainActor
+    private static func plateBandsView() -> some View {
+        let working = AppPalette.trackerWorking
+        let states: [(selected: Bool, hovered: Bool, recoloring: Bool, status: NSColor?)] = [
+            (false, false, false, nil), (false, true, false, nil), (true, false, false, nil), (false, true, false, working),
+            (false, false, false, working), (false, false, true, nil), (true, false, false, working),
+        ]
+        return ZStack(alignment: .topLeading) {
+            ForEach(Array(states.enumerated()), id: \.offset) { index, state in
+                TrackerNameplateBackground(
+                    role: .master,
+                    color: AppPalette.displayColor("lime") ?? AppPalette.accent,
+                    selected: state.selected,
+                    hovered: state.hovered,
+                    isRecoloring: state.recoloring,
+                    isWorking: false,
+                    glowColor: state.status,
+                    text: EmptyView()
+                )
+                .offset(x: 20, y: 20 + 80 * CGFloat(index))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.window.swiftUI)
     }
 
