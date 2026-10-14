@@ -30,7 +30,7 @@ enum LogicSelfTests {
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerBandPrecedenceAndSteadiness", testTrackerBandPrecedenceAndSteadiness),
         ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
-        ("testElapsedTimeRuleAndLiveness", testElapsedTimeRuleAndLiveness),
+        ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
         ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
         ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
@@ -356,34 +356,29 @@ enum LogicSelfTests {
         try expect(TrackerNameplateRole.worker.hitOutset == 0, "the worker's row has no artwork past its frame")
     }
 
-    private static func testElapsedTimeRuleAndLiveness() throws {
-        func session(role: String = "master", state: String, lifecycle: String = "active", since: Date? = nil, seed: Int? = nil) -> TrackerSession {
+    private static func testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting() throws {
+        func session(role: String, state: String, lifecycle: String = "active", since: Date? = nil, seed: Int? = nil) -> TrackerSession {
             TrackerSession(
                 id: "session", title: "Session", repoName: "Preview", agent: "codex", role: role, state: state,
                 lifecycle: lifecycle, elapsedSince: since, elapsedSeedMS: seed
             )
         }
 
-        // The rule is per role, in one place: a top-level plate shows its time whatever the status, a worker only while it works.
-        try expect(TrackerNameplateRole.master.timeRule == .always, "a master should show its time whatever the status")
-        try expect(TrackerNameplateRole.shell.timeRule == .always, "a shell row shares the top-level plate's rule")
-        try expect(TrackerNameplateRole.worker.timeRule == .whileWorking, "a worker should show its time only while working")
-        let working = session(state: "working", seed: 125_000)
-        let idle = session(state: "idle", seed: 125_000)
-        let stopped = session(state: "stopped", lifecycle: "stopped", seed: 0)
-        try expect(TrackerRenderer.durationLabel(for: working, rule: .whileWorking) == "0:02:05", "a working session should show its time")
-        try expect(TrackerRenderer.durationLabel(for: idle, rule: .whileWorking).isEmpty, "an idle session should show no time under the working-only rule")
-        try expect(TrackerRenderer.durationLabel(for: idle, rule: .always) == "0:02:05", "an idle session should show its time under the always rule")
-        try expect(TrackerRenderer.durationLabel(for: stopped, rule: .always).isEmpty, "a stopped session has no time to show")
+        // Masters, shell rows and workers alike show their time only while they work.
+        for role in ["master", "worker"] {
+            try expect(TrackerRenderer.durationLabel(for: session(role: role, state: "working", seed: 125_000)) == "0:02:05", "a working \(role) should show its time")
+            try expect(TrackerRenderer.durationLabel(for: session(role: role, state: "idle", seed: 125_000)).isEmpty, "an idle \(role) should show no time")
+        }
+        let stopped = session(role: "master", state: "stopped", lifecycle: "stopped", seed: 0)
+        try expect(TrackerRenderer.durationLabel(for: stopped).isEmpty, "a stopped session has no time to show")
 
-        // Only a time that counts from an instant is live, and only while its rule shows it.
+        // Only a time that counts from an instant is live, and only while it shows.
         let since = Date().addingTimeInterval(-60)
         typealias Time = TrackerElapsedTime<EmptyView>
-        try expect(Time.isLive(session: session(state: "idle", since: since), rule: .always), "an idle master counting from an instant is live")
-        try expect(Time.isLive(session: session(state: "working", since: since), rule: .whileWorking), "a working worker is live")
-        try expect(!Time.isLive(session: session(state: "idle", since: since), rule: .whileWorking), "an idle worker shows no time, so it is not live")
-        try expect(!Time.isLive(session: idle, rule: .always), "a fixed time is not live")
-        try expect(!Time.isLive(session: session(state: "idle"), rule: .always), "a session with no time is not live")
+        try expect(Time.isLive(session: session(role: "master", state: "working", since: since)), "a working session counting from an instant is live")
+        try expect(!Time.isLive(session: session(role: "worker", state: "idle", since: since)), "an idle session shows no time, so it is not live")
+        try expect(!Time.isLive(session: session(role: "master", state: "working", seed: 125_000)), "a fixed time is not live")
+        try expect(!Time.isLive(session: session(role: "master", state: "working")), "a session with no time is not live")
     }
 
     /// One timer serves every reader: its rate is the clock's, not the number of subscribers times it.
@@ -414,13 +409,13 @@ enum LogicSelfTests {
             )
         }
         let since = Date().addingTimeInterval(-60)
-        let fixed = (session(state: "idle", role: "master", seed: 125_000), TrackerTimeRule.always)
-        let hidden = (session(state: "idle", role: "worker", since: since), TrackerTimeRule.whileWorking)
-        let live = (session(state: "idle", role: "master", since: since), TrackerTimeRule.always)
-        func column(_ entries: [(TrackerSession, TrackerTimeRule)]) -> AnyView {
+        let fixed = session(state: "working", role: "master", seed: 125_000)
+        let hidden = session(state: "idle", role: "master", since: since)
+        let live = session(state: "working", role: "master", since: since)
+        func column(_ sessions: [TrackerSession]) -> AnyView {
             AnyView(VStack {
-                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                    TrackerElapsedTime(session: entry.0, rule: entry.1) { Text($0) }
+                ForEach(Array(sessions.enumerated()), id: \.offset) { _, session in
+                    TrackerElapsedTime(session: session) { Text($0) }
                 }
             })
         }

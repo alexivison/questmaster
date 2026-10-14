@@ -1054,10 +1054,6 @@ enum TrackerNameplateRole: Equatable {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
 
-    /// When the plate shows its elapsed time. This is the one place the rule lives: a top-level plate shows it whenever
-    /// the session has one, a worker only while it works.
-    var timeRule: TrackerTimeRule { isWorker ? .whileWorking : .always }
-
     /// The project bar's 30% black overlay, as the SVGs draw it over the repo colour.
     static let projectBarOverlayOpacity: CGFloat = 0.3
     /// The top-level text column starts 4 points right of the disc. The title centres in it; the project name starts on
@@ -1455,24 +1451,23 @@ struct TrackerPlateLine: View {
     }
 }
 
-/// The elapsed time of a session as `hh:mm:ss`, as the SVGs set it. `content` gets the string, empty when the plate
-/// has no time to show under its role's rule. A time that counts from an instant redraws once a second on the shared
-/// duration clock while it is on screen; a fixed or empty one is drawn once, with no clock.
+/// The elapsed time of a working session as `hh:mm:ss`, as the SVGs set it. `content` gets the string, empty when the
+/// session has no time to show. A time that counts from an instant redraws once a second on the shared duration clock
+/// while it is on screen; a fixed or empty one is drawn once, with no clock.
 struct TrackerElapsedTime<Content: View>: View {
     let session: TrackerSession
-    let rule: TrackerTimeRule
     @ViewBuilder let content: (String) -> Content
 
-    /// Whether the string changes as time passes: the session counts from an instant and the rule shows it.
-    static func isLive(session: TrackerSession, rule: TrackerTimeRule) -> Bool {
-        session.elapsedSince != nil && !TrackerRenderer.durationLabel(for: session, rule: rule).isEmpty
+    /// Whether the string changes as time passes: the session counts from an instant and shows a time.
+    static func isLive(session: TrackerSession) -> Bool {
+        session.elapsedSince != nil && !TrackerRenderer.durationLabel(for: session).isEmpty
     }
 
     var body: some View {
-        if Self.isLive(session: session, rule: rule) {
-            TrackerLiveElapsedTime(session: session, rule: rule, content: content)
+        if Self.isLive(session: session) {
+            TrackerLiveElapsedTime(session: session, content: content)
         } else {
-            content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session, rule: rule)))
+            content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session)))
         }
     }
 }
@@ -1481,12 +1476,11 @@ struct TrackerElapsedTime<Content: View>: View {
 /// screen. The string comes from the instant of the redraw, so a stale tick never shows an old time.
 private struct TrackerLiveElapsedTime<Content: View>: View {
     let session: TrackerSession
-    let rule: TrackerTimeRule
     let content: (String) -> Content
 
     var body: some View {
         let _ = TrackerPulseClock.durations.time
-        content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session, rule: rule)))
+        content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session)))
             .modifier(TrackerPulseSubscription(isActive: true, clock: .durations))
     }
 }
@@ -1543,7 +1537,7 @@ private struct TrackerPlateText: View {
                 width: TrackerNameplateRole.projectNameWidth,
                 baseline: TrackerPlateDesign.topLevelBarBaseline
             )
-            TrackerElapsedTime(session: session, rule: role.timeRule) { time in
+            TrackerElapsedTime(session: session) { time in
                 if !time.isEmpty {
                     TrackerPlateLine(
                         text: time,
@@ -1561,7 +1555,7 @@ private struct TrackerPlateText: View {
 
     private var workerText: some View {
         ZStack(alignment: .topLeading) {
-            TrackerElapsedTime(session: session, rule: role.timeRule) { time in
+            TrackerElapsedTime(session: session) { time in
                 workerTitleRow(time: time)
             }
             if !snippet.isEmpty {

@@ -345,8 +345,7 @@ enum RenderPreview {
                 role: role,
                 state: "idle",
                 snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...",
-                parentID: parent,
-                elapsedSeedMS: 1
+                parentID: parent
             )
         }
         func workers(_ parent: String, repo: String, color: String, _ agents: [String]) -> [TrackerSession] {
