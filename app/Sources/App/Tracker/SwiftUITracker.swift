@@ -1213,6 +1213,12 @@ private struct TrackerPlateShape: Shape {
 }
 
 enum TrackerNameplateColor {
+    /// The colour of the band around a plate, if it has one. Selection is a band like a state's, in the bright text
+    /// token, and wins over the state's while the row is selected.
+    static func band(selected: Bool, status: NSColor?) -> NSColor? {
+        selected ? AppPalette.bright : status
+    }
+
     /// The accent bar ships at 90% of the repo/display color's brightness (picked 2026-10-02): full
     /// saturation read as too loud against the flat terminal chrome. Hue and saturation are untouched.
     static func barLightness(_ color: NSColor) -> NSColor {
@@ -1364,11 +1370,10 @@ private struct TrackerNameplateBackground<Text: View>: View {
     let glowColor: NSColor?
     let text: Text
 
-    /// Selection lights the plate's border to the bright text token, so it still reads inside a status glow.
-    /// Hover lights it to `dim`; a recolour hint takes the hover fill.
+    /// Hover lights the plate's borders to `dim`; a recolour hint takes the hover fill. Selection leaves them alone: it
+    /// is the band.
     private var outlineColor: NSColor {
         if isRecoloring { return AppPalette.hoverBackground }
-        if selected { return AppPalette.bright }
         if hovered { return AppPalette.dim }
         return AppPalette.line
     }
@@ -1376,8 +1381,8 @@ private struct TrackerNameplateBackground<Text: View>: View {
     var body: some View {
         let artwork = role.artwork
         ZStack(alignment: .topLeading) {
-            if let glowColor {
-                TrackerGlowView(path: artwork.glow, color: glowColor)
+            if let bandColor = TrackerNameplateColor.band(selected: selected, status: glowColor) {
+                TrackerGlowView(path: artwork.glow, color: bandColor)
                     .silhouetteFrame(artwork.size)
             }
             TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color), outlineColor: outlineColor)
@@ -1430,11 +1435,14 @@ private struct TrackerGlowView: NSViewRepresentable {
 }
 
 /// The band is a filled shape layer with no shadow or blur, so its edge is hard. It breathes: its opacity eases
-/// between `breathLowOpacity` and full over each `breathCycle`. Every band starts from one shared origin, so the
+/// between `breathLowOpacity` and `bandOpacity` over each `breathCycle`. Every band starts from one shared origin, so the
 /// whole list breathes in phase. The animation exists only while the band is in a window.
 final class TrackerGlowNSView: NSView {
     static let breathCycle: CFTimeInterval = 2
-    static let breathLowOpacity: Float = 0.55
+    /// The band's peak opacity, and the low point of its breath. They were 1 and 0.55; a band at full opacity read
+    /// too bright against the plates.
+    static let bandOpacity: Float = 0.7
+    static let breathLowOpacity: Float = 0.4
     private static let breathKey = "breathe"
     private static let breathOrigin = CACurrentMediaTime()
 
@@ -1480,12 +1488,12 @@ final class TrackerGlowNSView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.removeAnimation(forKey: Self.breathKey)
-        layer.opacity = 1
+        layer.opacity = Self.bandOpacity
         CATransaction.commit()
         guard breathes, window != nil else { return }
         let breath = CABasicAnimation(keyPath: "opacity")
         breath.fromValue = Self.breathLowOpacity
-        breath.toValue = 1
+        breath.toValue = Self.bandOpacity
         breath.duration = Self.breathCycle / 2
         breath.autoreverses = true
         breath.repeatCount = .infinity

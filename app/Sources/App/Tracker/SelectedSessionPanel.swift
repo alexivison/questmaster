@@ -109,9 +109,11 @@ struct SelectedSessionPanel: View {
         let line = AppPalette.line.swiftUI
         let shadow = AppPalette.shadow.swiftUI
         context.fill(PanelDesign.body, with: .color(AppPalette.panel.swiftUI))
-        context.stroke(PanelDesign.body, with: .color(line), lineWidth: PanelDesign.bodyBorderWidth)
         context.fill(PanelDesign.titleZone, with: .color(AppPalette.panel.swiftUI))
         drawInnerShadow(&context, PanelDesign.titleZone, color: shadow.opacity(PanelDesign.titleShadowOpacity))
+        // The border draws over the title zone, which reaches the body's path: at 1.5pt its inner quarter point would
+        // otherwise hide under it.
+        context.stroke(PanelDesign.body, with: .color(line), lineWidth: PanelDesign.bodyBorderWidth)
 
         context.drawLayer { layer in
             layer.opacity = PanelDesign.frameDropShadowOpacity
@@ -163,8 +165,9 @@ private enum PanelDesign {
     static let discCenter = CGPoint(x: 38, y: 38)
     static let discRadius: CGFloat = 32
     static let disc = Path(ellipseIn: CGRect(x: discCenter.x - discRadius, y: discCenter.y - discRadius, width: discRadius * 2, height: discRadius * 2))
-    /// The body's border is 1pt, the frame's stroke 3pt, both centred on their paths.
-    static let bodyBorderWidth: CGFloat = 1
+    /// The body's border is 1.5pt, as the plates', and the frame's stroke 3pt, both centred on their paths. The SVG's
+    /// body stroke has no width, so it draws 1; the user wants 1.5.
+    static let bodyBorderWidth: CGFloat = 1.5
     static let frameBorderWidth: CGFloat = 3
     /// The SVG's inner shadows are the shape's edge a point deep, blurred by half a point: black at 25% on the title
     /// zone and 10% on the id strip, and a lifted tone of the bar's own colour on the project bar. The disc's is
