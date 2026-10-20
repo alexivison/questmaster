@@ -18,6 +18,12 @@
         "elapsed_ms": 120000,
         "elapsed_since": "2026-06-19T04:18:00Z",
         "last_chat_at": "2026-06-19T04:19:00Z",
+        "narration": "It seems that something is still ...",
+        "cast": {
+          "tool": "Bash",
+          "started_at": "2026-06-19T04:19:48.529Z",
+          "typical_ms": 6000
+        },
         "latest_activity": "Bash: go test ./...",
         "last_kind": "PreToolUse",
         "worktree_path": "/tmp/questmaster/worktrees/app-contract",

@@ -128,6 +128,9 @@ func RecordChatEntryAt(root, sessionID, kind, text string, at time.Time) error {
 			pane = state.PaneState{Role: "primary"}
 		}
 		pane.LastChatAt = event.Ts
+		if kind == "say" || kind == "message" {
+			pane.Narration = chatText
+		}
 		ss.Panes["primary"] = pane
 		ss.SeenAt = event.Ts
 		return true
