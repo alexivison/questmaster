@@ -14,6 +14,18 @@ type ModelPolicy struct {
 	Sources []ModelSource
 }
 
+// EffortSource identifies the harness-owned source for reasoning-effort
+// choices. The reported values are resolved at runtime by modelsuggest.
+type EffortSource string
+
+const (
+	EffortSourceNone           EffortSource = ""
+	EffortSourceCodexCache     EffortSource = "codex-cache"
+	EffortSourceClaudeHelp     EffortSource = "claude-help"
+	EffortSourcePiHelp         EffortSource = "pi-help"
+	EffortSourceOpenCodeModels EffortSource = "opencode-models"
+)
+
 // ModelSource maps one models.dev provider onto a harness's model vocabulary.
 //
 // Harnesses disagree about how a model is named: Claude takes bare ids

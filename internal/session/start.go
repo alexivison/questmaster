@@ -121,7 +121,11 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 						}
 					}
 				}
-				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), resolvedModel, resolvedReasoningEffort); err != nil {
+				var supportedEfforts []string
+				if resolvedReasoningEffort != "" && s.ReasoningEfforts != nil {
+					supportedEfforts = s.ReasoningEfforts(ctx, binding.Agent.Name(), resolvedModel)
+				}
+				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), resolvedModel, resolvedReasoningEffort, supportedEfforts); err != nil {
 					return StartResult{}, err
 				}
 			}

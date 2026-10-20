@@ -56,12 +56,12 @@ struct RoleDefaultsLogicTests {
 
     private static func effortSelectStartsUnconfiguredAndTakesResolvedOptions() {
         var row = RoleDefaultRow(agent: "codex", role: "master")
-        row.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "")
+        row.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "")
         expect(row.effortOptions.count == 5, "every supported level should be a plain, unfiltered option")
         expect(row.selectedEffortOption == nil, "resolving with no persisted default should leave nothing selected")
 
         row.cycleEffort(1)
-        expect(row.selectedReasoningEffort == "minimal", "cycling should select the first resolved level")
+        expect(row.selectedReasoningEffort == "low", "cycling should select the first resolved level")
         row.cycleEffort(-1)
         expect(row.selectedReasoningEffort.isEmpty, "cycling back should return to nothing selected")
     }
@@ -91,12 +91,12 @@ struct RoleDefaultsLogicTests {
 
     private static func effortSelectSeedsOntoAPersistedDefaultOnFirstResolveOnly() {
         var row = RoleDefaultRow(agent: "codex", role: "master")
-        row.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "high")
+        row.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "high")
         expect(row.selectedReasoningEffort == "high", "a persisted default should seed the selection on first resolve")
         expect(row.effortOptions.filter { $0.id == "high" }.count == 1, "levels are never filtered or deduped against the default")
 
         var untouched = RoleDefaultRow(agent: "codex", role: "master")
-        untouched.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "")
+        untouched.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "")
         expect(untouched.selectedEffortOption == nil, "with no persisted default, resolving should leave nothing selected")
     }
 

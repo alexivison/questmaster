@@ -1331,6 +1331,12 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		SocketPath:    socketPath,
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
+		ReasoningEfforts: func(_ context.Context, agentName, model string) []string {
+			if agentName == "codex" && model == "gpt-6-luna" {
+				return []string{"low", "medium", "high", "xhigh", "max"}
+			}
+			return nil
+		},
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
@@ -1341,12 +1347,10 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		t.Fatalf("seed role default: %v", err)
 	}
 
-	// codex's gpt-5.6 family accepts the two extra tiers a plain gpt-5.4
-	// model would not, so the model must actually shape the level list.
 	writeRequest(t, enc, map[string]any{
 		"id":     "reasoning-efforts",
 		"method": "reasoning_efforts",
-		"data":   map[string]any{"agent": "codex", "role": "master", "model": "gpt-5.6-sol"},
+		"data":   map[string]any{"agent": "codex", "role": "master", "model": "gpt-6-luna"},
 	})
 	envResp := assertResponseTopic(t, dec, "reasoning_efforts")
 	data, ok := envResp.Data.(map[string]any)
@@ -1360,12 +1364,12 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		t.Fatalf("reasoning_efforts default = %#v, want the persisted role default xhigh", data["default"])
 	}
 	efforts := stringList(data["efforts"])
-	if !reflect.DeepEqual(efforts, []string{"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}) {
-		t.Fatalf("reasoning_efforts efforts = %v, want the gpt-5.6 tier list", efforts)
+	if !reflect.DeepEqual(efforts, []string{"low", "medium", "high", "xhigh", "max"}) {
+		t.Fatalf("reasoning_efforts efforts = %v, want the reported gpt-6-luna levels", efforts)
 	}
 
-	// A model outside OpenCode's built-in openai/anthropic providers has no
-	// supported levels at all, and no forced default either.
+	// An unrecognized OpenCode model has no reported levels and no forced
+	// default either.
 	writeRequest(t, enc, map[string]any{
 		"id":     "reasoning-efforts-opencode-unknown",
 		"method": "reasoning_efforts",
@@ -1377,7 +1381,7 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 		t.Fatalf("reasoning_efforts data = %#v, want object", unknownResp.Data)
 	}
 	if unknownData["default"] != "" {
-		t.Fatalf("reasoning_efforts default = %#v, want empty (OpenCode forces none)", unknownData["default"])
+		t.Fatalf("reasoning_efforts default = %#v, want no configured default", unknownData["default"])
 	}
 	if len(stringList(unknownData["efforts"])) != 0 {
 		t.Fatalf("reasoning_efforts efforts = %#v, want none for an unrecognized OpenCode provider", unknownData["efforts"])
@@ -1424,6 +1428,12 @@ func TestServerReasoningEffortsTopicUsesPersistedModelWhenCallerModelIsEmpty(t *
 		SocketPath:    socketPath,
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
+		ReasoningEfforts: func(_ context.Context, agentName, model string) []string {
+			if agentName == "codex" && model == "gpt-5.6-luna" {
+				return []string{"low", "medium", "high", "xhigh", "max"}
+			}
+			return nil
+		},
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
@@ -1475,6 +1485,12 @@ func TestServerModelsAndReasoningEffortsTopicsReflectPersistedRoleDefault(t *tes
 		SocketPath:    socketPath,
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval: time.Hour,
+		ReasoningEfforts: func(_ context.Context, agentName, _ string) []string {
+			if agentName == "claude" {
+				return []string{"low", "medium", "high", "xhigh", "max"}
+			}
+			return nil
+		},
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
@@ -1666,6 +1682,15 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
 		ClockInterval:  time.Hour,
 		MutationRunner: runner,
+		ReasoningEfforts: func(_ context.Context, agentName, model string) []string {
+			if agentName == "claude" {
+				return []string{"low", "medium", "high", "xhigh", "max"}
+			}
+			if agentName == "codex" && model == "gpt-5.4" {
+				return []string{"low", "medium", "high", "xhigh"}
+			}
+			return nil
+		},
 	}
 	errc := serveInBackground(t, ctx, srv, socketPath)
 
@@ -1705,7 +1730,7 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 			"reasoning_effort": "max",
 		},
 	})
-	if bad.Type != "response" || bad.OK == nil || *bad.OK || !strings.Contains(bad.Error, "supported: minimal, low, medium, high, xhigh") {
+	if bad.Type != "response" || bad.OK == nil || *bad.OK || !strings.Contains(bad.Error, "supported: low, medium, high, xhigh") {
 		t.Fatalf("role_default.set with an unsupported effort = %#v, want a validation error", bad)
 	}
 	if _, ok, err := state.NewRoleDefaultsStore(env.store.Root()).Get("codex", "worker"); err != nil || ok {

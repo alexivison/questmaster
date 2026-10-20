@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -279,70 +278,50 @@ func TestProviderBuildCmd_ReasoningEffortOverride(t *testing.T) {
 	}
 }
 
-func TestValidateReasoningEffort(t *testing.T) {
+func TestEffortSources(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
 		provider string
-		model    string
-		effort   string
-		wantErr  string
+		want     EffortSource
 	}{
-		{provider: "claude", effort: "max"},
-		{provider: "claude", effort: "minimal", wantErr: "supported: low, medium, high, xhigh, max"},
-		{provider: "codex", effort: "minimal"},
-		{provider: "codex", model: "gpt-5.6-sol", effort: "max"},
-		{provider: "codex", model: "gpt-5.6-sol", effort: "ultra"},
-		{provider: "codex", model: "gpt-5.6-terra", effort: "max"},
-		{provider: "codex", model: "gpt-5.6-terra", effort: "ultra"},
-		{provider: "codex", model: "gpt-5.6", effort: "max"},
-		{provider: "codex", model: "gpt-5.6-luna", effort: "max"},
-		{provider: "codex", model: "gpt-5.6-luna", effort: "ultra", wantErr: "supported: minimal, low, medium, high, xhigh, max"},
-		{provider: "codex", model: "gpt-5.4", effort: "max", wantErr: "supported: minimal, low, medium, high, xhigh"},
-		{provider: "pi", effort: "off"},
-		{provider: "pi", effort: "max"},
-		{provider: "pi", effort: "ultra", wantErr: "supported: off, minimal, low, medium, high, xhigh, max"},
-		{provider: "opencode", model: "openai/gpt-5.4", effort: "off"},
-		{provider: "opencode", model: "openai/gpt-5.4", effort: "none"},
-		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", effort: "max"},
-		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", effort: "xhigh", wantErr: "supported: high, max"},
-		{provider: "opencode", model: "other/model", effort: "high", wantErr: "built-in openai/* or anthropic/*"},
-		{provider: "unknown", effort: "high", wantErr: "unsupported for agent"},
+		{provider: "claude", want: EffortSourceClaudeHelp},
+		{provider: "codex", want: EffortSourceCodexCache},
+		{provider: "pi", want: EffortSourcePiHelp},
+		{provider: "opencode", want: EffortSourceOpenCodeModels},
+		{provider: "unknown", want: EffortSourceNone},
 	} {
-		err := ValidateReasoningEffort(tt.provider, tt.model, tt.effort)
-		if tt.wantErr == "" {
-			if err != nil {
-				t.Errorf("ValidateReasoningEffort(%q, %q, %q): %v", tt.provider, tt.model, tt.effort, err)
-			}
-			continue
-		}
-		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-			t.Errorf("ValidateReasoningEffort(%q, %q, %q) = %v, want %q", tt.provider, tt.model, tt.effort, err, tt.wantErr)
+		got := SpecOf(tt.provider).Efforts
+		if got != tt.want {
+			t.Errorf("SpecOf(%q).Efforts.Source = %q, want %q", tt.provider, got, tt.want)
 		}
 	}
 }
 
-func TestSupportedReasoningEfforts(t *testing.T) {
+func TestValidateReasoningEffort(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
-		provider string
-		model    string
-		want     []string
+		name    string
+		effort  string
+		levels  []string
+		wantErr string
 	}{
-		{provider: "claude", want: []string{"low", "medium", "high", "xhigh", "max"}},
-		{provider: "codex", model: "gpt-5.6-terra", want: []string{"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}},
-		{provider: "codex", model: "gpt-5.4", want: []string{"minimal", "low", "medium", "high", "xhigh"}},
-		{provider: "pi", want: []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}},
-		{provider: "opencode", model: "openai/gpt-5.4", want: []string{"off", "none", "minimal", "low", "medium", "high", "xhigh"}},
-		{provider: "opencode", model: "anthropic/claude-sonnet-4-5", want: []string{"high", "max"}},
-		{provider: "opencode", model: "other/model", want: nil},
-		{provider: "unknown", want: nil},
+		{name: "empty effort", levels: []string{"low"}},
+		{name: "unknown model passes through", effort: "future", levels: nil},
+		{name: "reported value", effort: "high", levels: []string{"low", "high"}},
+		{name: "unreported value rejected", effort: "minimal", levels: []string{"low", "high"}, wantErr: "supported: low, high"},
 	} {
-		got := SupportedReasoningEfforts(tt.provider, tt.model)
-		if !slices.Equal(got, tt.want) {
-			t.Errorf("SupportedReasoningEfforts(%q, %q) = %v, want %v", tt.provider, tt.model, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateReasoningEffort("codex", "gpt-6-luna", tt.effort, tt.levels)
+			if tt.wantErr == "" && err != nil {
+				t.Fatalf("ValidateReasoningEffort() = %v, want nil", err)
+			}
+			if tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)) {
+				t.Fatalf("ValidateReasoningEffort() = %v, want error containing %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 

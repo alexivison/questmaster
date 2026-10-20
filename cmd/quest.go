@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
@@ -199,7 +200,9 @@ func newQuestStartCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			if err != nil {
 				return err
 			}
-			result, err := session.NewService(store, client, repoRoot, registry).Start(cmd.Context(), session.StartOpts{
+			svc := session.NewService(store, client, repoRoot, registry)
+			svc.ReasoningEfforts = modelsuggest.ResolveReasoningEfforts
+			result, err := svc.Start(cmd.Context(), session.StartOpts{
 				Title:     title,
 				Cwd:       cwd,
 				Prompt:    prompt,

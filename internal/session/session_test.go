@@ -743,6 +743,12 @@ func TestStart_CodexReasoningEffortValidatesAgainstPersistedModel(t *testing.T) 
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	svc.Registry = registry
+	svc.ReasoningEfforts = func(_ context.Context, agentName, model string) []string {
+		if agentName == "codex" && model == "gpt-5.4" {
+			return []string{"low", "medium", "high", "xhigh"}
+		}
+		return nil
+	}
 
 	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("codex", "master", state.RoleDefault{Model: "gpt-5.4"}); err != nil {
 		t.Fatalf("seed role default: %v", err)
@@ -750,7 +756,7 @@ func TestStart_CodexReasoningEffortValidatesAgainstPersistedModel(t *testing.T) 
 
 	started := len(runner.sessions)
 	if _, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Prompt: "invalid effort for persisted model", ReasoningEffort: "max"}); err == nil ||
-		!strings.Contains(err.Error(), "supported: minimal, low, medium, high, xhigh") {
+		!strings.Contains(err.Error(), "supported: low, medium, high, xhigh") {
 		t.Fatalf("Start(persisted gpt-5.4, max) = %v, want a validation error against the persisted model", err)
 	}
 	if len(runner.sessions) != started {
@@ -2696,6 +2702,21 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	svc.Registry = registry
+	svc.ReasoningEfforts = func(_ context.Context, agentName, model string) []string {
+		if agentName != "codex" {
+			return nil
+		}
+		switch model {
+		case "gpt-5.6-terra":
+			return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+		case "gpt-5.4":
+			return []string{"low", "medium", "high", "xhigh"}
+		case "gpt-6-luna":
+			return []string{"low", "medium", "high", "xhigh", "max"}
+		default:
+			return nil
+		}
+	}
 	cwd := t.TempDir()
 	createTestManifest(t, svc.Store, "qm-master", "master", cwd, "master")
 	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("codex", "worker", state.RoleDefault{Model: "gpt-5.6-terra"}); err != nil {
@@ -2724,11 +2745,29 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 	}
 
 	started := len(runner.sessions)
-	if _, err := svc.Start(t.Context(), StartOpts{Title: "old", Cwd: cwd, MasterID: "qm-master", Model: "gpt-5.4", ReasoningEffort: "max"}); err == nil || !strings.Contains(err.Error(), "supported: minimal, low, medium, high, xhigh") {
+	if _, err := svc.Start(t.Context(), StartOpts{Title: "old", Cwd: cwd, MasterID: "qm-master", Model: "gpt-5.4", ReasoningEffort: "max"}); err == nil || !strings.Contains(err.Error(), "supported: low, medium, high, xhigh") {
 		t.Fatalf("Start(Codex gpt-5.4, max) = %v", err)
 	}
 	if len(runner.sessions) != started {
 		t.Fatalf("invalid gpt-5.4 effort must fail before creating a tmux session: %+v", runner.sessions)
+	}
+	if _, err := svc.Start(t.Context(), StartOpts{Title: "bad effort", Cwd: cwd, MasterID: "qm-master", Model: "gpt-6-luna", ReasoningEffort: "minimal"}); err == nil || !strings.Contains(err.Error(), "supported: low, medium, high, xhigh, max") {
+		t.Fatalf("Start(Codex gpt-6-luna, minimal) = %v, want cache-reported levels", err)
+	}
+	if len(runner.sessions) != started {
+		t.Fatalf("invalid gpt-6-luna effort must fail before creating a tmux session: %+v", runner.sessions)
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{Title: "unknown model", Cwd: cwd, MasterID: "qm-master", Model: "future-model", ReasoningEffort: "minimal"})
+	if err != nil {
+		t.Fatalf("Start(Codex with no reported levels) = %v, want pass-through", err)
+	}
+	launch := findLaunchArgContaining(runner, "minimal")
+	if !strings.Contains(launch, `model_reasoning_effort="minimal"`) {
+		t.Fatalf("unknown-model effort was not passed through: %q", launch)
+	}
+	if !runner.sessions[result.SessionID] {
+		t.Fatalf("expected tmux session %q", result.SessionID)
 	}
 }
 

@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -66,6 +67,7 @@ it is a master session. A worker title is required and may contain at most
 				return err
 			}
 			svc := session.NewService(store, client, repoRoot, registry)
+			svc.ReasoningEfforts = modelsuggest.ResolveReasoningEfforts
 			result, err := svc.Spawn(cmd.Context(), masterID, session.SpawnOpts{
 				Title:           title,
 				Cwd:             opts.cwd,

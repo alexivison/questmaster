@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/modelsuggest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -87,6 +88,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			}
 
 			svc := session.NewService(store, client, repoRoot, registry)
+			svc.ReasoningEfforts = modelsuggest.ResolveReasoningEfforts
 			result, err := svc.Start(cmd.Context(), session.StartOpts{
 				Title:     opts.title,
 				Cwd:       opts.cwd,

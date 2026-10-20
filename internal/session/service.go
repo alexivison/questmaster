@@ -2,6 +2,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -21,6 +22,9 @@ type Service struct {
 	Client   *tmux.Client
 	RepoRoot string
 	Registry *agent.Registry
+	// ReasoningEfforts resolves levels reported for one harness model. Nil
+	// leaves validation advisory when no discovery source is wired by a caller.
+	ReasoningEfforts func(context.Context, string, string) []string
 
 	// CLIResolver resolves the questmaster launch command. Defaults to config.ResolveQuestmasterCmd.
 	CLIResolver func(repoRoot string) (string, error)

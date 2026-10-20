@@ -17,6 +17,7 @@ var piSpec = Spec{
 	BinaryEnvVar:   "PI_BIN",
 	FallbackPath:   "/opt/homebrew/bin/pi",
 	State:          StateSidecar,
+	Efforts:        EffortSourcePiHelp,
 	Models: ModelPolicy{
 		// Pi qualifies models with its own provider naming, so catalog ids
 		// are offered under the provider prefix its defaults use.
