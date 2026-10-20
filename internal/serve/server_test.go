@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/modelsuggest"
+	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/alexivison/questmaster/internal/tracker"
@@ -2103,7 +2104,7 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
 		pane := ss.Panes["primary"]
 		pane.Narration = "It seems that something is still running."
-		pane.RunningTools = []state.RunningTool{{CallID: "call-1", Tool: "Bash", StartedAt: startedAt}}
+		pane.RunningTools = []state.RunningTool{{CallID: "call-1", Tool: "Bash", Command: "go test", StartedAt: startedAt}}
 		pane.Tool = "Bash"
 		ss.Panes["primary"] = pane
 		return true
@@ -2111,7 +2112,7 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 		t.Fatalf("update cast state: %v", err)
 	}
 	for _, sample := range []time.Duration{4, 6, 8} {
-		if err := state.RecordToolDurationAt(env.store.Root(), "codex", "Bash", sample*time.Second); err != nil {
+		if err := state.RecordToolDurationAt(env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
 			t.Fatalf("record duration: %v", err)
 		}
 	}
@@ -2126,6 +2127,32 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 	}
 	if got.Cast == nil || got.Cast.Tool != "Bash" || !got.Cast.StartedAt.Equal(startedAt) || got.Cast.TypicalMS != 6000 {
 		t.Fatalf("cast = %+v, want Bash at %s with 6000ms typical", got.Cast, startedAt)
+	}
+}
+
+func TestCastSnapshotUsesCommandThenToolMedianFallback(t *testing.T) {
+	t.Parallel()
+	result := sessionactivity.Result{
+		Agent:       "claude",
+		RunningTool: &state.RunningTool{Tool: "Bash", Command: "sleep"},
+	}
+	commandKey := state.ToolDurationKey{Agent: "claude", Tool: "Bash", Command: "sleep"}
+	toolKey := state.ToolDurationKey{Agent: "claude", Tool: "Bash"}
+	for _, tc := range []struct {
+		name     string
+		typicals map[state.ToolDurationKey]int64
+		want     int64
+	}{
+		{name: "command median preferred", typicals: map[state.ToolDurationKey]int64{commandKey: 15000, toolKey: 400}, want: 15000},
+		{name: "tool median fallback", typicals: map[state.ToolDurationKey]int64{toolKey: 400}, want: 400},
+		{name: "no trained median", typicals: map[state.ToolDurationKey]int64{}, want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := castSnapshot(result, "", tc.typicals).TypicalMS; got != tc.want {
+				t.Fatalf("typical_ms = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }
 

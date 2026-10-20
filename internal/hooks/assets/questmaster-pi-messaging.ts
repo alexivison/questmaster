@@ -572,6 +572,9 @@ export default function (pi: ExtensionAPI) {
 		await emitHook("tool_execution_start", {
 			tool_call_id: cleanString(event.toolCallId, 120),
 			tool_name: cleanString(event.toolName, 80),
+			args: event.args && typeof event.args === "object" && !Array.isArray(event.args)
+				? { command: (event.args as Record<string, unknown>).command }
+				: undefined,
 		}, false, occurredAtMS);
 	});
 

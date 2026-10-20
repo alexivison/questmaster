@@ -37,20 +37,26 @@ func TestAddChatEntryUpdatesNarrationOnlyForChatKinds(t *testing.T) {
 func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 	base := time.Date(2026, 10, 20, 7, 33, 48, 529000000, time.UTC)
 	tests := []struct {
-		name   string
-		start  func(*testing.T, *HookRunner, time.Time)
-		end    func(*testing.T, *HookRunner, time.Time)
-		clear  func(*testing.T, *HookRunner, time.Time)
-		tool   string
-		callID string
+		name       string
+		start      func(*testing.T, *HookRunner, time.Time)
+		end        func(*testing.T, *HookRunner, time.Time)
+		clear      func(*testing.T, *HookRunner, time.Time)
+		tool       string
+		callID     string
+		command    string
+		commandKey string
 	}{
 		{
-			name:   "claude",
-			tool:   "Bash",
-			callID: "claude-call",
+			name:       "claude",
+			tool:       "Bash",
+			callID:     "claude-call",
+			command:    "FOO=bar go test ./... && sleep 6",
+			commandKey: "go test",
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runHookWithStdin(r, "claude", "tool_start", "qm-cast-claude", map[string]interface{}{"tool_name": "Bash", "tool_use_id": "claude-call"})
+				runHookWithStdin(r, "claude", "tool_start", "qm-cast-claude", map[string]interface{}{
+					"tool_name": "Bash", "tool_use_id": "claude-call", "tool_input": map[string]interface{}{"command": "FOO=bar go test ./... && sleep 6"},
+				})
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
@@ -62,15 +68,20 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			},
 		},
 		{
-			name: "codex",
-			tool: "Bash",
+			name:       "codex",
+			tool:       "Bash",
+			callID:     "codex-call",
+			command:    "cd /tmp && /usr/bin/git status --short",
+			commandKey: "git status",
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runHookWithStdin(r, "codex", "tool_start", "qm-cast-codex", map[string]interface{}{"tool_name": "Bash"})
+				runHookWithStdin(r, "codex", "tool_start", "qm-cast-codex", map[string]interface{}{
+					"tool_name": "Bash", "tool_use_id": "codex-call", "tool_input": map[string]interface{}{"command": "cd /tmp && /usr/bin/git status --short"},
+				})
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runHookWithStdin(r, "codex", "tool_end", "qm-cast-codex", map[string]interface{}{"tool_name": "Bash"})
+				runHookWithStdin(r, "codex", "tool_end", "qm-cast-codex", map[string]interface{}{"tool_name": "Bash", "tool_use_id": "codex-call"})
 			},
 			clear: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
@@ -78,12 +89,16 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			},
 		},
 		{
-			name:   "pi",
-			tool:   "bash",
-			callID: "pi-call",
+			name:       "pi",
+			tool:       "bash",
+			callID:     "pi-call",
+			command:    "npm run build",
+			commandKey: "npm run",
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runHookWithStdin(r, "pi", "tool_execution_start", "qm-cast-pi", map[string]interface{}{"tool_name": "bash", "tool_call_id": "pi-call"})
+				runHookWithStdin(r, "pi", "tool_execution_start", "qm-cast-pi", map[string]interface{}{
+					"tool_name": "bash", "tool_call_id": "pi-call", "args": map[string]interface{}{"command": "npm run build"},
+				})
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
@@ -95,12 +110,16 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			},
 		},
 		{
-			name:   "opencode",
-			tool:   "bash",
-			callID: "oc-call",
+			name:       "opencode",
+			tool:       "bash",
+			callID:     "oc-call",
+			command:    "timeout 12 sleep 6",
+			commandKey: "sleep",
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{"tool": "bash", "callID": "oc-call"}))
+				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
+					"tool": "bash", "callID": "oc-call", "input": map[string]interface{}{"command": "timeout 12 sleep 6"},
+				}))
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
@@ -118,8 +137,8 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
 			var durations []toolDurationCall
-			r.RecordToolDuration = func(agent, tool string, duration time.Duration) error {
-				durations = append(durations, toolDurationCall{agent: agent, tool: tool, duration: duration})
+			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
 				return nil
 			}
 			tc.start(t, r, base)
@@ -130,6 +149,9 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			if got := pane.RunningTools[0].CallID; got != tc.callID {
 				t.Fatalf("call ID = %q, want %q", got, tc.callID)
 			}
+			if got := pane.RunningTools[0].Command; got != tc.commandKey {
+				t.Fatalf("command key = %q, want %q (command %q)", got, tc.commandKey, tc.command)
+			}
 			if !pane.RunningTools[0].StartedAt.Equal(base) {
 				t.Fatalf("started_at = %s, want %s", pane.RunningTools[0].StartedAt, base)
 			}
@@ -139,7 +161,7 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			if pane.Tool != "" || len(pane.RunningTools) != 0 {
 				t.Fatalf("end pane = %+v, want no running tool", pane)
 			}
-			wantDurations := []toolDurationCall{{agent: tc.name, tool: tc.tool, duration: 4 * time.Second}}
+			wantDurations := []toolDurationCall{{agent: tc.name, tool: tc.tool, command: tc.commandKey, duration: 4 * time.Second}}
 			if !reflect.DeepEqual(durations, wantDurations) {
 				t.Fatalf("recorded durations = %+v, want %+v", durations, wantDurations)
 			}
@@ -157,6 +179,7 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 type toolDurationCall struct {
 	agent    string
 	tool     string
+	command  string
 	duration time.Duration
 }
 
@@ -179,13 +202,13 @@ func TestHookCastLearnsToolNameFromMatchedStart(t *testing.T) {
 	r, rec := newTestRunner(t)
 	started := time.Date(2026, 10, 20, 7, 33, 48, 0, time.UTC)
 	var recorded toolDurationCall
-	r.RecordToolDuration = func(agent, tool string, duration time.Duration) error {
-		recorded = toolDurationCall{agent: agent, tool: tool, duration: duration}
+	r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+		recorded = toolDurationCall{agent: agent, tool: tool, command: command, duration: duration}
 		return nil
 	}
 	r.Now = func() time.Time { return started }
 	runHookWithStdin(r, "claude", "tool_start", "qm-cast-no-end-name", map[string]interface{}{
-		"tool_name": "Bash", "tool_use_id": "call-1",
+		"tool_name": "Bash", "tool_use_id": "call-1", "tool_input": map[string]interface{}{"command": "go test ./..."},
 	})
 	r.Now = func() time.Time { return started.Add(3 * time.Second) }
 	runHookWithStdin(r, "claude", "tool_end", "qm-cast-no-end-name", map[string]interface{}{
@@ -194,8 +217,34 @@ func TestHookCastLearnsToolNameFromMatchedStart(t *testing.T) {
 	if pane := rec.lastState.Panes["primary"]; len(pane.RunningTools) != 0 {
 		t.Fatalf("tool end left cast: %+v", pane.RunningTools)
 	}
-	if recorded != (toolDurationCall{agent: "claude", tool: "Bash", duration: 3 * time.Second}) {
+	if recorded != (toolDurationCall{agent: "claude", tool: "Bash", command: "go test", duration: 3 * time.Second}) {
 		t.Fatalf("recorded duration = %+v", recorded)
+	}
+}
+
+func TestToolCommandKeyExtractionByHarness(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		agent string
+		tool  string
+		input interface{}
+		want  string
+	}{
+		{name: "claude Bash", agent: "claude", tool: "Bash", input: map[string]interface{}{"command": "go test ./..."}, want: "go test"},
+		{name: "codex Bash", agent: "codex", tool: "Bash", input: map[string]interface{}{"command": "git status"}, want: "git status"},
+		{name: "codex exec_command", agent: "codex", tool: "exec_command", input: map[string]interface{}{"command": "go test ./..."}, want: "go test"},
+		{name: "codex shell", agent: "codex", tool: "shell", input: map[string]interface{}{"command": "sleep 6"}, want: "sleep"},
+		{name: "pi bash", agent: "pi", tool: "bash", input: map[string]interface{}{"command": "npm run build"}, want: "npm run"},
+		{name: "opencode bash", agent: "opencode", tool: "bash", input: map[string]interface{}{"command": "sleep 6"}, want: "sleep"},
+		{name: "non-shell Claude tool", agent: "claude", tool: "Read", input: map[string]interface{}{"command": "go test ./..."}, want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := toolCommandKey(tc.agent, tc.tool, tc.input); got != tc.want {
+				t.Fatalf("toolCommandKey(%q, %q, %#v) = %q, want %q", tc.agent, tc.tool, tc.input, got, tc.want)
+			}
+		})
 	}
 }
 

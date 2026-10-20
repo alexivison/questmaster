@@ -67,11 +67,12 @@ type HookRunner struct {
 	// one state lock.
 	UpdateAndLogEvents func(sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error
 
-	RecordToolDuration func(agent, tool string, duration time.Duration) error
+	RecordToolDuration func(agent, tool, command string, duration time.Duration) error
 }
 
 type completedTool struct {
 	tool     string
+	command  string
 	duration time.Duration
 }
 
@@ -102,8 +103,8 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		AppendEvent:        state.AppendStateEvent,
 		UpdateAndLog:       state.UpdateAndLogWithEvents,
 		UpdateAndLogEvents: state.UpdateAndLogBatch,
-		RecordToolDuration: func(agent, tool string, duration time.Duration) error {
-			return state.RecordToolDurationAt(state.StateRoot(), agent, tool, duration)
+		RecordToolDuration: func(agent, tool, command string, duration time.Duration) error {
+			return state.RecordToolDurationAt(state.StateRoot(), agent, tool, command, duration)
 		},
 	}
 }
@@ -112,9 +113,57 @@ func (r *HookRunner) recordToolDuration(agent string, completed *completedTool, 
 	if completed == nil || r.RecordToolDuration == nil || completed.duration <= 0 {
 		return
 	}
-	if err := r.RecordToolDuration(agent, completed.tool, completed.duration); err != nil {
+	if err := r.RecordToolDuration(agent, completed.tool, completed.command, completed.duration); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook %s: record tool duration: %v\n", agent, err)
 	}
+}
+
+func toolCommandKey(agent, tool string, input interface{}) string {
+	name := strings.TrimSpace(tool)
+	shellTool := false
+	switch agent {
+	case "claude":
+		shellTool = name == "Bash"
+	case "codex":
+		shellTool = name == "Bash" || name == "shell" || name == "exec_command"
+	case "pi":
+		shellTool = name == "bash" || name == "shell" || name == "sh"
+	case "opencode":
+		shellTool = name == "bash"
+	}
+	if !shellTool {
+		return ""
+	}
+	return state.NormalizeToolCommand(toolCommandFromInput(input))
+}
+
+func toolCommandFromInput(input interface{}) string {
+	if command, ok := input.(string); ok {
+		return command
+	}
+	args, ok := input.(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	for _, key := range []string{"command", "cmd"} {
+		switch value := args[key].(type) {
+		case string:
+			return value
+		case []string:
+			return strings.Join(value, " ")
+		case []interface{}:
+			parts := make([]string, 0, len(value))
+			for _, part := range value {
+				text, ok := part.(string)
+				if !ok {
+					return ""
+				}
+				parts = append(parts, text)
+			}
+			return strings.Join(parts, " ")
+		}
+	}
+	return ""
 }
 
 // updateAndLog folds the per-event JSONL append and the state.json
@@ -565,6 +614,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	ev.Tool = setTool
 	ev.Kind = lastKind
 
+	commandKey := ""
+	if !isSubagent && opts.action == "tool_start" {
+		commandKey = toolCommandKey("claude", payload.ToolName, payload.ToolInput)
+	}
 	firstPrompt := false
 	suppressFinalMessage := false
 	var completed *completedTool
@@ -593,11 +646,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 				state.ClearRunningTools(&pane)
 			}
 			if opts.action == "tool_start" {
-				state.StartRunningTool(&pane, payload.ToolName, payload.ToolUseID, now)
+				state.StartRunningTool(&pane, payload.ToolName, payload.ToolUseID, commandKey, now)
 			}
 			if opts.action == "tool_end" {
 				if ended, duration, matched := state.EndRunningTool(&pane, payload.ToolName, payload.ToolUseID, now); matched {
-					completed = &completedTool{tool: ended.Tool, duration: duration}
+					completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration}
 				}
 			}
 			pruneClaudeOpenChatActions(&pane, now)
@@ -1322,6 +1375,7 @@ type codexPayload struct {
 	AgentID              string                 `json:"agent_id"`
 	AgentType            string                 `json:"agent_type"`
 	ToolName             string                 `json:"tool_name"`
+	ToolUseID            string                 `json:"tool_use_id"`
 	ToolInput            map[string]interface{} `json:"tool_input"`
 	Prompt               string                 `json:"prompt"`
 	Message              string                 `json:"message"`
@@ -1665,6 +1719,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 
 	firstPrompt := false
 	rolloutConflict := false
+	commandKey := ""
+	if payload.AgentID == "" && opts.action == "tool_start" {
+		commandKey = toolCommandKey("codex", payload.ToolName, payload.ToolInput)
+	}
 	var completed *completedTool
 	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "primary"
@@ -1691,11 +1749,11 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 				state.ClearRunningTools(&pane)
 			}
 			if opts.action == "tool_start" {
-				state.StartRunningTool(&pane, payload.ToolName, "", now)
+				state.StartRunningTool(&pane, payload.ToolName, payload.ToolUseID, commandKey, now)
 			}
 			if opts.action == "tool_end" {
-				if ended, duration, matched := state.EndRunningTool(&pane, payload.ToolName, "", now); matched {
-					completed = &completedTool{tool: ended.Tool, duration: duration}
+				if ended, duration, matched := state.EndRunningTool(&pane, payload.ToolName, payload.ToolUseID, now); matched {
+					completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration}
 				}
 			}
 		}
@@ -2337,6 +2395,10 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	recent, hasRecent := piRecentForAction(opts.action, payload)
 	sessionFile := strings.TrimSpace(payload.SessionFile)
 	piSessionID := strings.TrimSpace(payload.PiSessionID)
+	commandKey := ""
+	if opts.action == "tool_execution_start" {
+		commandKey = toolCommandKey(agentName, piToolName(payload), piToolArgs(payload))
+	}
 
 	ev := &state.StateEvent{
 		Ts:       now,
@@ -2391,11 +2453,11 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 			state.ClearRunningTools(&pane)
 		}
 		if opts.action == "tool_execution_start" {
-			state.StartRunningTool(&pane, piToolName(payload), payload.ToolCallID, occurredAt)
+			state.StartRunningTool(&pane, piToolName(payload), payload.ToolCallID, commandKey, occurredAt)
 		}
 		if opts.action == "tool_execution_end" {
 			if ended, duration, matched := state.EndRunningTool(&pane, piToolName(payload), payload.ToolCallID, occurredAt); matched {
-				completed = &completedTool{tool: ended.Tool, duration: duration}
+				completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration}
 			}
 		}
 
