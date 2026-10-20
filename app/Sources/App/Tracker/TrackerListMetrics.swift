@@ -25,9 +25,10 @@ enum TrackerListMetrics {
     /// After a session's workers, its last expanded worker or its collapsed row of circles, to the next session in the
     /// project. The gap between project groups stays `sectionSpacing`.
     static let afterWorkersSpacing: CGFloat = 10
-    /// The widest tracker content: the selected-session panel's design width, which the top-level plate (277pt) sits
-    /// inside. The tracker column is sized to it plus the leading `sidePadding`.
-    static let contentWidth: CGFloat = SelectedSessionPanel.canvasSize.width
+    /// The widest tracker content: the selected-session panel and the master plate, both 277pt, and the plate band
+    /// that reaches past their right edge, which the list's scroll view would otherwise clip. The tracker column is sized
+    /// to it plus the leading `sidePadding`.
+    static let contentWidth: CGFloat = SelectedSessionPanel.canvasSize.width + TrackerPlateDesign.glowBandWidth
 
     /// The gap above a session in a project, from the one before it.
     static func gap(afterSessionWithWorkers hasWorkers: Bool) -> CGFloat {
