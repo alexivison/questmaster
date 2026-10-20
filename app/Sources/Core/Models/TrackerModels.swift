@@ -190,6 +190,10 @@ public struct TrackerSession: Decodable, Equatable {
     public var elapsedSeedMS: Int?
     public var isCurrent: Bool
     public var artifacts: [ArtifactReference]
+    /// The session's latest narration: its newest chat entry of kind say or message, empty when it has none.
+    public var narration: String
+    /// The tool the session is running, nil when none is.
+    public var cast: TrackerCast?
 
     public init(
         id: String,
@@ -213,7 +217,9 @@ public struct TrackerSession: Decodable, Equatable {
         lastChatAt: Date? = nil,
         elapsedSeedMS: Int? = nil,
         isCurrent: Bool = false,
-        artifacts: [ArtifactReference] = []
+        artifacts: [ArtifactReference] = [],
+        narration: String = "",
+        cast: TrackerCast? = nil
     ) {
         self.id = id
         self.title = title
@@ -237,6 +243,8 @@ public struct TrackerSession: Decodable, Equatable {
         self.elapsedSeedMS = elapsedSeedMS
         self.isCurrent = isCurrent
         self.artifacts = artifacts
+        self.narration = narration
+        self.cast = cast
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -259,6 +267,8 @@ public struct TrackerSession: Decodable, Equatable {
         case last_chat_at
         case is_current
         case artifacts
+        case narration
+        case cast
     }
 
     public init(from decoder: Decoder) throws {
@@ -306,6 +316,8 @@ public struct TrackerSession: Decodable, Equatable {
         duration = TrackerSession.formatElapsed(elapsedSeedMS) ?? ""
         isCurrent = try container.decode(Bool.self, forKey: .is_current)
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
+        narration = try container.decodeIfPresent(String.self, forKey: .narration) ?? ""
+        cast = try container.decodeIfPresent(TrackerCast.self, forKey: .cast)
     }
 
     public func duration(at date: Date) -> String {
@@ -353,7 +365,7 @@ public struct TrackerSession: Decodable, Equatable {
     }()
     private static let plainInstantFormatter = ISO8601DateFormatter()
 
-    private static func parseInstant(_ value: String?) -> Date? {
+    static func parseInstant(_ value: String?) -> Date? {
         guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
