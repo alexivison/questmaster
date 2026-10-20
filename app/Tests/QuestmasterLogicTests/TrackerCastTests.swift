@@ -73,12 +73,18 @@ struct TrackerCastTests {
         let bash = TrackerCast(tool: "Bash", startedAt: Date(timeIntervalSince1970: 100), typicalMS: 6000)
         let edit = TrackerCast(tool: "Edit", startedAt: Date(timeIntervalSince1970: 200), typicalMS: 1000)
         let hidden = TrackerCastPhase.hidden
-        expect(hidden.next(cast: nil) == .hidden, "with no cast the row stays hidden")
-        expect(hidden.next(cast: bash) == .casting(bash), "a cast opens the row")
-        expect(TrackerCastPhase.casting(bash).next(cast: nil) == .finishing(bash), "an ended cast finishes")
-        expect(TrackerCastPhase.finishing(bash).next(cast: nil) == .finishing(bash), "a finishing row waits for its own end")
-        expect(TrackerCastPhase.finishing(bash).next(cast: edit) == .casting(edit), "a new cast replaces a finishing one at once")
-        expect(TrackerCastPhase.casting(bash).next(cast: edit) == .casting(edit), "the latest cast replaces the running one")
+        expect(hidden.next(cast: nil, status: .working) == .hidden, "with no cast the row stays hidden")
+        expect(hidden.next(cast: bash, status: .working) == .casting(bash), "a cast opens the row")
+        expect(TrackerCastPhase.casting(bash).next(cast: nil, status: .working) == .finishing(bash), "an ended cast finishes")
+        expect(TrackerCastPhase.finishing(bash).next(cast: nil, status: .working) == .finishing(bash), "a finishing row waits for its own end")
+        expect(TrackerCastPhase.finishing(bash).next(cast: edit, status: .working) == .casting(edit), "a new cast replaces a finishing one at once")
+        expect(TrackerCastPhase.casting(bash).next(cast: edit, status: .working) == .casting(edit), "the latest cast replaces the running one")
+        for status in [TrackerStatusKind.blocked, .needsInput] {
+            expect(TrackerCastPhase.casting(bash).next(cast: bash, status: status) == .hidden, "\(status) hides a running cast without the finish flash")
+            expect(hidden.next(cast: bash, status: status) == .hidden, "\(status) keeps a new cast hidden")
+        }
+        expect(hidden.next(cast: bash, status: .working) == .casting(bash), "leaving the pending status shows the running cast again")
+        expect(TrackerCastPhase.casting(bash).next(cast: bash, status: .error) == .casting(bash), "an error keeps the cast showing")
         expect(!hidden.isOpen && TrackerCastPhase.finishing(bash).isOpen, "only a hidden row is closed")
         expect(TrackerCastPhase.finishing(bash).cast == bash && hidden.cast == nil, "the row shows its own cast until hidden")
     }

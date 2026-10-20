@@ -1537,7 +1537,7 @@ private struct TrackerSessionRowContent: View {
                 logoSide: role.logoSide
             )
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
-            if let shown = cast.phase.cast {
+            if let shown = cast.shown {
                 TrackerCastRow(cast: shown, isFinishing: cast.phase.isFinishing, role: role)
                     .opacity(cast.isBarVisible ? 1 : 0)
                     .offset(x: TrackerCastLayout.squareX(role), y: TrackerCastLayout.top(role))
@@ -1568,6 +1568,8 @@ private struct TrackerSessionRow: View {
     /// The cast row's state: what it shows, whether the row has opened for it, and whether the bar has faded in.
     struct CastRowState {
         var phase = TrackerCastPhase.hidden
+        /// The cast the bar draws: the phase's, kept while a hidden row fades and closes.
+        var shown: TrackerCast?
         var isOpen = false
         var isBarVisible = false
     }
@@ -1623,8 +1625,9 @@ private struct TrackerSessionRow: View {
                 )
             }
         )
-        .onAppear { showCastAtOnce(session.cast) }
-        .onChange(of: session.cast) { _, newCast in updateCast(newCast) }
+        .onAppear { showCastAtOnce() }
+        .onChange(of: session.cast) { updateCast() }
+        .onChange(of: rendered.status.kind) { updateCast() }
         .modifier(TrackerStoppedDimming(isStopped: rendered.status.kind == .stopped))
         .help(shortcutTooltip)
         .accessibilityLabel("\(session.title.isEmpty ? session.id : session.title), \(rendered.status.classification.label)")
@@ -1642,43 +1645,53 @@ private struct TrackerSessionRow: View {
     }
 
     /// A row that appears mid-cast shows it already open, with nothing to animate.
-    private func showCastAtOnce(_ newCast: TrackerCast?) {
-        guard let newCast else { return }
-        cast = CastRowState(phase: .casting(newCast), isOpen: true, isBarVisible: true)
+    private func showCastAtOnce() {
+        let phase = TrackerCastPhase.hidden.next(cast: session.cast, status: rendered.status.kind)
+        guard phase.isOpen else { return }
+        cast = CastRowState(phase: phase, shown: phase.cast, isOpen: true, isBarVisible: true)
     }
 
     /// Moves the cast row on as the payload's cast changes. A cast opens the row on the tracker's expand/collapse
     /// animation and fades the bar in once it is open; an ended cast flashes, fades the bar, then closes the row. A new
-    /// cast takes over at once. Reduce motion skips the flash and every animation.
-    private func updateCast(_ newCast: TrackerCast?) {
-        let next = cast.phase.next(cast: newCast)
+    /// cast takes over at once; a blocked or needs-input status hides the cast with no flash. Reduce motion skips the
+    /// flash and every animation.
+    private func updateCast() {
+        let next = cast.phase.next(cast: session.cast, status: rendered.status.kind)
         guard next != cast.phase else { return }
         castGeneration += 1
         let generation = castGeneration
         let rowAnimation: Animation? = reduceMotion ? nil : .snappy(duration: TrackerCastPhase.rowDuration)
         let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: TrackerCastPhase.barFadeDuration)
         cast.phase = next
+        cast.shown = next.cast ?? cast.shown
         switch next {
         case .casting:
             let opensRow = !cast.isOpen
             withAnimation(rowAnimation) { cast.isOpen = true }
             withAnimation(opensRow ? fade?.delay(TrackerCastPhase.rowDuration) : fade) { cast.isBarVisible = true }
         case .finishing:
-            let flash = reduceMotion ? 0 : TrackerCastPhase.flashDuration
-            let fadeTime = reduceMotion ? 0 : TrackerCastPhase.barFadeDuration
-            DispatchQueue.main.asyncAfter(deadline: .now() + flash) {
+            closeCastRow(after: reduceMotion ? 0 : TrackerCastPhase.flashDuration, generation: generation)
+        case .hidden:
+            closeCastRow(after: 0, generation: generation)
+        }
+    }
+
+    /// Fades the cast bar after `delay`, then closes the row, unless a newer cast update took over meanwhile.
+    private func closeCastRow(after delay: TimeInterval, generation: Int) {
+        let rowAnimation: Animation? = reduceMotion ? nil : .snappy(duration: TrackerCastPhase.rowDuration)
+        let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: TrackerCastPhase.barFadeDuration)
+        let fadeTime = reduceMotion ? 0 : TrackerCastPhase.barFadeDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard generation == castGeneration else { return }
+            withAnimation(fade) { cast.isBarVisible = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + fadeTime) {
                 guard generation == castGeneration else { return }
-                withAnimation(fade) { cast.isBarVisible = false }
-                DispatchQueue.main.asyncAfter(deadline: .now() + fadeTime) {
-                    guard generation == castGeneration else { return }
-                    withAnimation(rowAnimation) {
-                        cast.isOpen = false
-                        cast.phase = .hidden
-                    }
+                withAnimation(rowAnimation) {
+                    cast.isOpen = false
+                    cast.phase = .hidden
+                    cast.shown = nil
                 }
             }
-        case .hidden:
-            break
         }
     }
 

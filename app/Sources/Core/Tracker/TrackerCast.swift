@@ -69,8 +69,11 @@ public enum TrackerCastPhase: Equatable {
     /// How long the row takes to open or close: the tracker's expand/collapse animation, `.snappy(duration: 0.22)`.
     public static let rowDuration: TimeInterval = 0.22
 
-    /// The phase after the payload reports `cast` (nil when no tool runs).
-    public func next(cast: TrackerCast?) -> TrackerCastPhase {
+    /// The phase after the payload reports `cast` (nil when no tool runs) for a session in `status`. A blocked session
+    /// or one that needs input already says so on its ring, so its row hides the cast, with no finish flash, until the
+    /// status leaves; a cast still running then shows again.
+    public func next(cast: TrackerCast?, status: TrackerStatusKind) -> TrackerCastPhase {
+        if status == .blocked || status == .needsInput { return .hidden }
         if let cast { return .casting(cast) }
         if case .casting(let ended) = self { return .finishing(ended) }
         return self
