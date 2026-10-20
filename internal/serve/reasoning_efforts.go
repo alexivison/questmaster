@@ -87,7 +87,7 @@ func (s *Server) resolveReasoningEfforts(ctx context.Context, agentName, model s
 	if s.ReasoningEfforts != nil {
 		return s.ReasoningEfforts(ctx, agentName, model)
 	}
-	return modelsuggest.ResolveReasoningEfforts(ctx, agentName, model)
+	return modelsuggest.ResolveReasoningEfforts(ctx, agentName, model, "")
 }
 
 func decodeReasoningEffortsPayload(raw json.RawMessage) (reasoningEffortsPayload, error) {

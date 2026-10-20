@@ -40,17 +40,17 @@ func TestParseReasoningEfforts(t *testing.T) {
 			want:   []string{"low", "medium", "high", "xhigh", "max"},
 		},
 		{
-			name:   "claude list removed fails closed",
+			name:   "claude list removed fails open",
 			source: agent.EffortSourceClaudeHelp,
 			data:   "  --effort <level>  Set effort based on the selected model\n  --verbose  Enable verbose output (always, never)\n",
 		},
 		{
-			name:   "claude model-specific default fails closed",
+			name:   "claude model-specific default fails open",
 			source: agent.EffortSourceClaudeHelp,
 			data:   "  --effort <level>  Set effort (default: model-specific)\n",
 		},
 		{
-			name:   "pi model-specific default fails closed",
+			name:   "pi model-specific default fails open",
 			source: agent.EffortSourcePiHelp,
 			data:   "  --thinking <level>  Set thinking level: (default: model-specific)\n",
 		},
@@ -139,18 +139,18 @@ func TestEffortResolverCachesSuccessesAndFailuresForFiveMinutes(t *testing.T) {
 		return data, nil
 	})
 	resolver.now = func() time.Time { return now }
-	if got := resolver.Resolve(context.Background(), "claude", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
+	if got := resolver.Resolve(context.Background(), "claude", "", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
 		t.Fatalf("Resolve() = %v, want [low high]", got)
 	}
 	data = []byte("  --effort <level> (high)")
-	if got := resolver.Resolve(context.Background(), "claude", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
+	if got := resolver.Resolve(context.Background(), "claude", "", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
 		t.Fatalf("cached Resolve() = %v, want [low high]", got)
 	}
 	if calls != 1 {
 		t.Fatalf("cached probe calls = %d, want 1", calls)
 	}
 	now = now.Add(effortProbeTTL + time.Nanosecond)
-	if got := resolver.Resolve(context.Background(), "claude", ""); !reflect.DeepEqual(got, []string{"high"}) {
+	if got := resolver.Resolve(context.Background(), "claude", "", ""); !reflect.DeepEqual(got, []string{"high"}) {
 		t.Fatalf("expired Resolve() = %v, want [high]", got)
 	}
 	if calls != 2 {
@@ -167,7 +167,7 @@ func TestEffortResolverCachesSuccessesAndFailuresForFiveMinutes(t *testing.T) {
 	})
 	failing.now = func() time.Time { return now }
 	for range 2 {
-		if got := failing.Resolve(context.Background(), "claude", ""); got != nil {
+		if got := failing.Resolve(context.Background(), "claude", "", ""); got != nil {
 			t.Fatalf("failed probe Resolve() = %v, want nil", got)
 		}
 	}
@@ -175,11 +175,35 @@ func TestEffortResolverCachesSuccessesAndFailuresForFiveMinutes(t *testing.T) {
 		t.Fatalf("cached failure probes = %d, want 1", failures)
 	}
 	now = now.Add(effortProbeTTL + time.Nanosecond)
-	if got := failing.Resolve(context.Background(), "claude", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
+	if got := failing.Resolve(context.Background(), "claude", "", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
 		t.Fatalf("expired failure Resolve() = %v, want [low high]", got)
 	}
 	if failures != 2 {
 		t.Fatalf("expired failure probes = %d, want 2", failures)
+	}
+}
+
+func TestEffortResolverDoesNotCacheCanceledProbe(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	resolver := NewEffortResolver(func(ctx context.Context, _ agent.EffortSource, _ string) ([]byte, error) {
+		calls++
+		if calls == 1 {
+			return nil, ctx.Err()
+		}
+		return []byte("  --effort <level> (low, high)"), nil
+	})
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := resolver.Resolve(canceled, "claude", "", ""); got != nil {
+		t.Fatalf("canceled Resolve() = %v, want nil", got)
+	}
+	if got := resolver.Resolve(context.Background(), "claude", "", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
+		t.Fatalf("healthy Resolve() = %v, want [low high]", got)
+	}
+	if calls != 2 {
+		t.Fatalf("probes after cancellation = %d, want 2", calls)
 	}
 }
 
@@ -197,7 +221,7 @@ func TestEffortResolverRereadsCodexCache(t *testing.T) {
 		return data, nil
 	})
 	for _, want := range [][]string{{"low"}, {"max"}} {
-		got := resolver.Resolve(context.Background(), "codex", "gpt-6-luna")
+		got := resolver.Resolve(context.Background(), "codex", "gpt-6-luna", "")
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("Resolve() = %v, want %v", got, want)
 		}
@@ -271,7 +295,7 @@ func TestEffortResolverUsesConfiguredDefaultModel(t *testing.T) {
 				}
 				return []byte(fixture), nil
 			})
-			got := resolver.Resolve(context.Background(), tt.agentName, "")
+			got := resolver.Resolve(context.Background(), tt.agentName, "", "")
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("Resolve(%q, empty model) = %v, want %v", tt.agentName, got, tt.want)
 			}
@@ -295,7 +319,7 @@ func TestOpenCodeDefaultAndEffortProbesAreCached(t *testing.T) {
 		}
 	})
 	for range 2 {
-		if got := resolver.Resolve(context.Background(), "opencode", ""); !reflect.DeepEqual(got, []string{"low"}) {
+		if got := resolver.Resolve(context.Background(), "opencode", "", ""); !reflect.DeepEqual(got, []string{"low"}) {
 			t.Fatalf("Resolve(opencode, empty model) = %v, want [low]", got)
 		}
 	}

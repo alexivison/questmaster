@@ -390,7 +390,7 @@ func (s *Server) mutateRoleDefaultSet(ctx context.Context, payload mutationPaylo
 
 	if reasoningEffort != "" {
 		if err := agent.ValidateReasoningEffort(agentName, model, reasoningEffort, s.resolveReasoningEfforts(ctx, agentName, model)); err != nil {
-			if !modelChanged || !hasExisting || reasoningEffort != existing.ReasoningEffort {
+			if !modelChanged || reasoningEffort != existing.ReasoningEffort {
 				return nil, err
 			}
 			reasoningEffort = ""

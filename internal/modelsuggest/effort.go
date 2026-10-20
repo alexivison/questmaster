@@ -52,21 +52,17 @@ func NewEffortResolver(probe EffortProbe) *EffortResolver {
 	}
 }
 
-func (r *EffortResolver) Resolve(ctx context.Context, agentName, model string, binary ...string) []string {
+func (r *EffortResolver) Resolve(ctx context.Context, agentName, model, binary string) []string {
 	spec := agent.SpecOf(strings.ToLower(strings.TrimSpace(agentName)))
 	source := spec.Efforts
 	if source == agent.EffortSourceNone {
 		return nil
 	}
-	preferredBinary := ""
-	if len(binary) > 0 {
-		preferredBinary = binary[0]
-	}
 	model = strings.TrimSpace(model)
 	if model == "" {
-		model = r.defaultModel(ctx, spec.EffortModel, preferredBinary)
+		model = r.defaultModel(ctx, spec.EffortModel, binary)
 	}
-	return effortForModel(r.efforts(ctx, source, preferredBinary), model)
+	return effortForModel(r.efforts(ctx, source, binary), model)
 }
 
 func (r *EffortResolver) efforts(ctx context.Context, source agent.EffortSource, binary string) map[string][]string {
@@ -109,13 +105,12 @@ func (r *EffortResolver) sourceData(ctx context.Context, source agent.EffortSour
 		return cached.data, cached.err
 	}
 	data, err := r.probe(ctx, source, binary)
-	now = r.now()
 	r.mu.Lock()
-	for cachedKey, result := range r.cache {
-		if !now.Before(result.expiresAt) {
-			delete(r.cache, cachedKey)
-		}
+	if ctx.Err() != nil {
+		r.mu.Unlock()
+		return data, err
 	}
+	now = r.now()
 	r.cache[key] = effortProbeResult{data: data, err: err, expiresAt: now.Add(effortProbeTTL)}
 	r.mu.Unlock()
 	return data, err
@@ -130,8 +125,8 @@ func effortForModel(efforts map[string][]string, model string) []string {
 
 var defaultEffortResolver = NewEffortResolver(nil)
 
-func ResolveReasoningEfforts(ctx context.Context, agentName, model string, binary ...string) []string {
-	return defaultEffortResolver.Resolve(ctx, agentName, model, binary...)
+func ResolveReasoningEfforts(ctx context.Context, agentName, model, binary string) []string {
+	return defaultEffortResolver.Resolve(ctx, agentName, model, binary)
 }
 
 func probeReasoningEfforts(ctx context.Context, source agent.EffortSource, configuredBinary string) ([]byte, error) {

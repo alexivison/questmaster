@@ -282,22 +282,22 @@ func TestEffortSources(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
-		provider         string
-		want             EffortSource
-		validateOnLaunch bool
+		provider    string
+		efforts     EffortSource
+		effortModel EffortSource
 	}{
-		{provider: "claude", want: EffortSourceClaudeHelp},
-		{provider: "codex", want: EffortSourceCodexCache, validateOnLaunch: true},
-		{provider: "pi", want: EffortSourcePiHelp},
-		{provider: "opencode", want: EffortSourceOpenCodeModels, validateOnLaunch: true},
-		{provider: "unknown", want: EffortSourceNone},
+		{provider: "claude", efforts: EffortSourceClaudeHelp},
+		{provider: "codex", efforts: EffortSourceCodexCache, effortModel: EffortSourceCodexConfig},
+		{provider: "pi", efforts: EffortSourcePiHelp},
+		{provider: "opencode", efforts: EffortSourceOpenCodeModels, effortModel: EffortSourceOpenCodeConfig},
+		{provider: "unknown"},
 	} {
 		got := SpecOf(tt.provider).Efforts
-		if got != tt.want {
-			t.Errorf("SpecOf(%q).Efforts.Source = %q, want %q", tt.provider, got, tt.want)
+		if got != tt.efforts {
+			t.Errorf("SpecOf(%q).Efforts.Source = %q, want %q", tt.provider, got, tt.efforts)
 		}
-		if got := SpecOf(tt.provider).ValidateEffortsOnLaunch; got != tt.validateOnLaunch {
-			t.Errorf("SpecOf(%q).ValidateEffortsOnLaunch = %v, want %v", tt.provider, got, tt.validateOnLaunch)
+		if got := SpecOf(tt.provider).EffortModel; got != tt.effortModel {
+			t.Errorf("SpecOf(%q).EffortModel = %q, want %q", tt.provider, got, tt.effortModel)
 		}
 	}
 }

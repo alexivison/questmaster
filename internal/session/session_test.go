@@ -744,11 +744,9 @@ func TestStart_CodexReasoningEffortValidatesAgainstPersistedModel(t *testing.T) 
 	}
 	svc.Registry = registry
 	var probedBinary string
-	svc.ReasoningEfforts = func(_ context.Context, agentName, model string, binary ...string) []string {
+	svc.ReasoningEfforts = func(_ context.Context, agentName, model, binary string) []string {
 		if agentName == "codex" && model == "gpt-5.4" {
-			if len(binary) > 0 {
-				probedBinary = binary[0]
-			}
+			probedBinary = binary
 			return []string{"low", "medium", "high", "xhigh"}
 		}
 		return nil
@@ -787,7 +785,7 @@ func TestStartSkipsHelpOnlyEffortValidation(t *testing.T) {
 			}
 			svc.Registry = registry
 			calls := 0
-			svc.ReasoningEfforts = func(context.Context, string, string, ...string) []string {
+			svc.ReasoningEfforts = func(context.Context, string, string, string) []string {
 				calls++
 				return []string{"low"}
 			}
@@ -802,6 +800,38 @@ func TestStartSkipsHelpOnlyEffortValidation(t *testing.T) {
 				t.Fatalf("help-derived effort probes on launch = %d, want 0", calls)
 			}
 		})
+	}
+}
+
+func TestStartSkipsDefaultModelEffortValidationWhenModelIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{"codex": {CLI: "/bin/sh"}},
+		Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: "codex", Window: 0}},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+	calls := 0
+	svc.ReasoningEfforts = func(context.Context, string, string, string) []string {
+		calls++
+		return []string{"low"}
+	}
+	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), ReasoningEffort: "custom"})
+	if err != nil {
+		t.Fatalf("Start(empty model, custom effort) = %v, want pass-through", err)
+	}
+	if calls != 0 {
+		t.Fatalf("default-model effort probes on launch = %d, want 0", calls)
+	}
+	if launch := findLaunchArgContaining(runner, "custom"); !strings.Contains(launch, `model_reasoning_effort="custom"`) {
+		t.Fatalf("unvalidated empty-model effort was not passed through: %q", launch)
+	}
+	if !runner.sessions[result.SessionID] {
+		t.Fatalf("expected tmux session %q", result.SessionID)
 	}
 }
 
@@ -2743,7 +2773,7 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	svc.Registry = registry
-	svc.ReasoningEfforts = func(_ context.Context, agentName, model string, _ ...string) []string {
+	svc.ReasoningEfforts = func(_ context.Context, agentName, model, _ string) []string {
 		if agentName != "codex" {
 			return nil
 		}

@@ -126,7 +126,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 					}
 				}
 				var supportedEfforts []string
-				if resolvedReasoningEffort != "" && s.ReasoningEfforts != nil && agent.SpecOf(binding.Agent.Name()).ValidateEffortsOnLaunch {
+				if resolvedReasoningEffort != "" && strings.TrimSpace(resolvedModel) != "" && s.ReasoningEfforts != nil && agent.SpecOf(binding.Agent.Name()).EffortModel != agent.EffortSourceNone {
 					supportedEfforts = s.ReasoningEfforts(ctx, binding.Agent.Name(), resolvedModel, cli)
 				}
 				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), resolvedModel, resolvedReasoningEffort, supportedEfforts); err != nil {

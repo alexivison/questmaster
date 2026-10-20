@@ -22,9 +22,9 @@ type Service struct {
 	Client   *tmux.Client
 	RepoRoot string
 	Registry *agent.Registry
-	// ReasoningEfforts resolves model-specific levels before launch. The optional
-	// binary is the resolved CLI that will be launched.
-	ReasoningEfforts func(context.Context, string, string, ...string) []string
+	// ReasoningEfforts resolves model-specific levels before launch using the
+	// resolved CLI binary.
+	ReasoningEfforts func(context.Context, string, string, string) []string
 
 	// CLIResolver resolves the questmaster launch command. Defaults to config.ResolveQuestmasterCmd.
 	CLIResolver func(repoRoot string) (string, error)
