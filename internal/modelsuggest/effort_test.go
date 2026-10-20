@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
 )
@@ -37,6 +38,21 @@ func TestParseReasoningEfforts(t *testing.T) {
 			source: agent.EffortSourceClaudeHelp,
 			data:   "  --effort <level>  Set effort (low, medium,\n                     high, xhigh, max)\n",
 			want:   []string{"low", "medium", "high", "xhigh", "max"},
+		},
+		{
+			name:   "claude list removed fails closed",
+			source: agent.EffortSourceClaudeHelp,
+			data:   "  --effort <level>  Set effort based on the selected model\n  --verbose  Enable verbose output (always, never)\n",
+		},
+		{
+			name:   "claude model-specific default fails closed",
+			source: agent.EffortSourceClaudeHelp,
+			data:   "  --effort <level>  Set effort (default: model-specific)\n",
+		},
+		{
+			name:   "pi model-specific default fails closed",
+			source: agent.EffortSourcePiHelp,
+			data:   "  --thinking <level>  Set thinking level: (default: model-specific)\n",
 		},
 		{
 			name:   "pi parses thinking help list",
@@ -112,42 +128,58 @@ func TestParseDefaultEffortModel(t *testing.T) {
 	}
 }
 
-func TestEffortResolverCachesSuccessfulSourceAndRetriesFailures(t *testing.T) {
+func TestEffortResolverCachesSuccessesAndFailuresForFiveMinutes(t *testing.T) {
 	t.Parallel()
 
-	for _, tt := range []struct {
-		name      string
-		firstErr  error
-		first     []string
-		resolved  []string
-		wantCalls int
-	}{
-		{name: "reported levels", first: []string{"low", "high"}, resolved: []string{"low", "high"}, wantCalls: 1},
-		{name: "temporary probe failure", firstErr: errors.New("offline"), resolved: []string{"low", "high"}, wantCalls: 2},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			calls := 0
-			resolver := NewEffortResolver(func(context.Context, agent.EffortSource) ([]byte, error) {
-				calls++
-				if calls == 1 && tt.firstErr != nil {
-					return nil, tt.firstErr
-				}
-				return []byte("--effort <level> (low, high)"), nil
-			})
-			first := resolver.Resolve(context.Background(), "claude", "")
-			if !reflect.DeepEqual(first, tt.first) {
-				t.Fatalf("first Resolve() = %v, want %v", first, tt.first)
-			}
-			got := resolver.Resolve(context.Background(), "claude", "")
-			if !reflect.DeepEqual(got, tt.resolved) {
-				t.Fatalf("Resolve() = %v, want %v", got, tt.resolved)
-			}
-			resolver.Resolve(context.Background(), "claude", "")
-			if calls != tt.wantCalls {
-				t.Fatalf("probe calls = %d, want %d", calls, tt.wantCalls)
-			}
-		})
+	now := time.Now()
+	data := []byte("  --effort <level> (low, high)")
+	calls := 0
+	resolver := NewEffortResolver(func(context.Context, agent.EffortSource, string) ([]byte, error) {
+		calls++
+		return data, nil
+	})
+	resolver.now = func() time.Time { return now }
+	if got := resolver.Resolve(context.Background(), "claude", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
+		t.Fatalf("Resolve() = %v, want [low high]", got)
+	}
+	data = []byte("  --effort <level> (high)")
+	if got := resolver.Resolve(context.Background(), "claude", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
+		t.Fatalf("cached Resolve() = %v, want [low high]", got)
+	}
+	if calls != 1 {
+		t.Fatalf("cached probe calls = %d, want 1", calls)
+	}
+	now = now.Add(effortProbeTTL + time.Nanosecond)
+	if got := resolver.Resolve(context.Background(), "claude", ""); !reflect.DeepEqual(got, []string{"high"}) {
+		t.Fatalf("expired Resolve() = %v, want [high]", got)
+	}
+	if calls != 2 {
+		t.Fatalf("expired probe calls = %d, want 2", calls)
+	}
+
+	failures := 0
+	failing := NewEffortResolver(func(context.Context, agent.EffortSource, string) ([]byte, error) {
+		failures++
+		if failures == 1 {
+			return nil, errors.New("offline")
+		}
+		return []byte("  --effort <level> (low, high)"), nil
+	})
+	failing.now = func() time.Time { return now }
+	for range 2 {
+		if got := failing.Resolve(context.Background(), "claude", ""); got != nil {
+			t.Fatalf("failed probe Resolve() = %v, want nil", got)
+		}
+	}
+	if failures != 1 {
+		t.Fatalf("cached failure probes = %d, want 1", failures)
+	}
+	now = now.Add(effortProbeTTL + time.Nanosecond)
+	if got := failing.Resolve(context.Background(), "claude", ""); !reflect.DeepEqual(got, []string{"low", "high"}) {
+		t.Fatalf("expired failure Resolve() = %v, want [low high]", got)
+	}
+	if failures != 2 {
+		t.Fatalf("expired failure probes = %d, want 2", failures)
 	}
 }
 
@@ -159,7 +191,7 @@ func TestEffortResolverRereadsCodexCache(t *testing.T) {
 		[]byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"max"}]}]}`),
 	}
 	calls := 0
-	resolver := NewEffortResolver(func(context.Context, agent.EffortSource) ([]byte, error) {
+	resolver := NewEffortResolver(func(context.Context, agent.EffortSource, string) ([]byte, error) {
 		data := fixtures[calls]
 		calls++
 		return data, nil
@@ -172,6 +204,25 @@ func TestEffortResolverRereadsCodexCache(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("Codex cache reads = %d, want one per resolution", calls)
+	}
+}
+
+func TestEffortResolverUsesConfiguredBinary(t *testing.T) {
+	t.Parallel()
+
+	var gotBinary string
+	resolver := NewEffortResolver(func(_ context.Context, source agent.EffortSource, binary string) ([]byte, error) {
+		if source != agent.EffortSourceClaudeHelp {
+			t.Fatalf("probe source = %q, want Claude help", source)
+		}
+		gotBinary = binary
+		return []byte("  --effort <level> (low, high)"), nil
+	})
+	if got := resolver.Resolve(context.Background(), "claude", "sonnet", "/custom/bin/claude"); !reflect.DeepEqual(got, []string{"low", "high"}) {
+		t.Fatalf("Resolve() = %v, want [low high]", got)
+	}
+	if gotBinary != "/custom/bin/claude" {
+		t.Fatalf("probed binary = %q, want configured path", gotBinary)
 	}
 }
 
@@ -213,7 +264,7 @@ func TestEffortResolverUsesConfiguredDefaultModel(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			resolver := NewEffortResolver(func(_ context.Context, source agent.EffortSource) ([]byte, error) {
+			resolver := NewEffortResolver(func(_ context.Context, source agent.EffortSource, _ string) ([]byte, error) {
 				fixture, ok := tt.fixtures[source]
 				if !ok {
 					return nil, errors.New("missing fixture")
@@ -232,7 +283,7 @@ func TestOpenCodeDefaultAndEffortProbesAreCached(t *testing.T) {
 	t.Parallel()
 
 	calls := make(map[agent.EffortSource]int)
-	resolver := NewEffortResolver(func(_ context.Context, source agent.EffortSource) ([]byte, error) {
+	resolver := NewEffortResolver(func(_ context.Context, source agent.EffortSource, _ string) ([]byte, error) {
 		calls[source]++
 		switch source {
 		case agent.EffortSourceOpenCodeConfig:

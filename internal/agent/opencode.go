@@ -22,18 +22,19 @@ const (
 )
 
 var openCodeSpec = Spec{
-	Name:           "opencode",
-	DisplayName:    "OpenCode",
-	Description:    "OpenCode TUI harness with plugin-backed state tracking once the OpenCode bridge is installed",
-	DefaultCLI:     "opencode",
-	ResumeKey:      "opencode_session_id",
-	ResumeFileName: "opencode-session-id",
-	EnvVar:         "OPENCODE_SESSION_ID",
-	BinaryEnvVar:   "OPENCODE_BIN",
-	FallbackPath:   "/opt/homebrew/bin/opencode",
-	State:          StatePlugin,
-	Efforts:        EffortSourceOpenCodeModels,
-	EffortModel:    EffortSourceOpenCodeConfig,
+	Name:                    "opencode",
+	DisplayName:             "OpenCode",
+	Description:             "OpenCode TUI harness with plugin-backed state tracking once the OpenCode bridge is installed",
+	DefaultCLI:              "opencode",
+	ResumeKey:               "opencode_session_id",
+	ResumeFileName:          "opencode-session-id",
+	EnvVar:                  "OPENCODE_SESSION_ID",
+	BinaryEnvVar:            "OPENCODE_BIN",
+	FallbackPath:            "/opt/homebrew/bin/opencode",
+	State:                   StatePlugin,
+	Efforts:                 EffortSourceOpenCodeModels,
+	EffortModel:             EffortSourceOpenCodeConfig,
+	ValidateEffortsOnLaunch: true,
 	Models: ModelPolicy{
 		// OpenCode takes provider-qualified ids and can enumerate the
 		// providers the user actually configured, so these catalog sources

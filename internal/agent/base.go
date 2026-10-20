@@ -61,6 +61,9 @@ type Spec struct {
 	// EffortModel declares where to read the harness default model when the
 	// caller leaves the model blank during effort discovery.
 	EffortModel EffortSource
+	// ValidateEffortsOnLaunch marks sources whose reported levels are specific
+	// to the selected model and should be checked before launch.
+	ValidateEffortsOnLaunch bool
 }
 
 // base implements the boilerplate half of the Agent interface from a Spec.

@@ -380,6 +380,7 @@ func (s *Server) mutateRoleDefaultSet(ctx context.Context, payload mutationPaylo
 	// the doc comment above).
 	store := state.NewRoleDefaultsStore(s.mutationStore().Root())
 	existing, hasExisting, _ := store.Get(agentName, role)
+	modelChanged := hasExisting && model != "" && model != existing.Model
 	if model == "" && hasExisting {
 		model = existing.Model
 	}
@@ -389,7 +390,10 @@ func (s *Server) mutateRoleDefaultSet(ctx context.Context, payload mutationPaylo
 
 	if reasoningEffort != "" {
 		if err := agent.ValidateReasoningEffort(agentName, model, reasoningEffort, s.resolveReasoningEfforts(ctx, agentName, model)); err != nil {
-			return nil, err
+			if !modelChanged || !hasExisting || reasoningEffort != existing.ReasoningEffort {
+				return nil, err
+			}
+			reasoningEffort = ""
 		}
 	}
 

@@ -8,22 +8,36 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/alexivison/questmaster/internal/agent"
 )
 
 // EffortProbe lets tests supply harness-source fixtures.
-type EffortProbe func(context.Context, agent.EffortSource) ([]byte, error)
+type EffortProbe func(context.Context, agent.EffortSource, string) ([]byte, error)
+
+type effortProbeResult struct {
+	data      []byte
+	err       error
+	expiresAt time.Time
+}
+
+type effortProbeKey struct {
+	source agent.EffortSource
+	binary string
+}
+
+const effortProbeTTL = 5 * time.Minute
 
 type EffortResolver struct {
-	probe              EffortProbe
-	mu                 sync.Mutex
-	cache              map[agent.EffortSource]map[string][]string
-	defaultModels      map[agent.EffortSource]string
-	defaultModelLoaded map[agent.EffortSource]bool
+	probe EffortProbe
+	mu    sync.Mutex
+	cache map[effortProbeKey]effortProbeResult
+	now   func() time.Time
 }
 
 // NewEffortResolver creates a resolver with an optional harness-source probe.
@@ -32,48 +46,31 @@ func NewEffortResolver(probe EffortProbe) *EffortResolver {
 		probe = probeReasoningEfforts
 	}
 	return &EffortResolver{
-		probe:              probe,
-		cache:              make(map[agent.EffortSource]map[string][]string),
-		defaultModels:      make(map[agent.EffortSource]string),
-		defaultModelLoaded: make(map[agent.EffortSource]bool),
+		probe: probe,
+		cache: make(map[effortProbeKey]effortProbeResult),
+		now:   time.Now,
 	}
 }
 
-func (r *EffortResolver) Resolve(ctx context.Context, agentName, model string) []string {
+func (r *EffortResolver) Resolve(ctx context.Context, agentName, model string, binary ...string) []string {
 	spec := agent.SpecOf(strings.ToLower(strings.TrimSpace(agentName)))
 	source := spec.Efforts
 	if source == agent.EffortSourceNone {
 		return nil
 	}
+	preferredBinary := ""
+	if len(binary) > 0 {
+		preferredBinary = binary[0]
+	}
 	model = strings.TrimSpace(model)
 	if model == "" {
-		model = r.defaultModel(ctx, spec.EffortModel)
+		model = r.defaultModel(ctx, spec.EffortModel, preferredBinary)
 	}
-	levels, _ := effortForModel(r.efforts(ctx, source), model)
-	return levels
+	return effortForModel(r.efforts(ctx, source, preferredBinary), model)
 }
 
-func (r *EffortResolver) efforts(ctx context.Context, source agent.EffortSource) map[string][]string {
-	if source != agent.EffortSourceCodexCache {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if cached, ok := r.cache[source]; ok {
-			return cached
-		}
-		data, err := r.probe(ctx, source)
-		if err != nil {
-			return nil
-		}
-		efforts, err := parseEffortSource(source, data)
-		if err != nil {
-			return nil
-		}
-		if ctx.Err() == nil {
-			r.cache[source] = efforts
-		}
-		return efforts
-	}
-	data, err := r.probe(ctx, source)
+func (r *EffortResolver) efforts(ctx context.Context, source agent.EffortSource, binary string) map[string][]string {
+	data, err := r.sourceData(ctx, source, binary)
 	if err != nil {
 		return nil
 	}
@@ -84,31 +81,11 @@ func (r *EffortResolver) efforts(ctx context.Context, source agent.EffortSource)
 	return efforts
 }
 
-func (r *EffortResolver) defaultModel(ctx context.Context, source agent.EffortSource) string {
+func (r *EffortResolver) defaultModel(ctx context.Context, source agent.EffortSource, binary string) string {
 	if source == agent.EffortSourceNone {
 		return ""
 	}
-	if source == agent.EffortSourceOpenCodeConfig {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		if r.defaultModelLoaded[source] {
-			return r.defaultModels[source]
-		}
-		data, err := r.probe(ctx, source)
-		if err != nil {
-			return ""
-		}
-		model, err := parseDefaultEffortModel(source, data)
-		if err != nil {
-			return ""
-		}
-		if ctx.Err() == nil {
-			r.defaultModels[source] = model
-			r.defaultModelLoaded[source] = true
-		}
-		return model
-	}
-	data, err := r.probe(ctx, source)
+	data, err := r.sourceData(ctx, source, binary)
 	if err != nil {
 		return ""
 	}
@@ -119,21 +96,45 @@ func (r *EffortResolver) defaultModel(ctx context.Context, source agent.EffortSo
 	return model
 }
 
-func effortForModel(efforts map[string][]string, model string) ([]string, bool) {
-	if levels, ok := efforts[model]; ok {
-		return levels, true
+func (r *EffortResolver) sourceData(ctx context.Context, source agent.EffortSource, binary string) ([]byte, error) {
+	if source == agent.EffortSourceCodexCache || source == agent.EffortSourceCodexConfig {
+		return r.probe(ctx, source, binary)
 	}
-	levels, ok := efforts[""]
-	return levels, ok
+	key := effortProbeKey{source: source, binary: binary}
+	now := r.now()
+	r.mu.Lock()
+	cached, ok := r.cache[key]
+	r.mu.Unlock()
+	if ok && now.Before(cached.expiresAt) {
+		return cached.data, cached.err
+	}
+	data, err := r.probe(ctx, source, binary)
+	now = r.now()
+	r.mu.Lock()
+	for cachedKey, result := range r.cache {
+		if !now.Before(result.expiresAt) {
+			delete(r.cache, cachedKey)
+		}
+	}
+	r.cache[key] = effortProbeResult{data: data, err: err, expiresAt: now.Add(effortProbeTTL)}
+	r.mu.Unlock()
+	return data, err
+}
+
+func effortForModel(efforts map[string][]string, model string) []string {
+	if levels, ok := efforts[model]; ok {
+		return levels
+	}
+	return efforts[""]
 }
 
 var defaultEffortResolver = NewEffortResolver(nil)
 
-func ResolveReasoningEfforts(ctx context.Context, agentName, model string) []string {
-	return defaultEffortResolver.Resolve(ctx, agentName, model)
+func ResolveReasoningEfforts(ctx context.Context, agentName, model string, binary ...string) []string {
+	return defaultEffortResolver.Resolve(ctx, agentName, model, binary...)
 }
 
-func probeReasoningEfforts(ctx context.Context, source agent.EffortSource) ([]byte, error) {
+func probeReasoningEfforts(ctx context.Context, source agent.EffortSource, configuredBinary string) ([]byte, error) {
 	switch source {
 	case agent.EffortSourceCodexCache:
 		root := codexHome()
@@ -163,13 +164,17 @@ func probeReasoningEfforts(ctx context.Context, source agent.EffortSource) ([]by
 	if name == "" {
 		return nil, fmt.Errorf("unknown reasoning-effort source %q", source)
 	}
-	binary, ok := probeBinary(name)
-	if !ok {
-		return nil, fmt.Errorf("%s binary not found", name)
+	binary := strings.TrimSpace(configuredBinary)
+	if binary == "" {
+		var ok bool
+		binary, ok = probeBinary(name)
+		if !ok {
+			return nil, fmt.Errorf("%s binary not found", name)
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, binary, args...).CombinedOutput()
+	out, err := exec.CommandContext(ctx, binary, args...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("run %s %s: %w", binary, strings.Join(args, " "), err)
 	}
@@ -247,52 +252,66 @@ func parseEffortSource(source agent.EffortSource, data []byte) (map[string][]str
 	}
 }
 
+var effortTokenPattern = regexp.MustCompile(`^[a-z]+$`)
+
 func helpList(data []byte) []string {
-	text := string(data)
-	start := strings.Index(text, "--effort")
-	if start < 0 {
-		return nil
-	}
-	start += len("--effort")
-	openOffset := strings.IndexByte(text[start:], '(')
+	description := optionDescription(string(data), "--effort")
+	openOffset := strings.IndexByte(description, '(')
 	if openOffset < 0 {
 		return nil
 	}
-	start += openOffset + 1
-	end := strings.IndexByte(text[start:], ')')
+	start := openOffset + 1
+	end := strings.IndexByte(description[start:], ')')
 	if end < 0 {
 		return nil
 	}
-	return splitEffortValues(text[start : start+end])
+	return splitEffortValues(description[start : start+end])
 }
 
 func piThinkingList(data []byte) []string {
-	text := string(data)
-	start := strings.Index(text, "--thinking")
-	if start < 0 {
-		return nil
-	}
+	description := optionDescription(string(data), "--thinking")
 	const label = "Set thinking level:"
-	labelStart := strings.Index(text[start:], label)
+	labelStart := strings.Index(description, label)
 	if labelStart < 0 {
 		return nil
 	}
-	start += labelStart + len(label)
-	end := strings.IndexByte(text[start:], '\n')
+	start := labelStart + len(label)
+	end := strings.IndexByte(description[start:], '\n')
 	if end < 0 {
-		end = len(text) - start
+		end = len(description) - start
 	}
-	return splitEffortValues(text[start : start+end])
+	return splitEffortValues(description[start : start+end])
+}
+
+func optionDescription(text, flag string) string {
+	lines := strings.Split(text, "\n")
+	for index, line := range lines {
+		line = strings.TrimLeft(line, " \t")
+		if !strings.HasPrefix(line, flag) || len(line) > len(flag) && !strings.ContainsRune(" \t<=", rune(line[len(flag)])) {
+			continue
+		}
+		description := []string{line}
+		for _, next := range lines[index+1:] {
+			next = strings.TrimLeft(next, " \t")
+			if strings.HasPrefix(next, "-") {
+				break
+			}
+			description = append(description, next)
+		}
+		return strings.Join(description, "\n")
+	}
+	return ""
 }
 
 func splitEffortValues(value string) []string {
 	parts := strings.Split(value, ",")
 	values := make([]string, 0, len(parts))
 	for _, part := range parts {
-		part = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(part), "."))
-		if part != "" && part != "..." {
-			values = append(values, part)
+		part = strings.TrimSpace(part)
+		if !effortTokenPattern.MatchString(part) {
+			return nil
 		}
+		values = append(values, part)
 	}
 	return values
 }

@@ -66,9 +66,8 @@ func (s *Server) reasoningEfforts(ctx context.Context, req Request) (any, error)
 	// the client knows what model is actually in effect and sends "". An
 	// empty model must not be read as "nothing configured" in that case: a
 	// persisted model override can support levels an empty model's baseline
-	// does not (e.g. codex's "max" is only valid for gpt-5.6-* models), and
-	// computing Efforts against the wrong model would silently drop that
-	// override from the selectable list. Resolve the same way session.Start
+	// does not. Computing Efforts against the wrong model would silently drop
+	// that override from the selectable list. Resolve the same way session.Start
 	// does: caller's model, else the persisted override's model, else
 	// genuinely unknown (empty — there is no further fallback).
 	effectiveModel := strings.TrimSpace(payload.Model)

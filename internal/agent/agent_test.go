@@ -282,18 +282,22 @@ func TestEffortSources(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
-		provider string
-		want     EffortSource
+		provider         string
+		want             EffortSource
+		validateOnLaunch bool
 	}{
 		{provider: "claude", want: EffortSourceClaudeHelp},
-		{provider: "codex", want: EffortSourceCodexCache},
+		{provider: "codex", want: EffortSourceCodexCache, validateOnLaunch: true},
 		{provider: "pi", want: EffortSourcePiHelp},
-		{provider: "opencode", want: EffortSourceOpenCodeModels},
+		{provider: "opencode", want: EffortSourceOpenCodeModels, validateOnLaunch: true},
 		{provider: "unknown", want: EffortSourceNone},
 	} {
 		got := SpecOf(tt.provider).Efforts
 		if got != tt.want {
 			t.Errorf("SpecOf(%q).Efforts.Source = %q, want %q", tt.provider, got, tt.want)
+		}
+		if got := SpecOf(tt.provider).ValidateEffortsOnLaunch; got != tt.validateOnLaunch {
+			t.Errorf("SpecOf(%q).ValidateEffortsOnLaunch = %v, want %v", tt.provider, got, tt.validateOnLaunch)
 		}
 	}
 }
@@ -302,19 +306,21 @@ func TestValidateReasoningEffort(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
-		name    string
-		effort  string
-		levels  []string
-		wantErr string
+		name     string
+		provider string
+		effort   string
+		levels   []string
+		wantErr  string
 	}{
-		{name: "empty effort", levels: []string{"low"}},
-		{name: "unknown model passes through", effort: "future", levels: nil},
-		{name: "reported value", effort: "high", levels: []string{"low", "high"}},
-		{name: "unreported value rejected", effort: "minimal", levels: []string{"low", "high"}, wantErr: "supported: low, high"},
+		{name: "empty effort", provider: "codex", levels: []string{"low"}},
+		{name: "unknown model passes through", provider: "codex", effort: "future", levels: nil},
+		{name: "reported value", provider: "codex", effort: "high", levels: []string{"low", "high"}},
+		{name: "unreported value rejected", provider: "codex", effort: "minimal", levels: []string{"low", "high"}, wantErr: "supported: low, high"},
+		{name: "OpenCode off matches none", provider: "opencode", effort: "off", levels: []string{"none", "low"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateReasoningEffort("codex", "gpt-6-luna", tt.effort, tt.levels)
+			err := ValidateReasoningEffort(tt.provider, "gpt-6-luna", tt.effort, tt.levels)
 			if tt.wantErr == "" && err != nil {
 				t.Fatalf("ValidateReasoningEffort() = %v, want nil", err)
 			}

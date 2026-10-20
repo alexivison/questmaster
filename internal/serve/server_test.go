@@ -1408,8 +1408,8 @@ func TestServerReasoningEffortsTopicServesLevelsForOneAgentAndModel(t *testing.T
 // reasoning_efforts requests at the same time, so the very first
 // reasoning_efforts call for a row goes out with an empty model (the model
 // request hasn't resolved yet). If that empty model were read literally,
-// "max" (only valid for codex's gpt-5.6-* models) would be missing from
-// Efforts even though it's exactly the persisted override — reproducing a
+// model-specific levels would be missing from Efforts even though they are
+// exactly the persisted override — reproducing a
 // real incident where confirming Settings without touching that row silently
 // cleared its already-configured reasoning effort.
 func TestServerReasoningEffortsTopicUsesPersistedModelWhenCallerModelIsEmpty(t *testing.T) {
@@ -1775,6 +1775,71 @@ func TestServerRoleDefaultSetMutationValidatesAndPersists(t *testing.T) {
 
 	cancel()
 	if err := <-errc; err != nil {
+		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerRoleDefaultSetClearsCarriedEffortWhenModelChanges(t *testing.T) {
+	env := seedServeFixture(t)
+	defaults := state.NewRoleDefaultsStore(env.store.Root())
+	if err := defaults.Set("codex", "master", state.RoleDefault{Model: "gpt-6-sol", ReasoningEffort: "ultra"}); err != nil {
+		t.Fatalf("seed role default: %v", err)
+	}
+	socketPath := tempSocketPath(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	srv := &Server{
+		SocketPath:     socketPath,
+		Snapshotter:    NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		ClockInterval:  time.Hour,
+		MutationRunner: &recordingMutationRunner{},
+		ReasoningEfforts: func(_ context.Context, agentName, model string) []string {
+			if agentName == "codex" && model == "gpt-6-luna" {
+				return []string{"low", "medium", "high", "xhigh", "max"}
+			}
+			return nil
+		},
+	}
+	errC := serveInBackground(t, ctx, srv, socketPath)
+
+	response := sendMutation(t, socketPath, map[string]any{
+		"id":     "role-default-model-switch",
+		"method": "role_default.set",
+		"data": map[string]any{
+			"agent":            "codex",
+			"role":             "master",
+			"model":            "gpt-6-luna",
+			"reasoning_effort": "ultra",
+		},
+	})
+	if !envelopeContains(response, `"model":"gpt-6-luna"`) || !envelopeContains(response, `"reasoning_effort":""`) {
+		t.Fatalf("role_default.set model switch response = %#v, want gpt-6-luna with cleared effort", response)
+	}
+	if def, ok, err := defaults.Get("codex", "master"); err != nil || !ok || def.Model != "gpt-6-luna" || def.ReasoningEffort != "" {
+		t.Fatalf("persisted role default = %+v ok=%v err=%v, want gpt-6-luna with cleared effort", def, ok, err)
+	}
+	if err := defaults.Set("codex", "worker", state.RoleDefault{Model: "gpt-6-sol", ReasoningEffort: "ultra"}); err != nil {
+		t.Fatalf("seed worker role default: %v", err)
+	}
+	newEffort := sendRawMutation(t, socketPath, map[string]any{
+		"id":     "role-default-new-invalid-effort",
+		"method": "role_default.set",
+		"data": map[string]any{
+			"agent":            "codex",
+			"role":             "worker",
+			"model":            "gpt-6-luna",
+			"reasoning_effort": "minimal",
+		},
+	})
+	if newEffort.OK == nil || *newEffort.OK || !strings.Contains(newEffort.Error, "supported: low, medium, high, xhigh, max") {
+		t.Fatalf("role_default.set with newly chosen invalid effort = %#v, want validation error", newEffort)
+	}
+	if def, ok, err := defaults.Get("codex", "worker"); err != nil || !ok || def.Model != "gpt-6-sol" || def.ReasoningEffort != "ultra" {
+		t.Fatalf("worker role default = %+v ok=%v err=%v, want original value after rejection", def, ok, err)
+	}
+
+	cancel()
+	if err := <-errC; err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
 }
