@@ -396,18 +396,21 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// Every gap in a list, idle: plain sessions 20 apart, 10 after a session's expanded workers and after its collapsed
-    /// row of circles, and 20 between projects even after a session with workers. Project one has a plain session, one
-    /// with two expanded workers, two plain ones with a collapsed row of three between them; project two ends on a
-    /// session with a collapsed row; project three has one plain session.
+    /// Every gap in a list, all `TrackerListMetrics.spacing`: between plain sessions, after a session's expanded workers
+    /// and its collapsed row of circles, between projects, and after a session whose cast row is open. Project one has a
+    /// plain session, one with two expanded workers, a plain one casting Bash (its cast row open), a plain one with a
+    /// collapsed row of three, and a plain one; project two ends on a session with a collapsed row; project three has
+    /// one plain session.
     @MainActor
     private static func trackerListGapsView() -> some View {
         let colors = ["Dotfiles": "lime", "Questmaster": "yellow", "Scry": "blue"]
         func session(_ id: String, _ repo: String, role: String = "master", parent: String = "") -> TrackerSession {
-            TrackerSession(
+            let casting = id == "a3"
+            return TrackerSession(
                 id: id, title: role == "worker" ? "worker-title" : "Session Title", repoName: repo, displayColor: colors[repo] ?? "lime",
-                agent: "codex", role: role, state: "idle",
-                snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...", parentID: parent
+                agent: "codex", role: role, state: casting ? "working" : "idle",
+                snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...", parentID: parent,
+                cast: casting ? TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2), typicalMS: 6000) : nil
             )
         }
         func workers(_ parent: String, _ repo: String, _ count: Int) -> [TrackerSession] {

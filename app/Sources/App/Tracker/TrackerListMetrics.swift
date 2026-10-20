@@ -11,27 +11,16 @@ enum TrackerListMetrics {
     /// session panel lands on that line; the list below it starts `selectedPanelGap` lower.
     static let firstSectionTopInset: CGFloat = 0
     /// From the selected-session panel's bottom edge (its 76pt canvas) to the first row's top, the first disc's top edge.
-    /// The master's crown pieces reach 2pt above it, so they start 35pt below the panel.
-    static let selectedPanelGap: CGFloat = 37
+    /// The master's crown pieces reach 2pt above it, so they start 38pt below the panel.
+    static let selectedPanelGap: CGFloat = 40
     static let verticalPadding: CGFloat = 20
-    /// Between project groups, from the bottom of one group's last item to the top of the next group's first.
-    static let sectionSpacing: CGFloat = 20
-    /// Between top-level items with no workers under them. Every gap runs from the visible bottom of the item above, its
-    /// disc or its collapsed workers' circles, to the top of the next disc, and each row is exactly that tall, so the
-    /// spacing is the gap.
-    static let itemSpacing: CGFloat = 20
-    /// Between a master and its workers, and between the workers.
-    static let masterBlockSpacing: CGFloat = 10
-    /// After a session's workers, its last expanded worker or its collapsed row of circles, to the next session in the
-    /// project. The gap between project groups stays `sectionSpacing`.
-    static let afterWorkersSpacing: CGFloat = 10
+    /// Every gap in the list (2026-10-21): between project groups, between sessions, from a master to its workers and
+    /// between workers, and after a session's workers. Each runs from the visible bottom of the item above (its disc, its
+    /// collapsed workers' circles, or its open cast row) to the top of the next disc, and each row is exactly that tall,
+    /// so the spacing is the gap.
+    static let spacing: CGFloat = 10
     /// The widest tracker content: the selected-session panel and the master plate, both 277pt, and the plate band
     /// that reaches past their right edge, which the list's scroll view would otherwise clip. The tracker column is sized
     /// to it plus the leading `sidePadding`.
     static let contentWidth: CGFloat = SelectedSessionPanel.canvasSize.width + TrackerPlateDesign.glowBandWidth
-
-    /// The gap above a session in a project, from the one before it.
-    static func gap(afterSessionWithWorkers hasWorkers: Bool) -> CGFloat {
-        hasWorkers ? afterWorkersSpacing : itemSpacing
-    }
 }

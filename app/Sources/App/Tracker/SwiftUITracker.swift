@@ -340,7 +340,7 @@ struct TrackerRootView: View {
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.sectionSpacing)
+                            .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.spacing)
                             .padding(.bottom, index == repos.count - 1 ? TrackerListMetrics.verticalPadding : 0)
                         }
                     }
@@ -895,8 +895,8 @@ private struct TrackerRepoSection: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { index, group in
                 let isCollapsed = !expandedMasterIDs.contains(group.root.session.id)
-                let gapAbove = index == 0 ? 0 : TrackerListMetrics.gap(afterSessionWithWorkers: !repo.groups[index - 1].workers.isEmpty)
-                VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
+                let gapAbove = index == 0 ? 0 : TrackerListMetrics.spacing
+                VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
                     TrackerSessionRow(
                         rendered: group.root,
                         projectName: projectName,
@@ -1832,8 +1832,8 @@ private struct TrackerSkeletonPlaceholder: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TrackerListMetrics.gap(afterSessionWithWorkers: true)) {
-            VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
+        VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
+            VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
                 placeholder(role: .master)
                 placeholder(role: .worker)
                 placeholder(role: .worker)

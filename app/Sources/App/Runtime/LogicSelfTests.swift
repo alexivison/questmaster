@@ -451,15 +451,11 @@ enum LogicSelfTests {
         }
 
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
-        try expectClose(TrackerListMetrics.sectionSpacing, 20, "gap between project groups")
-        try expectClose(TrackerListMetrics.itemSpacing, 20, "gap between top-level sessions")
-        try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers, and between workers")
-        try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: true), 10, "gap after a session's workers or its collapsed row")
-        try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: false), 20, "gap after a session with no workers")
+        try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
         try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the panel's and its band's")
         try expectClose(SelectedSessionPanel.canvasSize.width, TrackerPlateDesign.topLevelSize.width, "selected-session panel width, the master plate's")
         try expectClose(SelectedSessionPanel.canvasSize.height, 76, "selected-session panel height")
-        try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
+        try expectClose(TrackerListMetrics.selectedPanelGap, 40, "gap between the selected-session panel and the first disc")
 
         // The collapsed workers hang a point below the disc's bottom edge, 40 right of its left edge, and fill the plate's width.
         let discLeft = TrackerNameplateRole.master.portraitOrigin.x
