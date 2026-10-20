@@ -8,113 +8,66 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
 	"github.com/alexivison/questmaster/internal/agent"
 )
 
-// EffortProbe reads the harness-owned source for effort levels. Tests inject
-// fixture bytes here so they never inspect a real home directory or CLI.
+// EffortProbe lets tests supply harness-source fixtures.
 type EffortProbe func(context.Context, agent.EffortSource) ([]byte, error)
 
 type EffortResolver struct {
 	probe EffortProbe
 	mu    sync.Mutex
-	locks map[agent.EffortSource]*sync.Mutex
-	cache map[agent.EffortSource]effortProbeResult
-}
-
-type effortProbeResult struct {
-	levels []string
-	models map[string][]string
-	err    error
-}
-
-func (r effortProbeResult) forModel(model string) []string {
-	if r.models != nil {
-		return r.models[model]
-	}
-	return r.levels
+	cache map[agent.EffortSource]map[string][]string
 }
 
 // NewEffortResolver creates a resolver with an optional harness-source probe.
-// A nil probe uses the declared source for each built-in harness.
 func NewEffortResolver(probe EffortProbe) *EffortResolver {
 	if probe == nil {
 		probe = probeReasoningEfforts
 	}
 	return &EffortResolver{
 		probe: probe,
-		locks: make(map[agent.EffortSource]*sync.Mutex),
-		cache: make(map[agent.EffortSource]effortProbeResult),
+		cache: make(map[agent.EffortSource]map[string][]string),
 	}
 }
 
-// Resolve returns only levels reported for this agent and model. Missing
-// sources, unknown models and probe failures return no data so callers pass
-// the requested effort through to the harness.
 func (r *EffortResolver) Resolve(ctx context.Context, agentName, model string) []string {
 	source := agent.SpecOf(strings.ToLower(strings.TrimSpace(agentName))).Efforts
 	if source == agent.EffortSourceNone {
 		return nil
 	}
-	result := r.source(ctx, source)
-	if result.err != nil {
-		return nil
-	}
-	return result.forModel(strings.TrimSpace(model))
-}
-
-func (r *EffortResolver) source(ctx context.Context, source agent.EffortSource) effortProbeResult {
-	if source == agent.EffortSourceCodexCache {
-		return r.probeAndParse(ctx, source)
-	}
-	r.mu.Lock()
-	if result, ok := r.cache[source]; ok {
-		r.mu.Unlock()
-		return result
-	}
-	lock := r.locks[source]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		r.locks[source] = lock
-	}
-	r.mu.Unlock()
-	lock.Lock()
-	defer lock.Unlock()
-
-	r.mu.Lock()
-	if result, ok := r.cache[source]; ok {
-		r.mu.Unlock()
-		return result
-	}
-	r.mu.Unlock()
-	result := r.probeAndParse(ctx, source)
-	err := result.err
-	if ctx.Err() == nil && err == nil {
+	if source != agent.EffortSourceCodexCache {
 		r.mu.Lock()
-		r.cache[source] = result
-		r.mu.Unlock()
+		defer r.mu.Unlock()
+		if cached, ok := r.cache[source]; ok {
+			if levels, ok := cached[strings.TrimSpace(model)]; ok {
+				return levels
+			}
+			return cached[""]
+		}
 	}
-	return result
-}
-
-func (r *EffortResolver) probeAndParse(ctx context.Context, source agent.EffortSource) effortProbeResult {
 	data, err := r.probe(ctx, source)
 	if err != nil {
-		return effortProbeResult{err: err}
+		return nil
 	}
-	result, err := parseEffortSource(source, data)
-	result.err = err
-	return result
+	efforts, err := parseEffortSource(source, data)
+	if err != nil {
+		return nil
+	}
+	if source != agent.EffortSourceCodexCache && ctx.Err() == nil {
+		r.cache[source] = efforts
+	}
+	if levels, ok := efforts[strings.TrimSpace(model)]; ok {
+		return levels
+	}
+	return efforts[""]
 }
 
 var defaultEffortResolver = NewEffortResolver(nil)
 
-// ResolveReasoningEfforts uses the process-wide source cache used by serve
-// and session launch commands.
 func ResolveReasoningEfforts(ctx context.Context, agentName, model string) []string {
 	return defaultEffortResolver.Resolve(ctx, agentName, model)
 }
@@ -129,40 +82,26 @@ func probeReasoningEfforts(ctx context.Context, source agent.EffortSource) ([]by
 				return nil, err
 			}
 			root = filepath.Join(home, ".codex")
-		} else if root == "~" || strings.HasPrefix(root, "~/") {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, err
-			}
-			root = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(root, "~"), string(filepath.Separator)))
 		}
 		return os.ReadFile(filepath.Join(root, "models_cache.json"))
-	case agent.EffortSourceClaudeHelp, agent.EffortSourcePiHelp, agent.EffortSourceOpenCodeModels:
-		name, args := effortCommand(source)
-		binary, ok := probeBinary(name)
-		if !ok {
-			return nil, fmt.Errorf("%s binary not found", name)
-		}
-		return runEffortProbe(ctx, binary, args...)
-	default:
-		return nil, fmt.Errorf("unknown reasoning-effort source %q", source)
 	}
-}
-
-func effortCommand(source agent.EffortSource) (string, []string) {
+	var name string
+	var args []string
 	switch source {
 	case agent.EffortSourceClaudeHelp:
-		return "claude", []string{"--help"}
+		name, args = "claude", []string{"--help"}
 	case agent.EffortSourcePiHelp:
-		return "pi", []string{"--help"}
+		name, args = "pi", []string{"--help"}
 	case agent.EffortSourceOpenCodeModels:
-		return "opencode", []string{"models", "--verbose"}
-	default:
-		return "", nil
+		name, args = "opencode", []string{"models", "--verbose"}
 	}
-}
-
-func runEffortProbe(ctx context.Context, binary string, args ...string) ([]byte, error) {
+	if name == "" {
+		return nil, fmt.Errorf("unknown reasoning-effort source %q", source)
+	}
+	binary, ok := probeBinary(name)
+	if !ok {
+		return nil, fmt.Errorf("%s binary not found", name)
+	}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, binary, args...).CombinedOutput()
@@ -172,7 +111,7 @@ func runEffortProbe(ctx context.Context, binary string, args ...string) ([]byte,
 	return out, nil
 }
 
-func parseEffortSource(source agent.EffortSource, data []byte) (effortProbeResult, error) {
+func parseEffortSource(source agent.EffortSource, data []byte) (map[string][]string, error) {
 	switch source {
 	case agent.EffortSourceCodexCache:
 		var cache struct {
@@ -184,57 +123,43 @@ func parseEffortSource(source agent.EffortSource, data []byte) (effortProbeResul
 			} `json:"models"`
 		}
 		if err := json.Unmarshal(data, &cache); err != nil {
-			return effortProbeResult{}, err
+			return nil, err
 		}
 		models := make(map[string][]string, len(cache.Models))
 		for _, entry := range cache.Models {
 			if entry.Slug == "" {
 				continue
 			}
-			models[entry.Slug] = nonEmptyEffortValues(len(entry.Supported), func(i int) string { return entry.Supported[i].Effort })
+			for _, supported := range entry.Supported {
+				if effort := strings.TrimSpace(supported.Effort); effort != "" {
+					models[entry.Slug] = append(models[entry.Slug], effort)
+				}
+			}
 		}
-		return effortProbeResult{models: models}, nil
+		return models, nil
 	case agent.EffortSourceClaudeHelp:
-		return effortProbeResult{levels: helpList(data, "--effort", "(")}, nil
+		return map[string][]string{"": helpList(data)}, nil
 	case agent.EffortSourcePiHelp:
-		return effortProbeResult{levels: piThinkingList(data)}, nil
+		return map[string][]string{"": piThinkingList(data)}, nil
 	case agent.EffortSourceOpenCodeModels:
-		return effortProbeResult{models: openCodeEffortMap(data)}, nil
+		return openCodeEffortMap(data), nil
 	default:
-		return effortProbeResult{}, fmt.Errorf("unknown reasoning-effort source %q", source)
+		return nil, fmt.Errorf("unknown reasoning-effort source %q", source)
 	}
 }
 
-func parseReasoningEfforts(source agent.EffortSource, model string, data []byte) ([]string, error) {
-	result, err := parseEffortSource(source, data)
-	if err != nil {
-		return nil, err
-	}
-	return result.forModel(model), nil
-}
-
-func nonEmptyEffortValues(count int, value func(int) string) []string {
-	values := make([]string, 0, count)
-	for i := 0; i < count; i++ {
-		if v := strings.TrimSpace(value(i)); v != "" {
-			values = append(values, v)
-		}
-	}
-	return values
-}
-
-func helpList(data []byte, flag, opener string) []string {
+func helpList(data []byte) []string {
 	text := string(data)
-	start := strings.Index(text, flag)
+	start := strings.Index(text, "--effort")
 	if start < 0 {
 		return nil
 	}
-	start += len(flag)
-	openOffset := strings.Index(text[start:], opener)
+	start += len("--effort")
+	openOffset := strings.IndexByte(text[start:], '(')
 	if openOffset < 0 {
 		return nil
 	}
-	start += openOffset + len(opener)
+	start += openOffset + 1
 	end := strings.IndexByte(text[start:], ')')
 	if end < 0 {
 		return nil
@@ -276,68 +201,32 @@ func splitEffortValues(value string) []string {
 func openCodeEffortMap(data []byte) map[string][]string {
 	models := make(map[string][]string)
 	for offset := 0; offset < len(data); {
-		start := bytes.IndexAny(data[offset:], "{[")
-		if start < 0 {
-			return models
+		lineEnd := bytes.IndexByte(data[offset:], '\n')
+		if lineEnd < 0 {
+			break
 		}
-		start += offset
-		decoder := json.NewDecoder(bytes.NewReader(data[start:]))
-		var value json.RawMessage
-		if err := decoder.Decode(&value); err != nil {
-			offset = start + 1
+		lineEnd += offset
+		model := strings.TrimSpace(string(data[offset:lineEnd]))
+		nextLine := lineEnd + 1
+		offset = nextLine
+		if model == "" || probeModelID(model) != model {
 			continue
 		}
-		collectOpenCodeEfforts(value, "", models)
-		offset = start + int(decoder.InputOffset())
+		decoder := json.NewDecoder(bytes.NewReader(data[nextLine:]))
+		var modelInfo struct {
+			Variants json.RawMessage `json:"variants"`
+		}
+		if err := decoder.Decode(&modelInfo); err != nil {
+			continue
+		}
+		if efforts := openCodeVariantNames(modelInfo.Variants); len(efforts) > 0 {
+			models[model] = efforts
+		}
+		if consumed := int(decoder.InputOffset()); consumed > 0 {
+			offset = nextLine + consumed
+		}
 	}
 	return models
-}
-
-func collectOpenCodeEfforts(raw json.RawMessage, inheritedID string, models map[string][]string) {
-	var object map[string]json.RawMessage
-	if json.Unmarshal(raw, &object) == nil && object != nil {
-		if variants, ok := object["variants"]; ok {
-			provider := jsonString(object, "providerID", "provider")
-			modelID := jsonString(object, "modelID", "model", "id")
-			if modelID == "" {
-				modelID = inheritedID
-			}
-			qualified := modelID
-			if !strings.Contains(qualified, "/") && provider != "" {
-				qualified = provider + "/" + qualified
-			}
-			if qualified != "" {
-				models[qualified] = openCodeVariantNames(variants)
-			}
-		}
-		keys := make([]string, 0, len(object))
-		for key := range object {
-			if key != "variants" {
-				keys = append(keys, key)
-			}
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			collectOpenCodeEfforts(object[key], key, models)
-		}
-		return
-	}
-	var values []json.RawMessage
-	if json.Unmarshal(raw, &values) == nil {
-		for _, value := range values {
-			collectOpenCodeEfforts(value, inheritedID, models)
-		}
-	}
-}
-
-func jsonString(object map[string]json.RawMessage, names ...string) string {
-	for _, name := range names {
-		var value string
-		if json.Unmarshal(object[name], &value) == nil && value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func openCodeVariantNames(raw json.RawMessage) []string {
