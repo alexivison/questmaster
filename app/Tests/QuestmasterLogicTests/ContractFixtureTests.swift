@@ -58,7 +58,7 @@ struct ContractFixtureTests {
         let reasoningEfforts = try decodeFixture(ReasoningEffortsFixture.self, "reasoning_efforts_payload.json")
         expect(reasoningEfforts.agent == "codex" && reasoningEfforts.role == "master", "reasoning_efforts agent/role did not decode")
         expect(reasoningEfforts.defaultEffort == "xhigh", "reasoning_efforts default did not decode")
-        expect(reasoningEfforts.efforts == ["minimal", "low", "medium", "high", "xhigh"], "reasoning_efforts levels did not decode")
+        expect(reasoningEfforts.efforts == ["low", "medium", "high", "xhigh", "max"], "reasoning_efforts levels did not decode")
         // The picker consumes the payload as SessionReasoningEffortOption
         // values, so the wire rows must map onto that type without loss.
         let effortOptions = reasoningEfforts.efforts.map { SessionReasoningEffortOption(id: $0, label: $0) }

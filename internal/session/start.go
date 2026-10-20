@@ -110,6 +110,10 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 		resolvedAgentCLIs := make(map[agent.Role]string, len(bindings))
 		for _, binding := range bindings {
+			cli, resolvedPath, ok := resolveAgentBinary(binding.Agent, agentPath)
+			if !ok {
+				return StartResult{}, agentBinaryNotFoundError(binding.Agent)
+			}
 			if binding.Role == agent.RolePrimary {
 				if resolvedModel == "" || resolvedReasoningEffort == "" {
 					if def, ok, _ := state.NewRoleDefaultsStore(s.Store.Root()).Get(binding.Agent.Name(), agent.RoleDefaultsKey(agentRole)); ok {
@@ -121,13 +125,13 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 						}
 					}
 				}
-				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), resolvedModel, resolvedReasoningEffort); err != nil {
+				var supportedEfforts []string
+				if resolvedReasoningEffort != "" && strings.TrimSpace(resolvedModel) != "" && s.ReasoningEfforts != nil && agent.SpecOf(binding.Agent.Name()).EffortModel != agent.EffortSourceNone {
+					supportedEfforts = s.ReasoningEfforts(ctx, binding.Agent.Name(), resolvedModel, cli)
+				}
+				if err := agent.ValidateReasoningEffort(binding.Agent.Name(), resolvedModel, resolvedReasoningEffort, supportedEfforts); err != nil {
 					return StartResult{}, err
 				}
-			}
-			cli, resolvedPath, ok := resolveAgentBinary(binding.Agent, agentPath)
-			if !ok {
-				return StartResult{}, agentBinaryNotFoundError(binding.Agent)
 			}
 			if binding.Role == agent.RolePrimary && binding.Agent.Name() == "opencode" && opts.ReasoningEffort != "" {
 				if err := agent.ValidateOpenCodeReasoningVersion(cli); err != nil {

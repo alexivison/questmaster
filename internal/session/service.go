@@ -2,6 +2,7 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -21,6 +22,9 @@ type Service struct {
 	Client   *tmux.Client
 	RepoRoot string
 	Registry *agent.Registry
+	// ReasoningEfforts resolves model-specific levels before launch using the
+	// resolved CLI binary.
+	ReasoningEfforts func(context.Context, string, string, string) []string
 
 	// CLIResolver resolves the questmaster launch command. Defaults to config.ResolveQuestmasterCmd.
 	CLIResolver func(repoRoot string) (string, error)

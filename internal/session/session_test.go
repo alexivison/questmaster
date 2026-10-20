@@ -743,6 +743,14 @@ func TestStart_CodexReasoningEffortValidatesAgainstPersistedModel(t *testing.T) 
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	svc.Registry = registry
+	var probedBinary string
+	svc.ReasoningEfforts = func(_ context.Context, agentName, model, binary string) []string {
+		if agentName == "codex" && model == "gpt-5.4" {
+			probedBinary = binary
+			return []string{"low", "medium", "high", "xhigh"}
+		}
+		return nil
+	}
 
 	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("codex", "master", state.RoleDefault{Model: "gpt-5.4"}); err != nil {
 		t.Fatalf("seed role default: %v", err)
@@ -750,11 +758,80 @@ func TestStart_CodexReasoningEffortValidatesAgainstPersistedModel(t *testing.T) 
 
 	started := len(runner.sessions)
 	if _, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Prompt: "invalid effort for persisted model", ReasoningEffort: "max"}); err == nil ||
-		!strings.Contains(err.Error(), "supported: minimal, low, medium, high, xhigh") {
+		!strings.Contains(err.Error(), "supported: low, medium, high, xhigh") {
 		t.Fatalf("Start(persisted gpt-5.4, max) = %v, want a validation error against the persisted model", err)
 	}
 	if len(runner.sessions) != started {
 		t.Fatalf("invalid effort against a persisted model must fail before creating a tmux session: %+v", runner.sessions)
+	}
+	if probedBinary != "/bin/sh" {
+		t.Fatalf("effort probe binary = %q, want configured CLI /bin/sh", probedBinary)
+	}
+}
+
+func TestStartSkipsHelpOnlyEffortValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, agentName := range []string{"claude", "pi"} {
+		t.Run(agentName, func(t *testing.T) {
+			t.Parallel()
+			svc, _ := setupService(t)
+			registry, err := agent.NewRegistry(&agent.Config{
+				Agents: map[string]agent.AgentConfig{agentName: {CLI: "/bin/sh"}},
+				Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: agentName, Window: 0}},
+			})
+			if err != nil {
+				t.Fatalf("NewRegistry: %v", err)
+			}
+			svc.Registry = registry
+			calls := 0
+			svc.ReasoningEfforts = func(context.Context, string, string, string) []string {
+				calls++
+				return []string{"low"}
+			}
+			if _, err := svc.Start(t.Context(), StartOpts{
+				Cwd:             t.TempDir(),
+				Model:           "future-model",
+				ReasoningEffort: "unreported",
+			}); err != nil {
+				t.Fatalf("Start(%s, unreported effort) = %v, want pass-through", agentName, err)
+			}
+			if calls != 0 {
+				t.Fatalf("help-derived effort probes on launch = %d, want 0", calls)
+			}
+		})
+	}
+}
+
+func TestStartSkipsDefaultModelEffortValidationWhenModelIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	registry, err := agent.NewRegistry(&agent.Config{
+		Agents: map[string]agent.AgentConfig{"codex": {CLI: "/bin/sh"}},
+		Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: "codex", Window: 0}},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	svc.Registry = registry
+	calls := 0
+	svc.ReasoningEfforts = func(context.Context, string, string, string) []string {
+		calls++
+		return []string{"low"}
+	}
+	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), ReasoningEffort: "custom"})
+	if err != nil {
+		t.Fatalf("Start(empty model, custom effort) = %v, want pass-through", err)
+	}
+	if calls != 0 {
+		t.Fatalf("default-model effort probes on launch = %d, want 0", calls)
+	}
+	if launch := findLaunchArgContaining(runner, "custom"); !strings.Contains(launch, `model_reasoning_effort="custom"`) {
+		t.Fatalf("unvalidated empty-model effort was not passed through: %q", launch)
+	}
+	if !runner.sessions[result.SessionID] {
+		t.Fatalf("expected tmux session %q", result.SessionID)
 	}
 }
 
@@ -2696,6 +2773,21 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	svc.Registry = registry
+	svc.ReasoningEfforts = func(_ context.Context, agentName, model, _ string) []string {
+		if agentName != "codex" {
+			return nil
+		}
+		switch model {
+		case "gpt-5.6-terra":
+			return []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+		case "gpt-5.4":
+			return []string{"low", "medium", "high", "xhigh"}
+		case "gpt-6-luna":
+			return []string{"low", "medium", "high", "xhigh", "max"}
+		default:
+			return nil
+		}
+	}
 	cwd := t.TempDir()
 	createTestManifest(t, svc.Store, "qm-master", "master", cwd, "master")
 	if err := state.NewRoleDefaultsStore(svc.Store.Root()).Set("codex", "worker", state.RoleDefault{Model: "gpt-5.6-terra"}); err != nil {
@@ -2724,11 +2816,29 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 	}
 
 	started := len(runner.sessions)
-	if _, err := svc.Start(t.Context(), StartOpts{Title: "old", Cwd: cwd, MasterID: "qm-master", Model: "gpt-5.4", ReasoningEffort: "max"}); err == nil || !strings.Contains(err.Error(), "supported: minimal, low, medium, high, xhigh") {
+	if _, err := svc.Start(t.Context(), StartOpts{Title: "old", Cwd: cwd, MasterID: "qm-master", Model: "gpt-5.4", ReasoningEffort: "max"}); err == nil || !strings.Contains(err.Error(), "supported: low, medium, high, xhigh") {
 		t.Fatalf("Start(Codex gpt-5.4, max) = %v", err)
 	}
 	if len(runner.sessions) != started {
 		t.Fatalf("invalid gpt-5.4 effort must fail before creating a tmux session: %+v", runner.sessions)
+	}
+	if _, err := svc.Start(t.Context(), StartOpts{Title: "bad effort", Cwd: cwd, MasterID: "qm-master", Model: "gpt-6-luna", ReasoningEffort: "minimal"}); err == nil || !strings.Contains(err.Error(), "supported: low, medium, high, xhigh, max") {
+		t.Fatalf("Start(Codex gpt-6-luna, minimal) = %v, want cache-reported levels", err)
+	}
+	if len(runner.sessions) != started {
+		t.Fatalf("invalid gpt-6-luna effort must fail before creating a tmux session: %+v", runner.sessions)
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{Title: "unknown model", Cwd: cwd, MasterID: "qm-master", Model: "future-model", ReasoningEffort: "minimal"})
+	if err != nil {
+		t.Fatalf("Start(Codex with no reported levels) = %v, want pass-through", err)
+	}
+	launch := findLaunchArgContaining(runner, "minimal")
+	if !strings.Contains(launch, `model_reasoning_effort="minimal"`) {
+		t.Fatalf("unknown-model effort was not passed through: %q", launch)
+	}
+	if !runner.sessions[result.SessionID] {
+		t.Fatalf("expected tmux session %q", result.SessionID)
 	}
 }
 

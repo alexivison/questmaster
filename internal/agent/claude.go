@@ -19,6 +19,7 @@ var claudeSpec = Spec{
 	EnvVar:         "CLAUDE_SESSION_ID",
 	BinaryEnvVar:   "CLAUDE_BIN",
 	FallbackPath:   "~/.local/bin/claude",
+	Efforts:        EffortSourceClaudeHelp,
 	Models: ModelPolicy{
 		Sources: []ModelSource{{Catalog: "anthropic"}},
 	},

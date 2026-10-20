@@ -12,6 +12,7 @@ struct RoleDefaultsLogicTests {
         rowDirtyTrackingReflectsUnsavedChanges()
         markSavedBaselinesOnSentValuesNotTheLiveSelection()
         settingRowOptionsOnlyAffectsThatRow()
+        backendClearingUnsupportedEffortUpdatesTheRow()
         focusNavigationStaysWithinTheActiveTab()
         moveTabSwitchesAgentAndResetsFocus()
         cyclingFocusedValueAffectsOnlyTheFocusedField()
@@ -56,12 +57,12 @@ struct RoleDefaultsLogicTests {
 
     private static func effortSelectStartsUnconfiguredAndTakesResolvedOptions() {
         var row = RoleDefaultRow(agent: "codex", role: "master")
-        row.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "")
+        row.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "")
         expect(row.effortOptions.count == 5, "every supported level should be a plain, unfiltered option")
         expect(row.selectedEffortOption == nil, "resolving with no persisted default should leave nothing selected")
 
         row.cycleEffort(1)
-        expect(row.selectedReasoningEffort == "minimal", "cycling should select the first resolved level")
+        expect(row.selectedReasoningEffort == "low", "cycling should select the first resolved level")
         row.cycleEffort(-1)
         expect(row.selectedReasoningEffort.isEmpty, "cycling back should return to nothing selected")
     }
@@ -91,12 +92,12 @@ struct RoleDefaultsLogicTests {
 
     private static func effortSelectSeedsOntoAPersistedDefaultOnFirstResolveOnly() {
         var row = RoleDefaultRow(agent: "codex", role: "master")
-        row.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "high")
+        row.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "high")
         expect(row.selectedReasoningEffort == "high", "a persisted default should seed the selection on first resolve")
         expect(row.effortOptions.filter { $0.id == "high" }.count == 1, "levels are never filtered or deduped against the default")
 
         var untouched = RoleDefaultRow(agent: "codex", role: "master")
-        untouched.setEffortOptions(["minimal", "low", "medium", "high", "xhigh"], defaultLevel: "")
+        untouched.setEffortOptions(["low", "medium", "high", "xhigh", "max"], defaultLevel: "")
         expect(untouched.selectedEffortOption == nil, "with no persisted default, resolving should leave nothing selected")
     }
 
@@ -135,7 +136,12 @@ struct RoleDefaultsLogicTests {
         expect(row.isEffortDirty && row.isDirty, "changing the effort selection should mark the row dirty")
         expect(!row.isModelDirty, "the model field itself did not change")
 
-        row.markSaved(model: row.selectedModel, reasoningEffort: row.selectedReasoningEffort)
+        row.markSaved(
+            model: row.selectedModel,
+            reasoningEffort: row.selectedReasoningEffort,
+            sentModel: row.selectedModel,
+            sentReasoningEffort: row.selectedReasoningEffort
+        )
         expect(!row.isDirty, "markSaved should reset the baseline once a save actually lands")
 
         row.cycleModel(1)
@@ -162,7 +168,7 @@ struct RoleDefaultsLogicTests {
         expect(row.selectedModel == "sonnet", "sanity: the row now shows a newer, unsent choice")
 
         // The in-flight save for the *old* value ("opus") now completes.
-        row.markSaved(model: sentModel, reasoningEffort: row.selectedReasoningEffort)
+        row.markSaved(model: sentModel, reasoningEffort: row.selectedReasoningEffort, sentModel: sentModel, sentReasoningEffort: "")
 
         expect(row.isModelDirty && row.isDirty, "the newer edit must still read as dirty so it gets sent, not silently dropped")
         expect(row.selectedModel == "sonnet", "the newer edit itself must be untouched by the stale save's completion")
@@ -175,6 +181,27 @@ struct RoleDefaultsLogicTests {
         expect(model.rows[0].selectedModel == "opus", "cycling the focused field should select its resolved model")
         expect(model.rows[1].selectedModelOption == nil, "an unrelated row must not be affected")
         expect(model.rows[2].modelOptions.isEmpty, "a different (agent, role) row must not receive another row's options")
+    }
+
+    private static func backendClearingUnsupportedEffortUpdatesTheRow() {
+        var row = RoleDefaultRow(agent: "codex", role: "master")
+        row.setModelOptions(
+            [SessionModelOption(id: "gpt-6-sol", label: "gpt-6-sol"), SessionModelOption(id: "gpt-6-luna", label: "gpt-6-luna")],
+            defaultModel: "gpt-6-sol"
+        )
+        row.setEffortOptions(["low", "ultra"], defaultLevel: "ultra")
+        row.cycleModel(1)
+
+        row.markSaved(
+            model: "gpt-6-luna",
+            reasoningEffort: "",
+            sentModel: "gpt-6-luna",
+            sentReasoningEffort: "ultra"
+        )
+
+        expect(row.selectedModel == "gpt-6-luna", "the switched model should remain selected")
+        expect(row.selectedReasoningEffort.isEmpty, "the backend-cleared unsupported effort should disappear from the row")
+        expect(!row.isDirty, "the backend-cleared values should become the saved baseline")
     }
 
     private static func focusNavigationStaysWithinTheActiveTab() {
