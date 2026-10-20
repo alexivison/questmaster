@@ -222,6 +222,111 @@ func TestHookCastLearnsToolNameFromMatchedStart(t *testing.T) {
 	}
 }
 
+func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
+	base := time.Date(2026, 10, 20, 7, 33, 48, 529000000, time.UTC)
+	tests := []struct {
+		name  string
+		start func(*testing.T, *HookRunner, time.Time)
+		wait  func(*testing.T, *HookRunner, time.Time)
+		end   func(*testing.T, *HookRunner, time.Time)
+	}{
+		{
+			name: "claude",
+			start: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "claude", "tool_start", "qm-cast-wait-claude", map[string]interface{}{
+					"tool_name": "Bash", "tool_use_id": "call-1",
+				})
+			},
+			wait: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "claude", "blocked", "qm-cast-wait-claude", map[string]interface{}{"message": "Approval needed"})
+			},
+			end: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "claude", "tool_end", "qm-cast-wait-claude", map[string]interface{}{"tool_use_id": "call-1"})
+			},
+		},
+		{
+			name: "codex",
+			start: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "codex", "tool_start", "qm-cast-wait-codex", map[string]interface{}{
+					"tool_name": "Bash", "tool_use_id": "call-1",
+				})
+			},
+			wait: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "codex", "permission", "qm-cast-wait-codex", map[string]interface{}{})
+			},
+			end: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "codex", "tool_end", "qm-cast-wait-codex", map[string]interface{}{"tool_use_id": "call-1"})
+			},
+		},
+		{
+			name: "pi",
+			start: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "pi", "tool_execution_start", "qm-cast-wait-pi", map[string]interface{}{
+					"tool_name": "bash", "tool_call_id": "call-1",
+				})
+			},
+			wait: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "pi", "waiting_for_user", "qm-cast-wait-pi", map[string]interface{}{"question": "Continue?"})
+			},
+			end: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runHookWithStdin(r, "pi", "tool_execution_end", "qm-cast-wait-pi", map[string]interface{}{
+					"tool_name": "bash", "tool_call_id": "call-1",
+				})
+			},
+		},
+		{
+			name: "opencode",
+			start: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
+					"tool": "bash", "callID": "call-1",
+				}))
+			},
+			wait: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "permission.asked", map[string]interface{}{}))
+			},
+			end: func(t *testing.T, r *HookRunner, now time.Time) {
+				r.Now = func() time.Time { return now }
+				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{
+					"tool": "bash", "callID": "call-1",
+				}))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			var durations []toolDurationCall
+			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
+				return nil
+			}
+			tc.start(t, r, base)
+			tc.wait(t, r, base.Add(time.Second))
+			pane := rec.lastState.Panes["primary"]
+			if pane.State != "blocked" || len(pane.RunningTools) != 1 || !pane.RunningTools[0].WaitedForInput {
+				t.Fatalf("waiting state = %+v, want blocked with tool marked as user wait", pane)
+			}
+
+			tc.end(t, r, base.Add(10*time.Second))
+			if len(durations) != 0 {
+				t.Fatalf("recorded durations after waiting = %+v, want none", durations)
+			}
+		})
+	}
+}
+
 func TestToolCommandKeyExtractionByHarness(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

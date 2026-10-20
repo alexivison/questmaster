@@ -278,12 +278,15 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		}
 		if patch.kind == "tool.execute.after" {
 			if ended, duration, matched := state.EndRunningTool(&pane, patch.tool, patch.toolCallID, patch.occurredAt); matched {
-				completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration}
+				completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration, waitedForInput: ended.WaitedForInput}
 			}
 		}
 
 		if setState != "" {
 			pane.State = setState
+		}
+		if prev.State != "blocked" && pane.State == "blocked" {
+			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {

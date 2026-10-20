@@ -22,10 +22,11 @@ const (
 )
 
 type RunningTool struct {
-	CallID    string    `json:"call_id,omitempty"`
-	Tool      string    `json:"tool"`
-	Command   string    `json:"command,omitempty"`
-	StartedAt time.Time `json:"started_at"`
+	CallID         string    `json:"call_id,omitempty"`
+	Tool           string    `json:"tool"`
+	Command        string    `json:"command,omitempty"`
+	StartedAt      time.Time `json:"started_at"`
+	WaitedForInput bool      `json:"waited_for_input,omitempty"`
 }
 
 type ToolDurationKey struct {
@@ -116,6 +117,15 @@ func ClearRunningTools(pane *PaneState) {
 	}
 	pane.RunningTools = nil
 	pane.Tool = ""
+}
+
+func MarkRunningToolsWaitedForInput(pane *PaneState) {
+	if pane == nil {
+		return
+	}
+	for i := range pane.RunningTools {
+		pane.RunningTools[i].WaitedForInput = true
+	}
 }
 
 func toolDurationsPath(root string) string {
