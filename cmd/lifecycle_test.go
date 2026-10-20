@@ -250,6 +250,11 @@ func TestStartCmd_ModelAndReasoningEffortReachPrimary(t *testing.T) {
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
+	codexHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(codexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]}]}`), 0o600); err != nil {
+		t.Fatalf("write Codex effort fixture: %v", err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
 
 	var calls []string
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
@@ -259,13 +264,16 @@ func TestStartCmd_ModelAndReasoningEffortReachPrimary(t *testing.T) {
 		}
 		return "", nil
 	}}
-	runCmd(t, store, runner, "start", "--cwd", cwd, "--primary", "codex", "--model", "gpt-5.6-sol", "--reasoning-effort", "ultra")
+	runCmd(t, store, runner, "start", "--cwd", cwd, "--primary", "codex", "--model", "gpt-6-luna", "--reasoning-effort", "max")
 
 	launch := strings.Join(calls, "\n")
-	for _, want := range []string{"--model 'gpt-5.6-sol'", `model_reasoning_effort="ultra"`} {
+	for _, want := range []string{"--model 'gpt-6-luna'", `model_reasoning_effort="max"`} {
 		if !strings.Contains(launch, want) {
 			t.Fatalf("start launch missing %q in:\n%s", want, launch)
 		}
+	}
+	if _, err := runCmdErr(t, store, runner, "start", "--cwd", cwd, "--primary", "codex", "--model", "gpt-6-luna", "--reasoning-effort", "minimal"); err == nil || !strings.Contains(err.Error(), "supported: low, medium, high, xhigh, max") {
+		t.Fatalf("unsupported Codex effort = %v, want the cache-reported levels", err)
 	}
 }
 

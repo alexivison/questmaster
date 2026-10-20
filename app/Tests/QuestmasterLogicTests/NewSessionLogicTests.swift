@@ -233,9 +233,9 @@ struct NewSessionLogicTests {
         expect(model.selectedReasoningEffort.isEmpty, "a claude effort level must not launch on codex")
         expect(model.effortOptions.isEmpty, "the stale list should be dropped with the agent")
 
-        model.setEffortOptions(["minimal", "ultra"], defaultLevel: "xhigh")
+        model.setEffortOptions(["low", "ultra"], defaultLevel: "xhigh")
         model.cycleReasoningEffort()
-        expect(model.selectedReasoningEffort == "minimal", "precondition: codex effort selected")
+        expect(model.selectedReasoningEffort == "low", "precondition: codex effort selected")
 
     }
 

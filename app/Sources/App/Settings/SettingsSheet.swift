@@ -461,8 +461,16 @@ final class SettingsSheetModel: ObservableObject {
                         return
                     }
                     switch result {
-                    case .success:
-                        self.state.markSaved(agent: agent, role: role, model: model, reasoningEffort: reasoningEffort)
+                    case .success(let ack):
+                        let persisted = ack.data as? [String: Any]
+                        self.state.markSaved(
+                            agent: agent,
+                            role: role,
+                            model: persisted?["model"] as? String ?? model,
+                            reasoningEffort: persisted?["reasoning_effort"] as? String ?? reasoningEffort,
+                            sentModel: model,
+                            sentReasoningEffort: reasoningEffort
+                        )
                     case .failure(let error):
                         self.errorMessage = error.localizedDescription
                     }

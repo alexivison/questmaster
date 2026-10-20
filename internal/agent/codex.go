@@ -18,6 +18,8 @@ var codexSpec = Spec{
 	BinaryEnvVar:   "CODEX_BIN",
 	FallbackPath:   "/opt/homebrew/bin/codex",
 	Filter:         filterCodex,
+	Efforts:        EffortSourceCodexCache,
+	EffortModel:    EffortSourceCodexConfig,
 	Models: ModelPolicy{
 		Sources: []ModelSource{{Catalog: "openai"}},
 	},

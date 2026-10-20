@@ -2255,12 +2255,15 @@ enum LogicSelfTests {
     // levels depend on which model is selected.
     private static func testNewSessionResolvesReasoningEffortsPerAgentAndModel() throws {
         let effortClient = StubReasoningEffortClient(
-            efforts: ["claude": ["low", "medium", "high", "xhigh", "max"], "gpt-5.6-sol": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]],
-            defaults: ["claude": "xhigh", "gpt-5.6-sol": "xhigh"]
+            efforts: ["claude": ["low", "medium", "high", "xhigh", "max"], "gpt-6-luna": ["low", "medium", "high", "xhigh", "max"], "gpt-6-sol": ["medium", "high"]],
+            defaults: ["claude": "xhigh", "gpt-6-luna": "xhigh"]
         )
         let modelClient = StubModelClient(
-            models: ["codex": [SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol")]],
-            defaults: ["claude": "sonnet", "codex": "gpt-5.6-terra"]
+            models: ["codex": [
+                SessionModelOption(id: "gpt-6-luna", label: "gpt-6-luna"),
+                SessionModelOption(id: "gpt-6-sol", label: "gpt-6-sol"),
+            ]],
+            defaults: ["claude": "sonnet", "codex": "gpt-6-luna"]
         )
         let model = newSessionSheetModel(modelClient: modelClient, effortClient: effortClient, initialFocus: .agent)
 
@@ -2288,18 +2291,18 @@ enum LogicSelfTests {
         model.state.model.focusedField = .agent
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent select")
         try waitForMainQueue("model suggestions for the selected agent", until: {
-            model.state.model.modelOptions.contains(where: { $0.id == "gpt-5.6-sol" })
+            model.state.model.modelOptions.contains(where: { $0.id == "gpt-6-sol" })
         })
         model.state.model.focusedField = .model
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
         try waitForMainQueue("model-specific reasoning-effort suggestions", until: {
-            model.state.model.effortOptions.contains(where: { $0.id == "ultra" })
+            model.state.model.effortOptions.map(\.id) == ["medium", "high"]
         })
-        try expect(model.state.model.selectedModel == "gpt-5.6-sol", "precondition: a real model is selected")
-        try expect(effortClient.requests.last?.model == "gpt-5.6-sol", "selecting a model should re-resolve efforts against it")
+        try expect(model.state.model.selectedModel == "gpt-6-sol", "precondition: a real model is selected")
+        try expect(effortClient.requests.last?.model == "gpt-6-sol", "selecting a model should re-resolve efforts against it")
         try expect(
-            model.state.model.effortOptions.contains(where: { $0.id == "ultra" }),
-            "the model-specific effort tier should reach the picker"
+            model.state.model.effortOptions.map(\.id) == ["medium", "high"],
+            "the model-specific effort levels should reach the picker"
         )
     }
 

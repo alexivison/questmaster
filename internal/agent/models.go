@@ -3,16 +3,28 @@ package agent
 import "strings"
 
 // ModelPolicy is a harness's declared model story: where a dynamic list of
-// selectable models comes from. There is no baked-in default model — the
-// persisted role-defaults store (configured in Settings) is the only source
-// of a default; everything offered as a choice is resolved at runtime from
-// the catalog sources below (and, for harnesses that can enumerate their own
-// models, from the harness itself).
+// selectable models comes from. Questmaster's explicit role default is stored
+// in Settings; choices are resolved at runtime from the catalog sources below
+// (and, for harnesses that can enumerate their own models, from the harness).
 type ModelPolicy struct {
 	// Sources map catalog providers onto the model strings this harness
 	// accepts. Order is presentation order.
 	Sources []ModelSource
 }
+
+// EffortSource identifies a harness-owned input used to resolve reasoning-
+// effort choices and the model they apply to. modelsuggest reads it at runtime.
+type EffortSource string
+
+const (
+	EffortSourceNone           EffortSource = ""
+	EffortSourceCodexCache     EffortSource = "codex-cache"
+	EffortSourceClaudeHelp     EffortSource = "claude-help"
+	EffortSourcePiHelp         EffortSource = "pi-help"
+	EffortSourceOpenCodeModels EffortSource = "opencode-models"
+	EffortSourceCodexConfig    EffortSource = "codex-config"
+	EffortSourceOpenCodeConfig EffortSource = "opencode-config"
+)
 
 // ModelSource maps one models.dev provider onto a harness's model vocabulary.
 //

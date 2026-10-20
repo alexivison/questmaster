@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
-	"strings"
 )
 
 // SessionRole identifies the session type that determines the system prompt.
@@ -67,75 +65,6 @@ type CmdOpts struct {
 	// no reasoning-effort flag is passed and the harness applies its own
 	// behavior.
 	ReasoningEffort string
-}
-
-var reasoningEfforts = map[string]string{
-	"claude": "low,medium,high,xhigh,max",
-	"codex":  "minimal,low,medium,high,xhigh",
-	"pi":     "off,minimal,low,medium,high,xhigh,max",
-}
-
-// ValidateReasoningEffort rejects values that the selected harness cannot
-// launch. Model-specific validation remains with the native harness.
-func ValidateReasoningEffort(provider, model, effort string) error {
-	if effort == "" {
-		return nil
-	}
-	supported := SupportedReasoningEfforts(provider, model)
-	if len(supported) == 0 {
-		if provider == "opencode" {
-			return fmt.Errorf("--reasoning-effort for OpenCode requires a built-in openai/* or anthropic/* model, got %q", model)
-		}
-		return fmt.Errorf("--reasoning-effort is unsupported for agent %q", provider)
-	}
-	for _, level := range supported {
-		if level == effort {
-			return nil
-		}
-	}
-	if provider == "opencode" {
-		return fmt.Errorf("invalid --reasoning-effort %q for OpenCode model %q (supported: %s)", effort, model, strings.Join(supported, ", "))
-	}
-	return fmt.Errorf("invalid --reasoning-effort %q for %s (supported: %s)", effort, provider, strings.Join(supported, ", "))
-}
-
-// SupportedReasoningEfforts returns the --reasoning-effort levels
-// ValidateReasoningEffort accepts for provider and model, in the harness's own
-// presentation order. An unsupported provider — or an OpenCode model outside
-// its built-in openai/anthropic providers — returns nil.
-func SupportedReasoningEfforts(provider, model string) []string {
-	if provider == "opencode" {
-		return splitReasoningEfforts(supportedOpenCodeReasoningEfforts(model))
-	}
-	supported, ok := reasoningEfforts[provider]
-	if !ok {
-		return nil
-	}
-	if provider == "codex" && (model == "gpt-5.6" || strings.HasPrefix(model, "gpt-5.6-")) {
-		supported += ",max"
-		if model != "gpt-5.6-luna" {
-			supported += ",ultra"
-		}
-	}
-	return splitReasoningEfforts(supported)
-}
-
-func splitReasoningEfforts(supported string) []string {
-	if supported == "" {
-		return nil
-	}
-	return strings.Split(supported, ",")
-}
-
-func supportedOpenCodeReasoningEfforts(model string) string {
-	provider, _, ok := strings.Cut(strings.ToLower(model), "/")
-	if !ok {
-		return ""
-	}
-	return map[string]string{
-		"openai":    "off,none,minimal,low,medium,high,xhigh",
-		"anthropic": "high,max",
-	}[provider]
 }
 
 func joinSystemPrompt(base, brief string) string {

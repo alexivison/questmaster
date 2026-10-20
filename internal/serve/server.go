@@ -61,6 +61,9 @@ type Server struct {
 	MutationRunner MutationCommandRunner
 	TmuxClient     *tmux.Client
 	DirQuerier     dirsuggest.DirQuerier
+	// ReasoningEfforts overrides harness discovery in tests and embedded use.
+	// Nil uses modelsuggest's process-wide cached resolver.
+	ReasoningEfforts func(context.Context, string, string) []string
 }
 
 // DefaultSocketPath returns the default local socket path for qm serve.
@@ -214,7 +217,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 			continue
 		}
 		if req.Method == topicReasoningEfforts {
-			data, err := s.reasoningEfforts(req)
+			data, err := s.reasoningEfforts(ctx, req)
 			if err != nil {
 				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
 				continue

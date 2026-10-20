@@ -139,13 +139,13 @@ public struct RoleDefaultRow: Equatable {
         )
     }
 
-    /// Marks the values actually persisted by a `role_default.set` save as
-    /// the new saved baseline. Takes the values that were sent — not the
-    /// row's current live selection — because the user can keep editing
-    /// while that save is still in flight; baselining the live selection
-    /// would silently mark a newer, never-sent edit as "already saved" the
-    /// instant the earlier save's ack arrives.
-    public mutating func markSaved(model: String, reasoningEffort: String) {
+    /// Marks the backend's persisted values as the saved baseline. Apply its
+    /// values to the visible selection only if the row still matches the send.
+    public mutating func markSaved(model: String, reasoningEffort: String, sentModel: String, sentReasoningEffort: String) {
+        if selectedModel == sentModel && selectedReasoningEffort == sentReasoningEffort {
+            selectedModelIndex = model.isEmpty ? nil : modelOptions.firstIndex(where: { $0.id == model })
+            selectedEffortIndex = reasoningEffort.isEmpty ? nil : effortOptions.firstIndex(where: { $0.id == reasoningEffort })
+        }
         savedModelIndexAtResolve = model.isEmpty ? nil : modelOptions.firstIndex(where: { $0.id == model })
         savedEffortIndexAtResolve = reasoningEffort.isEmpty ? nil : effortOptions.firstIndex(where: { $0.id == reasoningEffort })
     }
@@ -213,11 +213,11 @@ public struct RoleDefaultsSettingsModel: Equatable {
 
     /// Marks the values actually persisted by one row's `role_default.set`
     /// save as its new saved baseline — call once that save actually lands.
-    public mutating func markSaved(agent: String, role: String, model: String, reasoningEffort: String) {
+    public mutating func markSaved(agent: String, role: String, model: String, reasoningEffort: String, sentModel: String, sentReasoningEffort: String) {
         guard let index = index(agent: agent, role: role) else {
             return
         }
-        rows[index].markSaved(model: model, reasoningEffort: reasoningEffort)
+        rows[index].markSaved(model: model, reasoningEffort: reasoningEffort, sentModel: sentModel, sentReasoningEffort: sentReasoningEffort)
     }
 
     /// Moves focus by `delta` steps across the active tab's fields (model and

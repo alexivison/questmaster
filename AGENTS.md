@@ -83,14 +83,15 @@ Invariants that aren't obvious from the code:
 
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
-- **No model list is hardcoded.** Each harness declares its role defaults and
-  catalog sources once, as `ModelPolicy` in its `agent.Spec`; `modelsuggest`
-  resolves the selectable list at runtime (recent launches → harness
-  enumeration → the cached models.dev catalog) and nothing validates a model
-  id — `--model` is passed to the harness verbatim. When adding a harness,
-  declare its policy; never add a model to a list. Tests must set
-  `QUESTMASTER_MODEL_CATALOG_URL=off` (or inject a `Fetcher`) so they never
-  reach the network.
+- **No model or reasoning-effort list is hardcoded.** Each harness declares its
+  catalog sources and effort source once in `agent.Spec`; `modelsuggest`
+  resolves model choices at runtime and reads effort support from the harness.
+  Model ids are never validated — `--model` is passed through verbatim. Effort
+  validation rejects a value only when the harness reports levels for that
+  model. When adding a harness, declare its sources; never add model or effort
+  values to a list. Tests must disable the models.dev catalog (or inject a
+  fetcher) and inject effort-source fixtures so they never access the network,
+  real harnesses, or the real Codex cache.
 
 ## The Go↔Swift contract
 

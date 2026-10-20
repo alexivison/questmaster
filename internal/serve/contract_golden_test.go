@@ -167,7 +167,7 @@ func serveContractFixtures() []contractFixture {
 		Agent:   "codex",
 		Role:    "master",
 		Default: "xhigh",
-		Efforts: []string{"minimal", "low", "medium", "high", "xhigh"},
+		Efforts: []string{"low", "medium", "high", "xhigh", "max"},
 	}
 	workerFeed := workerfeed.Response{
 		Entries: []workerfeed.Entry{{

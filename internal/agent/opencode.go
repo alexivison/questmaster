@@ -32,6 +32,8 @@ var openCodeSpec = Spec{
 	BinaryEnvVar:   "OPENCODE_BIN",
 	FallbackPath:   "/opt/homebrew/bin/opencode",
 	State:          StatePlugin,
+	Efforts:        EffortSourceOpenCodeModels,
+	EffortModel:    EffortSourceOpenCodeConfig,
 	Models: ModelPolicy{
 		// OpenCode takes provider-qualified ids and can enumerate the
 		// providers the user actually configured, so these catalog sources

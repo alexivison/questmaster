@@ -37,9 +37,9 @@ const (
 
 // Spec is the static, per-agent metadata that does not vary between sessions:
 // identity, the resume/env key naming, the binary discovery hints, the
-// pane-filter choice, and the model policy. It is the single place a new
-// harness declares the rote
-// half of the Agent interface; the behavioural half (BuildCmd, and any
+// pane-filter choice, model policy and effort sources. It is the single place a
+// new harness declares the rote half of the Agent interface; the behavioural
+// half (BuildCmd, and any
 // PreLaunchSetup) stays in the provider source file.
 type Spec struct {
 	Name           string
@@ -56,6 +56,12 @@ type Spec struct {
 	// Models declares the catalog sources dynamic model suggestions are drawn
 	// from. See ModelPolicy.
 	Models ModelPolicy
+	// Efforts declares the harness-owned source of reasoning-effort levels.
+	Efforts EffortSource
+	// EffortModel declares where to read the harness default model when the
+	// caller leaves the model blank during effort discovery. Its presence also
+	// marks model-specific effort data for launch validation.
+	EffortModel EffortSource
 }
 
 // base implements the boilerplate half of the Agent interface from a Spec.

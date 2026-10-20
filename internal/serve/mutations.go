@@ -111,8 +111,8 @@ var mutationRegistry = map[string]mutationHandler{
 	"recolor": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRecolor(payload)
 	},
-	"role_default.set": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
-		return s.mutateRoleDefaultSet(payload)
+	"role_default.set": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateRoleDefaultSet(ctx, payload)
 	},
 	"quest.add": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestAdd(payload)
@@ -350,7 +350,7 @@ func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {
 // one agent+role pair. Settings is the sole source of a default, so at least
 // one field is required — there is no hardcoded fallback left to clear back
 // to, and this call never deletes a persisted entry.
-func (s *Server) mutateRoleDefaultSet(payload mutationPayload) (any, error) {
+func (s *Server) mutateRoleDefaultSet(ctx context.Context, payload mutationPayload) (any, error) {
 	agentName, err := requiredValue("agent", payload.Agent)
 	if err != nil {
 		return nil, err
@@ -380,6 +380,7 @@ func (s *Server) mutateRoleDefaultSet(payload mutationPayload) (any, error) {
 	// the doc comment above).
 	store := state.NewRoleDefaultsStore(s.mutationStore().Root())
 	existing, hasExisting, _ := store.Get(agentName, role)
+	modelChanged := hasExisting && model != "" && model != existing.Model
 	if model == "" && hasExisting {
 		model = existing.Model
 	}
@@ -388,8 +389,11 @@ func (s *Server) mutateRoleDefaultSet(payload mutationPayload) (any, error) {
 	}
 
 	if reasoningEffort != "" {
-		if err := agent.ValidateReasoningEffort(agentName, model, reasoningEffort); err != nil {
-			return nil, err
+		if err := agent.ValidateReasoningEffort(agentName, model, reasoningEffort, s.resolveReasoningEfforts(ctx, agentName, model)); err != nil {
+			if !modelChanged || reasoningEffort != existing.ReasoningEffort {
+				return nil, err
+			}
+			reasoningEffort = ""
 		}
 	}
 

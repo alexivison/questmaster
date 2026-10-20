@@ -3,10 +3,10 @@
   "role": "master",
   "default": "xhigh",
   "efforts": [
-    "minimal",
     "low",
     "medium",
     "high",
-    "xhigh"
+    "xhigh",
+    "max"
   ]
 }
