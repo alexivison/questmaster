@@ -457,8 +457,8 @@ enum LogicSelfTests {
         try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers, and between workers")
         try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: true), 10, "gap after a session's workers or its collapsed row")
         try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: false), 20, "gap after a session with no workers")
-        try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width, "tracker content width, the selected-session panel's")
-        try expectClose(SelectedSessionPanel.canvasSize.width, 299, "selected-session panel width")
+        try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the panel's and its band's")
+        try expectClose(SelectedSessionPanel.canvasSize.width, TrackerPlateDesign.topLevelSize.width, "selected-session panel width, the master plate's")
         try expectClose(SelectedSessionPanel.canvasSize.height, 76, "selected-session panel height")
         try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
 
@@ -575,7 +575,7 @@ enum LogicSelfTests {
         let usual = TrackerSession.unitTime(TrackerSession.formatElapsed(80_000) ?? "")
         let long = TrackerSession.unitTime(TrackerSession.formatElapsed(hundredHours) ?? "")
         try expect(usual == "01m20s", "an 80-second run should read 01m20s, got \(usual)")
-        try expect(long == "100h00m00s", "a 100-hour run should read 100h00m00s, got \(long)")
+        try expect(long == "100h00m", "a 100-hour run should read 100h00m, got \(long)")
 
         let font = AppFonts.trackerTime
         for time in [usual, long] {
@@ -612,16 +612,16 @@ enum LogicSelfTests {
             throw TestFailure("the panel should render to an image")
         }
         let bitmap = NSBitmapImageRep(cgImage: image)
-        try expect(bitmap.pixelsWide == 598 && bitmap.pixelsHigh == 152, "the panel should render 299 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        try expect(bitmap.pixelsWide == 554 && bitmap.pixelsHigh == 152, "the panel should render 277 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
         func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
             bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.usingColorSpace(.sRGB)
         }
-        guard let arc = pixel(296.5, 24.5), let outside = pixel(298.5, 21.25) else {
+        guard let arc = pixel(275.5, 24.5), let outside = pixel(276.5, 22) else {
             throw TestFailure("the corner pixels should be readable")
         }
         try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
         try expect(arc.alphaComponent > 0.9 && arc.redComponent > 0.22, "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
-        guard let bottomArc = pixel(296.5, 65) else {
+        guard let bottomArc = pixel(275.5, 65) else {
             throw TestFailure("the bottom-right pixel should be readable")
         }
         try expect(bottomArc.alphaComponent > 0.9 && bottomArc.redComponent > 0.22, "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")

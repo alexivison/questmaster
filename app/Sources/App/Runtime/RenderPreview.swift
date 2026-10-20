@@ -39,6 +39,13 @@ enum RenderPreview {
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
         render(trackerListStatusView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-status.png")
         render(trackerListGapsView(), size: CGSize(width: 340, height: 820), to: "\(outputDir)/tracker-list-gaps.png")
+        // The status list at the shell's real tracker column width, on a wider canvas: past the column's edge shows
+        // whether the plates' bands and shadows survive the list's clip.
+        render(
+            trackerListStatusView().frame(width: ShellMetrics.splitLayoutMetrics.trackerMaxWidth).frame(maxWidth: .infinity, alignment: .leading),
+            size: CGSize(width: 340, height: 780),
+            to: "\(outputDir)/tracker-list-column.png"
+        )
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")

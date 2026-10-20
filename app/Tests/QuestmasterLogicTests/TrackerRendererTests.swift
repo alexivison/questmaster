@@ -98,8 +98,9 @@ struct TrackerRendererTests {
         let cases: [(duration: String, expected: String)] = [
             ("0:01:20", "01m20s"),
             ("0:00:05", "00m05s"),
-            ("1:30:20", "1h30m20s"),
-            ("100:00:00", "100h00m00s"),
+            ("1:30:20", "01h30m"),
+            ("12:05:59", "12h05m"),
+            ("100:00:00", "100h00m"),
             ("", ""),
         ]
         for testCase in cases {

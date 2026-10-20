@@ -63,7 +63,8 @@ enum TrackerPlateDesign {
     static let collapsedCountBaseline: CGFloat = 16.4
 
     /// Each text line's baseline in canvas points, as the SVGs set it: the master's project name in its tab, the title
-    /// and time on the title strip (the time half a point higher), and the snippet on the band below.
+    /// and time on the title strip (the time half a point higher), and the snippet on the band below. Each centres its
+    /// cap height in its strip, so most sit on half points, which snap half a pixel up at 1x.
     static let topLevelProjectBaseline: CGFloat = 13.5
     static let topLevelTitleBaseline: CGFloat = 31.5
     static let topLevelTimeBaseline: CGFloat = 31

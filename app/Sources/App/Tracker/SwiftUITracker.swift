@@ -1083,7 +1083,7 @@ enum TrackerNameplateRole: Equatable {
     var snippetBaseline: CGFloat { isWorker ? TrackerPlateDesign.workerSnippetBaseline : TrackerPlateDesign.topLevelSnippetBaseline }
 
     /// The time column's width: one monospaced cell per glyph of the string, rounded up so the text never truncates.
-    /// Hours have no upper bound, so a long run reads `100h00m00s`, wider than the usual six glyphs.
+    /// Hours have no upper bound, so a long run reads `100h00m`, wider than the usual six glyphs.
     static func timeWidth(for time: String) -> CGFloat {
         (CGFloat(time.count) * AppFonts.trackerTime.maximumAdvancement.width).rounded(.up)
     }
@@ -1400,7 +1400,9 @@ final class TrackerGlowNSView: NSView {
 }
 
 /// One line of plate text. `baseline` is the y its glyphs stand on, snapped to the display's pixels, and `x` and
-/// `width` set the box it aligns within. The text hangs off a zero-size anchor, so it never grows its container. A line
+/// `width` set the box it aligns within. A baseline half a pixel off the grid snaps up: the SVGs centre each line's
+/// cap height in its strip on half points, and the half pixel up keeps the lowercase that fills most lines from
+/// sitting on the strip's bottom edge at 1x. The text hangs off a zero-size anchor, so it never grows its container. A line
 /// that `castsShadow` has the SVGs' text drop shadow under it.
 struct TrackerPlateLine: View {
     let text: String
@@ -1421,7 +1423,7 @@ struct TrackerPlateLine: View {
                     .frame(width: width, alignment: alignment)
                     .alignmentGuide(.top) { $0[.firstTextBaseline] }
             }
-            .offset(x: x, y: (baseline * displayScale).rounded() / displayScale)
+            .offset(x: x, y: (baseline * displayScale - 0.5).rounded(.up) / displayScale)
     }
 
     @ViewBuilder private var label: some View {
