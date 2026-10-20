@@ -1101,13 +1101,6 @@ enum TrackerNameplateRole: Equatable {
     }
 }
 
-/// A fixed plate path drawn at its own coordinates (the plates are never resized).
-private struct TrackerPlateShape: Shape {
-    let path: Path
-
-    func path(in rect: CGRect) -> Path { path }
-}
-
 /// The band around a plate: a selection's, a hover's or a recolour hint's. Every band follows the same silhouette at the
 /// same width and holds one steady opacity. A plate's status is not a band: it lives on the portrait.
 enum TrackerPlateBand {
@@ -1122,27 +1115,28 @@ enum TrackerPlateBand {
 }
 
 enum TrackerNameplateColor {
-    /// The accent bar ships at 90% of the repo/display color's brightness (picked 2026-10-02): full
-    /// saturation read as too loud against the flat terminal chrome. Hue and saturation are untouched.
+    /// Every coloured bar in the tracker (the plates' project bars, the selected-session panel's, and the cast bar's
+    /// amber fill) ships at this fraction of its colour's brightness: full brightness reads too loud against the flat
+    /// terminal chrome (90% from 2026-10-02, 80% from 2026-10-21). Hue and saturation are untouched.
+    static let barBrightness: CGFloat = 0.8
+
     static func barLightness(_ color: NSColor) -> NSColor {
         let rgb = color.usingColorSpace(.deviceRGB) ?? color
         return NSColor(
             hue: rgb.hueComponent,
             saturation: rgb.saturationComponent,
-            brightness: rgb.brightnessComponent * 0.90,
+            brightness: rgb.brightnessComponent * barBrightness,
             alpha: rgb.alphaComponent
         )
     }
 }
 
-/// A low-rate clock shared by every view that animates or counts in the list: `shared` for the pulsing project
-/// bars (15 frames a second), `durations` for the live elapsed times (once a second). Views that read `time` redraw
-/// at the clock's rate instead of at display rate. Each clock has one timer, however many views read it, and it runs
+/// A low-rate clock shared by every view that counts in the list: `durations` ticks the live elapsed times once a
+/// second. Views that read `time` redraw at the clock's rate instead of at display rate. Each clock has one timer, however many views read it, and it runs
 /// only while some view is on screen and using it, so the redraw cost the terminal shares the main thread with stays
 /// small and flat.
 @MainActor @Observable
 final class TrackerPulseClock {
-    static let shared = TrackerPulseClock(framesPerSecond: 15)
     static let durations = TrackerPulseClock(framesPerSecond: 1)
 
     let framesPerSecond: Double
@@ -1186,7 +1180,7 @@ final class TrackerPulseClock {
 /// A view that reads a clock only while it is on screen and has something to show on it.
 private struct TrackerPulseSubscription: ViewModifier {
     let isActive: Bool
-    var clock = TrackerPulseClock.shared
+    let clock: TrackerPulseClock
 
     func body(content: Content) -> some View {
         content
@@ -1195,39 +1189,9 @@ private struct TrackerPulseSubscription: ViewModifier {
     }
 }
 
-/// Today's accent-bar pulse: the repo color lifted with plusLighter while the session works;
-/// the lift eases 0 to 0.5 and back every 2.2s on the shared clock.
-private struct TrackerColorBarPulse: View {
-    private static let period: TimeInterval = 2.2
-    private static let peakLift = 0.5
-    private static let reducedMotionLift = 0.5
-    private static let liftOpacity = 0.65
-
-    let color: NSColor
-    let isWorking: Bool
-    let shape: TrackerPlateShape
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        if isWorking && reduceMotion {
-            lift(Self.reducedMotionLift)
-        } else if isWorking {
-            let phase = TrackerPulseClock.shared.time / Self.period
-            lift(Self.peakLift * (1 - cos(phase * 2 * .pi)) / 2)
-                .modifier(TrackerPulseSubscription(isActive: true))
-        }
-    }
-
-    private func lift(_ amount: Double) -> some View {
-        shape.fill(color.swiftUI)
-            .blendMode(.plusLighter)
-            .opacity(amount * Self.liftOpacity)
-    }
-}
-
 /// The plate's art, in the SVG's order: the master's project tab, the body over its drop shadow, the title strip, and the
-/// band under it (the master's project bar, the worker's snippet strip), each strip with its inner shadow. The bar's
-/// pulse sits over it as a live view.
+/// band under it (the master's project bar, the worker's snippet strip), each strip with its inner shadow. The bar is
+/// steady: a working session shows on its portrait's ring, not on the bar.
 private struct TrackerPlateArt: View {
     let artwork: TrackerPlateArtwork
     let barColor: NSColor
@@ -1308,7 +1272,6 @@ struct TrackerNameplateBackground<Text: View>: View {
     let selected: Bool
     let hovered: Bool
     let isRecoloring: Bool
-    let isWorking: Bool
     let statusColor: NSColor?
     let text: Text
 
@@ -1320,13 +1283,6 @@ struct TrackerNameplateBackground<Text: View>: View {
                     .silhouetteFrame(artwork.size)
             }
             TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
-            if let bar = artwork.bar {
-                TrackerColorBarPulse(
-                    color: TrackerNameplateColor.barLightness(color),
-                    isWorking: isWorking,
-                    shape: TrackerPlateShape(path: bar)
-                )
-            }
             TrackerPortraitDisc(artwork: artwork)
             if let statusColor {
                 TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, holdsPeak: hovered)
@@ -1633,7 +1589,6 @@ private struct TrackerSessionRow: View {
                     selected: selected,
                     hovered: hovered,
                     isRecoloring: rendered.recolorEditHint != nil,
-                    isWorking: rendered.status.kind == .working,
                     statusColor: rendered.status.glowColor,
                     text: TrackerPlateText(
                         rendered: rendered,

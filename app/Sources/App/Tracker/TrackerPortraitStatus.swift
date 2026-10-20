@@ -1,15 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// What a portrait's status draws, from the filter on the design's discs: an inner shadow eroded by the stroke plus a
-/// point, in the status colour at full opacity, and a drop shadow dilated by 1, blurred by 2.5, at 0.15 opacity, cut out
-/// of the disc. With the disc's own stroke drawn over it, the inner shadow shows as a 1 point ring just inside the
-/// stroke, and the drop shadow as a soft glow around the disc. CoreSVG draws neither effect, so both come from these
-/// values, as one layer's worth of gradient and ring.
+/// What a portrait's status draws, after the filter on the design's discs, made stronger and crisper (2026-10-21): a
+/// ring in the status colour at full opacity just inside the disc's stroke (2 points wide, 1.5 on a collapsed circle),
+/// and a drop shadow dilated by 1, blurred by 1.5, at 0.15 opacity, cut out of the disc, as a tight glow around it.
+/// CoreSVG draws neither effect, so both come from these values, as one layer's worth of gradient and ring.
 struct TrackerPortraitStatusGeometry: Equatable {
-    static let ringWidth: CGFloat = 1
+    /// How much of the ring shows inside the stroke: 2 points, trimmed so its inner edge lands on the disc centre's
+    /// pixel phase (1.5 on a collapsed circle, whose centre is on a half point), so the edge is one crisp pixel at 1x.
+    static let ringWidth: CGFloat = 2
     static let glowSpread: CGFloat = 1
-    static let glowSigma: CGFloat = 2.5
+    /// Tight, so the glow hugs the disc instead of smearing toward the ring.
+    static let glowSigma: CGFloat = 1.5
     static let glowPeakOpacity: CGFloat = 0.15
     /// The glow is drawn out to this many sigmas past its dilated edge, where it has faded to nothing.
     private static let glowReachSigmas: CGFloat = 3
@@ -22,9 +24,14 @@ struct TrackerPortraitStatusGeometry: Equatable {
 
     /// The disc's visible edge: where the stroke ends and the glow begins.
     var outerRadius: CGFloat { pathRadius + stroke / 2 }
-    /// The ring starts a point inside the stroke's inner edge and runs under the stroke to its path, where the stroke
-    /// hides its far side, so the stroke's anti-aliased inner edge blends with the ring instead of the disc.
-    var ringInnerRadius: CGFloat { pathRadius - stroke / 2 - Self.ringWidth }
+    /// The ring starts `ringWidth` inside the stroke's inner edge, on the centre's pixel phase, and runs under the
+    /// stroke to its path, where the stroke hides its far side, so the stroke's anti-aliased inner edge blends with the
+    /// ring instead of the disc.
+    var ringInnerRadius: CGFloat {
+        let halfPoint = (center.x * 2).rounded() / 2
+        let phase = halfPoint - halfPoint.rounded(.down)
+        return (pathRadius - stroke / 2 - Self.ringWidth - phase).rounded(.up) + phase
+    }
     /// How far the glow reaches from the disc's centre, to where it has faded to nothing.
     var reach: CGFloat { outerRadius + Self.glowSpread + Self.glowReachSigmas * Self.glowSigma }
     /// The layer's frame in the parent's points: the glow's reach around the disc, grown out to whole points. A frame
@@ -103,13 +110,14 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
 }
 
 /// The ring is a shape layer and the glow a radial gradient layer, so neither blurs or offscreen-renders. A breathing
-/// status eases both layers' opacity between `breathLowFraction` and 1 over each `breathCycle`, every one from a shared
-/// origin so the whole list breathes in phase. The animation exists only while the view is in a window and allowed to
+/// status eases each layer's opacity between its low point (`ringBreathLow`, `glowBreathLow`) and 1 over each
+/// `breathCycle`, every one from a shared origin so the whole list breathes in phase. The animation exists only while the view is in a window and allowed to
 /// move; otherwise the layers hold at their peak.
 final class TrackerPortraitStatusNSView: NSView {
     static let breathCycle: CFTimeInterval = 2
-    /// The breath's low point, as a fraction of the peak.
-    static let breathLowFraction: Float = 0.4
+    /// Each layer's breath low point, as a fraction of its peak: the ring stays strong, the glow does the breathing.
+    static let ringBreathLow: Float = 0.75
+    static let glowBreathLow: Float = 0.4
     private static let breathKey = "breathe"
     private static let breathOrigin = CACurrentMediaTime()
 
@@ -173,7 +181,21 @@ final class TrackerPortraitStatusNSView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        updateContentsScale()
         updateBreath()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateContentsScale()
+    }
+
+    /// Sublayers added by hand render at 1x unless told the window's scale, which blurs the ring on a Retina display.
+    private func updateContentsScale() {
+        let scale = window?.backingScaleFactor ?? 1
+        for layer in [ring, glow] as [CALayer] where layer.contentsScale != scale {
+            layer.contentsScale = scale
+        }
     }
 
     private func updateBreath() {
@@ -185,15 +207,15 @@ final class TrackerPortraitStatusNSView: NSView {
         }
         CATransaction.commit()
         guard breathes, window != nil else { return }
-        let breath = CABasicAnimation(keyPath: "opacity")
-        breath.fromValue = Self.breathLowFraction
-        breath.toValue = 1
-        breath.duration = Self.breathCycle / 2
-        breath.autoreverses = true
-        breath.repeatCount = .infinity
-        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        breath.beginTime = Self.breathOrigin
-        for layer in [ring, glow] as [CALayer] {
+        for (layer, low) in [(ring, Self.ringBreathLow), (glow, Self.glowBreathLow)] as [(CALayer, Float)] {
+            let breath = CABasicAnimation(keyPath: "opacity")
+            breath.fromValue = low
+            breath.toValue = 1
+            breath.duration = Self.breathCycle / 2
+            breath.autoreverses = true
+            breath.repeatCount = .infinity
+            breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            breath.beginTime = Self.breathOrigin
             layer.add(breath, forKey: Self.breathKey)
         }
     }

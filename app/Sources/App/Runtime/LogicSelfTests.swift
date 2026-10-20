@@ -218,9 +218,9 @@ enum LogicSelfTests {
         status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
         let breaths = status.breathAnimations
         try expect(breaths.count == 2, "the ring and the glow should each breathe in a window, got \(breaths.count)")
+        let lows = breaths.map { ($0.fromValue as? Float) ?? -1 }
+        try expect(lows == [0.75, 0.4], "the ring should dip only to 0.75 of its peak and the glow to 0.4, got \(lows)")
         for breath in breaths {
-            let low = (breath.fromValue as? Float) ?? -1
-            try expect(low == TrackerPortraitStatusNSView.breathLowFraction && low == 0.4, "the breath should dip to 0.4 of the peak, got \(low)")
             try expect((breath.toValue as? Float) == 1, "the breath should rise to the peak")
             try expect(breath.duration == TrackerPortraitStatusNSView.breathCycle / 2 && breath.autoreverses, "the breath should take 2s up and down")
         }
@@ -256,8 +256,8 @@ enum LogicSelfTests {
         try expect(held.layer?.opacity == TrackerGlowNSView.bandOpacity, "a band should hold its opacity")
     }
 
-    /// The disc filters: erode 4 on the master's 3-stroke disc, 3 on the worker's 2-stroke one and 2.5 on the circle's
-    /// 1.5-stroke one (the stroke and a point); dilate 1, blur 2.5, opacity 0.15.
+    /// The status geometry: a ring 2 points inside each disc's stroke (1.5 on the collapsed circle), its inner edge on a
+    /// whole pixel; a glow dilated 1, blurred 1.5, at 0.15 opacity.
     private static func testPortraitStatusFollowsTheFilterValues() throws {
         func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String, tolerance: CGFloat = 0.01) throws {
             try expect(abs(value - expected) < tolerance, "\(name) should be \(expected), got \(value)")
@@ -265,15 +265,17 @@ enum LogicSelfTests {
         let master = TrackerPlateDesign.topLevel.statusGeometry
         let worker = TrackerPlateDesign.worker.statusGeometry
         let circle = TrackerPlateDesign.collapsedCircleStatus
-        for (name, geometry, erode, outer) in [("master", master, 4, 25), ("worker", worker, 3, 20), ("circle", circle, 2.5, 12.5)] as [(String, TrackerPortraitStatusGeometry, CGFloat, CGFloat)] {
+        for (name, geometry, visible, outer) in [("master", master, 2, 25), ("worker", worker, 2, 20), ("circle", circle, 1.5, 12.5)] as [(String, TrackerPortraitStatusGeometry, CGFloat, CGFloat)] {
             try expectClose(geometry.outerRadius, outer, "\(name) disc outer radius")
-            try expectClose(geometry.outerRadius - geometry.ringInnerRadius, erode, "\(name) erode")
-            // The ring shows one point inside the stroke's inner edge, and runs under the stroke.
-            try expectClose(geometry.pathRadius - geometry.stroke / 2 - geometry.ringInnerRadius, 1, "\(name) visible ring width")
+            // The ring shows 2 points inside the stroke's inner edge (1.5 on the circle, whose centre is on a half
+            // point), and runs under the stroke. Its inner edge sits a whole number of points from the centre's pixel.
+            try expectClose(geometry.pathRadius - geometry.stroke / 2 - geometry.ringInnerRadius, visible, "\(name) visible ring width")
+            let innerEdge = geometry.center.x - geometry.ringInnerRadius
+            try expect(abs(innerEdge - innerEdge.rounded()) < 0.001, "\(name) ring's inner edge should land on a whole pixel, got \(innerEdge)")
             try expectClose(geometry.ringLineWidth, geometry.pathRadius - geometry.ringInnerRadius, "\(name) ring stroke width")
             try expectClose(geometry.glowOpacity(at: outer - 0.01), 0, "\(name) glow inside the disc")
             let edge = geometry.glowOpacity(at: outer)
-            try expect(edge > 0.09 && edge < 0.11, "\(name) glow at the disc's edge should be about 0.098, got \(edge)")
+            try expect(edge > 0.10 && edge < 0.12, "\(name) glow at the disc's edge should be about 0.112, got \(edge)")
             try expect(geometry.glowOpacity(at: outer + 1) < edge && geometry.glowOpacity(at: outer + 1) > 0.15 * 0.45, "\(name) glow should fall to half the peak by the dilated edge")
             try expect(geometry.glowOpacity(at: geometry.reach) < 0.001, "\(name) glow should fade out within its reach, got \(geometry.glowOpacity(at: geometry.reach))")
             try expect(geometry.glowOpacity(at: 0) == 0 && geometry.glowOpacity(at: 3 * outer) < 0.0001, "\(name) glow should be nothing in the disc and far away")
@@ -294,7 +296,7 @@ enum LogicSelfTests {
             let frame = geometry.frame
             try expect([frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0 == $0.rounded() }, "a layer for a disc at \(center) should sit on whole points, got \(frame)")
         }
-        try expect(TrackerPortraitStatusGeometry.glowPeakOpacity == 0.15 && TrackerPortraitStatusGeometry.glowSigma == 2.5 && TrackerPortraitStatusGeometry.glowSpread == 1, "the glow should be the filter's")
+        try expect(TrackerPortraitStatusGeometry.glowPeakOpacity == 0.15 && TrackerPortraitStatusGeometry.glowSigma == 1.5 && TrackerPortraitStatusGeometry.glowSpread == 1, "the glow should be tight")
 
         // The layers sit on the discs: the master's centre is the canvas', the worker's the list's worker indent.
         try expectClose(master.center.x, 27, "master status centre x")
@@ -349,7 +351,7 @@ enum LogicSelfTests {
         func plate(status: NSColor?, selected: Bool = false, hovered: Bool = false) -> some View {
             TrackerNameplateBackground(
                 role: .master, color: AppPalette.accent, selected: selected, hovered: hovered, isRecoloring: false,
-                isWorking: false, statusColor: status, text: EmptyView()
+                statusColor: status, text: EmptyView()
             )
         }
         let working = AppPalette.trackerWorking

@@ -547,7 +547,6 @@ enum RenderPreview {
                         selected: state.selected,
                         hovered: state.hovered,
                         isRecoloring: state.recoloring,
-                        isWorking: false,
                         statusColor: state.status,
                         text: EmptyView()
                     )

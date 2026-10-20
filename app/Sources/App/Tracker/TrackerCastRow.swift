@@ -187,10 +187,13 @@ private struct TrackerCastFillView: NSViewRepresentable {
 /// The animations are built when the cast, the phase, the size or the window change, and never per frame.
 final class TrackerCastFillNSView: NSView {
     static let leadingEdge: CGFloat = 6
-    static let edgeLight = AppPalette.warn.blended(withFraction: 0.7, of: .white) ?? AppPalette.warn
-    static let flashOpacity: Float = 0.55
+    /// The amber at the tracker's bar brightness, like the plates' coloured bars; its leading edge, the overrun pulse
+    /// and the finish flash are this amber lifted toward white, so they tone down with it.
+    static let amber = TrackerNameplateColor.barLightness(AppPalette.warn)
+    static let edgeLight = amber.blended(withFraction: 0.5, of: .white) ?? amber
+    static let flashOpacity: Float = 0.5
     /// The overrun pulse's peak: the light overlay's opacity at the top of each breath.
-    static let pulsePeak: Float = 0.3
+    static let pulsePeak: Float = 0.2
     static let shimmerWash: CGFloat = 0.35
     static let shimmerBand: CGFloat = 40
     static let shimmerPeriod: CFTimeInterval = 1.2
@@ -217,8 +220,8 @@ final class TrackerCastFillNSView: NSView {
         band.startPoint = CGPoint(x: 0, y: 0.5)
         band.endPoint = CGPoint(x: 1, y: 0.5)
         band.colors = [Self.edgeLight.withAlphaComponent(0).cgColor, Self.edgeLight.cgColor, Self.edgeLight.withAlphaComponent(0).cgColor]
-        wash.backgroundColor = AppPalette.warn.withAlphaComponent(Self.shimmerWash).cgColor
-        flash.backgroundColor = NSColor.white.withAlphaComponent(CGFloat(Self.flashOpacity)).cgColor
+        wash.backgroundColor = Self.amber.withAlphaComponent(Self.shimmerWash).cgColor
+        flash.backgroundColor = Self.edgeLight.withAlphaComponent(CGFloat(Self.flashOpacity)).cgColor
         flash.opacity = 0
         pulse.backgroundColor = Self.edgeLight.cgColor
         pulse.opacity = 0
@@ -254,7 +257,21 @@ final class TrackerCastFillNSView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        updateContentsScale()
         rebuild()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateContentsScale()
+    }
+
+    /// Sublayers added by hand render at 1x unless told the window's scale, which softens the bar on a Retina display.
+    private func updateContentsScale() {
+        let scale = window?.backingScaleFactor ?? 1
+        for sublayer in [fill, wash, band, flash, pulse] where sublayer.contentsScale != scale {
+            sublayer.contentsScale = scale
+        }
     }
 
     private func rebuild() {
@@ -271,7 +288,7 @@ final class TrackerCastFillNSView: NSView {
         flash.frame = CGRect(origin: .zero, size: size)
         band.frame = CGRect(x: -Self.shimmerBand, y: 0, width: Self.shimmerBand, height: size.height)
         let edgeStart = size.width > 0 ? max(0, (size.width - Self.leadingEdge) / size.width) : 0
-        fill.colors = [AppPalette.warn.cgColor, AppPalette.warn.cgColor, Self.edgeLight.cgColor]
+        fill.colors = [Self.amber.cgColor, Self.amber.cgColor, Self.edgeLight.cgColor]
         fill.locations = [0, NSNumber(value: Double(edgeStart)), 1]
         let typical = applied.cast.typicalDuration
         let shimmers = typical == nil && !applied.isFinishing
