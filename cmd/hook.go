@@ -71,9 +71,10 @@ type HookRunner struct {
 }
 
 type completedTool struct {
-	tool     string
-	command  string
-	duration time.Duration
+	tool           string
+	command        string
+	duration       time.Duration
+	waitedForInput bool
 }
 
 type hookManifestStore interface {
@@ -110,7 +111,7 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 }
 
 func (r *HookRunner) recordToolDuration(agent string, completed *completedTool, stderr io.Writer) {
-	if completed == nil || r.RecordToolDuration == nil || completed.duration <= 0 {
+	if completed == nil || completed.waitedForInput || r.RecordToolDuration == nil || completed.duration <= 0 {
 		return
 	}
 	if err := r.RecordToolDuration(agent, completed.tool, completed.command, completed.duration); err != nil {
@@ -650,7 +651,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			}
 			if opts.action == "tool_end" {
 				if ended, duration, matched := state.EndRunningTool(&pane, payload.ToolName, payload.ToolUseID, now); matched {
-					completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration}
+					completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration, waitedForInput: ended.WaitedForInput}
 				}
 			}
 			pruneClaudeOpenChatActions(&pane, now)
@@ -783,6 +784,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 
 		if setState != "" {
 			pane.State = setState
+		}
+		if prev.State != "blocked" && pane.State == "blocked" {
+			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {
@@ -1753,7 +1757,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			}
 			if opts.action == "tool_end" {
 				if ended, duration, matched := state.EndRunningTool(&pane, payload.ToolName, payload.ToolUseID, now); matched {
-					completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration}
+					completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration, waitedForInput: ended.WaitedForInput}
 				}
 			}
 		}
@@ -1777,6 +1781,9 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 
 		if setState != "" {
 			pane.State = setState
+		}
+		if prev.State != "blocked" && pane.State == "blocked" {
+			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {
@@ -2457,7 +2464,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		}
 		if opts.action == "tool_execution_end" {
 			if ended, duration, matched := state.EndRunningTool(&pane, piToolName(payload), payload.ToolCallID, occurredAt); matched {
-				completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration}
+				completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration, waitedForInput: ended.WaitedForInput}
 			}
 		}
 
@@ -2473,6 +2480,9 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 
 		if setState != "" {
 			pane.State = setState
+		}
+		if prev.State != "blocked" && pane.State == "blocked" {
+			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {
