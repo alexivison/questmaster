@@ -3,19 +3,17 @@ package agent
 import "strings"
 
 // ModelPolicy is a harness's declared model story: where a dynamic list of
-// selectable models comes from. There is no baked-in default model — the
-// persisted role-defaults store (configured in Settings) is the only source
-// of a default; everything offered as a choice is resolved at runtime from
-// the catalog sources below (and, for harnesses that can enumerate their own
-// models, from the harness itself).
+// selectable models comes from. Questmaster's explicit role default is stored
+// in Settings; choices are resolved at runtime from the catalog sources below
+// (and, for harnesses that can enumerate their own models, from the harness).
 type ModelPolicy struct {
 	// Sources map catalog providers onto the model strings this harness
 	// accepts. Order is presentation order.
 	Sources []ModelSource
 }
 
-// EffortSource identifies the harness-owned source for reasoning-effort
-// choices. The reported values are resolved at runtime by modelsuggest.
+// EffortSource identifies a harness-owned input used to resolve reasoning-
+// effort choices and the model they apply to. modelsuggest reads it at runtime.
 type EffortSource string
 
 const (
@@ -24,6 +22,8 @@ const (
 	EffortSourceClaudeHelp     EffortSource = "claude-help"
 	EffortSourcePiHelp         EffortSource = "pi-help"
 	EffortSourceOpenCodeModels EffortSource = "opencode-models"
+	EffortSourceCodexConfig    EffortSource = "codex-config"
+	EffortSourceOpenCodeConfig EffortSource = "opencode-config"
 )
 
 // ModelSource maps one models.dev provider onto a harness's model vocabulary.
@@ -39,6 +39,8 @@ type ModelSource struct {
 	Catalog string
 	// Prefix is prepended to every catalog model id for this harness.
 	Prefix string
+	// Efforts names an effort source used by a provider-qualified model mapping.
+	Efforts EffortSource
 	// Aliases additionally offers family-derived aliases (the "claude-opus"
 	// family becomes "opus"). Aliases track the latest model in their family,
 	// so they are the preferred choice where a harness supports them.

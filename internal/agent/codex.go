@@ -19,6 +19,7 @@ var codexSpec = Spec{
 	FallbackPath:   "/opt/homebrew/bin/codex",
 	Filter:         filterCodex,
 	Efforts:        EffortSourceCodexCache,
+	EffortModel:    EffortSourceCodexConfig,
 	Models: ModelPolicy{
 		Sources: []ModelSource{{Catalog: "openai"}},
 	},
