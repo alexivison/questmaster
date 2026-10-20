@@ -12,7 +12,7 @@ struct TrackerRendererTests {
         statusClassificationKeepsActiveShellIdleDespiteStaleState()
         statusClassificationKeepsStoppedShellsResumable()
         elapsedFormatShowsHoursAndTwoDigitMinutes()
-        workerTagPadsHoursToTwoDigits()
+        plateTimeReadsInUnits()
         selectionMovementWraps()
         repoListSelectionHandlesMissingCurrent()
         jumpToNextNeedsInputCyclesInOrder()
@@ -94,16 +94,18 @@ struct TrackerRendererTests {
         expect(exitedShell.kind == .stopped, "exited shell should remain resumable")
     }
 
-    private static func workerTagPadsHoursToTwoDigits() {
+    private static func plateTimeReadsInUnits() {
         let cases: [(duration: String, expected: String)] = [
-            ("0:05:12", "00:05:12"),
-            ("1:30:20", "01:30:20"),
-            ("10:00:00", "10:00:00"),
+            ("0:01:20", "01m20s"),
+            ("0:00:05", "00m05s"),
+            ("1:30:20", "01h30m"),
+            ("12:05:59", "12h05m"),
+            ("100:00:00", "100h00m"),
             ("", ""),
         ]
         for testCase in cases {
-            let padded = TrackerSession.paddedHours(testCase.duration)
-            expect(padded == testCase.expected, "\(testCase.duration) padded as \(padded), expected \(testCase.expected)")
+            let time = TrackerSession.unitTime(testCase.duration)
+            expect(time == testCase.expected, "\(testCase.duration) read as \(time), expected \(testCase.expected)")
         }
     }
 

@@ -39,6 +39,13 @@ enum RenderPreview {
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
         render(trackerListStatusView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-status.png")
         render(trackerListGapsView(), size: CGSize(width: 340, height: 820), to: "\(outputDir)/tracker-list-gaps.png")
+        // The status list at the shell's real tracker column width, on a wider canvas: past the column's edge shows
+        // whether the plates' bands and shadows survive the list's clip.
+        render(
+            trackerListStatusView().frame(width: ShellMetrics.splitLayoutMetrics.trackerMaxWidth).frame(maxWidth: .infinity, alignment: .leading),
+            size: CGSize(width: 340, height: 780),
+            to: "\(outputDir)/tracker-list-column.png"
+        )
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
@@ -61,7 +68,7 @@ enum RenderPreview {
             size: CGSize(width: 950, height: 900),
             to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
         )
-        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long"] {
+        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long", "overflow-design-idle"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
         render(selectedSessionPanelView(), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel.png")
@@ -452,19 +459,19 @@ enum RenderPreview {
         // Suffixes: a display color, and the row states "selected" (keyboard cursor, no throwaway
         // cursor row above), "attached" (open in the terminal) and "unfocused" (focus is elsewhere).
         let flags = Set(fixtureParts.dropFirst())
-        let displayColor = ["yellow", "magenta"].first(where: flags.contains) ?? "lime"
-        let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
-        // The "design" flag swaps in the strings the plate SVGs show, for side-by-side comparison with them.
+        // The "design" flag swaps in the strings and the indigo the plate SVGs show, for side-by-side comparison with them.
         let isDesign = flags.contains("design")
+        let displayColor = ["yellow", "magenta"].first(where: flags.contains) ?? (isDesign ? "indigo" : "lime")
+        let highlightsFixtureRow = flags.contains("selected") || flags.contains("attached")
         let title = isDesign ? "Session Title" : "Skills Improvements and stuff that ge..."
         let workerTitle = isDesign ? "worker-title" : title
         let repoName = isDesign ? "Project" : "Title"
-        let defaultElapsed = isDesign ? 1 : 5_420_000
+        let defaultElapsed = isDesign ? 80_000 : 5_420_000
         func session(_ id: String, role: String, agent: String = "codex", state: String = fixtureState(flags), lifecycle: String = "active", snippet: String, parentID: String = "", elapsed: Int? = nil) -> TrackerSession {
             TrackerSession(id: id, title: role == "worker" ? workerTitle : title, repoName: repoName, displayColor: displayColor, agent: agent, role: role, state: state, lifecycle: lifecycle, snippet: snippet, parentID: parentID, elapsedSeedMS: elapsed ?? defaultElapsed)
         }
         let snippet = isDesign ? "Ranked exact matches and row..." : "Bash: sed -n ‘241, 460p’ /Users/johndoe/..."
-        let workerSnippet = isDesign ? "Ranked exact matches a..." : snippet
+        let workerSnippet = isDesign ? "Ranked exact matches an..." : snippet
         var sessions: [TrackerSession]
         switch role {
         case "shell":
@@ -479,7 +486,10 @@ enum RenderPreview {
             sessions = [session("a", role: "master", snippet: snippet)]
             let twoGroups = [("codex", "working"), ("codex", "working"), ("claude", "idle"), ("claude", "idle")]
             let sixGroups = twoGroups + [("codex", "idle"), ("codex", "idle"), ("claude", "working"), ("pi", "blocked"), ("pi", "blocked"), ("opencode", "idle"), ("claude", "needs-input"), ("codex", "error")]
-            for (index, pill) in (role.hasPrefix("overflow") ? sixGroups : twoGroups).enumerated() {
+            // The master SVG's own row: seven codex circles and "+2".
+            let designRow = Array(repeating: ("codex", "idle"), count: 9)
+            let pills = role.hasPrefix("overflow") ? (isDesign ? designRow : sixGroups) : twoGroups
+            for (index, pill) in pills.enumerated() {
                 sessions.append(session("w\(index)", role: "worker", agent: pill.0, state: pill.1, snippet: snippet, parentID: "a"))
             }
         }
@@ -696,7 +706,6 @@ enum RenderPreview {
                         .frame(width: 108, alignment: .leading)
                     Rectangle()
                         .fill(TrackerNameplateColor.barLightness(color).swiftUI)
-                        .overlay(Rectangle().fill(AppPalette.shadow.swiftUI.opacity(TrackerNameplateRole.projectBarOverlayOpacity)))
                         .frame(width: 241, height: 8)
                 }
                 .frame(height: 13)
