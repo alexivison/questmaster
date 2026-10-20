@@ -112,6 +112,15 @@ public enum TrackerPortraitRing: Equatable {
         }
     }
 
+    /// Whether the ring is a working one: filling or spinning. Leaving it for no ring plays the ring's exit; leaving it
+    /// for a steady ring crossfades.
+    public var isWorking: Bool {
+        switch self {
+        case .spinning, .filling: true
+        case .none, .steady: false
+        }
+    }
+
     /// The cast the ring is showing, if any. When it goes or changes, the ring flashes the finish like the cast bar.
     public var cast: TrackerCast? {
         switch self {

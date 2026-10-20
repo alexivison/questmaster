@@ -243,6 +243,22 @@ enum LogicSelfTests {
         try expect(status.fillAnimation == nil && status.pulseAnimation == nil, "reduce motion should hold the arc at its fraction")
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: true)
         try expect(status.spinAnimation == nil && status.flashAnimation == nil, "reduce motion should hold a full ring, with no flash")
+        status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: true)
+        try expect((status.exitAnimation as? CABasicAnimation)?.keyPath == "opacity", "under reduce motion the exit should only fade")
+
+        // Leaving work: the ring completes, flashes and fades into no ring; into a steady status it crossfades.
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        try expect(status.exitAnimation == nil, "a working ring should not be exiting")
+        status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: false)
+        guard let exit = status.exitAnimation as? CAKeyframeAnimation else { throw TestFailure("a ring that stops working should play its exit") }
+        let total = TrackerPortraitStatusNSView.exitSweep + TrackerCastPhase.flashDuration + TrackerPortraitStatusNSView.exitFade
+        try expect(abs(exit.duration - total) < 0.01, "the exit should sweep, flash and fade over \(total)s, got \(exit.duration)")
+        try expect(status.spinAnimation == nil, "the spinner should stop as the ring exits")
+        status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
+        try expect(status.exitAnimation == nil, "a ring with nothing to exit from should not play the exit")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
+        try expect(status.layer?.animation(forKey: kCATransition) != nil, "working into a steady status should crossfade")
     }
 
     private static func testTrackerBandPrecedence() throws {
@@ -376,8 +392,8 @@ enum LogicSelfTests {
         }
         let states = ["working", "idle", "blocked", "done", "needs-input", "stopped", "error"]
         let row = TrackerWorkerSummaryRow(workers: states.enumerated().map { worker("w\($0.offset)", state: $0.element) })
-        let circles = try host(row, "a collapsed row").subject
-        try expect(circles.count == 4, "a collapsed row should draw a status for each active worker only, got \(circles.count)")
+        let circles = try host(row, "a collapsed row").subject.filter { $0.ringMode != TrackerPortraitRing.none }
+        try expect(circles.count == 4, "a collapsed row should draw a ring for each active worker only, got \(circles.count)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {

@@ -13,6 +13,12 @@ struct TrackerStatusStyle {
     var glowColor: NSColor? {
         kind.drawsGlow ? color : nil
     }
+
+    /// The colour a working ring completes in as the session stops working: the done colour once it is done, else
+    /// none, and the ring completes in the cast amber.
+    var finishColor: NSColor? {
+        kind == .done ? color : nil
+    }
 }
 
 struct TrackerRenderedSession {

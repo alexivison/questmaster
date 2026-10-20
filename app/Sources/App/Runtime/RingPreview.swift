@@ -29,6 +29,16 @@ enum RingPreview {
             still(.flash, scale: scale, to: "\(dir)/ring-flash-\(Int(scale))x.png")
         }
         gif(to: "\(dir)/ring-master-collapsed-2x.gif")
+        let exitMoments: [(name: String, time: TimeInterval)] = [
+            ("working", 1.0), ("exit-sweep", 1.5 + 0.12), ("exit-flash", 1.5 + 0.35), ("exit-fade", 1.5 + 0.75), ("after", 3.2),
+        ]
+        for scale: CGFloat in [1, 4] {
+            let frames = exitRun(scale: scale, times: exitMoments.map(\.time))
+            for (moment, frame) in zip(exitMoments, frames) {
+                write(frame, to: "\(dir)/ring-\(moment.name)-\(Int(scale))x.png")
+            }
+        }
+        writeGIF(exitRun(scale: 2, times: stride(from: 0.0, to: 3.6, by: 0.04).map { $0 }), to: "\(dir)/ring-exit-2x.gif")
         exit(0)
     }
 
@@ -162,6 +172,55 @@ enum RingPreview {
         guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.gif.identifier as CFString, frames.count, nil) else { return }
         CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
         let delay = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 1 / framesPerSecond]] as CFDictionary
+        frames.forEach { CGImageDestinationAddImage(destination, $0, delay) }
+        CGImageDestinationFinalize(destination)
+        print("RingPreview: wrote \(path) (\(frames.count) frames)")
+    }
+
+    /// A master and its collapsed workers stop working 1.5s in: the master is done (its ring completes in the done
+    /// colour), one worker filling a cast goes idle (amber), one spinning stops, one working turns blocked (a crossfade
+    /// to its steady ring), one on a tool with no learned duration is done. Captured at `times`, in the master and
+    /// circles' band.
+    private static func exitRun(scale: CGFloat, times: [TimeInterval]) -> [CGImage] {
+        let start = Date().addingTimeInterval(settle)
+        func at(_ time: TimeInterval) -> [TrackerSession] {
+            let stopped = time >= 1.5
+            func worker(_ index: Int, before: String, after: String, cast: TrackerCast?) -> TrackerSession {
+                session("qm-1-w\(index)", role: "worker", title: "worker-title", parent: "qm-1", state: stopped ? after : before, cast: stopped ? nil : cast)
+            }
+            let master = session("qm-1", role: "master", title: "Review PRs", state: stopped ? "done" : "working",
+                                 cast: stopped ? nil : TrackerCast(tool: "Bash", startedAt: start, typicalMS: 6000))
+            return [master,
+                    worker(0, before: "working", after: "idle", cast: TrackerCast(tool: "Edit", startedAt: start, typicalMS: 3000)),
+                    worker(1, before: "working", after: "stopped", cast: nil),
+                    worker(2, before: "working", after: "blocked", cast: nil),
+                    worker(3, before: "working", after: "done", cast: TrackerCast(tool: "mcp__linear__save_issue", startedAt: start, typicalMS: 0))]
+        }
+        let runtime = store(at(0))
+        let (window, hosting) = host(runtime, scale: scale)
+        let clock = Date()
+        var frames: [CGImage] = []
+        var stopped = false
+        for time in times.sorted() {
+            while Date().timeIntervalSince(clock) < time {
+                if !stopped && Date().timeIntervalSince(clock) >= 1.5 {
+                    stopped = true
+                    apply(at(1.5), to: runtime)
+                }
+                wait(0.005)
+            }
+            if let image = capture(hosting, scale: scale, rect: CGRect(x: 0, y: 100, width: canvas.width, height: 120)) {
+                frames.append(image)
+            }
+        }
+        window.orderOut(nil)
+        return frames
+    }
+
+    private static func writeGIF(_ frames: [CGImage], to path: String) {
+        guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.gif.identifier as CFString, frames.count, nil) else { return }
+        CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
+        let delay = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.04]] as CFDictionary
         frames.forEach { CGImageDestinationAddImage(destination, $0, delay) }
         CGImageDestinationFinalize(destination)
         print("RingPreview: wrote \(path) (\(frames.count) frames)")

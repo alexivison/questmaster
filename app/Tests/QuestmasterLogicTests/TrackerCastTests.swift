@@ -115,6 +115,8 @@ struct TrackerCastTests {
         }
         expect(TrackerPortraitRing.filling(bash).cast == bash && TrackerPortraitRing.spinning(mcp).cast == mcp, "the ring carries its cast")
         expect(TrackerPortraitRing.spinning(nil).cast == nil && TrackerPortraitRing.steady.cast == nil, "a ring with no tool carries no cast")
+        expect(TrackerPortraitRing.spinning(nil).isWorking && TrackerPortraitRing.filling(bash).isWorking, "filling and spinning are working rings")
+        expect(!TrackerPortraitRing.steady.isWorking && !TrackerPortraitRing.none.isWorking, "steady and no ring are not")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

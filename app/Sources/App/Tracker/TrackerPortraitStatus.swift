@@ -55,10 +55,10 @@ struct TrackerPortraitStatusGeometry: Equatable {
 
     /// The same ring as an arc from 12 o'clock, clockwise, in a layer whose y runs up: the round cast bar's path, which
     /// its stroke ends sweep along.
-    func arcPath(around middle: CGPoint) -> CGPath {
+    func arcPath(around middle: CGPoint, from startAngle: CGFloat = .pi / 2) -> CGPath {
         let radius = (ringInnerRadius + pathRadius) / 2
         let path = CGMutablePath()
-        path.addArc(center: middle, radius: radius, startAngle: .pi / 2, endAngle: .pi / 2 - 2 * .pi, clockwise: true)
+        path.addArc(center: middle, radius: radius, startAngle: startAngle, endAngle: startAngle - 2 * .pi, clockwise: true)
         return path
     }
 
@@ -95,10 +95,13 @@ struct TrackerPortraitStatus: View {
     let geometry: TrackerPortraitStatusGeometry
     let color: NSColor
     let ring: TrackerPortraitRing
+    /// The colour a working ring completes in when the session stops working: the done colour when it is done, else
+    /// the amber.
+    var finishColor: NSColor?
 
     var body: some View {
         let frame = geometry.frame
-        TrackerPortraitStatusView(geometry: geometry, color: color, ring: ring)
+        TrackerPortraitStatusView(geometry: geometry, color: color, ring: ring, finishColor: finishColor)
             .frame(width: frame.width, height: frame.height)
             .offset(x: frame.minX, y: frame.minY)
     }
@@ -108,6 +111,7 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
     let geometry: TrackerPortraitStatusGeometry
     let color: NSColor
     let ring: TrackerPortraitRing
+    let finishColor: NSColor?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> TrackerPortraitStatusNSView {
@@ -115,7 +119,7 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: TrackerPortraitStatusNSView, context: Context) {
-        view.configure(geometry: geometry, color: color, ring: ring, reduceMotion: reduceMotion)
+        view.configure(geometry: geometry, color: color, ring: ring, finishColor: finishColor, reduceMotion: reduceMotion)
     }
 }
 
@@ -125,17 +129,24 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
 ///   tool's learned duration, with the cast bar's light leading edge at its head; then held full and pulsing.
 /// - spinning: a third of the ring, fading from its tail to a light head, orbiting the disc once every `spinPeriod`.
 /// - when the cast it shows ends or changes, a full ring flashes like the cast bar's finish, then the new state shows.
-/// Reduce motion: no spin, pulse or flash; a spinning ring holds full and a filling one holds at its current fraction.
+/// - when the session stops working, the ring exits: it sweeps on to full from wherever it is, flashes, and fades out.
+///   Into a steady status (blocked, needs input, error) it crossfades instead.
+/// Reduce motion: no spin, pulse or flash; a spinning ring holds full and a filling one holds at its current fraction;
+/// the exit is a short fade.
 /// Animations are built only when the inputs or the window change, and only while in a window.
 final class TrackerPortraitStatusNSView: NSView {
     static let spinPeriod: CFTimeInterval = 1.2
     /// How much of the ring the spinner's arc covers, tail to head.
     static let spinnerArc: Double = 1.0 / 3
+    static let exitSweep: CFTimeInterval = 0.25
+    static let exitFade: CFTimeInterval = 0.4
+    static let crossfade: CFTimeInterval = 0.2
     private static let fillKey = "fill"
     private static let headKey = "head"
     private static let pulseKey = "pulse"
     private static let spinKey = "spin"
     private static let flashKey = "flash"
+    private static let exitKey = "exit"
 
     private let glow = CAGradientLayer()
     private let ring = CAShapeLayer()
@@ -147,11 +158,16 @@ final class TrackerPortraitStatusNSView: NSView {
     private let spinnerMask = CAShapeLayer()
     private let finishFill = CAShapeLayer()
     private let flash = CAShapeLayer()
-    private var applied: (geometry: TrackerPortraitStatusGeometry, color: NSColor, ring: TrackerPortraitRing, reduceMotion: Bool)?
+    /// The exit: an arc that completes to full and a flash over it, in a layer that fades out.
+    private let exit = CALayer()
+    private let exitArc = CAShapeLayer()
+    private let exitFlash = CAShapeLayer()
+    private var applied: (geometry: TrackerPortraitStatusGeometry, color: NSColor, ring: TrackerPortraitRing, finishColor: NSColor?, reduceMotion: Bool)?
     /// The cast the ring last showed, so its end can flash.
     private var shownCast: TrackerCast?
 
     private var shapeLayers: [CAShapeLayer] { [ring, arc, head, pulse, finishFill, flash] }
+    private var exitLayers: [CALayer] { [exit, exitArc, exitFlash] }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -162,13 +178,16 @@ final class TrackerPortraitStatusNSView: NSView {
         spinnerGradient.endPoint = CGPoint(x: 0.5, y: 1)
         spinnerGradient.mask = spinnerMask
         spinner.addSublayer(spinnerGradient)
-        for shape in shapeLayers + [spinnerMask] {
+        for shape in shapeLayers + [spinnerMask, exitArc, exitFlash] {
             shape.fillColor = nil
             shape.lineCap = .butt
         }
-        for sublayer in [glow, ring, arc, head, pulse, spinner, finishFill, flash] as [CALayer] {
+        for sublayer in [glow, ring, arc, head, pulse, spinner, finishFill, flash, exit] as [CALayer] {
             layer?.addSublayer(sublayer)
         }
+        exit.addSublayer(exitArc)
+        exit.addSublayer(exitFlash)
+        exit.opacity = 0
     }
 
     @available(*, unavailable)
@@ -184,15 +203,31 @@ final class TrackerPortraitStatusNSView: NSView {
     var pulseAnimation: CABasicAnimation? { pulse.animation(forKey: Self.pulseKey) as? CABasicAnimation }
     var spinAnimation: CABasicAnimation? { spinner.animation(forKey: Self.spinKey) as? CABasicAnimation }
     var flashAnimation: CABasicAnimation? { flash.animation(forKey: Self.flashKey) as? CABasicAnimation }
+    var exitAnimation: CAAnimation? { exit.animation(forKey: Self.exitKey) }
 
-    func configure(geometry: TrackerPortraitStatusGeometry, color: NSColor, ring: TrackerPortraitRing, reduceMotion: Bool) {
-        if let applied, applied.geometry == geometry, applied.color == color, applied.ring == ring, applied.reduceMotion == reduceMotion {
+    func configure(geometry: TrackerPortraitStatusGeometry, color: NSColor, ring: TrackerPortraitRing, finishColor: NSColor? = nil, reduceMotion: Bool) {
+        if let applied, applied.geometry == geometry, applied.color == color, applied.ring == ring, applied.finishColor == finishColor,
+           applied.reduceMotion == reduceMotion {
             return
         }
-        let ended = shownCast != nil && shownCast != ring.cast
+        let previous = applied?.ring ?? TrackerPortraitRing.none
+        let exitStart = previous.isWorking && ring == .none ? currentSweep(of: previous) : nil
+        let crossfades = previous.isWorking && ring == .steady && window != nil && !reduceMotion
+        let ended = shownCast != nil && shownCast != ring.cast && ring.isWorking
         shownCast = ring.cast
-        applied = (geometry, color, ring, reduceMotion)
+        applied = (geometry, color, ring, finishColor, reduceMotion)
+        if crossfades {
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = Self.crossfade
+            layer?.add(fade, forKey: kCATransition)
+        }
         rebuild(flashes: ended)
+        if let exitStart {
+            playExit(from: exitStart)
+        } else {
+            stopExit()
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -209,7 +244,7 @@ final class TrackerPortraitStatusNSView: NSView {
     /// Sublayers added by hand render at 1x unless told the window's scale, which blurs the ring on a Retina display.
     private func updateContentsScale() {
         let scale = window?.backingScaleFactor ?? 1
-        for sublayer in [glow, spinner, spinnerGradient, spinnerMask] + shapeLayers as [CALayer] where sublayer.contentsScale != scale {
+        for sublayer in [glow, spinner, spinnerGradient, spinnerMask] + shapeLayers + exitLayers as [CALayer] where sublayer.contentsScale != scale {
             sublayer.contentsScale = scale
         }
     }
@@ -350,6 +385,89 @@ final class TrackerPortraitStatusNSView: NSView {
         breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         breath.beginTime = CACurrentMediaTime() + delay
         pulse.add(breath, forKey: Self.pulseKey)
+    }
+
+    /// Where a working ring is right now, for its exit to carry on from: a fill's sweep from 12 o'clock as far as it
+    /// has got, or the spinner's arc, from its tail to its head wherever its turn has taken it.
+    private func currentSweep(of ring: TrackerPortraitRing) -> (startAngle: CGFloat, fraction: CGFloat) {
+        switch ring {
+        case .filling:
+            return (.pi / 2, (arc.presentation() ?? arc).strokeEnd)
+        case .spinning where !(applied?.reduceMotion ?? true):
+            let transform = (spinner.presentation() ?? spinner).transform
+            let turn = atan2(transform.m12, transform.m11)
+            let head = .pi / 2 + turn
+            return (head + 2 * .pi * CGFloat(Self.spinnerArc), CGFloat(Self.spinnerArc))
+        default:
+            return (.pi / 2, 1)
+        }
+    }
+
+    /// The exit: the ring completes from where it was to full, flashes like the cast bar's finish, and fades out. In the
+    /// done colour when the session is done, else the amber. Under reduce motion it only fades.
+    private func playExit(from start: (startAngle: CGFloat, fraction: CGFloat)) {
+        guard let applied, window != nil else { return }
+        let geometry = applied.geometry
+        let bounds = CGRect(origin: .zero, size: geometry.frame.size)
+        let center = geometry.layerCenter
+        let middle = CGPoint(x: center.x, y: isFlipped ? center.y : bounds.height - center.y)
+        let tint = applied.finishColor ?? TrackerCastFillNSView.amber
+        let light = tint.blended(withFraction: 0.5, of: .white) ?? tint
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for sublayer in exitLayers {
+            sublayer.removeAllAnimations()
+            sublayer.frame = bounds
+        }
+        exitArc.path = geometry.arcPath(around: middle, from: start.startAngle)
+        exitArc.lineWidth = geometry.ringLineWidth
+        exitArc.strokeColor = tint.cgColor
+        exitArc.strokeEnd = 1
+        exitFlash.path = geometry.ringPath(around: middle)
+        exitFlash.lineWidth = geometry.ringLineWidth
+        exitFlash.strokeColor = light.cgColor
+        exitFlash.opacity = 0
+        exit.opacity = 0
+        exit.isHidden = false
+        CATransaction.commit()
+        let now = CACurrentMediaTime()
+        if applied.reduceMotion {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 1
+            fade.toValue = 0
+            fade.duration = Self.exitFade
+            exit.add(fade, forKey: Self.exitKey)
+            return
+        }
+        let sweep = CABasicAnimation(keyPath: "strokeEnd")
+        sweep.fromValue = start.fraction
+        sweep.toValue = 1
+        sweep.duration = Self.exitSweep
+        sweep.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        exitArc.add(sweep, forKey: Self.exitKey)
+        let flashFade = CABasicAnimation(keyPath: "opacity")
+        flashFade.fromValue = TrackerCastFillNSView.flashOpacity
+        flashFade.toValue = 0
+        flashFade.beginTime = now + Self.exitSweep
+        flashFade.duration = TrackerCastPhase.flashDuration
+        exitFlash.add(flashFade, forKey: Self.exitKey)
+        let held = Self.exitSweep + TrackerCastPhase.flashDuration
+        let total = held + Self.exitFade
+        let visibility = CAKeyframeAnimation(keyPath: "opacity")
+        visibility.values = [1, 1, 0]
+        visibility.keyTimes = [0, NSNumber(value: held / total), 1]
+        visibility.duration = total
+        exit.add(visibility, forKey: Self.exitKey)
+    }
+
+    private func stopExit() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for sublayer in exitLayers {
+            sublayer.removeAllAnimations()
+        }
+        exit.isHidden = true
+        CATransaction.commit()
     }
 
     /// The cast bar's finish on the ring: a full amber ring with the light flash fading off it, over whatever comes next.

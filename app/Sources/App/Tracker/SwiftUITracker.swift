@@ -948,7 +948,7 @@ struct TrackerWorkerSummaryRow: View {
             ForEach(Array(TrackerWorkerSummary.circles(for: workers).enumerated()), id: \.offset) { _, circle in
                 switch circle {
                 case .worker(let worker):
-                    TrackerCollapsedCircle(status: worker.status.glowColor, ring: .ring(status: worker.status.kind, cast: worker.session.cast)) {
+                    TrackerCollapsedCircle(status: worker.status, cast: worker.session.cast) {
                         TrackerAgentMark(
                             agent: worker.session.agent,
                             shortcutNumber: nil,
@@ -957,7 +957,7 @@ struct TrackerWorkerSummaryRow: View {
                         )
                     }
                 case .overflow(let hiddenWorkers):
-                    TrackerCollapsedCircle(status: nil, ring: .none) {
+                    TrackerCollapsedCircle(status: nil, cast: nil) {
                         TrackerPlateLine(
                             text: "+\(hiddenWorkers)",
                             font: AppFonts.monoSmall,
@@ -999,8 +999,9 @@ enum TrackerWorkerSummary {
 /// active worker's status ring and glow sit between the two, under the border. The border is centred on a circle 0.75
 /// inside the frame.
 private struct TrackerCollapsedCircle<Content: View>: View {
-    let status: NSColor?
-    let ring: TrackerPortraitRing
+    let status: TrackerStatusStyle?
+    /// A collapsed worker has no cast row, so its ring carries its cast: the round cast fill.
+    let cast: TrackerCast?
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -1012,8 +1013,13 @@ private struct TrackerCollapsedCircle<Content: View>: View {
                 context.fill(circle, with: .color(AppPalette.panel.swiftUI))
             }
             .frame(width: side, height: side)
-            if let status, ring != .none {
-                TrackerPortraitStatus(geometry: TrackerPlateDesign.collapsedCircleStatus, color: status, ring: ring)
+            if let status {
+                TrackerPortraitStatus(
+                    geometry: TrackerPlateDesign.collapsedCircleStatus,
+                    color: status.color,
+                    ring: .ring(status: status.kind, cast: cast),
+                    finishColor: status.finishColor
+                )
             }
             Canvas { context, _ in
                 context.stroke(circle, with: .color(AppPalette.line.swiftUI), lineWidth: stroke)
@@ -1274,8 +1280,9 @@ struct TrackerNameplateBackground<Text: View>: View {
     let hovered: Bool
     let isRecoloring: Bool
     let statusColor: NSColor?
-    /// What the portrait's ring shows: a round cast bar while working, a still ring for the other active statuses.
+    /// What the portrait's ring shows: a spinner while working, a still ring for the other active statuses.
     let ring: TrackerPortraitRing
+    var finishColor: NSColor? = nil
     let text: Text
 
     var body: some View {
@@ -1287,8 +1294,8 @@ struct TrackerNameplateBackground<Text: View>: View {
             }
             TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
             TrackerPortraitDisc(artwork: artwork)
-            if let statusColor, ring != .none {
-                TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, ring: ring)
+            if let statusColor {
+                TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, ring: ring, finishColor: finishColor)
             }
             TrackerPortraitOutline(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
             text
@@ -1592,8 +1599,10 @@ private struct TrackerSessionRow: View {
                     selected: selected,
                     hovered: hovered,
                     isRecoloring: rendered.recolorEditHint != nil,
-                    statusColor: rendered.status.glowColor,
-                    ring: .ring(status: rendered.status.kind, cast: session.cast),
+                    statusColor: rendered.status.color,
+                    // The plate's cast row shows its cast, so its ring only spins while it works.
+                    ring: .ring(status: rendered.status.kind, cast: nil),
+                    finishColor: rendered.status.finishColor,
                     text: TrackerPlateText(
                         rendered: rendered,
                         role: role,
