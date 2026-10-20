@@ -181,14 +181,16 @@ private struct TrackerCastFillView: NSViewRepresentable {
 }
 
 /// The bar's inside, all in Core Animation so it moves without SwiftUI redrawing anything. A cast with a learned
-/// duration slides a full-width amber layer, its 6pt light leading edge at its right, along the keyframes Core samples
-/// from the fill curve; the bar clips it to the fill. A cast with none shimmers: a dim amber wash with a light band
-/// sweeping across. A finishing cast fills and flashes. The animations are built when the cast, the phase, the size or
-/// the window change, and never per frame.
+/// duration slides a full-width amber layer, its 6pt light leading edge at its right, linearly to full at the typical
+/// duration; the bar clips it to the fill. Past that the full bar pulses, a light overlay breathing until the tool ends.
+/// A cast with none shimmers: a dim amber wash with a light band sweeping across. A finishing cast fills and flashes.
+/// The animations are built when the cast, the phase, the size or the window change, and never per frame.
 final class TrackerCastFillNSView: NSView {
     static let leadingEdge: CGFloat = 6
     static let edgeLight = AppPalette.warn.blended(withFraction: 0.7, of: .white) ?? AppPalette.warn
     static let flashOpacity: Float = 0.55
+    /// The overrun pulse's peak: the light overlay's opacity at the top of each breath.
+    static let pulsePeak: Float = 0.3
     static let shimmerWash: CGFloat = 0.35
     static let shimmerBand: CGFloat = 40
     static let shimmerPeriod: CFTimeInterval = 1.2
@@ -196,11 +198,13 @@ final class TrackerCastFillNSView: NSView {
     private static let fillKey = "fill"
     private static let shimmerKey = "shimmer"
     private static let flashKey = "flash"
+    private static let pulseKey = "pulse"
 
     private let fill = CAGradientLayer()
     private let wash = CALayer()
     private let band = CAGradientLayer()
     private let flash = CALayer()
+    private let pulse = CALayer()
     private var applied: (cast: TrackerCast, isFinishing: Bool, reduceMotion: Bool, size: CGSize)?
 
     override init(frame frameRect: NSRect) {
@@ -216,7 +220,9 @@ final class TrackerCastFillNSView: NSView {
         wash.backgroundColor = AppPalette.warn.withAlphaComponent(Self.shimmerWash).cgColor
         flash.backgroundColor = NSColor.white.withAlphaComponent(CGFloat(Self.flashOpacity)).cgColor
         flash.opacity = 0
-        for sublayer in [wash, band, fill, flash] {
+        pulse.backgroundColor = Self.edgeLight.cgColor
+        pulse.opacity = 0
+        for sublayer in [wash, band, fill, pulse, flash] {
             layer?.addSublayer(sublayer)
         }
     }
@@ -226,8 +232,10 @@ final class TrackerCastFillNSView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// The fill's keyframe animation while it runs, nil otherwise. Tests read it to check that only casts animate.
-    var fillAnimation: CAKeyframeAnimation? { fill.animation(forKey: Self.fillKey) as? CAKeyframeAnimation }
+    /// The fill's animation while it runs, the overrun pulse, and the shimmer, nil or false when absent. Tests read
+    /// them to check what animates when.
+    var fillAnimation: CABasicAnimation? { fill.animation(forKey: Self.fillKey) as? CABasicAnimation }
+    var pulseAnimation: CABasicAnimation? { pulse.animation(forKey: Self.pulseKey) as? CABasicAnimation }
     var isShimmering: Bool { band.animation(forKey: Self.shimmerKey) != nil }
 
     func configure(cast: TrackerCast, isFinishing: Bool, reduceMotion: Bool) {
@@ -254,10 +262,11 @@ final class TrackerCastFillNSView: NSView {
         let size = bounds.size
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for sublayer in [fill, band, flash] {
+        for sublayer in [fill, band, flash, pulse] {
             sublayer.removeAllAnimations()
         }
         fill.frame = CGRect(origin: .zero, size: size)
+        pulse.frame = CGRect(origin: .zero, size: size)
         wash.frame = CGRect(origin: .zero, size: size)
         flash.frame = CGRect(origin: .zero, size: size)
         band.frame = CGRect(x: -Self.shimmerBand, y: 0, width: Self.shimmerBand, height: size.height)
@@ -277,7 +286,9 @@ final class TrackerCastFillNSView: NSView {
         if applied.isFinishing {
             if !applied.reduceMotion { addFlash() }
         } else if let typical {
-            addFill(elapsed: elapsed, typical: typical, width: size.width)
+            let timeToFull = TrackerCastFill.timeToFull(elapsed: elapsed, typical: typical)
+            addFill(from: fraction, over: timeToFull, width: size.width)
+            if !applied.reduceMotion { addPulse(after: timeToFull) }
         } else if !applied.reduceMotion {
             addShimmer(width: size.width)
         }
@@ -289,18 +300,29 @@ final class TrackerCastFillNSView: NSView {
         CGFloat(fraction) * width - width / 2
     }
 
-    private func addFill(elapsed: TimeInterval, typical: TimeInterval, width: CGFloat) {
-        let frames = TrackerCastFill.keyframes(elapsed: elapsed, typical: typical)
-        guard let duration = frames.last?.offset, duration > 0 else { return }
-        let animation = CAKeyframeAnimation(keyPath: "position.x")
-        animation.values = frames.map { fillCenter(fraction: $0.fraction, width: width) }
-        animation.keyTimes = frames.map { NSNumber(value: $0.offset / duration) }
-        animation.calculationMode = .linear
+    private func addFill(from fraction: Double, over duration: TimeInterval, width: CGFloat) {
+        guard duration > 0 else { return }
+        let animation = CABasicAnimation(keyPath: "position.x")
+        animation.fromValue = fillCenter(fraction: fraction, width: width)
+        animation.toValue = fillCenter(fraction: 1, width: width)
         animation.duration = duration
         animation.beginTime = CACurrentMediaTime()
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         fill.add(animation, forKey: Self.fillKey)
+    }
+
+    /// Once the bar is full, its light overlay breathes up and back each `pulsePeriod` until the tool ends.
+    private func addPulse(after delay: TimeInterval) {
+        let breath = CABasicAnimation(keyPath: "opacity")
+        breath.fromValue = 0
+        breath.toValue = Self.pulsePeak
+        breath.duration = TrackerCastFill.pulsePeriod / 2
+        breath.autoreverses = true
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.beginTime = CACurrentMediaTime() + delay
+        pulse.add(breath, forKey: Self.pulseKey)
     }
 
     private func addShimmer(width: CGFloat) {

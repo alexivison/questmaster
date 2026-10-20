@@ -571,33 +571,42 @@ enum LogicSelfTests {
         try expect(waitUntil { !clock.isRunning }, "the clock should stop when the live times go")
     }
 
-    /// The cast bar's inside runs in Core Animation: a learned duration gets one keyframe fill toward the hold, an
-    /// unknown one a repeating shimmer (none under reduce motion), a finishing cast neither, and nothing animates
-    /// outside a window.
+    /// The cast bar's inside runs in Core Animation: a learned duration gets one linear fill to full at the typical
+    /// duration and a pulse from then on (none under reduce motion), an unknown one a repeating shimmer (none under reduce
+    /// motion), a finishing cast neither, and nothing animates outside a window.
     private static func testCastFillAnimatesOnlyWhileCastingInAWindow() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
         let started = Date().addingTimeInterval(-2)
         let bash = TrackerCast(tool: "Bash", startedAt: started, typicalMS: 6000)
+        let overrun = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-9), typicalMS: 6000)
         let mcp = TrackerCast(tool: "mcp__linear__save_issue", startedAt: started, typicalMS: 0)
 
         let outside = TrackerCastFillNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 13))
         outside.configure(cast: bash, isFinishing: false, reduceMotion: false)
-        try expect(outside.fillAnimation == nil, "a bar outside a window should not animate")
+        try expect(outside.fillAnimation == nil && outside.pulseAnimation == nil, "a bar outside a window should not animate")
 
         let fill = TrackerCastFillNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 13))
         window.contentView = fill
         fill.configure(cast: bash, isFinishing: false, reduceMotion: false)
-        guard let animation = fill.fillAnimation else { throw TestFailure("a cast with a learned duration should animate its fill") }
-        try expect(animation.keyTimes?.count == TrackerCastFill.keyframes(elapsed: 2, typical: 6).count, "the fill should follow Core's keyframes")
-        try expect(abs(animation.duration - 28) < 0.1, "the fill should run to the creep's end at 5 typical durations, 28s from 2s in, got \(animation.duration)")
+        guard let animation = fill.fillAnimation, let pulse = fill.pulseAnimation else {
+            throw TestFailure("a cast with a learned duration should fill, then pulse")
+        }
+        try expect(abs(animation.duration - 4) < 0.1, "2s into a 6s tool the fill should run 4s to full, got \(animation.duration)")
+        try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the bar is full")
+        try expect(pulse.repeatCount == .infinity && pulse.autoreverses, "the pulse should breathe until the tool ends")
         try expect(!fill.isShimmering, "a learned duration should not shimmer")
 
+        fill.configure(cast: overrun, isFinishing: false, reduceMotion: false)
+        try expect(fill.fillAnimation == nil && fill.pulseAnimation != nil, "an overrunning tool should hold full and pulse at once")
+        fill.configure(cast: overrun, isFinishing: false, reduceMotion: true)
+        try expect(fill.pulseAnimation == nil, "reduce motion should hold the full bar steady")
+
         fill.configure(cast: mcp, isFinishing: false, reduceMotion: false)
-        try expect(fill.isShimmering && fill.fillAnimation == nil, "an unknown duration should shimmer instead of filling")
+        try expect(fill.isShimmering && fill.fillAnimation == nil && fill.pulseAnimation == nil, "an unknown duration should shimmer instead of filling")
         fill.configure(cast: mcp, isFinishing: false, reduceMotion: true)
         try expect(!fill.isShimmering, "reduce motion should stop the shimmer")
         fill.configure(cast: bash, isFinishing: true, reduceMotion: false)
-        try expect(fill.fillAnimation == nil && !fill.isShimmering, "a finishing cast should hold full, not fill")
+        try expect(fill.fillAnimation == nil && fill.pulseAnimation == nil && !fill.isShimmering, "a finishing cast should hold full and flash, nothing else")
     }
 
     private static func testPlateTimeColumnFitsRunsPastNinetyNineHours() throws {
