@@ -948,7 +948,7 @@ struct TrackerWorkerSummaryRow: View {
             ForEach(Array(TrackerWorkerSummary.circles(for: workers).enumerated()), id: \.offset) { _, circle in
                 switch circle {
                 case .worker(let worker):
-                    TrackerCollapsedCircle(status: worker.status.glowColor) {
+                    TrackerCollapsedCircle(status: worker.status.glowColor, ring: .ring(status: worker.status.kind, cast: worker.session.cast)) {
                         TrackerAgentMark(
                             agent: worker.session.agent,
                             shortcutNumber: nil,
@@ -957,7 +957,7 @@ struct TrackerWorkerSummaryRow: View {
                         )
                     }
                 case .overflow(let hiddenWorkers):
-                    TrackerCollapsedCircle(status: nil) {
+                    TrackerCollapsedCircle(status: nil, ring: .none) {
                         TrackerPlateLine(
                             text: "+\(hiddenWorkers)",
                             font: AppFonts.monoSmall,
@@ -1000,6 +1000,7 @@ enum TrackerWorkerSummary {
 /// inside the frame.
 private struct TrackerCollapsedCircle<Content: View>: View {
     let status: NSColor?
+    let ring: TrackerPortraitRing
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -1011,8 +1012,8 @@ private struct TrackerCollapsedCircle<Content: View>: View {
                 context.fill(circle, with: .color(AppPalette.panel.swiftUI))
             }
             .frame(width: side, height: side)
-            if let status {
-                TrackerPortraitStatus(geometry: TrackerPlateDesign.collapsedCircleStatus, color: status)
+            if let status, ring != .none {
+                TrackerPortraitStatus(geometry: TrackerPlateDesign.collapsedCircleStatus, color: status, ring: ring)
             }
             Canvas { context, _ in
                 context.stroke(circle, with: .color(AppPalette.line.swiftUI), lineWidth: stroke)
@@ -1273,6 +1274,8 @@ struct TrackerNameplateBackground<Text: View>: View {
     let hovered: Bool
     let isRecoloring: Bool
     let statusColor: NSColor?
+    /// What the portrait's ring shows: a round cast bar while working, a still ring for the other active statuses.
+    let ring: TrackerPortraitRing
     let text: Text
 
     var body: some View {
@@ -1284,8 +1287,8 @@ struct TrackerNameplateBackground<Text: View>: View {
             }
             TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
             TrackerPortraitDisc(artwork: artwork)
-            if let statusColor {
-                TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, holdsPeak: hovered)
+            if let statusColor, ring != .none {
+                TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, ring: ring)
             }
             TrackerPortraitOutline(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
             text
@@ -1590,6 +1593,7 @@ private struct TrackerSessionRow: View {
                     hovered: hovered,
                     isRecoloring: rendered.recolorEditHint != nil,
                     statusColor: rendered.status.glowColor,
+                    ring: .ring(status: rendered.status.kind, cast: session.cast),
                     text: TrackerPlateText(
                         rendered: rendered,
                         role: role,

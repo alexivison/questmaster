@@ -90,3 +90,34 @@ public enum TrackerCastPhase: Equatable {
         return false
     }
 }
+
+/// What a portrait's ring shows. A working session's ring mirrors its cast bar: it fills around the disc toward the
+/// tool's learned duration, or spins while the session works with no tool or one with no learned duration. Blocked,
+/// needs-input and error sessions show a still ring in their status colour; the rest show none.
+public enum TrackerPortraitRing: Equatable {
+    case none
+    case steady
+    case spinning(TrackerCast?)
+    case filling(TrackerCast)
+
+    public static func ring(status: TrackerStatusKind, cast: TrackerCast?) -> TrackerPortraitRing {
+        switch status {
+        case .working:
+            guard let cast, cast.typicalDuration != nil else { return .spinning(cast) }
+            return .filling(cast)
+        case .blocked, .needsInput, .error:
+            return .steady
+        case .done, .idle, .stopped:
+            return .none
+        }
+    }
+
+    /// The cast the ring is showing, if any. When it goes or changes, the ring flashes the finish like the cast bar.
+    public var cast: TrackerCast? {
+        switch self {
+        case .spinning(let cast): cast
+        case .filling(let cast): cast
+        case .none, .steady: nil
+        }
+    }
+}

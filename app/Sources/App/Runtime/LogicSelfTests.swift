@@ -31,7 +31,6 @@ enum LogicSelfTests {
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
         ("testPlateAndCircleStatusDrawsOnlyForActiveStatuses", testPlateAndCircleStatusDrawsOnlyForActiveStatuses),
-        ("testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld", testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld),
         ("testPlateTimeColumnFitsRunsPastNinetyNineHours", testPlateTimeColumnFitsRunsPastNinetyNineHours),
         ("testCastFillAnimatesOnlyWhileCastingInAWindow", testCastFillAnimatesOnlyWhileCastingInAWindow),
         ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
@@ -39,7 +38,7 @@ enum LogicSelfTests {
         ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
-        ("testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed", testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed),
+        ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
@@ -203,7 +202,9 @@ enum LogicSelfTests {
         try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
     }
 
-    private static func testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed() throws {
+    /// The ring in Core Animation: a steady ring is still, a spinning one turns, a filling one sweeps to full and then
+    /// pulses, an ended cast flashes; reduce motion stills all of them, and nothing animates outside a window.
+    private static func testPortraitRingAnimatesByItsMode() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
         let geometry = TrackerPlateDesign.collapsedCircleStatus
         for status in [TrackerStatusKind.working, .blocked, .needsInput, .error] {
@@ -212,29 +213,36 @@ enum LogicSelfTests {
         for status in [TrackerStatusKind.idle, .done, .stopped] {
             try expect(!status.drawsGlow, "\(status) should light nothing")
         }
+        let bash = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2), typicalMS: 6000)
+
+        let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        outside.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
+        try expect(outside.fillAnimation == nil && outside.pulseAnimation == nil, "a ring outside a window should not animate")
 
         let status = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         window.contentView = status
-        status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
-        let breaths = status.breathAnimations
-        try expect(breaths.count == 2, "the ring and the glow should each breathe in a window, got \(breaths.count)")
-        let lows = breaths.map { ($0.fromValue as? Float) ?? -1 }
-        try expect(lows == [0.75, 0.4], "the ring should dip only to 0.75 of its peak and the glow to 0.4, got \(lows)")
-        for breath in breaths {
-            try expect((breath.toValue as? Float) == 1, "the breath should rise to the peak")
-            try expect(breath.duration == TrackerPortraitStatusNSView.breathCycle / 2 && breath.autoreverses, "the breath should take 2s up and down")
-        }
-        try expect(Set(breaths.map(\.beginTime)).count == 1, "the ring and the glow should breathe from one origin")
-        try expect(status.restingOpacities == [1, 1], "the layers should rest at their peaks")
+        status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
+        try expect(status.fillAnimation == nil && status.spinAnimation == nil && status.pulseAnimation == nil, "a steady ring should not move")
 
-        status.configure(geometry: geometry, color: AppPalette.accent, breathes: false)
-        try expect(status.breathAnimations.isEmpty && status.restingOpacities == [1, 1], "a held status should sit at its peak, with no animation")
-        status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
-        try expect(status.breathAnimations.count == 2, "a status allowed to move again should breathe")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        guard let spin = status.spinAnimation else { throw TestFailure("working with no tool should spin the ring") }
+        try expect(spin.duration == TrackerPortraitStatusNSView.spinPeriod && spin.repeatCount == .infinity, "the spinner should orbit once every 1.2s, for good")
 
-        let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        outside.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
-        try expect(outside.breathAnimations.isEmpty, "a status outside a window should not breathe")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
+        guard let fill = status.fillAnimation, let pulse = status.pulseAnimation else { throw TestFailure("a cast with a learned duration should fill the ring, then pulse") }
+        try expect(abs(fill.duration - 4) < 0.1 && (fill.toValue as? CGFloat) == 1, "2s into a 6s tool the ring should fill to full in 4s, got \(fill.duration)")
+        try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the ring is full")
+        try expect(status.spinAnimation == nil, "a filling ring should not spin")
+
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        try expect(status.flashAnimation != nil && status.spinAnimation != nil, "an ended cast should flash, then spin while still working")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .steady, reduceMotion: false)
+        try expect(status.flashAnimation == nil, "a ring with no cast to end should not flash")
+
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: true)
+        try expect(status.fillAnimation == nil && status.pulseAnimation == nil, "reduce motion should hold the arc at its fraction")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: true)
+        try expect(status.spinAnimation == nil && status.flashAnimation == nil, "reduce motion should hold a full ring, with no flash")
     }
 
     private static func testTrackerBandPrecedence() throws {
@@ -307,12 +315,11 @@ enum LogicSelfTests {
         try expectClose(TrackerPlateDesign.collapsedCircleStroke, 1.5, "circle stroke")
     }
 
-    /// Hosted views: a plate's status view exists exactly while its status is active (selection does not hide it), is
-    /// configured not to breathe under hover, and a collapsed row has one for each active worker only. Each view is
-    /// hosted beside a control status; the control and every status view being configured proves the same update pass
-    /// mounted the subject too, so a missing status view is a real absence and not a slow host. Nothing here reads the
-    /// window or an animation, which depend on the host's display and its reduce-motion setting; the breath's lifecycle
-    /// is tested on the view itself, and its decision as a pure function.
+    /// Hosted views: a plate's status view exists exactly while its status is active (selection and hover do not hide
+    /// it), and a collapsed row has one for each active worker only. Each view is hosted beside a control status; the
+    /// control and every status view being configured proves the same update pass mounted the subject too, so a missing
+    /// status view is a real absence and not a slow host. Nothing here reads an animation, which depends on the host's
+    /// display and its reduce-motion setting; the ring's animations are tested on the view itself, and its mode in Core.
     private static func testPlateAndCircleStatusDrawsOnlyForActiveStatuses() throws {
         let controlGeometry = TrackerPortraitStatusGeometry(center: .zero, pathRadius: 40, stroke: 1)
         func statusViews(in view: NSView) -> [TrackerPortraitStatusNSView] {
@@ -324,7 +331,7 @@ enum LogicSelfTests {
         func host<V: View>(_ subject: V, _ description: String) throws -> (subject: [TrackerPortraitStatusNSView], control: TrackerPortraitStatusNSView) {
             let hosting = NSHostingView(rootView: VStack {
                 subject
-                TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent)
+                TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent, ring: .spinning(nil))
             })
             hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
             let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 320, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -351,17 +358,17 @@ enum LogicSelfTests {
         func plate(status: NSColor?, selected: Bool = false, hovered: Bool = false) -> some View {
             TrackerNameplateBackground(
                 role: .master, color: AppPalette.accent, selected: selected, hovered: hovered, isRecoloring: false,
-                statusColor: status, text: EmptyView()
+                statusColor: status, ring: status == nil ? .none : .spinning(nil), text: EmptyView()
             )
         }
         let working = AppPalette.trackerWorking
         try expect(try host(plate(status: nil), "an idle plate").subject.isEmpty, "a plate with no active status should draw no status")
         let resting = try host(plate(status: working), "a working plate")
         try expect(resting.subject.count == 1, "a working plate should draw one status, got \(resting.subject.count)")
-        try expect(resting.subject[0].isAllowedToBreathe == resting.control.isAllowedToBreathe, "a working plate should breathe whenever motion is allowed")
+        try expect(resting.subject[0].ringMode == .spinning(nil), "a working plate with no tool should spin its ring")
         try expect(try host(plate(status: working, selected: true), "a selected working plate").subject.count == 1, "selection should not hide the status")
         let hovered = try host(plate(status: working, hovered: true), "a hovered working plate")
-        try expect(hovered.subject.count == 1 && !hovered.subject[0].isAllowedToBreathe, "a hovered plate's status should be configured to hold at its peak")
+        try expect(hovered.subject.count == 1, "hover should not hide the status")
 
         func worker(_ id: String, state: String) -> TrackerRenderedSession {
             let session = TrackerSession(id: id, title: id, repoName: "Preview", agent: "claude", role: "worker", state: state)
@@ -371,17 +378,6 @@ enum LogicSelfTests {
         let row = TrackerWorkerSummaryRow(workers: states.enumerated().map { worker("w\($0.offset)", state: $0.element) })
         let circles = try host(row, "a collapsed row").subject
         try expect(circles.count == 4, "a collapsed row should draw a status for each active worker only, got \(circles.count)")
-    }
-
-    private static func testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld() throws {
-        for reduceMotion in [false, true] {
-            for holdsPeak in [false, true] {
-                try expect(
-                    TrackerPortraitStatus.breathes(reduceMotion: reduceMotion, holdsPeak: holdsPeak) == (!reduceMotion && !holdsPeak),
-                    "a status should breathe only with motion allowed and no hold (reduce motion \(reduceMotion), hold \(holdsPeak))"
-                )
-            }
-        }
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {

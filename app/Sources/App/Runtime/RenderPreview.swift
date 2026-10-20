@@ -548,6 +548,7 @@ enum RenderPreview {
                         hovered: state.hovered,
                         isRecoloring: state.recoloring,
                         statusColor: state.status,
+                        ring: state.status == nil ? .none : (state.status == status("blocked") ? .steady : .spinning(nil)),
                         text: EmptyView()
                     )
                     TrackerAgentMark(agent: "codex", shortcutNumber: nil, diameter: state.role.portraitDiameter, logoSide: state.role.logoSide)

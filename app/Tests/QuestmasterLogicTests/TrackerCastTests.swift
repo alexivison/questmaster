@@ -11,6 +11,7 @@ struct TrackerCastTests {
         phaseOpensFinishesAndReplaces()
         labelIsTheChatsCallLabel()
         snippetPrefersNarrationOnOneLine()
+        portraitRingMirrorsTheCast()
         print("TrackerCastTests: all tests passed")
     }
 
@@ -98,6 +99,22 @@ struct TrackerCastTests {
         expect(TrackerRowText.snippet(for: session).count == 180, "long narration is capped like the snippet")
         session.agent = "shell"
         expect(TrackerRowText.snippet(for: session).isEmpty, "a shell shows no snippet")
+    }
+
+    private static func portraitRingMirrorsTheCast() {
+        let bash = TrackerCast(tool: "Bash", startedAt: Date(), typicalMS: 6000)
+        let mcp = TrackerCast(tool: "mcp__linear__save_issue", startedAt: Date(), typicalMS: 0)
+        expect(TrackerPortraitRing.ring(status: .working, cast: bash) == .filling(bash), "a working tool with a learned duration fills the ring")
+        expect(TrackerPortraitRing.ring(status: .working, cast: mcp) == .spinning(mcp), "a tool with no learned duration spins the ring")
+        expect(TrackerPortraitRing.ring(status: .working, cast: nil) == .spinning(nil), "working with no tool spins the ring")
+        for status in [TrackerStatusKind.blocked, .needsInput, .error] {
+            expect(TrackerPortraitRing.ring(status: status, cast: bash) == .steady, "\(status) shows a still ring, cast or not")
+        }
+        for status in [TrackerStatusKind.done, .idle, .stopped] {
+            expect(TrackerPortraitRing.ring(status: status, cast: nil) == .none, "\(status) shows no ring")
+        }
+        expect(TrackerPortraitRing.filling(bash).cast == bash && TrackerPortraitRing.spinning(mcp).cast == mcp, "the ring carries its cast")
+        expect(TrackerPortraitRing.spinning(nil).cast == nil && TrackerPortraitRing.steady.cast == nil, "a ring with no tool carries no cast")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
