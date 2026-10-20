@@ -1047,8 +1047,6 @@ enum TrackerNameplateRole: Equatable {
     /// The row's size: as tall as the disc's outer diameter, with the master's crown pieces and ring drawn past it.
     var canvasSize: CGSize { isWorker ? TrackerPlateDesign.workerSize : TrackerPlateDesign.topLevelSize }
     var artwork: TrackerPlateArtwork { isWorker ? TrackerPlateDesign.worker : TrackerPlateDesign.topLevel }
-    /// How far the plate's canvas starts above the row.
-    var artInset: CGFloat { isWorker ? 0 : TrackerPlateDesign.topLevelArtInset }
     /// How far the row's hit and hover shape reaches past the row, above and below.
     var hitOutset: CGFloat { isWorker ? 0 : TrackerPlateDesign.topLevelHitOutset }
     /// The disc's own centre in row points, and the portrait's frame: the disc's outer diameter, centred on it. The
@@ -1063,43 +1061,43 @@ enum TrackerNameplateRole: Equatable {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
 
-    /// The project bar's 30% black overlay, as the SVGs draw it over the repo colour.
-    static let projectBarOverlayOpacity: CGFloat = 0.3
-    /// The top-level text column starts 4 points right of the disc. The title centres in it; the project name starts on
-    /// its left edge and the snippet a quarter point right of it, where the SVG's italic glyphs start, and the elapsed
-    /// time right-aligns at `timeRightEdge`.
-    static let topLevelTextX: CGFloat = 56
-    static let topLevelSnippetX: CGFloat = 56.25
-    static let topLevelTextWidth: CGFloat = 209
-    static let projectNameWidth: CGFloat = 120
-    static let timeRightEdge: CGFloat = 265.75
-    /// The worker's title starts 29 points right of the disc and left-aligns, the snippet a quarter point right of it as
-    /// on the top-level plate. The elapsed time right-aligns on the title's row, in a column as wide as its own string, and
-    /// the title takes the row up to a gap short of it.
-    static let workerTextX: CGFloat = 49 + TrackerPlateDesign.workerShift
-    static let workerSnippetX: CGFloat = workerTextX + 0.25
-    static let workerSnippetWidth: CGFloat = 170
-    static let workerTimeRightEdge: CGFloat = 218.75 + TrackerPlateDesign.workerShift
-    static let workerTitleTimeGap: CGFloat = 6
+    /// The text columns in canvas points, where the SVGs start each line's first glyph cell. Every line stops at the
+    /// column's right edge, where the elapsed time right-aligns. The master's project name sits in its tab, the title
+    /// and time on the title strip, and the snippet on the band below; the worker has no tab.
+    static let topLevelProjectX: CGFloat = 54
+    static let topLevelTitleX: CGFloat = 57
+    static let topLevelSnippetX: CGFloat = 56
+    static let topLevelTextRightEdge: CGFloat = 265
+    static let workerTextX: CGFloat = 45 + TrackerPlateDesign.workerShift
+    static let workerTextRightEdge: CGFloat = 218 + TrackerPlateDesign.workerShift
+    static let titleTimeGap: CGFloat = 6
     /// The collapsed workers' circles start 40 points right of the master disc's left edge.
     static let circlesX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x
         - TrackerPlateDesign.topLevelDiscDiameter / 2 + TrackerPlateDesign.collapsedCirclesInset
 
+    var titleX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelTitleX }
+    var snippetX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelSnippetX }
+    var textRightEdge: CGFloat { isWorker ? Self.workerTextRightEdge : Self.topLevelTextRightEdge }
+    var titleBaseline: CGFloat { isWorker ? TrackerPlateDesign.workerTitleBaseline : TrackerPlateDesign.topLevelTitleBaseline }
+    var timeBaseline: CGFloat { isWorker ? TrackerPlateDesign.workerTimeBaseline : TrackerPlateDesign.topLevelTimeBaseline }
+    var snippetBaseline: CGFloat { isWorker ? TrackerPlateDesign.workerSnippetBaseline : TrackerPlateDesign.topLevelSnippetBaseline }
+
     /// The time column's width: one monospaced cell per glyph of the string, rounded up so the text never truncates.
-    /// Hours have no upper bound, so a long run reads `100:00:00`, one glyph wider than the usual eight.
-    static func workerTimeWidth(for time: String) -> CGFloat {
+    /// Hours have no upper bound, so a long run reads `100h00m00s`, wider than the usual six glyphs.
+    static func timeWidth(for time: String) -> CGFloat {
         (CGFloat(time.count) * AppFonts.trackerTime.maximumAdvancement.width).rounded(.up)
     }
 
-    /// The worker title's box: the snippet's width, shortened to clear the time while there is one.
-    static func workerTitleWidth(time: String) -> CGFloat {
-        guard !time.isEmpty else { return workerSnippetWidth }
-        return workerTimeRightEdge - workerTimeWidth(for: time) - workerTitleTimeGap - workerTextX
+    /// The title's box: the column's width, shortened to clear the time while there is one.
+    func titleWidth(time: String) -> CGFloat {
+        guard !time.isEmpty else { return textRightEdge - titleX }
+        return textRightEdge - Self.timeWidth(for: time) - Self.titleTimeGap - titleX
     }
 
-    /// The row's height: the canvas, plus the circles hanging flush from its bottom under a master that shows them.
+    /// The row's height: the canvas, plus the circles a point below its bottom under a master that shows them.
     func rowHeight(showsCircles: Bool) -> CGFloat {
-        showsCircles ? canvasSize.height + TrackerPlateDesign.collapsedCircleDiameter : canvasSize.height
+        guard showsCircles else { return canvasSize.height }
+        return canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop + TrackerPlateDesign.collapsedCircleDiameter
     }
 }
 
@@ -1227,53 +1225,64 @@ private struct TrackerColorBarPulse: View {
     }
 }
 
-/// The plate's art, in the SVG's order: the title strip and its border, the frame, the snippet strip clipped to the
-/// frame's inside, and the project bar's base colour with its overlay. The bar's pulse sits over it as a live view.
+/// The plate's art, in the SVG's order: the master's project tab, the body over its drop shadow, the title strip, and the
+/// band under it (the master's project bar, the worker's snippet strip), each strip with its inner shadow. The bar's
+/// pulse sits over it as a live view.
 private struct TrackerPlateArt: View {
     let artwork: TrackerPlateArtwork
     let barColor: NSColor
 
     var body: some View {
         Canvas { context, _ in
-            let outline = AppPalette.line.swiftUI
-            context.fill(artwork.titleStrip, with: .color(AppPalette.panel.swiftUI))
-            context.stroke(artwork.titleStrip, with: .color(AppPalette.item.swiftUI), lineWidth: TrackerPlateArtwork.borderStroke)
-            context.fill(artwork.frame, with: .color(outline))
-            context.stroke(artwork.frame, with: .color(outline), lineWidth: TrackerPlateArtwork.borderStroke)
-            context.drawLayer { layer in
-                layer.clip(to: artwork.summaryClip)
-                layer.fill(artwork.summary, with: .color(AppPalette.item.swiftUI))
+            if let tab = artwork.tab {
+                context.fill(tab, with: .color(AppPalette.panel.swiftUI))
             }
+            context.fillOuterShadow(artwork.body, .body)
+            context.fill(artwork.body, with: .color(AppPalette.line.swiftUI))
+            context.fill(artwork.titleStrip, with: .color(AppPalette.lineSoftSubtle.swiftUI))
+            context.fillInnerShadow(artwork.titleStrip, .strip)
             if let bar = artwork.bar {
                 context.fill(bar, with: .color(barColor.swiftUI))
-                context.fill(bar, with: .color(AppPalette.shadow.swiftUI.opacity(TrackerNameplateRole.projectBarOverlayOpacity)))
+                context.fillInnerShadow(bar, .strip)
+            }
+            if let snippetStrip = artwork.snippetStrip {
+                context.fill(snippetStrip, with: .color(AppPalette.panel.swiftUI))
+                context.fillInnerShadow(snippetStrip, .strip)
             }
         }
         .frame(width: artwork.size.width, height: artwork.size.height)
     }
 }
 
-/// The disc's fill over the plate, so it sits above the bar's pulse. The status ring and glow go over it.
+/// The disc's fill over the plate, over its drop shadow and under its inner shadow, so it sits above the bar's pulse.
+/// The status ring and glow go over it.
 private struct TrackerPortraitDisc: View {
     let artwork: TrackerPlateArtwork
 
     var body: some View {
         Canvas { context, _ in
-            context.fill(artwork.disc, with: .color(AppPalette.panel.swiftUI))
+            context.fillOuterShadow(artwork.discEdge, .discOuter)
+            context.fill(artwork.discEdge, with: .color(AppPalette.panel.swiftUI))
+            context.fillInnerShadow(artwork.discEdge, .discInner)
         }
         .frame(width: artwork.size.width, height: artwork.size.height)
     }
 }
 
-/// The disc's stroke and the ornaments, over the status ring. The stroke and every outline-role ornament are the
-/// plate's border colour.
+/// The disc's stroke and the ornaments, over the status ring. The stroke takes the disc's inner shadow where it covers
+/// it, so the ring under it keeps its own colour. The stroke and every outline-role ornament are the plate's border
+/// colour.
 private struct TrackerPortraitOutline: View {
     let artwork: TrackerPlateArtwork
     let barColor: NSColor
 
     var body: some View {
         Canvas { context, _ in
-            context.stroke(artwork.disc, with: .color(AppPalette.line.swiftUI), lineWidth: artwork.discStroke)
+            context.drawLayer { ring in
+                ring.clip(to: artwork.discRing)
+                ring.stroke(artwork.disc, with: .color(AppPalette.line.swiftUI), lineWidth: artwork.discStroke)
+                ring.fillInnerShadow(artwork.discEdge, .discInner)
+            }
             for ornament in artwork.ornaments {
                 context.fill(ornament.path, with: .color(color(for: ornament.role)), style: FillStyle(eoFill: true))
             }
@@ -1326,7 +1335,7 @@ struct TrackerNameplateBackground<Text: View>: View {
             text
         }
         .frame(width: artwork.size.width, height: artwork.size.height, alignment: .topLeading)
-        .offset(y: -role.artInset)
+        .offset(y: -TrackerPlateDesign.artInset)
         .frame(width: role.canvasSize.width, height: role.canvasSize.height, alignment: .topLeading)
     }
 }
@@ -1391,7 +1400,8 @@ final class TrackerGlowNSView: NSView {
 }
 
 /// One line of plate text. `baseline` is the y its glyphs stand on, snapped to the display's pixels, and `x` and
-/// `width` set the box it aligns within. The text hangs off a zero-size anchor, so it never grows its container.
+/// `width` set the box it aligns within. The text hangs off a zero-size anchor, so it never grows its container. A line
+/// that `castsShadow` has the SVGs' text drop shadow under it.
 struct TrackerPlateLine: View {
     let text: String
     let font: NSFont
@@ -1400,25 +1410,39 @@ struct TrackerPlateLine: View {
     let width: CGFloat
     let baseline: CGFloat
     var alignment: Alignment = .leading
+    var castsShadow = false
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .overlay(alignment: .topLeading) {
-                Text(text)
-                    .font(font.swiftUI)
-                    .foregroundStyle(color.swiftUI)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                label
                     .frame(width: width, alignment: alignment)
                     .alignmentGuide(.top) { $0[.firstTextBaseline] }
             }
             .offset(x: x, y: (baseline * displayScale).rounded() / displayScale)
     }
+
+    @ViewBuilder private var label: some View {
+        let line = Text(text)
+            .font(font.swiftUI)
+            .foregroundStyle(color.swiftUI)
+            .lineLimit(1)
+            .truncationMode(.tail)
+        if castsShadow {
+            line.shadow(
+                color: AppPalette.shadow.swiftUI.opacity(TrackerPlateShadow.textOpacity),
+                radius: TrackerPlateShadow.textBlur,
+                y: TrackerPlateShadow.textDrop
+            )
+        } else {
+            line
+        }
+    }
 }
 
-/// The elapsed time of a working session as `hh:mm:ss`, as the SVGs set it. `content` gets the string, empty when the
+/// The elapsed time of a working session as `01m20s`, as the SVGs set it. `content` gets the string, empty when the
 /// session has no time to show. A time that counts from an instant redraws once a second on the shared duration clock
 /// while it is on screen; a fixed or empty one is drawn once, with no clock.
 struct TrackerElapsedTime<Content: View>: View {
@@ -1434,7 +1458,7 @@ struct TrackerElapsedTime<Content: View>: View {
         if Self.isLive(session: session) {
             TrackerLiveElapsedTime(session: session, content: content)
         } else {
-            content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session)))
+            content(TrackerSession.unitTime(TrackerRenderer.durationLabel(for: session)))
         }
     }
 }
@@ -1447,14 +1471,13 @@ private struct TrackerLiveElapsedTime<Content: View>: View {
 
     var body: some View {
         let _ = TrackerPulseClock.durations.time
-        content(TrackerSession.paddedHours(TrackerRenderer.durationLabel(for: session)))
+        content(TrackerSession.unitTime(TrackerRenderer.durationLabel(for: session)))
             .modifier(TrackerPulseSubscription(isActive: true, clock: .durations))
     }
 }
 
-/// The plate's text strips, drawn in the background under the portrait. A worker shows its title and time on one
-/// row over a snippet; a top-level plate shows a centred title over a left-aligned snippet, then a project name and
-/// the elapsed time on the bar.
+/// The plate's text, drawn in the background over the portrait: the master's project name in its tab, the title and
+/// the elapsed time on the title strip, and the snippet on the band below, as both SVGs set them.
 private struct TrackerPlateText: View {
     let rendered: TrackerRenderedSession
     let role: TrackerNameplateRole
@@ -1468,96 +1491,55 @@ private struct TrackerPlateText: View {
     private var titleColor: NSColor { isSelected ? AppPalette.bright : AppPalette.text }
 
     var body: some View {
-        if role.isWorker {
-            workerText
-        } else {
-            topLevelText
-        }
-    }
-
-    private var topLevelText: some View {
         ZStack(alignment: .topLeading) {
-            TrackerPlateLine(
-                text: title,
-                font: AppFonts.trackerTitle,
-                color: titleColor,
-                x: TrackerNameplateRole.topLevelTextX,
-                width: TrackerNameplateRole.topLevelTextWidth,
-                baseline: TrackerPlateDesign.topLevelTitleBaseline,
-                alignment: .center
-            )
-            if !snippet.isEmpty {
+            if !role.isWorker {
                 TrackerPlateLine(
-                    text: snippet,
-                    font: AppFonts.trackerSummary,
+                    text: projectName,
+                    font: AppFonts.monoSmall,
                     color: AppPalette.dim,
-                    x: TrackerNameplateRole.topLevelSnippetX,
-                    width: TrackerNameplateRole.topLevelTextWidth,
-                    baseline: TrackerPlateDesign.topLevelSnippetBaseline
+                    x: TrackerNameplateRole.topLevelProjectX,
+                    width: role.textRightEdge - TrackerNameplateRole.topLevelProjectX,
+                    baseline: TrackerPlateDesign.topLevelProjectBaseline
                 )
             }
-            TrackerPlateLine(
-                text: projectName,
-                font: AppFonts.monoSmall,
-                color: AppPalette.activeText,
-                x: TrackerNameplateRole.topLevelTextX,
-                width: TrackerNameplateRole.projectNameWidth,
-                baseline: TrackerPlateDesign.topLevelBarBaseline
-            )
             TrackerElapsedTime(session: session) { time in
-                if !time.isEmpty {
-                    TrackerPlateLine(
-                        text: time,
-                        font: AppFonts.trackerTime,
-                        color: AppPalette.dim,
-                        x: TrackerNameplateRole.topLevelTextX,
-                        width: TrackerNameplateRole.timeRightEdge - TrackerNameplateRole.topLevelTextX,
-                        baseline: TrackerPlateDesign.topLevelBarBaseline,
-                        alignment: .trailing
-                    )
-                }
-            }
-        }
-    }
-
-    private var workerText: some View {
-        ZStack(alignment: .topLeading) {
-            TrackerElapsedTime(session: session) { time in
-                workerTitleRow(time: time)
+                titleRow(time: time)
             }
             if !snippet.isEmpty {
                 TrackerPlateLine(
                     text: snippet,
                     font: AppFonts.trackerSummary,
-                    color: AppPalette.dim,
-                    x: TrackerNameplateRole.workerSnippetX,
-                    width: TrackerNameplateRole.workerSnippetWidth,
-                    baseline: TrackerPlateDesign.workerSnippetBaseline
+                    color: role.isWorker ? AppPalette.dim : AppPalette.text,
+                    x: role.snippetX,
+                    width: role.textRightEdge - role.snippetX,
+                    baseline: role.snippetBaseline,
+                    castsShadow: true
                 )
             }
         }
     }
 
     /// The title, and the time right-aligned on its row while there is one. The time's column fits its string.
-    private func workerTitleRow(time: String) -> some View {
-        let timeWidth = TrackerNameplateRole.workerTimeWidth(for: time)
+    private func titleRow(time: String) -> some View {
+        let timeWidth = TrackerNameplateRole.timeWidth(for: time)
         return ZStack(alignment: .topLeading) {
             TrackerPlateLine(
                 text: title,
                 font: AppFonts.trackerTitle,
                 color: titleColor,
-                x: TrackerNameplateRole.workerTextX,
-                width: TrackerNameplateRole.workerTitleWidth(time: time),
-                baseline: TrackerPlateDesign.workerTitleBaseline
+                x: role.titleX,
+                width: role.titleWidth(time: time),
+                baseline: role.titleBaseline,
+                castsShadow: true
             )
             if !time.isEmpty {
                 TrackerPlateLine(
                     text: time,
                     font: AppFonts.trackerTime,
-                    color: AppPalette.dim,
-                    x: TrackerNameplateRole.workerTimeRightEdge - timeWidth,
+                    color: AppPalette.controlBorder,
+                    x: role.textRightEdge - timeWidth,
                     width: timeWidth,
-                    baseline: TrackerPlateDesign.workerTimeBaseline,
+                    baseline: role.timeBaseline,
                     alignment: .trailing
                 )
             }
@@ -1586,7 +1568,7 @@ private struct TrackerSessionRowContent: View {
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
             if showsCircles {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
-                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height)
+                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop)
             }
         }
         .frame(width: role.canvasSize.width, height: role.rowHeight(showsCircles: showsCircles), alignment: .topLeading)

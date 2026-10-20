@@ -32,7 +32,7 @@ enum LogicSelfTests {
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
         ("testPlateAndCircleStatusDrawsOnlyForActiveStatuses", testPlateAndCircleStatusDrawsOnlyForActiveStatuses),
         ("testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld", testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld),
-        ("testWorkerTimeColumnFitsRunsPastNinetyNineHours", testWorkerTimeColumnFitsRunsPastNinetyNineHours),
+        ("testPlateTimeColumnFitsRunsPastNinetyNineHours", testPlateTimeColumnFitsRunsPastNinetyNineHours),
         ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
         ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
         ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
@@ -299,7 +299,7 @@ enum LogicSelfTests {
         try expectClose(master.center.x, 27, "master status centre x")
         try expectClose(master.center.y, 27, "master status centre y")
         try expectClose(worker.center.x, 20 + TrackerPlateDesign.workerShift, "worker status centre x")
-        try expectClose(worker.center.y, 20, "worker status centre y")
+        try expectClose(worker.center.y, 22, "worker status centre y")
         try expectClose(circle.center.x, 12.5, "circle status centre")
         try expectClose(TrackerPlateDesign.collapsedCircleStroke, 1.5, "circle stroke")
     }
@@ -392,32 +392,35 @@ enum LogicSelfTests {
         }
         let shift = TrackerPlateDesign.workerShift
 
-        // Sizes, from the SVGs: the master's canvas starts 2 above its 50 tall row, which is as wide as the plate.
+        // Sizes, from the SVGs: each canvas starts 2 above its row, which is the disc's height and the plate's width.
         try expectClose(TrackerPlateDesign.topLevel.size.width, 278, "master canvas width")
         try expectClose(TrackerPlateDesign.topLevel.size.height, 55, "master canvas height")
         try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
         try expectClose(TrackerPlateDesign.topLevelSize.width, 277, "master row width")
-        try expectClose(TrackerPlateDesign.topLevelArtInset, 2, "master canvas start above its row")
-        try expectClose(TrackerPlateDesign.worker.size.width, 230 + shift, "worker canvas width")
-        try expectClose(TrackerPlateDesign.worker.size.height, 40, "worker canvas height")
+        try expectClose(TrackerPlateDesign.artInset, 2, "canvas start above its row")
+        try expectClose(TrackerPlateDesign.worker.size.width, 233 + shift - 2, "worker canvas width")
+        try expectClose(TrackerPlateDesign.worker.size.height, 44, "worker canvas height")
+        try expectClose(TrackerPlateDesign.workerSize.width, 232 + shift - 2, "worker row width")
+        try expectClose(TrackerPlateDesign.workerSize.height, 40, "worker row height")
 
-        // The paths are the SVGs', moved onto whole points, and each stroke is the SVG's, centred on its path.
+        // The paths are the SVGs', moved onto whole points: the master's back by the SVG's slip, the worker's to the
+        // list's worker indent.
         let master = TrackerPlateDesign.topLevel
-        try expectRect(master.titleStrip, 27.75, 7, 271.25, 21.5, "master title strip")
-        try expectRect(master.frame, 27.75, 21.5, 276.25, 47, "master frame")
-        try expectRect(master.summary, 30, 22.25, 277, 34.25, "master snippet strip")
-        try expectRect(master.summaryClip, 28.5, 22.25, 275.5, 34.25, "master snippet strip's clip")
-        try expectRect(master.bar ?? Path(), 30, 36.25, 277, 46.25, "master project bar")
+        try expectRect(master.tab ?? Path(), 27, 3.5, 272, 15.5, "master project tab")
+        try expectRect(master.body, 27, 15.5, 277, 50.5, "master body")
+        try expectRect(master.titleStrip, 30, 17.5, 275, 36.5, "master title strip")
+        try expectRect(master.bar ?? Path(), 30, 38.5, 275, 48.5, "master project bar")
         try expectRect(master.disc, 3.5, 3.5, 50.5, 50.5, "master disc")
-        try expectClose(TrackerPlateArtwork.borderStroke, 1.5, "plate border stroke")
+        try expectRect(master.discEdge, 2, 2, 52, 52, "master disc edge")
         try expectClose(master.discStroke, 3, "master disc stroke")
+        try expect(master.snippetStrip == nil, "the master's snippet sits on its project bar")
         let worker = TrackerPlateDesign.worker
-        try expectRect(worker.titleStrip, 20.75 + shift, 6, 224.25 + shift, 20.5, "worker title strip")
-        try expectRect(worker.frame, 20.75 + shift, 20.5, 229.25 + shift, 34, "worker frame")
-        try expectRect(worker.summary, 21.5 + shift, 21.25, 228.5 + shift, 33.25, "worker snippet strip")
-        try expectRect(worker.disc, 1 + shift, 1, 39 + shift, 39, "worker disc")
+        try expectRect(worker.body, 22 + shift - 2, 4.5, 232 + shift - 2, 39.5, "worker body")
+        try expectRect(worker.titleStrip, 25 + shift - 2, 6.5, 230 + shift - 2, 25.5, "worker title strip")
+        try expectRect(worker.snippetStrip ?? Path(), 25 + shift - 2, 27.5, 230 + shift - 2, 37.5, "worker snippet strip")
+        try expectRect(worker.discEdge, 2 + shift - 2, 2, 42 + shift - 2, 42, "worker disc edge")
         try expectClose(worker.discStroke, 2, "worker disc stroke")
-        try expect(worker.bar == nil && worker.ornaments.isEmpty, "the worker has no project bar or ornaments")
+        try expect(worker.tab == nil && worker.bar == nil && worker.ornaments.isEmpty, "the worker has no tab, project bar or ornaments")
 
         // The ornaments reach 2.17 past the disc: the crown pieces above and below, the diamonds on its sides.
         let ornamentBox = master.ornaments.reduce(CGRect.null) { $0.union($1.path.boundingRect) }
@@ -428,7 +431,8 @@ enum LogicSelfTests {
         try expectClose(TrackerPlateDesign.workerDiscDiameter, 2 * (19 + 1), "worker disc outer diameter")
         try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y, TrackerPlateDesign.topLevelSize.height / 2, "master disc centre in its row")
         try expectClose(TrackerPlateDesign.workerPortraitCenter.y, TrackerPlateDesign.workerSize.height / 2, "worker disc centre in its row")
-        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y + TrackerPlateDesign.topLevelArtInset, 27, "master disc centre in its canvas")
+        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y + TrackerPlateDesign.artInset, 27, "master disc centre in its canvas")
+        try expectClose(TrackerPlateDesign.workerPortraitCenter.y + TrackerPlateDesign.artInset, 22, "worker disc centre in its canvas")
         try expectClose(TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.topLevelPortraitCenter.x, 15, "worker disc indent")
         try expectClose(
             TrackerNameplateRole.worker.portraitOrigin.x - TrackerNameplateRole.master.portraitOrigin.x,
@@ -454,11 +458,11 @@ enum LogicSelfTests {
         try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: true), 10, "gap after a session's workers or its collapsed row")
         try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: false), 20, "gap after a session with no workers")
         try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width, "tracker content width, the selected-session panel's")
-        try expectClose(SelectedSessionPanel.canvasSize.width, 289, "selected-session panel width")
+        try expectClose(SelectedSessionPanel.canvasSize.width, 299, "selected-session panel width")
         try expectClose(SelectedSessionPanel.canvasSize.height, 76, "selected-session panel height")
         try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
 
-        // The collapsed workers hang flush from the disc's bottom edge, 40 right of its left edge, and fill the plate's width.
+        // The collapsed workers hang a point below the disc's bottom edge, 40 right of its left edge, and fill the plate's width.
         let discLeft = TrackerNameplateRole.master.portraitOrigin.x
         try expectClose(TrackerNameplateRole.circlesX - discLeft, 40, "first collapsed circle's offset from the disc's left edge")
         try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
@@ -468,15 +472,15 @@ enum LogicSelfTests {
             + CGFloat(TrackerWorkerSummary.maxCircles) * TrackerPlateDesign.collapsedCircleDiameter
             + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
         try expectClose(rowRight, TrackerPlateDesign.topLevelSize.width, "the last collapsed circle's right edge against the plate's")
-        try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 75, "master row height with collapsed circles")
+        try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 76, "master row height with collapsed circles")
         try expectClose(TrackerNameplateRole.worker.rowHeight(showsCircles: false), 40, "worker row height")
 
         // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents, above
         // the row and below it, past the crown's tip. The worker's has no artwork past its frame.
         let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
         let masterHit = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.hitOutset).path(in: masterRow).boundingRect
-        try expect(masterHit.minY <= -TrackerPlateDesign.topLevelArtInset, "master hit shape top should reach the canvas's top, got \(masterHit.minY)")
-        let crownBottom = ornamentBox.maxY - TrackerPlateDesign.topLevelArtInset
+        try expect(masterHit.minY <= -TrackerPlateDesign.artInset, "master hit shape top should reach the canvas's top, got \(masterHit.minY)")
+        let crownBottom = ornamentBox.maxY - TrackerPlateDesign.artInset
         try expect(masterHit.maxY >= crownBottom, "master hit shape bottom should reach the crown's tip at \(crownBottom), got \(masterHit.maxY)")
         try expectClose(masterHit.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
         try expect(TrackerNameplateRole.worker.hitOutset == 0, "the worker's row has no artwork past its frame")
@@ -566,38 +570,39 @@ enum LogicSelfTests {
         try expect(waitUntil { !clock.isRunning }, "the clock should stop when the live times go")
     }
 
-    private static func testWorkerTimeColumnFitsRunsPastNinetyNineHours() throws {
+    private static func testPlateTimeColumnFitsRunsPastNinetyNineHours() throws {
         let hundredHours = 100 * 3600 * 1000
-        let usual = TrackerSession.paddedHours(TrackerSession.formatElapsed(30 * 60 * 1000 + 25_000) ?? "")
-        let long = TrackerSession.paddedHours(TrackerSession.formatElapsed(hundredHours) ?? "")
-        try expect(usual == "00:30:25", "a half-hour run should read 00:30:25, got \(usual)")
-        try expect(long == "100:00:00", "a 100-hour run should read 100:00:00, got \(long)")
+        let usual = TrackerSession.unitTime(TrackerSession.formatElapsed(80_000) ?? "")
+        let long = TrackerSession.unitTime(TrackerSession.formatElapsed(hundredHours) ?? "")
+        try expect(usual == "01m20s", "an 80-second run should read 01m20s, got \(usual)")
+        try expect(long == "100h00m00s", "a 100-hour run should read 100h00m00s, got \(long)")
 
         let font = AppFonts.trackerTime
         for time in [usual, long] {
-            let column = TrackerNameplateRole.workerTimeWidth(for: time)
+            let column = TrackerNameplateRole.timeWidth(for: time)
             let ink = (time as NSString).size(withAttributes: [.font: font]).width
             try expect(column >= ink, "the time column for \(time) should hold its \(ink)pt of text, got \(column)")
         }
         try expect(
-            TrackerNameplateRole.workerTimeWidth(for: long) > TrackerNameplateRole.workerTimeWidth(for: usual),
+            TrackerNameplateRole.timeWidth(for: long) > TrackerNameplateRole.timeWidth(for: usual),
             "the 100-hour time should get a wider column"
         )
 
-        // The title takes the row up to a gap short of the time, whatever the time's width.
-        for time in [usual, long] {
-            let titleRight = TrackerNameplateRole.workerTextX + TrackerNameplateRole.workerTitleWidth(time: time)
-            let timeLeft = TrackerNameplateRole.workerTimeRightEdge - TrackerNameplateRole.workerTimeWidth(for: time)
-            try expect(abs(timeLeft - titleRight - TrackerNameplateRole.workerTitleTimeGap) < 0.01, "the title should stop a gap short of \(time)")
+        // On both plates the title takes the row up to a gap short of the time, whatever the time's width, and the
+        // whole column with no time.
+        for role in [TrackerNameplateRole.master, .worker] {
+            for time in [usual, long] {
+                let titleRight = role.titleX + role.titleWidth(time: time)
+                let timeLeft = role.textRightEdge - TrackerNameplateRole.timeWidth(for: time)
+                try expect(abs(timeLeft - titleRight - TrackerNameplateRole.titleTimeGap) < 0.01, "the \(role) title should stop a gap short of \(time)")
+            }
+            try expect(role.titleX + role.titleWidth(time: "") == role.textRightEdge, "a \(role) with no time gives its title the whole column")
         }
-        try expect(
-            TrackerNameplateRole.workerTitleWidth(time: "") == TrackerNameplateRole.workerSnippetWidth,
-            "a worker with no time gives its title the snippet's width"
-        )
     }
 
-    /// Renders the panel's plate and reads the frame's top-right corner: the arc at (286, 36) is the frame's colour. A
-    /// square dark rect behind the id strip, which the SVG has and Figma does not show, ate it.
+    /// Renders the panel's plate and reads the frame's right-hand corners, on the border outside the title strip and the
+    /// bar: each arc is the frame's colour, and outside it is clear. The SVG's clip group has a dark copy of the title
+    /// strip, which must not reach past the strip.
     @MainActor
     private static func testSelectedSessionPanelFrameKeepsItsRoundedCorners() throws {
         let content = SelectedSessionPanelContent(title: "", id: "", projectName: "", projectColor: AppPalette.accent)
@@ -607,16 +612,16 @@ enum LogicSelfTests {
             throw TestFailure("the panel should render to an image")
         }
         let bitmap = NSBitmapImageRep(cgImage: image)
-        try expect(bitmap.pixelsWide == 578 && bitmap.pixelsHigh == 152, "the panel should render 289 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        try expect(bitmap.pixelsWide == 598 && bitmap.pixelsHigh == 152, "the panel should render 299 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
         func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
             bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.usingColorSpace(.sRGB)
         }
-        guard let arc = pixel(286, 36), let outside = pixel(288.5, 33) else {
+        guard let arc = pixel(296.5, 24.5), let outside = pixel(298.5, 21.25) else {
             throw TestFailure("the corner pixels should be readable")
         }
         try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
         try expect(arc.alphaComponent > 0.9 && arc.redComponent > 0.22, "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
-        guard let bottomArc = pixel(285.5, 61) else {
+        guard let bottomArc = pixel(296.5, 65) else {
             throw TestFailure("the bottom-right pixel should be readable")
         }
         try expect(bottomArc.alphaComponent > 0.9 && bottomArc.redComponent > 0.22, "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")

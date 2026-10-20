@@ -332,13 +332,15 @@ public struct TrackerSession: Decodable, Equatable {
         return "\(hours):\(minuteText):\(secondText)"
     }
 
-    /// The worker tag's duration: `formatElapsed` with the hours padded to two digits ("00:05:12"),
-    /// where masters show "0:05:12".
-    public static func paddedHours(_ duration: String) -> String {
-        guard let separator = duration.firstIndex(of: ":"), duration[..<separator].count == 1 else {
+    /// The plates' duration: `formatElapsed`'s "0:01:20" as "01m20s", and from an hour on with the hours in front
+    /// ("1h30m20s").
+    public static func unitTime(_ duration: String) -> String {
+        let parts = duration.split(separator: ":")
+        guard parts.count == 3 else {
             return duration
         }
-        return "0" + duration
+        let minutesAndSeconds = "\(parts[1])m\(parts[2])s"
+        return parts[0] == "0" ? minutesAndSeconds : "\(parts[0])h" + minutesAndSeconds
     }
 
     private static let fractionalInstantFormatter: ISO8601DateFormatter = {
