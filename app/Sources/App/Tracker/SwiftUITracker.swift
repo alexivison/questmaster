@@ -1555,9 +1555,12 @@ private struct TrackerSessionRowContent: View {
     let role: TrackerNameplateRole
     let shortcutNumber: Int?
     let collapsedWorkers: [TrackerRenderedSession]
+    let cast: TrackerSessionRow.CastRowState
 
     private var session: TrackerSession { rendered.session }
     private var showsCircles: Bool { role.isMaster && !collapsedWorkers.isEmpty }
+    /// How far the cast row has pushed the row's bottom (and a master's circles) down: all the way while it is open.
+    private var castExtra: CGFloat { cast.isOpen ? TrackerCastLayout.extraHeight(role, showsCircles: showsCircles) : 0 }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -1568,12 +1571,17 @@ private struct TrackerSessionRowContent: View {
                 logoSide: role.logoSide
             )
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
+            if let shown = cast.phase.cast {
+                TrackerCastRow(cast: shown, isFinishing: cast.phase.isFinishing, role: role)
+                    .opacity(cast.isBarVisible ? 1 : 0)
+                    .offset(x: TrackerCastLayout.squareX(role), y: TrackerCastLayout.top(role))
+            }
             if showsCircles {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
-                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop)
+                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop + castExtra)
             }
         }
-        .frame(width: role.canvasSize.width, height: role.rowHeight(showsCircles: showsCircles), alignment: .topLeading)
+        .frame(width: role.canvasSize.width, height: role.rowHeight(showsCircles: showsCircles) + castExtra, alignment: .topLeading)
     }
 }
 
@@ -1590,6 +1598,18 @@ private struct TrackerSessionRow: View {
     var onActivate: (TrackerSession) -> Void
     var onEditSession: (TrackerSession) -> Void
     var onToggleWorkersCollapsed: (String) -> Void
+
+    /// The cast row's state: what it shows, whether the row has opened for it, and whether the bar has faded in.
+    struct CastRowState {
+        var phase = TrackerCastPhase.hidden
+        var isOpen = false
+        var isBarVisible = false
+    }
+
+    @State private var cast = CastRowState()
+    /// Bumped on every cast change, so a finish scheduled for an earlier cast does nothing.
+    @State private var castGeneration = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var session: TrackerSession { rendered.session }
     private var role: TrackerNameplateRole { TrackerNameplateRole(session) }
@@ -1630,10 +1650,13 @@ private struct TrackerSessionRow: View {
                     rendered: rendered,
                     role: role,
                     shortcutNumber: commandLongPressIsActive ? shortcutNumber : nil,
-                    collapsedWorkers: collapsedWorkers
+                    collapsedWorkers: collapsedWorkers,
+                    cast: cast
                 )
             }
         )
+        .onAppear { showCastAtOnce(session.cast) }
+        .onChange(of: session.cast) { _, newCast in updateCast(newCast) }
         .modifier(TrackerStoppedDimming(isStopped: rendered.status.kind == .stopped))
         .help(shortcutTooltip)
         .accessibilityLabel("\(session.title.isEmpty ? session.id : session.title), \(rendered.status.classification.label)")
@@ -1648,6 +1671,47 @@ private struct TrackerSessionRow: View {
             }
         }
         .id(session.id)
+    }
+
+    /// A row that appears mid-cast shows it already open, with nothing to animate.
+    private func showCastAtOnce(_ newCast: TrackerCast?) {
+        guard let newCast else { return }
+        cast = CastRowState(phase: .casting(newCast), isOpen: true, isBarVisible: true)
+    }
+
+    /// Moves the cast row on as the payload's cast changes. A cast opens the row on the tracker's expand/collapse
+    /// animation and fades the bar in once it is open; an ended cast flashes, fades the bar, then closes the row. A new
+    /// cast takes over at once. Reduce motion skips the flash and every animation.
+    private func updateCast(_ newCast: TrackerCast?) {
+        let next = cast.phase.next(cast: newCast)
+        guard next != cast.phase else { return }
+        castGeneration += 1
+        let generation = castGeneration
+        let rowAnimation: Animation? = reduceMotion ? nil : .snappy(duration: TrackerCastPhase.rowDuration)
+        let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: TrackerCastPhase.barFadeDuration)
+        cast.phase = next
+        switch next {
+        case .casting:
+            let opensRow = !cast.isOpen
+            withAnimation(rowAnimation) { cast.isOpen = true }
+            withAnimation(opensRow ? fade?.delay(TrackerCastPhase.rowDuration) : fade) { cast.isBarVisible = true }
+        case .finishing:
+            let flash = reduceMotion ? 0 : TrackerCastPhase.flashDuration
+            let fadeTime = reduceMotion ? 0 : TrackerCastPhase.barFadeDuration
+            DispatchQueue.main.asyncAfter(deadline: .now() + flash) {
+                guard generation == castGeneration else { return }
+                withAnimation(fade) { cast.isBarVisible = false }
+                DispatchQueue.main.asyncAfter(deadline: .now() + fadeTime) {
+                    guard generation == castGeneration else { return }
+                    withAnimation(rowAnimation) {
+                        cast.isOpen = false
+                        cast.phase = .hidden
+                    }
+                }
+            }
+        case .hidden:
+            break
+        }
     }
 
     private var shortcutTooltip: String {

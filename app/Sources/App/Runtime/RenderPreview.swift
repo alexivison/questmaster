@@ -71,6 +71,9 @@ enum RenderPreview {
         for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long", "overflow-design-idle"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
+        for fixture in ["master", "list", "shimmer"] {
+            render(castFixtureView(fixture), size: CGSize(width: 340, height: 420), to: "\(outputDir)/cast-\(fixture).png")
+        }
         render(selectedSessionPanelView(), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel.png")
         render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
@@ -571,6 +574,48 @@ enum RenderPreview {
                 .offset(x: 75, y: 10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// Casts as the Figma mocks show them, through the real tracker: "master" is a master casting Bash 2.5s into its
+    /// learned 6s with four collapsed workers; "list" adds a master with an expanded worker casting Edit and a third
+    /// master; "shimmer" is a master running an MCP tool with no learned duration. Narration fills the colour bars.
+    @MainActor
+    private static func castFixtureView(_ fixture: String) -> some View {
+        let now = Date()
+        func session(_ id: String, role: String, title: String, parent: String = "", cast: TrackerCast? = nil, narration: String = "") -> TrackerSession {
+            TrackerSession(
+                id: id, title: title, repoName: "questmaster", displayColor: "indigo", agent: "codex", role: role,
+                state: "working", snippet: "Bash: npm test", parentID: parent, elapsedSeedMS: 80_000,
+                narration: narration, cast: cast
+            )
+        }
+        let bash = TrackerCast(tool: "Bash", startedAt: now.addingTimeInterval(-2.5), typicalMS: 6000)
+        let mcp = TrackerCast(tool: "mcp__linear__save_issue", startedAt: now.addingTimeInterval(-1), typicalMS: 0)
+        let edit = TrackerCast(tool: "Edit", startedAt: now.addingTimeInterval(-0.3), typicalMS: 1000)
+        let master = session(
+            "qm-1", role: "master", title: "Review PRs", cast: fixture == "shimmer" ? mcp : bash,
+            narration: "It seems that something is still failing in the login flow."
+        )
+        let collapsed = (0..<4).map { session("qm-1-w\($0)", role: "worker", title: "worker-title", parent: "qm-1") }
+        var sessions = [master] + collapsed
+        if fixture == "list" {
+            sessions += [
+                session("qm-2", role: "master", title: "Plan release", narration: "Drafting the changelog from the merged PRs."),
+                session("qm-2-w", role: "worker", title: "worker-title", parent: "qm-2", cast: edit, narration: "Ranked exact matches and rows by recency."),
+                session("qm-3", role: "master", title: "Fix login", narration: "Waiting for review on #312."),
+            ]
+        }
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["qm-2"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "questmaster", name: "questmaster", color: "indigo", sessions: sessions),
+        ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
         .background(AppPalette.window.swiftUI)
     }
 
