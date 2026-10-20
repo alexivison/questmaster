@@ -39,8 +39,6 @@ type ModelSource struct {
 	Catalog string
 	// Prefix is prepended to every catalog model id for this harness.
 	Prefix string
-	// Efforts names an effort source used by a provider-qualified model mapping.
-	Efforts EffortSource
 	// Aliases additionally offers family-derived aliases (the "claude-opus"
 	// family becomes "opus"). Aliases track the latest model in their family,
 	// so they are the preferred choice where a harness supports them.

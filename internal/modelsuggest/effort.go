@@ -50,20 +50,6 @@ func (r *EffortResolver) Resolve(ctx context.Context, agentName, model string) [
 		model = r.defaultModel(ctx, spec.EffortModel)
 	}
 	levels, _ := effortForModel(r.efforts(ctx, source), model)
-	if model == "" {
-		return levels
-	}
-	for _, mapping := range spec.Models.Sources {
-		if mapping.Efforts == agent.EffortSourceNone || mapping.Prefix == "" || !strings.HasPrefix(model, mapping.Prefix) {
-			continue
-		}
-		codexModel := strings.TrimPrefix(model, mapping.Prefix)
-		codexEfforts, ok := effortForModel(r.efforts(ctx, mapping.Efforts), codexModel)
-		if !ok || len(codexEfforts) == 0 {
-			return levels
-		}
-		return intersectEfforts(levels, codexEfforts)
-	}
 	return levels
 }
 
@@ -139,20 +125,6 @@ func effortForModel(efforts map[string][]string, model string) ([]string, bool) 
 	}
 	levels, ok := efforts[""]
 	return levels, ok
-}
-
-func intersectEfforts(available, supported []string) []string {
-	set := make(map[string]bool, len(supported))
-	for _, effort := range supported {
-		set[effort] = true
-	}
-	result := make([]string, 0, len(available))
-	for _, effort := range available {
-		if set[effort] {
-			result = append(result, effort)
-		}
-	}
-	return result
 }
 
 var defaultEffortResolver = NewEffortResolver(nil)
