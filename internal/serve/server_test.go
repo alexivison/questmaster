@@ -2097,6 +2097,38 @@ func TestSnapshotterTrackerSessionChangeIncludesLastChatAt(t *testing.T) {
 	}
 }
 
+func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T) {
+	env := seedServeFixture(t)
+	startedAt := env.now.Add(-time.Second)
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.Narration = "It seems that something is still running."
+		pane.RunningTools = []state.RunningTool{{CallID: "call-1", Tool: "Bash", StartedAt: startedAt}}
+		pane.Tool = "Bash"
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("update cast state: %v", err)
+	}
+	for _, sample := range []time.Duration{4, 6, 8} {
+		if err := state.RecordToolDurationAt(env.store.Root(), "codex", "Bash", sample*time.Second); err != nil {
+			t.Fatalf("record duration: %v", err)
+		}
+	}
+
+	snap, err := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }).TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("tracker snapshot: %v", err)
+	}
+	got := snap.Sessions[0]
+	if got.Narration != "It seems that something is still running." {
+		t.Fatalf("narration = %q", got.Narration)
+	}
+	if got.Cast == nil || got.Cast.Tool != "Bash" || !got.Cast.StartedAt.Equal(startedAt) || got.Cast.TypicalMS != 6000 {
+		t.Fatalf("cast = %+v, want Bash at %s with 6000ms typical", got.Cast, startedAt)
+	}
+}
+
 func makeTestRepo(t *testing.T, name string) (string, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), name)

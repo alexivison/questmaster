@@ -33,6 +33,43 @@ func TestCapText(t *testing.T) {
 	}
 }
 
+func TestRecordChatEntryAtUpdatesOnlyNarrationKinds(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		kind string
+		want string
+	}{
+		{kind: "say", want: "latest"},
+		{kind: "message", want: "latest"},
+		{kind: "action", want: "previous"},
+		{kind: "status", want: "previous"},
+		{kind: "report", want: "previous"},
+		{kind: "instructions", want: "previous"},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			id := "qm-narration-" + tc.kind
+			if err := state.UpdateAndLogAt(root, id, &state.StateEvent{Ts: time.Unix(1, 0)}, func(ss *state.SessionState) bool {
+				ss.Panes["primary"] = state.PaneState{Role: "primary", Narration: "previous"}
+				return true
+			}); err != nil {
+				t.Fatalf("seed state: %v", err)
+			}
+			if err := RecordChatEntryAt(root, id, tc.kind, "latest", time.Unix(2, 0)); err != nil {
+				t.Fatalf("record chat entry: %v", err)
+			}
+			ss, err := state.LoadSessionStateAt(root, id)
+			if err != nil {
+				t.Fatalf("load state: %v", err)
+			}
+			if got := ss.Panes["primary"].Narration; got != tc.want {
+				t.Fatalf("narration = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDeriveWorkerEventIsStateless(t *testing.T) {
 	t.Parallel()
 	event := state.StateEvent{Ts: time.Unix(1, 0), Activity: "Bash: safe summary", Fields: map[string]interface{}{

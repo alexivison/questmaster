@@ -66,6 +66,13 @@ type HookRunner struct {
 	// UpdateAndLogEvents applies and logs a group of related hook events under
 	// one state lock.
 	UpdateAndLogEvents func(sessionID string, events []*state.StateEvent, mutate func(*state.SessionState) bool) error
+
+	RecordToolDuration func(agent, tool string, duration time.Duration) error
+}
+
+type completedTool struct {
+	tool     string
+	duration time.Duration
 }
 
 type hookManifestStore interface {
@@ -95,6 +102,18 @@ func newHookRunner(store hookManifestStore, client hookTmuxEnvironmentSetter) *H
 		AppendEvent:        state.AppendStateEvent,
 		UpdateAndLog:       state.UpdateAndLogWithEvents,
 		UpdateAndLogEvents: state.UpdateAndLogBatch,
+		RecordToolDuration: func(agent, tool string, duration time.Duration) error {
+			return state.RecordToolDurationAt(state.StateRoot(), agent, tool, duration)
+		},
+	}
+}
+
+func (r *HookRunner) recordToolDuration(agent string, completed *completedTool, stderr io.Writer) {
+	if completed == nil || r.RecordToolDuration == nil || completed.duration <= 0 {
+		return
+	}
+	if err := r.RecordToolDuration(agent, completed.tool, completed.duration); err != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: record tool duration: %v\n", agent, err)
 	}
 }
 
@@ -548,6 +567,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 
 	firstPrompt := false
 	suppressFinalMessage := false
+	var completed *completedTool
 	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
@@ -564,9 +584,22 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			LastChatAt                      time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus, pane.LastChatAt}
 		prevClaude := pane
+		prevRunningTools := slices.Clone(pane.RunningTools)
+		prevNarration := pane.Narration
 		prevClaude.ClaudeDisplayChunks = maps.Clone(pane.ClaudeDisplayChunks)
 		prevClaude.ClaudeOpenChatActions = slices.Clone(pane.ClaudeOpenChatActions)
 		if !isSubagent {
+			if opts.action == "working" || opts.action == "done" || opts.action == "stopped" {
+				state.ClearRunningTools(&pane)
+			}
+			if opts.action == "tool_start" {
+				state.StartRunningTool(&pane, payload.ToolName, payload.ToolUseID, now)
+			}
+			if opts.action == "tool_end" {
+				if ended, duration, matched := state.EndRunningTool(&pane, payload.ToolName, payload.ToolUseID, now); matched {
+					completed = &completedTool{tool: ended.Tool, duration: duration}
+				}
+			}
 			pruneClaudeOpenChatActions(&pane, now)
 			switch opts.action {
 			case "working", "done", "stopped":
@@ -704,7 +737,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		if setTool != "" {
 			pane.Tool = setTool
-		} else if clearTool {
+		} else if clearTool && !(opts.action == "tool_end" && !isSubagent) {
 			pane.Tool = ""
 		}
 		if clearStaleNotificationActivity && strings.HasPrefix(pane.Activity, "Notification: ") {
@@ -748,6 +781,8 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.WorkingSince.Equal(prev.WorkingSince) &&
 			pane.LastChatStatus == prev.LastChatStatus &&
 			pane.LastChatAt.Equal(prev.LastChatAt) &&
+			pane.Narration == prevNarration &&
+			slices.Equal(pane.RunningTools, prevRunningTools) &&
 			!claudeDisplayStateChanged(prevClaude, pane) {
 			return false
 		}
@@ -759,6 +794,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook claude: update state: %v\n", mutateErr)
 	}
+	r.recordToolDuration("claude", completed, stderr)
 
 	if firstPrompt {
 		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
@@ -851,6 +887,9 @@ func addChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text s
 		return
 	}
 	pane.LastChatAt = event.Ts
+	if kind == "say" || kind == "message" {
+		pane.Narration = workerfeed.CapText(text)
+	}
 	if event.Fields == nil {
 		event.Fields = make(map[string]interface{})
 	}
@@ -1002,6 +1041,7 @@ func claudeDisplayStateChanged(before, after state.PaneState) bool {
 		before.ClaudeDisplayFinal != after.ClaudeDisplayFinal ||
 		before.ClaudeDisplayAbandoned != after.ClaudeDisplayAbandoned ||
 		!before.LastChatAt.Equal(after.LastChatAt) ||
+		before.Narration != after.Narration ||
 		before.ClaudeLastSayMessage != after.ClaudeLastSayMessage ||
 		before.ClaudeLastSayPromptID != after.ClaudeLastSayPromptID ||
 		before.ClaudeLastSayTranscript != after.ClaudeLastSayTranscript ||
@@ -1625,6 +1665,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 
 	firstPrompt := false
 	rolloutConflict := false
+	var completed *completedTool
 	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		role := "primary"
 		ss.SeenAt = now
@@ -1641,6 +1682,23 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			CodexTranscriptSkippingLine     bool
 			LastChatAt                      time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus, pane.CodexTranscriptPath, pane.CodexTranscriptOffset, pane.CodexTranscriptSkippingLine, pane.LastChatAt}
+		prevRunningTools := slices.Clone(pane.RunningTools)
+		prevNarration := pane.Narration
+		clearStaleQuestionActivity := opts.action == "tool_end" &&
+			isCodexRequestUserInputTool(pane.Tool) && strings.HasPrefix(pane.Activity, "Question: ")
+		if payload.AgentID == "" {
+			if opts.action == "working" || opts.action == "done" {
+				state.ClearRunningTools(&pane)
+			}
+			if opts.action == "tool_start" {
+				state.StartRunningTool(&pane, payload.ToolName, "", now)
+			}
+			if opts.action == "tool_end" {
+				if ended, duration, matched := state.EndRunningTool(&pane, payload.ToolName, "", now); matched {
+					completed = &completedTool{tool: ended.Tool, duration: duration}
+				}
+			}
+		}
 		if rollout.path != "" {
 			if pane.CodexTranscriptPath == rollout.previousPath && pane.CodexTranscriptOffset == rollout.previousOffset && pane.CodexTranscriptSkippingLine == rollout.previousSkipping {
 				pane.CodexTranscriptPath = rollout.path
@@ -1657,9 +1715,6 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		// Only the first prompt (pane still "starting") is worth a manifest
 		// title check; steady-state prompts never touch it.
 		firstPrompt = opts.action == "working" && prev.State == "starting"
-		clearStaleQuestionActivity := opts.action == "tool_end" &&
-			isCodexRequestUserInputTool(pane.Tool) &&
-			strings.HasPrefix(pane.Activity, "Question: ")
 		setState = suppressSpuriousStartingRegression(setState, prev.State)
 
 		if setState != "" {
@@ -1673,7 +1728,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		}
 		if setTool != "" {
 			pane.Tool = setTool
-		} else if clearTool {
+		} else if clearTool && !(opts.action == "tool_end" && payload.AgentID == "") {
 			pane.Tool = ""
 		}
 		if lastKind != "" {
@@ -1708,7 +1763,9 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			pane.CodexTranscriptPath == prev.CodexTranscriptPath &&
 			pane.CodexTranscriptOffset == prev.CodexTranscriptOffset &&
 			pane.CodexTranscriptSkippingLine == prev.CodexTranscriptSkippingLine &&
-			pane.LastChatAt.Equal(prev.LastChatAt) {
+			pane.LastChatAt.Equal(prev.LastChatAt) &&
+			pane.Narration == prevNarration &&
+			slices.Equal(pane.RunningTools, prevRunningTools) {
 			return false
 		}
 		return true
@@ -1719,6 +1776,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	if mutateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook codex: update state: %v\n", mutateErr)
 	}
+	r.recordToolDuration("codex", completed, stderr)
 	if rolloutConflict && mutateErr == nil && retryCodexRollout(r, sessionID, payload.TranscriptPath, now, stderr) {
 		if opts.action == "done" {
 			catchUpCodexRolloutUnderLock(r, sessionID, payload.TranscriptPath, now, stderr)
@@ -2054,6 +2112,7 @@ type piPayload struct {
 	ToolName              string                  `json:"toolName"`
 	ToolNameSnake         string                  `json:"tool_name"`
 	Name                  string                  `json:"name"`
+	ToolCallID            string                  `json:"tool_call_id"`
 	Args                  interface{}             `json:"args"`
 	Arguments             interface{}             `json:"arguments"`
 	Input                 interface{}             `json:"input"`
@@ -2124,9 +2183,10 @@ func handlePi(r *HookRunner, sessionID string, opts hookOptions, stderr io.Write
 }
 
 type preparedPiEvent struct {
-	event  *state.StateEvent
-	mutate func(*state.SessionState) bool
-	after  func()
+	event           *state.StateEvent
+	mutate          func(*state.SessionState) bool
+	after           func()
+	recordCompleted func()
 }
 
 func applyPiBatch(r *HookRunner, sessionID string, prepared []preparedPiEvent, stderr io.Writer, agentName string) {
@@ -2151,6 +2211,9 @@ func applyPiBatch(r *HookRunner, sessionID string, prepared []preparedPiEvent, s
 		if prepared[i].after != nil {
 			prepared[i].after()
 		}
+		if prepared[i].recordCompleted != nil {
+			prepared[i].recordCompleted()
+		}
 	}
 }
 
@@ -2170,6 +2233,9 @@ func handlePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	}
 	if prepared.after != nil {
 		prepared.after()
+	}
+	if prepared.recordCompleted != nil {
+		prepared.recordCompleted()
 	}
 }
 
@@ -2226,6 +2292,8 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	case "tool_execution_end":
 		setState = "working"
 		clearTool = true
+	case "turn_end":
+		clearTool = true
 	case "waiting_for_user":
 		setState = "blocked"
 		setTool = piToolName(payload)
@@ -2264,6 +2332,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	if opts.action == "session_shutdown" {
 		after = func() { clearAdoptedAgentOnExit(opts.ctx, r, stderr, sessionID, agentName) }
 	}
+	var completed *completedTool
 
 	recent, hasRecent := piRecentForAction(opts.action, payload)
 	sessionFile := strings.TrimSpace(payload.SessionFile)
@@ -2315,6 +2384,20 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 			LastChatStatus                  string
 			LastChatAt                      time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.SessionFile, pane.PiSessionID, pane.LastChatStatus, pane.LastChatAt}
+		prevRunningTools := slices.Clone(pane.RunningTools)
+		prevNarration := pane.Narration
+		if opts.action == "session_start" || opts.action == "before_agent_start" || opts.action == "agent_start" ||
+			opts.action == "turn_end" || opts.action == "agent_end" || opts.action == "session_shutdown" {
+			state.ClearRunningTools(&pane)
+		}
+		if opts.action == "tool_execution_start" {
+			state.StartRunningTool(&pane, piToolName(payload), payload.ToolCallID, occurredAt)
+		}
+		if opts.action == "tool_execution_end" {
+			if ended, duration, matched := state.EndRunningTool(&pane, piToolName(payload), payload.ToolCallID, occurredAt); matched {
+				completed = &completedTool{tool: ended.Tool, duration: duration}
+			}
+		}
 
 		preserveBlockedQuestion := opts.action == "tool_execution_start" && pane.State == "blocked" && pane.LastKind == "waiting_for_user"
 		clearStaleQuestionActivity := opts.action == "tool_execution_end" && pane.LastKind == "waiting_for_user" && strings.HasPrefix(pane.Activity, "Question: ")
@@ -2337,7 +2420,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		}
 		if setTool != "" {
 			pane.Tool = setTool
-		} else if clearTool {
+		} else if clearTool && opts.action != "tool_execution_end" {
 			pane.Tool = ""
 		}
 		if hasRecent {
@@ -2386,12 +2469,17 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 			pane.SessionFile == prev.SessionFile &&
 			pane.PiSessionID == prev.PiSessionID &&
 			pane.LastChatStatus == prev.LastChatStatus &&
-			pane.LastChatAt.Equal(prev.LastChatAt) {
+			pane.LastChatAt.Equal(prev.LastChatAt) &&
+			pane.Narration == prevNarration &&
+			slices.Equal(pane.RunningTools, prevRunningTools) {
 			return false
 		}
 		return true
 	}
-	return preparedPiEvent{event: ev, mutate: mutate, after: after}, true
+	return preparedPiEvent{
+		event: ev, mutate: mutate, after: after,
+		recordCompleted: func() { r.recordToolDuration(agentName, completed, stderr) },
+	}, true
 }
 
 func piRecentForAction(action string, payload piPayload) ([]string, bool) {

@@ -521,7 +521,7 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
-	pi.on("turn_end", (event: { turnIndex?: unknown; message?: unknown; toolResults?: Array<{ isError?: boolean }> }, rawContext) => {
+	pi.on("turn_end", async (event: { turnIndex?: unknown; message?: unknown; toolResults?: Array<{ isError?: boolean }> }, rawContext) => {
 		recordAssistantMessage(event.message);
 		refreshMetadata(rawContext as PiContext | undefined);
 		turn = {
@@ -533,6 +533,7 @@ export default function (pi: ExtensionAPI) {
 			errors: Array.isArray(event.toolResults) ? Math.min(event.toolResults.filter((result) => result?.isError).length, 1_000_000) : undefined,
 		};
 		pendingNarration = "";
+		await emitHook("turn_end");
 	});
 
 	pi.on("message_update", (event: { message?: unknown; assistantMessageEvent?: { type?: string; content?: unknown } }) => {
@@ -568,7 +569,10 @@ export default function (pi: ExtensionAPI) {
 			const args = event.args && typeof event.args === "object" ? event.args as Record<string, unknown> : {};
 			await emitHook("waiting_for_user", { prompt: typeof args.question === "string" ? safeLine(args.question) : currentTool }, true, occurredAtMS);
 		}
-		await emitHook("tool_execution_start", undefined, false, occurredAtMS);
+		await emitHook("tool_execution_start", {
+			tool_call_id: cleanString(event.toolCallId, 120),
+			tool_name: cleanString(event.toolName, 80),
+		}, false, occurredAtMS);
 	});
 
 	pi.on("tool_execution_end", async (event: { toolCallId?: string; toolName?: string; isError?: boolean }) => {
@@ -584,7 +588,10 @@ export default function (pi: ExtensionAPI) {
 		};
 		setSnippet(`${event.isError ? "✗" : "✓"} ${label}`);
 		currentTool = "";
-		await emitHook("tool_execution_end", undefined, event.toolName === "ask_user", occurredAtMS);
+		await emitHook("tool_execution_end", {
+			tool_call_id: cleanString(event.toolCallId, 120),
+			tool_name: cleanString(event.toolName, 80),
+		}, event.toolName === "ask_user", occurredAtMS);
 	});
 
 	pi.on("agent_end", async (event: { messages?: unknown[] }, rawContext) => {

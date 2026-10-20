@@ -28,6 +28,9 @@ type Result struct {
 	LastEvent    time.Time
 	WorkingSince time.Time
 	LastChatAt   time.Time
+	Agent        string
+	Narration    string
+	RunningTool  *state.RunningTool
 }
 
 // PrimaryKey namespaces a session's primary-pane activity key. Kept for
@@ -96,6 +99,11 @@ func FromState(ss *state.SessionState) Result {
 	if stateName == "" {
 		stateName = "unknown"
 	}
+	var runningTool *state.RunningTool
+	if stateName != "done" && stateName != "idle" && stateName != "stopped" && len(p.RunningTools) > 0 {
+		latest := p.RunningTools[len(p.RunningTools)-1]
+		runningTool = &latest
+	}
 	return Result{
 		State:        stateName,
 		Activity:     normalizeStartingActivity(stateName, p.Activity),
@@ -103,6 +111,9 @@ func FromState(ss *state.SessionState) Result {
 		LastEvent:    p.LastEvent,
 		WorkingSince: normalizeWorkingSince(stateName, p.WorkingSince, p.LastEvent),
 		LastChatAt:   p.LastChatAt,
+		Agent:        p.Agent,
+		Narration:    p.Narration,
+		RunningTool:  runningTool,
 	}
 }
 
