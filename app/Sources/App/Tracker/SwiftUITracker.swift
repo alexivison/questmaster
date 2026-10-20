@@ -1074,7 +1074,7 @@ enum TrackerNameplateRole: Equatable {
     static let topLevelProjectX: CGFloat = 54
     static let topLevelTitleX: CGFloat = 57
     static let topLevelSnippetX: CGFloat = 56
-    static let topLevelTextRightEdge: CGFloat = 265
+    static let topLevelTextRightEdge: CGFloat = 248
     static let workerTextX: CGFloat = 45 + TrackerPlateDesign.workerShift
     static let workerTextRightEdge: CGFloat = 218 + TrackerPlateDesign.workerShift
     static let titleTimeGap: CGFloat = 6

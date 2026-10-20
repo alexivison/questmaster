@@ -19,7 +19,7 @@ enum TrackerListMetrics {
     /// collapsed workers' circles, or its open cast row) to the top of the next disc, and each row is exactly that tall,
     /// so the spacing is the gap.
     static let spacing: CGFloat = 10
-    /// The widest tracker content: the selected-session panel and the master plate, both 277pt, and the plate band
+    /// The widest tracker content: the selected-session panel and the master plate, both 260pt, and the plate band
     /// that reaches past their right edge, which the list's scroll view would otherwise clip. The tracker column is sized
     /// to it plus the leading `sidePadding`.
     static let contentWidth: CGFloat = SelectedSessionPanel.canvasSize.width + TrackerPlateDesign.glowBandWidth

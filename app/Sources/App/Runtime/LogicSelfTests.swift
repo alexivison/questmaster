@@ -408,10 +408,10 @@ enum LogicSelfTests {
         let shift = TrackerPlateDesign.workerShift
 
         // Sizes, from the SVGs: each canvas starts 2 above its row, which is the disc's height and the plate's width.
-        try expectClose(TrackerPlateDesign.topLevel.size.width, 278, "master canvas width")
+        try expectClose(TrackerPlateDesign.topLevel.size.width, 261, "master canvas width")
         try expectClose(TrackerPlateDesign.topLevel.size.height, 55, "master canvas height")
         try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
-        try expectClose(TrackerPlateDesign.topLevelSize.width, 277, "master row width")
+        try expectClose(TrackerPlateDesign.topLevelSize.width, 260, "master row width, 260 by decision")
         try expectClose(TrackerPlateDesign.artInset, 2, "canvas start above its row")
         try expectClose(TrackerPlateDesign.worker.size.width, 233 + shift - 2, "worker canvas width")
         try expectClose(TrackerPlateDesign.worker.size.height, 44, "worker canvas height")
@@ -421,10 +421,10 @@ enum LogicSelfTests {
         // The paths are the SVGs', moved onto whole points: the master's back by the SVG's slip, the worker's to the
         // list's worker indent.
         let master = TrackerPlateDesign.topLevel
-        try expectRect(master.tab ?? Path(), 27, 3.5, 272, 15.5, "master project tab")
-        try expectRect(master.body, 27, 15.5, 277, 50.5, "master body")
-        try expectRect(master.titleStrip, 30, 17.5, 275, 36.5, "master title strip")
-        try expectRect(master.bar ?? Path(), 30, 38.5, 275, 48.5, "master project bar")
+        try expectRect(master.tab ?? Path(), 27, 3.5, 255, 15.5, "master project tab")
+        try expectRect(master.body, 27, 15.5, 260, 50.5, "master body")
+        try expectRect(master.titleStrip, 30, 17.5, 258, 36.5, "master title strip")
+        try expectRect(master.bar ?? Path(), 30, 38.5, 258, 48.5, "master project bar")
         try expectRect(master.disc, 3.5, 3.5, 50.5, 50.5, "master disc")
         try expectRect(master.discEdge, 2, 2, 52, 52, "master disc edge")
         try expectClose(master.discStroke, 3, "master disc stroke")
@@ -478,11 +478,12 @@ enum LogicSelfTests {
         try expectClose(TrackerNameplateRole.circlesX - discLeft, 40, "first collapsed circle's offset from the disc's left edge")
         try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
         try expectClose(TrackerPlateDesign.collapsedCircleGap, 5, "gap between collapsed circles")
-        try expect(TrackerWorkerSummary.maxCircles == 8, "a master's collapsed row should hold eight circles, got \(TrackerWorkerSummary.maxCircles)")
+        try expect(TrackerWorkerSummary.maxCircles == 7, "a master's 260pt collapsed row should hold seven circles, got \(TrackerWorkerSummary.maxCircles)")
         let rowRight = TrackerNameplateRole.circlesX
             + CGFloat(TrackerWorkerSummary.maxCircles) * TrackerPlateDesign.collapsedCircleDiameter
             + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
-        try expectClose(rowRight, TrackerPlateDesign.topLevelSize.width, "the last collapsed circle's right edge against the plate's")
+        try expect(rowRight <= TrackerPlateDesign.topLevelSize.width && rowRight + TrackerPlateDesign.collapsedCircleGap + TrackerPlateDesign.collapsedCircleDiameter > TrackerPlateDesign.topLevelSize.width,
+                   "the collapsed row should hold as many circles as fit inside the plate, ending at \(rowRight)")
         try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 76, "master row height with collapsed circles")
         try expectClose(TrackerNameplateRole.worker.rowHeight(showsCircles: false), 40, "worker row height")
 
@@ -661,16 +662,16 @@ enum LogicSelfTests {
             throw TestFailure("the panel should render to an image")
         }
         let bitmap = NSBitmapImageRep(cgImage: image)
-        try expect(bitmap.pixelsWide == 554 && bitmap.pixelsHigh == 152, "the panel should render 277 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        try expect(bitmap.pixelsWide == 520 && bitmap.pixelsHigh == 152, "the panel should render 260 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
         func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
             bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.usingColorSpace(.sRGB)
         }
-        guard let arc = pixel(275.5, 24.5), let outside = pixel(276.5, 22) else {
+        guard let arc = pixel(258.5, 24.5), let outside = pixel(259.5, 22) else {
             throw TestFailure("the corner pixels should be readable")
         }
         try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
         try expect(arc.alphaComponent > 0.9 && arc.redComponent > 0.22, "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
-        guard let bottomArc = pixel(275.5, 65) else {
+        guard let bottomArc = pixel(258.5, 65) else {
             throw TestFailure("the bottom-right pixel should be readable")
         }
         try expect(bottomArc.alphaComponent > 0.9 && bottomArc.redComponent > 0.22, "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
