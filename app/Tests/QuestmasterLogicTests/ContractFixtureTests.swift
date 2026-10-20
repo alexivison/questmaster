@@ -6,7 +6,6 @@ struct ContractFixtureTests {
         do {
             try payloadFixturesDecode()
             try envelopeFixturesDecode()
-            try castFieldsDecode()
             print("ContractFixtureTests: all tests passed")
         } catch {
             fail("contract fixtures threw \(error)")
@@ -25,6 +24,10 @@ struct ContractFixtureTests {
         expect(session.workerCount == 1, "tracker worker count did not decode")
         expect(session.duration == "0:02:00", "tracker elapsed_ms did not decode")
         expect(session.artifacts.first?.label == "Plan", "tracker artifact did not decode")
+        expect(session.narration == "It seems that something is still ...", "tracker narration did not decode")
+        expect(session.cast?.tool == "Bash" && session.cast?.typicalMS == 6000, "tracker cast did not decode")
+        let castStart = Date(timeIntervalSince1970: 1_781_842_788.529)
+        expect(abs((session.cast?.startedAt ?? .distantPast).timeIntervalSince(castStart)) < 0.001, "tracker cast started_at did not decode")
         expect(session.artifacts.count == 3, "row artifact count should stay scoped to qm-demo")
         expect(Set(session.artifacts.map(\.kind)) == Set(["html", "markdown", "image"]), "tracker artifact kinds did not decode")
         expect(tracker.artifacts.count == 4, "top-level tracker artifacts did not decode")
@@ -121,29 +124,6 @@ struct ContractFixtureTests {
         }
 
         throw ContractFixtureError("could not find internal/serve/testdata")
-    }
-
-    /// The tracker session's `narration` and `cast`, as the wire contract defines them. Hand-written until the backend's
-    /// golden `tracker_payload.json` carries them.
-    private static func castFieldsDecode() throws {
-        let json = """
-        {"repos": [{"id": "/tmp/questmaster/.git", "name": "questmaster", "sessions": [
-          {"id": "qm-cast", "title": "Review PRs", "status": "active", "state": "working", "agent": "codex",
-           "worker_count": 0, "elapsed_ms": 80000, "is_current": false,
-           "narration": "It seems that something is still failing.",
-           "cast": {"tool": "Bash", "started_at": "2026-10-20T07:33:48.529Z", "typical_ms": 6000}},
-          {"id": "qm-idle", "title": "Idle", "status": "active", "agent": "codex",
-           "worker_count": 0, "elapsed_ms": 0, "is_current": false, "cast": null}
-        ]}]}
-        """
-        let tracker = try JSONDecoder().decode(TrackerSnapshot.self, from: Data(json.utf8))
-        guard let casting = tracker.repos.first?.sessions.first(where: { $0.id == "qm-cast" }),
-              let idle = tracker.repos.first?.sessions.first(where: { $0.id == "qm-idle" }) else {
-            fail("cast fixture sessions missing")
-        }
-        expect(casting.narration == "It seems that something is still failing.", "narration did not decode")
-        expect(casting.cast?.tool == "Bash" && casting.cast?.typicalMS == 6000, "cast did not decode")
-        expect(idle.cast == nil && idle.narration.isEmpty, "a null cast and a missing narration should decode as none")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
