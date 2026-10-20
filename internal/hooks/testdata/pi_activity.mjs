@@ -88,6 +88,7 @@ try {
 	assert.equal(entries[4].payload.tool.name, "bash");
 	assert.equal(entries[4].payload.tool_call_id, "fast-tool");
 	assert.equal(entries[4].payload.tool_name, "bash");
+	assert.deepEqual(entries[4].payload.args, { command: "echo fast" });
 	assert.equal(entries[5].payload.tool_call_id, "fast-tool");
 	assert.equal(entries[5].payload.tool_name, "bash");
 	assert.equal(entries[6].payload.tool.name, "bash");

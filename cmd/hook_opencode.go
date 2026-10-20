@@ -33,6 +33,7 @@ type openCodePatch struct {
 	state      string
 	activity   string
 	tool       string
+	commandKey string
 	toolCallID string
 	clearTool  bool
 	kind       string
@@ -167,6 +168,7 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 	case "tool.execute.before":
 		patch.state = "working"
 		patch.tool = openCodeToolLabel(event)
+		patch.commandKey = toolCommandKey("opencode", patch.tool, openCodeToolInput(event))
 		patch.toolCallID = openCodeToolCallID(event)
 		patch.activity = "Tool: " + patch.tool
 	case "tool.execute.after":
@@ -272,11 +274,11 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			state.ClearRunningTools(&pane)
 		}
 		if patch.kind == "tool.execute.before" && !preservePermissionBlock {
-			state.StartRunningTool(&pane, patch.tool, patch.toolCallID, patch.occurredAt)
+			state.StartRunningTool(&pane, patch.tool, patch.toolCallID, patch.commandKey, patch.occurredAt)
 		}
 		if patch.kind == "tool.execute.after" {
 			if ended, duration, matched := state.EndRunningTool(&pane, patch.tool, patch.toolCallID, patch.occurredAt); matched {
-				completed = &completedTool{tool: ended.Tool, duration: duration}
+				completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration}
 			}
 		}
 
@@ -488,6 +490,26 @@ func openCodeToolCallID(event openCodeEvent) string {
 		}
 	}
 	return ""
+}
+
+func openCodeToolInput(event openCodeEvent) interface{} {
+	for _, source := range []map[string]interface{}{event.Properties, openCodeNestedToolCall(event.Properties)} {
+		for _, key := range []string{"input", "args"} {
+			if input, ok := source[key]; ok {
+				return input
+			}
+		}
+	}
+	return nil
+}
+
+func openCodeNestedToolCall(properties map[string]interface{}) map[string]interface{} {
+	for _, key := range []string{"call", "toolCall"} {
+		if call, ok := properties[key].(map[string]interface{}); ok {
+			return call
+		}
+	}
+	return nil
 }
 
 func openCodePermissionLabel(event openCodeEvent) string {

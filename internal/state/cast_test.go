@@ -3,6 +3,8 @@
 package state
 
 import (
+	"encoding/json"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -42,7 +44,7 @@ func TestRunningToolsFollowLatestStartAndFallBackOnEnd(t *testing.T) {
 			t.Parallel()
 			pane := PaneState{}
 			for _, running := range tc.startTools {
-				StartRunningTool(&pane, running.Tool, running.CallID, running.StartedAt)
+				StartRunningTool(&pane, running.Tool, running.CallID, running.Command, running.StartedAt)
 			}
 			if pane.Tool != tc.startTools[len(tc.startTools)-1].Tool {
 				t.Fatalf("latest tool = %q, want %q", pane.Tool, tc.startTools[len(tc.startTools)-1].Tool)
@@ -66,8 +68,8 @@ func TestRunningToolsMatchByNameWithoutCallIDAndClear(t *testing.T) {
 
 	started := time.Date(2026, 10, 20, 7, 0, 0, 0, time.UTC)
 	pane := PaneState{}
-	StartRunningTool(&pane, "Bash", "", started)
-	StartRunningTool(&pane, "Bash", "", started.Add(time.Second))
+	StartRunningTool(&pane, "Bash", "", "", started)
+	StartRunningTool(&pane, "Bash", "", "", started.Add(time.Second))
 	ended, duration, ok := EndRunningTool(&pane, "Bash", "", started.Add(3*time.Second))
 	if !ok || duration != 2*time.Second || len(pane.RunningTools) != 1 || !pane.RunningTools[0].StartedAt.Equal(started) {
 		t.Fatalf("ended latest same-name tool = (%s, %t), remaining=%+v", duration, ok, pane.RunningTools)
@@ -87,7 +89,7 @@ func TestRunningToolsKeepOnlyNewestCalls(t *testing.T) {
 	started := time.Date(2026, 10, 20, 7, 0, 0, 0, time.UTC)
 	pane := PaneState{}
 	for i := 0; i < maxRunningTools+4; i++ {
-		StartRunningTool(&pane, "Tool", "", started.Add(time.Duration(i)*time.Second))
+		StartRunningTool(&pane, "Tool", "", "", started.Add(time.Duration(i)*time.Second))
 	}
 	if len(pane.RunningTools) != maxRunningTools || pane.RunningTools[0].StartedAt != started.Add(4*time.Second) {
 		t.Fatalf("running tools = %d, oldest=%s; want %d newest calls", len(pane.RunningTools), pane.RunningTools[0].StartedAt, maxRunningTools)
@@ -99,7 +101,7 @@ func TestToolDurationMedianNeedsThreeSamplesAndKeepsLastTwenty(t *testing.T) {
 	root := t.TempDir()
 
 	for _, sample := range []time.Duration{10, 100} {
-		if err := RecordToolDurationAt(root, "claude", "Bash", sample*time.Millisecond); err != nil {
+		if err := RecordToolDurationAt(root, "claude", "Bash", "", sample*time.Millisecond); err != nil {
 			t.Fatalf("record sample: %v", err)
 		}
 	}
@@ -110,7 +112,7 @@ func TestToolDurationMedianNeedsThreeSamplesAndKeepsLastTwenty(t *testing.T) {
 	if _, ok := medians[ToolDurationKey{Agent: "claude", Tool: "Bash"}]; ok {
 		t.Fatalf("median available before third sample: %#v", medians)
 	}
-	if err := RecordToolDurationAt(root, "claude", "Bash", 30*time.Millisecond); err != nil {
+	if err := RecordToolDurationAt(root, "claude", "Bash", "", 30*time.Millisecond); err != nil {
 		t.Fatalf("record third sample: %v", err)
 	}
 	medians, err = LoadToolTypicalDurationsAt(root)
@@ -123,7 +125,7 @@ func TestToolDurationMedianNeedsThreeSamplesAndKeepsLastTwenty(t *testing.T) {
 	}
 
 	for i := 1; i <= 20; i++ {
-		if err := RecordToolDurationAt(root, "claude", "Bash", time.Duration(i)*time.Millisecond); err != nil {
+		if err := RecordToolDurationAt(root, "claude", "Bash", "", time.Duration(i)*time.Millisecond); err != nil {
 			t.Fatalf("record bounded sample %d: %v", i, err)
 		}
 	}
@@ -158,7 +160,7 @@ func TestToolDurationConcurrentRecordsStayBounded(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- RecordToolDurationAt(root, "pi", "bash", 250*time.Millisecond)
+			errs <- RecordToolDurationAt(root, "pi", "bash", "", 250*time.Millisecond)
 		}()
 	}
 	wg.Wait()
@@ -174,5 +176,142 @@ func TestToolDurationConcurrentRecordsStayBounded(t *testing.T) {
 	}
 	if got := len(samples[ToolDurationKey{Agent: "pi", Tool: "bash"}]); got != maxToolDurationRuns {
 		t.Fatalf("sample count = %d, want %d", got, maxToolDurationRuns)
+	}
+}
+
+func TestToolDurationRecordsCommandAndToolMedians(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for _, sample := range []time.Duration{100, 200, 300} {
+		if err := RecordToolDurationAt(root, "claude", "Bash", "go test", sample*time.Millisecond); err != nil {
+			t.Fatalf("record sample: %v", err)
+		}
+	}
+	medians, err := LoadToolTypicalDurationsAt(root)
+	if err != nil {
+		t.Fatalf("load medians: %v", err)
+	}
+	if got := medians[ToolDurationKey{Agent: "claude", Tool: "Bash"}]; got != 200 {
+		t.Fatalf("tool median = %dms, want 200", got)
+	}
+	if got := medians[ToolDurationKey{Agent: "claude", Tool: "Bash", Command: "go test"}]; got != 200 {
+		t.Fatalf("command median = %dms, want 200", got)
+	}
+}
+
+func TestToolDurationLoadsExistingSamplesFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.WriteFile(toolDurationsPath(root), []byte(`{"samples":{"claude":{"Bash":[10,20,30]}}}`), 0o600); err != nil {
+		t.Fatalf("write legacy duration file: %v", err)
+	}
+	medians, err := LoadToolTypicalDurationsAt(root)
+	if err != nil {
+		t.Fatalf("load existing file: %v", err)
+	}
+	if got := medians[ToolDurationKey{Agent: "claude", Tool: "Bash"}]; got != 20 {
+		t.Fatalf("legacy median = %dms, want 20", got)
+	}
+	if err := RecordToolDurationAt(root, "claude", "Bash", "go test", 40*time.Millisecond); err != nil {
+		t.Fatalf("record migration sample: %v", err)
+	}
+	samples, err := loadToolDurationSamplesAt(root)
+	if err != nil {
+		t.Fatalf("load migrated samples: %v", err)
+	}
+	if !reflect.DeepEqual(samples[ToolDurationKey{Agent: "claude", Tool: "Bash"}], []int64{10, 20, 30, 40}) {
+		t.Fatalf("legacy samples after migration = %v", samples[ToolDurationKey{Agent: "claude", Tool: "Bash"}])
+	}
+}
+
+func TestToolDurationEvictsLeastRecentlyUpdatedPair(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	type entry struct {
+		Agent     string    `json:"agent"`
+		Tool      string    `json:"tool"`
+		Command   string    `json:"command,omitempty"`
+		Samples   []int64   `json:"samples"`
+		UpdatedAt time.Time `json:"updated_at"`
+	}
+	entries := make([]entry, maxToolDurationPairs)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range entries {
+		entries[i] = entry{
+			Agent:     "agent-" + string(rune('a'+i/26)) + string(rune('a'+i%26)),
+			Tool:      "Bash",
+			Samples:   []int64{10, 20, 30},
+			UpdatedAt: base.Add(time.Duration(i) * time.Minute),
+		}
+	}
+	data, err := json.Marshal(map[string]interface{}{"entries": entries})
+	if err != nil {
+		t.Fatalf("marshal seeded entries: %v", err)
+	}
+	if err := os.WriteFile(toolDurationsPath(root), data, 0o600); err != nil {
+		t.Fatalf("write seeded entries: %v", err)
+	}
+	if err := RecordToolDurationAt(root, "new-agent", "bash", "sleep", 500*time.Millisecond); err != nil {
+		t.Fatalf("record new command: %v", err)
+	}
+	samples, err := loadToolDurationSamplesAt(root)
+	if err != nil {
+		t.Fatalf("load evicted samples: %v", err)
+	}
+	if len(samples) != maxToolDurationPairs {
+		t.Fatalf("duration pairs = %d, want cap %d", len(samples), maxToolDurationPairs)
+	}
+	if _, ok := samples[ToolDurationKey{Agent: "agent-aa", Tool: "Bash"}]; ok {
+		t.Fatal("oldest pair was retained")
+	}
+	if _, ok := samples[ToolDurationKey{Agent: "agent-ab", Tool: "Bash"}]; ok {
+		t.Fatal("second-oldest pair was retained")
+	}
+	for _, key := range []ToolDurationKey{
+		{Agent: "new-agent", Tool: "bash"},
+		{Agent: "new-agent", Tool: "bash", Command: "sleep"},
+	} {
+		if _, ok := samples[key]; !ok {
+			t.Fatalf("new pair %+v missing after eviction", key)
+		}
+	}
+}
+
+func TestToolDurationEvictionKeepsToolPairBeingUpdated(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	entries := make([]toolDurationEntry, maxToolDurationPairs)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	entries[0] = toolDurationEntry{
+		Agent: "claude", Tool: "Bash", Samples: []int64{10, 20, 30}, UpdatedAt: base,
+	}
+	for i := 1; i < len(entries); i++ {
+		entries[i] = toolDurationEntry{
+			Agent:     "other-" + string(rune('a'+i/26)) + string(rune('a'+i%26)),
+			Tool:      "Bash",
+			Samples:   []int64{10, 20, 30},
+			UpdatedAt: base.Add(time.Duration(i) * time.Minute),
+		}
+	}
+	data, err := json.Marshal(toolDurationFile{Entries: entries})
+	if err != nil {
+		t.Fatalf("marshal seeded entries: %v", err)
+	}
+	if err := os.WriteFile(toolDurationsPath(root), data, 0o600); err != nil {
+		t.Fatalf("write seeded entries: %v", err)
+	}
+	if err := RecordToolDurationAt(root, "claude", "Bash", "sleep", 500*time.Millisecond); err != nil {
+		t.Fatalf("record command sample: %v", err)
+	}
+	samples, err := loadToolDurationSamplesAt(root)
+	if err != nil {
+		t.Fatalf("load samples: %v", err)
+	}
+	baseKey := ToolDurationKey{Agent: "claude", Tool: "Bash"}
+	if got, want := samples[baseKey], []int64{10, 20, 30, 500}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool-level samples = %v, want %v", got, want)
+	}
+	if got := samples[ToolDurationKey{Agent: "claude", Tool: "Bash", Command: "sleep"}]; !reflect.DeepEqual(got, []int64{500}) {
+		t.Fatalf("command samples = %v, want [500]", got)
 	}
 }

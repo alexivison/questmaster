@@ -555,10 +555,14 @@ func castSnapshot(result sessionactivity.Result, fallbackAgent string, typicals 
 	if agent == "" {
 		agent = fallbackAgent
 	}
+	typicalMS, ok := typicals[state.ToolDurationKey{Agent: agent, Tool: result.RunningTool.Tool, Command: result.RunningTool.Command}]
+	if !ok {
+		typicalMS = typicals[state.ToolDurationKey{Agent: agent, Tool: result.RunningTool.Tool}]
+	}
 	return &CastSnapshot{
 		Tool:      result.RunningTool.Tool,
 		StartedAt: result.RunningTool.StartedAt,
-		TypicalMS: typicals[state.ToolDurationKey{Agent: agent, Tool: result.RunningTool.Tool}],
+		TypicalMS: typicalMS,
 	}
 }
 
