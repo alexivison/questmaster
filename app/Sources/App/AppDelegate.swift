@@ -908,6 +908,7 @@ private enum QuestmasterMain {
         #if DEBUG
         _ = LogicSelfTests.runIfRequested()
         _ = RenderPreview.runIfRequested()
+        _ = RingPreview.runIfRequested()
         #endif
         let app = NSApplication.shared
         let delegate = AppDelegate()

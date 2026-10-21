@@ -72,7 +72,7 @@ struct WorkerChatLineBuild {
     }
 }
 
-enum WorkerChatLineBuilder {
+public enum WorkerChatLineBuilder {
     static let maxNameLength = 16
     private static let actionVerb = "Cast"
 
@@ -150,6 +150,12 @@ enum WorkerChatLineBuilder {
         return String(trimmed.prefix(maxNameLength)) + "…"
     }
 
+    /// One tool call as the chat shows it: `[Bash]`, or `[Bash](x3)` for repeats folded into one line. The tracker's
+    /// cast bar labels its tool with the same text.
+    public static func callLabel(name: String, count: Int = 1) -> String {
+        count > 1 ? "[\(name)](x\(count))" : "[\(name)]"
+    }
+
     private static func timeLabel(_ date: Date, calendar: Calendar) -> String {
         let parts = calendar.dateComponents([.hour, .minute], from: date)
         return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
@@ -158,7 +164,7 @@ enum WorkerChatLineBuilder {
     private static func segments(for body: Body) -> [WorkerChatSegment] {
         switch body {
         case .run(let tools):
-            let calls = tools.map { $0.count > 1 ? "[\($0.name)](x\($0.count))" : "[\($0.name)]" }
+            let calls = tools.map { callLabel(name: $0.name, count: $0.count) }
             return [
                 WorkerChatSegment(" \(actionVerb) ", .muted),
                 WorkerChatSegment(calls.joined(separator: " "), .rarity(.common)),

@@ -340,7 +340,7 @@ struct TrackerRootView: View {
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.sectionSpacing)
+                            .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.spacing)
                             .padding(.bottom, index == repos.count - 1 ? TrackerListMetrics.verticalPadding : 0)
                         }
                     }
@@ -895,8 +895,8 @@ private struct TrackerRepoSection: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(repo.groups.enumerated()), id: \.offset) { index, group in
                 let isCollapsed = !expandedMasterIDs.contains(group.root.session.id)
-                let gapAbove = index == 0 ? 0 : TrackerListMetrics.gap(afterSessionWithWorkers: !repo.groups[index - 1].workers.isEmpty)
-                VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
+                let gapAbove = index == 0 ? 0 : TrackerListMetrics.spacing
+                VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
                     TrackerSessionRow(
                         rendered: group.root,
                         projectName: projectName,
@@ -948,7 +948,7 @@ struct TrackerWorkerSummaryRow: View {
             ForEach(Array(TrackerWorkerSummary.circles(for: workers).enumerated()), id: \.offset) { _, circle in
                 switch circle {
                 case .worker(let worker):
-                    TrackerCollapsedCircle(status: worker.status.glowColor) {
+                    TrackerCollapsedCircle(status: worker.status, cast: worker.session.cast) {
                         TrackerAgentMark(
                             agent: worker.session.agent,
                             shortcutNumber: nil,
@@ -957,7 +957,7 @@ struct TrackerWorkerSummaryRow: View {
                         )
                     }
                 case .overflow(let hiddenWorkers):
-                    TrackerCollapsedCircle(status: nil) {
+                    TrackerCollapsedCircle(status: nil, cast: nil) {
                         TrackerPlateLine(
                             text: "+\(hiddenWorkers)",
                             font: AppFonts.monoSmall,
@@ -999,7 +999,9 @@ enum TrackerWorkerSummary {
 /// active worker's status ring and glow sit between the two, under the border. The border is centred on a circle 0.75
 /// inside the frame.
 private struct TrackerCollapsedCircle<Content: View>: View {
-    let status: NSColor?
+    let status: TrackerStatusStyle?
+    /// A collapsed worker has no cast row, so its ring carries its cast: the round cast fill.
+    let cast: TrackerCast?
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -1012,7 +1014,12 @@ private struct TrackerCollapsedCircle<Content: View>: View {
             }
             .frame(width: side, height: side)
             if let status {
-                TrackerPortraitStatus(geometry: TrackerPlateDesign.collapsedCircleStatus, color: status)
+                TrackerPortraitStatus(
+                    geometry: TrackerPlateDesign.collapsedCircleStatus,
+                    color: status.color,
+                    ring: .ring(status: status.kind, cast: cast),
+                    finishColor: status.finishColor
+                )
             }
             Canvas { context, _ in
                 context.stroke(circle, with: .color(AppPalette.line.swiftUI), lineWidth: stroke)
@@ -1067,7 +1074,7 @@ enum TrackerNameplateRole: Equatable {
     static let topLevelProjectX: CGFloat = 54
     static let topLevelTitleX: CGFloat = 57
     static let topLevelSnippetX: CGFloat = 56
-    static let topLevelTextRightEdge: CGFloat = 265
+    static let topLevelTextRightEdge: CGFloat = 248
     static let workerTextX: CGFloat = 45 + TrackerPlateDesign.workerShift
     static let workerTextRightEdge: CGFloat = 218 + TrackerPlateDesign.workerShift
     static let titleTimeGap: CGFloat = 6
@@ -1101,13 +1108,6 @@ enum TrackerNameplateRole: Equatable {
     }
 }
 
-/// A fixed plate path drawn at its own coordinates (the plates are never resized).
-private struct TrackerPlateShape: Shape {
-    let path: Path
-
-    func path(in rect: CGRect) -> Path { path }
-}
-
 /// The band around a plate: a selection's, a hover's or a recolour hint's. Every band follows the same silhouette at the
 /// same width and holds one steady opacity. A plate's status is not a band: it lives on the portrait.
 enum TrackerPlateBand {
@@ -1122,27 +1122,28 @@ enum TrackerPlateBand {
 }
 
 enum TrackerNameplateColor {
-    /// The accent bar ships at 90% of the repo/display color's brightness (picked 2026-10-02): full
-    /// saturation read as too loud against the flat terminal chrome. Hue and saturation are untouched.
+    /// Every coloured bar in the tracker (the plates' project bars, the selected-session panel's, and the cast bar's
+    /// amber fill) ships at this fraction of its colour's brightness: full brightness reads too loud against the flat
+    /// terminal chrome (90% from 2026-10-02, 80% from 2026-10-21). Hue and saturation are untouched.
+    static let barBrightness: CGFloat = 0.8
+
     static func barLightness(_ color: NSColor) -> NSColor {
         let rgb = color.usingColorSpace(.deviceRGB) ?? color
         return NSColor(
             hue: rgb.hueComponent,
             saturation: rgb.saturationComponent,
-            brightness: rgb.brightnessComponent * 0.90,
+            brightness: rgb.brightnessComponent * barBrightness,
             alpha: rgb.alphaComponent
         )
     }
 }
 
-/// A low-rate clock shared by every view that animates or counts in the list: `shared` for the pulsing project
-/// bars (15 frames a second), `durations` for the live elapsed times (once a second). Views that read `time` redraw
-/// at the clock's rate instead of at display rate. Each clock has one timer, however many views read it, and it runs
+/// A low-rate clock shared by every view that counts in the list: `durations` ticks the live elapsed times once a
+/// second. Views that read `time` redraw at the clock's rate instead of at display rate. Each clock has one timer, however many views read it, and it runs
 /// only while some view is on screen and using it, so the redraw cost the terminal shares the main thread with stays
 /// small and flat.
 @MainActor @Observable
 final class TrackerPulseClock {
-    static let shared = TrackerPulseClock(framesPerSecond: 15)
     static let durations = TrackerPulseClock(framesPerSecond: 1)
 
     let framesPerSecond: Double
@@ -1186,7 +1187,7 @@ final class TrackerPulseClock {
 /// A view that reads a clock only while it is on screen and has something to show on it.
 private struct TrackerPulseSubscription: ViewModifier {
     let isActive: Bool
-    var clock = TrackerPulseClock.shared
+    let clock: TrackerPulseClock
 
     func body(content: Content) -> some View {
         content
@@ -1195,39 +1196,9 @@ private struct TrackerPulseSubscription: ViewModifier {
     }
 }
 
-/// Today's accent-bar pulse: the repo color lifted with plusLighter while the session works;
-/// the lift eases 0 to 0.5 and back every 2.2s on the shared clock.
-private struct TrackerColorBarPulse: View {
-    private static let period: TimeInterval = 2.2
-    private static let peakLift = 0.5
-    private static let reducedMotionLift = 0.5
-    private static let liftOpacity = 0.65
-
-    let color: NSColor
-    let isWorking: Bool
-    let shape: TrackerPlateShape
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        if isWorking && reduceMotion {
-            lift(Self.reducedMotionLift)
-        } else if isWorking {
-            let phase = TrackerPulseClock.shared.time / Self.period
-            lift(Self.peakLift * (1 - cos(phase * 2 * .pi)) / 2)
-                .modifier(TrackerPulseSubscription(isActive: true))
-        }
-    }
-
-    private func lift(_ amount: Double) -> some View {
-        shape.fill(color.swiftUI)
-            .blendMode(.plusLighter)
-            .opacity(amount * Self.liftOpacity)
-    }
-}
-
 /// The plate's art, in the SVG's order: the master's project tab, the body over its drop shadow, the title strip, and the
-/// band under it (the master's project bar, the worker's snippet strip), each strip with its inner shadow. The bar's
-/// pulse sits over it as a live view.
+/// band under it (the master's project bar, the worker's snippet strip), each strip with its inner shadow. The bar is
+/// steady: a working session shows on its portrait's ring, not on the bar.
 private struct TrackerPlateArt: View {
     let artwork: TrackerPlateArtwork
     let barColor: NSColor
@@ -1308,8 +1279,10 @@ struct TrackerNameplateBackground<Text: View>: View {
     let selected: Bool
     let hovered: Bool
     let isRecoloring: Bool
-    let isWorking: Bool
     let statusColor: NSColor?
+    /// What the portrait's ring shows: a spinner while working, a still ring for the other active statuses.
+    let ring: TrackerPortraitRing
+    var finishColor: NSColor? = nil
     let text: Text
 
     var body: some View {
@@ -1320,16 +1293,9 @@ struct TrackerNameplateBackground<Text: View>: View {
                     .silhouetteFrame(artwork.size)
             }
             TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
-            if let bar = artwork.bar {
-                TrackerColorBarPulse(
-                    color: TrackerNameplateColor.barLightness(color),
-                    isWorking: isWorking,
-                    shape: TrackerPlateShape(path: bar)
-                )
-            }
             TrackerPortraitDisc(artwork: artwork)
             if let statusColor {
-                TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, holdsPeak: hovered)
+                TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, ring: ring, finishColor: finishColor)
             }
             TrackerPortraitOutline(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
             text
@@ -1337,13 +1303,6 @@ struct TrackerNameplateBackground<Text: View>: View {
         .frame(width: artwork.size.width, height: artwork.size.height, alignment: .topLeading)
         .offset(y: -TrackerPlateDesign.artInset)
         .frame(width: role.canvasSize.width, height: role.canvasSize.height, alignment: .topLeading)
-    }
-}
-
-extension TrackerStatusKind {
-    /// The active statuses light the portrait's ring and glow in their own colour. Idle, stopped and done draw none.
-    var drawsGlow: Bool {
-        self == .working || self == .blocked || self == .needsInput || self == .error
     }
 }
 
@@ -1555,9 +1514,12 @@ private struct TrackerSessionRowContent: View {
     let role: TrackerNameplateRole
     let shortcutNumber: Int?
     let collapsedWorkers: [TrackerRenderedSession]
+    let cast: TrackerSessionRow.CastRowState
 
     private var session: TrackerSession { rendered.session }
     private var showsCircles: Bool { role.isMaster && !collapsedWorkers.isEmpty }
+    /// How far the cast row has pushed the row's bottom (and a master's circles) down: all the way while it is open.
+    private var castExtra: CGFloat { cast.isOpen ? TrackerCastLayout.extraHeight(role, showsCircles: showsCircles) : 0 }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -1568,12 +1530,17 @@ private struct TrackerSessionRowContent: View {
                 logoSide: role.logoSide
             )
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
+            if let bar = cast.bar {
+                TrackerCastRow(cast: bar.cast, isFinishing: bar.isFinishing, role: role)
+                    .opacity(cast.isBarVisible ? 1 : 0)
+                    .offset(x: TrackerCastLayout.squareX(role), y: TrackerCastLayout.top(role))
+            }
             if showsCircles {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
-                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop)
+                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop + castExtra)
             }
         }
-        .frame(width: role.canvasSize.width, height: role.rowHeight(showsCircles: showsCircles), alignment: .topLeading)
+        .frame(width: role.canvasSize.width, height: role.rowHeight(showsCircles: showsCircles) + castExtra, alignment: .topLeading)
     }
 }
 
@@ -1590,6 +1557,19 @@ private struct TrackerSessionRow: View {
     var onActivate: (TrackerSession) -> Void
     var onEditSession: (TrackerSession) -> Void
     var onToggleWorkersCollapsed: (String) -> Void
+
+    /// The cast row's state: what it shows, whether the row has opened for it, and whether the bar has faded in.
+    struct CastRowState {
+        var phase = TrackerCastPhase.hidden
+        var bar: TrackerCastBar?
+        var isOpen = false
+        var isBarVisible = false
+    }
+
+    @State private var cast = CastRowState()
+    /// Bumped on every cast change, so a finish scheduled for an earlier cast does nothing.
+    @State private var castGeneration = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var session: TrackerSession { rendered.session }
     private var role: TrackerNameplateRole { TrackerNameplateRole(session) }
@@ -1613,8 +1593,10 @@ private struct TrackerSessionRow: View {
                     selected: selected,
                     hovered: hovered,
                     isRecoloring: rendered.recolorEditHint != nil,
-                    isWorking: rendered.status.kind == .working,
-                    statusColor: rendered.status.glowColor,
+                    statusColor: rendered.status.color,
+                    // The plate's cast row shows its cast, so its ring only spins while it works.
+                    ring: .ring(status: rendered.status.kind, cast: nil),
+                    finishColor: rendered.status.finishColor,
                     text: TrackerPlateText(
                         rendered: rendered,
                         role: role,
@@ -1630,10 +1612,14 @@ private struct TrackerSessionRow: View {
                     rendered: rendered,
                     role: role,
                     shortcutNumber: commandLongPressIsActive ? shortcutNumber : nil,
-                    collapsedWorkers: collapsedWorkers
+                    collapsedWorkers: collapsedWorkers,
+                    cast: cast
                 )
             }
         )
+        .onAppear { showCastAtOnce() }
+        .onChange(of: session.cast) { updateCast() }
+        .onChange(of: rendered.status.kind) { updateCast() }
         .modifier(TrackerStoppedDimming(isStopped: rendered.status.kind == .stopped))
         .help(shortcutTooltip)
         .accessibilityLabel("\(session.title.isEmpty ? session.id : session.title), \(rendered.status.classification.label)")
@@ -1648,6 +1634,57 @@ private struct TrackerSessionRow: View {
             }
         }
         .id(session.id)
+    }
+
+    /// A row that appears mid-cast shows it already open, with nothing to animate.
+    private func showCastAtOnce() {
+        let phase = TrackerCastPhase.hidden.next(cast: session.cast, status: rendered.status.kind)
+        guard phase.isOpen else { return }
+        cast = CastRowState(phase: phase, bar: TrackerCastPhase.bar(after: phase, holding: nil), isOpen: true, isBarVisible: true)
+    }
+
+    /// Moves the cast row on as the payload's cast changes. A cast opens the row on the tracker's expand/collapse
+    /// animation and fades the bar in once it is open; an ended cast flashes, fades the bar, then closes the row. A new
+    /// cast takes over at once; a blocked or needs-input status hides the cast with no flash. Reduce motion skips the
+    /// flash and every animation.
+    private func updateCast() {
+        let next = cast.phase.next(cast: session.cast, status: rendered.status.kind)
+        guard next != cast.phase else { return }
+        castGeneration += 1
+        let generation = castGeneration
+        let rowAnimation: Animation? = reduceMotion ? nil : .snappy(duration: TrackerCastPhase.rowDuration)
+        let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: TrackerCastPhase.barFadeDuration)
+        cast.phase = next
+        cast.bar = TrackerCastPhase.bar(after: next, holding: cast.bar)
+        switch next {
+        case .casting:
+            let opensRow = !cast.isOpen
+            withAnimation(rowAnimation) { cast.isOpen = true }
+            withAnimation(opensRow ? fade?.delay(TrackerCastPhase.rowDuration) : fade) { cast.isBarVisible = true }
+        case .finishing:
+            closeCastRow(after: reduceMotion ? 0 : TrackerCastPhase.flashDuration, generation: generation)
+        case .hidden:
+            closeCastRow(after: 0, generation: generation)
+        }
+    }
+
+    /// Fades the cast bar after `delay`, then closes the row, unless a newer cast update took over meanwhile.
+    private func closeCastRow(after delay: TimeInterval, generation: Int) {
+        let rowAnimation: Animation? = reduceMotion ? nil : .snappy(duration: TrackerCastPhase.rowDuration)
+        let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: TrackerCastPhase.barFadeDuration)
+        let fadeTime = reduceMotion ? 0 : TrackerCastPhase.barFadeDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            guard generation == castGeneration else { return }
+            withAnimation(fade) { cast.isBarVisible = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + fadeTime) {
+                guard generation == castGeneration else { return }
+                withAnimation(rowAnimation) {
+                    cast.isOpen = false
+                    cast.phase = .hidden
+                    cast.bar = nil
+                }
+            }
+        }
     }
 
     private var shortcutTooltip: String {
@@ -1809,8 +1846,8 @@ private struct TrackerSkeletonPlaceholder: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TrackerListMetrics.gap(afterSessionWithWorkers: true)) {
-            VStack(alignment: .leading, spacing: TrackerListMetrics.masterBlockSpacing) {
+        VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
+            VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
                 placeholder(role: .master)
                 placeholder(role: .worker)
                 placeholder(role: .worker)

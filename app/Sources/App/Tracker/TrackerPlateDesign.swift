@@ -23,8 +23,9 @@ enum TrackerPlateDesign {
 
     /// Canvas sizes, and the rows' sizes. A row ends at its plate's right edge, which a master's collapsed circles' last
     /// right edge lines up with. The master's canvas stops under the crown pieces; the circles are drawn apart.
-    static let topLevelArtSize = CGSize(width: 278, height: 55)
-    static let topLevelSize = CGSize(width: 277, height: 50)
+    /// The master is 260 wide by decision (2026-10-21), not the SVG's 277; see `TrackerPlateShapes`.
+    static let topLevelArtSize = CGSize(width: 261, height: 55)
+    static let topLevelSize = CGSize(width: 260, height: 50)
     static let workerArtSize = CGSize(width: 233 + workerShift - artInset, height: 44)
     static let workerSize = CGSize(width: 232 + workerShift - artInset, height: 40)
 
