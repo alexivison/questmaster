@@ -171,8 +171,16 @@ func TestOpenCodePluginForwardsToolExecutionHooks(t *testing.T) {
 	if err := os.WriteFile(pluginPath, []byte(openCodePluginSource), 0o600); err != nil {
 		t.Fatalf("write plugin: %v", err)
 	}
-	stubPath := filepath.Join(dir, "questmaster")
-	stub := "#!/usr/bin/env node\nimport { writeFileSync } from 'node:fs';\nlet input = '';\nfor await (const chunk of process.stdin) input += chunk;\nconst payload = JSON.parse(input);\nwriteFileSync(`${process.env.QM_CAPTURE}/${payload.event.type}.json`, input);\n"
+	stubPath := filepath.Join(dir, "questmaster.mjs")
+	stub := `#!/usr/bin/env node
+import { appendFileSync, writeFileSync } from "node:fs";
+let input = "";
+for await (const chunk of process.stdin) input += chunk;
+const payload = JSON.parse(input);
+if (payload.event.type === "tool.execute.before") await new Promise((resolve) => setTimeout(resolve, 250));
+appendFileSync(process.env.QM_CAPTURE + "/order.log", payload.event.type + "\n");
+writeFileSync(process.env.QM_CAPTURE + "/" + payload.event.type + ".json", input);
+`
 	if err := os.WriteFile(stubPath, []byte(stub), 0o700); err != nil {
 		t.Fatalf("write qm stub: %v", err)
 	}
@@ -188,7 +196,10 @@ const hooks = await QuestmasterOpenCode();
 const input = { tool: "bash", sessionID: "ses-1", callID: "call-1" };
 const args = { command: "go test ./..." };
 await hooks["tool.execute.before"](input, { args });
+assert.ok(!existsSync(process.env.QM_CAPTURE + "/tool.execute.before.json"), "before hook awaited the emission queue");
 await hooks["tool.execute.after"]({ ...input, args }, { title: "bash", output: "", metadata: {} });
+const failedPart = { type: "message.part.updated", properties: { part: { id: "call-1", type: "tool", state: { status: "error" } } } };
+await hooks.event({ event: failedPart });
 const wait = async (name) => {
   const path = process.env.QM_CAPTURE + "/" + name + ".json";
   const until = Date.now() + 3000;
@@ -198,8 +209,11 @@ const wait = async (name) => {
 };
 const before = await wait("tool.execute.before");
 const after = await wait("tool.execute.after");
-assert.deepEqual(before.event.properties, { ...input, args });
-assert.deepEqual(after.event.properties, { ...input, args });
+const failed = await wait("message.part.updated");
+assert.deepEqual(before.event.properties, { ...input, args: { command: args.command } });
+assert.deepEqual(after.event.properties, input);
+assert.deepEqual(failed.event, failedPart);
+assert.deepEqual(readFileSync(process.env.QM_CAPTURE + "/order.log", "utf8").trim().split("\n"), ["tool.execute.before", "tool.execute.after", "message.part.updated"]);
 `
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

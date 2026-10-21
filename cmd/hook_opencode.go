@@ -30,20 +30,21 @@ type openCodeEvent struct {
 }
 
 type openCodePatch struct {
-	state      string
-	activity   string
-	tool       string
-	commandKey string
-	toolCallID string
-	clearTool  bool
-	kind       string
-	recent     []string
-	hasRecent  bool
-	sessionID  string
-	eventID    string
-	statusType string
-	version    string
-	occurredAt time.Time
+	state            string
+	activity         string
+	tool             string
+	commandKey       string
+	toolCallID       string
+	failedToolCallID string
+	clearTool        bool
+	kind             string
+	recent           []string
+	hasRecent        bool
+	sessionID        string
+	eventID          string
+	statusType       string
+	version          string
+	occurredAt       time.Time
 
 	// A part has no role. Keep it until message.updated confirms the matching
 	// assistant message, so user prompt text never enters the worker feed.
@@ -195,6 +196,7 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 			patch.tool = tool
 			patch.clearTool = clearTool
 		}
+		patch.failedToolCallID = openCodeToolPartErrorCallID(event)
 	case "message.updated":
 		patch.assistantMsgID = openCodeAssistantMessageID(event)
 	}
@@ -210,7 +212,7 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 
 func (p openCodePatch) mutatesState() bool {
 	return p.state != "" || p.activity != "" || p.tool != "" || p.clearTool || p.hasRecent ||
-		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != ""
+		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != "" || p.failedToolCallID != ""
 }
 
 func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev *state.StateEvent) (bool, *completedTool, error, error) {
@@ -287,6 +289,9 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			if ended, duration, matched := state.EndRunningTool(&pane, patch.tool, patch.toolCallID, patch.occurredAt); matched {
 				completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration, waitedForInput: ended.WaitedForInput}
 			}
+		}
+		if patch.failedToolCallID != "" {
+			state.EndRunningTool(&pane, "", patch.failedToolCallID, patch.occurredAt)
 		}
 
 		if setState != "" {
@@ -589,10 +594,26 @@ func openCodeToolPartActivity(part map[string]interface{}) (stateValue, activity
 		status, _ = stateObj["status"].(string)
 	}
 	label := openCodeToolPartLabel(tool, stateObj)
+	if status == "error" {
+		return "working", "Failed: " + label, "", false
+	}
 	if status == "completed" {
 		return "working", "Done: " + label, "", true
 	}
 	return "working", label, tool, false
+}
+
+func openCodeToolPartErrorCallID(event openCodeEvent) string {
+	part, ok := event.Properties["part"].(map[string]interface{})
+	if !ok || part["type"] != "tool" {
+		return ""
+	}
+	stateObj, _ := part["state"].(map[string]interface{})
+	if stateObj == nil || stateObj["status"] != "error" {
+		return ""
+	}
+	id, _ := part["id"].(string)
+	return strings.TrimSpace(id)
 }
 
 func openCodeToolPartLabel(tool string, stateObj map[string]interface{}) string {
