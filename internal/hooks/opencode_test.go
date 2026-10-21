@@ -1,11 +1,14 @@
 package hooks
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	qmagent "github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
@@ -136,9 +139,9 @@ func TestOpenCodeStatusModifiedOnManagedDiff(t *testing.T) {
 }
 
 func TestOpenCodePluginEmbedsVersionMarkerAndSingleExport(t *testing.T) {
-	want := `const SIDECAR_VERSION = "` + QuestmasterSidecarVersion + `";`
+	want := `const SIDECAR_VERSION = "` + openCodeSidecarVersion + `";`
 	if !strings.Contains(openCodePluginSource, want) {
-		t.Fatalf("embedded OpenCode plugin missing version marker %q", QuestmasterSidecarVersion)
+		t.Fatalf("embedded OpenCode plugin missing version marker %q", openCodeSidecarVersion)
 	}
 	for _, want := range []string{`accessSync(bin, constants.X_OK)`, `return "questmaster"`} {
 		if !strings.Contains(openCodePluginSource, want) {
@@ -154,6 +157,61 @@ func TestOpenCodePluginEmbedsVersionMarkerAndSingleExport(t *testing.T) {
 	}
 	if len(exports) != 1 || exports[0] != "QuestmasterOpenCode" {
 		t.Fatalf("plugin exports = %v, want [QuestmasterOpenCode]", exports)
+	}
+}
+
+func TestOpenCodePluginForwardsToolExecutionHooks(t *testing.T) {
+	t.Parallel()
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is unavailable")
+	}
+	dir := t.TempDir()
+	pluginPath := filepath.Join(dir, "plugin.mjs")
+	if err := os.WriteFile(pluginPath, []byte(openCodePluginSource), 0o600); err != nil {
+		t.Fatalf("write plugin: %v", err)
+	}
+	stubPath := filepath.Join(dir, "questmaster")
+	stub := "#!/usr/bin/env node\nimport { writeFileSync } from 'node:fs';\nlet input = '';\nfor await (const chunk of process.stdin) input += chunk;\nconst payload = JSON.parse(input);\nwriteFileSync(`${process.env.QM_CAPTURE}/${payload.event.type}.json`, input);\n"
+	if err := os.WriteFile(stubPath, []byte(stub), 0o700); err != nil {
+		t.Fatalf("write qm stub: %v", err)
+	}
+	captureDir := filepath.Join(dir, "capture")
+	if err := os.Mkdir(captureDir, 0o700); err != nil {
+		t.Fatalf("create capture dir: %v", err)
+	}
+	script := `import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const { QuestmasterOpenCode } = await import(pathToFileURL(process.env.QM_PLUGIN));
+const hooks = await QuestmasterOpenCode();
+const input = { tool: "bash", sessionID: "ses-1", callID: "call-1" };
+const args = { command: "go test ./..." };
+await hooks["tool.execute.before"](input, { args });
+await hooks["tool.execute.after"]({ ...input, args }, { title: "bash", output: "", metadata: {} });
+const wait = async (name) => {
+  const path = process.env.QM_CAPTURE + "/" + name + ".json";
+  const until = Date.now() + 3000;
+  while (!existsSync(path) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(existsSync(path), name + " hook was not emitted");
+  return JSON.parse(readFileSync(path, "utf8"));
+};
+const before = await wait("tool.execute.before");
+const after = await wait("tool.execute.after");
+assert.deepEqual(before.event.properties, { ...input, args });
+assert.deepEqual(after.event.properties, { ...input, args });
+`
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, node, "--input-type=module", "-e", script)
+	cmd.Env = append(os.Environ(),
+		"QUESTMASTER_SESSION=qm-plugin-test",
+		"QUESTMASTER_BIN="+stubPath,
+		"QM_CAPTURE="+captureDir,
+		"QM_PLUGIN="+pluginPath,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("OpenCode plugin hook check: %v\n%s", err, out)
 	}
 }
 

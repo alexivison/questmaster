@@ -3,12 +3,12 @@
 //
 // Design contract:
 //   - No-op unless $QUESTMASTER_SESSION is set (i.e. launched by questmaster).
-//   - Observe-only: it only forwards OpenCode event-hook payloads.
+//   - Observe-only: it forwards OpenCode events and tool execution hooks.
 //   - Fully best-effort: forwarding failures are swallowed and never block OpenCode.
 //
-// The SIDECAR_VERSION marker must match hooks.QuestmasterSidecarVersion so
+// The SIDECAR_VERSION marker must match openCodeSidecarVersion in opencode.go so
 // `questmaster hooks status opencode` can detect stale installs.
-const SIDECAR_VERSION = "phase2-v2";
+const SIDECAR_VERSION = "phase2-v3";
 
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
@@ -97,6 +97,17 @@ export const QuestmasterOpenCode = async () => {
       if (bufferPart(event)) return;
       flushPart();
       emit(bin, session, event);
+    },
+    "tool.execute.before": async (input, output) => {
+      flushPart();
+      emit(bin, session, {
+        type: "tool.execute.before",
+        properties: { ...input, args: output.args },
+      });
+    },
+    "tool.execute.after": async (input) => {
+      flushPart();
+      emit(bin, session, { type: "tool.execute.after", properties: input });
     },
   };
 };

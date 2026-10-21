@@ -3,8 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -31,6 +33,15 @@ func TestAddChatEntryUpdatesNarrationOnlyForChatKinds(t *testing.T) {
 				t.Fatalf("narration = %q, want %q", pane.Narration, tc.want)
 			}
 		})
+	}
+}
+
+func TestAddChatEntryCapsNarrationToOneTrackerLine(t *testing.T) {
+	t.Parallel()
+	pane := state.PaneState{}
+	addChatEntryAt(&state.StateEvent{Ts: time.Unix(1, 0)}, &pane, "say", strings.Repeat("a", 250)+"\nmore", time.Time{})
+	if utf8.RuneCountInString(pane.Narration) != 180 || !strings.HasSuffix(pane.Narration, "...") || strings.ContainsAny(pane.Narration, "\r\n") {
+		t.Fatalf("narration length/newline = %d/%t, want 180/false", utf8.RuneCountInString(pane.Narration), strings.ContainsAny(pane.Narration, "\r\n"))
 	}
 }
 
@@ -118,7 +129,7 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
 				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
-					"tool": "bash", "callID": "oc-call", "input": map[string]interface{}{"command": "timeout 12 sleep 6"},
+					"tool": "bash", "callID": "oc-call", "args": map[string]interface{}{"command": "timeout 12 sleep 6"},
 				}))
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
@@ -327,6 +338,72 @@ func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
 	}
 }
 
+func TestHookCastSkipsAskUserToolDurationsInHarnessOrder(t *testing.T) {
+	base := time.Date(2026, 10, 20, 7, 33, 48, 529000000, time.UTC)
+	type event struct {
+		after  time.Duration
+		action string
+		data   map[string]interface{}
+	}
+	tests := []struct {
+		name    string
+		agent   string
+		session string
+		events  []event
+	}{
+		{
+			name:  "claude AskUserQuestion",
+			agent: "claude", session: "qm-cast-ask-claude",
+			events: []event{
+				{action: "tool_start", data: map[string]interface{}{"tool_name": "AskUserQuestion", "tool_use_id": "call-1"}},
+				{after: 90 * time.Second, action: "tool_end", data: map[string]interface{}{"tool_use_id": "call-1"}},
+			},
+		},
+		{
+			name:  "codex request_user_input",
+			agent: "codex", session: "qm-cast-ask-codex",
+			events: []event{
+				{action: "tool_start", data: map[string]interface{}{"tool_name": "functions.request_user_input", "tool_use_id": "call-1"}},
+				{after: 90 * time.Second, action: "tool_end", data: map[string]interface{}{"tool_use_id": "call-1"}},
+			},
+		},
+		{
+			name:  "pi ask_user event order",
+			agent: "pi", session: "qm-cast-ask-pi",
+			events: []event{
+				{action: "agent_start"},
+				{after: time.Second, action: "waiting_for_user", data: map[string]interface{}{"prompt": "Continue?"}},
+				{after: 2 * time.Second, action: "tool_execution_start", data: map[string]interface{}{"toolName": "ask_user", "toolCallId": "call-1"}},
+				{after: 92 * time.Second, action: "tool_execution_end", data: map[string]interface{}{"toolName": "ask_user", "toolCallId": "call-1"}},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			var durations []toolDurationCall
+			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
+				return nil
+			}
+			for _, event := range tc.events {
+				r.Now = func() time.Time { return base.Add(event.after) }
+				runHookWithStdin(r, tc.agent, event.action, tc.session, event.data)
+				if event.action == "tool_start" || event.action == "tool_execution_start" {
+					pane := rec.lastState.Panes["primary"]
+					if pane.State != "blocked" || len(pane.RunningTools) != 1 || !pane.RunningTools[0].WaitedForInput {
+						t.Fatalf("tool start pane = %+v, want blocked tool marked as user wait", pane)
+					}
+				}
+			}
+			if len(durations) != 0 {
+				t.Fatalf("recorded durations after ask_user = %+v, want none", durations)
+			}
+		})
+	}
+}
+
 func TestToolCommandKeyExtractionByHarness(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -353,7 +430,7 @@ func TestToolCommandKeyExtractionByHarness(t *testing.T) {
 	}
 }
 
-func TestOpenCodeToolCallIDParsesBothEventShapes(t *testing.T) {
+func TestOpenCodeToolCallIDUsesPluginShape(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name       string
@@ -361,7 +438,8 @@ func TestOpenCodeToolCallIDParsesBothEventShapes(t *testing.T) {
 		want       string
 	}{
 		{name: "direct", properties: map[string]interface{}{"callID": "call-1"}, want: "call-1"},
-		{name: "nested", properties: map[string]interface{}{"call": map[string]interface{}{"id": "call-2"}}, want: "call-2"},
+		{name: "wrong casing", properties: map[string]interface{}{"callId": "call-2"}, want: ""},
+		{name: "nested legacy shape", properties: map[string]interface{}{"call": map[string]interface{}{"id": "call-3"}}, want: ""},
 		{name: "missing", properties: map[string]interface{}{}, want: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -2130,6 +2130,59 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 	}
 }
 
+func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
+	env := seedServeFixture(t)
+	lastChatAt := env.now.Add(-time.Minute)
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.State = "working"
+		pane.Activity = "stale state activity"
+		pane.LastKind = "PreToolUse"
+		pane.LastEvent = env.now.Add(-time.Minute)
+		pane.WorkingSince = env.now.Add(-time.Minute)
+		pane.LastChatAt = lastChatAt
+		pane.Narration = "latest narration"
+		pane.RunningTools = []state.RunningTool{{Tool: "Bash", StartedAt: env.now.Add(-time.Minute)}}
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("seed stopped session state: %v", err)
+	}
+	assertStopped := func(path string, row SessionSnapshot) {
+		t.Helper()
+		if row.Status != "stopped" || row.State != "stopped" || row.Narration != "latest narration" {
+			t.Fatalf("%s stopped row state/narration = %#v", path, row)
+		}
+		if row.ElapsedMS != 0 || row.ElapsedSince != nil || row.LatestActivity != "" || row.LastKind != "" || row.LastChatAt != nil || row.Cast != nil {
+			t.Fatalf("%s stopped row retained live state: %#v", path, row)
+		}
+	}
+
+	full := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	full.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
+		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{ID: "qm-demo", Status: "stopped", State: "stopped"}}}, nil
+	}
+	got, err := full.TrackerForChange(Change{BroadTracker: true})
+	if err != nil {
+		t.Fatalf("full stopped snapshot: %v", err)
+	}
+	assertStopped("full refresh", got.Sessions[0])
+
+	incremental := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	incremental.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
+		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{ID: "qm-demo", Status: "active", PrimaryAgent: "codex"}}}, nil
+	}
+	if _, err := incremental.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial active snapshot: %v", err)
+	}
+	incremental.tmuxClient = tmux.NewClient(fakeTmuxRunner{})
+	got, err = incremental.TrackerForChange(Change{Topics: []string{topicTracker}, SessionIDs: []string{"qm-demo"}})
+	if err != nil {
+		t.Fatalf("incremental stopped snapshot: %v", err)
+	}
+	assertStopped("incremental update", got.Sessions[0])
+}
+
 func TestCastSnapshotUsesCommandThenToolMedianFallback(t *testing.T) {
 	t.Parallel()
 	result := sessionactivity.Result{

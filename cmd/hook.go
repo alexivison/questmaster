@@ -147,21 +147,8 @@ func toolCommandFromInput(input interface{}) string {
 		return ""
 	}
 	for _, key := range []string{"command", "cmd"} {
-		switch value := args[key].(type) {
-		case string:
+		if value, ok := args[key].(string); ok {
 			return value
-		case []string:
-			return strings.Join(value, " ")
-		case []interface{}:
-			parts := make([]string, 0, len(value))
-			for _, part := range value {
-				text, ok := part.(string)
-				if !ok {
-					return ""
-				}
-				parts = append(parts, text)
-			}
-			return strings.Join(parts, " ")
 		}
 	}
 	return ""
@@ -785,7 +772,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		if setState != "" {
 			pane.State = setState
 		}
-		if prev.State != "blocked" && pane.State == "blocked" {
+		if pane.State == "blocked" {
 			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
@@ -945,7 +932,7 @@ func addChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text s
 	}
 	pane.LastChatAt = event.Ts
 	if kind == "say" || kind == "message" {
-		pane.Narration = workerfeed.CapText(text)
+		pane.Narration = capNarration(text)
 	}
 	if event.Fields == nil {
 		event.Fields = make(map[string]interface{})
@@ -959,6 +946,14 @@ func addChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text s
 		return
 	}
 	event.Fields["chat_entries"] = []interface{}{entry}
+}
+
+func capNarration(text string) string {
+	line := strings.Join(strings.Fields(text), " ")
+	if runes := []rune(line); len(runes) > 180 {
+		return string(runes[:177]) + "..."
+	}
+	return line
 }
 
 const (
@@ -1782,7 +1777,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		if setState != "" {
 			pane.State = setState
 		}
-		if prev.State != "blocked" && pane.State == "blocked" {
+		if pane.State == "blocked" {
 			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
@@ -2481,7 +2476,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		if setState != "" {
 			pane.State = setState
 		}
-		if prev.State != "blocked" && pane.State == "blocked" {
+		if pane.State == "blocked" {
 			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
