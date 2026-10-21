@@ -2,18 +2,35 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Positions measured from user-quests-modal.svg (900 x 780). Baselines are where the design's glyph outlines sit.
+/// Positions measured from user-quests-modal-v2.svg and -v2-nobody.svg (900 x 780). Baselines are where the
+/// design's glyph outlines sit.
 private enum QuestLogMetrics {
     static let sheetSize = CGSize(width: 900, height: 780)
-    /// List column: rows span x 30-387 on a 26pt pitch with the text baseline 17 down and 10 in;
-    /// a section title sits 21 below the previous row (or the list top) and 14 above its first row.
-    static let listOrigin = CGPoint(x: 30, y: 30)
+    /// Filter field: 357 x 40 at (30, 40), window fill, 1pt line border, radius 5. "/" 12 in; a token chip
+    /// (16 high, radius 4.5, at most 117 wide) and the text field follow, all centred on the field.
+    static let filterOrigin = CGPoint(x: 30, y: 40)
+    static let filterHeight: CGFloat = 40
+    static let filterCornerRadius: CGFloat = 5
+    static let filterInset: CGFloat = 12
+    static let filterSpacing: CGFloat = 10
+    static let chipHeight: CGFloat = 16
+    static let chipMaxWidth: CGFloat = 117
+    static let chipCornerRadius: CGFloat = 4.5
+    static let chipTextInset: CGFloat = 6
+    static let suggestionsGap: CGFloat = 4
+    /// NSTextField sets its text lower and further left than the design's placeholder, measured against it.
+    static let filterTextNudge = CGSize(width: 1.5, height: -2)
+    /// List column, under the field: x 30-387. A section title's baseline sits 21 below the previous box
+    /// (the field or the last row) and 9 above its first row; rows are 26 high, 5 apart (a 31pt pitch),
+    /// with the text baseline 17 down and 10 in.
+    static let listOrigin = CGPoint(x: 30, y: 80)
     static let listWidth: CGFloat = 357
     static let rowHeight: CGFloat = 26
+    static let rowSpacing: CGFloat = 5
     static let rowBaseline: CGFloat = 17
     static let rowTextInset: CGFloat = 10
     static let rowCornerRadius: CGFloat = 3
-    static let sectionHeight: CGFloat = 35
+    static let sectionHeight: CGFloat = 30
     static let sectionBaseline: CGFloat = 21
     static let markSize: CGFloat = 5
     /// Page: a 473 x 658 base with the parchment clipped to its top 656.
@@ -24,15 +41,16 @@ private enum QuestLogMetrics {
     static let parchmentEdgeWidth: CGFloat = 3
     static let parchmentEdgeOpacity = 0.35
     static let parchmentOpacity = 0.7
-    /// Page ink, page-local: the title's baseline 34 down; the description 35 below it on a 15pt
-    /// pitch, 20 in on each side; the rule 24 below the description's last baseline and the
-    /// footer's baseline 32 below the rule.
+    /// Page ink, page-local: the titled page's title baseline 34 down, the 12pt description 36 below it on
+    /// a 16pt pitch, 20 in on each side; a plain page's line sits on a baseline 32 down. Then the rule 24
+    /// below the last baseline and the footer's baseline 32 below the rule.
     static let inkInset: CGFloat = 20
     static let bodyWidth = pageSize.width - 2 * inkInset
     static let titleWidth: CGFloat = 306
     static let titleBaseline: CGFloat = 34
-    static let bodyGap: CGFloat = 35
-    static let bodyLinePitch: CGFloat = 15
+    static let plainBaseline: CGFloat = 32
+    static let bodyGap: CGFloat = 36
+    static let bodyLinePitch: CGFloat = 16
     static let ruleGap: CGFloat = 24
     static let footerGap: CGFloat = 32
     static let inkBottomInset: CGFloat = 24
@@ -55,26 +73,35 @@ private enum QuestLogMetrics {
     static let buttonSpacing: CGFloat = 10
     static let buttonTop: CGFloat = 728
     static let pageTransition = 0.12
+    /// Opening: the paper unrolls top to bottom as the fade-in ends, and the ink follows it down.
+    static let unrollDelay = 0.12 * ModalFade.slowdown
+    static let unrollDuration = 0.25 * ModalFade.slowdown
+    static let inkInDelay = 0.25 * ModalFade.slowdown
+    static let inkInDuration = 0.18 * ModalFade.slowdown
 }
 
 struct QuestLogView: View {
     static let size = QuestLogMetrics.sheetSize
 
     let store: QuestLogStore
-    /// Offscreen renders can't hover; this starts a row hovered so the preview shows that state.
-    var previewHoveredID: String?
+    let filter: QuestLogFilter
+    /// Offscreen renders can't focus the field; this shows its suggestions as if it were focused.
+    var previewShowsSuggestions = false
     var onCommand: (QuestLogCommand) -> Void
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            QuestLogList(store: store, hoveredID: previewHoveredID)
+            QuestLogList(store: store)
                 .frame(width: QuestLogMetrics.listWidth, height: QuestLogMetrics.pageOrigin.y + QuestLogMetrics.pageSize.height - QuestLogMetrics.listOrigin.y, alignment: .top)
                 .offset(x: QuestLogMetrics.listOrigin.x, y: QuestLogMetrics.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, isFiltering: filter.isActive)
                 .offset(x: QuestLogMetrics.pageOrigin.x, y: QuestLogMetrics.pageOrigin.y)
             buttons
                 .frame(width: QuestLogMetrics.sheetSize.width)
                 .offset(y: QuestLogMetrics.buttonTop)
+            QuestLogFilterField(filter: filter, previewShowsSuggestions: previewShowsSuggestions)
+                .frame(width: QuestLogMetrics.listWidth)
+                .offset(x: QuestLogMetrics.filterOrigin.x, y: QuestLogMetrics.filterOrigin.y)
         }
         .frame(width: QuestLogMetrics.sheetSize.width, height: QuestLogMetrics.sheetSize.height, alignment: .topLeading)
         .scoopedPanel()
@@ -96,10 +123,79 @@ struct QuestLogView: View {
 /// The Quest Log over the window, laid out like every other in-window modal.
 struct QuestLogOverlayView: View {
     let store: QuestLogStore
+    let filter: QuestLogFilter
     var onCommand: (QuestLogCommand) -> Void
 
     var body: some View {
-        ModalLayer { QuestLogView(store: store, onCommand: onCommand) }
+        // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
+        ModalLayer { QuestLogView(store: store, filter: filter, onCommand: onCommand).id(store.openGeneration) }
+            .modalFade(closing: !store.isOpen)
+    }
+}
+
+// MARK: - Filter
+
+/// The field over the list: "/", the `@project:` token chips, then the text field. Suggestions open under it
+/// while it has focus.
+private struct QuestLogFilterField: View {
+    let filter: QuestLogFilter
+    var previewShowsSuggestions: Bool
+    @State private var focused = false
+
+    var body: some View {
+        HStack(spacing: QuestLogMetrics.filterSpacing) {
+            Text("/")
+                .font(AppFonts.questLogBody.swiftUI)
+                .foregroundStyle(AppPalette.questLogFilterHint.swiftUI)
+            ForEach(filter.tokens) { token in
+                chip(token)
+            }
+            CommandTextField(
+                text: Binding(get: { filter.query }, set: { filter.setQuery($0) }),
+                placeholder: "@project: or text",
+                focusNonce: filter.focusNonce,
+                onCommand: { filter.handleCommand(keyCode: $0) },
+                onEndEditing: {},
+                onFocusChanged: { focused = $0 },
+                font: AppFonts.monoSmall,
+                textColor: AppPalette.questLogRow,
+                placeholderColor: AppPalette.questLogFilterHint
+            )
+            .padding(.leading, QuestLogMetrics.filterTextNudge.width)
+            .offset(y: QuestLogMetrics.filterTextNudge.height)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, QuestLogMetrics.filterInset)
+        .frame(height: QuestLogMetrics.filterHeight)
+        .background(RoundedRectangle(cornerRadius: QuestLogMetrics.filterCornerRadius).fill(AppPalette.window.swiftUI))
+        .overlay(RoundedRectangle(cornerRadius: QuestLogMetrics.filterCornerRadius).strokeBorder(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
+        .overlay(alignment: .topLeading) {
+            if (focused || previewShowsSuggestions) && !filter.suggestions.isEmpty {
+                FilterSuggestionList(
+                    suggestions: filter.suggestions,
+                    selectedID: filter.selectedSuggestionID,
+                    onSelect: { filter.acceptSuggestion($0) }
+                )
+                .offset(y: QuestLogMetrics.filterHeight + QuestLogMetrics.suggestionsGap)
+            }
+        }
+        .accessibilityLabel("Filter quests")
+    }
+
+    /// A token, "@project questmaster": click to remove it, as Backspace in an empty field does.
+    private func chip(_ token: ArtifactFilterToken) -> some View {
+        Text("\(token.kind.prefix) \(token.title)")
+            .font(AppFonts.monoSmall.swiftUI)
+            .foregroundStyle(AppPalette.muted.swiftUI)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, QuestLogMetrics.chipTextInset)
+            .frame(maxWidth: QuestLogMetrics.chipMaxWidth, minHeight: QuestLogMetrics.chipHeight, maxHeight: QuestLogMetrics.chipHeight, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: QuestLogMetrics.chipCornerRadius).fill(AppPalette.item.swiftUI))
+            .overlay(RoundedRectangle(cornerRadius: QuestLogMetrics.chipCornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
+            .fixedSize()
+            .onTapGesture { filter.removeToken(token) }
+            .help("Remove \(token.kind.rawValue) filter")
     }
 }
 
@@ -107,22 +203,18 @@ struct QuestLogOverlayView: View {
 
 private struct QuestLogList: View {
     let store: QuestLogStore
-    @State private var hoveredID: String?
-
-    init(store: QuestLogStore, hoveredID: String?) {
-        self.store = store
-        _hoveredID = State(initialValue: hoveredID)
-    }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(store.sections) { section in
-                        BaselineText(section.title, font: AppFonts.monoSmall, color: AppPalette.questLogSectionTitle, baseline: QuestLogMetrics.sectionBaseline)
+                        BaselineText(section.title, font: AppFonts.monoSmall, color: AppPalette.accent, baseline: QuestLogMetrics.sectionBaseline)
                             .frame(height: QuestLogMetrics.sectionHeight, alignment: .top)
-                        ForEach(section.quests) { quest in
-                            row(quest).id(quest.id)
+                        VStack(alignment: .leading, spacing: QuestLogMetrics.rowSpacing) {
+                            ForEach(section.quests) { quest in
+                                row(quest).id(quest.id)
+                            }
                         }
                     }
                 }
@@ -140,27 +232,19 @@ private struct QuestLogList: View {
 
     private func row(_ quest: QuestItem) -> some View {
         let selected = quest.id == store.selectedID
-        let hovered = quest.id == hoveredID
-        let color = selected ? AppPalette.questLogRowSelected : hovered ? AppPalette.accent : AppPalette.questLogRow
         return BaselineText(
             QuestLogPage(quest: quest, project: "").title,
             font: selected ? AppFonts.questLogRowSelected : AppFonts.questLogRow,
-            color: color,
+            color: selected ? AppPalette.questLogRowSelected : AppPalette.questLogRow,
             baseline: QuestLogMetrics.rowBaseline
         )
         .lineLimit(1)
         .padding(.leading, QuestLogMetrics.rowTextInset)
         .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.rowHeight, maxHeight: QuestLogMetrics.rowHeight, alignment: .topLeading)
         .background {
-            if hovered {
-                UnevenRoundedRectangle(topLeadingRadius: QuestLogMetrics.rowCornerRadius, bottomLeadingRadius: QuestLogMetrics.rowCornerRadius)
-                    .fill(AppPalette.item.swiftUI)
-            }
-        }
-        .overlay {
             if selected {
                 RoundedRectangle(cornerRadius: QuestLogMetrics.rowCornerRadius)
-                    .strokeBorder(AppPalette.line.swiftUI, lineWidth: Token.Size.divider)
+                    .fill(AppPalette.item.swiftUI)
             }
         }
         .overlay(alignment: .leading) {
@@ -172,7 +256,6 @@ private struct QuestLogList: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { hoveredID = $0 ? quest.id : (hoveredID == quest.id ? nil : hoveredID) }
         .onTapGesture { store.select(quest.id) }
     }
 }
@@ -182,20 +265,48 @@ private struct QuestLogList: View {
 private struct QuestLogPageView: View {
     let page: QuestLogPage?
     let pageID: String?
+    let isFiltering: Bool
+    @State private var unrolled = false
+    @State private var inked = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        ZStack(alignment: .top) {
+            paper
+                .modifier(UnrollMask(progress: unrolled ? 1 : 0))
+            ink
+                .frame(height: QuestLogMetrics.parchmentHeight)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .animation(.easeOut(duration: QuestLogMetrics.pageTransition), value: pageID)
+                .opacity(inked ? 1 : 0)
+        }
+        .frame(width: QuestLogMetrics.pageSize.width, height: QuestLogMetrics.pageSize.height)
+        .onAppear(perform: unroll)
+    }
+
+    private var paper: some View {
         ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: QuestLogMetrics.pageCornerRadius)
                 .fill(AppPalette.item.swiftUI)
             QuestLogParchment()
                 .frame(height: QuestLogMetrics.parchmentHeight)
                 .frame(maxHeight: .infinity, alignment: .top)
-            ink
-                .frame(height: QuestLogMetrics.parchmentHeight)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .animation(.easeOut(duration: QuestLogMetrics.pageTransition), value: pageID)
         }
-        .frame(width: QuestLogMetrics.pageSize.width, height: QuestLogMetrics.pageSize.height)
+    }
+
+    /// Plays once per opening (the view is rebuilt for each). Reduce Motion skips it: the paper is just there.
+    private func unroll() {
+        guard !reduceMotion else {
+            unrolled = true
+            inked = true
+            return
+        }
+        withAnimation(.easeOut(duration: QuestLogMetrics.unrollDuration).delay(QuestLogMetrics.unrollDelay)) {
+            unrolled = true
+        }
+        withAnimation(.easeOut(duration: QuestLogMetrics.inkInDuration).delay(QuestLogMetrics.inkInDelay)) {
+            inked = true
+        }
     }
 
     @ViewBuilder private var ink: some View {
@@ -208,10 +319,27 @@ private struct QuestLogPageView: View {
             .id(pageID)
             .transition(.opacity)
         } else {
-            Text("No quests yet. ⌘T posts one.")
+            Text(isFiltering ? "No quest matches the filter." : "No quests yet. ⌘T posts one.")
                 .font(AppFonts.monoSmall.swiftUI)
                 .foregroundStyle(AppPalette.panel.swiftUI)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+/// The unroll: the paper shows from the top down to `progress` of its height. SwiftUI animates the one
+/// value and only this mask's scale changes per frame; the parchment Canvas under it never redraws.
+private struct UnrollMask: ViewModifier, Animatable {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.mask(alignment: .top) {
+            Rectangle().scaleEffect(x: 1, y: progress, anchor: .top)
         }
     }
 }
@@ -220,21 +348,36 @@ private struct QuestLogInk: View {
     let page: QuestLogPage
 
     var body: some View {
-        BaselineColumn(gaps: [QuestLogMetrics.titleBaseline, QuestLogMetrics.bodyGap, QuestLogMetrics.ruleGap, QuestLogMetrics.footerGap]) {
-            title
-            Text(QuestLogPage.wrapped(page.body, columns: columns(QuestLogMetrics.bodyWidth, AppFonts.monoSmall)))
-                .font(AppFonts.monoSmall.swiftUI)
-                .lineSpacing(QuestLogMetrics.bodyLinePitch - naturalLineHeight(AppFonts.monoSmall))
-                .foregroundStyle(AppPalette.panel.swiftUI)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: QuestLogMetrics.bodyWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, QuestLogMetrics.inkInset)
-            rule
-            footer
-                .padding(.horizontal, QuestLogMetrics.inkInset)
+        Group {
+            switch page.layout {
+            case .titled:
+                BaselineColumn(gaps: [QuestLogMetrics.titleBaseline, QuestLogMetrics.bodyGap, QuestLogMetrics.ruleGap, QuestLogMetrics.footerGap]) {
+                    title
+                    paragraph(page.body)
+                    rule
+                    footer
+                }
+            case .plain:
+                BaselineColumn(gaps: [QuestLogMetrics.plainBaseline, QuestLogMetrics.ruleGap, QuestLogMetrics.footerGap]) {
+                    paragraph(page.title)
+                    rule
+                    footer
+                }
+            }
         }
         .padding(.bottom, QuestLogMetrics.inkBottomInset)
+    }
+
+    /// Plain page text: the description, or a title-only quest's one line.
+    private func paragraph(_ text: String) -> some View {
+        Text(QuestLogPage.wrapped(text, columns: columns(QuestLogMetrics.bodyWidth, AppFonts.questLogBody)))
+            .font(AppFonts.questLogBody.swiftUI)
+            .lineSpacing(QuestLogMetrics.bodyLinePitch - naturalLineHeight(AppFonts.questLogBody))
+            .foregroundStyle(AppPalette.panel.swiftUI)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: QuestLogMetrics.bodyWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, QuestLogMetrics.inkInset)
     }
 
     /// The title, centred, with the vines on its first baseline.
@@ -274,6 +417,7 @@ private struct QuestLogInk: View {
         .font(AppFonts.monoSmall.swiftUI)
         .foregroundStyle(AppPalette.panel.swiftUI)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, QuestLogMetrics.inkInset)
     }
 }
 
@@ -286,6 +430,9 @@ private struct QuestLogParchment: View {
 
     var body: some View {
         Canvas { context, size in
+            #if DEBUG
+            QuestLogDebug.parchmentDraws += 1
+            #endif
             context.clip(to: Path(CGRect(origin: .zero, size: size)))
             context.fill(Self.outline, with: .color(AppPalette.parchment.swiftUI))
             context.clip(to: Self.outline)
@@ -411,11 +558,18 @@ private func columns(_ width: CGFloat, _ font: NSFont) -> Int {
     Int(width / ("M" as NSString).size(withAttributes: [.font: font]).width)
 }
 
-/// The line height SwiftUI sets a font on: measured at 14.0 for the 11pt mono, its ascent and descent
-/// each rounded down to whole points.
+/// The line height SwiftUI sets a font on: its ascent and descent each rounded to whole points (measured
+/// 14 for the 11pt mono, 16 for the 12pt).
 private func naturalLineHeight(_ font: NSFont) -> CGFloat {
-    font.ascender.rounded(.down) + (-font.descender).rounded(.down) + font.leading
+    font.ascender.rounded() + (-font.descender).rounded() + font.leading
 }
+
+#if DEBUG
+/// Self-test instrumentation: how often the parchment Canvas has drawn, to prove the unroll doesn't redraw it.
+enum QuestLogDebug {
+    nonisolated(unsafe) static var parchmentDraws = 0
+}
+#endif
 
 // MARK: - AppKit host
 
@@ -425,11 +579,14 @@ private func naturalLineHeight(_ font: NSFont) -> CGFloat {
 final class QuestLogOverlayHost: NSHostingView<QuestLogOverlayView> {
     var onCommand: ((QuestLogCommand) -> Void)?
     private var keyMonitor: Any?
+    private let hiding = FadeOutHiding()
 
-    init(store: QuestLogStore) {
+    init(store: QuestLogStore, filter: QuestLogFilter) {
         var forward: ((QuestLogCommand) -> Void)?
-        super.init(rootView: QuestLogOverlayView(store: store, onCommand: { forward?($0) }))
+        super.init(rootView: QuestLogOverlayView(store: store, filter: filter, onCommand: { forward?($0) }))
         forward = { [weak self] in self?.onCommand?($0) }
+        // Sized only by the window edges it's pinned to, never by the log's own size (see InWindowModalHost).
+        sizingOptions = []
         isHidden = true
     }
 
@@ -453,8 +610,13 @@ final class QuestLogOverlayHost: NSHostingView<QuestLogOverlayView> {
         true
     }
 
+    /// Shows the host at once; on close the log fades out first and the host hides once the fade ends.
     func setVisible(_ visible: Bool) {
-        isHidden = !visible
+        if visible {
+            hiding.show(self)
+        } else {
+            hiding.hideAfterFadeOut(self)
+        }
         if visible, keyMonitor == nil {
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 self?.handle(event) == true ? nil : event
@@ -467,10 +629,15 @@ final class QuestLogOverlayHost: NSHostingView<QuestLogOverlayView> {
 
     private func handle(_ event: NSEvent) -> Bool {
         // Edit, Abandon's confirmation and New Session open as in-window modals above the log; they take the keys.
-        guard !isHidden, let window, event.window === window, window.attachedSheet == nil, InWindowModalStack.shared.isEmpty else {
+        guard hiding.isShowing, let window, event.window === window, window.attachedSheet == nil, InWindowModalStack.shared.isEmpty else {
             return false
         }
         if event.modifierFlags.contains(.command) {
+            return false
+        }
+        // While the filter is being edited its field editor takes the keys (its arrows, Return and Esc come
+        // back through `QuestLogFilter.handleCommand`).
+        if let editor = window.firstResponder as? NSTextView, editor.isDescendant(of: self) {
             return false
         }
         if let command = QuestLogCommand.from(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode) {

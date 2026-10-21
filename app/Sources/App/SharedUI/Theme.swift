@@ -70,8 +70,8 @@ enum AppPalette {
     /// The black the tracker plates and the selected-session panel shade with, always at a partial opacity.
     static let shadow = NSColor.black
 
-    /// The Quest Log design's list text: section titles, rows, and the selected row.
-    static let questLogSectionTitle = NSColor(hex: 0x9da7b1)
+    /// The Quest Log design's filter "/" and placeholder, its rows, and the selected row. Section titles are `accent`.
+    static let questLogFilterHint = NSColor(hex: 0x9da7b1)
     static let questLogRow = NSColor(hex: 0xd8dee9)
     static let questLogRowSelected = NSColor(hex: 0xe6edf3)
     /// "Send forth" is gold; "Abandon" is an angular red from deep to bright.
@@ -262,9 +262,10 @@ enum AppFonts {
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 
-    /// The Quest Log design's sizes: 12pt list rows (bold when selected) and buttons, a 14pt bold page title.
-    /// Section titles, the description and the footer use `monoSmall`.
+    /// The Quest Log design's sizes: 12pt list rows (bold when selected), page text and buttons, a 14pt bold
+    /// page title. The filter, section titles and the footer use `monoSmall`.
     static let questLogRow = monospaced(size: 12)
+    static let questLogBody = monospaced(size: 12)
     static let questLogRowSelected = monospaced(size: 12, weight: .bold)
     static let questLogTitle = monospaced(size: 14, weight: .bold)
     static let questLogButton = monospaced(size: 12, weight: .bold)

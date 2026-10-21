@@ -79,6 +79,9 @@ struct CommandTextField: NSViewRepresentable {
     var onCommand: (UInt16) -> Bool
     var onEndEditing: () -> Void
     var onFocusChanged: (Bool) -> Void
+    var font: NSFont = AppFonts.body
+    var textColor: NSColor = AppPalette.text
+    var placeholderColor: NSColor = AppPalette.dim
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -95,8 +98,8 @@ struct CommandTextField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = AppFonts.body
-        field.textColor = AppPalette.text
+        field.font = font
+        field.textColor = textColor
         field.cell?.usesSingleLineMode = true
         field.onCommand = onCommand
         context.coordinator.field = field
@@ -112,8 +115,8 @@ struct CommandTextField: NSViewRepresentable {
         field.placeholderAttributedString = NSAttributedString(
             string: placeholder,
             attributes: [
-                .foregroundColor: AppPalette.dim,
-                .font: AppFonts.body,
+                .foregroundColor: placeholderColor,
+                .font: font,
             ]
         )
         field.setEditorText(text)

@@ -18,13 +18,25 @@ public enum QuestDisplayState {
     public static func sections(
         quests: [QuestItem],
         repos: [TrackerRepo],
-        projects: [TrackerProject] = []
+        projects: [TrackerProject] = [],
+        query: String = "",
+        projectID: String? = nil,
+        projectIDs: Set<String> = []
     ) -> [QuestSection] {
-        guard !quests.isEmpty else {
+        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var cleanProjectIDs = Set(projectIDs.compactMap(clean))
+        if let cleanProjectID = clean(projectID) {
+            cleanProjectIDs.insert(cleanProjectID)
+        }
+        let visible = quests.filter { quest in
+            (cleanProjectIDs.isEmpty || cleanProjectIDs.contains(quest.projectID))
+                && (cleanQuery.isEmpty || quest.content.localizedCaseInsensitiveContains(cleanQuery))
+        }
+        guard !visible.isEmpty else {
             return []
         }
 
-        let grouped = Dictionary(grouping: quests) { clean($0.projectID) ?? "" }
+        let grouped = Dictionary(grouping: visible) { clean($0.projectID) ?? "" }
         let repoByID = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
         let projectByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
         var out: [QuestSection] = []

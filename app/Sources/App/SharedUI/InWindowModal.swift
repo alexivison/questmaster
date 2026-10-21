@@ -14,11 +14,15 @@ final class InWindowModalStack: ObservableObject {
     struct Entry: Identifiable {
         let id: AnyHashable
         let view: AnyView
+        /// Dismissed and fading out: still drawn, no longer interactive, removed when the fade ends.
+        var closing = false
     }
 
+    /// Every drawn modal, the closing ones included.
     @Published private(set) var entries: [Entry] = []
 
-    var isEmpty: Bool { entries.isEmpty }
+    /// No modal is open (closing ones don't count): the Quest Log under them can take the keys again.
+    var isEmpty: Bool { !entries.contains { !$0.closing } }
 
     func present(id: AnyHashable, _ view: AnyView) {
         entries.removeAll { $0.id == id }
@@ -26,7 +30,13 @@ final class InWindowModalStack: ObservableObject {
     }
 
     func dismiss(id: AnyHashable) {
-        entries.removeAll { $0.id == id }
+        guard let index = entries.firstIndex(where: { $0.id == id && !$0.closing }) else {
+            return
+        }
+        entries[index].closing = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + ModalFade.fadeOut) { [weak self] in
+            self?.entries.removeAll { $0.id == id && $0.closing }
+        }
     }
 }
 
@@ -124,6 +134,33 @@ private struct ModalSizeKey: PreferenceKey {
     }
 }
 
+/// How modals come and go: backdrop and modal fade together, no scale. A closing modal stays mounted and
+/// stops taking clicks until its fade-out ends, so a second click can't act twice.
+enum ModalFade {
+    static let fadeIn = 0.18 * slowdown
+    static let fadeOut = 0.14 * slowdown
+
+    /// Stretches the modal animations: 1 in the app. DEBUG renders set QUESTMASTER_ANIMATION_SLOWDOWN so an
+    /// animation recording can sample each frame (its GIF then plays the frames back at real speed).
+    static let slowdown: Double = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["QUESTMASTER_ANIMATION_SLOWDOWN"].flatMap(Double.init) ?? 1
+        #else
+        return 1
+        #endif
+    }()
+}
+
+extension View {
+    /// Fades in on insertion; fades out while `closing`, ignoring clicks.
+    func modalFade(closing: Bool) -> some View {
+        opacity(closing ? 0 : 1)
+            .allowsHitTesting(!closing)
+            .animation(.easeOut(duration: closing ? ModalFade.fadeOut : ModalFade.fadeIn), value: closing)
+            .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: ModalFade.fadeIn)), removal: .identity))
+    }
+}
+
 struct InWindowModalStackView: View {
     @ObservedObject var stack: InWindowModalStack
 
@@ -131,6 +168,7 @@ struct InWindowModalStackView: View {
         ZStack {
             ForEach(stack.entries) { entry in
                 ModalLayer { entry.view }
+                    .modalFade(closing: entry.closing)
             }
         }
     }
@@ -143,10 +181,15 @@ struct InWindowModalStackView: View {
 final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
     var onEmpty: (() -> Void)?
     private var subscription: AnyCancellable?
+    private var hasOpenModal = false
 
     init(stack: InWindowModalStack) {
         super.init(rootView: InWindowModalStackView(stack: stack))
-        isHidden = stack.isEmpty
+        // Sized only by the edges it's pinned to: by default a hosting view publishes its content's size as
+        // constraints, which would drag the window toward the modal's size.
+        sizingOptions = []
+        isHidden = stack.entries.isEmpty
+        hasOpenModal = !stack.isEmpty
         subscription = stack.$entries.sink { [weak self] entries in
             self?.entriesWillChange(to: entries)
         }
@@ -166,13 +209,39 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// Visible while anything is drawn, closing modals included; focus moves in when the first modal opens and
+    /// back out as soon as the last one starts closing.
     private func entriesWillChange(to entries: [InWindowModalStack.Entry]) {
-        let wasHidden = isHidden
         isHidden = entries.isEmpty
-        if wasHidden, !entries.isEmpty {
+        let open = entries.contains { !$0.closing }
+        if open, !hasOpenModal {
             window?.makeFirstResponder(self)
-        } else if !wasHidden, entries.isEmpty {
+        } else if !open, hasOpenModal {
             onEmpty?()
         }
+        hasOpenModal = open
+    }
+}
+
+/// Shows a modal host at once and hides it only once its modal's fade-out has finished, so the fade plays
+/// and the host doesn't keep taking clicks afterwards. Showing again cancels a pending hide.
+@MainActor
+final class FadeOutHiding {
+    private(set) var isShowing = false
+    private var pendingHide: DispatchWorkItem?
+
+    func show(_ view: NSView) {
+        pendingHide?.cancel()
+        pendingHide = nil
+        isShowing = true
+        view.isHidden = false
+    }
+
+    func hideAfterFadeOut(_ view: NSView) {
+        isShowing = false
+        pendingHide?.cancel()
+        let hide = DispatchWorkItem { [weak view] in view?.isHidden = true }
+        pendingHide = hide
+        DispatchQueue.main.asyncAfter(deadline: .now() + ModalFade.fadeOut, execute: hide)
     }
 }

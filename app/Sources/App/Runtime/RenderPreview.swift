@@ -86,10 +86,18 @@ enum RenderPreview {
         render(artifactListView(showFilter: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter.png")
         render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
-        render(QuestLogView(store: questLogStore(), previewHoveredID: "dotfiles-1", onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
-        render(QuestLogView(store: questLogStore(longBody: true), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
-        render(QuestLogView(store: questLogStore(empty: true), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
+        render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-nobody.png")
+        render(QuestLogView(store: questLogStore(filteredTo: "questmaster"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filtered.png")
+        render(
+            QuestLogView(store: questLogStore(), filter: questLogFilter(token: false, typing: "@project:"), previewShowsSuggestions: true, onCommand: { _ in }),
+            size: QuestLogView.size,
+            to: "\(outputDir)/quest-log-suggestions.png"
+        )
+        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
+        render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
         renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
+        recordQuestLogAnimations(to: outputDir)
         render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newSessionSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-sheet.png")
         let window = CGSize(width: 1400, height: 900)
@@ -907,8 +915,8 @@ enum RenderPreview {
         return ArtifactReference(kind: "html", path: url.path, label: "Preview artifact", addedAt: "")
     }
 
-    /// The Quest Log design's own quests (user-quests-modal.svg), newest first within each project.
-    private static func questLogStore(longBody: Bool = false, empty: Bool = false) -> QuestLogStore {
+    /// The Quest Log design's own quests (user-quests-modal-v2.svg), newest first within each project.
+    private static func questLogQuests(longBody: Bool = false) -> [QuestItem] {
         let projects = [
             ("dotfiles", ["Add more meta data to shell sessions", "Restore terminal settings on login", "Share editor configs across devices", "Remove unused environment variables"]),
             ("questmaster", ["Track milestones for active quests", "Sort adventures by upcoming deadline", "Assign party roles to teammates", "Archive completed quest campaigns"]),
@@ -924,7 +932,7 @@ enum RenderPreview {
         if longBody {
             body += "\n\n" + (1...40).map { "- Step \($0): keep going until the page has to scroll" }.joined(separator: "\n")
         }
-        let quests = projects.flatMap { project, titles in
+        return projects.flatMap { project, titles in
             titles.enumerated().map { index, title in
                 QuestItem(
                     id: "\(project)-\(index)",
@@ -935,16 +943,43 @@ enum RenderPreview {
                 )
             }
         }
+    }
+
+    /// `filteredTo` applies a project token to the list as the app would; the design SVGs draw a token chip
+    /// over the full list, so the design renders show the chip without applying it.
+    @MainActor
+    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, filteredTo projectID: String? = nil) -> QuestLogStore {
         let store = QuestLogStore()
-        store.sync(quests: empty ? [] : quests, repos: [])
+        store.sync(quests: empty ? [] : questLogQuests(longBody: longBody), repos: [], projectIDs: Set([projectID].compactMap { $0 }))
+        if let id {
+            store.select(id)
+        }
         return store
+    }
+
+    /// A filter holding a `@project questmaster` token, as the design draws it; `typing` leaves an unfinished
+    /// query in the field so its suggestions open.
+    @MainActor
+    private static func questLogFilter(token: Bool = true, typing: String? = nil) -> QuestLogFilter {
+        let filter = QuestLogFilter()
+        filter.update(tracker: TrackerSnapshot(repos: [], quests: questLogQuests()))
+        if token {
+            filter.setQuery("@project:questm")
+            filter.acceptSuggestion()
+        }
+        if let typing {
+            filter.setQuery(typing)
+        }
+        return filter
     }
 
     @MainActor
     private static func questLogWindowView() -> NSView {
         let size = CGSize(width: 1400, height: 900)
         let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
-        let overlay = QuestLogOverlayHost(store: questLogStore())
+        let store = questLogStore()
+        store.open()
+        let overlay = QuestLogOverlayHost(store: store, filter: questLogFilter(token: false))
         (shell as? ShellRootContainerView)?.addOverlay(overlay)
         overlay.setVisible(true)
         return shell
@@ -1021,6 +1056,87 @@ enum RenderPreview {
         return NewSessionSheetView(presentation: presenter.presentation!, dismiss: {})
     }
 
+    /// Records a real animation: lays `root` out in an off-screen window, runs `start`, then snapshots the window
+    /// every 1/`fps` s for `duration` s into `<dir>/<name>-frames/NNN.png`. Only runs when RENDER_ONLY names it.
+    @MainActor
+    private static func recordAnimation(_ name: String, root: NSView, size: CGSize, crop: CGRect, duration: Double, fps: Double = 30, to dir: String, start: () -> Void) {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RENDER_ONLY"]?.split(separator: ",").contains(Substring(name)) == true else {
+            return
+        }
+        let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
+        warmUpFirstWindow()
+        root.frame = NSRect(origin: .zero, size: size)
+        let window = ScaledRenderWindow(backingScale: scale, contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = root
+        window.orderFrontRegardless()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        let frames = "\(dir)/\(name)-frames"
+        try? FileManager.default.createDirectory(atPath: frames, withIntermediateDirectories: true)
+        start()
+        let began = Date()
+        var index = 0
+        // The presentation layer tree, not `cacheDisplay`: animations Core Animation runs itself (the unroll's mask
+        // scale) only show their in-between values there.
+        // Whole-view snapshots (a sub-rect snapshot draws the in-window modal host out of place), cropped to `crop`
+        // (points from the top left) as they're saved.
+        var captured: [NSBitmapImageRep] = []
+        while Date().timeIntervalSince(began) < duration {
+            RunLoop.current.run(until: began.addingTimeInterval(Double(index) / fps))
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+                break
+            }
+            bitmap.size = size
+            root.cacheDisplay(in: root.bounds, to: bitmap)
+            captured.append(bitmap)
+            index += 1
+        }
+        let pixelCrop = CGRect(x: crop.minX * scale, y: crop.minY * scale, width: crop.width * scale, height: crop.height * scale)
+        for (frame, bitmap) in captured.enumerated() {
+            guard let cropped = bitmap.cgImage?.cropping(to: pixelCrop) else {
+                continue
+            }
+            try? NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: String(format: "%@/%03d.png", frames, frame)))
+        }
+        window.orderOut(nil)
+        print("RenderPreview: recorded \(index) frames to \(frames)")
+    }
+
+    @MainActor
+    private static func recordQuestLogAnimations(to dir: String) {
+        let size = CGSize(width: 1400, height: 900)
+        // The Quest Log centred in the window, with 30pt of the scrim around it.
+        let modalCrop = CGRect(x: 220, y: 30, width: 960, height: 840)
+        do {
+            let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+            let store = questLogStore()
+            let questLog = QuestLogOverlayHost(store: store, filter: questLogFilter(token: false))
+            (shell as? ShellRootContainerView)?.addOverlay(questLog)
+            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * ModalFade.slowdown, to: dir) {
+                store.open()
+                questLog.setVisible(true)
+            }
+        }
+        do {
+            // The log opens, then Abandon's confirmation fades in over it and back out; the log stays put.
+            let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+            let store = questLogStore()
+            let questLog = QuestLogOverlayHost(store: store, filter: questLogFilter(token: false))
+            let stack = InWindowModalStack()
+            (shell as? ShellRootContainerView)?.addOverlay(questLog)
+            (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
+            let slow = ModalFade.slowdown
+            recordAnimation("confirm-fade-gif", root: shell, size: size, crop: modalCrop, duration: 1.6 * slow, to: dir) {
+                store.open()
+                questLog.setVisible(true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 * slow) {
+                    stack.present(id: "confirm", AnyView(DestructiveConfirmationSheetView(spec: .deleteQuests(count: 1), onDecision: { _ in })))
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2 * slow) { stack.dismiss(id: "confirm") }
+            }
+        }
+    }
+
     /// The real window with `modal` presented the way the app presents it: the shell, optionally the Quest Log,
     /// and the in-window modal host on top.
     @MainActor
@@ -1029,7 +1145,9 @@ enum RenderPreview {
         let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
         let root = shell as? ShellRootContainerView
         if overQuestLog {
-            let questLog = QuestLogOverlayHost(store: questLogStore())
+            let store = questLogStore()
+            store.open()
+            let questLog = QuestLogOverlayHost(store: store, filter: questLogFilter(token: false))
             root?.addOverlay(questLog)
             questLog.setVisible(true)
         }

@@ -685,7 +685,7 @@ final class DockPaneModel: ObservableObject {
         return Self.filterTrigger(in: artifactFilterQuery)
     }
 
-    private static func filterQueryPrefix(in query: String, before range: Range<String.Index>) -> String {
+    static func filterQueryPrefix(in query: String, before range: Range<String.Index>) -> String {
         var prefix = String(query[..<range.lowerBound])
         while prefix.last?.isWhitespace == true {
             prefix.removeLast()
@@ -693,7 +693,7 @@ final class DockPaneModel: ObservableObject {
         return prefix.isEmpty ? "" : "\(prefix) "
     }
 
-    private static func filterTrigger(in query: String) -> ArtifactFilterTrigger? {
+    static func filterTrigger(in query: String) -> ArtifactFilterTrigger? {
         guard !query.isEmpty,
               query.last?.isWhitespace != true else {
             return nil
@@ -876,12 +876,12 @@ final class DockPaneModel: ObservableObject {
         return tracker.repos.lazy.flatMap(\.sessions).first { $0.id == sessionID }
     }
 
-    private static func cleanName(_ value: String) -> String? {
+    static func cleanName(_ value: String) -> String? {
         let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? nil : clean
     }
 
-    private static func humanProjectName(_ value: String) -> String {
+    static func humanProjectName(_ value: String) -> String {
         let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else {
             return "Unknown Project"
@@ -927,7 +927,7 @@ final class DockPaneModel: ObservableObject {
         }
     }
 
-    private static func fuzzyMatch(_ query: String, in value: String) -> Bool {
+    static func fuzzyMatch(_ query: String, in value: String) -> Bool {
         guard !query.isEmpty else {
             return true
         }
@@ -944,7 +944,7 @@ final class DockPaneModel: ObservableObject {
         return false
     }
 
-    private static func wrapped(_ value: Int, count: Int) -> Int {
+    static func wrapped(_ value: Int, count: Int) -> Int {
         guard count > 0 else {
             return 0
         }
@@ -1042,7 +1042,8 @@ final class DockPaneModel: ObservableObject {
             || Keymap.Viewer.back.matches(event.charactersIgnoringModifiers)
     }
 
-    private struct ArtifactFilterTrigger {
+    /// Shared with the Quest Log's filter (`QuestLogFilter`), like the helpers that parse and match it.
+    struct ArtifactFilterTrigger {
         var mode: ArtifactFilterSuggestionMode
         var kind: ArtifactFilterTokenKind?
         var query: String

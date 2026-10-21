@@ -39,6 +39,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let dockCoordinator = DockCoordinator()
     private let workerChatStore = WorkerChatStore()
     private let questLogStore = QuestLogStore()
+    private let questLogFilter = QuestLogFilter()
     private lazy var workerChatController = WorkerChatController(
         store: workerChatStore,
         feedClient: { [weak self] in self?.workerFeedClient }
@@ -47,6 +48,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         runtimeStore: runtimeStore,
         workerChatStore: workerChatStore,
         questLogStore: questLogStore,
+        questLogFilter: questLogFilter,
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
         newQuestPresenter: newQuestPresenter,
@@ -237,6 +239,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.footerShell.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
         handles.questLogOverlay.onCommand = { [weak self] command in self?.handleQuestLogCommand(command) }
+        questLogFilter.onChange = { [weak self] in self?.syncQuestLog() }
+        questLogFilter.onEdit = { [weak self] in self?.handleQuestLogCommand(.edit) }
+        questLogFilter.onMoveSelection = { [weak self] command in _ = self?.questLogStore.handle(command) }
+        questLogFilter.onLeave = { [weak window = handles.window] in window?.makeFirstResponder(nil) }
         handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
         handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
@@ -374,7 +380,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func syncQuestLog() {
         let tracker = runtimeStore.snapshot.tracker
-        questLogStore.sync(quests: tracker.quests, repos: tracker.repos, projects: tracker.projects)
+        questLogFilter.update(tracker: tracker)
+        questLogStore.sync(
+            quests: tracker.quests,
+            repos: tracker.repos,
+            projects: tracker.projects,
+            query: questLogFilter.textQuery,
+            projectIDs: questLogFilter.projectIDs
+        )
     }
 
     private func syncWorkerChat() {
@@ -516,6 +529,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             deleteQuests(quests)
         case .copy(let quests):
             copyQuests(quests)
+        case .focusFilter:
+            questLogFilter.focus()
         }
     }
 

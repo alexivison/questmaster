@@ -5,10 +5,21 @@ import Observation
 /// description, kept verbatim (blank lines and typed "- " bullets included). The footer reads
 /// "project ◆ YYYY/MM/DD".
 public struct QuestLogPage: Equatable {
+    /// A quest with a description gets the bold title between vines; a quest that is only its first line
+    /// shows that line as plain text.
+    public enum Layout: Equatable {
+        case titled
+        case plain
+    }
+
     public var title: String
     public var body: String
     public var project: String
     public var date: String
+
+    public var layout: Layout {
+        body.isEmpty ? .plain : .titled
+    }
 
     public init(title: String, body: String, project: String, date: String) {
         self.title = title
@@ -78,11 +89,13 @@ public enum QuestLogCommand: Equatable {
     case delete
     case copy
     case toggleMark
+    case focusFilter
     case close
 
     public static func from(characters: String?, keyCode: UInt16) -> QuestLogCommand? {
         typealias Keys = Keymap.QuestLog
         if Keys.close.matches(keyCode) { return .close }
+        if Keys.focusFilter.matchesExactly(characters) { return .focusFilter }
         if Keys.moveUpKeyCodes.matches(keyCode) { return .moveUp }
         if Keys.moveDownKeyCodes.matches(keyCode) { return .moveDown }
         if Keys.moveUpCharacters.matchesExactly(characters) { return .moveUp }
@@ -102,6 +115,7 @@ public enum QuestLogEffect: Equatable {
     case edit(QuestItem)
     case delete([QuestItem])
     case copy([QuestItem])
+    case focusFilter
     case close
 }
 
@@ -110,6 +124,8 @@ public enum QuestLogEffect: Equatable {
 @Observable
 public final class QuestLogStore {
     public private(set) var isOpen = false
+    /// Counts openings, so the view can play its opening once per open and not on later changes.
+    public private(set) var openGeneration = 0
     public private(set) var sections: [QuestSection] = []
     public private(set) var selectedID: String?
     public private(set) var markedIDs: Set<String> = []
@@ -117,7 +133,11 @@ public final class QuestLogStore {
     public init() {}
 
     public func open() {
+        guard !isOpen else {
+            return
+        }
         isOpen = true
+        openGeneration += 1
     }
 
     public func close() {
@@ -125,8 +145,15 @@ public final class QuestLogStore {
         markedIDs = []
     }
 
-    public func sync(quests: [QuestItem], repos: [TrackerRepo], projects: [TrackerProject] = []) {
-        let next = QuestDisplayState.sections(quests: quests, repos: repos, projects: projects)
+    /// Regroups the quests that pass the filter (text and `@project:` tokens) and recovers the selection.
+    public func sync(
+        quests: [QuestItem],
+        repos: [TrackerRepo],
+        projects: [TrackerProject] = [],
+        query: String = "",
+        projectIDs: Set<String> = []
+    ) {
+        let next = QuestDisplayState.sections(quests: quests, repos: repos, projects: projects, query: query, projectIDs: projectIDs)
         guard next != sections else {
             return
         }
@@ -171,6 +198,8 @@ public final class QuestLogStore {
             return nil
         case .close:
             return .close
+        case .focusFilter:
+            return .focusFilter
         case .start:
             return targets.isEmpty ? nil : .start(targets)
         case .edit:

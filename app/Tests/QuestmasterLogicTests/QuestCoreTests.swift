@@ -5,9 +5,13 @@ struct QuestCoreTests {
     static func run() {
         displayGroupsProjectsAlphabeticallyThenNoProject()
         displayFallsBackToProjectColorWithoutLiveSession()
+        displayFiltersByProjectID()
+        displayFiltersByTextAndProjectTokens()
         displayRecoversDeletedSelectionToPreviousQuest()
         questLogPageSplitsTitleAndKeepsBodyVerbatim()
         questLogPageFooterUsesProjectAndDay()
+        questLogPageIsPlainWithoutABody()
+        questLogStoreSyncsThroughTheFilter()
         questLogWrapsGreedilyWithoutPushingWordsDown()
         questLogStoreSelectsMovesAndRecovers()
         questLogStoreTargetsMarkedQuestsInListOrder()
@@ -51,6 +55,22 @@ struct QuestCoreTests {
         expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", createdAt: "2026-01-02T00:00:00Z"), project: "").date == "2026/01/02", "footer should fall back to the created day")
         expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", updatedAt: "soon"), project: "").date.isEmpty, "an unparseable timestamp should leave the date empty")
         expect(QuestLogPage(quest: updated, project: "dotfiles").project == "dotfiles", "footer project mismatch")
+    }
+
+    private static func questLogPageIsPlainWithoutABody() {
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "Restore terminal settings on login"), project: "").layout == .plain, "a title-only quest should be plain")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "Only a title\n\n   \n"), project: "").layout == .plain, "blank lines alone are not a body")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "Title\n\nThe idea"), project: "").layout == .titled, "a quest with a body gets the titled page")
+    }
+
+    private static func questLogStoreSyncsThroughTheFilter() {
+        let store = QuestLogStore()
+        store.sync(quests: logQuests, repos: [], query: "one")
+        expect(QuestDisplayState.flatQuests(in: store.sections).map(\.id) == ["a1", "b1"], "text should filter the list")
+        store.sync(quests: logQuests, repos: [], projectIDs: ["b"])
+        expect(store.selectedID == "b1", "a filtered-out selection should recover to a visible quest, got \(String(describing: store.selectedID))")
+        store.sync(quests: logQuests, repos: [], query: "nothing matches")
+        expect(store.sections.isEmpty && store.selectedID == nil, "no matches should leave nothing selected")
     }
 
     private static func questLogWrapsGreedilyWithoutPushingWordsDown() {
@@ -119,6 +139,11 @@ struct QuestCoreTests {
         _ = store.handle(.toggleMark)
         store.close()
         expect(!store.isOpen && store.markedIDs.isEmpty, "closing should clear marks")
+        let generation = store.openGeneration
+        store.open()
+        store.open()
+        expect(store.openGeneration == generation + 1, "each opening counts once, so the opening animation plays once per open")
+        store.close()
         expect(store.selectedID == "a1", "closing should keep the selection for the next open")
     }
 
@@ -133,6 +158,7 @@ struct QuestCoreTests {
         expect(QuestLogCommand.from(characters: "y", keyCode: 16) == .copy, "y")
         expect(QuestLogCommand.from(characters: " ", keyCode: 49) == .toggleMark, "space")
         expect(QuestLogCommand.from(characters: "\u{1b}", keyCode: 53) == .close, "esc")
+        expect(QuestLogCommand.from(characters: "/", keyCode: 44) == .focusFilter, "/ should focus the filter")
         expect(QuestLogCommand.from(characters: "S", keyCode: 1) == nil, "shifted letters are not quest log keys")
         expect(QuestLogCommand.from(characters: "x", keyCode: 7) == nil, "x is unbound")
     }
@@ -146,6 +172,32 @@ struct QuestCoreTests {
         ]
         let sections = QuestDisplayState.sections(quests: quests, repos: [], projects: projects)
         expect(sections.map(\.color) == ["green"], "section color should fall back to the persisted project color = \(sections.map(\.color))")
+    }
+
+    private static func displayFiltersByProjectID() {
+        let quests = [
+            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", updatedAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", updatedAt: "2026-07-03T01:00:00Z"),
+        ]
+        let sections = QuestDisplayState.sections(
+            quests: quests,
+            repos: [TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [])],
+            projectID: "repo-b"
+        )
+        expect(sections.map(\.id) == ["repo-b"], "project filter sections = \(sections.map(\.id))")
+        expect(sections.first?.quests.map(\.id) == ["qst-b"], "project filter quests mismatch")
+    }
+
+    private static func displayFiltersByTextAndProjectTokens() {
+        let quests = [
+            QuestItem(id: "qst-a", content: "Ship the filter", projectID: "repo-a"),
+            QuestItem(id: "qst-b", content: "Ship the page", projectID: "repo-b"),
+            QuestItem(id: "qst-c", content: "Tidy notes", projectID: "repo-b"),
+        ]
+        let byText = QuestDisplayState.sections(quests: quests, repos: [], query: "  ship ")
+        expect(QuestDisplayState.flatQuests(in: byText).map(\.id).sorted() == ["qst-a", "qst-b"], "text should match case-insensitively, trimmed")
+        let both = QuestDisplayState.sections(quests: quests, repos: [], query: "ship", projectIDs: ["repo-b"])
+        expect(QuestDisplayState.flatQuests(in: both).map(\.id) == ["qst-b"], "text and project tokens should both apply")
     }
 
     private static func displayRecoversDeletedSelectionToPreviousQuest() {

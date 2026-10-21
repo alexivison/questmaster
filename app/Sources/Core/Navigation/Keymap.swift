@@ -209,6 +209,7 @@ public enum Keymap {
         public static let delete = CharacterBinding(keys: ["d"])
         public static let copy = CharacterBinding(keys: ["y"])
         public static let toggleMark = CharacterBinding(keys: [" "])
+        public static let focusFilter = CharacterBinding(keys: ["/"])
         public static let close = KeyCodeBinding(keyCodes: [53])
     }
 

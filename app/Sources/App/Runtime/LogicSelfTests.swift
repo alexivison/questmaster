@@ -44,6 +44,7 @@ enum LogicSelfTests {
         ("testArtifactDockCommandSwitchesFromWorkerChat", testArtifactDockCommandSwitchesFromWorkerChat),
         ("testDockCoordinatorIgnoresNoSessionState", testDockCoordinatorIgnoresNoSessionState),
         ("testModalsPresentInsideTheWindowNotAsSystemSheets", testModalsPresentInsideTheWindowNotAsSystemSheets),
+        ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
@@ -1549,10 +1550,18 @@ enum LogicSelfTests {
         let presenting = NSHostingView(rootView: Presenting(holder: holder, stack: stack))
         presenting.frame = content.bounds
         let host = InWindowModalHost(stack: stack)
-        host.frame = content.bounds
         content.addSubview(presenting)
+        // Pinned with Auto Layout, as ShellRootContainerView.addOverlay pins it in the app.
+        host.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: content.topAnchor),
+            host.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            host.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
         window.contentView = content
+        let windowSize = window.frame.size
         window.orderFrontRegardless()
         defer { window.close() }
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
@@ -1565,10 +1574,43 @@ enum LogicSelfTests {
         try expect(stack.entries.count == 1, "presenting should push one in-window modal, got \(stack.entries.count)")
         try expect(!host.isHidden, "the modal host should show while a modal is presented")
         try expect(window.firstResponder === host, "the modal host should take the keys from whatever had them")
+        try expect(window.frame.size == windowSize, "a presented modal must not resize the window, got \(window.frame.size) from \(windowSize)")
 
         holder.item = nil
+        RunLoop.main.run(until: Date().addingTimeInterval(ModalFade.fadeOut / 3))
+        try expect(stack.isEmpty, "a dismissed modal should stop counting as open at once, so keys go back underneath")
+        try expect(stack.entries.count == 1 && stack.entries[0].closing, "a dismissed modal should stay mounted, closing, while it fades out")
+        try expect(!host.isHidden, "the host should stay visible until the fade-out ends")
         settle()
-        try expect(stack.isEmpty && host.isHidden, "dismissing should empty the stack and hide the host")
+        try expect(stack.entries.isEmpty && host.isHidden, "once the fade-out ends the stack should empty and the host hide")
+    }
+
+    /// The Quest Log fades in and its parchment unrolls without the parchment Canvas redrawing frame by frame;
+    /// closing fades it out and only then hides the host.
+    private static func testQuestLogOpensWithoutRedrawingTheParchment() throws {
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest\n\nWith a body", projectID: "p", projectName: "p")], repos: [])
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let host = QuestLogOverlayHost(store: store, filter: QuestLogFilter())
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+
+        QuestLogDebug.parchmentDraws = 0
+        store.open()
+        host.setVisible(true)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        try expect(!host.isHidden, "opening should show the Quest Log")
+        try expect((1...2).contains(QuestLogDebug.parchmentDraws), "the parchment should draw once for the opening, not per unroll frame; drew \(QuestLogDebug.parchmentDraws) times")
+
+        store.close()
+        host.setVisible(false)
+        RunLoop.main.run(until: Date().addingTimeInterval(ModalFade.fadeOut / 3))
+        try expect(!host.isHidden, "the Quest Log should stay visible while it fades out")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try expect(host.isHidden, "the Quest Log host should hide once the fade-out ends")
     }
 
     private static func testDockCoordinatorIgnoresNoSessionState() throws {

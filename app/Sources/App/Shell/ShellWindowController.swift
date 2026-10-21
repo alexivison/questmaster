@@ -23,6 +23,7 @@ final class ShellWindowController {
     private let runtimeStore: RuntimeStore
     private let workerChatStore: WorkerChatStore
     private let questLogStore: QuestLogStore
+    private let questLogFilter: QuestLogFilter
     private let navigation: NavigationStore
     private let newSessionPresenter: NewSessionSheetPresenter
     private let newQuestPresenter: NewQuestSheetPresenter
@@ -35,6 +36,7 @@ final class ShellWindowController {
         runtimeStore: RuntimeStore,
         workerChatStore: WorkerChatStore,
         questLogStore: QuestLogStore,
+        questLogFilter: QuestLogFilter,
         navigation: NavigationStore,
         newSessionPresenter: NewSessionSheetPresenter,
         newQuestPresenter: NewQuestSheetPresenter,
@@ -44,6 +46,7 @@ final class ShellWindowController {
         self.runtimeStore = runtimeStore
         self.workerChatStore = workerChatStore
         self.questLogStore = questLogStore
+        self.questLogFilter = questLogFilter
         self.navigation = navigation
         self.newSessionPresenter = newSessionPresenter
         self.newQuestPresenter = newQuestPresenter
@@ -109,7 +112,7 @@ final class ShellWindowController {
         splitView.setDockVisible(navigation.dockVisible, animated: false)
 
         let root = ShellRootContainerView(splitView: splitView, footer: footerShell)
-        let questLogOverlay = QuestLogOverlayHost(store: questLogStore)
+        let questLogOverlay = QuestLogOverlayHost(store: questLogStore, filter: questLogFilter)
         root.addOverlay(questLogOverlay)
         let modalHost = InWindowModalHost(stack: .shared)
         root.addOverlay(modalHost)
