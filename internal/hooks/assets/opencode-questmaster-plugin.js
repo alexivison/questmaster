@@ -8,8 +8,9 @@
 //
 // The SIDECAR_VERSION marker must match openCodeSidecarVersion in opencode.go so
 // `questmaster hooks status opencode` can detect stale installs.
-const SIDECAR_VERSION = "phase2-v4";
+const SIDECAR_VERSION = "phase2-v5";
 const EMIT_TIMEOUT_MS = 5000;
+const EMIT_KILL_GRACE_MS = 1000;
 
 import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
@@ -36,11 +37,15 @@ function createEmitter(bin, session) {
       () =>
         new Promise((resolve) => {
           let timer;
+          let killTimer;
+          let finishTimer;
           let finished = false;
           const finish = () => {
             if (finished) return;
             finished = true;
             clearTimeout(timer);
+            clearTimeout(killTimer);
+            clearTimeout(finishTimer);
             resolve();
           };
           try {
@@ -48,8 +53,11 @@ function createEmitter(bin, session) {
               stdio: ["pipe", "ignore", "ignore"],
             });
             timer = setTimeout(() => {
-              child.kill();
-              finish();
+              child.kill("SIGTERM");
+              killTimer = setTimeout(() => {
+                child.kill("SIGKILL");
+                finishTimer = setTimeout(finish, EMIT_KILL_GRACE_MS);
+              }, EMIT_KILL_GRACE_MS);
             }, EMIT_TIMEOUT_MS);
             child.once("error", finish);
             child.once("close", finish);

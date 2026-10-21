@@ -580,7 +580,7 @@ func TestHookOpenCodeErrorPartEndsCallWithoutLearningDuration(t *testing.T) {
 	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
 		"sessionID": ocSession,
 		"part": map[string]interface{}{
-			"id": "call-1", "type": "tool", "tool": "bash",
+			"id": "prt-1", "callID": "call-1", "type": "tool", "tool": "bash",
 			"state": map[string]interface{}{"status": "error", "input": map[string]interface{}{"command": "go test ./..."}},
 		},
 	})
