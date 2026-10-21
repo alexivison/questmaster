@@ -523,6 +523,91 @@ func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
 	}
 }
 
+func TestHookOpenCodeCompletedPartDoesNotClearParallelToolCasts(t *testing.T) {
+	r, rec := newTestRunner(t)
+	const sessionID = "qm-opencode-parallel-casts"
+	const ocSession = "ses_parallel"
+	for _, call := range []struct {
+		id   string
+		tool string
+	}{
+		{id: "call-1", tool: "bash"},
+		{id: "call-2", tool: "read"},
+	} {
+		openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{
+			"tool": call.tool, "sessionID": ocSession, "callID": call.id,
+			"args": map[string]interface{}{"command": "go test ./..."},
+		})
+	}
+	if got := len(rec.lastState.Panes["primary"].RunningTools); got != 2 {
+		t.Fatalf("running tools before part update = %d, want 2", got)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"id": "call-1", "type": "tool", "tool": "bash",
+			"state": map[string]interface{}{"status": "completed", "input": map[string]interface{}{"command": "go test ./..."}},
+		},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if len(pane.RunningTools) != 2 || pane.Tool != "read" {
+		t.Fatalf("completed part cleared parallel casts or lost fallback: %+v", pane)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "tool.execute.after", map[string]interface{}{
+		"tool": "bash", "sessionID": ocSession, "callID": "call-1",
+	})
+	pane = rec.lastState.Panes["primary"]
+	if len(pane.RunningTools) != 1 || pane.RunningTools[0].CallID != "call-2" || pane.Tool != "read" {
+		t.Fatalf("tool after did not preserve the parallel cast: %+v", pane)
+	}
+}
+
+func TestHookOpenCodeErrorPartEndsCallWithoutLearningDuration(t *testing.T) {
+	r, rec := newTestRunner(t)
+	const sessionID = "qm-opencode-error-call"
+	const ocSession = "ses_error"
+	var durations []toolDurationCall
+	r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
+		durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
+		return nil
+	}
+	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{
+		"tool": "bash", "sessionID": ocSession, "callID": "call-1",
+		"args": map[string]interface{}{"command": "go test ./..."},
+	})
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part": map[string]interface{}{
+			"id": "prt-1", "callID": "call-1", "type": "tool", "tool": "bash",
+			"state": map[string]interface{}{"status": "error", "input": map[string]interface{}{"command": "go test ./..."}},
+		},
+	})
+	pane := rec.lastState.Panes["primary"]
+	if pane.Tool != "" || len(pane.RunningTools) != 0 || !strings.HasPrefix(pane.Activity, "Failed: ") {
+		t.Fatalf("failed tool part pane = %+v, want call ended without stale cast", pane)
+	}
+	if len(durations) != 0 {
+		t.Fatalf("failed tool recorded durations = %+v, want none", durations)
+	}
+}
+
+func TestHookOpenCodeOutOfOrderAfterBeforeNeedsPluginSerialization(t *testing.T) {
+	r, rec := newTestRunner(t)
+	const sessionID = "qm-opencode-out-of-order"
+	const ocSession = "ses_out_of_order"
+	openCodeHookEvent(t, r, sessionID, "tool.execute.after", map[string]interface{}{
+		"tool": "bash", "sessionID": ocSession, "callID": "call-1",
+	})
+	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{
+		"tool": "bash", "sessionID": ocSession, "callID": "call-1",
+	})
+	if pane := rec.lastState.Panes["primary"]; len(pane.RunningTools) != 1 || pane.Tool != "bash" {
+		t.Fatalf("out-of-order events = %+v, want a stale cast (plugin queue prevents this live)", pane)
+	}
+}
+
 func TestHookOpenCodeDoneUsesSharedDoneToIdleGrace(t *testing.T) {
 	t.Setenv(state.StateRootEnv, t.TempDir())
 	r, rec := newTestRunner(t)

@@ -117,6 +117,8 @@ type SessionSnapshot struct {
 	ElapsedMS      int64              `json:"elapsed_ms"`
 	ElapsedSince   *time.Time         `json:"elapsed_since,omitempty"`
 	LastChatAt     *time.Time         `json:"last_chat_at,omitempty"`
+	Narration      string             `json:"narration,omitempty"`
+	Cast           *CastSnapshot      `json:"cast,omitempty"`
 	LatestActivity string             `json:"latest_activity,omitempty"`
 	LastKind       string             `json:"last_kind,omitempty"`
 	WorktreePath   string             `json:"worktree_path,omitempty"`
@@ -130,11 +132,31 @@ type SessionSnapshot struct {
 	DisplayColor   string             `json:"display_color,omitempty"`
 }
 
+type CastSnapshot struct {
+	Tool      string    `json:"tool"`
+	StartedAt time.Time `json:"started_at"`
+	TypicalMS int64     `json:"typical_ms"`
+}
+
 // RepoSnapshot carries tracker repo grouping metadata.
 type RepoSnapshot struct {
 	Identity string `json:"identity,omitempty"`
 	Name     string `json:"name,omitempty"`
 	Color    string `json:"color,omitempty"`
+}
+
+type toolTypicalDurationCache struct {
+	loaded bool
+	values map[state.ToolDurationKey]int64
+}
+
+func (s *Snapshotter) toolTypicalsForRunningTool(cache *toolTypicalDurationCache, running *state.RunningTool) map[state.ToolDurationKey]int64 {
+	if running == nil || cache.loaded {
+		return cache.values
+	}
+	cache.values, _ = state.LoadToolTypicalDurationsAt(s.StateRoot())
+	cache.loaded = true
+	return cache.values
 }
 
 func (s *Snapshotter) Invalidate(change Change) {
@@ -192,6 +214,7 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	}
 	artifacts := s.globalArtifacts()
 	quests := s.globalQuests()
+	var typicalCache toolTypicalDurationCache
 	next.Artifacts = artifactSnapshots(artifacts)
 	next.Quests = questSnapshots(quests)
 	changed := !artifactsEqual(cached.Artifacts, next.Artifacts) || !questsEqual(cached.Quests, next.Quests)
@@ -213,7 +236,12 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 		if err != nil || ss == nil {
 			return s.refreshTracker()
 		}
-		s.applySessionState(&next.Sessions[idx], sessionID, ss, observedAt)
+		var running *state.RunningTool
+		if next.Sessions[idx].Status == "active" {
+			running = sessionactivity.FromState(ss).RunningTool
+		}
+		typicals := s.toolTypicalsForRunningTool(&typicalCache, running)
+		s.applySessionState(&next.Sessions[idx], sessionID, ss, observedAt, typicals)
 		next.Sessions[idx].Artifacts = artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, sessionID, ""))
 		if !sameClockTrackerRow(before, next.Sessions[idx]) {
 			changed = true
@@ -247,11 +275,12 @@ func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
 		observedAt = time.Now().UTC()
 	}
 	changed := false
+	var typicalCache toolTypicalDurationCache
 	for i := range next.Sessions {
 		if next.Sessions[i].Status != "active" {
 			continue
 		}
-		rowChanged, err := s.reconcileClockTrackerRow(&next.Sessions[i], observedAt)
+		rowChanged, err := s.reconcileClockTrackerRow(&next.Sessions[i], observedAt, &typicalCache)
 		if err != nil {
 			return s.refreshTracker()
 		}
@@ -271,7 +300,7 @@ func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
 	return next, nil
 }
 
-func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt time.Time) (bool, error) {
+func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt time.Time, typicalCache *toolTypicalDurationCache) (bool, error) {
 	// Only a "done" row can change on a clock tick (the done→idle fold after
 	// the grace period, applied by MarkSessionObserved). Every other state is
 	// driven by fsnotify, so skip the flock + state.json reads entirely.
@@ -287,7 +316,8 @@ func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt 
 	if ss == nil {
 		return false, nil
 	}
-	s.applySessionState(row, row.ID, ss, observedAt)
+	typicals := s.toolTypicalsForRunningTool(typicalCache, sessionactivity.FromState(ss).RunningTool)
+	s.applySessionState(row, row.ID, ss, observedAt, typicals)
 	if sameClockTrackerRow(before, *row) {
 		*row = before
 		return false, nil
@@ -299,9 +329,18 @@ func sameClockTrackerRow(a, b SessionSnapshot) bool {
 	return a.Status == b.Status &&
 		a.State == b.State &&
 		a.LatestActivity == b.LatestActivity &&
+		a.Narration == b.Narration &&
+		sameCast(a.Cast, b.Cast) &&
 		a.LastKind == b.LastKind &&
 		sameTime(a.LastChatAt, b.LastChatAt) &&
 		artifactsEqual(a.Artifacts, b.Artifacts)
+}
+
+func sameCast(a, b *CastSnapshot) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Tool == b.Tool && a.StartedAt.Equal(b.StartedAt) && a.TypicalMS == b.TypicalMS
 }
 
 func sameTime(a, b *time.Time) bool {
@@ -374,6 +413,10 @@ func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
 	snapshot.Sessions = append([]SessionSnapshot(nil), snapshot.Sessions...)
 	for i := range snapshot.Sessions {
 		snapshot.Sessions[i].Artifacts = append([]ArtifactSnapshot(nil), snapshot.Sessions[i].Artifacts...)
+		if snapshot.Sessions[i].Cast != nil {
+			cast := *snapshot.Sessions[i].Cast
+			snapshot.Sessions[i].Cast = &cast
+		}
 	}
 	snapshot.Artifacts = append([]ArtifactSnapshot(nil), snapshot.Artifacts...)
 	snapshot.Quests = append([]QuestSnapshot(nil), snapshot.Quests...)
@@ -390,18 +433,25 @@ func trackerSessionIndex(rows []SessionSnapshot, sessionID string) int {
 	return -1
 }
 
-func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, ss *state.SessionState, observedAt time.Time) {
+func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, ss *state.SessionState, observedAt time.Time, typicals map[state.ToolDurationKey]int64) {
 	if row == nil || ss == nil {
 		return
 	}
 	result := sessionactivity.FromState(ss)
-	row.LastChatAt = timePtr(result.LastChatAt)
 	if row.Status != "active" {
 		row.State = "stopped"
 		row.ElapsedMS = 0
 		row.ElapsedSince = nil
+		row.LastChatAt = nil
+		row.Narration = result.Narration
+		row.Cast = nil
+		row.LatestActivity = ""
+		row.LastKind = ""
 		return
 	}
+	row.LastChatAt = timePtr(result.LastChatAt)
+	row.Narration = result.Narration
+	row.Cast = castSnapshot(result, row.PrimaryAgent, typicals)
 	if result.State != "" {
 		row.State = result.State
 	}
@@ -449,6 +499,7 @@ func currentSessionSnapshot(current tracker.SessionInfo) *CurrentSession {
 }
 
 func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt time.Time, artifacts []state.Artifact) []SessionSnapshot {
+	var typicalCache toolTypicalDurationCache
 	observations := make([]sessionactivity.Observation, 0, len(rows))
 	keys := make([]string, len(rows))
 	for i := range rows {
@@ -465,21 +516,43 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 	out := make([]SessionSnapshot, len(rows))
 	for i, row := range rows {
 		result := activity[keys[i]]
+		if row.Status != "active" {
+			if ss, err := state.LoadSessionStateAt(s.StateRoot(), row.ID); err == nil && ss != nil {
+				result.Narration = sessionactivity.FromState(ss).Narration
+			}
+			result.State = "stopped"
+		}
+		var running *state.RunningTool
+		if row.Status == "active" {
+			running = result.RunningTool
+		}
+		typicals := s.toolTypicalsForRunningTool(&typicalCache, running)
 		stateName := row.State
+		if row.Status != "active" {
+			stateName = "stopped"
+		}
 		if stateName == "" {
 			stateName = result.State
 		}
 		lastKind := row.LastKind
+		if row.Status != "active" {
+			lastKind = ""
+		}
 		if lastKind == "" {
 			lastKind = result.LastKind
 		}
 		snippet := row.Snippet
-		if result.Activity != "" {
+		if row.Status != "active" {
+			snippet = ""
+		} else if result.Activity != "" {
 			snippet = result.Activity
 		}
 		elapsedSince := result.WorkingSince
 		if elapsedSince.IsZero() {
 			elapsedSince = result.LastEvent
+		}
+		if row.Status != "active" {
+			elapsedSince = time.Time{}
 		}
 		out[i] = SessionSnapshot{
 			ID:             row.ID,
@@ -489,6 +562,8 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			ElapsedMS:      elapsedMS(observedAt, elapsedSince),
 			ElapsedSince:   timePtr(elapsedSince),
 			LastChatAt:     timePtr(result.LastChatAt),
+			Narration:      result.Narration,
+			Cast:           castSnapshot(result, row.PrimaryAgent, typicals),
 			LatestActivity: snippet,
 			LastKind:       lastKind,
 			WorktreePath:   row.Cwd,
@@ -505,8 +580,31 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			},
 			DisplayColor: row.DisplayColor,
 		}
+		if row.Status != "active" {
+			out[i].Cast = nil
+			out[i].LastChatAt = nil
+		}
 	}
 	return out
+}
+
+func castSnapshot(result sessionactivity.Result, fallbackAgent string, typicals map[state.ToolDurationKey]int64) *CastSnapshot {
+	if result.RunningTool == nil {
+		return nil
+	}
+	agent := result.Agent
+	if agent == "" {
+		agent = fallbackAgent
+	}
+	typicalMS, ok := typicals[state.ToolDurationKey{Agent: agent, Tool: result.RunningTool.Tool, Command: result.RunningTool.Command}]
+	if !ok {
+		typicalMS = typicals[state.ToolDurationKey{Agent: agent, Tool: result.RunningTool.Tool}]
+	}
+	return &CastSnapshot{
+		Tool:      result.RunningTool.Tool,
+		StartedAt: result.RunningTool.StartedAt,
+		TypicalMS: typicalMS,
+	}
 }
 
 func (s *Snapshotter) globalArtifacts() []state.Artifact {
