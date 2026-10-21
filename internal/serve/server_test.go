@@ -644,6 +644,60 @@ func TestSnapshotterClockReconcilesDoneToIdle(t *testing.T) {
 	}
 }
 
+func TestSnapshotterClockLoadsTypicalWhenDoneRowFindsRunningTool(t *testing.T) {
+	env := seedServeFixture(t)
+	now := env.now
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.State = "done"
+		pane.Activity = "Finished"
+		pane.LastKind = "Stop"
+		pane.LastEvent = now.Add(-time.Second)
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("seed done state: %v", err)
+	}
+	for _, sample := range []time.Duration{4, 6, 8} {
+		if err := state.RecordToolDurationAt(env.store.Root(), "codex", "Bash", "go test", sample*time.Second); err != nil {
+			t.Fatalf("record duration: %v", err)
+		}
+	}
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
+	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
+		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{
+			ID: "qm-demo", Status: "active", State: "done", PrimaryAgent: "codex",
+		}}}, nil
+	}
+	if _, err := snap.TrackerForChange(Change{}); err != nil {
+		t.Fatalf("initial Tracker: %v", err)
+	}
+	startedAt := now
+	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
+		pane := ss.Panes["primary"]
+		pane.State = "working"
+		pane.LastEvent = startedAt
+		pane.RunningTools = []state.RunningTool{{CallID: "call-1", Tool: "Bash", Command: "go test", StartedAt: startedAt}}
+		pane.Tool = "Bash"
+		ss.Panes["primary"] = pane
+		return true
+	}); err != nil {
+		t.Fatalf("seed running tool: %v", err)
+	}
+	stored, err := state.LoadSessionStateAt(env.store.Root(), "qm-demo")
+	if err != nil || stored.Panes["primary"].State != "working" {
+		t.Fatalf("stored running state = %+v, err %v", stored, err)
+	}
+	now = now.Add(time.Second)
+	got, err := snap.TrackerForChange(clockChange())
+	if err != nil {
+		t.Fatalf("clock Tracker: %v", err)
+	}
+	if cast := got.Sessions[0].Cast; cast == nil || cast.TypicalMS != 6000 {
+		t.Fatalf("clock row = %+v, want cast typical_ms 6000", got.Sessions[0])
+	}
+}
+
 func TestServerClockChangeWithoutStateTransitionProducesNoWirePush(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := tempSocketPath(t)

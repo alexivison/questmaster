@@ -17,7 +17,7 @@ var (
 	timeValueOptions    = map[string]bool{"-f": true, "--format": true, "-o": true, "--output": true}
 	envValueOptions     = map[string]bool{"-u": true, "--unset": true, "-S": true, "--split-string": true}
 	timeoutValueOptions = map[string]bool{"-k": true, "--kill-after": true, "-s": true, "--signal": true}
-	subcommandPrograms  = map[string]bool{"git": true, "go": true, "npm": true, "pnpm": true, "yarn": true, "bun": true, "cargo": true, "swift": true, "docker": true, "kubectl": true, "gh": true, "make": true, "brew": true, "uv": true, "pip": true}
+	subcommandPrograms  = map[string]bool{"git": true, "go": true, "npm": true, "npx": true, "pnpm": true, "yarn": true, "bun": true, "bunx": true, "cargo": true, "swift": true, "docker": true, "kubectl": true, "gh": true, "make": true, "brew": true, "uv": true, "uvx": true, "pip": true}
 )
 
 type shellWord struct {
@@ -52,7 +52,11 @@ func NormalizeToolCommand(command string) string {
 	if len(words) == 0 {
 		return ""
 	}
-	program := path.Base(words[0].value)
+	programWord := words[0].value
+	if strings.HasPrefix(programWord, "$") || strings.Contains(programWord, "$(") || strings.ContainsRune(programWord, '`') {
+		return ""
+	}
+	program := path.Base(programWord)
 	if program == "." || program == "/" || program == "" {
 		return ""
 	}
@@ -86,6 +90,10 @@ func splitShellCommand(command string) ([][]shellWord, []string) {
 	for i := 0; i < len(command); i++ {
 		ch := command[i]
 		if escaped {
+			if ch == '\n' {
+				escaped = false
+				continue
+			}
 			word.WriteByte(ch)
 			started = true
 			escaped = false
@@ -110,12 +118,25 @@ func splitShellCommand(command string) ([][]shellWord, []string) {
 			quoted = true
 			started = true
 		case '\\':
+			if i+1 < len(command) && command[i+1] == '\n' {
+				i++
+				continue
+			}
 			escaped = true
 			started = true
 		case '\n':
 			flushWord()
 			separators = append(separators, ";")
 			segments = append(segments, nil)
+		case '#':
+			if !started {
+				for i+1 < len(command) && command[i+1] != '\n' {
+					i++
+				}
+				continue
+			}
+			word.WriteByte(ch)
+			started = true
 		case ' ', '\t', '\r':
 			flushWord()
 		case ';', '|', '&':
@@ -199,6 +220,9 @@ func stripShellWrappers(words []shellWord) []shellWord {
 		switch path.Base(words[index].value) {
 		case "sudo":
 			index++
+			if index < len(words) && strings.HasPrefix(words[index].value, "-") {
+				return nil
+			}
 		case "time":
 			index++
 			index = skipWrapperOptions(words, index, timeValueOptions)

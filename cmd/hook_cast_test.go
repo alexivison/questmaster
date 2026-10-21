@@ -373,8 +373,8 @@ func TestHookCastSkipsAskUserToolDurationsInHarnessOrder(t *testing.T) {
 			events: []event{
 				{action: "agent_start"},
 				{after: time.Second, action: "waiting_for_user", data: map[string]interface{}{"prompt": "Continue?"}},
-				{after: 2 * time.Second, action: "tool_execution_start", data: map[string]interface{}{"toolName": "ask_user", "toolCallId": "call-1"}},
-				{after: 92 * time.Second, action: "tool_execution_end", data: map[string]interface{}{"toolName": "ask_user", "toolCallId": "call-1"}},
+				{after: 2 * time.Second, action: "tool_execution_start", data: map[string]interface{}{"tool_name": "ask_user", "tool_call_id": "call-1"}},
+				{after: 92 * time.Second, action: "tool_execution_end", data: map[string]interface{}{"tool_name": "ask_user", "tool_call_id": "call-1"}},
 			},
 		},
 	}

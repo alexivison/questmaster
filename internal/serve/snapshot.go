@@ -145,6 +145,20 @@ type RepoSnapshot struct {
 	Color    string `json:"color,omitempty"`
 }
 
+type toolTypicalDurationCache struct {
+	loaded bool
+	values map[state.ToolDurationKey]int64
+}
+
+func (s *Snapshotter) toolTypicalsForRunningTool(cache *toolTypicalDurationCache, running *state.RunningTool) map[state.ToolDurationKey]int64 {
+	if running == nil || cache.loaded {
+		return cache.values
+	}
+	cache.values, _ = state.LoadToolTypicalDurationsAt(s.StateRoot())
+	cache.loaded = true
+	return cache.values
+}
+
 func (s *Snapshotter) Invalidate(change Change) {
 	if contains(change.Topics, topicTracker) {
 		if change.Clock && len(change.SessionIDs) == 0 {
@@ -200,8 +214,7 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 	}
 	artifacts := s.globalArtifacts()
 	quests := s.globalQuests()
-	var typicals map[state.ToolDurationKey]int64
-	typicalsLoaded := false
+	var typicalCache toolTypicalDurationCache
 	next.Artifacts = artifactSnapshots(artifacts)
 	next.Quests = questSnapshots(quests)
 	changed := !artifactsEqual(cached.Artifacts, next.Artifacts) || !questsEqual(cached.Quests, next.Quests)
@@ -223,10 +236,11 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 		if err != nil || ss == nil {
 			return s.refreshTracker()
 		}
-		if next.Sessions[idx].Status == "active" && sessionactivity.FromState(ss).RunningTool != nil && !typicalsLoaded {
-			typicals, _ = state.LoadToolTypicalDurationsAt(s.StateRoot())
-			typicalsLoaded = true
+		var running *state.RunningTool
+		if next.Sessions[idx].Status == "active" {
+			running = sessionactivity.FromState(ss).RunningTool
 		}
+		typicals := s.toolTypicalsForRunningTool(&typicalCache, running)
 		s.applySessionState(&next.Sessions[idx], sessionID, ss, observedAt, typicals)
 		next.Sessions[idx].Artifacts = artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, sessionID, ""))
 		if !sameClockTrackerRow(before, next.Sessions[idx]) {
@@ -261,11 +275,12 @@ func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
 		observedAt = time.Now().UTC()
 	}
 	changed := false
+	var typicalCache toolTypicalDurationCache
 	for i := range next.Sessions {
 		if next.Sessions[i].Status != "active" {
 			continue
 		}
-		rowChanged, err := s.reconcileClockTrackerRow(&next.Sessions[i], observedAt, nil)
+		rowChanged, err := s.reconcileClockTrackerRow(&next.Sessions[i], observedAt, &typicalCache)
 		if err != nil {
 			return s.refreshTracker()
 		}
@@ -285,7 +300,7 @@ func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
 	return next, nil
 }
 
-func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt time.Time, typicals map[state.ToolDurationKey]int64) (bool, error) {
+func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt time.Time, typicalCache *toolTypicalDurationCache) (bool, error) {
 	// Only a "done" row can change on a clock tick (the done→idle fold after
 	// the grace period, applied by MarkSessionObserved). Every other state is
 	// driven by fsnotify, so skip the flock + state.json reads entirely.
@@ -301,6 +316,7 @@ func (s *Snapshotter) reconcileClockTrackerRow(row *SessionSnapshot, observedAt 
 	if ss == nil {
 		return false, nil
 	}
+	typicals := s.toolTypicalsForRunningTool(typicalCache, sessionactivity.FromState(ss).RunningTool)
 	s.applySessionState(row, row.ID, ss, observedAt, typicals)
 	if sameClockTrackerRow(before, *row) {
 		*row = before
@@ -483,8 +499,7 @@ func currentSessionSnapshot(current tracker.SessionInfo) *CurrentSession {
 }
 
 func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt time.Time, artifacts []state.Artifact) []SessionSnapshot {
-	var typicals map[state.ToolDurationKey]int64
-	typicalsLoaded := false
+	var typicalCache toolTypicalDurationCache
 	observations := make([]sessionactivity.Observation, 0, len(rows))
 	keys := make([]string, len(rows))
 	for i := range rows {
@@ -507,10 +522,11 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			}
 			result.State = "stopped"
 		}
-		if row.Status == "active" && result.RunningTool != nil && !typicalsLoaded {
-			typicals, _ = state.LoadToolTypicalDurationsAt(s.StateRoot())
-			typicalsLoaded = true
+		var running *state.RunningTool
+		if row.Status == "active" {
+			running = result.RunningTool
 		}
+		typicals := s.toolTypicalsForRunningTool(&typicalCache, running)
 		stateName := row.State
 		if row.Status != "active" {
 			stateName = "stopped"
