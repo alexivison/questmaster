@@ -1306,13 +1306,6 @@ struct TrackerNameplateBackground<Text: View>: View {
     }
 }
 
-extension TrackerStatusKind {
-    /// The active statuses light the portrait's ring and glow in their own colour. Idle, stopped and done draw none.
-    var drawsGlow: Bool {
-        self == .working || self == .blocked || self == .needsInput || self == .error
-    }
-}
-
 private extension View {
     /// Sizes a silhouette layer to its canvas plus the margin on every side, offset so the canvas origin stays put.
     func silhouetteFrame(_ canvas: CGSize) -> some View {
@@ -1537,8 +1530,8 @@ private struct TrackerSessionRowContent: View {
                 logoSide: role.logoSide
             )
             .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
-            if let shown = cast.shown {
-                TrackerCastRow(cast: shown, isFinishing: cast.phase.isFinishing, role: role)
+            if let bar = cast.bar {
+                TrackerCastRow(cast: bar.cast, isFinishing: bar.isFinishing, role: role)
                     .opacity(cast.isBarVisible ? 1 : 0)
                     .offset(x: TrackerCastLayout.squareX(role), y: TrackerCastLayout.top(role))
             }
@@ -1568,8 +1561,7 @@ private struct TrackerSessionRow: View {
     /// The cast row's state: what it shows, whether the row has opened for it, and whether the bar has faded in.
     struct CastRowState {
         var phase = TrackerCastPhase.hidden
-        /// The cast the bar draws: the phase's, kept while a hidden row fades and closes.
-        var shown: TrackerCast?
+        var bar: TrackerCastBar?
         var isOpen = false
         var isBarVisible = false
     }
@@ -1648,7 +1640,7 @@ private struct TrackerSessionRow: View {
     private func showCastAtOnce() {
         let phase = TrackerCastPhase.hidden.next(cast: session.cast, status: rendered.status.kind)
         guard phase.isOpen else { return }
-        cast = CastRowState(phase: phase, shown: phase.cast, isOpen: true, isBarVisible: true)
+        cast = CastRowState(phase: phase, bar: TrackerCastPhase.bar(after: phase, holding: nil), isOpen: true, isBarVisible: true)
     }
 
     /// Moves the cast row on as the payload's cast changes. A cast opens the row on the tracker's expand/collapse
@@ -1663,7 +1655,7 @@ private struct TrackerSessionRow: View {
         let rowAnimation: Animation? = reduceMotion ? nil : .snappy(duration: TrackerCastPhase.rowDuration)
         let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: TrackerCastPhase.barFadeDuration)
         cast.phase = next
-        cast.shown = next.cast ?? cast.shown
+        cast.bar = TrackerCastPhase.bar(after: next, holding: cast.bar)
         switch next {
         case .casting:
             let opensRow = !cast.isOpen
@@ -1689,7 +1681,7 @@ private struct TrackerSessionRow: View {
                 withAnimation(rowAnimation) {
                     cast.isOpen = false
                     cast.phase = .hidden
-                    cast.shown = nil
+                    cast.bar = nil
                 }
             }
         }

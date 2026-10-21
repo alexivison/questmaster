@@ -16,8 +16,8 @@ enum TrackerCastLayout {
 
     static let master = Metrics(side: 15, iconSide: 9, labelBaseline: 11.5)
     static let worker = Metrics(side: 12, iconSide: 8, labelBaseline: 10)
-    static let spacing: CGFloat = 5
-    static let squareToBar: CGFloat = 2
+    static let spacing = Token.Spacing.rowCompact
+    static let squareToBar = Token.Spacing.hairline
     static let masterBarRight: CGFloat = 250
 
     static func metrics(_ role: TrackerNameplateRole) -> Metrics { role.isWorker ? worker : master }
@@ -41,25 +41,13 @@ enum TrackerCastLayout {
         let row = spacing + metrics(role).side
         return showsCircles ? row + spacing - TrackerPlateDesign.collapsedCirclesDrop : row
     }
-
-    /// The SF Symbol for a tool, by the names the agents use for them.
-    static func symbol(for tool: String) -> String {
-        switch tool.lowercased() {
-        case "bash", "shell", "exec_command", "local_shell": "terminal"
-        case "edit", "write", "multiedit", "notebookedit", "apply_patch": "pencil"
-        case "read", "grep", "glob", "ls", "find": "doc.text.magnifyingglass"
-        case "webfetch", "websearch", "web_search": "globe"
-        case "task", "agent": "person.2"
-        default: "puzzlepiece.extension"
-        }
-    }
 }
 
 /// The cast row: the tool square with its icon, and the bar with its fill and the chat's label for the call. Both have
 /// 2pt corners and a 1pt line border over the panel colour. The fill runs in Core Animation, so the row redraws only
 /// when its cast changes.
 struct TrackerCastRow: View {
-    static let radius: CGFloat = 2
+    static let radius = Token.Radius.dot
     static let border: CGFloat = 1
 
     let cast: TrackerCast
@@ -82,7 +70,7 @@ struct TrackerCastRow: View {
         ZStack {
             RoundedRectangle(cornerRadius: Self.radius).fill(AppPalette.panel.swiftUI)
             RoundedRectangle(cornerRadius: Self.radius).strokeBorder(AppPalette.line.swiftUI, lineWidth: Self.border)
-            if let icon = TrackerCastIcon.image(symbol: TrackerCastLayout.symbol(for: cast.tool), metrics: metrics) {
+            if let icon = TrackerCastIcon.image(symbol: cast.symbol, metrics: metrics) {
                 Image(nsImage: icon)
             }
         }
@@ -117,8 +105,12 @@ struct TrackerCastRow: View {
 @MainActor
 enum TrackerCastIcon {
     private static var cache: [String: NSImage] = [:]
+    /// Each symbol's ink in its 64pt source, found once and shared by every square size.
+    private static var inks: [String: NSRect] = [:]
     private static let sourcePointSize: CGFloat = 64
     private static let probeScale: CGFloat = 2
+    /// The alpha byte above which a probe pixel counts as ink (2%).
+    private static let inkAlpha: UInt8 = 5
 
     static func image(symbol: String, metrics: TrackerCastLayout.Metrics) -> NSImage? {
         let key = "\(symbol)@\(metrics.side)"
@@ -126,7 +118,8 @@ enum TrackerCastIcon {
         let configuration = NSImage.SymbolConfiguration(pointSize: sourcePointSize, weight: .medium)
             .applying(NSImage.SymbolConfiguration(paletteColors: [AppPalette.muted]))
         guard let source = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration),
-              let ink = inkRect(of: source) else { return nil }
+              let ink = inks[symbol] ?? inkRect(of: source) else { return nil }
+        inks[symbol] = ink
         let side = metrics.side
         let longer = metrics.iconSide
         let shorterRaw = longer * min(ink.width, ink.height) / max(ink.width, ink.height)
@@ -154,9 +147,12 @@ enum TrackerCastIcon {
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
         image.draw(in: NSRect(origin: .zero, size: image.size))
         NSGraphicsContext.restoreGraphicsState()
+        guard let pixels = bitmap.bitmapData else { return nil }
+        let bytesPerRow = bitmap.bytesPerRow, bytesPerPixel = bitmap.bitsPerPixel / 8
         var minX = width, minY = height, maxX = -1, maxY = -1
         for y in 0..<height {
-            for x in 0..<width where (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.02 {
+            let row = pixels + y * bytesPerRow
+            for x in 0..<width where row[x * bytesPerPixel + 3] > inkAlpha {
                 minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
             }
         }
@@ -234,6 +230,9 @@ final class TrackerCastFillNSView: NSView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    /// Clicks go through to the row's tap gesture.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// The fill's animation while it runs, the overrun pulse, and the shimmer, nil or false when absent. Tests read
     /// them to check what animates when.

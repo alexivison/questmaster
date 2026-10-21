@@ -12,6 +12,9 @@ struct TrackerCastTests {
         labelIsTheChatsCallLabel()
         snippetPrefersNarrationOnOneLine()
         portraitRingMirrorsTheCast()
+        sameCallIgnoresTheLearnedDuration()
+        barHoldsItsFinishWhileTheRowCloses()
+        symbolsCoverEachAgentsTools()
         print("TrackerCastTests: all tests passed")
     }
 
@@ -123,6 +126,43 @@ struct TrackerCastTests {
         expect(TrackerPortraitRing.spinning(nil).cast == nil && TrackerPortraitRing.steady.cast == nil, "a ring with no tool carries no cast")
         expect(TrackerPortraitRing.spinning(nil).isWorking && TrackerPortraitRing.filling(bash).isWorking, "filling and spinning are working rings")
         expect(!TrackerPortraitRing.steady.isWorking && !TrackerPortraitRing.none.isWorking, "steady and no ring are not")
+    }
+
+    private static func sameCallIgnoresTheLearnedDuration() {
+        let started = Date(timeIntervalSince1970: 100)
+        let bash = TrackerCast(tool: "Bash", startedAt: started, typicalMS: 6000)
+        expect(bash.isSameCall(as: TrackerCast(tool: "Bash", startedAt: started, typicalMS: 9000)), "a new typical is the same call")
+        expect(TrackerCast(tool: "Bash", startedAt: started, typicalMS: 0).isSameCall(as: bash), "a duration learned mid-call is the same call")
+        expect(!bash.isSameCall(as: TrackerCast(tool: "Bash", startedAt: started.addingTimeInterval(1), typicalMS: 6000)), "a new start is a new call")
+        expect(!bash.isSameCall(as: TrackerCast(tool: "Read", startedAt: started, typicalMS: 6000)), "a new tool is a new call")
+        expect(!bash.isSameCall(as: nil), "no cast is not the same call")
+    }
+
+    private static func barHoldsItsFinishWhileTheRowCloses() {
+        let bash = TrackerCast(tool: "Bash", startedAt: Date(timeIntervalSince1970: 100), typicalMS: 6000)
+        let finishing = TrackerCastPhase.casting(bash).next(cast: nil, status: .working)
+        let finishBar = TrackerCastPhase.bar(after: finishing, holding: nil)
+        expect(finishBar == TrackerCastBar(cast: bash, isFinishing: true), "an ended cast's bar shows the finish")
+        let blocked = finishing.next(cast: nil, status: .blocked)
+        expect(blocked == .hidden, "going blocked during the finish hides the row")
+        expect(TrackerCastPhase.bar(after: blocked, holding: finishBar) == finishBar, "the closing row keeps the finish, not a fill")
+        expect(TrackerCastPhase.bar(after: .casting(bash), holding: finishBar) == TrackerCastBar(cast: bash, isFinishing: false), "a cast replaces the held bar")
+    }
+
+    private static func symbolsCoverEachAgentsTools() {
+        let table: [(String, String)] = [
+            ("Bash", "terminal"), ("exec_command", "terminal"), ("local_shell", "terminal"), ("shell", "terminal"),
+            ("Edit", "pencil"), ("MultiEdit", "pencil"), ("apply_patch", "pencil"), ("patch", "pencil"),
+            ("Read", "doc.text.magnifyingglass"), ("Grep", "doc.text.magnifyingglass"), ("list", "doc.text.magnifyingglass"), ("find", "doc.text.magnifyingglass"),
+            ("WebFetch", "globe"), ("web_search", "globe"),
+            ("Task", "person.2"), ("Agent", "person.2"),
+            ("TodoWrite", "checklist"), ("todoread", "checklist"), ("update_plan", "checklist"),
+            ("mcp__linear__save_issue", "puzzlepiece.extension"),
+        ]
+        for (tool, symbol) in table {
+            let got = TrackerCast(tool: tool, startedAt: Date(), typicalMS: 0).symbol
+            expect(got == symbol, "\(tool) should show \(symbol), got \(got)")
+        }
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

@@ -131,8 +131,8 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
 /// - when the cast it shows ends or changes, a full ring flashes like the cast bar's finish, then the new state shows.
 /// - when the session stops working, the ring exits: it sweeps on to full from wherever it is, flashes, and fades out.
 ///   Into a steady status (blocked, needs input, error) it crossfades instead.
-/// Reduce motion: no spin, pulse or flash; a spinning ring holds full and a filling one holds at its current fraction;
-/// the exit is a short fade.
+/// Reduce motion: no spin, pulse or flash; a spinning ring holds full, a filling one still fills (a progress fill is
+/// not the motion it targets, and the cast bar fills too); the exit is a short fade.
 /// Animations are built only when the inputs or the window change, and only while in a window.
 final class TrackerPortraitStatusNSView: NSView {
     static let spinPeriod: CFTimeInterval = 1.2
@@ -213,7 +213,7 @@ final class TrackerPortraitStatusNSView: NSView {
         let previous = applied?.ring ?? TrackerPortraitRing.none
         let exitStart = previous.isWorking && ring == .none ? currentSweep(of: previous) : nil
         let crossfades = previous.isWorking && ring == .steady && window != nil && !reduceMotion
-        let ended = shownCast != nil && shownCast != ring.cast && ring.isWorking
+        let ended = ring.isWorking && shownCast != nil && shownCast?.isSameCall(as: ring.cast) == false
         shownCast = ring.cast
         applied = (geometry, color, ring, finishColor, reduceMotion)
         if crossfades {
@@ -234,7 +234,11 @@ final class TrackerPortraitStatusNSView: NSView {
         super.viewDidMoveToWindow()
         updateContentsScale()
         rebuild(flashes: false)
+        if window == nil { stopExit() }
     }
+
+    /// Clicks go through to the row's tap gesture.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
@@ -308,9 +312,9 @@ final class TrackerPortraitStatusNSView: NSView {
             let elapsed = Date().timeIntervalSince(cast.startedAt)
             let fraction = CGFloat(TrackerCastFill.fraction(elapsed: elapsed, typical: typical))
             setSweep(fraction: fraction, headFraction: geometry.headFraction)
+            let timeToFull = TrackerCastFill.timeToFull(elapsed: elapsed, typical: typical)
+            animations.append { self.addFill(from: fraction, over: timeToFull, headFraction: geometry.headFraction) }
             if !applied.reduceMotion {
-                let timeToFull = TrackerCastFill.timeToFull(elapsed: elapsed, typical: typical)
-                animations.append { self.addFill(from: fraction, over: timeToFull, headFraction: geometry.headFraction) }
                 animations.append { self.addPulse(after: timeToFull) }
             }
         }

@@ -203,16 +203,11 @@ enum LogicSelfTests {
     }
 
     /// The ring in Core Animation: a steady ring is still, a spinning one turns, a filling one sweeps to full and then
-    /// pulses, an ended cast flashes; reduce motion stills all of them, and nothing animates outside a window.
+    /// pulses, an ended cast flashes, a new learned duration only re-targets the fill; reduce motion keeps the fill but
+    /// stills the rest, and nothing animates outside a window, nor keeps exiting once out of one.
     private static func testPortraitRingAnimatesByItsMode() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
         let geometry = TrackerPlateDesign.collapsedCircleStatus
-        for status in [TrackerStatusKind.working, .blocked, .needsInput, .error] {
-            try expect(status.drawsGlow, "\(status) should light the portrait's status")
-        }
-        for status in [TrackerStatusKind.idle, .done, .stopped] {
-            try expect(!status.drawsGlow, "\(status) should light nothing")
-        }
         let bash = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2), typicalMS: 6000)
 
         let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
@@ -239,8 +234,16 @@ enum LogicSelfTests {
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .steady, reduceMotion: false)
         try expect(status.flashAnimation == nil, "a ring with no cast to end should not flash")
 
+        let relearned = TrackerCast(tool: bash.tool, startedAt: bash.startedAt, typicalMS: 9000)
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(relearned), reduceMotion: false)
+        try expect(status.flashAnimation == nil && status.fillAnimation != nil, "a new typical for the same call should re-target the fill, not flash")
+        let unlearned = TrackerCast(tool: bash.tool, startedAt: bash.startedAt, typicalMS: 0)
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(unlearned), reduceMotion: false)
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
+        try expect(status.flashAnimation == nil && status.fillAnimation != nil, "a duration learned mid-call should start the fill, not flash")
+
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: true)
-        try expect(status.fillAnimation == nil && status.pulseAnimation == nil, "reduce motion should hold the arc at its fraction")
+        try expect(status.fillAnimation != nil && status.pulseAnimation == nil, "reduce motion should keep the fill, with no pulse")
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: true)
         try expect(status.spinAnimation == nil && status.flashAnimation == nil, "reduce motion should hold a full ring, with no flash")
         status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: true)
@@ -259,6 +262,12 @@ enum LogicSelfTests {
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
         status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
         try expect(status.layer?.animation(forKey: kCATransition) != nil, "working into a steady status should crossfade")
+
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: false)
+        try expect(status.exitAnimation != nil, "the exit should be playing")
+        window.contentView = nil
+        try expect(status.exitAnimation == nil, "a ring leaving its window should stop its exit")
     }
 
     private static func testTrackerBandPrecedence() throws {
@@ -583,7 +592,7 @@ enum LogicSelfTests {
     }
 
     /// The cast bar's inside runs in Core Animation: a learned duration gets one linear fill to full at the typical
-    /// duration and a pulse from then on (none under reduce motion), an unknown one a repeating shimmer (none under reduce
+    /// duration (kept under reduce motion) and a pulse from then on (none under reduce motion), an unknown one a repeating shimmer (none under reduce
     /// motion), a finishing cast neither, and nothing animates outside a window.
     private static func testCastFillAnimatesOnlyWhileCastingInAWindow() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -611,6 +620,8 @@ enum LogicSelfTests {
         try expect(fill.fillAnimation == nil && fill.pulseAnimation != nil, "an overrunning tool should hold full and pulse at once")
         fill.configure(cast: overrun, isFinishing: false, reduceMotion: true)
         try expect(fill.pulseAnimation == nil, "reduce motion should hold the full bar steady")
+        fill.configure(cast: bash, isFinishing: false, reduceMotion: true)
+        try expect(fill.fillAnimation != nil && fill.pulseAnimation == nil, "reduce motion should keep the fill, with no pulse")
 
         fill.configure(cast: mcp, isFinishing: false, reduceMotion: false)
         try expect(fill.isShimmering && fill.fillAnimation == nil && fill.pulseAnimation == nil, "an unknown duration should shimmer instead of filling")

@@ -39,6 +39,25 @@ public struct TrackerCast: Decodable, Equatable {
     public var label: String {
         WorkerChatLineBuilder.callLabel(name: tool)
     }
+
+    /// The SF Symbol for the tool, by the names Claude, Codex, OpenCode and Pi give their tools.
+    public var symbol: String {
+        switch tool.lowercased() {
+        case "bash", "shell", "exec_command", "local_shell": "terminal"
+        case "edit", "write", "multiedit", "notebookedit", "apply_patch", "patch": "pencil"
+        case "read", "grep", "glob", "ls", "list", "find": "doc.text.magnifyingglass"
+        case "webfetch", "websearch", "web_search": "globe"
+        case "task", "agent": "person.2"
+        case "todowrite", "todoread", "update_plan": "checklist"
+        default: "puzzlepiece.extension"
+        }
+    }
+
+    /// Whether this is the same tool call as `other`: the same tool started at the same time. A new learned duration
+    /// for the call only re-targets its fill.
+    public func isSameCall(as other: TrackerCast?) -> Bool {
+        tool == other?.tool && startedAt == other?.startedAt
+    }
 }
 
 /// How a cast bar fills: linearly to full at the tool's typical duration. A tool that runs past it holds the bar full,
@@ -87,6 +106,16 @@ public enum TrackerCastPhase: Equatable {
         }
     }
 
+    /// What the row's bar draws after moving to `next`: its cast and whether it is finishing. A row hidden mid-cast or
+    /// mid-finish keeps drawing `current` while it fades and closes, so a finish never snaps back to a fill.
+    public static func bar(after next: TrackerCastPhase, holding current: TrackerCastBar?) -> TrackerCastBar? {
+        switch next {
+        case .hidden: current
+        case .casting(let cast): TrackerCastBar(cast: cast, isFinishing: false)
+        case .finishing(let cast): TrackerCastBar(cast: cast, isFinishing: true)
+        }
+    }
+
     public var isOpen: Bool { self != .hidden }
     public var isFinishing: Bool {
         if case .finishing = self { return true }
@@ -131,5 +160,16 @@ public enum TrackerPortraitRing: Equatable {
         case .filling(let cast): cast
         case .none, .steady: nil
         }
+    }
+}
+
+/// The cast row's bar: the cast it draws and whether it shows that cast's finish.
+public struct TrackerCastBar: Equatable {
+    public var cast: TrackerCast
+    public var isFinishing: Bool
+
+    public init(cast: TrackerCast, isFinishing: Bool) {
+        self.cast = cast
+        self.isFinishing = isFinishing
     }
 }
