@@ -31,14 +31,14 @@ enum LogicSelfTests {
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
         ("testPlateAndCircleStatusDrawsOnlyForActiveStatuses", testPlateAndCircleStatusDrawsOnlyForActiveStatuses),
-        ("testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld", testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld),
         ("testPlateTimeColumnFitsRunsPastNinetyNineHours", testPlateTimeColumnFitsRunsPastNinetyNineHours),
+        ("testCastFillAnimatesOnlyWhileCastingInAWindow", testCastFillAnimatesOnlyWhileCastingInAWindow),
         ("testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting", testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting),
         ("testDurationClockHasOneTimerWhateverTheSubscribers", testDurationClockHasOneTimerWhateverTheSubscribers),
         ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
-        ("testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed", testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed),
+        ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
         ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
@@ -202,38 +202,72 @@ enum LogicSelfTests {
         try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
     }
 
-    private static func testPortraitStatusBreathesOnlyWhileActiveAndMotionAllowed() throws {
+    /// The ring in Core Animation: a steady ring is still, a spinning one turns, a filling one sweeps to full and then
+    /// pulses, an ended cast flashes, a new learned duration only re-targets the fill; reduce motion keeps the fill but
+    /// stills the rest, and nothing animates outside a window, nor keeps exiting once out of one.
+    private static func testPortraitRingAnimatesByItsMode() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
         let geometry = TrackerPlateDesign.collapsedCircleStatus
-        for status in [TrackerStatusKind.working, .blocked, .needsInput, .error] {
-            try expect(status.drawsGlow, "\(status) should light the portrait's status")
-        }
-        for status in [TrackerStatusKind.idle, .done, .stopped] {
-            try expect(!status.drawsGlow, "\(status) should light nothing")
-        }
+        let bash = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2), typicalMS: 6000)
+
+        let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        outside.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
+        try expect(outside.fillAnimation == nil && outside.pulseAnimation == nil, "a ring outside a window should not animate")
 
         let status = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         window.contentView = status
-        status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
-        let breaths = status.breathAnimations
-        try expect(breaths.count == 2, "the ring and the glow should each breathe in a window, got \(breaths.count)")
-        for breath in breaths {
-            let low = (breath.fromValue as? Float) ?? -1
-            try expect(low == TrackerPortraitStatusNSView.breathLowFraction && low == 0.4, "the breath should dip to 0.4 of the peak, got \(low)")
-            try expect((breath.toValue as? Float) == 1, "the breath should rise to the peak")
-            try expect(breath.duration == TrackerPortraitStatusNSView.breathCycle / 2 && breath.autoreverses, "the breath should take 2s up and down")
-        }
-        try expect(Set(breaths.map(\.beginTime)).count == 1, "the ring and the glow should breathe from one origin")
-        try expect(status.restingOpacities == [1, 1], "the layers should rest at their peaks")
+        status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
+        try expect(status.fillAnimation == nil && status.spinAnimation == nil && status.pulseAnimation == nil, "a steady ring should not move")
 
-        status.configure(geometry: geometry, color: AppPalette.accent, breathes: false)
-        try expect(status.breathAnimations.isEmpty && status.restingOpacities == [1, 1], "a held status should sit at its peak, with no animation")
-        status.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
-        try expect(status.breathAnimations.count == 2, "a status allowed to move again should breathe")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        guard let spin = status.spinAnimation else { throw TestFailure("working with no tool should spin the ring") }
+        try expect(spin.duration == TrackerPortraitStatusNSView.spinPeriod && spin.repeatCount == .infinity, "the spinner should orbit once every 1.2s, for good")
 
-        let outside = TrackerPortraitStatusNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
-        outside.configure(geometry: geometry, color: AppPalette.accent, breathes: true)
-        try expect(outside.breathAnimations.isEmpty, "a status outside a window should not breathe")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
+        guard let fill = status.fillAnimation, let pulse = status.pulseAnimation else { throw TestFailure("a cast with a learned duration should fill the ring, then pulse") }
+        try expect(abs(fill.duration - 4) < 0.1 && (fill.toValue as? CGFloat) == 1, "2s into a 6s tool the ring should fill to full in 4s, got \(fill.duration)")
+        try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the ring is full")
+        try expect(status.spinAnimation == nil, "a filling ring should not spin")
+
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        try expect(status.flashAnimation != nil && status.spinAnimation != nil, "an ended cast should flash, then spin while still working")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .steady, reduceMotion: false)
+        try expect(status.flashAnimation == nil, "a ring with no cast to end should not flash")
+
+        let relearned = TrackerCast(tool: bash.tool, startedAt: bash.startedAt, typicalMS: 9000)
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(relearned), reduceMotion: false)
+        try expect(status.flashAnimation == nil && status.fillAnimation != nil, "a new typical for the same call should re-target the fill, not flash")
+        let unlearned = TrackerCast(tool: bash.tool, startedAt: bash.startedAt, typicalMS: 0)
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(unlearned), reduceMotion: false)
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
+        try expect(status.flashAnimation == nil && status.fillAnimation != nil, "a duration learned mid-call should start the fill, not flash")
+
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: true)
+        try expect(status.fillAnimation != nil && status.pulseAnimation == nil, "reduce motion should keep the fill, with no pulse")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: true)
+        try expect(status.spinAnimation == nil && status.flashAnimation == nil, "reduce motion should hold a full ring, with no flash")
+        status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: true)
+        try expect((status.exitAnimation as? CABasicAnimation)?.keyPath == "opacity", "under reduce motion the exit should only fade")
+
+        // Leaving work: the ring completes, flashes and fades into no ring; into a steady status it crossfades.
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        try expect(status.exitAnimation == nil, "a working ring should not be exiting")
+        status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: false)
+        guard let exit = status.exitAnimation as? CAKeyframeAnimation else { throw TestFailure("a ring that stops working should play its exit") }
+        let total = TrackerPortraitStatusNSView.exitSweep + TrackerCastPhase.flashDuration + TrackerPortraitStatusNSView.exitFade
+        try expect(abs(exit.duration - total) < 0.01, "the exit should sweep, flash and fade over \(total)s, got \(exit.duration)")
+        try expect(status.spinAnimation == nil, "the spinner should stop as the ring exits")
+        status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
+        try expect(status.exitAnimation == nil, "a ring with nothing to exit from should not play the exit")
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
+        try expect(status.layer?.animation(forKey: kCATransition) != nil, "working into a steady status should crossfade")
+
+        status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: false)
+        try expect(status.exitAnimation != nil, "the exit should be playing")
+        window.contentView = nil
+        try expect(status.exitAnimation == nil, "a ring leaving its window should stop its exit")
     }
 
     private static func testTrackerBandPrecedence() throws {
@@ -255,8 +289,8 @@ enum LogicSelfTests {
         try expect(held.layer?.opacity == TrackerGlowNSView.bandOpacity, "a band should hold its opacity")
     }
 
-    /// The disc filters: erode 4 on the master's 3-stroke disc, 3 on the worker's 2-stroke one and 2.5 on the circle's
-    /// 1.5-stroke one (the stroke and a point); dilate 1, blur 2.5, opacity 0.15.
+    /// The status geometry: a ring 2 points inside each disc's stroke (1.5 on the collapsed circle), its inner edge on a
+    /// whole pixel; a glow dilated 1, blurred 1.5, at 0.15 opacity.
     private static func testPortraitStatusFollowsTheFilterValues() throws {
         func expectClose(_ value: CGFloat, _ expected: CGFloat, _ name: String, tolerance: CGFloat = 0.01) throws {
             try expect(abs(value - expected) < tolerance, "\(name) should be \(expected), got \(value)")
@@ -264,15 +298,17 @@ enum LogicSelfTests {
         let master = TrackerPlateDesign.topLevel.statusGeometry
         let worker = TrackerPlateDesign.worker.statusGeometry
         let circle = TrackerPlateDesign.collapsedCircleStatus
-        for (name, geometry, erode, outer) in [("master", master, 4, 25), ("worker", worker, 3, 20), ("circle", circle, 2.5, 12.5)] as [(String, TrackerPortraitStatusGeometry, CGFloat, CGFloat)] {
+        for (name, geometry, visible, outer) in [("master", master, 2, 25), ("worker", worker, 2, 20), ("circle", circle, 1.5, 12.5)] as [(String, TrackerPortraitStatusGeometry, CGFloat, CGFloat)] {
             try expectClose(geometry.outerRadius, outer, "\(name) disc outer radius")
-            try expectClose(geometry.outerRadius - geometry.ringInnerRadius, erode, "\(name) erode")
-            // The ring shows one point inside the stroke's inner edge, and runs under the stroke.
-            try expectClose(geometry.pathRadius - geometry.stroke / 2 - geometry.ringInnerRadius, 1, "\(name) visible ring width")
+            // The ring shows 2 points inside the stroke's inner edge (1.5 on the circle, whose centre is on a half
+            // point), and runs under the stroke. Its inner edge sits a whole number of points from the centre's pixel.
+            try expectClose(geometry.pathRadius - geometry.stroke / 2 - geometry.ringInnerRadius, visible, "\(name) visible ring width")
+            let innerEdge = geometry.center.x - geometry.ringInnerRadius
+            try expect(abs(innerEdge - innerEdge.rounded()) < 0.001, "\(name) ring's inner edge should land on a whole pixel, got \(innerEdge)")
             try expectClose(geometry.ringLineWidth, geometry.pathRadius - geometry.ringInnerRadius, "\(name) ring stroke width")
             try expectClose(geometry.glowOpacity(at: outer - 0.01), 0, "\(name) glow inside the disc")
             let edge = geometry.glowOpacity(at: outer)
-            try expect(edge > 0.09 && edge < 0.11, "\(name) glow at the disc's edge should be about 0.098, got \(edge)")
+            try expect(edge > 0.10 && edge < 0.12, "\(name) glow at the disc's edge should be about 0.112, got \(edge)")
             try expect(geometry.glowOpacity(at: outer + 1) < edge && geometry.glowOpacity(at: outer + 1) > 0.15 * 0.45, "\(name) glow should fall to half the peak by the dilated edge")
             try expect(geometry.glowOpacity(at: geometry.reach) < 0.001, "\(name) glow should fade out within its reach, got \(geometry.glowOpacity(at: geometry.reach))")
             try expect(geometry.glowOpacity(at: 0) == 0 && geometry.glowOpacity(at: 3 * outer) < 0.0001, "\(name) glow should be nothing in the disc and far away")
@@ -293,7 +329,7 @@ enum LogicSelfTests {
             let frame = geometry.frame
             try expect([frame.minX, frame.minY, frame.width, frame.height].allSatisfy { $0 == $0.rounded() }, "a layer for a disc at \(center) should sit on whole points, got \(frame)")
         }
-        try expect(TrackerPortraitStatusGeometry.glowPeakOpacity == 0.15 && TrackerPortraitStatusGeometry.glowSigma == 2.5 && TrackerPortraitStatusGeometry.glowSpread == 1, "the glow should be the filter's")
+        try expect(TrackerPortraitStatusGeometry.glowPeakOpacity == 0.15 && TrackerPortraitStatusGeometry.glowSigma == 1.5 && TrackerPortraitStatusGeometry.glowSpread == 1, "the glow should be tight")
 
         // The layers sit on the discs: the master's centre is the canvas', the worker's the list's worker indent.
         try expectClose(master.center.x, 27, "master status centre x")
@@ -304,12 +340,11 @@ enum LogicSelfTests {
         try expectClose(TrackerPlateDesign.collapsedCircleStroke, 1.5, "circle stroke")
     }
 
-    /// Hosted views: a plate's status view exists exactly while its status is active (selection does not hide it), is
-    /// configured not to breathe under hover, and a collapsed row has one for each active worker only. Each view is
-    /// hosted beside a control status; the control and every status view being configured proves the same update pass
-    /// mounted the subject too, so a missing status view is a real absence and not a slow host. Nothing here reads the
-    /// window or an animation, which depend on the host's display and its reduce-motion setting; the breath's lifecycle
-    /// is tested on the view itself, and its decision as a pure function.
+    /// Hosted views: a plate's status view exists exactly while its status is active (selection and hover do not hide
+    /// it), and a collapsed row has one for each active worker only. Each view is hosted beside a control status; the
+    /// control and every status view being configured proves the same update pass mounted the subject too, so a missing
+    /// status view is a real absence and not a slow host. Nothing here reads an animation, which depends on the host's
+    /// display and its reduce-motion setting; the ring's animations are tested on the view itself, and its mode in Core.
     private static func testPlateAndCircleStatusDrawsOnlyForActiveStatuses() throws {
         let controlGeometry = TrackerPortraitStatusGeometry(center: .zero, pathRadius: 40, stroke: 1)
         func statusViews(in view: NSView) -> [TrackerPortraitStatusNSView] {
@@ -321,7 +356,7 @@ enum LogicSelfTests {
         func host<V: View>(_ subject: V, _ description: String) throws -> (subject: [TrackerPortraitStatusNSView], control: TrackerPortraitStatusNSView) {
             let hosting = NSHostingView(rootView: VStack {
                 subject
-                TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent)
+                TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent, ring: .spinning(nil))
             })
             hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
             let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 320, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -348,17 +383,17 @@ enum LogicSelfTests {
         func plate(status: NSColor?, selected: Bool = false, hovered: Bool = false) -> some View {
             TrackerNameplateBackground(
                 role: .master, color: AppPalette.accent, selected: selected, hovered: hovered, isRecoloring: false,
-                isWorking: false, statusColor: status, text: EmptyView()
+                statusColor: status, ring: status == nil ? .none : .spinning(nil), text: EmptyView()
             )
         }
         let working = AppPalette.trackerWorking
         try expect(try host(plate(status: nil), "an idle plate").subject.isEmpty, "a plate with no active status should draw no status")
         let resting = try host(plate(status: working), "a working plate")
         try expect(resting.subject.count == 1, "a working plate should draw one status, got \(resting.subject.count)")
-        try expect(resting.subject[0].isAllowedToBreathe == resting.control.isAllowedToBreathe, "a working plate should breathe whenever motion is allowed")
+        try expect(resting.subject[0].ringMode == .spinning(nil), "a working plate with no tool should spin its ring")
         try expect(try host(plate(status: working, selected: true), "a selected working plate").subject.count == 1, "selection should not hide the status")
         let hovered = try host(plate(status: working, hovered: true), "a hovered working plate")
-        try expect(hovered.subject.count == 1 && !hovered.subject[0].isAllowedToBreathe, "a hovered plate's status should be configured to hold at its peak")
+        try expect(hovered.subject.count == 1, "hover should not hide the status")
 
         func worker(_ id: String, state: String) -> TrackerRenderedSession {
             let session = TrackerSession(id: id, title: id, repoName: "Preview", agent: "claude", role: "worker", state: state)
@@ -366,19 +401,8 @@ enum LogicSelfTests {
         }
         let states = ["working", "idle", "blocked", "done", "needs-input", "stopped", "error"]
         let row = TrackerWorkerSummaryRow(workers: states.enumerated().map { worker("w\($0.offset)", state: $0.element) })
-        let circles = try host(row, "a collapsed row").subject
-        try expect(circles.count == 4, "a collapsed row should draw a status for each active worker only, got \(circles.count)")
-    }
-
-    private static func testPortraitStatusBreathesOnlyWhenMotionIsAllowedAndNotHeld() throws {
-        for reduceMotion in [false, true] {
-            for holdsPeak in [false, true] {
-                try expect(
-                    TrackerPortraitStatus.breathes(reduceMotion: reduceMotion, holdsPeak: holdsPeak) == (!reduceMotion && !holdsPeak),
-                    "a status should breathe only with motion allowed and no hold (reduce motion \(reduceMotion), hold \(holdsPeak))"
-                )
-            }
-        }
+        let circles = try host(row, "a collapsed row").subject.filter { $0.ringMode != TrackerPortraitRing.none }
+        try expect(circles.count == 4, "a collapsed row should draw a ring for each active worker only, got \(circles.count)")
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
@@ -393,10 +417,10 @@ enum LogicSelfTests {
         let shift = TrackerPlateDesign.workerShift
 
         // Sizes, from the SVGs: each canvas starts 2 above its row, which is the disc's height and the plate's width.
-        try expectClose(TrackerPlateDesign.topLevel.size.width, 278, "master canvas width")
+        try expectClose(TrackerPlateDesign.topLevel.size.width, 261, "master canvas width")
         try expectClose(TrackerPlateDesign.topLevel.size.height, 55, "master canvas height")
         try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
-        try expectClose(TrackerPlateDesign.topLevelSize.width, 277, "master row width")
+        try expectClose(TrackerPlateDesign.topLevelSize.width, 260, "master row width, 260 by decision")
         try expectClose(TrackerPlateDesign.artInset, 2, "canvas start above its row")
         try expectClose(TrackerPlateDesign.worker.size.width, 233 + shift - 2, "worker canvas width")
         try expectClose(TrackerPlateDesign.worker.size.height, 44, "worker canvas height")
@@ -406,10 +430,10 @@ enum LogicSelfTests {
         // The paths are the SVGs', moved onto whole points: the master's back by the SVG's slip, the worker's to the
         // list's worker indent.
         let master = TrackerPlateDesign.topLevel
-        try expectRect(master.tab ?? Path(), 27, 3.5, 272, 15.5, "master project tab")
-        try expectRect(master.body, 27, 15.5, 277, 50.5, "master body")
-        try expectRect(master.titleStrip, 30, 17.5, 275, 36.5, "master title strip")
-        try expectRect(master.bar ?? Path(), 30, 38.5, 275, 48.5, "master project bar")
+        try expectRect(master.tab ?? Path(), 27, 3.5, 255, 15.5, "master project tab")
+        try expectRect(master.body, 27, 15.5, 260, 50.5, "master body")
+        try expectRect(master.titleStrip, 30, 17.5, 258, 36.5, "master title strip")
+        try expectRect(master.bar ?? Path(), 30, 38.5, 258, 48.5, "master project bar")
         try expectRect(master.disc, 3.5, 3.5, 50.5, 50.5, "master disc")
         try expectRect(master.discEdge, 2, 2, 52, 52, "master disc edge")
         try expectClose(master.discStroke, 3, "master disc stroke")
@@ -452,26 +476,23 @@ enum LogicSelfTests {
         }
 
         // The list's gaps are the user's, each a whole number of points, from the visible bottom of the item above.
-        try expectClose(TrackerListMetrics.sectionSpacing, 20, "gap between project groups")
-        try expectClose(TrackerListMetrics.itemSpacing, 20, "gap between top-level sessions")
-        try expectClose(TrackerListMetrics.masterBlockSpacing, 10, "gap between a master and its workers, and between workers")
-        try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: true), 10, "gap after a session's workers or its collapsed row")
-        try expectClose(TrackerListMetrics.gap(afterSessionWithWorkers: false), 20, "gap after a session with no workers")
+        try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
         try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the panel's and its band's")
         try expectClose(SelectedSessionPanel.canvasSize.width, TrackerPlateDesign.topLevelSize.width, "selected-session panel width, the master plate's")
         try expectClose(SelectedSessionPanel.canvasSize.height, 76, "selected-session panel height")
-        try expectClose(TrackerListMetrics.selectedPanelGap, 37, "gap between the selected-session panel and the first disc")
+        try expectClose(TrackerListMetrics.selectedPanelGap, 40, "gap between the selected-session panel and the first disc")
 
         // The collapsed workers hang a point below the disc's bottom edge, 40 right of its left edge, and fill the plate's width.
         let discLeft = TrackerNameplateRole.master.portraitOrigin.x
         try expectClose(TrackerNameplateRole.circlesX - discLeft, 40, "first collapsed circle's offset from the disc's left edge")
         try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
         try expectClose(TrackerPlateDesign.collapsedCircleGap, 5, "gap between collapsed circles")
-        try expect(TrackerWorkerSummary.maxCircles == 8, "a master's collapsed row should hold eight circles, got \(TrackerWorkerSummary.maxCircles)")
+        try expect(TrackerWorkerSummary.maxCircles == 7, "a master's 260pt collapsed row should hold seven circles, got \(TrackerWorkerSummary.maxCircles)")
         let rowRight = TrackerNameplateRole.circlesX
             + CGFloat(TrackerWorkerSummary.maxCircles) * TrackerPlateDesign.collapsedCircleDiameter
             + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
-        try expectClose(rowRight, TrackerPlateDesign.topLevelSize.width, "the last collapsed circle's right edge against the plate's")
+        try expect(rowRight <= TrackerPlateDesign.topLevelSize.width && rowRight + TrackerPlateDesign.collapsedCircleGap + TrackerPlateDesign.collapsedCircleDiameter > TrackerPlateDesign.topLevelSize.width,
+                   "the collapsed row should hold as many circles as fit inside the plate, ending at \(rowRight)")
         try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 76, "master row height with collapsed circles")
         try expectClose(TrackerNameplateRole.worker.rowHeight(showsCircles: false), 40, "worker row height")
 
@@ -570,6 +591,46 @@ enum LogicSelfTests {
         try expect(waitUntil { !clock.isRunning }, "the clock should stop when the live times go")
     }
 
+    /// The cast bar's inside runs in Core Animation: a learned duration gets one linear fill to full at the typical
+    /// duration (kept under reduce motion) and a pulse from then on (none under reduce motion), an unknown one a repeating shimmer (none under reduce
+    /// motion), a finishing cast neither, and nothing animates outside a window.
+    private static func testCastFillAnimatesOnlyWhileCastingInAWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+        let started = Date().addingTimeInterval(-2)
+        let bash = TrackerCast(tool: "Bash", startedAt: started, typicalMS: 6000)
+        let overrun = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-9), typicalMS: 6000)
+        let mcp = TrackerCast(tool: "mcp__linear__save_issue", startedAt: started, typicalMS: 0)
+
+        let outside = TrackerCastFillNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 13))
+        outside.configure(cast: bash, isFinishing: false, reduceMotion: false)
+        try expect(outside.fillAnimation == nil && outside.pulseAnimation == nil, "a bar outside a window should not animate")
+
+        let fill = TrackerCastFillNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 13))
+        window.contentView = fill
+        fill.configure(cast: bash, isFinishing: false, reduceMotion: false)
+        guard let animation = fill.fillAnimation, let pulse = fill.pulseAnimation else {
+            throw TestFailure("a cast with a learned duration should fill, then pulse")
+        }
+        try expect(abs(animation.duration - 4) < 0.1, "2s into a 6s tool the fill should run 4s to full, got \(animation.duration)")
+        try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the bar is full")
+        try expect(pulse.repeatCount == .infinity && pulse.autoreverses, "the pulse should breathe until the tool ends")
+        try expect(!fill.isShimmering, "a learned duration should not shimmer")
+
+        fill.configure(cast: overrun, isFinishing: false, reduceMotion: false)
+        try expect(fill.fillAnimation == nil && fill.pulseAnimation != nil, "an overrunning tool should hold full and pulse at once")
+        fill.configure(cast: overrun, isFinishing: false, reduceMotion: true)
+        try expect(fill.pulseAnimation == nil, "reduce motion should hold the full bar steady")
+        fill.configure(cast: bash, isFinishing: false, reduceMotion: true)
+        try expect(fill.fillAnimation != nil && fill.pulseAnimation == nil, "reduce motion should keep the fill, with no pulse")
+
+        fill.configure(cast: mcp, isFinishing: false, reduceMotion: false)
+        try expect(fill.isShimmering && fill.fillAnimation == nil && fill.pulseAnimation == nil, "an unknown duration should shimmer instead of filling")
+        fill.configure(cast: mcp, isFinishing: false, reduceMotion: true)
+        try expect(!fill.isShimmering, "reduce motion should stop the shimmer")
+        fill.configure(cast: bash, isFinishing: true, reduceMotion: false)
+        try expect(fill.fillAnimation == nil && fill.pulseAnimation == nil && !fill.isShimmering, "a finishing cast should hold full and flash, nothing else")
+    }
+
     private static func testPlateTimeColumnFitsRunsPastNinetyNineHours() throws {
         let hundredHours = 100 * 3600 * 1000
         let usual = TrackerSession.unitTime(TrackerSession.formatElapsed(80_000) ?? "")
@@ -612,16 +673,16 @@ enum LogicSelfTests {
             throw TestFailure("the panel should render to an image")
         }
         let bitmap = NSBitmapImageRep(cgImage: image)
-        try expect(bitmap.pixelsWide == 554 && bitmap.pixelsHigh == 152, "the panel should render 277 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        try expect(bitmap.pixelsWide == 520 && bitmap.pixelsHigh == 152, "the panel should render 260 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
         func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
             bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.usingColorSpace(.sRGB)
         }
-        guard let arc = pixel(275.5, 24.5), let outside = pixel(276.5, 22) else {
+        guard let arc = pixel(258.5, 24.5), let outside = pixel(259.5, 22) else {
             throw TestFailure("the corner pixels should be readable")
         }
         try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
         try expect(arc.alphaComponent > 0.9 && arc.redComponent > 0.22, "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
-        guard let bottomArc = pixel(275.5, 65) else {
+        guard let bottomArc = pixel(258.5, 65) else {
             throw TestFailure("the bottom-right pixel should be readable")
         }
         try expect(bottomArc.alphaComponent > 0.9 && bottomArc.redComponent > 0.22, "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")

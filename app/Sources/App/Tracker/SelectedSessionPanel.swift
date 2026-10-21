@@ -37,8 +37,8 @@ struct SelectedSessionPanel: View {
     let content: SelectedSessionPanelContent
     let onCopyID: (String) -> Void
 
-    /// The SVG's 299 cut to 277, so the panel's right edge lines up with the master plates'.
-    static let canvasSize = CGSize(width: 277, height: 76)
+    /// The SVG's 299 cut to 260 (2026-10-21), so the panel's right edge lines up with the master plates'.
+    static let canvasSize = CGSize(width: 260, height: 76)
     /// The logo's own canvas, drawn at that size so it is never stretched. Past the panel's edge it is clear.
     private static let logoSize = CGSize(width: 289, height: 76)
     private static let logo = AppSymbolStyle.resourceImage(
@@ -51,7 +51,7 @@ struct SelectedSessionPanel: View {
     /// long title truncates instead of running under the plate's right edge.
     private static let idX: CGFloat = 78
     private static let textX: CGFloat = 79.5
-    private static let textRightEdge: CGFloat = 269
+    private static let textRightEdge: CGFloat = 252
     private static let idBaseline: CGFloat = 19
     private static let titleBaseline: CGFloat = 42.5
     private static let projectBaseline: CGFloat = 64.5
@@ -141,7 +141,7 @@ struct SelectedSessionPanel: View {
     }
 }
 
-/// The selected-session panel's shapes from `Selected Session.svg`, in the panel's own 277 x 76 coordinates.
+/// The selected-session panel's shapes from `Selected Session.svg`, in the panel's own 260 x 76 coordinates.
 private enum PanelDesign {
     static let discCenter = CGPoint(x: 38, y: 38)
     static let discRadius: CGFloat = 32
