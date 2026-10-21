@@ -271,7 +271,14 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			lastKind = pane.LastKind
 		}
 		if patch.clearTool && patch.kind != "tool.execute.after" {
-			state.ClearRunningTools(&pane)
+			if patch.kind == "message.part.updated" {
+				pane.Tool = ""
+				if len(pane.RunningTools) > 0 {
+					pane.Tool = pane.RunningTools[len(pane.RunningTools)-1].Tool
+				}
+			} else {
+				state.ClearRunningTools(&pane)
+			}
 		}
 		if patch.kind == "tool.execute.before" && !preservePermissionBlock {
 			state.StartRunningTool(&pane, patch.tool, patch.toolCallID, patch.commandKey, patch.occurredAt)
@@ -285,7 +292,7 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		if setState != "" {
 			pane.State = setState
 		}
-		if prev.State != "blocked" && pane.State == "blocked" {
+		if pane.State == "blocked" {
 			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
@@ -294,7 +301,7 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		}
 		if setTool != "" && patch.kind != "tool.execute.after" {
 			pane.Tool = setTool
-		} else if clearTool && patch.kind != "tool.execute.after" {
+		} else if clearTool && patch.kind != "tool.execute.after" && patch.kind != "message.part.updated" {
 			pane.Tool = ""
 		}
 		if patch.hasRecent {
@@ -455,64 +462,21 @@ func openCodeStatusType(props map[string]interface{}) string {
 }
 
 func openCodeToolLabel(event openCodeEvent) string {
-	props := event.Properties
-	for _, key := range []string{"tool", "name"} {
-		if s, ok := props[key].(string); ok && strings.TrimSpace(s) != "" {
-			return truncatePromptLine(s)
-		}
-	}
-	for _, key := range []string{"call", "toolCall"} {
-		obj, ok := props[key].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		for _, nested := range []string{"tool", "name"} {
-			if s, ok := obj[nested].(string); ok && strings.TrimSpace(s) != "" {
-				return truncatePromptLine(s)
-			}
-		}
+	if tool, ok := event.Properties["tool"].(string); ok && strings.TrimSpace(tool) != "" {
+		return truncatePromptLine(tool)
 	}
 	return "tool"
 }
 
 func openCodeToolCallID(event openCodeEvent) string {
-	for _, key := range []string{"callID", "callId", "call_id"} {
-		if id, ok := event.Properties[key].(string); ok && strings.TrimSpace(id) != "" {
-			return strings.TrimSpace(id)
-		}
-	}
-	for _, key := range []string{"call", "toolCall"} {
-		obj, ok := event.Properties[key].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		for _, nested := range []string{"id", "callID", "callId", "call_id"} {
-			if id, ok := obj[nested].(string); ok && strings.TrimSpace(id) != "" {
-				return strings.TrimSpace(id)
-			}
-		}
+	if id, ok := event.Properties["callID"].(string); ok {
+		return strings.TrimSpace(id)
 	}
 	return ""
 }
 
 func openCodeToolInput(event openCodeEvent) interface{} {
-	for _, source := range []map[string]interface{}{event.Properties, openCodeNestedToolCall(event.Properties)} {
-		for _, key := range []string{"input", "args"} {
-			if input, ok := source[key]; ok {
-				return input
-			}
-		}
-	}
-	return nil
-}
-
-func openCodeNestedToolCall(properties map[string]interface{}) map[string]interface{} {
-	for _, key := range []string{"call", "toolCall"} {
-		if call, ok := properties[key].(map[string]interface{}); ok {
-			return call
-		}
-	}
-	return nil
+	return event.Properties["args"]
 }
 
 func openCodePermissionLabel(event openCodeEvent) string {

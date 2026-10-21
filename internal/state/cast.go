@@ -36,8 +36,7 @@ type ToolDurationKey struct {
 }
 
 type toolDurationFile struct {
-	Entries []toolDurationEntry           `json:"entries,omitempty"`
-	Samples map[string]map[string][]int64 `json:"samples,omitempty"`
+	Entries []toolDurationEntry `json:"entries,omitempty"`
 }
 
 type toolDurationEntry struct {
@@ -47,6 +46,8 @@ type toolDurationEntry struct {
 	Samples   []int64   `json:"samples"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
+
+var errToolDurationDecode = errors.New("decode tool durations")
 
 func StartRunningTool(pane *PaneState, tool, callID, command string, startedAt time.Time) {
 	if pane == nil || tool == "" || startedAt.IsZero() {
@@ -165,20 +166,16 @@ func RecordToolDurationAt(root, agent, tool, command string, duration time.Durat
 		command = ""
 	}
 	ms := duration.Milliseconds()
-	if ms < 1 {
-		return nil
-	}
 	return withToolDurationLock(root, func() error {
 		file, err := readToolDurationFile(root)
-		if err != nil {
+		if errors.Is(err, errToolDurationDecode) {
+			file = toolDurationFile{}
+		} else if err != nil {
 			return err
 		}
 		keys := []ToolDurationKey{{Agent: agent, Tool: tool}}
 		if command != "" {
 			keys = append(keys, ToolDurationKey{Agent: agent, Tool: tool, Command: command})
-		}
-		for len(file.Entries) > maxToolDurationPairs {
-			file.Entries = removeToolDurationEntry(file.Entries, oldestToolDurationEntry(file.Entries, keys...))
 		}
 		missing := 0
 		for _, key := range keys {
@@ -204,7 +201,6 @@ func RecordToolDurationAt(root, agent, tool, command string, duration time.Durat
 			entry.UpdatedAt = updatedAt
 			file.Entries[index] = entry
 		}
-		file.Samples = nil
 		return writeToolDurationFileLocked(root, file)
 	})
 }
@@ -235,16 +231,8 @@ func readToolDurationFile(root string) (toolDurationFile, error) {
 	}
 	var file toolDurationFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return toolDurationFile{}, fmt.Errorf("decode tool durations: %w", err)
+		return toolDurationFile{}, fmt.Errorf("%w: %v", errToolDurationDecode, err)
 	}
-	if len(file.Entries) == 0 {
-		for agent, tools := range file.Samples {
-			for tool, values := range tools {
-				file.Entries = append(file.Entries, toolDurationEntry{Agent: agent, Tool: tool, Samples: append([]int64(nil), values...)})
-			}
-		}
-	}
-	file.Samples = nil
 	return file, nil
 }
 

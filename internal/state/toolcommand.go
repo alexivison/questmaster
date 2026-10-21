@@ -14,10 +14,10 @@ const maxToolCommandInputBytes = 4096
 const maxToolCommandKeyBytes = 80
 
 var (
-	sudoValueOptions    = map[string]bool{"-u": true, "--user": true, "-g": true, "--group": true, "-h": true, "--host": true, "-p": true, "--prompt": true, "-C": true, "--close-from": true, "-T": true, "-R": true, "-D": true, "-r": true, "-t": true}
 	timeValueOptions    = map[string]bool{"-f": true, "--format": true, "-o": true, "--output": true}
 	envValueOptions     = map[string]bool{"-u": true, "--unset": true, "-S": true, "--split-string": true}
 	timeoutValueOptions = map[string]bool{"-k": true, "--kill-after": true, "-s": true, "--signal": true}
+	subcommandPrograms  = map[string]bool{"git": true, "go": true, "npm": true, "pnpm": true, "yarn": true, "bun": true, "cargo": true, "swift": true, "docker": true, "kubectl": true, "gh": true, "make": true, "brew": true, "uv": true, "pip": true}
 )
 
 type shellWord struct {
@@ -56,8 +56,11 @@ func NormalizeToolCommand(command string) string {
 	if program == "." || program == "/" || program == "" {
 		return ""
 	}
+	if strings.ContainsRune("({#", rune(program[0])) || strings.HasSuffix(program, "()") || shellControlWord(program) {
+		return ""
+	}
 	key := program
-	if len(words) > 1 && !words[1].quoted && plainShellWord(words[1].value) {
+	if subcommandPrograms[program] && len(words) > 1 && !words[1].quoted && plainShellWord(words[1].value) {
 		key += " " + words[1].value
 	}
 	if len(key) > maxToolCommandKeyBytes {
@@ -109,7 +112,11 @@ func splitShellCommand(command string) ([][]shellWord, []string) {
 		case '\\':
 			escaped = true
 			started = true
-		case ' ', '\t', '\n', '\r':
+		case '\n':
+			flushWord()
+			separators = append(separators, ";")
+			segments = append(segments, nil)
+		case ' ', '\t', '\r':
 			flushWord()
 		case ';', '|', '&':
 			flushWord()
@@ -120,6 +127,27 @@ func splitShellCommand(command string) ([][]shellWord, []string) {
 			}
 			separators = append(separators, separator)
 			segments = append(segments, nil)
+		case '$':
+			if i+1 >= len(command) || command[i+1] != '(' {
+				word.WriteByte(ch)
+				started = true
+				continue
+			}
+			word.WriteString("$(")
+			started = true
+			i += 2
+			depth := 1
+			for i < len(command) && depth > 0 {
+				ch = command[i]
+				word.WriteByte(ch)
+				if ch == '(' {
+					depth++
+				} else if ch == ')' {
+					depth--
+				}
+				i++
+			}
+			i--
 		default:
 			word.WriteByte(ch)
 			started = true
@@ -131,6 +159,15 @@ func splitShellCommand(command string) ([][]shellWord, []string) {
 	}
 	flushWord()
 	return segments, separators
+}
+
+func shellControlWord(word string) bool {
+	switch word {
+	case "for", "while", "until", "if", "case", "do", "then":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstNonEmptySegment(segments [][]shellWord, start int) int {
@@ -162,36 +199,18 @@ func stripShellWrappers(words []shellWord) []shellWord {
 		switch path.Base(words[index].value) {
 		case "sudo":
 			index++
-			index = skipWrapperOptions(words, index, sudoValueOptions)
 		case "time":
 			index++
 			index = skipWrapperOptions(words, index, timeValueOptions)
 		case "env":
 			index++
 			index = skipWrapperOptions(words, index, envValueOptions)
-		case "nice":
-			index++
-			index = skipNiceOptions(words, index)
 		case "timeout":
 			index++
 			index = skipWrapperOptions(words, index, timeoutValueOptions)
-			if index < len(words) && words[index].value != "--" {
-				index++
-			} else if index < len(words) {
+			if index < len(words) {
 				index++
 			}
-		case "command":
-			index++
-			for index < len(words) && (words[index].value == "-p" || words[index].value == "-v" || words[index].value == "-V") {
-				index++
-			}
-		case "exec":
-			index++
-			if index < len(words) && words[index].value == "-a" {
-				index += 2
-			}
-		case "nohup":
-			index++
 		default:
 			return words[index:]
 		}
@@ -211,28 +230,6 @@ func skipWrapperOptions(words []shellWord, index int, takesValue map[string]bool
 		if takesValue[value] {
 			index += 2
 			continue
-		}
-		index++
-	}
-	return index
-}
-
-func skipNiceOptions(words []shellWord, index int) int {
-	for index < len(words) {
-		value := words[index].value
-		if value == "--" {
-			return index + 1
-		}
-		if value == "-n" || value == "--adjustment" {
-			index += 2
-			continue
-		}
-		if strings.HasPrefix(value, "-n") && len(value) > 2 {
-			index++
-			continue
-		}
-		if !strings.HasPrefix(value, "-") || value == "-" {
-			return index
 		}
 		index++
 	}

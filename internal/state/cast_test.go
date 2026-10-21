@@ -179,6 +179,42 @@ func TestToolDurationConcurrentRecordsStayBounded(t *testing.T) {
 	}
 }
 
+func TestToolDurationWriteRecoversFromCorruptFile(t *testing.T) {
+	t.Parallel()
+	for _, data := range []struct {
+		name string
+		file []byte
+	}{
+		{name: "truncated", file: []byte(`{"entries":[`)},
+		{name: "empty"},
+	} {
+		t.Run(data.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			if err := os.WriteFile(toolDurationsPath(root), data.file, 0o600); err != nil {
+				t.Fatalf("write corrupt file: %v", err)
+			}
+			if err := RecordToolDurationAt(root, "claude", "Bash", "go test", 42*time.Millisecond); err != nil {
+				t.Fatalf("record after corrupt file: %v", err)
+			}
+			medians, err := LoadToolTypicalDurationsAt(root)
+			if err != nil {
+				t.Fatalf("load recovered file: %v", err)
+			}
+			if len(medians) != 0 {
+				t.Fatalf("median after one recovered sample = %#v, want none", medians)
+			}
+			samples, err := loadToolDurationSamplesAt(root)
+			if err != nil {
+				t.Fatalf("load recovered samples: %v", err)
+			}
+			if got := samples[ToolDurationKey{Agent: "claude", Tool: "Bash", Command: "go test"}]; !reflect.DeepEqual(got, []int64{42}) {
+				t.Fatalf("recovered samples = %v, want [42]", got)
+			}
+		})
+	}
+}
+
 func TestToolDurationRecordsCommandAndToolMedians(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -196,31 +232,6 @@ func TestToolDurationRecordsCommandAndToolMedians(t *testing.T) {
 	}
 	if got := medians[ToolDurationKey{Agent: "claude", Tool: "Bash", Command: "go test"}]; got != 200 {
 		t.Fatalf("command median = %dms, want 200", got)
-	}
-}
-
-func TestToolDurationLoadsExistingSamplesFile(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	if err := os.WriteFile(toolDurationsPath(root), []byte(`{"samples":{"claude":{"Bash":[10,20,30]}}}`), 0o600); err != nil {
-		t.Fatalf("write legacy duration file: %v", err)
-	}
-	medians, err := LoadToolTypicalDurationsAt(root)
-	if err != nil {
-		t.Fatalf("load existing file: %v", err)
-	}
-	if got := medians[ToolDurationKey{Agent: "claude", Tool: "Bash"}]; got != 20 {
-		t.Fatalf("legacy median = %dms, want 20", got)
-	}
-	if err := RecordToolDurationAt(root, "claude", "Bash", "go test", 40*time.Millisecond); err != nil {
-		t.Fatalf("record migration sample: %v", err)
-	}
-	samples, err := loadToolDurationSamplesAt(root)
-	if err != nil {
-		t.Fatalf("load migrated samples: %v", err)
-	}
-	if !reflect.DeepEqual(samples[ToolDurationKey{Agent: "claude", Tool: "Bash"}], []int64{10, 20, 30, 40}) {
-		t.Fatalf("legacy samples after migration = %v", samples[ToolDurationKey{Agent: "claude", Tool: "Bash"}])
 	}
 }
 
