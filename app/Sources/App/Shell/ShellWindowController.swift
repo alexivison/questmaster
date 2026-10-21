@@ -17,6 +17,7 @@ final class ShellWindowController {
         let dockChromeModel: DockChromeModel
         let trackerEffectExecutor: TrackerEffectExecutor
         let questLogOverlay: QuestLogOverlayHost
+        let modalHost: InWindowModalHost
     }
 
     private let runtimeStore: RuntimeStore
@@ -110,6 +111,8 @@ final class ShellWindowController {
         let root = ShellRootContainerView(splitView: splitView, footer: footerShell)
         let questLogOverlay = QuestLogOverlayHost(store: questLogStore)
         root.addOverlay(questLogOverlay)
+        let modalHost = InWindowModalHost(stack: .shared)
+        root.addOverlay(modalHost)
         window.contentView = root
 
         splitView.cellMetricsProvider = { [weak terminalHost] in terminalHost?.cellMetrics ?? .unavailable }
@@ -135,7 +138,8 @@ final class ShellWindowController {
             terminalHost: terminalHost,
             dockChromeModel: dockChromeModel,
             trackerEffectExecutor: trackerEffectExecutor,
-            questLogOverlay: questLogOverlay
+            questLogOverlay: questLogOverlay,
+            modalHost: modalHost
         )
         self.handles = handles
 

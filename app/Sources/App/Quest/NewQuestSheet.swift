@@ -64,7 +64,7 @@ struct NewQuestSheetView: View {
             contentRow
         }
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
-        .scoopedSheetBackground()
+        .scoopedPanel()
         .background(SheetKeyEventMonitor { model.handle($0) })
     }
 

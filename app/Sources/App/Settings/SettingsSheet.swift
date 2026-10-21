@@ -73,7 +73,7 @@ struct SettingsSheetView: View {
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height)
-        .scoopedSheetBackground()
+        .scoopedPanel()
         .background(SheetKeyEventMonitor { model.handle($0) })
         .onAppear { model.present() }
         .onDisappear { model.disappear() }

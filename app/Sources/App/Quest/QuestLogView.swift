@@ -50,17 +50,10 @@ private enum QuestLogMetrics {
     static let footerDiamondLead: CGFloat = 8.4
     static let footerDateLead: CGFloat = 8.1
     static let footerDiamondRaise: CGFloat = 3.5
-    /// Buttons: 200 x 32, 10 apart, centred, at y 728; labels on a baseline 20 down.
-    static let buttonSize = CGSize(width: 200, height: 32)
+    /// Buttons: the shared angled buttons at the design's 200 wide, 10 apart, centred, at y 728.
+    static let buttonWidth: CGFloat = 200
     static let buttonSpacing: CGFloat = 10
     static let buttonTop: CGFloat = 728
-    static let buttonBaseline: CGFloat = 20
-    /// Figma's angular gradients: centred on the button's left end, the unit square scaled to 403 x 64.5.
-    static let buttonGradientScale = CGSize(width: 0.2, height: 0.032)
-    static let buttonGradientSpan: CGFloat = 2015
-    static let sendForthGradientOpacity = 0.4
-    static let scrimOpacity = 0.5
-    static let windowMargin: CGFloat = 20
     static let pageTransition = 0.12
 }
 
@@ -89,34 +82,24 @@ struct QuestLogView: View {
 
     private var buttons: some View {
         HStack(spacing: QuestLogMetrics.buttonSpacing) {
-            QuestLogButton(title: "Send forth", fill: .sendForth) { onCommand(.start) }
-            QuestLogButton(title: "Edit", fill: .plain) { onCommand(.edit) }
-            QuestLogButton(title: "Abandon", fill: .abandon) { onCommand(.delete) }
+            Button("Send forth") { onCommand(.start) }
+                .buttonStyle(GoldButtonStyle(width: QuestLogMetrics.buttonWidth))
+            Button("Edit") { onCommand(.edit) }
+                .buttonStyle(OutlineButtonStyle(width: QuestLogMetrics.buttonWidth))
+            Button("Abandon") { onCommand(.delete) }
+                .buttonStyle(DangerButtonStyle(width: QuestLogMetrics.buttonWidth))
         }
         .disabled(store.selectedID == nil)
     }
 }
 
-/// The modal over the window: a scrim and the Quest Log, centred and scaled down to fit a short window.
+/// The Quest Log over the window, laid out like every other in-window modal.
 struct QuestLogOverlayView: View {
     let store: QuestLogStore
     var onCommand: (QuestLogCommand) -> Void
 
     var body: some View {
-        GeometryReader { proxy in
-            let margin = QuestLogMetrics.windowMargin * 2
-            let fit = min(1, (proxy.size.width - margin) / QuestLogMetrics.sheetSize.width, (proxy.size.height - margin) / QuestLogMetrics.sheetSize.height)
-            ZStack {
-                // Hit-testable so clicks outside the Quest Log never reach the panes underneath.
-                AppPalette.shadow.swiftUI.opacity(QuestLogMetrics.scrimOpacity)
-                    .contentShape(Rectangle())
-                    .onTapGesture {}
-                QuestLogView(store: store, onCommand: onCommand)
-                    .scaleEffect(max(fit, 0.1))
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
-        }
-        .ignoresSafeArea()
+        ModalLayer { QuestLogView(store: store, onCommand: onCommand) }
     }
 }
 
@@ -358,68 +341,6 @@ private struct QuestLogOrnaments: View {
     }
 }
 
-// MARK: - Buttons
-
-private struct QuestLogButton: View {
-    enum Fill {
-        case sendForth
-        case plain
-        case abandon
-    }
-
-    let title: String
-    let fill: Fill
-    let action: () -> Void
-
-    private static let shape = SVGShape(d: QuestLogArt.button)
-    private static let ring = SVGPath.parse(QuestLogArt.buttonRing)
-
-    var body: some View {
-        Button(action: action) {
-            ZStack(alignment: .top) {
-                background
-                Canvas { context, _ in
-                    context.fill(Self.ring, with: .color(AppPalette.line.swiftUI))
-                }
-                BaselineText(title, font: AppFonts.questLogButton, color: AppPalette.questLogRow, baseline: QuestLogMetrics.buttonBaseline)
-            }
-            .frame(width: QuestLogMetrics.buttonSize.width, height: QuestLogMetrics.buttonSize.height)
-            .clipShape(Self.shape)
-            .contentShape(Self.shape)
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder private var background: some View {
-        switch fill {
-        case .sendForth:
-            ZStack {
-                Self.shape.fill(AppPalette.questLogButtonGold.swiftUI)
-                angular(from: AppPalette.shadow.swiftUI.opacity(0.4), to: AppPalette.questLogButtonGold.swiftUI)
-                    .opacity(QuestLogMetrics.sendForthGradientOpacity)
-            }
-        case .plain:
-            Self.shape.fill(AppPalette.item.swiftUI)
-        case .abandon:
-            angular(from: AppPalette.questLogButtonDangerDeep.swiftUI, to: AppPalette.questLogButtonDanger.swiftUI)
-        }
-    }
-
-    /// Figma's angular gradient: starts pointing right from the button's left end and turns clockwise,
-    /// in a space squashed to the design's 403 x 64.5 ellipse, so the top half lands near `end`.
-    private func angular(from start: Color, to end: Color) -> some View {
-        Canvas { context, size in
-            context.translateBy(x: 0, y: size.height / 2)
-            context.scaleBy(x: QuestLogMetrics.buttonGradientScale.width, y: QuestLogMetrics.buttonGradientScale.height)
-            let span = QuestLogMetrics.buttonGradientSpan
-            context.fill(
-                Path(CGRect(x: -span / 2, y: -span / 2, width: span, height: span)),
-                with: .conicGradient(Gradient(colors: [start, end]), center: .zero, angle: .zero)
-            )
-        }
-    }
-}
-
 // MARK: - Shared pieces
 
 /// Absolute SVG path data as a shape, shifted so `origin` lands at the frame's top-left.
@@ -545,7 +466,8 @@ final class QuestLogOverlayHost: NSHostingView<QuestLogOverlayView> {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
-        guard !isHidden, let window, event.window === window, window.attachedSheet == nil else {
+        // Edit, Abandon's confirmation and New Session open as in-window modals above the log; they take the keys.
+        guard !isHidden, let window, event.window === window, window.attachedSheet == nil, InWindowModalStack.shared.isEmpty else {
             return false
         }
         if event.modifierFlags.contains(.command) {

@@ -43,6 +43,7 @@ enum LogicSelfTests {
         ("testDockContentRoutingRequiresASession", testDockContentRoutingRequiresASession),
         ("testArtifactDockCommandSwitchesFromWorkerChat", testArtifactDockCommandSwitchesFromWorkerChat),
         ("testDockCoordinatorIgnoresNoSessionState", testDockCoordinatorIgnoresNoSessionState),
+        ("testModalsPresentInsideTheWindowNotAsSystemSheets", testModalsPresentInsideTheWindowNotAsSystemSheets),
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
@@ -1525,6 +1526,49 @@ enum LogicSelfTests {
             DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .artifactViewer),
             "Cmd-3 should hide a visible artifact viewer"
         )
+    }
+
+    /// A system sheet would attach its own window (with an opaque, rounded panel behind the scooped corners);
+    /// an in-window modal must not, and its host must cover the window only while something is presented.
+    private static func testModalsPresentInsideTheWindowNotAsSystemSheets() throws {
+        struct Item: Identifiable { let id: String }
+        final class Holder: ObservableObject { @Published var item: Item? }
+        struct Presenting: View {
+            @ObservedObject var holder: Holder
+            let stack: InWindowModalStack
+            var body: some View {
+                Color.clear
+                    .inWindowSheet(item: $holder.item) { _ in Color.clear.frame(width: 120, height: 80).scoopedPanel() }
+                    .environment(\.inWindowModalStack, stack)
+            }
+        }
+        let stack = InWindowModalStack()
+        let holder = Holder()
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let presenting = NSHostingView(rootView: Presenting(holder: holder, stack: stack))
+        presenting.frame = content.bounds
+        let host = InWindowModalHost(stack: stack)
+        host.frame = content.bounds
+        content.addSubview(presenting)
+        content.addSubview(host)
+        window.contentView = content
+        window.orderFrontRegardless()
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
+        settle()
+        try expect(host.isHidden, "the modal host should stay hidden, and out of the way of clicks, while nothing is presented")
+
+        holder.item = Item(id: "a")
+        settle()
+        try expect(window.attachedSheet == nil, "presenting should not attach a system sheet window")
+        try expect(stack.entries.count == 1, "presenting should push one in-window modal, got \(stack.entries.count)")
+        try expect(!host.isHidden, "the modal host should show while a modal is presented")
+        try expect(window.firstResponder === host, "the modal host should take the keys from whatever had them")
+
+        holder.item = nil
+        settle()
+        try expect(stack.isEmpty && host.isHidden, "dismissing should empty the stack and hide the host")
     }
 
     private static func testDockCoordinatorIgnoresNoSessionState() throws {

@@ -39,32 +39,6 @@ extension View {
             .overlay(ScoopedRectangle().stroke(border.swiftUI, lineWidth: ScoopedRectangle.borderStrokeWidth).allowsHitTesting(false))
             .clipShape(ScoopedRectangle())
     }
-
-    /// A sheet's background: the scooped panel, with the system sheet's own background cleared so the
-    /// scooped corners show the window behind.
-    func scoopedSheetBackground() -> some View {
-        scoopedPanel()
-            .presentationBackground(.clear)
-            .background(ClearSheetWindow())
-    }
-}
-
-/// Makes the hosting sheet window non-opaque and clear, so only the scooped panel draws.
-private struct ClearSheetWindow: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { ClearingView() }
-    func updateNSView(_ view: NSView, context: Context) {}
-
-    private final class ClearingView: NSView {
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            guard let window, window.sheetParent != nil else {
-                return
-            }
-            window.isOpaque = false
-            window.backgroundColor = .clear
-            window.invalidateShadow()
-        }
-    }
 }
 
 /// The AppKit side of the same chrome: the view's layer is filled and masked to the shape, and a

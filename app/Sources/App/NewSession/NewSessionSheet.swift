@@ -81,7 +81,7 @@ struct NewSessionSheetView: View {
             }
         )
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
-        .scoopedSheetBackground()
+        .scoopedPanel()
         .background(SheetKeyEventMonitor { event in
             model.handle(event)
         })

@@ -237,6 +237,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.footerShell.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
         handles.questLogOverlay.onCommand = { [weak self] command in self?.handleQuestLogCommand(command) }
+        handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
         handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }

@@ -90,6 +90,13 @@ enum RenderPreview {
         render(QuestLogView(store: questLogStore(longBody: true), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
         render(QuestLogView(store: questLogStore(empty: true), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
         renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
+        render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
+        render(newSessionSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-sheet.png")
+        let window = CGSize(width: 1400, height: 900)
+        renderView(modalWindowView(newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-window.png")
+        renderView(modalWindowView(newSessionSheetView()), size: window, to: "\(outputDir)/modal-new-session-window.png")
+        renderView(modalWindowView(settingsView()), size: window, to: "\(outputDir)/modal-settings-window.png")
+        renderView(modalWindowView(overQuestLog: true, DestructiveConfirmationSheetView(spec: .deleteQuests(count: 1), onDecision: { _ in })), size: window, to: "\(outputDir)/modal-confirm-over-quest-log.png")
         // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
         render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
@@ -988,6 +995,48 @@ enum RenderPreview {
             ),
             dismiss: {}
         )
+    }
+
+    @MainActor
+    private static func newQuestSheetView() -> some View {
+        let presenter = NewQuestSheetPresenter()
+        presenter.present(
+            projects: [
+                NewQuestProjectOption(projectID: "", projectPath: "", projectName: "No project"),
+                NewQuestProjectOption(projectID: "questmaster", projectPath: "/Users/aleksi.tuominen/Code/questmaster", projectName: "questmaster"),
+            ],
+            selectedProjectID: "questmaster",
+            initialContent: "Add more meta data to shell sessions\n\nThe idea is to make questmaster also work well as a tmux session handler",
+            sessionID: nil,
+            mutationClient: SettingsPreviewMutationClient(),
+            onSuccess: {}
+        )
+        return NewQuestSheetView(presentation: presenter.presentation!, dismiss: {})
+    }
+
+    @MainActor
+    private static func newSessionSheetView() -> some View {
+        let presenter = NewSessionSheetPresenter()
+        presenter.present(initialPath: "/Users/aleksi.tuominen/Code/questmaster", mutationClient: SettingsPreviewMutationClient(), directoryClient: nil, onSuccess: { _ in })
+        return NewSessionSheetView(presentation: presenter.presentation!, dismiss: {})
+    }
+
+    /// The real window with `modal` presented the way the app presents it: the shell, optionally the Quest Log,
+    /// and the in-window modal host on top.
+    @MainActor
+    private static func modalWindowView(overQuestLog: Bool = false, _ modal: some View) -> NSView {
+        let size = CGSize(width: 1400, height: 900)
+        let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+        let root = shell as? ShellRootContainerView
+        if overQuestLog {
+            let questLog = QuestLogOverlayHost(store: questLogStore())
+            root?.addOverlay(questLog)
+            questLog.setVisible(true)
+        }
+        let stack = InWindowModalStack()
+        stack.present(id: "preview", AnyView(modal))
+        root?.addOverlay(InWindowModalHost(stack: stack))
+        return shell
     }
 
     private static func confirmationView() -> some View {

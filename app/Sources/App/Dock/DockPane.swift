@@ -362,12 +362,12 @@ struct DockRootView: View {
             }
         }
         .background(AppPalette.panel.swiftUI)
-        .sheet(item: $newQuestPresenter.presentation) { presentation in
+        .inWindowSheet(item: $newQuestPresenter.presentation) { presentation in
             NewQuestSheetView(presentation: presentation) {
                 newQuestPresenter.dismiss()
             }
         }
-        .sheet(item: $settingsPresenter.presentation) { presentation in
+        .inWindowSheet(item: $settingsPresenter.presentation) { presentation in
             SettingsSheetView(presentation: presentation) {
                 settingsPresenter.dismiss()
             }
