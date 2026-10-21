@@ -612,7 +612,7 @@ func openCodeToolPartErrorCallID(event openCodeEvent) string {
 	if stateObj == nil || stateObj["status"] != "error" {
 		return ""
 	}
-	id, _ := part["id"].(string)
+	id, _ := part["callID"].(string)
 	return strings.TrimSpace(id)
 }
 
