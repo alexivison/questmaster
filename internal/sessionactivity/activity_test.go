@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 func writeFixtureState(t *testing.T, root, id string, panes map[string]map[string]any, seenAt time.Time) {
@@ -67,6 +69,39 @@ func TestEvaluateReadsStateJSON(t *testing.T) {
 	}
 	if got.LastKind != "PreToolUse" {
 		t.Fatalf("last_kind = %q", got.LastKind)
+	}
+}
+
+func TestFromStateCarriesNarrationAndOnlyLiveCast(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Date(2026, 10, 20, 7, 33, 48, 529000000, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		state string
+		cast  bool
+	}{
+		{name: "working", state: "working", cast: true},
+		{name: "done", state: "done", cast: false},
+		{name: "idle", state: "idle", cast: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := FromState(&state.SessionState{Panes: map[string]state.PaneState{
+				"primary": {
+					Agent: "codex", State: tc.state, Narration: "Latest answer",
+					RunningTools: []state.RunningTool{{CallID: "call-1", Tool: "Bash", StartedAt: startedAt}},
+				},
+			}})
+			if result.Narration != "Latest answer" {
+				t.Fatalf("narration = %q, want latest answer", result.Narration)
+			}
+			if (result.RunningTool != nil) != tc.cast {
+				t.Fatalf("running tool = %+v, want cast=%t", result.RunningTool, tc.cast)
+			}
+			if tc.cast && (result.RunningTool.Tool != "Bash" || !result.RunningTool.StartedAt.Equal(startedAt)) {
+				t.Fatalf("running tool = %+v, want Bash at %s", result.RunningTool, startedAt)
+			}
+		})
 	}
 }
 

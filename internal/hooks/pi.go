@@ -12,8 +12,8 @@ import (
 //go:embed assets/questmaster-pi-messaging.ts
 var piMessagingExtension string
 
-// QuestmasterSidecarVersion is the marker version emitted by installed Pi and
-// OpenCode extensions that call `questmaster hook`.
+// QuestmasterSidecarVersion is the marker version emitted by the installed Pi
+// extension that calls `questmaster hook`.
 const QuestmasterSidecarVersion = "phase2-v2"
 
 // PiInstaller manages the Pi extension marker and bundled TypeScript extension.

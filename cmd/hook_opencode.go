@@ -18,8 +18,9 @@ import (
 const openCodeMinimumVersion = "1.17.11"
 
 type openCodeHookPayload struct {
-	Version string        `json:"version"`
-	Event   openCodeEvent `json:"event"`
+	Version    string        `json:"version"`
+	CapturedAt time.Time     `json:"captured_at"`
+	Event      openCodeEvent `json:"event"`
 }
 
 type openCodeEvent struct {
@@ -29,17 +30,21 @@ type openCodeEvent struct {
 }
 
 type openCodePatch struct {
-	state      string
-	activity   string
-	tool       string
-	clearTool  bool
-	kind       string
-	recent     []string
-	hasRecent  bool
-	sessionID  string
-	eventID    string
-	statusType string
-	version    string
+	state            string
+	activity         string
+	tool             string
+	commandKey       string
+	toolCallID       string
+	failedToolCallID string
+	clearTool        bool
+	kind             string
+	recent           []string
+	hasRecent        bool
+	sessionID        string
+	eventID          string
+	statusType       string
+	version          string
+	occurredAt       time.Time
 
 	// A part has no role. Keep it until message.updated confirms the matching
 	// assistant message, so user prompt text never enters the worker feed.
@@ -61,6 +66,10 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	}
 	now := r.Now().UTC()
 	patch := openCodePatchForEvent(payload)
+	patch.occurredAt = now
+	if !payload.CapturedAt.IsZero() {
+		patch.occurredAt = payload.CapturedAt.UTC()
+	}
 
 	ev := state.StateEvent{
 		Ts:       now,
@@ -92,7 +101,7 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	}
 	ev.Fields = fields
 
-	accepted, appendErr, updateErr := updateOpenCodePane(r, sessionID, now, patch, &ev)
+	accepted, completed, appendErr, updateErr := updateOpenCodePane(r, sessionID, now, patch, &ev)
 	if appendErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook opencode: append event: %v\n", appendErr)
 	}
@@ -100,6 +109,7 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 		fmt.Fprintf(stderr, "questmaster hook opencode: update state: %v\n", updateErr)
 		return
 	}
+	r.recordToolDuration("opencode", completed, stderr)
 	if accepted && patch.sessionID != "" {
 		captureOpenCodeSessionID(opts.ctx, r, stderr, sessionID, patch.sessionID)
 	}
@@ -139,6 +149,7 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 	case "session.created":
 		patch.state = "starting"
 		patch.activity = "Session created"
+		patch.clearTool = true
 	case "session.status":
 		patch.statusType = openCodeStatusType(event.Properties)
 		switch patch.statusType {
@@ -158,9 +169,13 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 	case "tool.execute.before":
 		patch.state = "working"
 		patch.tool = openCodeToolLabel(event)
+		patch.commandKey = toolCommandKey("opencode", patch.tool, openCodeToolInput(event))
+		patch.toolCallID = openCodeToolCallID(event)
 		patch.activity = "Tool: " + patch.tool
 	case "tool.execute.after":
+		patch.tool = openCodeToolLabel(event)
 		patch.activity = "Tool done: " + openCodeToolLabel(event)
+		patch.toolCallID = openCodeToolCallID(event)
 		patch.clearTool = true
 	case "permission.asked":
 		patch.state = "blocked"
@@ -181,6 +196,7 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 			patch.tool = tool
 			patch.clearTool = clearTool
 		}
+		patch.failedToolCallID = openCodeToolPartErrorCallID(event)
 	case "message.updated":
 		patch.assistantMsgID = openCodeAssistantMessageID(event)
 	}
@@ -196,11 +212,12 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 
 func (p openCodePatch) mutatesState() bool {
 	return p.state != "" || p.activity != "" || p.tool != "" || p.clearTool || p.hasRecent ||
-		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != ""
+		p.sessionID != "" || p.partMsgID != "" || p.assistantMsgID != "" || p.failedToolCallID != ""
 }
 
-func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev *state.StateEvent) (bool, error, error) {
+func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch openCodePatch, ev *state.StateEvent) (bool, *completedTool, error, error) {
 	accepted := false
+	var completed *completedTool
 	appendErr, updateErr := r.updateAndLog(sessionID, ev, func(ss *state.SessionState) bool {
 		if !patch.mutatesState() {
 			return false
@@ -227,6 +244,8 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			LastChatStatus                  string
 			LastChatAt                      time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText, pane.PendingFinalMessage, pane.LastChatStatus, pane.LastChatAt}
+		prevRunningTools := slices.Clone(pane.RunningTools)
+		prevNarration := pane.Narration
 
 		setState := patch.state
 		setActivity := patch.activity
@@ -253,17 +272,41 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			clearTool = false
 			lastKind = pane.LastKind
 		}
+		if patch.clearTool && patch.kind != "tool.execute.after" {
+			if patch.kind == "message.part.updated" {
+				pane.Tool = ""
+				if len(pane.RunningTools) > 0 {
+					pane.Tool = pane.RunningTools[len(pane.RunningTools)-1].Tool
+				}
+			} else {
+				state.ClearRunningTools(&pane)
+			}
+		}
+		if patch.kind == "tool.execute.before" && !preservePermissionBlock {
+			state.StartRunningTool(&pane, patch.tool, patch.toolCallID, patch.commandKey, patch.occurredAt)
+		}
+		if patch.kind == "tool.execute.after" {
+			if ended, duration, matched := state.EndRunningTool(&pane, patch.tool, patch.toolCallID, patch.occurredAt); matched {
+				completed = &completedTool{tool: ended.Tool, command: ended.Command, duration: duration, waitedForInput: ended.WaitedForInput}
+			}
+		}
+		if patch.failedToolCallID != "" {
+			state.EndRunningTool(&pane, "", patch.failedToolCallID, patch.occurredAt)
+		}
 
 		if setState != "" {
 			pane.State = setState
+		}
+		if pane.State == "blocked" {
+			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
 		if setActivity != "" {
 			pane.Activity = setActivity
 		}
-		if setTool != "" {
+		if setTool != "" && patch.kind != "tool.execute.after" {
 			pane.Tool = setTool
-		} else if clearTool {
+		} else if clearTool && patch.kind != "tool.execute.after" && patch.kind != "message.part.updated" {
 			pane.Tool = ""
 		}
 		if patch.hasRecent {
@@ -325,9 +368,11 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 			pane.PendingPartText != prev.PendingPartText ||
 			pane.PendingFinalMessage != prev.PendingFinalMessage ||
 			pane.LastChatStatus != prev.LastChatStatus ||
-			!pane.LastChatAt.Equal(prev.LastChatAt)
+			!pane.LastChatAt.Equal(prev.LastChatAt) ||
+			pane.Narration != prevNarration ||
+			!slices.Equal(pane.RunningTools, prevRunningTools)
 	})
-	return accepted, appendErr, updateErr
+	return accepted, completed, appendErr, updateErr
 }
 
 func captureOpenCodeSessionID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, openCodeSessionID string) {
@@ -422,24 +467,21 @@ func openCodeStatusType(props map[string]interface{}) string {
 }
 
 func openCodeToolLabel(event openCodeEvent) string {
-	props := event.Properties
-	for _, key := range []string{"tool", "name"} {
-		if s, ok := props[key].(string); ok && strings.TrimSpace(s) != "" {
-			return truncatePromptLine(s)
-		}
-	}
-	for _, key := range []string{"call", "toolCall"} {
-		obj, ok := props[key].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		for _, nested := range []string{"tool", "name"} {
-			if s, ok := obj[nested].(string); ok && strings.TrimSpace(s) != "" {
-				return truncatePromptLine(s)
-			}
-		}
+	if tool, ok := event.Properties["tool"].(string); ok && strings.TrimSpace(tool) != "" {
+		return truncatePromptLine(tool)
 	}
 	return "tool"
+}
+
+func openCodeToolCallID(event openCodeEvent) string {
+	if id, ok := event.Properties["callID"].(string); ok {
+		return strings.TrimSpace(id)
+	}
+	return ""
+}
+
+func openCodeToolInput(event openCodeEvent) interface{} {
+	return event.Properties["args"]
 }
 
 func openCodePermissionLabel(event openCodeEvent) string {
@@ -552,10 +594,26 @@ func openCodeToolPartActivity(part map[string]interface{}) (stateValue, activity
 		status, _ = stateObj["status"].(string)
 	}
 	label := openCodeToolPartLabel(tool, stateObj)
+	if status == "error" {
+		return "working", "Failed: " + label, "", false
+	}
 	if status == "completed" {
 		return "working", "Done: " + label, "", true
 	}
 	return "working", label, tool, false
+}
+
+func openCodeToolPartErrorCallID(event openCodeEvent) string {
+	part, ok := event.Properties["part"].(map[string]interface{})
+	if !ok || part["type"] != "tool" {
+		return ""
+	}
+	stateObj, _ := part["state"].(map[string]interface{})
+	if stateObj == nil || stateObj["status"] != "error" {
+		return ""
+	}
+	id, _ := part["callID"].(string)
+	return strings.TrimSpace(id)
 }
 
 func openCodeToolPartLabel(tool string, stateObj map[string]interface{}) string {

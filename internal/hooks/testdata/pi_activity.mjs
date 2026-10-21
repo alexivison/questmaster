@@ -79,27 +79,35 @@ try {
 	assert.deepEqual(entries.map((entry) => entry.args[2]), [
 		"session_start", "before_agent_start", "agent_start", "say", "tool_execution_start", "tool_execution_end",
 		"tool_execution_start", "tool_execution_end",
-		"waiting_for_user", "tool_execution_start", "tool_execution_end", "agent_end",
+		"waiting_for_user", "tool_execution_start", "tool_execution_end", "turn_end", "agent_end",
 		"before_agent_start", "agent_start", "agent_end", "session_shutdown",
 	]);
 	assert.equal(entries[3].payload.message.content, "Checking this now.");
 	assert(entries[3].payload.occurred_at_ms >= narrationEventAt, "say timestamp should come from its text event");
 	assert(entries[3].payload.occurred_at_ms <= entries[4].payload.occurred_at_ms, "say timestamp should precede its tool action");
 	assert.equal(entries[4].payload.tool.name, "bash");
+	assert.equal(entries[4].payload.tool_call_id, "fast-tool");
+	assert.equal(entries[4].payload.tool_name, "bash");
+	assert.deepEqual(entries[4].payload.args, { command: "echo fast" });
+	assert.equal(entries[5].payload.tool_call_id, "fast-tool");
+	assert.equal(entries[5].payload.tool_name, "bash");
 	assert.equal(entries[6].payload.tool.name, "bash");
+	assert.equal(entries[6].payload.tool_call_id, "tool-1");
+	assert.equal(entries[7].payload.tool_call_id, "tool-1");
 	assert.equal(entries[6].payload.tool.summary, "bash: echo hi");
 	assert.equal(entries[8].payload.prompt, "Choose a target");
 	assert.equal(entries[9].payload.tool.name, "ask_user");
-	assert.equal(Array.from(entries[11].payload.message.content).length, 1_500);
-	assert(!entries[11].payload.message.content.includes("second paragraph"));
-	assert.equal(entries[11].payload.turn.index, 1);
-	assert.equal(entries[11].payload.turn.tool_calls, 1);
-	assert.equal(entries[11].payload.usage.last.output, 8);
-	assert.deepEqual(entries[11].payload.recent.slice(-3), ["second paragraph", "third paragraph", "fourth paragraph"]);
-	assert.equal(entries[14].payload.stopReason, "error");
-	assert.equal(Array.from(entries[14].payload.errorMessage).length, 1_500, "agent_end error message should be capped");
-	assert(entries[14].payload.errorMessage.startsWith("Your authentication token has expired."));
-	assert.equal(entries[14].payload.message, undefined, "empty error turn should not forward assistant text");
+	assert.equal(entries[11].args[2], "turn_end");
+	assert.equal(Array.from(entries[12].payload.message.content).length, 1_500);
+	assert(!entries[12].payload.message.content.includes("second paragraph"));
+	assert.equal(entries[12].payload.turn.index, 1);
+	assert.equal(entries[12].payload.turn.tool_calls, 1);
+	assert.equal(entries[12].payload.usage.last.output, 8);
+	assert.deepEqual(entries[12].payload.recent.slice(-3), ["second paragraph", "third paragraph", "fourth paragraph"]);
+	assert.equal(entries[15].payload.stopReason, "error");
+	assert.equal(Array.from(entries[15].payload.errorMessage).length, 1_500, "agent_end error message should be capped");
+	assert(entries[15].payload.errorMessage.startsWith("Your authentication token has expired."));
+	assert.equal(entries[15].payload.message, undefined, "empty error turn should not forward assistant text");
 	assert(!JSON.stringify(entries).includes("private thinking text"));
 	assert.equal(await readFile(join(root, "agent", "extensions", ".questmaster-installed"), "utf8"), "phase2-v2\n");
 } finally {
