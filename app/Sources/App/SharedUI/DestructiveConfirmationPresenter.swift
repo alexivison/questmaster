@@ -49,7 +49,7 @@ struct DestructiveConfirmationSheetView: View {
                 .padding(.bottom, 16)
         }
         .frame(width: 420)
-        .background(AppPalette.panel.swiftUI)
+        .scoopedSheetBackground()
         .background(SheetKeyEventMonitor { event in
             if Keymap.NewSession.cancel.matches(event.keyCode) {
                 onDecision(false)

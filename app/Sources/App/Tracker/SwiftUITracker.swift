@@ -668,7 +668,7 @@ private struct TrackerEditSessionSheet: View {
             }
         }
         .frame(width: 420)
-        .background(AppPalette.panel.swiftUI)
+        .scoopedSheetBackground()
         .background(SheetKeyEventMonitor(onKeyDown: handle))
         .onAppear(perform: focusTitle)
     }
@@ -809,7 +809,7 @@ private struct TrackerEditRepoSheet: View {
             .padding(.bottom, Token.Spacing.card)
         }
         .frame(width: 420)
-        .background(AppPalette.panel.swiftUI)
+        .scoopedSheetBackground()
         .background(SheetKeyEventMonitor(onKeyDown: handle))
     }
 

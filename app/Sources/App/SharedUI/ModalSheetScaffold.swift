@@ -36,7 +36,6 @@ struct ModalSheetScaffold<Content: View>: View {
             errorRow
             footer
         }
-        .overlay(SideCardOrnaments(inset: ShellMetrics.modalOrnamentInset, ignoresSafeArea: false))
     }
 
     private var errorRow: some View {

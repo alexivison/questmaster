@@ -86,7 +86,12 @@ enum RenderPreview {
         render(artifactListView(showFilter: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter.png")
         render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
-        render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
+        render(QuestLogView(store: questLogStore(), previewHoveredID: "dotfiles-1", onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
+        render(QuestLogView(store: questLogStore(longBody: true), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
+        render(QuestLogView(store: questLogStore(empty: true), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
+        renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
+        // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
+        render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         print("RenderPreview: done")
         exit(0)
@@ -895,37 +900,47 @@ enum RenderPreview {
         return ArtifactReference(kind: "html", path: url.path, label: "Preview artifact", addedAt: "")
     }
 
-    private static func questListView() -> some View {
-        let quests = [
-            QuestItem(id: "q-1", content: "Sample quest — short task description", updatedAt: "2026-07-14 05:49"),
-            QuestItem(id: "q-2", content: "Sample quest — a longer task description for preview layout.", updatedAt: "2026-07-14 00:48"),
+    /// The Quest Log design's own quests (user-quests-modal.svg), newest first within each project.
+    private static func questLogStore(longBody: Bool = false, empty: Bool = false) -> QuestLogStore {
+        let projects = [
+            ("dotfiles", ["Add more meta data to shell sessions", "Restore terminal settings on login", "Share editor configs across devices", "Remove unused environment variables"]),
+            ("questmaster", ["Track milestones for active quests", "Sort adventures by upcoming deadline", "Assign party roles to teammates", "Archive completed quest campaigns"]),
+            ("scry", ["Search notes with exact phrases", "Filter results by source and date", "Save frequently used search filters", "Highlight matches in previews"]),
         ]
-        let section = QuestSection(id: "sample-project", title: "sample-project", quests: quests)
-        let model = QuestDockModel(
-            sections: [section],
-            selectedQuestID: nil,
-            selectedQuestIDs: [],
-            scrollTargetID: nil,
-            query: "",
-            filterTokens: [],
-            filterSuggestions: [],
-            selectedFilterSuggestionID: nil,
-            filterSuggestionsVisible: false,
-            filterFocusNonce: 0
-        )
-        return QuestDockView(
-            model: model,
-            onSetQuery: { _ in },
-            onRemoveFilterToken: { _ in },
-            onSelectFilterSuggestion: { _ in },
-            onFilterCommand: { _ in false },
-            onFilterEndEditing: {},
-            onSelectQuest: { _ in },
-            onToggleQuest: { _ in },
-            onDelete: {},
-            onStart: {},
-            onEdit: {}
-        )
+        var body = """
+        The idea is to make questmaster also work well as a tmux session handler
+
+        - If possible, connect the questmaster session name to the tmux session name
+        - Use the Questmaster App logo in the place where the agent icon is
+        - Maybe use different corner ornements?
+        """
+        if longBody {
+            body += "\n\n" + (1...40).map { "- Step \($0): keep going until the page has to scroll" }.joined(separator: "\n")
+        }
+        let quests = projects.flatMap { project, titles in
+            titles.enumerated().map { index, title in
+                QuestItem(
+                    id: "\(project)-\(index)",
+                    content: index == 0 && project == "dotfiles" ? "\(title)\n\n\(body)" : title,
+                    projectID: project,
+                    projectName: project,
+                    updatedAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index)
+                )
+            }
+        }
+        let store = QuestLogStore()
+        store.sync(quests: empty ? [] : quests, repos: [])
+        return store
+    }
+
+    @MainActor
+    private static func questLogWindowView() -> NSView {
+        let size = CGSize(width: 1400, height: 900)
+        let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+        let overlay = QuestLogOverlayHost(store: questLogStore())
+        (shell as? ShellRootContainerView)?.addOverlay(overlay)
+        overlay.setVisible(true)
+        return shell
     }
 
     @MainActor

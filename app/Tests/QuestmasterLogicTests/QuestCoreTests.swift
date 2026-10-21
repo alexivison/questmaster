@@ -5,9 +5,14 @@ struct QuestCoreTests {
     static func run() {
         displayGroupsProjectsAlphabeticallyThenNoProject()
         displayFallsBackToProjectColorWithoutLiveSession()
-        displayFiltersByProjectID()
         displayRecoversDeletedSelectionToPreviousQuest()
-        edgeSelectionJumpsToFirstAndLastAcrossSections()
+        questLogPageSplitsTitleAndKeepsBodyVerbatim()
+        questLogPageFooterUsesProjectAndDay()
+        questLogWrapsGreedilyWithoutPushingWordsDown()
+        questLogStoreSelectsMovesAndRecovers()
+        questLogStoreTargetsMarkedQuestsInListOrder()
+        questLogStoreReturnsEffectsAndClosingClearsMarks()
+        questLogKeysMapToCommands()
         newQuestFormBuildsPayload()
         startFromQuestsBuildsPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
@@ -32,19 +37,104 @@ struct QuestCoreTests {
         expect(QuestDisplayState.movedSelection(current: "qst-b", delta: 1, in: sections) == "qst-a", "selection should move across sections")
     }
 
-    private static func edgeSelectionJumpsToFirstAndLastAcrossSections() {
-        let quests = [
-            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Alpha Beta", updatedAt: "2026-07-03T01:00:00Z"),
-            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Zeta Repo", updatedAt: "2026-07-03T02:00:00Z"),
-            QuestItem(id: "qst-none", content: "No project", updatedAt: "2026-07-03T04:00:00Z"),
-        ]
-        let repos = [
-            TrackerRepo(id: "repo-a", name: "Zeta Repo", color: "green", sessions: []),
-        ]
-        let sections = QuestDisplayState.sections(quests: quests, repos: repos)
-        expect(QuestDisplayState.edgeSelection(atStart: true, in: sections) == "qst-b", "gg should land on the first quest across sections")
-        expect(QuestDisplayState.edgeSelection(atStart: false, in: sections) == "qst-none", "G should land on the last quest across sections")
-        expect(QuestDisplayState.edgeSelection(atStart: true, in: []) == nil, "edge selection with no quests should be nil")
+    private static func questLogPageSplitsTitleAndKeepsBodyVerbatim() {
+        let quest = QuestItem(id: "q", content: "\n# Add more meta data  \n\nThe idea\n\n- one\n- two  \n\n")
+        let page = QuestLogPage(quest: quest, project: "dotfiles")
+        expect(page.title == "Add more meta data", "title = \(page.title)")
+        expect(page.body == "The idea\n\n- one\n- two", "body = \(page.body.debugDescription)")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "Only a title"), project: "").body.isEmpty, "single-line quest should have no body")
+    }
+
+    private static func questLogPageFooterUsesProjectAndDay() {
+        let updated = QuestItem(id: "q", content: "T", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-09-08T10:00:00Z")
+        expect(QuestLogPage(quest: updated, project: "dotfiles").date == "2026/09/08", "footer should use the updated day")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", createdAt: "2026-01-02T00:00:00Z"), project: "").date == "2026/01/02", "footer should fall back to the created day")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", updatedAt: "soon"), project: "").date.isEmpty, "an unparseable timestamp should leave the date empty")
+        expect(QuestLogPage(quest: updated, project: "dotfiles").project == "dotfiles", "footer project mismatch")
+    }
+
+    private static func questLogWrapsGreedilyWithoutPushingWordsDown() {
+        let line = "The idea is to make questmaster also work well as a tmux session handler"
+        expect(
+            QuestLogPage.wrapped(line, columns: 65) == "The idea is to make questmaster also work well as a tmux session\nhandler",
+            "a lone last word should wrap by itself, got \(QuestLogPage.wrapped(line, columns: 65).debugDescription)"
+        )
+        expect(QuestLogPage.wrapped("ab cd\n\nef", columns: 2) == "ab\ncd\n\nef", "typed breaks and blank lines are kept")
+        expect(QuestLogPage.wrapped("abcdefgh", columns: 3) == "abc\ndef\ngh", "an over-long word should be split")
+        expect(QuestLogPage.wrapped("fits", columns: 0) == "fits", "zero columns leaves the text alone")
+    }
+
+    private static let logQuests = [
+        QuestItem(id: "a1", content: "A one", projectID: "a", projectName: "alpha", updatedAt: "2026-07-03T02:00:00Z"),
+        QuestItem(id: "a2", content: "A two", projectID: "a", projectName: "alpha", updatedAt: "2026-07-03T01:00:00Z"),
+        QuestItem(id: "b1", content: "B one", projectID: "b", projectName: "beta", updatedAt: "2026-07-03T03:00:00Z"),
+    ]
+
+    private static func questLogStoreSelectsMovesAndRecovers() {
+        let store = QuestLogStore()
+        store.sync(quests: logQuests, repos: [])
+        expect(store.selectedID == "a1", "first sync should select the first quest, got \(String(describing: store.selectedID))")
+        expect(store.selectedPage?.project == "alpha", "page project should be the section title")
+        _ = store.handle(.moveDown)
+        _ = store.handle(.moveDown)
+        expect(store.selectedID == "b1", "j should move across sections")
+        _ = store.handle(.moveDown)
+        expect(store.selectedID == "a1", "j should wrap to the top")
+        _ = store.handle(.moveUp)
+        expect(store.selectedID == "b1", "k should wrap to the bottom")
+        store.select("a2")
+        store.select("missing")
+        expect(store.selectedID == "a2", "clicking selects; an unknown id is ignored")
+        store.sync(quests: [logQuests[0], logQuests[2]], repos: [])
+        expect(store.selectedID == "a1", "a deleted selection should fall back to the quest above it")
+        store.sync(quests: [], repos: [])
+        expect(store.selectedID == nil && store.selectedPage == nil, "no quests should leave nothing selected")
+    }
+
+    private static func questLogStoreTargetsMarkedQuestsInListOrder() {
+        let store = QuestLogStore()
+        store.sync(quests: logQuests, repos: [])
+        expect(store.targets.map(\.id) == ["a1"], "with nothing marked the selection is the target")
+        store.select("b1")
+        _ = store.handle(.toggleMark)
+        store.select("a1")
+        _ = store.handle(.toggleMark)
+        expect(store.targets.map(\.id) == ["a1", "b1"], "marked targets should follow list order, got \(store.targets.map(\.id))")
+        _ = store.handle(.toggleMark)
+        expect(store.markedIDs == ["b1"], "space again should unmark")
+        store.sync(quests: Array(logQuests.prefix(2)), repos: [])
+        expect(store.markedIDs.isEmpty, "marks on removed quests should be dropped")
+    }
+
+    private static func questLogStoreReturnsEffectsAndClosingClearsMarks() {
+        let store = QuestLogStore()
+        expect(store.handle(.start) == nil && store.handle(.edit) == nil, "an empty log has nothing to act on")
+        store.sync(quests: logQuests, repos: [])
+        store.open()
+        expect(store.handle(.start) == .start([logQuests[0]]), "s should start the selected quest")
+        expect(store.handle(.edit) == .edit(logQuests[0]), "e should edit the selected quest")
+        expect(store.handle(.delete) == .delete([logQuests[0]]), "d should delete the selected quest")
+        expect(store.handle(.copy) == .copy([logQuests[0]]), "y should copy the selected quest")
+        expect(store.handle(.close) == .close, "esc should close")
+        _ = store.handle(.toggleMark)
+        store.close()
+        expect(!store.isOpen && store.markedIDs.isEmpty, "closing should clear marks")
+        expect(store.selectedID == "a1", "closing should keep the selection for the next open")
+    }
+
+    private static func questLogKeysMapToCommands() {
+        expect(QuestLogCommand.from(characters: "j", keyCode: 38) == .moveDown, "j")
+        expect(QuestLogCommand.from(characters: "k", keyCode: 40) == .moveUp, "k")
+        expect(QuestLogCommand.from(characters: nil, keyCode: 125) == .moveDown, "down arrow")
+        expect(QuestLogCommand.from(characters: nil, keyCode: 126) == .moveUp, "up arrow")
+        expect(QuestLogCommand.from(characters: "s", keyCode: 1) == .start, "s")
+        expect(QuestLogCommand.from(characters: "e", keyCode: 14) == .edit, "e")
+        expect(QuestLogCommand.from(characters: "d", keyCode: 2) == .delete, "d")
+        expect(QuestLogCommand.from(characters: "y", keyCode: 16) == .copy, "y")
+        expect(QuestLogCommand.from(characters: " ", keyCode: 49) == .toggleMark, "space")
+        expect(QuestLogCommand.from(characters: "\u{1b}", keyCode: 53) == .close, "esc")
+        expect(QuestLogCommand.from(characters: "S", keyCode: 1) == nil, "shifted letters are not quest log keys")
+        expect(QuestLogCommand.from(characters: "x", keyCode: 7) == nil, "x is unbound")
     }
 
     private static func displayFallsBackToProjectColorWithoutLiveSession() {
@@ -56,20 +146,6 @@ struct QuestCoreTests {
         ]
         let sections = QuestDisplayState.sections(quests: quests, repos: [], projects: projects)
         expect(sections.map(\.color) == ["green"], "section color should fall back to the persisted project color = \(sections.map(\.color))")
-    }
-
-    private static func displayFiltersByProjectID() {
-        let quests = [
-            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", updatedAt: "2026-07-03T02:00:00Z"),
-            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", updatedAt: "2026-07-03T01:00:00Z"),
-        ]
-        let sections = QuestDisplayState.sections(
-            quests: quests,
-            repos: [TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [])],
-            projectID: "repo-b"
-        )
-        expect(sections.map(\.id) == ["repo-b"], "project filter sections = \(sections.map(\.id))")
-        expect(sections.first?.quests.map(\.id) == ["qst-b"], "project filter quests mismatch")
     }
 
     private static func displayRecoversDeletedSelectionToPreviousQuest() {

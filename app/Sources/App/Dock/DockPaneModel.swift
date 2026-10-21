@@ -21,7 +21,6 @@ struct ArtifactFilterSuggestion: Equatable, Identifiable {
 final class DockPaneModel: ObservableObject {
     @Published private(set) var currentArtifactRoute: ArtifactDockRoute = .list
     @Published private(set) var artifactModel = ArtifactDockModel.empty
-    @Published private(set) var questModel = QuestDockModel.empty
     @Published private(set) var currentArtifactTitle: String?
 
     var onShowArtifactListIntent: (() -> Void)?
@@ -29,13 +28,8 @@ final class DockPaneModel: ObservableObject {
     var onSetArtifactScope: ((ArtifactScope) -> Void)?
     var onSelectedArtifactChange: ((String?) -> Void)?
     var onDeleteArtifacts: (([ArtifactReference]) -> Void)?
-    var onSelectedQuestChange: ((String?) -> Void)?
     var onArtifactFilterChange: ((String, [ArtifactFilterToken]) -> Void)?
-    var onDeleteQuests: (([QuestItem]) -> Void)?
-    var onStartQuests: (([QuestItem]) -> Void)?
-    var onEditQuest: ((QuestItem) -> Void)?
     var onCopyArtifactPath: (() -> Void)?
-    var onCopyQuests: ((Int) -> Void)?
     var onFocusRequested: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)?
@@ -56,23 +50,11 @@ final class DockPaneModel: ObservableObject {
     private var currentArtifactPath: String?
     private var lastSnapshot: RuntimeSnapshot?
     @Published private(set) var currentDockContent: DockContent = .artifactList
-    private var selectedQuestID: String?
-    private var selectedQuestIDs: Set<String> = []
-    private var questScrollTargetID: String?
-    private var questScrollNonce = 0
     private var artifactScrollNonce = 0
-    private var questQuery = ""
-    private var questFilterTokens: [ArtifactFilterToken] = []
-    private var questFilterSuggestionIndex = 0
-    private var questFilterSuggestionsHidden = false
-    private var questProjectFilterIDs: Set<String> = []
-    private var questFilterFocusNonce = 0
-    /// Shared between the quest and artifact lists: only one is ever on screen at a time.
     private var listGTracker = GPrefixTracker()
 
     var currentMode: DockContentMode {
         switch currentDockContent {
-        case .questList: .quests
         case .workerChat: .workerChat
         case .artifactList, .artifactViewer: .artifacts
         }
@@ -108,9 +90,6 @@ final class DockPaneModel: ObservableObject {
         }
         currentDockContent = desired.dockContent
         if currentMode != .artifacts {
-            if currentMode == .quests {
-                updateQuestModel(snapshot: snapshot, selectedID: desired.selectedQuestID ?? selectedQuestID)
-            }
             return ArtifactDisplayUpdate(artifacts: [], displayState: .noCurrentSession, intent: .none, selectedArtifactID: selectedArtifactID)
         }
         let route: ArtifactDockRoute = desired.dockContent == .artifactViewer ? .viewer : .list
@@ -138,9 +117,6 @@ final class DockPaneModel: ObservableObject {
         // key some earlier branch (filter focus, `y`, an arrow) consumes first.
         if !GChordShortcut.isPrefix(event) {
             listGTracker.reset()
-        }
-        if currentMode == .quests {
-            return handleQuestKeyDown(event, snapshot: snapshot)
         }
         if currentMode == .workerChat {
             guard let direction = focusDirection(from: event) else {
@@ -251,123 +227,6 @@ final class DockPaneModel: ObservableObject {
 
     func setArtifactScope(_ scope: ArtifactScope) {
         onSetArtifactScope?(scope)
-    }
-
-    func setQuestQuery(_ query: String) {
-        guard questQuery != query else {
-            return
-        }
-        questQuery = query
-        questFilterSuggestionIndex = 0
-        questFilterSuggestionsHidden = false
-        if let snapshot = lastSnapshot {
-            updateQuestModel(snapshot: snapshot, selectedID: selectedQuestID)
-        }
-    }
-
-    func selectQuest(_ id: String) {
-        setSelectedQuestID(id)
-        var next = questModel
-        next.selectedQuestID = id
-        questModel = next
-    }
-
-    func toggleQuestSelection(_ id: String) {
-        if selectedQuestIDs.contains(id) {
-            selectedQuestIDs.remove(id)
-        } else {
-            selectedQuestIDs.insert(id)
-        }
-        setSelectedQuestID(id)
-        if let snapshot = lastSnapshot {
-            updateQuestModel(snapshot: snapshot, selectedID: id)
-        }
-    }
-
-    func deleteSelectedQuests() {
-        let quests = selectedQuests()
-        guard !quests.isEmpty else {
-            return
-        }
-        onDeleteQuests?(quests)
-    }
-
-    func startSelectedQuests() {
-        let quests = selectedQuests()
-        guard !quests.isEmpty else {
-            return
-        }
-        onStartQuests?(quests)
-    }
-
-    func editSelectedQuest() {
-        guard let quest = selectedQuests().first else {
-            return
-        }
-        onEditQuest?(quest)
-    }
-
-    func removeQuestFilterToken(_ token: ArtifactFilterToken) {
-        removeQuestFilterToken(kind: token.kind, value: token.value)
-        questFilterFocusNonce &+= 1
-        refreshQuestFilters()
-    }
-
-    @discardableResult
-    func acceptQuestFilterSuggestion(_ suggestion: ArtifactFilterSuggestion? = nil) -> Bool {
-        guard let trigger = Self.filterTrigger(in: questQuery) else {
-            return false
-        }
-        let options = questModel.filterSuggestions
-        let selected = suggestion ?? options.first { $0.id == questModel.selectedFilterSuggestionID }
-        guard let selected else {
-            return false
-        }
-
-        switch selected.mode {
-        case .command:
-            questQuery.replaceSubrange(trigger.range, with: selected.kind.command)
-        case .value:
-            addQuestFilterToken(kind: selected.kind, value: selected.value, title: selected.tokenTitle)
-            questQuery = Self.filterQueryPrefix(in: questQuery, before: trigger.range)
-        }
-
-        questFilterSuggestionIndex = 0
-        questFilterSuggestionsHidden = false
-        questFilterFocusNonce &+= 1
-        refreshQuestFilters()
-        return true
-    }
-
-    func handleQuestFilterCommand(keyCode: UInt16) -> Bool {
-        let suggestions = questModel.filterSuggestions
-        switch keyCode {
-        case 125 where !suggestions.isEmpty:
-            moveQuestFilterSuggestion(delta: 1)
-            return true
-        case 126 where !suggestions.isEmpty:
-            moveQuestFilterSuggestion(delta: -1)
-            return true
-        case 48 where !suggestions.isEmpty:
-            return acceptQuestFilterSuggestion()
-        case 36, 76:
-            if !suggestions.isEmpty {
-                return acceptQuestFilterSuggestion()
-            }
-            editSelectedQuest()
-            return true
-        case 51 where questQuery.isEmpty && !questFilterTokens.isEmpty:
-            questFilterTokens.removeLast()
-            syncQuestFilterSetsFromTokens()
-            refreshQuestFilters()
-            return true
-        case 53 where !suggestions.isEmpty:
-            questFilterSuggestionsHidden = true
-            refreshQuestFilters()
-            return true
-        default:
-            return false
-        }
     }
 
     func setArtifactFilterQuery(_ query: String) {
@@ -500,280 +359,9 @@ final class DockPaneModel: ObservableObject {
         updateArtifactModel(snapshot: snapshot, update: update, sourceArtifacts: sourceArtifacts)
     }
 
-    private func updateQuestModel(snapshot: RuntimeSnapshot, selectedID: String?) {
-        let query = questTextQuery()
-        let projectOptions = questProjectFilterOptions(snapshot: snapshot)
-        let suggestions = questFilterSuggestions(projectOptions: projectOptions, sourceQuests: snapshot.tracker.quests)
-        if questFilterSuggestionIndex >= suggestions.count {
-            questFilterSuggestionIndex = 0
-        }
-        let sections = QuestDisplayState.sections(
-            quests: snapshot.tracker.quests,
-            repos: snapshot.tracker.repos,
-            projects: snapshot.tracker.projects,
-            query: query,
-            projectIDs: questProjectFilterIDs
-        )
-        let recovered = QuestDisplayState.recoveredSelection(
-            current: selectedID,
-            in: sections,
-            previouslyDisplayedQuests: QuestDisplayState.flatQuests(in: questModel.sections)
-        )
-        setSelectedQuestID(recovered)
-        selectedQuestIDs = selectedQuestIDs.intersection(Set(QuestDisplayState.flatQuests(in: sections).map(\.id)))
-        let next = QuestDockModel(
-            sections: sections,
-            selectedQuestID: recovered,
-            selectedQuestIDs: selectedQuestIDs,
-            scrollTargetID: questScrollTargetID,
-            scrollNonce: questScrollNonce,
-            query: questQuery,
-            filterTokens: questFilterTokens,
-            filterSuggestions: suggestions,
-            selectedFilterSuggestionID: suggestions.isEmpty ? nil : suggestions[questFilterSuggestionIndex].id,
-            filterSuggestionsVisible: !suggestions.isEmpty,
-            filterFocusNonce: questFilterFocusNonce
-        )
-        if questModel != next {
-            questModel = next
-        }
-    }
-
-    private func handleQuestKeyDown(_ event: NSEvent, snapshot: RuntimeSnapshot) -> Bool {
-        if let direction = focusDirection(from: event), onControlDirection?(direction) == true {
-            return true
-        }
-        if Self.isFilterFocusShortcut(event) {
-            questFilterFocusNonce &+= 1
-            updateQuestModel(snapshot: snapshot, selectedID: selectedQuestID)
-            return true
-        }
-        if GChordShortcut.isJumpToBottom(event) {
-            return moveQuestSelectionToEdge(atStart: false, snapshot: snapshot)
-        }
-        if GChordShortcut.isPrefix(event) {
-            if listGTracker.handleG() == .jumpToTop {
-                return moveQuestSelectionToEdge(atStart: true, snapshot: snapshot)
-            }
-            return true
-        }
-        let chars = Self.plainShortcutCharacter(from: event)
-        switch chars {
-        case "j":
-            return moveQuestSelection(delta: 1, snapshot: snapshot)
-        case "k":
-            return moveQuestSelection(delta: -1, snapshot: snapshot)
-        case " ":
-            if let selectedQuestID {
-                toggleQuestSelection(selectedQuestID)
-                return true
-            }
-        case "d":
-            deleteSelectedQuests()
-            return true
-        case "s":
-            startSelectedQuests()
-            return true
-        case "y":
-            return copySelectedQuestContents()
-        case "e", "\r":
-            editSelectedQuest()
-            return true
-        case "\u{1b}":
-            selectedQuestIDs.removeAll()
-            updateQuestModel(snapshot: snapshot, selectedID: selectedQuestID)
-            return true
-        default:
-            break
-        }
-        return false
-    }
-
-    private func moveQuestSelection(delta: Int, snapshot: RuntimeSnapshot) -> Bool {
-        let sections = QuestDisplayState.sections(
-            quests: snapshot.tracker.quests,
-            repos: snapshot.tracker.repos,
-            projects: snapshot.tracker.projects,
-            query: questTextQuery(),
-            projectIDs: questProjectFilterIDs
-        )
-        guard let nextID = QuestDisplayState.movedSelection(current: selectedQuestID, delta: delta, in: sections) else {
-            return false
-        }
-        setSelectedQuestID(nextID)
-        questScrollTargetID = nextID
-        updateQuestModel(snapshot: snapshot, selectedID: nextID)
-        return true
-    }
-
-    private func moveQuestSelectionToEdge(atStart: Bool, snapshot: RuntimeSnapshot) -> Bool {
-        let sections = QuestDisplayState.sections(
-            quests: snapshot.tracker.quests,
-            repos: snapshot.tracker.repos,
-            projects: snapshot.tracker.projects,
-            query: questTextQuery(),
-            projectIDs: questProjectFilterIDs
-        )
-        guard let nextID = QuestDisplayState.edgeSelection(atStart: atStart, in: sections) else {
-            return false
-        }
-        setSelectedQuestID(nextID)
-        questScrollTargetID = nextID
-        questScrollNonce &+= 1
-        updateQuestModel(snapshot: snapshot, selectedID: nextID)
-        return true
-    }
-
-    private func refreshQuestFilters() {
-        guard let snapshot = lastSnapshot else {
-            return
-        }
-        updateQuestModel(snapshot: snapshot, selectedID: selectedQuestID)
-    }
-
-    private func moveQuestFilterSuggestion(delta: Int) {
-        let suggestions = questModel.filterSuggestions
-        guard !suggestions.isEmpty else {
-            return
-        }
-        questFilterSuggestionIndex = Self.wrapped(
-            questFilterSuggestionIndex + delta,
-            count: suggestions.count
-        )
-        var nextModel = questModel
-        nextModel.selectedFilterSuggestionID = suggestions[questFilterSuggestionIndex].id
-        questModel = nextModel
-    }
-
-    private func addQuestFilterToken(kind: ArtifactFilterTokenKind, value: String, title: String) {
-        guard kind == .project,
-              !value.isEmpty,
-              !questFilterTokens.contains(where: { $0.kind == kind && $0.value == value }) else {
-            return
-        }
-        questFilterTokens.append(ArtifactFilterToken(kind: kind, value: value, title: title))
-        syncQuestFilterSetsFromTokens()
-    }
-
-    private func removeQuestFilterToken(kind: ArtifactFilterTokenKind, value: String) {
-        let nextTokens = questFilterTokens.filter { $0.kind != kind || $0.value != value }
-        guard nextTokens != questFilterTokens else {
-            return
-        }
-        questFilterTokens = nextTokens
-        syncQuestFilterSetsFromTokens()
-    }
-
-    private func syncQuestFilterSetsFromTokens() {
-        questProjectFilterIDs = Set(questFilterTokens.filter { $0.kind == .project }.map(\.value))
-    }
-
-    private func questTextQuery() -> String {
-        guard let trigger = Self.filterTrigger(in: questQuery) else {
-            return questQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return String(questQuery[..<trigger.range.lowerBound])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func questFilterSuggestions(
-        projectOptions: [ArtifactFilterOption],
-        sourceQuests: [QuestItem]
-    ) -> [ArtifactFilterSuggestion] {
-        guard !questFilterSuggestionsHidden,
-              let trigger = Self.filterTrigger(in: questQuery) else {
-            return []
-        }
-        switch trigger.mode {
-        case .command:
-            let commandQuery = trigger.query.lowercased()
-            let kind = ArtifactFilterTokenKind.project
-            guard commandQuery.isEmpty || kind.rawValue.hasPrefix(commandQuery) else {
-                return []
-            }
-            return [ArtifactFilterSuggestion(
-                mode: .command,
-                kind: kind,
-                value: kind.rawValue,
-                title: kind.command,
-                detail: "filter",
-                tokenTitle: ""
-            )]
-        case .value:
-            guard trigger.kind == .project else {
-                return []
-            }
-            return projectOptions
-                .filter { !questProjectFilterIDs.contains($0.id) }
-                .filter { Self.fuzzyMatch(trigger.query, in: $0.id) || Self.fuzzyMatch(trigger.query, in: $0.title) }
-                .map { option in
-                    ArtifactFilterSuggestion(
-                        mode: .value,
-                        kind: .project,
-                        value: option.id,
-                        title: "\(ArtifactFilterTokenKind.project.command)\(option.title)",
-                        detail: String(sourceQuests.filter { $0.projectID == option.id }.count),
-                        tokenTitle: option.title
-                    )
-                }
-        }
-    }
-
-    private func questProjectFilterOptions(snapshot: RuntimeSnapshot) -> [ArtifactFilterOption] {
-        var titlesByID: [String: String] = [:]
-        for project in snapshot.tracker.projects {
-            guard let id = Self.cleanName(project.id), id != "ungrouped" else {
-                continue
-            }
-            titlesByID[id] = Self.cleanName(project.name) ?? Self.humanProjectName(id)
-        }
-        for repo in snapshot.tracker.repos {
-            guard let id = Self.cleanName(repo.id), id != "ungrouped" else {
-                continue
-            }
-            titlesByID[id] = Self.cleanName(repo.name) ?? Self.humanProjectName(id)
-        }
-        for quest in snapshot.tracker.quests {
-            guard let id = Self.cleanName(quest.projectID) else {
-                continue
-            }
-            titlesByID[id] = titlesByID[id]
-                ?? Self.cleanName(quest.projectName)
-                ?? Self.cleanName(quest.projectPath).map(Self.humanProjectName(_:))
-                ?? Self.humanProjectName(id)
-        }
-        return titlesByID
-            .map { ArtifactFilterOption(id: $0.key, title: $0.value) }
-            .sorted { lhs, rhs in
-                lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-            }
-    }
-
-    private func selectedQuests() -> [QuestItem] {
-        let quests = QuestDisplayState.flatQuests(in: questModel.sections)
-        let ids = selectedQuestIDs.isEmpty ? Set([selectedQuestID].compactMap { $0 }) : selectedQuestIDs
-        return quests.filter { ids.contains($0.id) }
-    }
-
     private func selectedArtifacts() -> [ArtifactReference] {
         let ids = selectedArtifactIDs.isEmpty ? Set([selectedArtifactID].compactMap { $0 }) : selectedArtifactIDs
         return artifactModel.artifacts.filter { ids.contains($0.id) }
-    }
-
-    @discardableResult
-    func copySelectedQuestContents() -> Bool {
-        let quests = selectedQuests()
-        let content = quests.map(\.content).joined(separator: "\n\n")
-        guard !content.isEmpty else {
-            return false
-        }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        guard pasteboard.setString(content, forType: .string) else {
-            return false
-        }
-        onCopyQuests?(quests.count)
-        return true
     }
 
     @discardableResult
@@ -898,14 +486,6 @@ final class DockPaneModel: ObservableObject {
         }
         selectedArtifactID = id
         onSelectedArtifactChange?(id)
-    }
-
-    private func setSelectedQuestID(_ id: String?) {
-        guard selectedQuestID != id else {
-            return
-        }
-        selectedQuestID = id
-        onSelectedQuestChange?(id)
     }
 
     private func filteredUpdate(_ update: ArtifactDisplayUpdate, snapshot: RuntimeSnapshot) -> ArtifactDisplayUpdate {

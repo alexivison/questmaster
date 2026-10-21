@@ -64,7 +64,7 @@ struct NewQuestSheetView: View {
             contentRow
         }
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
-        .background(AppPalette.panel.swiftUI)
+        .scoopedSheetBackground()
         .background(SheetKeyEventMonitor { model.handle($0) })
     }
 

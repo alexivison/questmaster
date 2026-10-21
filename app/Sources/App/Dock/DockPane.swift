@@ -241,39 +241,14 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onDeleteArtifacts = newValue }
     }
 
-    var onSelectedQuestChange: ((String?) -> Void)? {
-        get { model.onSelectedQuestChange }
-        set { model.onSelectedQuestChange = newValue }
-    }
-
     var onArtifactFilterChange: ((String, [ArtifactFilterToken]) -> Void)? {
         get { model.onArtifactFilterChange }
         set { model.onArtifactFilterChange = newValue }
     }
 
-    var onDeleteQuests: (([QuestItem]) -> Void)? {
-        get { model.onDeleteQuests }
-        set { model.onDeleteQuests = newValue }
-    }
-
-    var onStartQuests: (([QuestItem]) -> Void)? {
-        get { model.onStartQuests }
-        set { model.onStartQuests = newValue }
-    }
-
-    var onEditQuest: ((QuestItem) -> Void)? {
-        get { model.onEditQuest }
-        set { model.onEditQuest = newValue }
-    }
-
     var onCopyArtifactPath: (() -> Void)? {
         get { model.onCopyArtifactPath }
         set { model.onCopyArtifactPath = newValue }
-    }
-
-    var onCopyQuests: ((Int) -> Void)? {
-        get { model.onCopyQuests }
-        set { model.onCopyQuests = newValue }
     }
 
     var onFocusRequested: (() -> Void)? {
@@ -381,20 +356,6 @@ struct DockRootView: View {
                     onFilterCommand: model.handleArtifactFilterCommand(keyCode:),
                     onFilterEndEditing: { _ = model.handleArtifactFilterCommand(keyCode: 53) },
                     onOpenExternal: model.openURL(_:)
-                )
-            case .quests:
-                QuestDockView(
-                    model: model.questModel,
-                    onSetQuery: model.setQuestQuery(_:),
-                    onRemoveFilterToken: model.removeQuestFilterToken(_:),
-                    onSelectFilterSuggestion: { _ = model.acceptQuestFilterSuggestion($0) },
-                    onFilterCommand: model.handleQuestFilterCommand(keyCode:),
-                    onFilterEndEditing: { _ = model.handleQuestFilterCommand(keyCode: 53) },
-                    onSelectQuest: model.selectQuest(_:),
-                    onToggleQuest: model.toggleQuestSelection(_:),
-                    onDelete: model.deleteSelectedQuests,
-                    onStart: model.startSelectedQuests,
-                    onEdit: model.editSelectedQuest
                 )
             case .workerChat:
                 WorkerChatDockView(store: workerChatStore)

@@ -38,6 +38,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let navigation = NavigationStore()
     private let dockCoordinator = DockCoordinator()
     private let workerChatStore = WorkerChatStore()
+    private let questLogStore = QuestLogStore()
     private lazy var workerChatController = WorkerChatController(
         store: workerChatStore,
         feedClient: { [weak self] in self?.workerFeedClient }
@@ -45,6 +46,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var shellWindowController = ShellWindowController(
         runtimeStore: runtimeStore,
         workerChatStore: workerChatStore,
+        questLogStore: questLogStore,
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
         newQuestPresenter: newQuestPresenter,
@@ -163,7 +165,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
-                toggleQuestDock: #selector(toggleQuestDock),
+                toggleQuestLog: #selector(toggleQuestLog),
                 toggleWorkerChatDock: #selector(toggleWorkerChatDock),
                 widenDock: #selector(widenDock),
                 narrowDock: #selector(narrowDock),
@@ -233,7 +235,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onShowTracker = { [weak self] in self?.toggleTracker() }
         handles.footerShell.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
-        handles.footerShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
+        handles.footerShell.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
+        handles.questLogOverlay.onCommand = { [weak self] command in self?.handleQuestLogCommand(command) }
         handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
@@ -258,12 +261,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             self.dockCoordinator.updateSelectedArtifact(artifactID, sessionID: self.runtimeStore.currentTerminalSessionID)
         }
         handles.dockView.onDeleteArtifacts = { [weak self] artifacts in self?.deleteArtifacts(artifacts) }
-        handles.dockView.onSelectedQuestChange = { [weak self] questID in
-            guard let self else {
-                return
-            }
-            self.dockCoordinator.updateSelectedQuest(questID, sessionID: self.runtimeStore.currentTerminalSessionID)
-        }
         handles.dockView.onArtifactFilterChange = { [weak self] query, tokens in
             guard let self else {
                 return
@@ -274,14 +271,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 sessionID: self.runtimeStore.currentTerminalSessionID
             )
         }
-        handles.dockView.onDeleteQuests = { [weak self] quests in self?.deleteQuests(quests) }
-        handles.dockView.onStartQuests = { [weak self] quests in self?.startFromQuests(quests) }
-        handles.dockView.onEditQuest = { [weak self] quest in self?.editQuest(quest) }
         handles.dockView.onCopyArtifactPath = { [weak self] in
             self?.toastPresenter.show("Copied artifact path")
-        }
-        handles.dockView.onCopyQuests = { [weak self] count in
-            self?.toastPresenter.show(Self.questToastMessage(verb: "Copied", count: count))
         }
 
         terminalSessionController.installPlaceholder(handles.terminalHost)
@@ -375,6 +366,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             animateDockLayout: animateDockLayout
         )
         syncWorkerChat()
+        if questLogStore.isOpen {
+            syncQuestLog()
+        }
+    }
+
+    private func syncQuestLog() {
+        let tracker = runtimeStore.snapshot.tracker
+        questLogStore.sync(quests: tracker.quests, repos: tracker.repos, projects: tracker.projects)
     }
 
     private func syncWorkerChat() {
@@ -483,15 +482,50 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         renderSnapshot()
     }
 
-    @objc private func toggleQuestDock() {
-        if navigation.dockVisible {
-            let desired = dockCoordinator.state(for: runtimeStore.currentTerminalSessionID)
-            if desired.dockContent == .questList {
-                hideDock()
-                return
-            }
+    @objc private func toggleQuestLog() {
+        if questLogStore.isOpen {
+            closeQuestLog()
+            return
         }
-        showDockContent(.questList, focusDock: true)
+        syncQuestLog()
+        questLogStore.open()
+        shellHandles?.questLogOverlay.setVisible(true)
+    }
+
+    private func closeQuestLog() {
+        questLogStore.close()
+        shellHandles?.questLogOverlay.setVisible(false)
+        focusCoordinator.focusCurrentRegion()
+    }
+
+    /// Edit, Abandon's confirmation and Send forth's New Session open as window sheets over the Quest Log,
+    /// which stays open underneath; a started session closes it.
+    private func handleQuestLogCommand(_ command: QuestLogCommand) {
+        guard let effect = questLogStore.handle(command) else {
+            return
+        }
+        switch effect {
+        case .close:
+            closeQuestLog()
+        case .start(let quests):
+            startFromQuests(quests) { [weak self] in self?.closeQuestLog() }
+        case .edit(let quest):
+            editQuest(quest)
+        case .delete(let quests):
+            deleteQuests(quests)
+        case .copy(let quests):
+            copyQuests(quests)
+        }
+    }
+
+    private func copyQuests(_ quests: [QuestItem]) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(quests.map(\.content).joined(separator: "\n\n"), forType: .string) else {
+            NSSound.beep()
+            return
+        }
+        toastPresenter.show(Self.questToastMessage(verb: "Copied", count: quests.count))
     }
 
     @objc private func toggleWorkerChatDock() {
@@ -716,7 +750,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         initialPath: String? = nil,
         initialTitle: String = "",
         initialPrompt: String = "",
-        initialFocus: NewSessionField = .path
+        initialFocus: NewSessionField = .path,
+        onCreated: (() -> Void)? = nil
     ) {
         guard let mutationClient else {
             renderSnapshot()
@@ -735,6 +770,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else {
                     return
                 }
+                onCreated?()
                 if let sessionID {
                     self.terminalSessionController.switchTerminal(to: sessionID)
                 } else {
@@ -820,13 +856,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         count == 1 ? "\(verb) quest" : "\(verb) \(count) quests"
     }
 
-    private func startFromQuests(_ quests: [QuestItem]) {
+    private func startFromQuests(_ quests: [QuestItem], onCreated: @escaping () -> Void) {
         do {
             let request = try ServeMutationRequests.startFromQuests(quests, title: nil, agent: NewSessionFormModel.defaultAgents[0])
             presentNewSession(
                 initialPath: request.data["cwd"],
                 initialPrompt: request.data["prompt"] ?? "",
-                initialFocus: .title
+                initialFocus: .title,
+                onCreated: onCreated
             )
         } catch {
             errorPresenter.showTransientError(error.localizedDescription)
@@ -845,9 +882,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             questID: quest.id,
             sessionID: runtimeStore.currentTerminalSessionID,
             mutationClient: mutationClient,
-            onSuccess: { [weak self] in
-                self?.showDockContent(.questList, focusDock: true)
-            }
+            onSuccess: {}
         )
     }
 
@@ -891,8 +926,6 @@ enum DockContentRouting {
     static func canShow(_ content: DockContent, sessionID: String?) -> Bool {
         let hasSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         switch content {
-        case .questList:
-            return true
         case .artifactList, .artifactViewer, .workerChat:
             return hasSession
         }

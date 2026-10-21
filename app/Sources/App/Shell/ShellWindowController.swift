@@ -16,10 +16,12 @@ final class ShellWindowController {
         let terminalHost: TerminalPaneHosting
         let dockChromeModel: DockChromeModel
         let trackerEffectExecutor: TrackerEffectExecutor
+        let questLogOverlay: QuestLogOverlayHost
     }
 
     private let runtimeStore: RuntimeStore
     private let workerChatStore: WorkerChatStore
+    private let questLogStore: QuestLogStore
     private let navigation: NavigationStore
     private let newSessionPresenter: NewSessionSheetPresenter
     private let newQuestPresenter: NewQuestSheetPresenter
@@ -31,6 +33,7 @@ final class ShellWindowController {
     init(
         runtimeStore: RuntimeStore,
         workerChatStore: WorkerChatStore,
+        questLogStore: QuestLogStore,
         navigation: NavigationStore,
         newSessionPresenter: NewSessionSheetPresenter,
         newQuestPresenter: NewQuestSheetPresenter,
@@ -39,6 +42,7 @@ final class ShellWindowController {
     ) {
         self.runtimeStore = runtimeStore
         self.workerChatStore = workerChatStore
+        self.questLogStore = questLogStore
         self.navigation = navigation
         self.newSessionPresenter = newSessionPresenter
         self.newQuestPresenter = newQuestPresenter
@@ -104,6 +108,8 @@ final class ShellWindowController {
         splitView.setDockVisible(navigation.dockVisible, animated: false)
 
         let root = ShellRootContainerView(splitView: splitView, footer: footerShell)
+        let questLogOverlay = QuestLogOverlayHost(store: questLogStore)
+        root.addOverlay(questLogOverlay)
         window.contentView = root
 
         splitView.cellMetricsProvider = { [weak terminalHost] in terminalHost?.cellMetrics ?? .unavailable }
@@ -128,7 +134,8 @@ final class ShellWindowController {
             dockView: dockView,
             terminalHost: terminalHost,
             dockChromeModel: dockChromeModel,
-            trackerEffectExecutor: trackerEffectExecutor
+            trackerEffectExecutor: trackerEffectExecutor,
+            questLogOverlay: questLogOverlay
         )
         self.handles = handles
 

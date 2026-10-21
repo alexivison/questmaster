@@ -51,6 +51,18 @@ final class ShellRootContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Covers the whole window above the split and the footer (the Quest Log modal).
+    func addOverlay(_ overlay: NSView) {
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: topAnchor),
+            overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+            overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
     func setFooterBottomInset(_ inset: CGFloat) {
         footerBottomConstraint.constant = -CGFloat(ShellMetrics.footerBand.plateBottomInset(snapLeftover: Double(inset)))
     }

@@ -40,17 +40,15 @@ enum LogicSelfTests {
         ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
-        ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
-        ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
-        ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
+        ("testDockContentRoutingRequiresASession", testDockContentRoutingRequiresASession),
+        ("testArtifactDockCommandSwitchesFromWorkerChat", testArtifactDockCommandSwitchesFromWorkerChat),
+        ("testDockCoordinatorIgnoresNoSessionState", testDockCoordinatorIgnoresNoSessionState),
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
-        ("testQuestListGChordJumpsToEdgesAndForcesRescroll", testQuestListGChordJumpsToEdgesAndForcesRescroll),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
         ("testListGChordPendingGResetsOnGAndOnInterveningKey", testListGChordPendingGResetsOnGAndOnInterveningKey),
-        ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
         ("testArtifactDockCopiesMultipleSelectedArtifactPathsWithY", testArtifactDockCopiesMultipleSelectedArtifactPathsWithY),
         ("testArtifactDockDeletesSelectedArtifactsWithD", testArtifactDockDeletesSelectedArtifactsWithD),
@@ -1135,14 +1133,14 @@ enum LogicSelfTests {
         }
         defer { cancellable.cancel() }
 
-        let beforeQuest = publishCount
+        let beforeChat = publishCount
         _ = model.apply(
-            SessionViewState(dockContent: .questList),
+            SessionViewState(dockContent: .workerChat),
             snapshot: snapshot,
             preferredArtifactSessionID: nil
         )
-        try expect(model.currentMode == .quests, "quest dock content should render quest mode")
-        try expect(publishCount > beforeQuest, "quest mode change should publish for DockRootView")
+        try expect(model.currentMode == .workerChat, "worker chat dock content should render worker chat mode")
+        try expect(publishCount > beforeChat, "worker chat mode change should publish for DockRootView")
 
         let beforeArtifacts = publishCount
         _ = model.apply(
@@ -1161,17 +1159,12 @@ enum LogicSelfTests {
         snapshot.tracker = TrackerSnapshot(
             repos: [TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
                 TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: [first, second]),
-            ])],
-            quests: [
-                QuestItem(id: "qst-a", content: "First quest"),
-                QuestItem(id: "qst-b", content: "Second quest"),
-            ]
+            ])]
         )
 
         let coordinator = DockCoordinator()
         let model = DockPaneModel()
         model.onSelectedArtifactChange = { coordinator.updateSelectedArtifact($0, sessionID: "qm-a") }
-        model.onSelectedQuestChange = { coordinator.updateSelectedQuest($0, sessionID: "qm-a") }
 
         _ = model.apply(
             SessionViewState(dockContent: .artifactList, selectedArtifactID: first.id),
@@ -1187,14 +1180,6 @@ enum LogicSelfTests {
             preferredArtifactSessionID: "qm-a"
         )
         try expect(model.artifactModel.selectedArtifactID == second.id, "render should retain the selected artifact")
-
-        _ = model.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-a"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: "qm-a"
-        )
-        model.selectQuest("qst-b")
-        try expect(coordinator.state(for: "qm-a").selectedQuestID == "qst-b", "quest selection should persist before the next render")
     }
 
     private static func testGChordShortcutDecidesFromCharacterIgnoringCapsLock() throws {
@@ -1215,38 +1200,6 @@ enum LogicSelfTests {
 
         try expect(!GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5, modifierFlags: [.command])), "command-g should not arm the chord")
         try expect(!GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.command, .shift])), "command-shift-G should not jump to bottom")
-    }
-
-    private static func testQuestListGChordJumpsToEdgesAndForcesRescroll() throws {
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(
-            repos: [],
-            quests: [
-                QuestItem(id: "qst-a", content: "A", updatedAt: "2026-07-03T01:00:00Z"),
-                QuestItem(id: "qst-b", content: "B", updatedAt: "2026-07-03T02:00:00Z"),
-                QuestItem(id: "qst-c", content: "C", updatedAt: "2026-07-03T03:00:00Z"),
-            ]
-        )
-        // Sorted newest first within the "no project" bucket: [qst-c, qst-b, qst-a].
-        let model = DockPaneModel()
-        _ = model.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-c"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
-
-        let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
-        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should be handled")
-        try expect(model.questModel.selectedQuestID == "qst-a", "G should select the last quest")
-        let nonceAfterFirstJump = model.questModel.scrollNonce
-
-        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should still be handled when already at the last quest")
-        try expect(model.questModel.scrollNonce != nonceAfterFirstJump, "repeating G at the edge should still force a rescroll")
-
-        let g = try keyEvent("g", keyCode: 5)
-        try expect(model.handleKeyDown(g, snapshot: snapshot), "first g should arm the gg chord")
-        try expect(model.handleKeyDown(g, snapshot: snapshot), "second g within the window should jump to the first quest")
-        try expect(model.questModel.selectedQuestID == "qst-c", "gg should select the first quest")
     }
 
     private static func testArtifactListGChordJumpsToEdgesAndForcesRescroll() throws {
@@ -1282,89 +1235,41 @@ enum LogicSelfTests {
     }
 
     private static func testListGChordPendingGResetsOnGAndOnInterveningKey() throws {
+        let artifacts = ["a", "b", "c"].map {
+            ArtifactReference(kind: "html", path: "/tmp/\($0).html", label: $0, sessionID: "qm-a", addedAt: "")
+        }
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(
-            repos: [],
-            quests: [
-                QuestItem(id: "qst-a", content: "A", updatedAt: "2026-07-03T01:00:00Z"),
-                QuestItem(id: "qst-b", content: "B", updatedAt: "2026-07-03T02:00:00Z"),
-                QuestItem(id: "qst-c", content: "C", updatedAt: "2026-07-03T03:00:00Z"),
-            ]
-        )
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: artifacts),
+            ]),
+        ])
         let g = try keyEvent("g", keyCode: 5)
         let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
+        func listModel() -> DockPaneModel {
+            let model = DockPaneModel()
+            _ = model.apply(
+                SessionViewState(dockContent: .artifactList, selectedArtifactID: artifacts[1].id),
+                snapshot: snapshot,
+                preferredArtifactSessionID: "qm-a"
+            )
+            return model
+        }
 
-        let afterG = DockPaneModel()
-        _ = afterG.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-b"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
+        let afterG = listModel()
+        let last = afterG.artifactModel.artifacts.last?.id
         try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
-        try expect(afterG.handleKeyDown(shiftG, snapshot: snapshot), "G should jump to the last quest, not continue the chord")
-        try expect(afterG.questModel.selectedQuestID == "qst-a", "G should select the last quest")
+        try expect(afterG.handleKeyDown(shiftG, snapshot: snapshot), "G should jump to the last artifact, not continue the chord")
+        try expect(afterG.artifactModel.selectedArtifactID == last, "G should select the last artifact")
         try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g right after G should re-arm rather than resolve")
-        try expect(afterG.questModel.selectedQuestID == "qst-a", "a freshly re-armed g alone should not move the selection")
+        try expect(afterG.artifactModel.selectedArtifactID == last, "a freshly re-armed g alone should not move the selection")
 
-        let afterOtherKey = DockPaneModel()
-        _ = afterOtherKey.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-b"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
+        let afterOtherKey = listModel()
+        let selected = afterOtherKey.artifactModel.selectedArtifactID
         try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
-        _ = afterOtherKey.handleKeyDown(try keyEvent("/", keyCode: 44), snapshot: snapshot)
+        _ = afterOtherKey.handleKeyDown(try keyEvent("x", keyCode: 7), snapshot: snapshot)
         try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g after an unrelated key should re-arm rather than resolve")
-        try expect(afterOtherKey.questModel.selectedQuestID == "qst-b", "a freshly re-armed g alone should not move the selection")
-    }
-
-    private static func testQuestDockCopiesSelectedQuestContentsWithY() throws {
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(
-            repos: [],
-            quests: [
-                QuestItem(id: "qst-a", content: "Copy this quest", updatedAt: "2026-07-06T09:00:00Z"),
-            ]
-        )
-        let model = DockPaneModel()
-        var copiedCount = 0
-        model.onCopyQuests = { copiedCount = $0 }
-        _ = model.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-a"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
-
-        let pasteboard = NSPasteboard.general
-        let previous = pasteboard.string(forType: .string)
-        defer {
-            pasteboard.clearContents()
-            if let previous {
-                pasteboard.setString(previous, forType: .string)
-            }
-        }
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "y",
-            charactersIgnoringModifiers: "y",
-            isARepeat: false,
-            keyCode: 16
-        ) else {
-            throw TestFailure("could not create y key event")
-        }
-
-        try expect(model.handleKeyDown(event, snapshot: snapshot), "y should copy the selected quest")
-        try expect(
-            pasteboard.string(forType: .string) == "Copy this quest",
-            "pasteboard should contain selected quest content"
-        )
-        try expect(copiedCount == 1, "copy quest should report copied count")
+        try expect(afterOtherKey.artifactModel.selectedArtifactID == selected, "a freshly re-armed g alone should not move the selection")
     }
 
     private static func testArtifactDockCopiesSelectedArtifactPathWithY() throws {
@@ -1594,24 +1499,19 @@ enum LogicSelfTests {
         try expect(model.artifactModel.reloadNonce == beforeReload + 1, "viewer r should increment reload nonce")
     }
 
-    private static func testDockContentRoutingAllowsGlobalQuestsOnly() throws {
-        try expect(DockContentRouting.canShow(.questList, sessionID: nil), "quest list should open without a current session")
-        try expect(DockContentRouting.canShow(.questList, sessionID: "   "), "quest list should open without a session id")
-        try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should still require a current session")
+    private static func testDockContentRoutingRequiresASession() throws {
+        try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should require a current session")
+        try expect(!DockContentRouting.canShow(.artifactList, sessionID: "   "), "artifact list should require a session id")
         try expect(!DockContentRouting.canShow(.artifactViewer, sessionID: ""), "artifact viewer should still require a current session")
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
         try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo"), "worker chat should open for every attached session")
         try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil), "worker chat should still require a current session")
     }
 
-    private static func testArtifactDockCommandSwitchesFromQuests() throws {
+    private static func testArtifactDockCommandSwitchesFromWorkerChat() throws {
         try expect(
-            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: false, content: .questList),
+            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: false, content: .artifactList),
             "Cmd-3 should show artifacts when the dock is hidden"
-        )
-        try expect(
-            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .questList),
-            "Cmd-3 should switch visible quests to artifacts"
         )
         try expect(
             !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .workerChat),
@@ -1627,19 +1527,11 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testDockCoordinatorKeepsNoSessionQuestState() throws {
+    private static func testDockCoordinatorIgnoresNoSessionState() throws {
         let coordinator = DockCoordinator()
-
         coordinator.showDockContent(.artifactList, sessionID: nil)
-        try expect(coordinator.state(for: nil) == .initial, "artifact list should not create no-session dock state")
-
-        coordinator.showDockContent(.questList, sessionID: nil)
-        let state = coordinator.state(for: nil)
-        try expect(state.dockVisible, "quest list should be visible without a current session")
-        try expect(state.dockContent == .questList, "no-session dock should show quests")
-
-        coordinator.recordDockVisibility(false, sessionID: nil)
-        try expect(!coordinator.state(for: nil).dockVisible, "hiding no-session quest dock should persist")
+        coordinator.recordDockVisibility(true, sessionID: nil)
+        try expect(coordinator.state(for: nil) == .initial, "without a session the dock should stay at its hidden default")
     }
 
     private static func testDockCoordinatorShowsWorkerChatPerSession() throws {

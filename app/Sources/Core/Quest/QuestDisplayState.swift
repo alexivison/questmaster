@@ -15,36 +15,16 @@ public struct QuestSection: Equatable, Identifiable {
 }
 
 public enum QuestDisplayState {
-    public static let maxRowPreviewLength = 4000
-
-    public static func rowPreview(for content: String) -> String {
-        content.count > maxRowPreviewLength
-            ? String(content.prefix(maxRowPreviewLength)) + "…"
-            : content
-    }
-
     public static func sections(
         quests: [QuestItem],
         repos: [TrackerRepo],
-        projects: [TrackerProject] = [],
-        query: String = "",
-        projectID: String? = nil,
-        projectIDs: Set<String> = []
+        projects: [TrackerProject] = []
     ) -> [QuestSection] {
-        let cleanQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        var cleanProjectIDs = Set(projectIDs.compactMap(clean))
-        if let cleanProjectID = clean(projectID) {
-            cleanProjectIDs.insert(cleanProjectID)
-        }
-        let visible = quests.filter { quest in
-            (cleanProjectIDs.isEmpty || cleanProjectIDs.contains(quest.projectID))
-                && (cleanQuery.isEmpty || quest.content.localizedCaseInsensitiveContains(cleanQuery))
-        }
-        guard !visible.isEmpty else {
+        guard !quests.isEmpty else {
             return []
         }
 
-        let grouped = Dictionary(grouping: visible) { clean($0.projectID) ?? "" }
+        let grouped = Dictionary(grouping: quests) { clean($0.projectID) ?? "" }
         let repoByID = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
         let projectByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
         var out: [QuestSection] = []
@@ -107,12 +87,6 @@ public enum QuestDisplayState {
         }
         let currentIndex = id.flatMap { current in quests.firstIndex { $0.id == current } } ?? 0
         return quests[wrapped(currentIndex + delta, count: quests.count)].id
-    }
-
-    /// The first (`atStart`) or last quest across all sections, for the `gg`/`G` jump shortcuts.
-    public static func edgeSelection(atStart: Bool, in sections: [QuestSection]) -> String? {
-        let quests = flatQuests(in: sections)
-        return atStart ? quests.first?.id : quests.last?.id
     }
 
     private static func sorted(_ quests: [QuestItem]) -> [QuestItem] {
