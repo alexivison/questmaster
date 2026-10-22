@@ -41,7 +41,7 @@ final class MenuController {
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleTracker, action: actions.toggleTracker, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusTerminal, action: actions.focusTerminal, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleDock, action: actions.toggleDock, target: target))
-        viewMenu.addItem(commandMenuItem(Keymap.Command.toggleQuestDock, action: actions.toggleQuestDock, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.toggleQuestLog, action: actions.toggleQuestLog, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleWorkerChatDock, action: actions.toggleWorkerChatDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.widenDock, action: actions.widenDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.narrowDock, action: actions.narrowDock, target: target))
@@ -137,7 +137,7 @@ struct MenuActions {
     let toggleTracker: Selector
     let focusTerminal: Selector
     let toggleDock: Selector
-    let toggleQuestDock: Selector
+    let toggleQuestLog: Selector
     let toggleWorkerChatDock: Selector
     let widenDock: Selector
     let narrowDock: Selector

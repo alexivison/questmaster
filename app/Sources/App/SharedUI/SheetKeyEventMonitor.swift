@@ -1,19 +1,31 @@
 import AppKit
 import SwiftUI
 
+/// A modal's key handler. Inside the in-window modal stack it only sees keys while its modal is the top one,
+/// whatever order the monitors were installed in (AppKit calls local monitors oldest first).
 struct SheetKeyEventMonitor: NSViewRepresentable {
     let onKeyDown: (NSEvent) -> Bool
+    @Environment(\.inWindowModalStack) private var stack
+    @Environment(\.inWindowModalEntryID) private var entryID
 
     func makeNSView(context: Context) -> MonitorView {
-        MonitorView(onKeyDown: onKeyDown)
+        let view = MonitorView(onKeyDown: onKeyDown)
+        view.isTop = isTop
+        return view
     }
 
     func updateNSView(_ view: MonitorView, context: Context) {
         view.onKeyDown = onKeyDown
+        view.isTop = isTop
+    }
+
+    private var isTop: () -> Bool {
+        { [stack, entryID] in stack.isTop(entryID) }
     }
 
     final class MonitorView: NSView {
         var onKeyDown: (NSEvent) -> Bool
+        var isTop: () -> Bool = { true }
         private var eventMonitor: Any?
 
         init(onKeyDown: @escaping (NSEvent) -> Bool) {
@@ -41,7 +53,7 @@ struct SheetKeyEventMonitor: NSViewRepresentable {
                 return
             }
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, let window = self.window, event.window === window else {
+                guard let self, let window = self.window, event.window === window, self.isTop() else {
                     return event
                 }
                 return self.onKeyDown(event) ? nil : event

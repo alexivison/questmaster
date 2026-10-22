@@ -508,6 +508,10 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
               terminalView.bounds.contains(terminalView.convert(event.locationInWindow, from: nil)) else {
             return
         }
+        // A click on a modal drawn over the terminal belongs to the modal.
+        guard InWindowModalStack.shared.entries.isEmpty else {
+            return
+        }
         onFocusRequested?()
     }
 

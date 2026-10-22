@@ -38,6 +38,8 @@ enum AppPalette {
     static let deleted = NSColor(hex: 0xff7b72)
     static let warn = NSColor(hex: 0xd29922)
     static let accent = NSColor(hex: 0xd7b13d)
+    /// Modal titles, a touch deeper than `accent`, as the Quest Log v3 design sets "Quest Log".
+    static let modalTitle = NSColor(hex: 0xd4a544)
     /// Same color as the card rows' own selected/hover border, so the active
     /// side-card pane and the active row inside it read as one consistent
     /// highlight instead of two different colors.
@@ -69,6 +71,25 @@ enum AppPalette {
     static let chatWorking = NSColor(hex: 0xe8b34a)
     /// The black the tracker plates and the selected-session panel shade with, always at a partial opacity.
     static let shadow = NSColor.black
+
+    /// The Quest Log design's filter "/" and placeholder, its rows, and the selected row. Section titles are `accent`.
+    static let questLogFilterHint = NSColor(hex: 0x9da7b1)
+    static let questLogRow = NSColor(hex: 0xd8dee9)
+    static let questLogRowSelected = NSColor(hex: 0xe6edf3)
+    /// "Send forth" is gold; "Abandon" is an angular red from deep to bright.
+    static let questLogButtonGold = NSColor(hex: 0xa27c2f)
+    static let questLogButtonDangerDeep = NSColor(hex: 0x703835)
+    static let questLogButtonDanger = NSColor(hex: 0xb34640)
+    /// The user's parchment colours: paper, its shade, the fold browns and the highlights.
+    static let parchment = NSColor(hex: 0xf5e8bd)
+    static let parchmentShade = NSColor(hex: 0xebd49e)
+    static let parchmentInk = NSColor(hex: 0x4a302b)
+    static let parchmentRust = NSColor(hex: 0x70302b)
+    static let parchmentPlum = NSColor(hex: 0x422b3d)
+    static let parchmentHighlight = NSColor(hex: 0xffffeb)
+    static let parchmentHighlightWarm = NSColor(hex: 0xfffff0)
+    static let parchmentWhite = NSColor.white
+
     static let repoFallbacks = [
         NSColor(hex: 0x58a6ff),
         NSColor(hex: 0xd29922),
@@ -207,7 +228,7 @@ enum AppFonts {
     static let body = monospaced(size: 13)
     static let bodyBold = monospaced(size: 13, weight: .semibold)
     /// Sheet/modal titles.
-    static let title = monospaced(size: 15.5, weight: .semibold)
+    static let title = monospaced(size: 18, weight: .bold)
     /// Small caps-style modal field labels (e.g. "Path", "Agent").
     static let modalLabel = monospaced(size: 10, weight: .semibold)
     /// Italic flavor/helper text next to modal fields.
@@ -242,6 +263,14 @@ enum AppFonts {
     static let trackerTime = trackerSummary
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
+
+    /// The Quest Log design's sizes: 12pt list rows (bold when selected), page text and buttons, a 14pt bold
+    /// page title. The filter, section titles and the footer use `monoSmall`.
+    static let questLogRow = monospaced(size: 12)
+    static let questLogBody = monospaced(size: 12)
+    static let questLogRowSelected = monospaced(size: 12, weight: .bold)
+    static let questLogTitle = monospaced(size: 14, weight: .bold)
+    static let questLogButton = monospaced(size: 12, weight: .bold)
 }
 
 extension NSColor {

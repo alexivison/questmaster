@@ -273,7 +273,7 @@ struct TrackerRootView: View {
             onEditRepo: { presentEditRepo(sessionID: $0) }
         ))
         .background(TrackerCommandKeyMonitor { commandLongPressIsActive = $0 })
-        .sheet(item: $newSessionPresenter.presentation) { presentation in
+        .inWindowSheet(item: $newSessionPresenter.presentation) { presentation in
             NewSessionSheetView(
                 presentation: presentation,
                 dismiss: {
@@ -281,20 +281,20 @@ struct TrackerRootView: View {
                 }
             )
         }
-        .sheet(item: $destructiveConfirmationPresenter.presentation) { request in
+        .inWindowSheet(item: $destructiveConfirmationPresenter.presentation) { request in
             DestructiveConfirmationSheetView(spec: request.spec) { confirmed in
                 destructiveConfirmationPresenter.dismiss()
                 request.onDecision(confirmed)
             }
         }
-        .sheet(item: $editSession) { session in
+        .inWindowSheet(item: $editSession) { session in
             TrackerEditSessionSheet(
                 session: session,
                 dismiss: { editSession = nil },
                 save: { title, color in save(session, title: title, color: color) }
             )
         }
-        .sheet(item: $editRepo) { repo in
+        .inWindowSheet(item: $editRepo) { repo in
             TrackerEditRepoSheet(
                 repo: repo,
                 dismiss: { editRepo = nil },
@@ -668,7 +668,7 @@ private struct TrackerEditSessionSheet: View {
             }
         }
         .frame(width: 420)
-        .background(AppPalette.panel.swiftUI)
+        .scoopedPanel()
         .background(SheetKeyEventMonitor(onKeyDown: handle))
         .onAppear(perform: focusTitle)
     }
@@ -809,7 +809,7 @@ private struct TrackerEditRepoSheet: View {
             .padding(.bottom, Token.Spacing.card)
         }
         .frame(width: 420)
-        .background(AppPalette.panel.swiftUI)
+        .scoopedPanel()
         .background(SheetKeyEventMonitor(onKeyDown: handle))
     }
 

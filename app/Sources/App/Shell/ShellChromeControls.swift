@@ -41,16 +41,11 @@ struct ChromeIconButton: View {
     }
 }
 
+/// The brass corner ornaments, now only on the toast; docks and modals use `ScoopedRectangle`.
 struct SideCardOrnaments: View {
-    /// Brightened a bit when the side card is the focused region, so the
-    /// active border reads as one consistent highlight with its corners.
-    var active = false
-    var side: CGFloat = ShellMetrics.sideCardOrnamentSide
-    var inset: CGFloat = ShellMetrics.sideCardOrnamentInset
-    /// Full side-card panes need this to reach under the transparent
-    /// titlebar; compact floating chrome (e.g. the toast) should stay
-    /// within its own bounds instead.
-    var ignoresSafeArea = true
+    var side: CGFloat = ShellMetrics.toastOrnamentSide
+    var inset: CGFloat = ShellMetrics.toastOrnamentInset
+    var ignoresSafeArea = false
 
     var body: some View {
         if ignoresSafeArea {
@@ -69,7 +64,7 @@ struct SideCardOrnaments: View {
         }
         .padding(inset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .opacity(active ? 1 : 0.9)
+        .opacity(0.9)
         .allowsHitTesting(false)
     }
 
@@ -79,7 +74,7 @@ struct SideCardOrnaments: View {
         flippedVertically: Bool = false
     ) -> some View {
         SideCardCornerOrnament()
-            .fill((active ? AppPalette.brassActive : AppPalette.brass).swiftUI)
+            .fill(AppPalette.brass.swiftUI)
             .frame(width: side, height: side)
             .scaleEffect(x: flippedHorizontally ? -1 : 1, y: flippedVertically ? -1 : 1)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)

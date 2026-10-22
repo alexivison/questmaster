@@ -6,18 +6,6 @@ import SwiftUI
 /// can be pixel-checked without a running GUI session. Not for shipping —
 /// gated behind DEBUG, same as LogicSelfTests.
 #if DEBUG
-/// An off-screen window that reports a fixed backing scale so text and layers rasterize at RENDER_SCALE.
-private final class ScaledRenderWindow: NSWindow {
-    private let renderScale: CGFloat
-
-    init(backingScale: CGFloat, contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
-        renderScale = backingScale
-        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
-    }
-
-    override var backingScaleFactor: CGFloat { renderScale }
-}
-
 enum RenderPreview {
     @MainActor
     static func runIfRequested() -> Bool {
@@ -86,7 +74,36 @@ enum RenderPreview {
         render(artifactListView(showFilter: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter.png")
         render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
-        render(questListView(), size: CGSize(width: 300, height: 220), to: "\(outputDir)/quest-list.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
+        render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-nobody.png")
+        render(QuestLogView(store: questLogStore(filteredTo: "questmaster"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filtered.png")
+        render(
+            QuestLogView(store: questLogStore(), filter: questLogFilter(token: false, typing: "@project:"), previewFocused: true, onCommand: { _ in }),
+            size: QuestLogView.size,
+            to: "\(outputDir)/quest-log-suggestions.png"
+        )
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-placeholder.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), previewFocused: true, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-focused.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "gjpqy"), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-typed.png")
+        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
+        render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
+        renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
+        recordQuestLogAnimations(to: outputDir)
+        // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.
+        let scrolledPage = QuestLogPageScroll()
+        scrolledPage.previewOffset = 160
+        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), pageScroll: scrolledPage, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long-scrolled.png")
+        render(newSessionSheetView(title: "gjpqy quest", path: "/tmp/gjpqy/project"), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-descenders.png")
+        render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
+        render(newSessionSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-sheet.png")
+        let window = CGSize(width: 1400, height: 900)
+        renderView(modalWindowView(newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-window.png")
+        renderView(modalWindowView(newSessionSheetView()), size: window, to: "\(outputDir)/modal-new-session-window.png")
+        renderView(modalWindowView(settingsView()), size: window, to: "\(outputDir)/modal-settings-window.png")
+        renderView(modalWindowView(overQuestLog: true, DestructiveConfirmationSheetView(spec: .deleteQuests(count: 1), onDecision: { _ in })), size: window, to: "\(outputDir)/modal-confirm-over-quest-log.png")
+        renderView(modalWindowView(overQuestLog: true, newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-over-quest-log.png")
+        // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
+        render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         print("RenderPreview: done")
         exit(0)
@@ -895,37 +912,73 @@ enum RenderPreview {
         return ArtifactReference(kind: "html", path: url.path, label: "Preview artifact", addedAt: "")
     }
 
-    private static func questListView() -> some View {
-        let quests = [
-            QuestItem(id: "q-1", content: "Sample quest — short task description", updatedAt: "2026-07-14 05:49"),
-            QuestItem(id: "q-2", content: "Sample quest — a longer task description for preview layout.", updatedAt: "2026-07-14 00:48"),
+    /// The Quest Log design's own quests (user-quests-modal-v2.svg), newest first within each project.
+    private static func questLogQuests(longBody: Bool = false) -> [QuestItem] {
+        let projects = [
+            ("dotfiles", ["Add more meta data to shell sessions", "Restore terminal settings on login", "Share editor configs across devices", "Remove unused environment variables"]),
+            ("questmaster", ["Track milestones for active quests", "Sort adventures by upcoming deadline", "Assign party roles to teammates", "Archive completed quest campaigns"]),
+            ("scry", ["Search notes with exact phrases", "Filter results by source and date", "Save frequently used search filters", "Highlight matches in previews"]),
         ]
-        let section = QuestSection(id: "sample-project", title: "sample-project", quests: quests)
-        let model = QuestDockModel(
-            sections: [section],
-            selectedQuestID: nil,
-            selectedQuestIDs: [],
-            scrollTargetID: nil,
-            query: "",
-            filterTokens: [],
-            filterSuggestions: [],
-            selectedFilterSuggestionID: nil,
-            filterSuggestionsVisible: false,
-            filterFocusNonce: 0
-        )
-        return QuestDockView(
-            model: model,
-            onSetQuery: { _ in },
-            onRemoveFilterToken: { _ in },
-            onSelectFilterSuggestion: { _ in },
-            onFilterCommand: { _ in false },
-            onFilterEndEditing: {},
-            onSelectQuest: { _ in },
-            onToggleQuest: { _ in },
-            onDelete: {},
-            onStart: {},
-            onEdit: {}
-        )
+        var body = """
+        The idea is to make questmaster also work well as a tmux session handler
+
+        - If possible, connect the questmaster session name to the tmux session name
+        - Use the Questmaster App logo in the place where the agent icon is
+        - Maybe use different corner ornements?
+        """
+        if longBody {
+            body += "\n\n" + (1...40).map { "- Step \($0): keep going until the page has to scroll" }.joined(separator: "\n")
+        }
+        return projects.flatMap { project, titles in
+            titles.enumerated().map { index, title in
+                QuestItem(
+                    id: "\(project)-\(index)",
+                    content: index == 0 && project == "dotfiles" ? "\(title)\n\n\(body)" : title,
+                    projectID: project,
+                    projectName: project,
+                    createdAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index),
+                    updatedAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index)
+                )
+            }
+        }
+    }
+
+    /// `filteredTo` applies a project token to the list as the app would; the design SVGs draw a token chip
+    /// over the full list, so the design renders show the chip without applying it.
+    @MainActor
+    private static func questLogStore(longBody: Bool = false, empty: Bool = false, selecting id: String? = nil, filteredTo projectID: String? = nil) -> QuestLogStore {
+        let store = QuestLogStore()
+        store.sync(quests: empty ? [] : questLogQuests(longBody: longBody), repos: [], projectIDs: Set([projectID].compactMap { $0 }))
+        if let id {
+            store.select(id)
+        }
+        return store
+    }
+
+    /// A filter holding a `@project questmaster` token, as the design draws it; `typing` leaves an unfinished
+    /// query in the field so its suggestions open.
+    @MainActor
+    private static func questLogFilter(token: Bool = true, typing: String? = nil) -> QuestLogFilter {
+        let filter = QuestLogFilter()
+        filter.update(tracker: TrackerSnapshot(repos: [], quests: questLogQuests()))
+        if token {
+            filter.setQuery("@project:questm")
+            filter.acceptSuggestion()
+        }
+        if let typing {
+            filter.setQuery(typing)
+        }
+        return filter
+    }
+
+    @MainActor
+    private static func questLogWindowView() -> NSView {
+        let size = CGSize(width: 1400, height: 900)
+        let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+        let stack = InWindowModalStack()
+        stack.presentQuestLog(questLogModal(questLogStore()))
+        (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
+        return shell
     }
 
     @MainActor
@@ -975,6 +1028,126 @@ enum RenderPreview {
         )
     }
 
+    @MainActor
+    private static func newQuestSheetView() -> some View {
+        let presenter = NewQuestSheetPresenter()
+        presenter.present(
+            projects: [
+                NewQuestProjectOption(projectID: "", projectPath: "", projectName: "No project"),
+                NewQuestProjectOption(projectID: "questmaster", projectPath: "/Users/aleksi.tuominen/Code/questmaster", projectName: "questmaster"),
+            ],
+            selectedProjectID: "questmaster",
+            initialContent: "Add more meta data to shell sessions\n\nThe idea is to make questmaster also work well as a tmux session handler",
+            sessionID: nil,
+            mutationClient: SettingsPreviewMutationClient(),
+            onSuccess: {}
+        )
+        return NewQuestSheetView(presentation: presenter.presentation!, dismiss: {})
+    }
+
+    @MainActor
+    private static func newSessionSheetView(title: String = "", path: String = "/Users/aleksi.tuominen/Code/questmaster") -> some View {
+        let presenter = NewSessionSheetPresenter()
+        presenter.present(initialPath: path, initialTitle: title, mutationClient: SettingsPreviewMutationClient(), directoryClient: nil, onSuccess: { _ in })
+        return NewSessionSheetView(presentation: presenter.presentation!, dismiss: {})
+    }
+
+    /// Records a real animation: lays `root` out in an off-screen window, runs `start`, then snapshots the window
+    /// every 1/`fps` s for `duration` s into `<dir>/<name>-frames/NNN.png`. Only runs when RENDER_ONLY names it.
+    @MainActor
+    private static func recordAnimation(_ name: String, root: NSView, size: CGSize, crop: CGRect, duration: Double, fps: Double = 30, to dir: String, start: () -> Void) {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RENDER_ONLY"]?.split(separator: ",").contains(Substring(name)) == true else {
+            return
+        }
+        let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
+        warmUpFirstWindow()
+        root.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size, scale: scale)
+        window.contentView = root
+        window.show()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        let frames = "\(dir)/\(name)-frames"
+        try? FileManager.default.createDirectory(atPath: frames, withIntermediateDirectories: true)
+        start()
+        let began = Date()
+        var index = 0
+        // The presentation layer tree, not `cacheDisplay`: animations Core Animation runs itself (the unroll's mask
+        // scale) only show their in-between values there.
+        // Whole-view snapshots (a sub-rect snapshot draws the in-window modal host out of place), cropped to `crop`
+        // (points from the top left) as they're saved.
+        var captured: [NSBitmapImageRep] = []
+        while Date().timeIntervalSince(began) < duration {
+            RunLoop.current.run(until: began.addingTimeInterval(Double(index) / fps))
+            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+                break
+            }
+            bitmap.size = size
+            root.cacheDisplay(in: root.bounds, to: bitmap)
+            captured.append(bitmap)
+            index += 1
+        }
+        let pixelCrop = CGRect(x: crop.minX * scale, y: crop.minY * scale, width: crop.width * scale, height: crop.height * scale)
+        for (frame, bitmap) in captured.enumerated() {
+            guard let cropped = bitmap.cgImage?.cropping(to: pixelCrop) else {
+                continue
+            }
+            try? NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: String(format: "%@/%03d.png", frames, frame)))
+        }
+        window.orderOut(nil)
+        print("RenderPreview: recorded \(index) frames to \(frames)")
+    }
+
+    @MainActor
+    private static func recordQuestLogAnimations(to dir: String) {
+        let size = CGSize(width: 1400, height: 900)
+        // The Quest Log centred in the window, with 30pt of the scrim around it.
+        let modalCrop = CGRect(x: 220, y: 30, width: 960, height: 840)
+        do {
+            let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+            let stack = InWindowModalStack()
+            (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
+            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * ModalFade.slowdown, to: dir) {
+                stack.presentQuestLog(questLogModal(questLogStore()))
+            }
+        }
+        do {
+            // The log opens, then Abandon's confirmation fades in over it and back out; the log stays put.
+            let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+            let stack = InWindowModalStack()
+            (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
+            let slow = ModalFade.slowdown
+            recordAnimation("confirm-fade-gif", root: shell, size: size, crop: modalCrop, duration: 1.6 * slow, to: dir) {
+                stack.presentQuestLog(questLogModal(questLogStore()))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 * slow) {
+                    stack.present(id: "confirm", AnyView(DestructiveConfirmationSheetView(spec: .deleteQuests(count: 1), onDecision: { _ in })))
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2 * slow) { stack.dismiss(id: "confirm") }
+            }
+        }
+    }
+
+    /// The real window with `modal` presented the way the app presents it: the shell and the in-window modal
+    /// host, with `modal` on top of the stack (pushed after the Quest Log when `overQuestLog`).
+    @MainActor
+    private static func modalWindowView(overQuestLog: Bool = false, _ modal: some View) -> NSView {
+        let size = CGSize(width: 1400, height: 900)
+        let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+        let stack = InWindowModalStack()
+        if overQuestLog {
+            stack.presentQuestLog(questLogModal(questLogStore()))
+        }
+        stack.present(id: "preview", AnyView(modal))
+        (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
+        return shell
+    }
+
+    @MainActor
+    private static func questLogModal(_ store: QuestLogStore) -> QuestLogModal {
+        store.open()
+        return QuestLogModal(store: store, filter: questLogFilter(token: false), pageScroll: QuestLogPageScroll(), onCommand: { _ in })
+    }
+
     private static func confirmationView() -> some View {
         DestructiveConfirmationSheetView(
             spec: .deleteSession(sessionID: "qm-1783901769"),
@@ -1010,11 +1183,8 @@ enum RenderPreview {
     private static func warmUpFirstWindow() {
         guard !didWarmUp else { return }
         didWarmUp = true
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 10, height: 10),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.orderFrontRegardless()
+        let window = HeadlessWindow(size: CGSize(width: 10, height: 10))
+        window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         window.close()
     }
@@ -1029,14 +1199,9 @@ enum RenderPreview {
         warmUpFirstWindow()
         hostingView.frame = NSRect(origin: .zero, size: size)
 
-        let window = ScaledRenderWindow(backingScale: scale,
-            contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: size),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
+        let window = HeadlessWindow(size: size, scale: scale)
         window.contentView = hostingView
-        window.orderFrontRegardless()
+        window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(Double(environment["RENDER_SETTLE"] ?? "") ?? 0.8))
 
         if autoHeight {

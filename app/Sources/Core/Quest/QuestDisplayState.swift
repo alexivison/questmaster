@@ -14,13 +14,30 @@ public struct QuestSection: Equatable, Identifiable {
     }
 }
 
-public enum QuestDisplayState {
-    public static let maxRowPreviewLength = 4000
+/// Where the list scrolls to bring the selected quest into view.
+public enum QuestListScrollTarget: Equatable {
+    /// The very first quest: scroll the list fully to the top.
+    case top
+    /// A section's first quest: bring the section's title into view with it.
+    case sectionStart(sectionID: String)
+    /// Any other quest: just that row.
+    case row(id: String)
+}
 
-    public static func rowPreview(for content: String) -> String {
-        content.count > maxRowPreviewLength
-            ? String(content.prefix(maxRowPreviewLength)) + "…"
-            : content
+public enum QuestDisplayState {
+    public static func scrollTarget(for id: String?, in sections: [QuestSection]) -> QuestListScrollTarget? {
+        guard let id else {
+            return nil
+        }
+        for (index, section) in sections.enumerated() {
+            if section.quests.first?.id == id {
+                return index == 0 ? .top : .sectionStart(sectionID: section.id)
+            }
+            if section.quests.contains(where: { $0.id == id }) {
+                return .row(id: id)
+            }
+        }
+        return nil
     }
 
     public static func sections(
@@ -115,10 +132,11 @@ public enum QuestDisplayState {
         return atStart ? quests.first?.id : quests.last?.id
     }
 
+    /// Newest created first, so editing a quest doesn't move it; ties by id.
     private static func sorted(_ quests: [QuestItem]) -> [QuestItem] {
         quests.sorted { lhs, rhs in
-            if lhs.updatedAt != rhs.updatedAt {
-                return lhs.updatedAt > rhs.updatedAt
+            if lhs.createdAt != rhs.createdAt {
+                return lhs.createdAt > rhs.createdAt
             }
             return lhs.id < rhs.id
         }

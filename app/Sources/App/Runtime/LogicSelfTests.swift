@@ -40,17 +40,26 @@ enum LogicSelfTests {
         ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
-        ("testDockContentRoutingAllowsGlobalQuestsOnly", testDockContentRoutingAllowsGlobalQuestsOnly),
-        ("testArtifactDockCommandSwitchesFromQuests", testArtifactDockCommandSwitchesFromQuests),
-        ("testDockCoordinatorKeepsNoSessionQuestState", testDockCoordinatorKeepsNoSessionQuestState),
+        ("testDockContentRoutingRequiresASession", testDockContentRoutingRequiresASession),
+        ("testArtifactDockCommandSwitchesFromWorkerChat", testArtifactDockCommandSwitchesFromWorkerChat),
+        ("testDockCoordinatorIgnoresNoSessionState", testDockCoordinatorIgnoresNoSessionState),
+        ("testModalsPresentInsideTheWindowNotAsSystemSheets", testModalsPresentInsideTheWindowNotAsSystemSheets),
+        ("testModalStackClosesTheTopModalFirstAndRestoresFocus", testModalStackClosesTheTopModalFirstAndRestoresFocus),
+        ("testShellFocusRequestsWaitForTheModals", testShellFocusRequestsWaitForTheModals),
+        ("testClosingAChildRefocusesTheModalItUncovers", testClosingAChildRefocusesTheModalItUncovers),
+        ("testRestoringFocusAfterTheLastModalKeepsAFieldsCaret", testRestoringFocusAfterTheLastModalKeepsAFieldsCaret),
+        ("testClosingAChildKeepsTheUncoveredFieldsSelection", testClosingAChildKeepsTheUncoveredFieldsSelection),
+        ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
+        ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
+        ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
+        ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
+        ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
-        ("testQuestListGChordJumpsToEdgesAndForcesRescroll", testQuestListGChordJumpsToEdgesAndForcesRescroll),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
         ("testListGChordPendingGResetsOnGAndOnInterveningKey", testListGChordPendingGResetsOnGAndOnInterveningKey),
-        ("testQuestDockCopiesSelectedQuestContentsWithY", testQuestDockCopiesSelectedQuestContentsWithY),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
         ("testArtifactDockCopiesMultipleSelectedArtifactPathsWithY", testArtifactDockCopiesMultipleSelectedArtifactPathsWithY),
         ("testArtifactDockDeletesSelectedArtifactsWithD", testArtifactDockDeletesSelectedArtifactsWithD),
@@ -206,7 +215,7 @@ enum LogicSelfTests {
     /// pulses, an ended cast flashes, a new learned duration only re-targets the fill; reduce motion keeps the fill but
     /// stills the rest, and nothing animates outside a window, nor keeps exiting once out of one.
     private static func testPortraitRingAnimatesByItsMode() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
         let geometry = TrackerPlateDesign.collapsedCircleStatus
         let bash = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2), typicalMS: 6000)
 
@@ -281,7 +290,7 @@ enum LogicSelfTests {
         try expect(band() == nil, "an unselected, unhovered row should show no band")
         try expect(TrackerGlowNSView.bandOpacity == 0.6, "the band should hold 0.6")
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
         let held = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         window.contentView = held
         held.configure(path: CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil), color: AppPalette.bright)
@@ -359,9 +368,9 @@ enum LogicSelfTests {
                 TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent, ring: .spinning(nil))
             })
             hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 320, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
+            let window = HeadlessWindow(size: CGSize(width: 320, height: 240))
             window.contentView = hosting
-            window.orderFrontRegardless()
+            window.show()
             defer { window.close() }
             func control() -> TrackerPortraitStatusNSView? {
                 statusViews(in: hosting).first { $0.geometry == controlGeometry }
@@ -572,12 +581,9 @@ enum LogicSelfTests {
         }
         let idleEntries = Array(repeating: fixed, count: 30) + Array(repeating: hidden, count: 30)
         let hosting = NSHostingView(rootView: column(idleEntries))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         let startedBefore = clock.timersStarted
         pump(0.3)
@@ -595,7 +601,7 @@ enum LogicSelfTests {
     /// duration (kept under reduce motion) and a pulse from then on (none under reduce motion), an unknown one a repeating shimmer (none under reduce
     /// motion), a finishing cast neither, and nothing animates outside a window.
     private static func testCastFillAnimatesOnlyWhileCastingInAWindow() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 40))
         let started = Date().addingTimeInterval(-2)
         let bash = TrackerCast(tool: "Bash", startedAt: started, typicalMS: 6000)
         let overrun = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-9), typicalMS: 6000)
@@ -1135,14 +1141,14 @@ enum LogicSelfTests {
         }
         defer { cancellable.cancel() }
 
-        let beforeQuest = publishCount
+        let beforeChat = publishCount
         _ = model.apply(
-            SessionViewState(dockContent: .questList),
+            SessionViewState(dockContent: .workerChat),
             snapshot: snapshot,
             preferredArtifactSessionID: nil
         )
-        try expect(model.currentMode == .quests, "quest dock content should render quest mode")
-        try expect(publishCount > beforeQuest, "quest mode change should publish for DockRootView")
+        try expect(model.currentMode == .workerChat, "worker chat dock content should render worker chat mode")
+        try expect(publishCount > beforeChat, "worker chat mode change should publish for DockRootView")
 
         let beforeArtifacts = publishCount
         _ = model.apply(
@@ -1161,17 +1167,12 @@ enum LogicSelfTests {
         snapshot.tracker = TrackerSnapshot(
             repos: [TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
                 TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: [first, second]),
-            ])],
-            quests: [
-                QuestItem(id: "qst-a", content: "First quest"),
-                QuestItem(id: "qst-b", content: "Second quest"),
-            ]
+            ])]
         )
 
         let coordinator = DockCoordinator()
         let model = DockPaneModel()
         model.onSelectedArtifactChange = { coordinator.updateSelectedArtifact($0, sessionID: "qm-a") }
-        model.onSelectedQuestChange = { coordinator.updateSelectedQuest($0, sessionID: "qm-a") }
 
         _ = model.apply(
             SessionViewState(dockContent: .artifactList, selectedArtifactID: first.id),
@@ -1187,14 +1188,6 @@ enum LogicSelfTests {
             preferredArtifactSessionID: "qm-a"
         )
         try expect(model.artifactModel.selectedArtifactID == second.id, "render should retain the selected artifact")
-
-        _ = model.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-a"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: "qm-a"
-        )
-        model.selectQuest("qst-b")
-        try expect(coordinator.state(for: "qm-a").selectedQuestID == "qst-b", "quest selection should persist before the next render")
     }
 
     private static func testGChordShortcutDecidesFromCharacterIgnoringCapsLock() throws {
@@ -1215,38 +1208,6 @@ enum LogicSelfTests {
 
         try expect(!GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5, modifierFlags: [.command])), "command-g should not arm the chord")
         try expect(!GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.command, .shift])), "command-shift-G should not jump to bottom")
-    }
-
-    private static func testQuestListGChordJumpsToEdgesAndForcesRescroll() throws {
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(
-            repos: [],
-            quests: [
-                QuestItem(id: "qst-a", content: "A", updatedAt: "2026-07-03T01:00:00Z"),
-                QuestItem(id: "qst-b", content: "B", updatedAt: "2026-07-03T02:00:00Z"),
-                QuestItem(id: "qst-c", content: "C", updatedAt: "2026-07-03T03:00:00Z"),
-            ]
-        )
-        // Sorted newest first within the "no project" bucket: [qst-c, qst-b, qst-a].
-        let model = DockPaneModel()
-        _ = model.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-c"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
-
-        let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
-        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should be handled")
-        try expect(model.questModel.selectedQuestID == "qst-a", "G should select the last quest")
-        let nonceAfterFirstJump = model.questModel.scrollNonce
-
-        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should still be handled when already at the last quest")
-        try expect(model.questModel.scrollNonce != nonceAfterFirstJump, "repeating G at the edge should still force a rescroll")
-
-        let g = try keyEvent("g", keyCode: 5)
-        try expect(model.handleKeyDown(g, snapshot: snapshot), "first g should arm the gg chord")
-        try expect(model.handleKeyDown(g, snapshot: snapshot), "second g within the window should jump to the first quest")
-        try expect(model.questModel.selectedQuestID == "qst-c", "gg should select the first quest")
     }
 
     private static func testArtifactListGChordJumpsToEdgesAndForcesRescroll() throws {
@@ -1282,89 +1243,41 @@ enum LogicSelfTests {
     }
 
     private static func testListGChordPendingGResetsOnGAndOnInterveningKey() throws {
+        let artifacts = ["a", "b", "c"].map {
+            ArtifactReference(kind: "html", path: "/tmp/\($0).html", label: $0, sessionID: "qm-a", addedAt: "")
+        }
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(
-            repos: [],
-            quests: [
-                QuestItem(id: "qst-a", content: "A", updatedAt: "2026-07-03T01:00:00Z"),
-                QuestItem(id: "qst-b", content: "B", updatedAt: "2026-07-03T02:00:00Z"),
-                QuestItem(id: "qst-c", content: "C", updatedAt: "2026-07-03T03:00:00Z"),
-            ]
-        )
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: artifacts),
+            ]),
+        ])
         let g = try keyEvent("g", keyCode: 5)
         let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
+        func listModel() -> DockPaneModel {
+            let model = DockPaneModel()
+            _ = model.apply(
+                SessionViewState(dockContent: .artifactList, selectedArtifactID: artifacts[1].id),
+                snapshot: snapshot,
+                preferredArtifactSessionID: "qm-a"
+            )
+            return model
+        }
 
-        let afterG = DockPaneModel()
-        _ = afterG.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-b"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
+        let afterG = listModel()
+        let last = afterG.artifactModel.artifacts.last?.id
         try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
-        try expect(afterG.handleKeyDown(shiftG, snapshot: snapshot), "G should jump to the last quest, not continue the chord")
-        try expect(afterG.questModel.selectedQuestID == "qst-a", "G should select the last quest")
+        try expect(afterG.handleKeyDown(shiftG, snapshot: snapshot), "G should jump to the last artifact, not continue the chord")
+        try expect(afterG.artifactModel.selectedArtifactID == last, "G should select the last artifact")
         try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g right after G should re-arm rather than resolve")
-        try expect(afterG.questModel.selectedQuestID == "qst-a", "a freshly re-armed g alone should not move the selection")
+        try expect(afterG.artifactModel.selectedArtifactID == last, "a freshly re-armed g alone should not move the selection")
 
-        let afterOtherKey = DockPaneModel()
-        _ = afterOtherKey.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-b"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
+        let afterOtherKey = listModel()
+        let selected = afterOtherKey.artifactModel.selectedArtifactID
         try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
-        _ = afterOtherKey.handleKeyDown(try keyEvent("/", keyCode: 44), snapshot: snapshot)
+        _ = afterOtherKey.handleKeyDown(try keyEvent("x", keyCode: 7), snapshot: snapshot)
         try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g after an unrelated key should re-arm rather than resolve")
-        try expect(afterOtherKey.questModel.selectedQuestID == "qst-b", "a freshly re-armed g alone should not move the selection")
-    }
-
-    private static func testQuestDockCopiesSelectedQuestContentsWithY() throws {
-        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(
-            repos: [],
-            quests: [
-                QuestItem(id: "qst-a", content: "Copy this quest", updatedAt: "2026-07-06T09:00:00Z"),
-            ]
-        )
-        let model = DockPaneModel()
-        var copiedCount = 0
-        model.onCopyQuests = { copiedCount = $0 }
-        _ = model.apply(
-            SessionViewState(dockContent: .questList, selectedQuestID: "qst-a"),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
-
-        let pasteboard = NSPasteboard.general
-        let previous = pasteboard.string(forType: .string)
-        defer {
-            pasteboard.clearContents()
-            if let previous {
-                pasteboard.setString(previous, forType: .string)
-            }
-        }
-
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: 0,
-            windowNumber: 0,
-            context: nil,
-            characters: "y",
-            charactersIgnoringModifiers: "y",
-            isARepeat: false,
-            keyCode: 16
-        ) else {
-            throw TestFailure("could not create y key event")
-        }
-
-        try expect(model.handleKeyDown(event, snapshot: snapshot), "y should copy the selected quest")
-        try expect(
-            pasteboard.string(forType: .string) == "Copy this quest",
-            "pasteboard should contain selected quest content"
-        )
-        try expect(copiedCount == 1, "copy quest should report copied count")
+        try expect(afterOtherKey.artifactModel.selectedArtifactID == selected, "a freshly re-armed g alone should not move the selection")
     }
 
     private static func testArtifactDockCopiesSelectedArtifactPathWithY() throws {
@@ -1594,24 +1507,19 @@ enum LogicSelfTests {
         try expect(model.artifactModel.reloadNonce == beforeReload + 1, "viewer r should increment reload nonce")
     }
 
-    private static func testDockContentRoutingAllowsGlobalQuestsOnly() throws {
-        try expect(DockContentRouting.canShow(.questList, sessionID: nil), "quest list should open without a current session")
-        try expect(DockContentRouting.canShow(.questList, sessionID: "   "), "quest list should open without a session id")
-        try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should still require a current session")
+    private static func testDockContentRoutingRequiresASession() throws {
+        try expect(!DockContentRouting.canShow(.artifactList, sessionID: nil), "artifact list should require a current session")
+        try expect(!DockContentRouting.canShow(.artifactList, sessionID: "   "), "artifact list should require a session id")
         try expect(!DockContentRouting.canShow(.artifactViewer, sessionID: ""), "artifact viewer should still require a current session")
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
         try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo"), "worker chat should open for every attached session")
         try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil), "worker chat should still require a current session")
     }
 
-    private static func testArtifactDockCommandSwitchesFromQuests() throws {
+    private static func testArtifactDockCommandSwitchesFromWorkerChat() throws {
         try expect(
-            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: false, content: .questList),
+            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: false, content: .artifactList),
             "Cmd-3 should show artifacts when the dock is hidden"
-        )
-        try expect(
-            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .questList),
-            "Cmd-3 should switch visible quests to artifacts"
         )
         try expect(
             !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .workerChat),
@@ -1627,19 +1535,523 @@ enum LogicSelfTests {
         )
     }
 
-    private static func testDockCoordinatorKeepsNoSessionQuestState() throws {
+    /// A system sheet would attach its own window (with an opaque, rounded panel behind the scooped corners);
+    /// an in-window modal must not, and its host must cover the window only while something is presented.
+    private static func testModalsPresentInsideTheWindowNotAsSystemSheets() throws {
+        struct Item: Identifiable { let id: String }
+        final class Holder: ObservableObject { @Published var item: Item? }
+        struct Presenting: View {
+            @ObservedObject var holder: Holder
+            let stack: InWindowModalStack
+            var body: some View {
+                Color.clear
+                    .inWindowSheet(item: $holder.item) { _ in Color.clear.frame(width: 120, height: 80).scoopedPanel() }
+                    .environment(\.inWindowModalStack, stack)
+            }
+        }
+        let stack = InWindowModalStack()
+        let holder = Holder()
+        let window = HeadlessWindow(size: CGSize(width: 400, height: 300))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let presenting = NSHostingView(rootView: Presenting(holder: holder, stack: stack))
+        presenting.frame = content.bounds
+        let host = InWindowModalHost(stack: stack)
+        content.addSubview(presenting)
+        // Pinned with Auto Layout, as ShellRootContainerView.addOverlay pins it in the app.
+        host.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: content.topAnchor),
+            host.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            host.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        window.contentView = content
+        let windowSize = window.frame.size
+        window.show()
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
+        settle()
+        try expect(host.isHidden, "the modal host should stay hidden, and out of the way of clicks, while nothing is presented")
+
+        holder.item = Item(id: "a")
+        settle()
+        try expect(window.attachedSheet == nil, "presenting should not attach a system sheet window")
+        try expect(stack.entries.count == 1, "presenting should push one in-window modal, got \(stack.entries.count)")
+        try expect(!host.isHidden, "the modal host should show while a modal is presented")
+        try expect(window.firstResponder === host, "the modal host should take the keys from whatever had them")
+        try expect(window.frame.size == windowSize, "a presented modal must not resize the window, got \(window.frame.size) from \(windowSize)")
+
+        holder.item = nil
+        RunLoop.main.run(until: Date().addingTimeInterval(ModalFade.fadeOut / 3))
+        try expect(stack.isEmpty, "a dismissed modal should stop counting as open at once, so keys go back underneath")
+        try expect(stack.entries.count == 1 && stack.entries[0].closing, "a dismissed modal should stay mounted, closing, while it fades out")
+        try expect(!host.isHidden, "the host should stay visible until the fade-out ends")
+        settle()
+        try expect(stack.entries.isEmpty && host.isHidden, "once the fade-out ends the stack should empty and the host hide")
+    }
+
+    /// The Quest Log is one entry on the same stack as every modal: what opens over it draws over it, Esc
+    /// closes the top modal only, global commands don't stack an unrelated modal over it (⌘T opens New Quest
+    /// as its child), and once the last modal has faded out focus is back where it was before the first.
+    private static func testModalStackClosesTheTopModalFirstAndRestoresFocus() throws {
+        struct Item: Identifiable { let id: String }
+        final class Holder: ObservableObject { @Published var item: Item? }
+        final class StandInTerminal: NSView { override var acceptsFirstResponder: Bool { true } }
+        struct Presenting: View {
+            @ObservedObject var newSession: NewSessionSheetPresenter
+            @ObservedObject var newQuest: Holder
+            let stack: InWindowModalStack
+            var body: some View {
+                Color.clear
+                    .inWindowSheet(item: $newSession.presentation) { NewSessionSheetView(presentation: $0, dismiss: { newSession.dismiss() }) }
+                    .inWindowSheet(item: $newQuest.item) { _ in
+                        Color.clear.frame(width: 120, height: 80).scoopedPanel()
+                            .background(SheetKeyEventMonitor { event in
+                                guard event.keyCode == 53 else {
+                                    return false
+                                }
+                                newQuest.item = nil
+                                return true
+                            })
+                    }
+                    .environment(\.inWindowModalStack, stack)
+            }
+        }
+        let stack = InWindowModalStack()
+        let newSession = NewSessionSheetPresenter()
+        let newQuest = Holder()
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest", projectID: "p", projectName: "p")], repos: [])
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 860))
+        let terminal = StandInTerminal(frame: content.bounds)
+        let presenting = NSHostingView(rootView: Presenting(newSession: newSession, newQuest: newQuest, stack: stack))
+        presenting.frame = content.bounds
+        let host = InWindowModalHost(stack: stack)
+        var fallbackFocusCount = 0
+        host.onEmpty = { fallbackFocusCount += 1 }
+        content.addSubview(terminal)
+        content.addSubview(presenting)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: content.topAnchor),
+            host.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            host.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        window.contentView = content
+        let windowSize = window.frame.size
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        func pressEsc() {
+            guard let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) else {
+                return
+            }
+            NSApp.sendEvent(esc)
+            settle()
+        }
+        window.makeFirstResponder(terminal)
+        settle()
+
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { command in
+            guard command == .close else {
+                return
+            }
+            store.close()
+            stack.dismiss(id: QuestLogModal.stackID)
+        }))
+        settle()
+        try expect(stack.top?.kind == .questLog, "the Quest Log should be an entry on the modal stack")
+        try expect(window.firstResponder === host, "the open Quest Log should hold the keys, not the terminal")
+        try expect(stack.route(.newSession) == .ignored && stack.route(.settings) == .ignored, "a global New Session or Settings over the Quest Log should be ignored")
+        try expect(stack.route(.toggleQuestLog) == .allowed, "the Quest Log's toggle should act on it while it's on top")
+
+        // Send forth's New Session: a child the log opens itself goes on top, and Esc closes it first.
+        newSession.present(initialPath: "/tmp", mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: { _ in })
+        settle()
+        try expect(stack.entries.count == 2 && stack.entries.last?.kind == .other, "the child should draw on top of the Quest Log, got \(stack.entries.map(\.kind))")
+        try expect(stack.route(.toggleQuestLog) == .ignored, "the Quest Log's toggle should do nothing while a child is on top")
+        pressEsc()
+        try expect(newSession.presentation == nil, "the first Esc should close the child on top")
+        try expect(store.isOpen && stack.top?.kind == .questLog, "the first Esc should leave the Quest Log open")
+
+        // ⌘T over the log: New Quest opens as its child, and Esc closes it alone.
+        try expect(stack.route(.newQuest) == .child, "⌘T over the Quest Log should open New Quest as its child")
+        newQuest.item = Item(id: "new-quest")
+        settle()
+        try expect(stack.entries.last?.kind == .other && stack.entries.filter { !$0.closing }.count == 2, "New Quest should open on top of the Quest Log")
+        pressEsc()
+        try expect(newQuest.item == nil && store.isOpen, "Esc should close New Quest and leave the Quest Log open")
+
+        pressEsc()
+        try expect(!store.isOpen, "the next Esc should close the Quest Log")
+        try expect(stack.entries.isEmpty && host.isHidden, "once every modal has faded out the host should hide")
+        try expect(window.firstResponder === terminal, "focus should go back to the terminal, got \(String(describing: window.firstResponder))")
+        try expect(fallbackFocusCount == 0, "with the terminal still there the fallback shouldn't run")
+        try expect(window.frame.size == windowSize, "modals must not resize the window, got \(window.frame.size) from \(windowSize)")
+    }
+
+    /// Every shell focus request (the terminal, a region, a session switch's focusTerminal) goes through
+    /// `ShellFocusCoordinator.focusCurrentRegion`. Under a modal it moves only the navigation state: the keys
+    /// stay on the modal, and focus lands on the requested region once the last modal has faded out.
+    private static func testShellFocusRequestsWaitForTheModals() throws {
+        final class StandIn: NSView { override var acceptsFirstResponder: Bool { true } }
+        final class StandInTerminalHost: TerminalPaneHosting {
+            let view: NSView = StandIn(frame: NSRect(x: 500, y: 0, width: 500, height: 600))
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            let cellMetrics: TerminalCellMetrics = .unavailable
+            var onCellMetricsChanged: (() -> Void)?
+            func start() {}
+            func stop() {}
+            func focus(in window: NSWindow?) { window?.makeFirstResponder(view) }
+            func connect(to config: TerminalLaunchConfig) throws {}
+        }
+        let stack = InWindowModalStack()
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 600))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
+        let tracker = StandIn(frame: NSRect(x: 0, y: 0, width: 500, height: 600))
+        let terminal = StandInTerminalHost()
+        let host = InWindowModalHost(stack: stack)
+        content.addSubview(tracker)
+        content.addSubview(terminal.view)
+        host.frame = content.bounds
+        content.addSubview(host)
+        window.contentView = content
+        let navigation = NavigationStore()
+        let coordinator = ShellFocusCoordinator(
+            navigation: navigation,
+            window: { window },
+            splitView: { nil },
+            terminalShell: { nil },
+            dockShell: { nil },
+            footerShell: { nil },
+            trackerHosting: { tracker },
+            dockView: { nil },
+            terminalHost: { terminal },
+            modalHost: { host },
+            updateDockTabs: {}
+        )
+        host.onEmpty = { coordinator.focusCurrentRegion() }
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        func presentModal() {
+            stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
+            settle()
+        }
+        coordinator.focus(.tracker)
+        settle()
+        try expect(window.firstResponder === tracker, "the tracker should start with the keys")
+
+        // New Session's Summon: close(), then onSuccess's switchTerminal focuses the new terminal at once.
+        presentModal()
+        stack.dismiss(id: "modal")
+        coordinator.focusTerminal()
+        try expect(window.firstResponder === host, "a focus request during the fade-out should leave the keys on the host")
+        settle()
+        try expect(window.firstResponder === terminal.view, "after Summon the terminal should have the keys, got \(String(describing: window.firstResponder))")
+
+        coordinator.focus(.tracker)
+        presentModal()
+        coordinator.focusTerminal()
+        try expect(window.firstResponder === host, "focusing the terminal (⌥⌘2, a session switch) under a modal should leave the keys on it, got \(String(describing: window.firstResponder))")
+        coordinator.focusRegionLeft()
+        try expect(window.firstResponder === host, "a region move (⇧⌘H) under a modal should leave the keys on it, got \(String(describing: window.firstResponder))")
+        try expect(navigation.focusedRegion == .tracker, "the region move should still update navigation")
+        coordinator.focusTerminal()
+        stack.dismiss(id: "modal")
+        settle()
+        try expect(window.firstResponder === terminal.view, "the last request should take the keys once the modal has faded, got \(String(describing: window.firstResponder))")
+    }
+
+    /// A child (⌘T's New Quest over the Quest Log) closing hands the keys back to what had them in the modal it
+    /// uncovers: the filter's field editor, caret where it was, so typing goes on into the filter.
+    private static func testClosingAChildRefocusesTheModalItUncovers() throws {
+        let stack = InWindowModalStack()
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest", projectID: "p", projectName: "p")], repos: [])
+        let filter = QuestLogFilter()
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
+        let host = InWindowModalHost(stack: stack)
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: filter, pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        settle()
+        filter.focus()
+        settle()
+        guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+            throw TestFailure("the filter should take focus, got \(String(describing: window.firstResponder))")
+        }
+        editor.insertText("ab", replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+        let field = editor.delegate as? NSTextField
+
+        stack.present(id: "new-quest", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        try expect(window.firstResponder === host, "the child should take the keys from the filter")
+        stack.dismiss(id: "new-quest")
+        settle()
+        guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor, restored.delegate as? NSTextField === field else {
+            throw TestFailure("closing the child should refocus the filter, got \(String(describing: window.firstResponder))")
+        }
+        try expect(restored.string == "ab" && restored.selectedRange() == NSRange(location: 1, length: 0), "the filter should keep its text and caret, got \(restored.string) \(restored.selectedRange())")
+    }
+
+    /// A child closing gives the uncovered field back its whole selection, not just a caret at its start.
+    private static func testClosingAChildKeepsTheUncoveredFieldsSelection() throws {
+        let stack = InWindowModalStack()
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest", projectID: "p", projectName: "p")], repos: [])
+        let filter = QuestLogFilter()
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
+        let host = InWindowModalHost(stack: stack)
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: filter, pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        settle()
+        filter.focus()
+        settle()
+        guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+            throw TestFailure("the filter should take focus, got \(String(describing: window.firstResponder))")
+        }
+        editor.insertText("abcd", replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: 1, length: 2))
+
+        stack.present(id: "new-quest", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        stack.dismiss(id: "new-quest")
+        settle()
+        guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor else {
+            throw TestFailure("closing the child should refocus the filter, got \(String(describing: window.firstResponder))")
+        }
+        try expect(restored.string == "abcd" && restored.selectedRange() == NSRange(location: 1, length: 2), "the filter should keep its selection, got \(restored.string) \(restored.selectedRange())")
+    }
+
+    /// A text field focused before the first modal (the artifact filter with "foo" typed, then ⌘T, then Esc)
+    /// gets its caret back once the last modal has faded, not all its text selected.
+    private static func testRestoringFocusAfterTheLastModalKeepsAFieldsCaret() throws {
+        let stack = InWindowModalStack()
+        let size = CGSize(width: 600, height: 400)
+        let window = HeadlessWindow(size: size)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        let field = NSTextField(frame: NSRect(x: 20, y: 20, width: 200, height: 24))
+        container.addSubview(field)
+        let host = InWindowModalHost(stack: stack)
+        host.frame = container.bounds
+        container.addSubview(host)
+        window.contentView = container
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        settle()
+        window.makeFirstResponder(field)
+        guard let editor = field.currentEditor() as? NSTextView else {
+            throw TestFailure("the field should take focus")
+        }
+        editor.insertText("foo", replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+
+        stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        try expect(window.firstResponder === host, "the modal should take the keys from the field")
+        stack.dismiss(id: "modal")
+        settle()
+        guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor, restored.delegate as? NSTextField === field else {
+            throw TestFailure("the last modal fading should refocus the field, got \(String(describing: window.firstResponder))")
+        }
+        try expect(restored.string == "foo" && restored.selectedRange() == NSRange(location: 1, length: 0), "the field should keep its text and caret, got \(restored.string) \(restored.selectedRange())")
+    }
+
+    /// The log is rebuilt per opening; it opens scrolled to the selection it kept, not at the top.
+    private static func testQuestLogOpensScrolledToTheKeptSelection() throws {
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
+        }
+        let store = QuestLogStore()
+        store.sync(quests: (1...40).map { QuestItem(id: "q\($0)", content: "Quest \($0)", projectID: "p", projectName: "p") }, repos: [])
+        _ = store.handle(.jumpToLast)
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
+        let stack = InWindowModalStack()
+        let host = InWindowModalHost(stack: stack)
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        let list = scrollViews(in: host).min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
+        guard let list, let height = list.documentView?.frame.height, height > list.contentView.bounds.height else {
+            throw TestFailure("the 40-quest list should overflow its scroll view")
+        }
+        try expect(list.contentView.bounds.origin.y > 0, "the log should open scrolled to the last quest, offset \(list.contentView.bounds.origin.y)")
+    }
+
+    /// The filter's focus (and so its border) follows the window's real first responder: on when the field
+    /// takes focus, off when focus leaves (Esc hands it to nil, a click on the list hands it elsewhere).
+    private static func testFilterFieldFocusFollowsTheFirstResponder() throws {
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 80))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
+        let field = CommandTextField.KeyTextField(frame: NSRect(x: 10, y: 30, width: 200, height: 20))
+        let other = NSTextField(frame: NSRect(x: 10, y: 0, width: 200, height: 20))
+        content.addSubview(field)
+        content.addSubview(other)
+        window.contentView = content
+        window.show()
+        defer { window.close() }
+        var reported: [Bool] = []
+        field.onFirstResponderChange = { reported.append($0) }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.15)) }
+        settle()
+
+        window.makeFirstResponder(field)
+        settle()
+        try expect(reported.last == true && field.hasFocus, "taking focus should light the field, reported \(reported)")
+        window.makeFirstResponder(nil)
+        settle()
+        try expect(reported.last == false && !field.hasFocus, "Esc (focus to nil) should clear it, reported \(reported)")
+        window.makeFirstResponder(field)
+        settle()
+        window.makeFirstResponder(other)
+        settle()
+        try expect(reported.last == false && !field.hasFocus, "focus moving elsewhere should clear it, reported \(reported)")
+    }
+
+    /// No single-line text field is shorter than its font's full line (ascent + descent + leading): the live
+    /// field editor clips to the field's bounds, so a shorter field cuts ascenders or descenders.
+    private static func testTextFieldsFitTheirWholeLine() throws {
+        func fields(in view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { subview in
+                ((subview as? NSTextField).map { [$0] } ?? []) + fields(in: subview)
+            }
+        }
+        func check<V: View>(_ name: String, _ content: V, size: CGSize) throws {
+            let hosting = NSHostingView(rootView: content)
+            hosting.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: CGSize(width: size.width, height: size.height))
+            window.contentView = hosting
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            let found = fields(in: hosting).filter { $0.isEditable }
+            try expect(!found.isEmpty, "\(name): no editable text field found")
+            for field in found {
+                guard let font = field.font else {
+                    continue
+                }
+                let line = font.ascender - font.descender + font.leading
+                try expect(field.bounds.height >= line, "\(name): a \(font.pointSize)pt field is \(field.bounds.height) high, under its \(line) line")
+            }
+        }
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest")], repos: [])
+        try check("Quest Log filter", QuestLogView(store: store, filter: QuestLogFilter(), onCommand: { _ in }), size: QuestLogView.size)
+        let newSession = NewSessionSheetPresenter()
+        newSession.present(initialPath: "/tmp/gjpqy", mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: { _ in })
+        if let presentation = newSession.presentation {
+            try check("New Session", NewSessionSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
+        }
+    }
+
+    /// A long quest's ink scrolls under a wheel over the page: the page's point hit-tests into its scroll view,
+    /// and the wheel moves it.
+    private static func testQuestLogPageScrollsWithTheWheel() throws {
+        let body = (1...60).map { "- Step \($0) of a quest long enough to scroll" }.joined(separator: "\n")
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A long quest\n\n\(body)", projectID: "p", projectName: "p")], repos: [])
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
+        let stack = InWindowModalStack()
+        let host = InWindowModalHost(stack: stack)
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+        let pageScroll = QuestLogPageScroll()
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: pageScroll, onCommand: { _ in }))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+
+        // The page's middle, in the host's coordinates: the 900 x 780 log is centred, its page 473 wide at (397, 40).
+        let logOrigin = NSPoint(x: (1000 - 900) / 2, y: (860 - 780) / 2)
+        let pageMiddle = NSPoint(x: logOrigin.x + 397 + 236, y: host.bounds.height - (logOrigin.y + 40 + 330))
+        guard let hit = host.hitTest(host.superview?.convert(pageMiddle, from: host) ?? pageMiddle) else {
+            throw TestFailure("nothing under the page takes the wheel")
+        }
+        guard let scrollView = hit as? NSScrollView ?? hit.enclosingScrollView else {
+            throw TestFailure("the page hit-tests to \(type(of: hit)), not into a scroll view")
+        }
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        try expect(documentHeight > scrollView.contentView.bounds.height, "the long quest should overflow the page: \(documentHeight) vs \(scrollView.contentView.bounds.height)")
+        guard let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -120, wheel2: 0, wheel3: 0),
+              let wheel = NSEvent(cgEvent: cgEvent) else {
+            throw TestFailure("could not make a wheel event")
+        }
+        try expect(pageScroll.moreBelow, "an overflowing page should show the cue that more ink lies below")
+        let before = scrollView.contentView.bounds.origin.y
+        hit.scrollWheel(with: wheel)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try expect(scrollView.contentView.bounds.origin.y != before, "the wheel should scroll the page (offset stayed \(before))")
+
+        // The page keys (PageDown and friends) go through the same scroller; past the end, the cue goes away.
+        let afterWheel = scrollView.contentView.bounds.origin.y
+        pageScroll.scroll(byPages: 0.5)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try expect(scrollView.contentView.bounds.origin.y > afterWheel, "a half-page key should scroll further down")
+        pageScroll.scroll(byPages: 50)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let maxOffset = documentHeight - scrollView.contentView.bounds.height
+        try expect(abs(scrollView.contentView.bounds.origin.y - maxOffset) < 1, "scrolling past the end should stop at the bottom")
+        try expect(!pageScroll.moreBelow, "at the bottom the overflow cue should go away")
+    }
+
+    /// The Quest Log fades in and its parchment unrolls without the parchment Canvas redrawing frame by frame;
+    /// closing fades it out and only then hides the host.
+    private static func testQuestLogOpensWithoutRedrawingTheParchment() throws {
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest\n\nWith a body", projectID: "p", projectName: "p")], repos: [])
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
+        let stack = InWindowModalStack()
+        let host = InWindowModalHost(stack: stack)
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+
+        QuestLogDebug.parchmentDraws = 0
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        try expect(!host.isHidden, "opening should show the Quest Log")
+        try expect((1...2).contains(QuestLogDebug.parchmentDraws), "the parchment should draw once for the opening, not per unroll frame; drew \(QuestLogDebug.parchmentDraws) times")
+
+        store.close()
+        stack.dismiss(id: QuestLogModal.stackID)
+        RunLoop.main.run(until: Date().addingTimeInterval(ModalFade.fadeOut / 3))
+        try expect(!host.isHidden, "the Quest Log should stay visible while it fades out")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try expect(host.isHidden, "the Quest Log host should hide once the fade-out ends")
+    }
+
+    private static func testDockCoordinatorIgnoresNoSessionState() throws {
         let coordinator = DockCoordinator()
-
         coordinator.showDockContent(.artifactList, sessionID: nil)
-        try expect(coordinator.state(for: nil) == .initial, "artifact list should not create no-session dock state")
-
-        coordinator.showDockContent(.questList, sessionID: nil)
-        let state = coordinator.state(for: nil)
-        try expect(state.dockVisible, "quest list should be visible without a current session")
-        try expect(state.dockContent == .questList, "no-session dock should show quests")
-
-        coordinator.recordDockVisibility(false, sessionID: nil)
-        try expect(!coordinator.state(for: nil).dockVisible, "hiding no-session quest dock should persist")
+        coordinator.recordDockVisibility(true, sessionID: nil)
+        try expect(coordinator.state(for: nil) == .initial, "without a session the dock should stay at its hidden default")
     }
 
     private static func testDockCoordinatorShowsWorkerChatPerSession() throws {
@@ -2698,12 +3110,9 @@ enum LogicSelfTests {
         let hider = ScrollerHidingNSView()
         documentView.addSubview(hider)
 
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = scrollView
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
@@ -2786,12 +3195,9 @@ enum LogicSelfTests {
         let rowsHeight = rows ?? contentHeight - 2 * WorkerChatMetrics.inset
         follower.frame = NSRect(x: 0, y: contentHeight - WorkerChatMetrics.inset - rowsHeight, width: 300, height: rowsHeight)
         documentView.addSubview(follower)
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = scrollView
-        window.orderFrontRegardless()
+        window.show()
         holdMotion(scrollView, true)
         return FollowerFixture(window: window, scrollView: scrollView, documentView: documentView, follower: follower)
     }
@@ -2832,12 +3238,9 @@ enum LogicSelfTests {
         ])
         let hosting = NSHostingView(rootView: WorkerChatLineView(line: line, chatFont: chatFont, nameFont: nameFont)
             .frame(width: width, height: height, alignment: .topLeading))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: width, height: height),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: width, height: height))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         hosting.layoutSubtreeIfNeeded()
         guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
@@ -2969,12 +3372,9 @@ enum LogicSelfTests {
     /// drops by an amount no single row explains) pins without a glide, and the next arrival glides.
     private static func testWorkerChatTrimWithWrappedRowsSkipsGlide() throws {
         let hosting = NSHostingView(rootView: wrappedFeed(count: 30, revision: 1, trimCount: 0, appended: false))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
         guard let scrollView = descendant(NSScrollView.self, in: hosting),
@@ -3218,12 +3618,9 @@ enum LogicSelfTests {
     /// the fade removes the mask. The band lines up with the document's own rows.
     private static func testWorkerChatHostedArrivalGlidesAndFades() throws {
         let hosting = NSHostingView(rootView: wrappedFeed(count: 30, revision: 1, trimCount: 0, appended: false))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
         guard let scrollView = descendant(NSScrollView.self, in: hosting), let documentView = scrollView.documentView else {
@@ -3367,12 +3764,9 @@ enum LogicSelfTests {
     /// only in the rows' frame. It fades the rows it added and lifts the rows into place.
     private static func testWorkerChatShortFeedArrivalFadesAndLifts() throws {
         let hosting = NSHostingView(rootView: wrappedFeed(count: 1, revision: 1, trimCount: 0, appended: true, wraps: false))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
         guard let scrollView = descendant(NSScrollView.self, in: hosting),

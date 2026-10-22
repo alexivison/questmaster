@@ -90,8 +90,8 @@ struct ActionBarFooterView: View {
             .empty, .empty, .empty, .empty,
             ActionBarSlotSpec(
                 symbolName: "checklist",
-                tooltip: tooltip("Open Quests", Keymap.Command.toggleQuestDock),
-                isActive: navState.dockVisible && model.dockContentMode == .quests,
+                tooltip: tooltip("Quest Log", Keymap.Command.toggleQuestLog),
+                isActive: false,
                 action: onOpenQuests
             ),
             ActionBarSlotSpec(

@@ -16,6 +16,7 @@ final class ShellWindowController {
         let terminalHost: TerminalPaneHosting
         let dockChromeModel: DockChromeModel
         let trackerEffectExecutor: TrackerEffectExecutor
+        let modalHost: InWindowModalHost
     }
 
     private let runtimeStore: RuntimeStore
@@ -104,6 +105,8 @@ final class ShellWindowController {
         splitView.setDockVisible(navigation.dockVisible, animated: false)
 
         let root = ShellRootContainerView(splitView: splitView, footer: footerShell)
+        let modalHost = InWindowModalHost(stack: .shared)
+        root.addOverlay(modalHost)
         window.contentView = root
 
         splitView.cellMetricsProvider = { [weak terminalHost] in terminalHost?.cellMetrics ?? .unavailable }
@@ -128,7 +131,8 @@ final class ShellWindowController {
             dockView: dockView,
             terminalHost: terminalHost,
             dockChromeModel: dockChromeModel,
-            trackerEffectExecutor: trackerEffectExecutor
+            trackerEffectExecutor: trackerEffectExecutor,
+            modalHost: modalHost
         )
         self.handles = handles
 
