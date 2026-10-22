@@ -86,8 +86,6 @@ extension FormTextField where Trailing == EmptyView {
 struct SuggestionDropdown: View {
     let rows: [String]
     let highlightedIndex: Int?
-    /// The pointer moved onto a row.
-    var onHighlight: (Int) -> Void
     var onSelect: (Int) -> Void
     var accessory: ((Int, RowLook) -> AnyView)?
 
@@ -107,7 +105,7 @@ struct SuggestionDropdown: View {
                         accessory?(index, look)
                             .padding(.trailing, FormFieldMetrics.segmentTrailing - Token.Size.divider)
                     }
-                    .stateRow(look) { onHighlight(index) }
+                    .stateRow(look)
                     .onTapGesture { onSelect(index) }
             }
         }
@@ -128,13 +126,11 @@ extension SuggestionDropdown {
     init(
         filterSuggestions: [ArtifactFilterSuggestion],
         highlightedID: String?,
-        onHighlight: @escaping (ArtifactFilterSuggestion) -> Void,
         onSelect: @escaping (ArtifactFilterSuggestion) -> Void
     ) {
         self.init(
             rows: filterSuggestions.map(\.title),
             highlightedIndex: filterSuggestions.firstIndex { $0.id == highlightedID },
-            onHighlight: { onHighlight(filterSuggestions[$0]) },
             onSelect: { onSelect(filterSuggestions[$0]) },
             accessory: { AnyView(Self.meta(filterSuggestions[$0].detail, look: $1)) }
         )

@@ -418,18 +418,6 @@ final class DockPaneModel: ObservableObject {
         return applyArtifactSelection(nextID, visibleArtifacts: visibleArtifacts, snapshot: snapshot)
     }
 
-    /// The pointer moved onto an artifact: it becomes the list's cursor, as the arrows would move it there.
-    func highlightArtifact(_ id: String) {
-        guard id != selectedArtifactID, let snapshot = lastSnapshot else {
-            return
-        }
-        let visibleArtifacts = visibleArtifacts(snapshot: snapshot)
-        guard visibleArtifacts.contains(where: { $0.id == id }) else {
-            return
-        }
-        _ = applyArtifactSelection(id, visibleArtifacts: visibleArtifacts, snapshot: snapshot)
-    }
-
     private func visibleArtifacts(snapshot: RuntimeSnapshot) -> [ArtifactReference] {
         let artifacts = ArtifactDisplayState.currentArtifacts(
             in: snapshot.tracker,
@@ -636,17 +624,6 @@ final class DockPaneModel: ObservableObject {
             return
         }
         isFocused = focused
-    }
-
-    /// The pointer moved onto a filter suggestion.
-    func highlightArtifactFilterSuggestion(_ suggestion: ArtifactFilterSuggestion) {
-        guard let index = artifactModel.filterSuggestions.firstIndex(of: suggestion) else {
-            return
-        }
-        artifactFilterSuggestionIndex = index
-        var nextModel = artifactModel
-        nextModel.selectedFilterSuggestionID = suggestion.id
-        artifactModel = nextModel
     }
 
     private func moveArtifactFilterSuggestion(delta: Int) {

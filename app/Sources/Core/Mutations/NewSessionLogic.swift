@@ -286,10 +286,6 @@ public struct NewSessionFormModel: Equatable {
         modelWindow.move(delta, count: modelMatches.count)
     }
 
-    public mutating func highlightModel(visibleRow row: Int) {
-        modelWindow.highlight(visibleRow: row, count: modelMatches.count)
-    }
-
     /// Puts the highlighted suggestion's id in the field and returns to SELECT. False when there's
     /// nothing to accept.
     @discardableResult

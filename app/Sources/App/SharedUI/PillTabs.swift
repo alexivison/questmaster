@@ -51,8 +51,8 @@ struct PillTab: View {
     }
 }
 
-/// A row of pill tabs at equal widths, 10 apart. The keys move the selection; the pointer highlights the tab
-/// under it. A row without keyboard focus shows its selection one step dimmer.
+/// A row of pill tabs at equal widths, 10 apart. The keys and a click move the selection. A row without keyboard
+/// focus shows its selection one step dimmer.
 struct PillTabRow<ID: Hashable>: View {
     struct Tab {
         let id: ID
@@ -65,24 +65,15 @@ struct PillTabRow<ID: Hashable>: View {
     let focused: Bool
     var onSelect: (ID) -> Void
 
-    @State private var hoveredID: ID?
-
     var body: some View {
         HStack(spacing: PillTabMetrics.spacing) {
             ForEach(tabs, id: \.id) { tab in
                 PillTab(
                     title: tab.title,
                     icon: tab.icon,
-                    look: .tab(selected: tab.id == selectedID, highlighted: tab.id == hoveredID, areaFocused: focused)
+                    look: .tab(selected: tab.id == selectedID, areaFocused: focused)
                 )
                 .onTapGesture { onSelect(tab.id) }
-                .onHover { inside in
-                    if inside {
-                        hoveredID = tab.id
-                    } else if hoveredID == tab.id {
-                        hoveredID = nil
-                    }
-                }
                 .accessibilityAddTraits(tab.id == selectedID ? [.isButton, .isSelected] : .isButton)
             }
         }

@@ -97,7 +97,6 @@ struct NewSessionRootView: View {
         .suggestionDropdown(state.showsPathSuggestions ? SuggestionDropdown(
             rows: state.paths.items,
             highlightedIndex: state.paths.highlightedIndex,
-            onHighlight: { state.paths.highlight($0) },
             onSelect: { onSelectPath(state.paths.items[$0]) }
         ) : nil)
     }
@@ -140,7 +139,6 @@ struct NewSessionRootView: View {
         .suggestionDropdown(model.showsModelSuggestions ? SuggestionDropdown(
             rows: model.modelSuggestions.map(\.label),
             highlightedIndex: model.visibleModelHighlightIndex,
-            onHighlight: { state.model.highlightModel(visibleRow: $0) },
             onSelect: onSelectModel
         ) : nil)
     }

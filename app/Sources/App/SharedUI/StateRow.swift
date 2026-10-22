@@ -2,16 +2,15 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The one highlight (AGENTS.md, "Interaction states"): the pointer moving onto a row moves the keyboard cursor
-/// there, and the arrow keys or j/k continue from it. Only real pointer motion counts, so a list that scrolls under a
-/// still pointer after a key press keeps its cursor, and a cursor the pointer just moved doesn't scroll its list.
+/// The pointer (AGENTS.md, "Interaction states"): it shows the hover look on the row under it, the keys move the
+/// cursor, and a click acts. Only in the tracker, while it has the keys, does hover move the cursor; there only real
+/// pointer motion counts, so a list that scrolls under a still pointer after a key press keeps its cursor, and the
+/// list doesn't scroll to a cursor the pointer moved (`cursor`).
 @MainActor
 enum PointerHighlight {
     private static var movedAt = Date.distantPast
     /// A hover callback this soon after a pointer move is that move's.
     private static let moveWindow: TimeInterval = 0.1
-    /// A cursor change this soon after a pointer move came from the pointer, so its list stays put.
-    private static let scrollHoldWindow: TimeInterval = 0.3
     private static let monitor: Any? = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
         MainActor.assumeIsolated { movedAt = Date() }
         return event
@@ -26,10 +25,8 @@ enum PointerHighlight {
         return Date().timeIntervalSince(movedAt) < moveWindow
     }
 
-    /// Whether the cursor just moved because the pointer did: such a move doesn't scroll its list.
-    static var pointerJustMoved: Bool {
-        Date().timeIntervalSince(movedAt) < scrollHoldWindow
-    }
+    /// The cursor change the pointer made in the tracker, which its list doesn't scroll to.
+    static var cursor = PointerCursor()
 }
 
 extension View {
@@ -43,19 +40,26 @@ extension View {
         }
     }
 
-    /// A list row in its state look: the look's fill behind it, and the pointer moving onto a row that isn't
-    /// highlighted yet (it has no fill) highlights it.
-    func stateRow(_ look: RowLook, cornerRadius: CGFloat = 0, onHighlight: @escaping () -> Void) -> some View {
-        background {
-            if let fill = look.fill {
-                RoundedRectangle(cornerRadius: cornerRadius).fill(fill.color.swiftUI)
+    /// A list row in its state look, with the hover look (the `item` fill) while the pointer is over a resting row.
+    /// The pointer moves no cursor here: a click acts.
+    func stateRow(_ look: RowLook, cornerRadius: CGFloat = 0) -> some View {
+        modifier(StateRowModifier(look: look, cornerRadius: cornerRadius))
+    }
+}
+
+private struct StateRowModifier: ViewModifier {
+    let look: RowLook
+    let cornerRadius: CGFloat
+    @State private var pointerOver = false
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if let fill = look.underPointer(pointerOver).fill {
+                    RoundedRectangle(cornerRadius: cornerRadius).fill(fill.color.swiftUI)
+                }
             }
-        }
-        .contentShape(Rectangle())
-        .highlightOnHover {
-            if look.fill == nil {
-                onHighlight()
-            }
-        }
+            .contentShape(Rectangle())
+            .onHover { pointerOver = $0 }
     }
 }

@@ -36,16 +36,6 @@ public struct PickerListWindow: Equatable {
         moved = true
     }
 
-    /// The pointer moved onto a visible row: it becomes the highlight, and the rows stay where they are.
-    public mutating func highlight(visibleRow row: Int, count: Int) {
-        let index = start + row
-        guard row >= 0, row < visibleRows, index < count else {
-            return
-        }
-        highlightedIndex = index
-        moved = true
-    }
-
     public func visible<Item>(_ items: [Item]) -> [Item] {
         Array(items.dropFirst(start).prefix(visibleRows))
     }

@@ -147,31 +147,38 @@ One set of state rules covers the whole app. A view asks for a state's look
 colour by state itself. The colours are `StateColor` cases, which `AppPalette`
 builds its matching entries from (`SharedUI/Theme.swift`).
 
-Mouse hover and the keyboard cursor are one highlight: pointing at a row moves
-the cursor there, the arrow keys and j/k continue from it, and only one row is
-highlighted at a time. When the user leaves a region, a selection that lasts
-(a tab row's) and a cursor whose design draws an unfocused state (the artifact
-list's) stay one step dimmer; a pure cursor with no lasting selection and no
-designed unfocused state (the tracker's) hides, except on the row under the
-pointer. `highlightOnHover` (`SharedUI/StateRow.swift`) does this for every
-list: only real pointer motion moves the cursor, and a cursor the pointer just
-moved doesn't scroll its list (`PointerHighlight.pointerJustMoved`). In a tab row
-the pointer highlights a tab without selecting it.
+The mouse highlights, the keys move the cursor, and a click acts. The pointer
+shows the hover look (`RowLook.hovered`: the `item` fill only, text and icon
+unchanged, one step below the cursor's look) on the row under it, via
+`stateRow`, and moves no list's cursor or selection. Return, Tab and Save
+commit the keyboard cursor; a row the pointer only crossed needs a click. The
+one exception is the tracker while it has the keys: hover moves its cursor
+(`highlightOnHover`, real pointer motion only), and its list doesn't scroll to
+a cursor the pointer moved (`PointerCursor`). A pill tab is already `item`
+filled, so tabs have no hover look.
+
+A region has the keys while it's focused and no modal is drawn
+(`NavigationStore.hasKeys`); its focus looks follow that. When the user leaves
+a region, a selection that lasts (a tab row's) and a cursor whose design draws
+an unfocused state (the artifact list's) stay one step dimmer; a pure cursor
+with no lasting selection and no designed unfocused state (the tracker's)
+hides.
 
 | Element | State | Look |
 |---|---|---|
 | Pick-to-open row (artifacts, dropdowns, filter suggestions) | rest | no fill, `textBody` #D8DEE9 |
 | | highlighted, area focused (`RowLook.highlighted`) | `item` fill, `textSelected` #E6EDF3, icon tile border `controlBorder`, icon `textSelected`, meta `textMetaHighlighted` #ADBAC7 |
-| | highlighted, area unfocused (`RowLook.highlightedUnfocused`) | `item` fill, `textBody`, meta `textMeta` #9DA7B1 |
+| | highlighted, area unfocused (`RowLook.highlightedUnfocused`) | `item` fill, `textBody` text and icon, icon tile border `controlBorder`, meta `textMeta` #9DA7B1 |
+| Any row | under the pointer (`RowLook.hovered`) | `item` fill; text, icon and meta as at rest |
 | Lasting-selection row (the Quest Log) | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
 | Tab (agent tabs, Session/All, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
-| | highlighted or selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
+| | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
 | Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
 | Dock frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
-| Tracker plate | cursor, while the tracker has focus or under the pointer (`PlateBand.showsCursor`) / recolouring | `textSelected` / `accent` band; no band otherwise |
+| Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
 
 - Bold means selected and appears only in a lasting-selection list. Artifacts
   have no selected state: picking one opens it.
@@ -181,7 +188,7 @@ the pointer highlights a tab without selecting it.
 - No shadows on dropdowns or panels. Panel, dock and toast borders are 2pt
   `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). The dock's frame lifts to
   `controlBorder` while the dock has keyboard focus and no modal is drawn
-  (`OutlineLook.frame`, `ShellFocusCoordinator.updateDockFocus`). Pressed is
+  (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is
   0.8 opacity; disabled is window fill with `item` border and label (the shared
   button styles).
 - Use the shared components: `stateRow` (and `ListRow` for tracker and artifact

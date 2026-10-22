@@ -120,14 +120,6 @@ public struct ColorFieldModel: Equatable {
         window.move(delta, count: matches.count)
     }
 
-    /// The pointer moved onto a visible row: it becomes the highlight, previewed like an arrow move.
-    public mutating func highlight(visibleRow row: Int) {
-        guard showsSuggestions else {
-            return
-        }
-        window.highlight(visibleRow: row, count: matches.count)
-    }
-
     /// Saving while a search shows a highlight takes that colour first: the swatch already shows it.
     public mutating func commitPendingPick() {
         if showsSuggestions {

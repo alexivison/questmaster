@@ -8,7 +8,9 @@ struct InteractionLookTests {
         hoverNeverEqualsAnotherState()
         eachStateStepIsBrighterThanTheOneBelow()
         boldGoldAndBrassStayInTheirPlace()
-        thePointerMovesTheCursor()
+        thePointerShowsTheHoverLookAndMovesNoCursor()
+        aCursorThePointerMovedDoesNotScroll()
+        aRegionHasTheKeysOnlyWithoutAModal()
         print("InteractionLookTests: all tests passed")
     }
 
@@ -22,39 +24,34 @@ struct InteractionLookTests {
     }
 
     private static func tabsFieldsTogglesAndBandsPickTheirLook() {
-        expect(OutlineLook.tab(selected: false, highlighted: false, areaFocused: true) == .tabRest, "a plain tab should rest")
-        expect(OutlineLook.tab(selected: true, highlighted: false, areaFocused: true) == .tabSelected, "a selected tab in a focused row")
-        expect(OutlineLook.tab(selected: false, highlighted: true, areaFocused: true) == .tabSelected, "a highlighted tab looks selected")
-        expect(OutlineLook.tab(selected: true, highlighted: false, areaFocused: false) == .tabSelectedUnfocused, "a selected tab in an unfocused row dims")
+        expect(OutlineLook.tab(selected: false, areaFocused: true) == .tabRest, "a plain tab should rest")
+        expect(OutlineLook.tab(selected: true, areaFocused: true) == .tabSelected, "a selected tab in a focused row")
+        expect(OutlineLook.tab(selected: true, areaFocused: false) == .tabSelectedUnfocused, "a selected tab in an unfocused row dims")
         expect(OutlineLook.field(focused: false) == .fieldRest, "a field at rest")
         expect(OutlineLook.field(focused: true) == .fieldFocused, "a focused field")
         expect(OutlineLook.frame(focused: false) == .frameRest && OutlineLook.frame(focused: true) == .frameFocused, "a dock frame lifts with focus")
         expect(OutlineLook.tabSelected.recessed && OutlineLook.tabSelectedUnfocused.recessed, "a selected tab's disc is recessed")
         expect(!OutlineLook.tabRest.recessed, "a resting tab's disc is not recessed")
         expect(ToggleLook.of(on: true) == .on && ToggleLook.of(on: false) == .off, "a toggle is on or off")
-        expect(PlateBand.color(showsCursor: false, recoloring: false) == nil, "a plain plate has no band")
-        expect(PlateBand.color(showsCursor: true, recoloring: true) == .accent, "the recolour band wins over the highlight")
-        expect(PlateBand.showsCursor(highlighted: true, areaFocused: true, pointerOver: false), "the cursor shows while the tracker has focus")
-        expect(!PlateBand.showsCursor(highlighted: true, areaFocused: false, pointerOver: false), "the cursor hides when the tracker loses focus")
-        expect(PlateBand.showsCursor(highlighted: true, areaFocused: false, pointerOver: true), "the plate under the pointer shows the cursor, focused or not")
-        expect(!PlateBand.showsCursor(highlighted: false, areaFocused: true, pointerOver: true), "only the cursor's plate shows it")
+        expect(PlateBand.color(showsCursor: false, pointerOver: false, recoloring: false) == nil, "a plain plate has no band")
+        expect(PlateBand.color(showsCursor: true, pointerOver: true, recoloring: true) == .accent, "the recolour band wins over the cursor and hover")
+        expect(PlateBand.showsCursor(highlighted: true, areaFocused: true), "the cursor shows while the tracker has keys")
+        expect(!PlateBand.showsCursor(highlighted: true, areaFocused: false), "the cursor hides when the tracker loses them")
+        expect(PlateBand.color(showsCursor: false, pointerOver: true, recoloring: false) == .controlBorder, "the plate under the pointer shows the hover band")
+        expect(PlateBand.color(showsCursor: true, pointerOver: true, recoloring: false) == .textSelected, "the cursor's band wins over hover")
     }
 
-    /// Hover is the highlight, so it must read apart from rest, from its own dimmed unfocused step, from a lasting
-    /// selection and from the recolour hint.
+    /// The hover look reads apart from rest, from the cursor and highlight (focused or not) and from a lasting
+    /// selection; the plate's hover band apart from the cursor's and the recolour hint's.
     private static func hoverNeverEqualsAnotherState() {
-        let hover = RowLook.pick(highlighted: true, areaFocused: true)
-        for other in [RowLook.rest, .highlightedUnfocused, .selected] {
-            expect(hover != other, "a hovered row should not look like \(other)")
-        }
-        let tabHover = OutlineLook.tab(selected: false, highlighted: true, areaFocused: true)
-        for other in [OutlineLook.tabRest, .tabSelectedUnfocused] {
-            expect(tabHover != other, "a hovered tab should not look like \(other)")
+        for other in [RowLook.rest, .highlighted, .highlightedUnfocused, .selected] {
+            expect(RowLook.hovered != other, "a hovered row should not look like \(other)")
         }
         let bands = [
-            PlateBand.color(showsCursor: true, recoloring: false),
-            PlateBand.color(showsCursor: false, recoloring: true),
-            PlateBand.color(showsCursor: false, recoloring: false),
+            PlateBand.color(showsCursor: true, pointerOver: false, recoloring: false),
+            PlateBand.color(showsCursor: false, pointerOver: true, recoloring: false),
+            PlateBand.color(showsCursor: false, pointerOver: false, recoloring: true),
+            PlateBand.color(showsCursor: false, pointerOver: false, recoloring: false),
         ]
         expect(Set(bands.map { $0?.rawValue ?? 0 }).count == bands.count, "every plate band state should differ: \(bands)")
         expect(OutlineLook.fieldFocused != .fieldRest, "a focused field should not look at rest")
@@ -63,20 +60,21 @@ struct InteractionLookTests {
     }
 
     private static func eachStateStepIsBrighterThanTheOneBelow() {
-        expectBrighter([RowLook.rest, .highlightedUnfocused, .highlighted].map(levels), "pick rows")
-        expectBrighter([RowLook.rest, .selected].map(levels), "lasting rows")
+        expectBrighter([RowLook.rest, .hovered, .highlightedUnfocused, .highlighted].map(levels), "pick rows")
+        expectBrighter([RowLook.rest, .hovered, .selected].map(levels), "lasting rows")
         expectBrighter([OutlineLook.tabRest, .tabSelectedUnfocused, .tabSelected].map(levels), "tabs")
         expectBrighter([OutlineLook.fieldRest, .fieldFocused].map(levels), "fields")
         expectBrighter([OutlineLook.frameRest, .frameFocused].map(levels), "dock frames")
         expectBrighter([ToggleLook.off, .on].map { [$0.border.luminance] }, "toggles")
-        expectBrighter([[0], [PlateBand.color(showsCursor: true, recoloring: false)?.luminance ?? 0]], "plate bands")
+        let band = { (cursor: Bool, pointer: Bool) in PlateBand.color(showsCursor: cursor, pointerOver: pointer, recoloring: false)?.luminance ?? 0 }
+        expectBrighter([[0], [band(false, true)], [band(true, false)]], "plate bands: none, hover, cursor")
         expectBrighter([StateColor.textMeta, .textMetaHighlighted, .textBody, .textSelected].map { [$0.luminance] }, "text steps")
     }
 
     /// Bold means selected, so only a lasting selection is bold. Gold marks the recolour band only; brass means a
     /// toggle is on and nothing else.
     private static func boldGoldAndBrassStayInTheirPlace() {
-        let rows = [RowLook.rest, .highlighted, .highlightedUnfocused, .selected]
+        let rows = [RowLook.rest, .hovered, .highlighted, .highlightedUnfocused, .selected]
         expect(rows.filter(\.bold) == [.selected], "only the lasting selection should be bold")
         let rowColors = rows.flatMap { [$0.fill, $0.text, $0.meta, $0.icon, $0.iconBorder].compactMap { $0 } }
         let outlineColors = [OutlineLook.tabRest, .tabSelected, .tabSelectedUnfocused, .fieldRest, .fieldFocused, .frameRest, .frameFocused].flatMap { [$0.border, $0.label] }
@@ -86,29 +84,36 @@ struct InteractionLookTests {
         expect(ToggleLook.off.border != .brassActive, "an off toggle carries no brass")
     }
 
-    /// Hover is the cursor: the row under the pointer becomes the highlight, as an arrow move would make it, so Return
-    /// takes it; a picker's rows stay where they are.
-    private static func thePointerMovesTheCursor() {
-        var list = SuggestionList()
-        list.show(["a", "b", "c"])
-        list.highlight(2)
-        expect(list.highlightedIndex == 2 && list.moved, "the pointed-at path row should be the highlight, as if moved to")
-        list.highlight(5)
-        expect(list.highlightedIndex == 2, "a row past the list should leave the highlight alone")
+    /// The pointer only shows the hover look on a resting row; a highlighted or selected row keeps its look.
+    private static func thePointerShowsTheHoverLookAndMovesNoCursor() {
+        expect(RowLook.rest.underPointer(true) == .hovered, "a resting row under the pointer shows the hover look")
+        expect(RowLook.rest.underPointer(false) == .rest, "a resting row away from the pointer rests")
+        for look in [RowLook.highlighted, .highlightedUnfocused, .selected] {
+            expect(look.underPointer(true) == look, "the pointer should leave \(look) as it is")
+        }
+        expect(RowLook.hovered.fill == .item && RowLook.hovered.text == RowLook.rest.text && RowLook.hovered.icon == RowLook.rest.icon,
+               "the hover look is the item fill only")
+    }
 
-        var window = PickerListWindow(visibleRows: 3)
-        window.reset(highlighting: 0, count: 10)
-        window.move(4, count: 10)
-        let start = window.start
-        window.highlight(visibleRow: 0, count: 10)
-        expect(window.start == start, "pointing at a row should not scroll the picker's rows")
-        expect(window.highlightedIndex == start && window.visibleHighlightIndex == 0 && window.moved, "the pointed-at picker row should be the highlight")
-        window.highlight(visibleRow: 3, count: 10)
-        expect(window.visibleHighlightIndex == 0, "a row past the visible ones should leave the highlight alone")
-        var short = PickerListWindow(visibleRows: 5)
-        short.reset(highlighting: 0, count: 2)
-        short.highlight(visibleRow: 3, count: 2)
-        expect(short.highlightedIndex == 0, "a row past a short list's end should leave the highlight alone")
+    /// Mouse movement doesn't stop the keys scrolling: only the change the pointer itself made is skipped, once.
+    private static func aCursorThePointerMovedDoesNotScroll() {
+        var cursor = PointerCursor()
+        expect(cursor.shouldScroll(to: "b"), "after mouse movement alone, j to the row below the edge should scroll")
+        cursor.pointerMoved(to: "a")
+        expect(!cursor.shouldScroll(to: "a"), "the cursor the pointer moved is under it already")
+        expect(cursor.shouldScroll(to: "a"), "a later key move back to that row scrolls")
+        cursor.pointerMoved(to: "a")
+        expect(cursor.shouldScroll(to: "b"), "a key move to another row scrolls even right after the pointer moved")
+    }
+
+    /// A region's focus looks follow whether it has the keys: focused, and no modal drawn.
+    private static func aRegionHasTheKeysOnlyWithoutAModal() {
+        let navigation = NavigationStore(state: AppNavigationState(focusedRegion: .tracker))
+        expect(navigation.hasKeys(.tracker) && !navigation.hasKeys(.dock), "the focused region has the keys")
+        navigation.setModalDrawn(true)
+        expect(!navigation.hasKeys(.tracker), "under a modal no region has the keys")
+        navigation.setModalDrawn(false)
+        expect(navigation.hasKeys(.tracker), "the keys come back with the modal gone")
     }
 
     /// A look's colours as luminances, in a fixed order; no fill counts as 0, below any fill.

@@ -85,6 +85,7 @@ enum RenderPreview {
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
+        render(hoverLooksView(), size: CGSize(width: 420, height: 230), to: "\(outputDir)/hover-looks.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -601,7 +602,7 @@ enum RenderPreview {
                     TrackerNameplateBackground(
                         role: state.role,
                         color: AppPalette.displayColor("lime") ?? AppPalette.accent,
-                        showsCursor: PlateBand.showsCursor(highlighted: state.highlighted, areaFocused: state.focused, pointerOver: false),
+                        showsCursor: PlateBand.showsCursor(highlighted: state.highlighted, areaFocused: state.focused),
                         isRecoloring: state.recoloring,
                         statusColor: state.status,
                         ring: state.status == nil ? .none : (state.status == status("blocked") ? .steady : .spinning(nil)),
@@ -617,19 +618,51 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// The pointer's hover look next to the looks it sits below: dropdown rows at rest, under the pointer and
+    /// highlighted; Quest Log rows at rest, under the pointer and selected. Drawn from the looks, as `stateRow` does.
+    @MainActor
+    private static func hoverLooksView() -> some View {
+        func row(_ title: String, _ look: RowLook, radius: CGFloat) -> some View {
+            BaselineText(title, font: look.bold ? AppFonts.questLogRowSelected : AppFonts.questLogBody, color: look.text.color, baseline: 20)
+                .padding(.horizontal, 10)
+                .frame(width: 180, height: 32, alignment: .topLeading)
+                .background {
+                    if let fill = look.fill {
+                        RoundedRectangle(cornerRadius: radius).fill(fill.color.swiftUI)
+                    }
+                }
+        }
+        return HStack(alignment: .top, spacing: 20) {
+            VStack(spacing: 5) {
+                row("@project: rest", .rest, radius: 0)
+                row("@project: hover", RowLook.rest.underPointer(true), radius: 0)
+                row("@project: cursor", .highlighted, radius: 0)
+            }
+            VStack(spacing: 5) {
+                row("Quest rest", .rest, radius: 3)
+                row("Quest hover", RowLook.rest.underPointer(true), radius: 3)
+                row("Quest selected", .selected, radius: 3)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
     /// The cursor's plate three ways, 80 apart: the tracker focused; the tracker unfocused (no band); the tracker
-    /// unfocused with the pointer on the plate (hover is the cursor, so it shows).
+    /// unfocused with the pointer on the plate (the hover band, one step below the cursor's).
     @MainActor
     private static func trackerCursorView() -> some View {
         let cases = [(focused: true, pointerOver: false), (focused: false, pointerOver: false), (focused: false, pointerOver: true)]
         return ZStack(alignment: .topLeading) {
             ForEach(Array(cases.enumerated()), id: \.offset) { index, state in
-                let showsCursor = PlateBand.showsCursor(highlighted: true, areaFocused: state.focused, pointerOver: state.pointerOver)
+                let showsCursor = PlateBand.showsCursor(highlighted: true, areaFocused: state.focused)
                 ZStack(alignment: .topLeading) {
                     TrackerNameplateBackground(
                         role: .master,
                         color: AppPalette.displayColor("lime") ?? AppPalette.accent,
                         showsCursor: showsCursor,
+                        pointerOver: state.pointerOver,
                         isRecoloring: false,
                         statusColor: nil,
                         ring: .none,
@@ -906,8 +939,6 @@ enum RenderPreview {
             onFilterEndEditing: {},
             onOpenExternal: { _ in },
             areaFocused: focused,
-            onHighlightArtifact: { _ in },
-            onHighlightFilterSuggestion: { _ in },
             previewFilterFocused: suggesting
         )
     }
@@ -934,9 +965,7 @@ enum RenderPreview {
             onFilterCommand: { _ in false },
             onFilterEndEditing: {},
             onOpenExternal: { _ in },
-            areaFocused: true,
-            onHighlightArtifact: { _ in },
-            onHighlightFilterSuggestion: { _ in }
+            areaFocused: true
         )
     }
 

@@ -244,7 +244,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         questLogFilter.onMoveSelection = { [weak self] command in _ = self?.questLogStore.handle(command) }
         questLogFilter.onLeave = { [weak window = handles.window] in window?.makeFirstResponder(nil) }
         handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
-        handles.modalHost.onDrawingChange = { [weak self] in self?.focusCoordinator.updateDockFocus() }
+        handles.modalHost.onDrawingChange = { [weak self] in self?.focusCoordinator.updateRegionKeys() }
         handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }

@@ -47,7 +47,6 @@ struct ColorField: View {
         return SuggestionDropdown(
             rows: visible.map(ColorFieldModel.label),
             highlightedIndex: model.visibleHighlightIndex,
-            onHighlight: { model.highlight(visibleRow: $0) },
             onSelect: { model.pick(visibleRow: $0) },
             accessory: { index, _ in AnyView(ColorSwatch(color: visible[index])) }
         )

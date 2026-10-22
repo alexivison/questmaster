@@ -217,7 +217,6 @@ private struct QuestLogFilterField: View {
                 SuggestionDropdown(
                     filterSuggestions: filter.suggestions,
                     highlightedID: filter.selectedSuggestionID,
-                    onHighlight: { filter.highlightSuggestion($0) },
                     onSelect: { filter.acceptSuggestion($0) }
                 )
                 .offset(y: QuestLogMetrics.filterHeight + QuestLogMetrics.suggestionsGap)
@@ -261,9 +260,6 @@ private struct QuestLogList: View {
             // The view is rebuilt per opening, so the kept selection is scrolled to as it appears.
             .onAppear { scroll(proxy, to: store.selectedID) }
             .onChange(of: store.selectedID) { _, id in
-                guard !PointerHighlight.pointerJustMoved else {
-                    return
-                }
                 scroll(proxy, to: id)
             }
             .onChange(of: store.scrollNonce) { _, _ in
@@ -302,8 +298,8 @@ private struct QuestLogList: View {
         .lineLimit(1)
         .padding(.leading, QuestLogMetrics.rowTextInset)
         .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.rowHeight, maxHeight: QuestLogMetrics.rowHeight, alignment: .topLeading)
-        // Pointing at a row selects it, so the page follows the highlight.
-        .stateRow(look, cornerRadius: QuestLogMetrics.rowCornerRadius) { store.select(quest.id) }
+        // The pointer shows the hover look; a click or the keys change the selection, which the page follows.
+        .stateRow(look, cornerRadius: QuestLogMetrics.rowCornerRadius)
         .overlay(alignment: .leading) {
             if store.markedIDs.contains(quest.id) {
                 DiamondShape()

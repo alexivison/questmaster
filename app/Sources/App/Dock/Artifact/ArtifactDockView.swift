@@ -58,9 +58,6 @@ struct ArtifactDockView: View {
     var onOpenExternal: (URL) -> Void
     /// Whether the dock has keyboard focus: an unfocused dock shows its selection one step dimmer.
     var areaFocused: Bool
-    /// The pointer moved onto an artifact or a filter suggestion: it becomes the cursor.
-    var onHighlightArtifact: (String) -> Void
-    var onHighlightFilterSuggestion: (ArtifactFilterSuggestion) -> Void
     /// Renders the filter as focused (RenderPreview).
     var previewFilterFocused = false
 
@@ -104,7 +101,6 @@ struct ArtifactDockView: View {
                             checked: model.selectedArtifactIDs.contains(artifact.id),
                             selectMode: !model.selectedArtifactIDs.isEmpty,
                             onToggle: { onToggleArtifact(artifact.id) },
-                            onHighlight: { onHighlightArtifact(artifact.id) },
                             action: { onSelectArtifact(artifact.id) }
                         )
                         .id(artifact.id)
@@ -174,7 +170,6 @@ struct ArtifactDockView: View {
         SuggestionDropdown(
             filterSuggestions: model.filterSuggestions,
             highlightedID: model.selectedFilterSuggestionID,
-            onHighlight: onHighlightFilterSuggestion,
             onSelect: onSelectFilterSuggestion
         )
     }
@@ -275,11 +270,10 @@ private struct ArtifactRow: View {
     var checked: Bool
     var selectMode: Bool
     var onToggle: () -> Void
-    var onHighlight: () -> Void
     var action: () -> Void
 
     var body: some View {
-        ListRow(selected: selected, leadingInset: Token.Spacing.card, onHighlight: onHighlight) { selected, _ in
+        ListRow(selected: selected, leadingInset: Token.Spacing.card) { selected, _ in
             ItemCardShape(selected: selected, extraLeadingInset: checkboxReservedInset)
         } content: {
             HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {

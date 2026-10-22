@@ -360,9 +360,7 @@ struct DockRootView: View {
                     onFilterCommand: model.handleArtifactFilterCommand(keyCode:),
                     onFilterEndEditing: { _ = model.handleArtifactFilterCommand(keyCode: 53) },
                     onOpenExternal: model.openURL(_:),
-                    areaFocused: model.isFocused,
-                    onHighlightArtifact: model.highlightArtifact(_:),
-                    onHighlightFilterSuggestion: model.highlightArtifactFilterSuggestion(_:)
+                    areaFocused: model.isFocused
                 )
             case .workerChat:
                 WorkerChatDockView(store: workerChatStore)

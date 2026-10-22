@@ -34,7 +34,8 @@ public enum StateColor: UInt32, CaseIterable, Sendable {
     }
 }
 
-/// A list row in one state. Mouse hover and the keyboard cursor are one highlight: pointing at a row moves the cursor.
+/// A list row in one state. The keys move the cursor, a click acts, and the pointer only shows the hover look on the
+/// row under it (the focused tracker aside: there hover moves the cursor).
 public struct RowLook: Equatable, Sendable {
     /// No fill shows the list's own background.
     public let fill: StateColor?
@@ -49,8 +50,12 @@ public struct RowLook: Equatable, Sendable {
     public static let highlighted = RowLook(
         fill: .item, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: false
     )
-    /// The highlight while its area doesn't have focus: one step dimmer, not hidden.
-    public static let highlightedUnfocused = RowLook(fill: .item, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
+    /// The highlight while its area doesn't have focus: one step dimmer, not hidden (artifacts.svg).
+    public static let highlightedUnfocused = RowLook(
+        fill: .item, text: .textBody, meta: .textMeta, icon: .textBody, iconBorder: .controlBorder, bold: false
+    )
+    /// Under the pointer: the `item` fill only, text and icon as at rest. One step below the highlight, never equal.
+    public static let hovered = RowLook(fill: .item, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
     public static let selected = RowLook(
         fill: .item, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: true
     )
@@ -64,6 +69,12 @@ public struct RowLook: Equatable, Sendable {
     /// A lasting-selection row (the Quest Log): the highlight is the selection.
     public static func lasting(selected: Bool) -> RowLook {
         selected ? .selected : .rest
+    }
+
+    /// This look with the pointer over the row: a resting row shows the hover look; a highlighted or selected one
+    /// keeps its own.
+    public func underPointer(_ pointerOver: Bool) -> RowLook {
+        pointerOver && self == .rest ? .hovered : self
     }
 }
 
@@ -84,9 +95,10 @@ public struct OutlineLook: Equatable, Sendable {
     public static let frameRest = OutlineLook(border: .lineSoftSubtle, label: .textBody, recessed: false)
     public static let frameFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
 
-    /// In a tab row the highlight and the selection look the same; an unfocused row dims it one step.
-    public static func tab(selected: Bool, highlighted: Bool, areaFocused: Bool) -> OutlineLook {
-        guard selected || highlighted else { return .tabRest }
+    /// The keys and a click move a tab row's selection; an unfocused row dims it one step. A pill tab is already
+    /// `item` filled, so the pointer adds no hover look.
+    public static func tab(selected: Bool, areaFocused: Bool) -> OutlineLook {
+        guard selected else { return .tabRest }
         return areaFocused ? .tabSelected : .tabSelectedUnfocused
     }
 
@@ -116,15 +128,38 @@ public struct ToggleLook: Equatable, Sendable {
 /// The band around a tracker plate. The plates keep their own art; only the band follows the shared highlight.
 public enum PlateBand {
     /// The tracker's cursor is a pure cursor, with no lasting selection, and the tracker's design has no unfocused
-    /// state for it: it shows while the tracker has focus, or on the plate under the pointer (hover is the cursor),
-    /// and hides when focus leaves.
-    public static func showsCursor(highlighted: Bool, areaFocused: Bool, pointerOver: Bool) -> Bool {
-        highlighted && (areaFocused || pointerOver)
+    /// state for it: it shows while the tracker has keys and hides when they leave. While the tracker has keys, hover
+    /// moves the cursor; while it doesn't, the plate under the pointer shows the hover band and the cursor stays.
+    public static func showsCursor(highlighted: Bool, areaFocused: Bool) -> Bool {
+        highlighted && areaFocused
     }
 
-    /// The recolour hint has its own accent band, so the plate being edited never reads as hovered or selected.
-    public static func color(showsCursor: Bool, recoloring: Bool) -> StateColor? {
+    /// The recolour hint has its own accent band, so the plate being edited never reads as hovered or selected. The
+    /// hover band is one step below the cursor's.
+    public static func color(showsCursor: Bool, pointerOver: Bool, recoloring: Bool) -> StateColor? {
         if recoloring { return .accent }
-        return showsCursor ? .textSelected : nil
+        if showsCursor { return .textSelected }
+        return pointerOver ? .controlBorder : nil
+    }
+}
+
+/// The pointer moves a list's cursor only in the focused tracker, and a cursor the pointer moved is already under it,
+/// so its list doesn't scroll to it. Every other cursor change (the keys) scrolls.
+public struct PointerCursor: Equatable, Sendable {
+    private var pointerMovedTo: String?
+
+    public init() {}
+
+    public mutating func pointerMoved(to id: String) {
+        pointerMovedTo = id
+    }
+
+    /// Whether a list should scroll to its new cursor `id`. A change the pointer made doesn't, once.
+    public mutating func shouldScroll(to id: String?) -> Bool {
+        guard let id, id == pointerMovedTo else {
+            return true
+        }
+        pointerMovedTo = nil
+        return false
     }
 }

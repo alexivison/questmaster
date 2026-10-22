@@ -87,7 +87,7 @@ final class ShellFocusCoordinator {
     func applyNavigationState(animateDockVisibility: Bool = true) {
         splitView()?.trackerVisible = navigation.trackerVisible
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
-        updateDockFocus()
+        updateRegionKeys()
         footerShell()?.update(
             navigation: navigation.state,
             dockContentMode: dockView()?.currentMode ?? .artifacts
@@ -96,13 +96,14 @@ final class ShellFocusCoordinator {
         splitView()?.layoutCanonicalFramesIfIdle()
     }
 
-    /// The dock has keyboard focus while it is the focused region and no modal is drawn: a focus request deferred
-    /// under a modal doesn't light its frame until the modal is gone. Runs on every navigation change and whenever
-    /// a modal starts or stops being drawn.
-    func updateDockFocus() {
-        let focused = navigation.focusedRegion == .dock && modalHost()?.isDrawing != true
-        dockShell()?.setFocused(focused)
-        dockView()?.setFocused(focused)
+    /// A region has the keys while it is the focused region and no modal is drawn (`NavigationStore.hasKeys`): a
+    /// focus request deferred under a modal doesn't light the dock's frame or the tracker's cursor until the modal is
+    /// gone. Runs on every navigation change and whenever a modal starts or stops being drawn.
+    func updateRegionKeys() {
+        navigation.setModalDrawn(modalHost()?.isDrawing == true)
+        let dockHasKeys = navigation.hasKeys(.dock)
+        dockShell()?.setFocused(dockHasKeys)
+        dockView()?.setFocused(dockHasKeys)
     }
 
     @discardableResult

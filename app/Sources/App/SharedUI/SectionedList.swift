@@ -50,15 +50,12 @@ struct SectionedList<Content: View>: View {
                 scrollSelected(with: proxy, id: selectedID)
             }
             .onChange(of: selectedID) { _, nextID in
-                guard scrollOnSelectionChange, !PointerHighlight.pointerJustMoved else {
+                guard scrollOnSelectionChange, PointerHighlight.cursor.shouldScroll(to: nextID) else {
                     return
                 }
                 scheduleScroll(with: proxy, id: nextID)
             }
             .onChange(of: scrollTarget) { _, next in
-                guard !PointerHighlight.pointerJustMoved else {
-                    return
-                }
                 scheduleScroll(with: proxy, id: next?.id)
             }
         }
@@ -218,8 +215,8 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     /// visible edges are live while the layout spacing stays the frame's.
     let hitOutset: CGFloat
     var onTap: (() -> Void)?
-    /// The pointer moved onto the row: the list moves its cursor here. Hover has no look of its own.
-    var onHighlight: () -> Void
+    /// The pointer moved onto the row, for a list whose cursor hover moves (the focused tracker).
+    var onHighlight: (() -> Void)?
     private let leadingDecoration: () -> LeadingDecoration
     private let background: (_ selected: Bool, _ pointerOver: Bool) -> Background
     private let content: () -> Content
@@ -232,7 +229,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
         leadingInset: CGFloat,
         hitOutset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
-        onHighlight: @escaping () -> Void,
+        onHighlight: (() -> Void)? = nil,
         @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
         @ViewBuilder background: @escaping (_ selected: Bool, _ pointerOver: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
@@ -269,7 +266,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
             .onHover { isPointerOver = $0 }
             .highlightOnHover {
                 if !selected {
-                    onHighlight()
+                    onHighlight?()
                 }
             }
     }
@@ -280,7 +277,7 @@ extension ListRow where LeadingDecoration == EmptyView {
         selected: Bool,
         leadingInset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
-        onHighlight: @escaping () -> Void,
+        onHighlight: (() -> Void)? = nil,
         @ViewBuilder background: @escaping (_ selected: Bool, _ pointerOver: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
     ) {

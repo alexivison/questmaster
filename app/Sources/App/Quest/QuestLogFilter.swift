@@ -136,15 +136,6 @@ final class QuestLogFilter {
         selectedSuggestionID = next.isEmpty ? nil : next[suggestionIndex].id
     }
 
-    /// The pointer moved onto a suggestion.
-    func highlightSuggestion(_ suggestion: ArtifactFilterSuggestion) {
-        guard let index = suggestions.firstIndex(of: suggestion) else {
-            return
-        }
-        suggestionIndex = index
-        selectedSuggestionID = suggestion.id
-    }
-
     private func moveSuggestion(delta: Int) {
         guard !suggestions.isEmpty else {
             return

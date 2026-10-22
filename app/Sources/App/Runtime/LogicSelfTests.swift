@@ -1909,7 +1909,7 @@ enum LogicSelfTests {
             updateDockTabs: {}
         )
         host.onEmpty = { coordinator.focusCurrentRegion() }
-        host.onDrawingChange = { coordinator.updateDockFocus() }
+        host.onDrawingChange = { coordinator.updateRegionKeys() }
         window.show(key: true)
         defer { window.close() }
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }

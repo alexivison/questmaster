@@ -1,8 +1,7 @@
 import QuestmasterCore
 import SwiftUI
 
-/// The dock's text tabs (Session / All): each label over a sprig rule, in the tab's `OutlineLook`. The pointer
-/// highlights the tab under it.
+/// The dock's text tabs (Session / All): each label over a sprig rule, in the tab's `OutlineLook`.
 struct SegmentedPicker<Option: Hashable>: View {
     let options: [Option]
     let selection: Option
@@ -13,12 +12,10 @@ struct SegmentedPicker<Option: Hashable>: View {
     var accessibilityLabel: (Option) -> String? = { _ in nil }
     var accessibilityValue: (Option) -> String? = { _ in nil }
 
-    @State private var hovered: Option?
-
     var body: some View {
         HStack(spacing: Token.Spacing.hairline) {
             ForEach(options, id: \.self) { option in
-                let look = OutlineLook.tab(selected: option == selection, highlighted: option == hovered, areaFocused: areaFocused)
+                let look = OutlineLook.tab(selected: option == selection, areaFocused: areaFocused)
                 Button {
                     onSelect(option)
                 } label: {
@@ -41,13 +38,6 @@ struct SegmentedPicker<Option: Hashable>: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
-                .onHover { inside in
-                    if inside {
-                        hovered = option
-                    } else if hovered == option {
-                        hovered = nil
-                    }
-                }
                 .optionalHelp(helpText(option))
                 .optionalAccessibilityLabel(accessibilityLabel(option))
                 .optionalAccessibilityValue(accessibilityValue(option))
