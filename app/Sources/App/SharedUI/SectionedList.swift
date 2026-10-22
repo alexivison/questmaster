@@ -50,10 +50,15 @@ struct SectionedList<Content: View>: View {
                 scrollSelected(with: proxy, id: selectedID)
             }
             .onChange(of: selectedID) { _, nextID in
-                guard scrollOnSelectionChange, PointerHighlight.cursor.shouldScroll(to: nextID) else {
+                guard scrollOnSelectionChange else {
                     return
                 }
-                scheduleScroll(with: proxy, id: nextID)
+                switch PointerHighlight.cursor.scrollStep(to: nextID) {
+                case .scroll:
+                    scheduleScroll(with: proxy, id: nextID)
+                case .cancelQueued:
+                    scrollDebounceTask?.cancel()
+                }
             }
             .onChange(of: scrollTarget) { _, next in
                 scheduleScroll(with: proxy, id: next?.id)

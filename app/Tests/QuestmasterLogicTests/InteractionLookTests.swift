@@ -44,8 +44,11 @@ struct InteractionLookTests {
     /// The hover look reads apart from rest, from the cursor and highlight (focused or not) and from a lasting
     /// selection; the plate's hover band apart from the cursor's and the recolour hint's.
     private static func hoverNeverEqualsAnotherState() {
-        for other in [RowLook.rest, .highlighted, .highlightedUnfocused, .selected] {
-            expect(RowLook.hovered != other, "a hovered row should not look like \(other)")
+        // Not by the icon, which some rows lack: by the outline against rest, and by the fill against every lit look.
+        expect(RowLook.hovered.outline == .line && RowLook.rest.outline == nil, "hover adds an outline to the resting row")
+        for lit in [RowLook.highlighted, .highlightedUnfocused, .selected] {
+            expect(lit.fill == .item && lit.outline == nil, "\(lit) should be filled, without the hover outline")
+            expect(RowLook.hovered.fill == nil, "a hovered row should have no fill, unlike \(lit)")
         }
         let bands = [
             PlateBand.color(showsCursor: true, pointerOver: false, recoloring: false),
@@ -60,8 +63,8 @@ struct InteractionLookTests {
     }
 
     private static func eachStateStepIsBrighterThanTheOneBelow() {
-        expectBrighter([RowLook.rest, .hovered, .highlightedUnfocused, .highlighted].map(levels), "pick rows")
-        expectBrighter([RowLook.rest, .hovered, .selected].map(levels), "lasting rows")
+        expectBrighter([RowLook.rest, .highlightedUnfocused, .highlighted].map(levels), "pick rows")
+        expectBrighter([RowLook.rest, .selected].map(levels), "lasting rows")
         expectBrighter([OutlineLook.tabRest, .tabSelectedUnfocused, .tabSelected].map(levels), "tabs")
         expectBrighter([OutlineLook.fieldRest, .fieldFocused].map(levels), "fields")
         expectBrighter([OutlineLook.frameRest, .frameFocused].map(levels), "dock frames")
@@ -76,7 +79,7 @@ struct InteractionLookTests {
     private static func boldGoldAndBrassStayInTheirPlace() {
         let rows = [RowLook.rest, .hovered, .highlighted, .highlightedUnfocused, .selected]
         expect(rows.filter(\.bold) == [.selected], "only the lasting selection should be bold")
-        let rowColors = rows.flatMap { [$0.fill, $0.text, $0.meta, $0.icon, $0.iconBorder].compactMap { $0 } }
+        let rowColors = rows.flatMap { [$0.fill, $0.outline, $0.text, $0.meta, $0.icon, $0.iconBorder].compactMap { $0 } }
         let outlineColors = [OutlineLook.tabRest, .tabSelected, .tabSelectedUnfocused, .fieldRest, .fieldFocused, .frameRest, .frameFocused].flatMap { [$0.border, $0.label] }
         for color in rowColors + outlineColors {
             expect(color != .accent && color != .brassActive, "rows, tabs and fields carry no gold or brass, got \(color)")
@@ -91,19 +94,22 @@ struct InteractionLookTests {
         for look in [RowLook.highlighted, .highlightedUnfocused, .selected] {
             expect(look.underPointer(true) == look, "the pointer should leave \(look) as it is")
         }
-        expect(RowLook.hovered.fill == .item && RowLook.hovered.text == RowLook.rest.text && RowLook.hovered.icon == RowLook.rest.icon,
-               "the hover look is the item fill only")
+        expect(RowLook.hovered.fill == nil && RowLook.hovered.outline == .line && !RowLook.hovered.bold, "the hover look is a line outline, no fill")
+        expect(RowLook.hovered.text == RowLook.rest.text && RowLook.hovered.meta == RowLook.rest.meta && RowLook.hovered.icon == RowLook.rest.icon,
+               "the hover look keeps the resting text and icon")
     }
 
-    /// Mouse movement doesn't stop the keys scrolling: only the change the pointer itself made is skipped, once.
+    /// Mouse movement doesn't stop the keys scrolling: only the change the pointer itself made is skipped, once, and it
+    /// drops a key scroll still queued (j, then the pointer onto a plate within the debounce: the queued scroll would
+    /// slide that plate out from under the pointer).
     private static func aCursorThePointerMovedDoesNotScroll() {
         var cursor = PointerCursor()
-        expect(cursor.shouldScroll(to: "b"), "after mouse movement alone, j to the row below the edge should scroll")
+        expect(cursor.scrollStep(to: "b") == .scroll, "after mouse movement alone, j to the row below the edge should scroll")
         cursor.pointerMoved(to: "a")
-        expect(!cursor.shouldScroll(to: "a"), "the cursor the pointer moved is under it already")
-        expect(cursor.shouldScroll(to: "a"), "a later key move back to that row scrolls")
+        expect(cursor.scrollStep(to: "a") == .cancelQueued, "the cursor the pointer moved is under it already, and a queued key scroll drops")
+        expect(cursor.scrollStep(to: "a") == .scroll, "a later key move back to that row scrolls")
         cursor.pointerMoved(to: "a")
-        expect(cursor.shouldScroll(to: "b"), "a key move to another row scrolls even right after the pointer moved")
+        expect(cursor.scrollStep(to: "b") == .scroll, "a key move to another row scrolls even right after the pointer moved")
     }
 
     /// A region's focus looks follow whether it has the keys: focused, and no modal drawn.

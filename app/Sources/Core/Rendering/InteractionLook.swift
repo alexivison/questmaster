@@ -39,6 +39,8 @@ public enum StateColor: UInt32, CaseIterable, Sendable {
 public struct RowLook: Equatable, Sendable {
     /// No fill shows the list's own background.
     public let fill: StateColor?
+    /// A 1pt outline inside the row's shape; only the hover look draws one.
+    public let outline: StateColor?
     public let text: StateColor
     public let meta: StateColor
     public let icon: StateColor
@@ -46,18 +48,19 @@ public struct RowLook: Equatable, Sendable {
     /// Bold means selected, so only a lasting-selection row is ever bold.
     public let bold: Bool
 
-    public static let rest = RowLook(fill: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
+    public static let rest = RowLook(fill: nil, outline: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
     public static let highlighted = RowLook(
-        fill: .item, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: false
+        fill: .item, outline: nil, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: false
     )
     /// The highlight while its area doesn't have focus: one step dimmer, not hidden (artifacts.svg).
     public static let highlightedUnfocused = RowLook(
-        fill: .item, text: .textBody, meta: .textMeta, icon: .textBody, iconBorder: .controlBorder, bold: false
+        fill: .item, outline: nil, text: .textBody, meta: .textMeta, icon: .textBody, iconBorder: .controlBorder, bold: false
     )
-    /// Under the pointer: the `item` fill only, text and icon as at rest. One step below the highlight, never equal.
-    public static let hovered = RowLook(fill: .item, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
+    /// Under the pointer: a 1pt `line` outline and no fill, text and icon as at rest. Every other lit look is filled, so
+    /// the row the keys picked never reads like the row under the pointer.
+    public static let hovered = RowLook(fill: nil, outline: .line, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
     public static let selected = RowLook(
-        fill: .item, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: true
+        fill: .item, outline: nil, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: true
     )
 
     /// A pick-to-open row (artifacts, dropdowns, filter suggestions): picking it opens it, so it is never selected.
@@ -154,12 +157,19 @@ public struct PointerCursor: Equatable, Sendable {
         pointerMovedTo = id
     }
 
-    /// Whether a list should scroll to its new cursor `id`. A change the pointer made doesn't, once.
-    public mutating func shouldScroll(to id: String?) -> Bool {
+    public enum ScrollStep: Equatable, Sendable {
+        case scroll
+        /// The pointer made this change: don't scroll, and drop a key scroll still queued, which would slide the row
+        /// out from under the pointer.
+        case cancelQueued
+    }
+
+    /// What a list does with its new cursor `id`. A change the pointer made doesn't scroll, once.
+    public mutating func scrollStep(to id: String?) -> ScrollStep {
         guard let id, id == pointerMovedTo else {
-            return true
+            return .scroll
         }
         pointerMovedTo = nil
-        return false
+        return .cancelQueued
     }
 }

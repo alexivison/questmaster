@@ -148,13 +148,15 @@ colour by state itself. The colours are `StateColor` cases, which `AppPalette`
 builds its matching entries from (`SharedUI/Theme.swift`).
 
 The mouse highlights, the keys move the cursor, and a click acts. The pointer
-shows the hover look (`RowLook.hovered`: the `item` fill only, text and icon
-unchanged, one step below the cursor's look) on the row under it, via
-`stateRow`, and moves no list's cursor or selection. Return, Tab and Save
+shows the hover look (`RowLook.hovered`: a 1pt `line` outline, no fill, text
+and icon unchanged; every cursor and selection look is filled, so the two never
+read alike) on the row under it, via `stateRow`, and moves no list's cursor or
+selection. Return, Tab and Save
 commit the keyboard cursor; a row the pointer only crossed needs a click. The
 one exception is the tracker while it has the keys: hover moves its cursor
 (`highlightOnHover`, real pointer motion only), and its list doesn't scroll to
-a cursor the pointer moved (`PointerCursor`). A pill tab is already `item`
+a cursor the pointer moved, and drops a key scroll still queued
+(`PointerCursor`). A pill tab is already `item`
 filled, so tabs have no hover look.
 
 A region has the keys while it's focused and no modal is drawn
@@ -169,7 +171,7 @@ hides.
 | Pick-to-open row (artifacts, dropdowns, filter suggestions) | rest | no fill, `textBody` #D8DEE9 |
 | | highlighted, area focused (`RowLook.highlighted`) | `item` fill, `textSelected` #E6EDF3, icon tile border `controlBorder`, icon `textSelected`, meta `textMetaHighlighted` #ADBAC7 |
 | | highlighted, area unfocused (`RowLook.highlightedUnfocused`) | `item` fill, `textBody` text and icon, icon tile border `controlBorder`, meta `textMeta` #9DA7B1 |
-| Any row | under the pointer (`RowLook.hovered`) | `item` fill; text, icon and meta as at rest |
+| Any row | under the pointer (`RowLook.hovered`) | 1pt `line` outline, no fill; text, icon and meta as at rest |
 | Lasting-selection row (the Quest Log) | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
 | Tab (agent tabs, Session/All, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
 | | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |

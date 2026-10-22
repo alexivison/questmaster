@@ -618,29 +618,38 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The pointer's hover look next to the looks it sits below: dropdown rows at rest, under the pointer and
-    /// highlighted; Quest Log rows at rest, under the pointer and selected. Drawn from the looks, as `stateRow` does.
+    /// The pointer's hover look beside the keys' looks: a dropdown (shared chrome) with a resting row, the row under
+    /// the pointer and the keyboard row; Quest Log rows at rest, under the pointer and selected. Drawn from the looks,
+    /// as `stateRow` does.
     @MainActor
     private static func hoverLooksView() -> some View {
         func row(_ title: String, _ look: RowLook, radius: CGFloat) -> some View {
             BaselineText(title, font: look.bold ? AppFonts.questLogRowSelected : AppFonts.questLogBody, color: look.text.color, baseline: 20)
                 .padding(.horizontal, 10)
-                .frame(width: 180, height: 32, alignment: .topLeading)
+                .frame(width: 180, height: 30, alignment: .topLeading)
                 .background {
                     if let fill = look.fill {
                         RoundedRectangle(cornerRadius: radius).fill(fill.color.swiftUI)
                     }
+                    if let outline = look.outline {
+                        RoundedRectangle(cornerRadius: radius).strokeBorder(outline.color.swiftUI, lineWidth: Token.Size.divider)
+                    }
                 }
         }
         return HStack(alignment: .top, spacing: 20) {
-            VStack(spacing: 5) {
+            VStack(spacing: 0) {
                 row("@project: rest", .rest, radius: 0)
-                row("@project: hover", RowLook.rest.underPointer(true), radius: 0)
-                row("@project: cursor", .highlighted, radius: 0)
+                row("@project: pointer", RowLook.rest.underPointer(true), radius: 0)
+                row("@project: keys", .highlighted, radius: 0)
+                row("@project: rest", .rest, radius: 0)
             }
+            .padding(Token.Size.divider)
+            .background(AppPalette.window.swiftUI)
+            .clipShape(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius).strokeBorder(AppPalette.controlBorder.swiftUI, lineWidth: Token.Size.divider))
             VStack(spacing: 5) {
                 row("Quest rest", .rest, radius: 3)
-                row("Quest hover", RowLook.rest.underPointer(true), radius: 3)
+                row("Quest pointer", RowLook.rest.underPointer(true), radius: 3)
                 row("Quest selected", .selected, radius: 3)
             }
         }

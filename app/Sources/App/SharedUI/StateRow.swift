@@ -40,7 +40,7 @@ extension View {
         }
     }
 
-    /// A list row in its state look, with the hover look (the `item` fill) while the pointer is over a resting row.
+    /// A list row in its state look, with the hover look (a `line` outline) while the pointer is over a resting row.
     /// The pointer moves no cursor here: a click acts.
     func stateRow(_ look: RowLook, cornerRadius: CGFloat = 0) -> some View {
         modifier(StateRowModifier(look: look, cornerRadius: cornerRadius))
@@ -55,8 +55,12 @@ private struct StateRowModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background {
-                if let fill = look.underPointer(pointerOver).fill {
+                let shown = look.underPointer(pointerOver)
+                if let fill = shown.fill {
                     RoundedRectangle(cornerRadius: cornerRadius).fill(fill.color.swiftUI)
+                }
+                if let outline = shown.outline {
+                    RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(outline.color.swiftUI, lineWidth: Token.Size.divider)
                 }
             }
             .contentShape(Rectangle())
