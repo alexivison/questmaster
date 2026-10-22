@@ -248,7 +248,7 @@ struct ArtifactRow: View {
         static let titleBaseline: CGFloat = 15.5
         static let dividerY: CGFloat = 20
         static let metaBaseline: CGFloat = 32.5
-        static let markSize: CGFloat = 13
+        static let markPointSize: CGFloat = 13
     }
 
     private var rowLook: RowLook { artifact.missing ? look.missingFile : look }
@@ -274,7 +274,7 @@ struct ArtifactRow: View {
             if selectMode {
                 Button(action: onToggle) {
                     Image(systemName: marked ? "diamond.inset.filled" : "diamond")
-                        .font(.system(size: Metrics.markSize))
+                        .font(.system(size: Metrics.markPointSize))
                         .foregroundStyle(MarkLook.color(marked: marked).color.swiftUI)
                 }
                 .buttonStyle(.plain)

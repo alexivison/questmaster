@@ -807,13 +807,13 @@ enum TrackerNameplateRole: Equatable {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
 
-    /// The text columns in canvas points, one per plate, past each portrait (`TrackerPlateDesign.textX`): 65 on the
-    /// master (its crown art ends at 54.2), 75 on the worker (its ring at 62). Every line stops at the column's right
+    /// The text columns in canvas points, one per plate, past each disc (`TrackerPlateDesign.textX`): 55 on the
+    /// master (its disc spans 0-50), 65 on the worker (20-60). Every line stops at the column's right
     /// edge, where the elapsed time right-aligns. The master's project name sits in its tab, the title and time on the
     /// title strip, and the snippet on the band below; the worker has no tab.
-    static let topLevelTextX = TrackerPlateDesign.textX(afterPortrait: [TrackerPlateDesign.topLevel.discEdge] + TrackerPlateDesign.topLevel.ornaments.map(\.path))
+    static let topLevelTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.topLevel.discEdge)
     static let topLevelTextRightEdge: CGFloat = 250
-    static let workerTextX = TrackerPlateDesign.textX(afterPortrait: [TrackerPlateDesign.worker.discEdge])
+    static let workerTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.worker.discEdge)
     static let workerTextRightEdge: CGFloat = 240
     static let titleTimeGap = Space.row
     /// The collapsed workers' circles start 40 points right of the master disc's left edge.
@@ -842,7 +842,7 @@ enum TrackerNameplateRole: Equatable {
     /// The row's height: the canvas, plus the circles a point below its bottom under a master that shows them.
     func rowHeight(showsCircles: Bool) -> CGFloat {
         guard showsCircles else { return canvasSize.height }
-        return canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop + TrackerPlateDesign.collapsedCircleDiameter
+        return canvasSize.height + TrackerPlateDesign.collapsedCircleDiameter
     }
 }
 
@@ -930,6 +930,7 @@ private struct TrackerPlateArt: View {
 
     var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             if let tab = artwork.tab {
                 context.fill(tab, with: .color(AppPalette.panel.swiftUI))
             }
@@ -946,7 +947,7 @@ private struct TrackerPlateArt: View {
                 context.fillInnerShadow(snippetStrip, .strip)
             }
         }
-        .frame(width: artwork.size.width, height: artwork.size.height)
+        .silhouetteFrame(artwork.size)
     }
 }
 
@@ -957,11 +958,12 @@ private struct TrackerPortraitDisc: View {
 
     var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.fillOuterShadow(artwork.discEdge, .discOuter)
             context.fill(artwork.discEdge, with: .color(AppPalette.panel.swiftUI))
             context.fillInnerShadow(artwork.discEdge, .discInner)
         }
-        .frame(width: artwork.size.width, height: artwork.size.height)
+        .silhouetteFrame(artwork.size)
     }
 }
 
@@ -974,6 +976,7 @@ private struct TrackerPortraitOutline: View {
 
     var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.drawLayer { ring in
                 ring.clip(to: artwork.discRing)
                 ring.stroke(artwork.disc, with: .color(AppPalette.line.swiftUI), lineWidth: artwork.discStroke)
@@ -983,7 +986,7 @@ private struct TrackerPortraitOutline: View {
                 context.fill(ornament.path, with: .color(color(for: ornament.role)), style: FillStyle(eoFill: true))
             }
         }
-        .frame(width: artwork.size.width, height: artwork.size.height)
+        .silhouetteFrame(artwork.size)
     }
 
     private func color(for role: TrackerPlateShapes.Role) -> Color {
@@ -1025,7 +1028,7 @@ struct TrackerNameplateBackground<Text: View>: View {
             text
         }
         .frame(width: artwork.size.width, height: artwork.size.height, alignment: .topLeading)
-        .offset(y: -TrackerPlateDesign.artInset)
+        .offset(y: -TrackerPlateDesign.svgDiscInset)
         .frame(width: role.canvasSize.width, height: role.canvasSize.height, alignment: .topLeading)
     }
 }
@@ -1266,7 +1269,7 @@ private struct TrackerSessionRowContent: View {
             }
             if showsCircles {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
-                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop + castExtra)
+                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + castExtra)
             }
         }
         .frame(width: role.canvasSize.width, height: role.rowHeight(showsCircles: showsCircles) + castExtra, alignment: .topLeading)

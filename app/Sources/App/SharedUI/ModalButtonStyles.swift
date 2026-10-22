@@ -32,7 +32,7 @@ private enum AngledButtonMetrics {
     /// The Quest Log design's buttons, 32 high, on the 5pt rhythm at 30, with a 1.5pt inner border and the label's
     /// baseline 19 down (the design's 20, moved up with the centre).
     static let height = ControlHeight.control
-    static let designHeight: CGFloat = 32
+    static let svgHeight: CGFloat = 32
     static let borderStrokeWidth: CGFloat = 3
     static let baseline: CGFloat = 19
     /// Narrower than the design's 200 so the modals' footers fit; a longer label widens the button.
@@ -121,7 +121,7 @@ struct AngledButtonShape: Shape {
     func path(in rect: CGRect) -> Path {
         let cap: CGFloat = 11.944
         let w = rect.width, h = rect.height
-        let sy = h / AngledButtonMetrics.designHeight
+        let sy = h / AngledButtonMetrics.svgHeight
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x, y: rect.minY + y * sy) }
         var path = Path()
         path.move(to: p(cap, 0))

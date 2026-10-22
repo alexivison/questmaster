@@ -27,8 +27,6 @@ enum Token {
         static let divider: CGFloat = 1
         /// Two-point hairline gaps and strokes (the cast square → bar).
         static let hairline: CGFloat = 2
-        /// Repository indicator dot.
-        static let repoIndicator: CGFloat = 6
     }
 }
 

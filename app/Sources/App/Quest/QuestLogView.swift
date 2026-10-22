@@ -25,12 +25,12 @@ private enum QuestLogMetrics {
     static let markSize: CGFloat = 5
     /// Page: the design's 473 x 596 page (its parchment clipped to the top 594) scaled whole to 500 x 630, the same
     /// proportions, 10 right of the list, its top on the filter's.
-    static let artPageWidth: CGFloat = 473
-    static let artParchmentHeight: CGFloat = 594
+    static let svgPageWidth: CGFloat = 473
+    static let svgParchmentHeight: CGFloat = 594
     static let pageOrigin = CGPoint(x: listOrigin.x + listWidth + Space.item, y: filterOrigin.y)
     static let pageSize = CGSize(width: 500, height: 630)
-    static let pageScale = pageSize.width / artPageWidth
-    static let parchmentHeight = artParchmentHeight * pageScale
+    static let pageScale = pageSize.width / svgPageWidth
+    static let parchmentHeight = svgParchmentHeight * pageScale
     static let pageCornerRadius: CGFloat = 5
     static let parchmentEdgeStroke: CGFloat = 3
     static let parchmentEdgeOpacity = 0.35
@@ -62,7 +62,7 @@ private enum QuestLogMetrics {
     /// Footer: each diamond sits `footerDiamondGap` after the part before it and before the next part; its centre
     /// sits 3.5 above the baseline. Wrapped lines sit on the 15pt pitch.
     static let footerLinePitch: CGFloat = 15
-    static let footerDiamondArtSize: CGFloat = 5.66
+    static let footerDiamondSvgSize: CGFloat = 5.66
     static let footerDiamondGap = Space.item
     static let footerDiamondRaise: CGFloat = 3.5
     /// Buttons: the shared angled buttons at the design's 200 wide, 10 apart, centred, 20 under the page.
@@ -425,7 +425,7 @@ private struct QuestLogInk: View {
     /// "project ◆ Created: … ◆ Updated: …", wrapped between parts when it doesn't fit (QuestLogPage.footerLines).
     private var footer: some View {
         // The separator's width in whole columns, rounded up, so a line never runs past the body.
-        let separatorWidth = 2 * QuestLogMetrics.footerDiamondGap + QuestLogMetrics.footerDiamondArtSize
+        let separatorWidth = 2 * QuestLogMetrics.footerDiamondGap + QuestLogMetrics.footerDiamondSvgSize
         let separatorColumns = Int((separatorWidth / columnWidth(AppFonts.monoSmall)).rounded(.up))
         let lines = page.footerLines(columns: columns(QuestLogMetrics.bodyWidth, AppFonts.monoSmall), separatorColumns: separatorColumns)
         return VStack(alignment: .leading, spacing: QuestLogMetrics.footerLinePitch - naturalLineHeight(AppFonts.monoSmall)) {
@@ -435,7 +435,7 @@ private struct QuestLogInk: View {
                         if index > 0 {
                             SVGShape(d: QuestLogArt.footerDiamond, origin: CGPoint(x: 81, y: 231.672))
                                 .fill(AppPalette.panel.swiftUI)
-                                .frame(width: QuestLogMetrics.footerDiamondArtSize, height: QuestLogMetrics.footerDiamondArtSize)
+                                .frame(width: QuestLogMetrics.footerDiamondSvgSize, height: QuestLogMetrics.footerDiamondSvgSize)
                                 .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + QuestLogMetrics.footerDiamondRaise }
                                 .padding(.leading, QuestLogMetrics.footerDiamondGap)
                         }

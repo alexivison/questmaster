@@ -38,7 +38,7 @@ enum ShellMetrics {
     static let trackerTrailingGap: CGFloat = max(0, horizontalFlushGap - TrackerPlateDesign.glowBandWidth)
     /// The footer's reserved band: its plate, the shell gap below it, and the flush gap above it.
     static let footerBand = FooterBand(
-        plateHeight: Double(ActionBarMetrics.plateArtHeight),
+        plateHeight: Double(ActionBarMetrics.plateSvgHeight),
         bottomGap: Double(gap),
         topGap: Double(verticalFlushGap)
     )

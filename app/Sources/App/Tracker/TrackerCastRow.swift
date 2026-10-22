@@ -36,10 +36,10 @@ enum TrackerCastLayout {
     }
 
     /// How much taller the row is while the cast row shows: the row and the gap above it, and for a master with
-    /// collapsed circles, the gap down to them (the circles' own 1pt drop under the disc gives way).
+    /// collapsed circles, the gap down to them.
     static func extraHeight(_ role: TrackerNameplateRole, showsCircles: Bool) -> CGFloat {
         let row = spacing + metrics(role).side
-        return showsCircles ? row + spacing - TrackerPlateDesign.collapsedCirclesDrop : row
+        return showsCircles ? row + spacing : row
     }
 }
 
@@ -177,12 +177,12 @@ private struct TrackerCastFillView: NSViewRepresentable {
 }
 
 /// The bar's inside, all in Core Animation so it moves without SwiftUI redrawing anything. A cast with a learned
-/// duration slides a full-width amber layer, its 6pt light leading edge at its right, linearly to full at the typical
+/// duration slides a full-width amber layer, its 5pt light leading edge at its right, linearly to full at the typical
 /// duration; the bar clips it to the fill. Past that the full bar pulses, a light overlay breathing until the tool ends.
 /// A cast with none shimmers: a dim amber wash with a light band sweeping across. A finishing cast fills and flashes.
 /// The animations are built when the cast, the phase, the size or the window change, and never per frame.
 final class TrackerCastFillNSView: NSView {
-    static let leadingEdge: CGFloat = 6
+    static let leadingEdge: CGFloat = 5
     /// The amber at the tracker's bar brightness, like the plates' coloured bars; its leading edge, the overrun pulse
     /// and the finish flash are this amber lifted toward white, so they tone down with it.
     static let amber = TrackerNameplateColor.barLightness(AppPalette.warn)

@@ -42,7 +42,7 @@ final class ShellRootContainerView: NSView {
             footer.leadingAnchor.constraint(equalTo: leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: trailingAnchor),
             footerBottomConstraint,
-            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.plateArtHeight),
+            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.plateSvgHeight),
         ])
     }
 

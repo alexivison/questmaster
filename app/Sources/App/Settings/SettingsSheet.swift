@@ -184,27 +184,28 @@ struct SettingsSheetView: View {
 private struct SettingsSectionRule: View {
     let width: CGFloat
 
-    private static let artRuleY: CGFloat = 206
-    private static let artVineLeft: CGFloat = 20
-    private static let artVineRight: CGFloat = 453
-    /// The vine art stands 8 above the line and 9 below it; the line runs 4 in from each end, into the vines.
-    private static let bandAbove: CGFloat = 8
-    private static let artBandHeight: CGFloat = 17
-    private static let artLineInset: CGFloat = 4
+    private static let svgRuleY: CGFloat = 206
+    private static let svgVineLeft: CGFloat = 20
+    private static let svgVineRight: CGFloat = 453
+    /// The vine art stands 8 above the line and 9 below it, inside a 20pt band; the line runs 4 in from each end, into
+    /// the vines' path data.
+    private static let svgReachAbove: CGFloat = 8
+    private static let bandHeight: CGFloat = 20
+    private static let svgLineInset: CGFloat = 4
 
     var body: some View {
         Canvas { context, _ in
             let color = GraphicsContext.Shading.color(AppPalette.line.swiftUI)
-            let dy = Self.bandAbove - Self.artRuleY
-            let pieces = QuestLogArt.ruleVineLeft.map { (SVGPath.parse($0.d, dx: -Self.artVineLeft, dy: dy), $0.evenOdd) }
-                + QuestLogArt.ruleVineRight.map { (SVGPath.parse($0.d, dx: width - Self.artVineRight, dy: dy), $0.evenOdd) }
+            let dy = Self.svgReachAbove - Self.svgRuleY
+            let pieces = QuestLogArt.ruleVineLeft.map { (SVGPath.parse($0.d, dx: -Self.svgVineLeft, dy: dy), $0.evenOdd) }
+                + QuestLogArt.ruleVineRight.map { (SVGPath.parse($0.d, dx: width - Self.svgVineRight, dy: dy), $0.evenOdd) }
             for (path, evenOdd) in pieces {
                 context.fill(path, with: color, style: FillStyle(eoFill: evenOdd))
             }
-            context.fill(Path(CGRect(x: Self.artLineInset, y: Self.bandAbove, width: width - 2 * Self.artLineInset, height: Token.Size.divider)), with: color)
+            context.fill(Path(CGRect(x: Self.svgLineInset, y: Self.svgReachAbove, width: width - 2 * Self.svgLineInset, height: Token.Size.divider)), with: color)
         }
-        .frame(width: width, height: Self.artBandHeight)
-        .offset(y: -Self.bandAbove)
+        .frame(width: width, height: Self.bandHeight)
+        .offset(y: -Self.svgReachAbove)
     }
 }
 

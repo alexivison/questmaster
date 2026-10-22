@@ -226,12 +226,18 @@ Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
 (pill tabs, Quest Log rows), `control` 30 (buttons, dropdown rows), `field` 35
 (fields, filters, the Settings picker), `bar` 40 (the dock top bar, artifact
 rows), `row` 50. A shape drawn from a design at another height keeps its path's
-own height as a `design…` constant and scales to the control's.
+own height as an `svg…` constant and scales to the control's.
 
-Not spacing, so free of the rule: text baselines and line heights, optical
-nudges that centre text or a glyph inside a control, path data and art
-canvases, glyph and logo sizes, radii and stroke widths, and 0/1 spacers. A
-design value that isn't on 5s is snapped to the nearest 5, never kept with a
+Portraits sit on 5s too: the master's disc spans 0-50 and the worker's 20-60 in
+their rows, and plate text starts `Space.row` past the disc's round edge (55,
+65; the side diamonds don't count). Logos are 0.6 of their disc (30, 24, 15),
+canvases and icon, logo and mark sizes are lengths like any other.
+
+Not spacing, so free of the rule: text baselines and line heights, a glyph's
+optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an
+SVG's own coordinates: path data, and an art's own size where no uniform scale
+lands both sides on 5s (the action-bar plate's 430 x 53). A design value that
+isn't on 5s is snapped to the nearest 5 or redrawn onto 5s, never kept with a
 marker.
 
 `SpacingRulesScanTests` (in the logic-test runner) enforces it and must find no
@@ -253,8 +259,7 @@ breaks:
   5, and so is each number of an `NSSize`/`CGSize` assigned to an inset,
   padding, margin or gap, metrics enums included. Only names that say they aren't
   spacing are exempt (`baseline`, `lineHeight`, `radius`, `stroke`, `border`,
-  `ring`, `glow`, `pointSize`, `font`, and `art`/`design`/`glyph`/`icon`/`logo`/
-  `mark`/`symbol` geometry).
+  `ring`, `glow`, `pointSize`, `font`, a `glyph` nudge, and `svg` coordinates).
 
 The scan reads lines, so `testRenderedSpacingStaysOnTheScale` (a
 `--run-logic-tests` self-test) measures rendered pixels for what it can't see:

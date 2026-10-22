@@ -13,8 +13,9 @@ import Foundation
 /// - off-rhythm: a CGFloat constant or default whose name says it is a layout length (gap, spacing, margin,
 ///   padding, gutter, pitch, indent, inset, clearance, offset, height, width, side, size, lead, trail, nudge, origin;
 ///   x and y only for a static or metrics constant) is a multiple of 5, or 0 or 1. Names that say they aren't spacing are exempt: baselines and line heights (typography), radii, strokes,
-///   borders, rings and glows (stroke widths), point sizes and fonts, and art, design, glyph, icon, logo, mark
-///   and symbol geometry (path data and glyph sizes). No marker excuses a spacing or a control size.
+///   borders, rings and glows (stroke widths), point sizes and fonts, a glyph's optical nudge, and `svg` lengths in
+///   an SVG's own coordinates (path data, or an art's size that no uniform scale lands on 5s). Art, icon, logo and
+///   mark sizes are lengths like any other. No marker excuses a spacing or a control size.
 ///
 /// raw-spacing also reads ternaries, added or subtracted numbers, and scale factors other than 2 and 0.5 in those
 /// arguments (`Space.item + 3`, `Space.item * 1.3`), but not an inner call's own arguments; off-rhythm
@@ -58,7 +59,7 @@ struct SpacingRulesScanTests {
 
     private static let lengthWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "pitch", "indent", "inset", "clearance", "offset", "height", "width", "side", "size", "lead", "trail", "nudge", "origin", "x", "y"]
     private static let spacingWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "inset"]
-    private static let notSpacingWords: Set = ["baseline", "radius", "stroke", "border", "ring", "glow", "point", "font", "art", "design", "glyph", "icon", "logo", "mark", "symbol"]
+    private static let notSpacingWords: Set = ["baseline", "radius", "stroke", "border", "ring", "glow", "point", "font", "glyph", "svg"]
 
     static func run() {
         scannerCatchesEachRule()
@@ -87,7 +88,8 @@ struct SpacingRulesScanTests {
             expect(violations(in: line, file: "Quest/Example.swift")["raw-spacing"] != nil, "raw-spacing should fire on \(line)")
         }
         for line in ["static let inset = NSSize(width: 6, height: 8.25)", "view.textContainerInset = CGSize(width: Space.item, height: 3)",
-                     "static let footerDiamondLead: CGFloat = 8.4", "static let labelX: CGFloat = 12", "static let titleNudge: CGFloat = 2.5"] {
+                     "static let footerDiamondLead: CGFloat = 8.4", "static let labelX: CGFloat = 12", "static let titleNudge: CGFloat = 2.5",
+                     "static let artBandHeight: CGFloat = 17", "static let iconSide: CGFloat = 22", "static let logoSide: CGFloat = 32"] {
             expect(violations(in: line, file: "Quest/Example.swift")["off-rhythm"] != nil, "off-rhythm should fire on \(line)")
         }
         let clean = """
@@ -105,7 +107,7 @@ struct SpacingRulesScanTests {
         .frame(maxWidth: .infinity)
         enum ExampleMetrics {
             static let titleBaseline: CGFloat = 21.5
-            static let artBandHeight: CGFloat = 17
+            static let ringStroke: CGFloat = 1.5
             static let bodyLineHeight: CGFloat = 16
             static let borderStrokeWidth: CGFloat = 3
             static let rowHeight = ControlHeight.compact

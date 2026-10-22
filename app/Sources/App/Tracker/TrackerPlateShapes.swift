@@ -6,8 +6,8 @@ import SwiftUI
 /// two's intersection. Figma rounds each strip's outer right corner concentric with the body's 5 point corner (3 on
 /// the plates' 2 point inset, 3.5 on the panel's 1.5), which the export squares off, so those corners are Figma's.
 /// By decision (2026-10-21), the master plate and the panel are 260 wide, not the SVGs' 277: every x right of the disc
-/// (past 200) in their tab, body, strip and bar paths sits 17 points left of the SVG's, so the straight runs shorten and
-/// every corner keeps its shape. The panel's right edge lines up with the master plate's. The plate bodies' 2pt and the panel's 1.5pt strokes run inside their fills in the same colour, so
+/// (past 200) in their tab, body, strip and bar paths sits 17 points left of the SVG's (15 on the master, whose art
+/// then moves 2 left to put its disc at 0, 2026-10-23), so the straight runs shorten and every corner keeps its shape. The panel's right edge lines up with the master plate's. The plate bodies' 2pt and the panel's 1.5pt strokes run inside their fills in the same colour, so
 /// they are not copied. Ornament pieces carry the role their colour has in the SVGs: `outline` is the plate's border
 /// colour (#444C56), `panel` the plate body's (#22272E), and `project` the project's.
 enum TrackerPlateShapes {
@@ -19,10 +19,10 @@ enum TrackerPlateShapes {
 
     typealias Piece = (role: Role, d: String)
 
-    static let masterTab = "M27.1738 7.67392C27.1738 5.46478 28.9647 3.67392 31.1738 3.67392H252.674C254.055 3.67392 255.174 4.79321 255.174 6.17392V15.6739H27.1738V7.67392Z"
-    static let masterBody = "M27.1738 15.6739H255.174C257.935 15.6739 260.174 17.9125 260.174 20.6739V45.6739C260.174 48.4353 257.935 50.6739 255.174 50.6739H27.1738V15.6739Z"
-    static let masterTitleStrip = "M30.1738 17.6739H255.174C256.8309 17.6739 258.174 19.017 258.174 20.6739V34.6739C258.174 35.7785 257.278 36.6739 256.174 36.6739H30.1738V17.6739Z"
-    static let masterBar = "M30.1738 38.6739H256.174C257.278 38.6739 258.174 39.5694 258.174 40.6739V45.6739C258.174 47.3308 256.8309 48.6739 255.174 48.6739H30.1738V38.6739Z"
+    static let masterTab = "M27.1738 7.67392C27.1738 5.46478 28.9647 3.67392 31.1738 3.67392H254.674C256.055 3.67392 257.174 4.79321 257.174 6.17392V15.6739H27.1738V7.67392Z"
+    static let masterBody = "M27.1738 15.6739H257.174C259.935 15.6739 262.174 17.9125 262.174 20.6739V45.6739C262.174 48.4353 259.935 50.6739 257.174 50.6739H27.1738V15.6739Z"
+    static let masterTitleStrip = "M30.1738 17.6739H257.174C258.8309 17.6739 260.174 19.017 260.174 20.6739V34.6739C260.174 35.7785 259.278 36.6739 258.174 36.6739H30.1738V17.6739Z"
+    static let masterBar = "M30.1738 38.6739H258.174C259.278 38.6739 260.174 39.5694 260.174 40.6739V45.6739C260.174 47.3308 258.8309 48.6739 257.174 48.6739H30.1738V38.6739Z"
     static let masterOrnaments: [Piece] = [
         (.outline, "M27.1738 2.17392C40.9809 2.17392 52.1738 13.3668 52.1738 27.1739C52.1738 40.981 40.9809 52.1739 27.1738 52.1739C13.3667 52.1739 2.17383 40.981 2.17383 27.1739C2.17383 13.3668 13.3667 2.17392 27.1738 2.17392ZM27.1738 3.45947C40.271 3.45947 50.8883 14.0768 50.8883 27.1739C50.8883 40.271 40.271 50.8884 27.1738 50.8884C14.0767 50.8884 3.45938 40.271 3.45938 27.1739C3.45938 14.0768 14.0767 3.45947 27.1738 3.45947Z"),
         (.outline, "M15.3208 50.2009C14.8949 49.6705 14.3768 48.6251 14.1304 47.8261C17.9671 50.1522 22.4226 51.4839 27.1738 51.4839V54.3478C25.2766 53.0745 18.5627 50.9483 15.3208 50.2009Z"),

@@ -10,16 +10,16 @@ import QuestmasterCore
 /// the run is centred on the plate.
 enum ActionBarMetrics {
     static let plateWidth: CGFloat = 430
-    static let plateArtHeight: CGFloat = 53
+    static let plateSvgHeight: CGFloat = 53
     /// How far the dragons' tops rise above the plate's top edge (design y 16 against 19.5).
     static let overflowTop: CGFloat = 3.5
     /// The drawing canvas: the plate plus the overflow above it. The footer's hosting view is this tall, and
     /// it starts `overflowTop` above the plate, so the dragons are never clipped.
-    static let canvasHeight: CGFloat = plateArtHeight + overflowTop
+    static let canvasHeight: CGFloat = plateSvgHeight + overflowTop
 
     /// The plate's own area, between the dragons. Clicks on the dragons, and on the overflow above the plate,
     /// fall through to whatever is behind.
-    static let barHitRect = CGRect(x: 21, y: 0, width: 388, height: plateArtHeight)
+    static let barHitRect = CGRect(x: 21, y: 0, width: 388, height: plateSvgHeight)
 
     static let slotSize: CGFloat = 30
     /// Measured from the plate's top edge: the design's slot top (y 31) less its plate top (y 19.5).

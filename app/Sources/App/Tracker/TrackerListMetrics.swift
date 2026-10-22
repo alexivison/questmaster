@@ -10,7 +10,7 @@ enum TrackerListMetrics {
     /// first row of text — see `ShellSplitLayoutPlanner`'s full-height tracker frame. The selected
     /// session panel lands on that line; the list below it starts `selectedPanelGap` lower.
     static let firstSectionTopInset: CGFloat = 0
-    /// From the selected-session panel's bottom edge (its 76pt canvas) to the first row's top, the first disc's top edge.
+    /// From the selected-session panel's bottom edge (its 75pt canvas) to the first row's top, the first disc's top edge.
     /// The master's crown pieces reach 2pt above it, so they start 38pt below the panel.
     static let selectedPanelGap = Space.group
     static let verticalPadding = Space.section

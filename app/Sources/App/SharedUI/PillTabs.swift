@@ -135,7 +135,7 @@ extension PillTabRow.Tab where ID == String {
 enum PillTabMetrics {
     /// The design's 26 on the 5pt rhythm; the outline's path keeps the design's own height and scales to it.
     static let height = ControlHeight.compact
-    static let designHeight: CGFloat = 26
+    static let svgHeight: CGFloat = 26
     static let discDiameter: CGFloat = 30
     /// The disc stands 2 above the pill and 3 below it: centred, held on whole points.
     static let discOverhang: CGFloat = ((discDiameter - height) / 2).rounded(.down)
@@ -148,9 +148,9 @@ enum PillTabMetrics {
     static let spacing = Space.item
 
     /// Pi's mark is a solid block, so at the line-drawn marks' 20pt it reads far larger (an ink area of
-    /// about 245 against Claude's 140 and Codex's 155): it is drawn to their ink area instead, a 15.5pt
+    /// about 245 against Claude's 140 and Codex's 155): it is drawn to about their ink area instead, a 15pt
     /// square. Its SVG pads that ink to 470 of 800 units.
-    static let piLogoInkSide: CGFloat = 15.5
+    static let piLogoInkSide: CGFloat = 15
 
     /// The side each mark's image is drawn at for its ink to read at the same size: Claude's and Codex's
     /// SVGs fill their box, OpenCode's 20 of its 24 units, Pi's as above.
@@ -171,7 +171,7 @@ enum PillTabMetrics {
 struct PillTabShape: Shape {
     func path(in rect: CGRect) -> Path {
         let w = rect.width
-        let sy = rect.height / PillTabMetrics.designHeight
+        let sy = rect.height / PillTabMetrics.svgHeight
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x, y: rect.minY + y * sy) }
         func r(_ x: CGFloat, _ y: CGFloat) -> CGPoint { p(w - x, y) }
         var path = Path()
