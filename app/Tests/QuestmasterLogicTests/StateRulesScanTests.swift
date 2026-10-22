@@ -27,9 +27,10 @@ struct StateRulesScanTests {
         Rule(
             name: "raw-colour",
             // Clear draws nothing, so it's allowed; black and white go through AppPalette.shadow, .light or .mask.
-            // Shorthand colours (`.red`) count where a colour is taken (fill, stroke, color:, colors:, of: …), so a
-            // `.white` enum case elsewhere (Quest Log art inks, NSFont.Weight.black) doesn't.
-            pattern: #"NSColor\((hex|srgbRed|red|calibratedRed|deviceRed|displayP3Red|white|calibratedWhite|deviceWhite|genericGamma22White|cssHex:\s*")|\bColor\((red|white|hue|\.sRGB|\.displayP3|\.sRGBLinear)\b|#colorLiteral|\b(NSColor|Color)\.(black|white|red|green|blue|orange|yellow|pink|purple|gray|grey|brown|cyan|magenta|mint|teal|indigo|primary|secondary|accentColor|labelColor|secondaryLabelColor|tertiaryLabelColor|textColor|controlAccentColor|windowBackgroundColor|controlColor|system[A-Z]\w*)\b|\.foregroundStyle\(\.(primary|secondary|tertiary|tint)\)|\b(foregroundStyle|foregroundColor|fill|stroke|strokeBorder|background|backgroundColor|tint|border|shadow|color|colors|of)\s*[(:=][^\n]*?(?<!\w)\.(black|white|red|green|blue|orange|yellow|pink|purple|gray|grey|brown|cyan|magenta|mint|teal|indigo|primary|secondary|tertiary)\b"#,
+            // Shorthand colours (`.red`) count only inside a colour-taking call's own argument (fill, stroke, color:,
+            // colors:, a blend's of: …), so a `.white` enum case elsewhere (Quest Log art inks, NSFont.Weight.black,
+            // firstIndex(of: .red)) doesn't.
+            pattern: #"NSColor\((hex|srgbRed|red|calibratedRed|deviceRed|displayP3Red|white|calibratedWhite|deviceWhite|genericGamma22White|hue|calibratedHue|deviceHue|cssHex:\s*")|\bColor\((red|white|hue|\.sRGB|\.displayP3|\.sRGBLinear)\b|\bColor\(\s*(nsColor:|cgColor:)?\s*\.(?!clear\b)|#colorLiteral|\b(NSColor|Color)\.(black|white|red|green|blue|orange|yellow|pink|purple|gray|grey|brown|cyan|magenta|mint|teal|indigo|primary|secondary|accentColor|labelColor|secondaryLabelColor|tertiaryLabelColor|textColor|controlAccentColor|windowBackgroundColor|controlColor|system[A-Z]\w*)\b|\.foregroundStyle\(\.(primary|secondary|tertiary|tint)\)|(\b(foregroundStyle|foregroundColor|fill|stroke|strokeBorder|background|backgroundColor|tint|border|shadow)\(|\b(color|colors|backgroundColor|borderColor|shadowColor)\s*[:=]|\bblended\(withFraction:[^)\n]*?\bof:)[^)\n]*?(?<!\w)\.(black|white|red|green|blue|orange|yellow|pink|purple|gray|grey|brown|cyan|magenta|mint|teal|indigo|primary|secondary|tertiary)\b"#,
             allowedIn: [tokenLayer]
         ),
         Rule(name: "state-colour", pattern: #"\bStateColor\b|\btextSelected\b"#, allowedIn: [tokenLayer]),
@@ -100,6 +101,11 @@ struct StateRulesScanTests {
             "LinearGradient(colors: [.white.opacity(0.18), .clear], startPoint: .top, endPoint: .bottom)",
             "let light = tint.blended(withFraction: 0.5, of: .white) ?? tint",
             ".shadow(color: .black.opacity(0.35), radius: 18, y: 10)",
+            ".fill((isOn ? .red : AppPalette.item.swiftUI))",
+            "let ink = Color(nsColor: .black)",
+            "let tint = NSColor(hue: 0.1, saturation: 0.5, brightness: 0.5, alpha: 1)",
+            "let warn = Color(.systemRed)",
+            "layer.borderColor = .white",
         ]
         for sample in rawColours {
             expect(violations(in: sample, file: "Quest/Example.swift")["raw-colour"] == 1, "raw-colour should catch \(sample)")
@@ -110,6 +116,9 @@ struct StateRulesScanTests {
             "shape.strokeBorder(AppPalette.shadow.swiftUI.opacity(0.1), lineWidth: 3)",
             "(.white, 0.43, \"M463.659 63.502\")",
             "let font = NSFont.systemFont(ofSize: 12, weight: .black)",
+            ".background(AppPalette.panel.swiftUI).font(.system(size: 9, weight: .black))",
+            "let index = inks.firstIndex(of: .red)",
+            "Color(nsColor: AppPalette.panel)",
         ]
         for sample in notColours {
             expect(violations(in: sample, file: "Quest/Example.swift")["raw-colour"] == nil, "raw-colour should allow \(sample)")
