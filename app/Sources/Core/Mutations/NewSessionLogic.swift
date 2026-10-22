@@ -5,18 +5,17 @@ public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case title
     case agent
     case model
-    /// The effort segment at the model field's right end.
-    case effort
     /// Edit Session's colour select. New Session has no colour field: a new session takes the default.
     case color
     case prompt
 
     public var isSelect: Bool {
-        self == .agent || self == .effort || self == .color
+        self == .agent || self == .color
     }
 
-    /// New Session's fields, top to bottom: the order ⌃j / ⌃k and Tab move through.
-    public static let formOrder: [NewSessionField] = [.path, .title, .agent, .model, .effort, .prompt]
+    /// New Session's inputs, top to bottom: the order ⌃j / ⌃k and Tab move through. The model field's
+    /// effort segment is no stop of its own.
+    public static let formOrder: [NewSessionField] = [.path, .title, .agent, .model, .prompt]
 }
 
 /// One model suggestion for the model field.
@@ -52,18 +51,17 @@ public struct SessionReasoningEffortOption: Equatable {
     }
 }
 
-/// The keys that cycle the reasoning effort: plain e where an e can't be typed (the effort segment and
-/// the agent tabs), ⌥e while typing in the model field, whose ids are full of e's.
+/// The keys that cycle the reasoning effort, the model field's alone: ⌃e in both of its states, and plain
+/// e in SELECT, where an e can't be typed. With focus anywhere else neither does anything effort-related.
 public enum NewSessionEffortKey {
-    public static func cycles(characters: String?, keyCode: UInt16, option: Bool, field: NewSessionField) -> Bool {
-        switch field {
-        case .effort, .agent:
-            return !option && Keymap.NewSession.cycleReasoningEffort.matchesExactly(characters)
-        case .model:
-            return option && Keymap.NewSession.cycleReasoningEffortInModel.matches(keyCode)
-        case .path, .title, .color, .prompt:
+    public static func cycles(characters: String?, keyCode: UInt16, command: Bool, control: Bool, option: Bool, field: NewSessionField, mode: PickerFieldMode) -> Bool {
+        guard field == .model, !command, !option else {
             return false
         }
+        if control {
+            return Keymap.NewSession.cycleReasoningEffortInModel.matches(keyCode)
+        }
+        return mode == .select && Keymap.NewSession.cycleReasoningEffort.matchesExactly(characters)
     }
 }
 
@@ -111,7 +109,14 @@ public struct NewSessionFormModel: Equatable {
         "gold", "lime", "teal", "sky", "indigo", "violet", "pink",
     ]
 
-    public var focusedField: NewSessionField
+    /// Leaving the model field ends its search, keeping what was typed.
+    public var focusedField: NewSessionField {
+        didSet {
+            if focusedField != .model, modelMode == .search {
+                endModelSearch(keepingText: true)
+            }
+        }
+    }
     public var path: String
     public var title: String
     public var prompt: String
@@ -131,6 +136,11 @@ public struct NewSessionFormModel: Equatable {
     public private(set) var highlightedModelIndex = 0
     /// Esc, or accepting a suggestion, puts the model dropdown away until the next keystroke.
     public private(set) var modelSuggestionsDismissed = false
+    /// The model field is a picker field (`PickerFieldMode`): SELECT until a key starts a search.
+    public private(set) var modelMode = PickerFieldMode.select
+    /// What Esc restores: the text, and whether it was typed, as the search started.
+    private var modelTextBeforeSearch = ""
+    private var modelTextEditedBeforeSearch = false
     public private(set) var selectedEffortIndex: Int?
     /// Until the user types in the model field, each resolve fills it with Settings' default for the role.
     private var modelTextEdited = false
@@ -200,7 +210,32 @@ public struct NewSessionFormModel: Equatable {
     public var showsModelSuggestions: Bool {
         let suggestions = modelSuggestions
         let onlyTheText = suggestions.count == 1 && suggestions[0].id == selectedModel
-        return focusedField == .model && !modelSuggestionsDismissed && !suggestions.isEmpty && !onlyTheText
+        return focusedField == .model && modelMode == .search && !modelSuggestionsDismissed && !suggestions.isEmpty && !onlyTheText
+    }
+
+    /// A key, or a click into the text, starts a search: on that text, or editing the model id.
+    public mutating func startModelSearch(_ start: PickerFieldMode.SearchStart) {
+        modelTextBeforeSearch = modelText
+        modelTextEditedBeforeSearch = modelTextEdited
+        modelMode = .search
+        switch start {
+        case .seed(let text):
+            typeModel(text)
+        case .editCurrent:
+            highlightedModelIndex = 0
+            modelSuggestionsDismissed = false
+        }
+    }
+
+    /// Back to SELECT. Esc restores the text the search started from; picking or leaving keeps what was
+    /// typed, since the field takes any id.
+    public mutating func endModelSearch(keepingText: Bool) {
+        if !keepingText {
+            modelText = modelTextBeforeSearch
+            modelTextEdited = modelTextEditedBeforeSearch
+        }
+        modelMode = .select
+        modelSuggestionsDismissed = true
     }
 
     public mutating func dismissModelSuggestions() {
@@ -227,15 +262,15 @@ public struct NewSessionFormModel: Equatable {
         highlightedModelIndex = (highlightedModelIndex + delta + count) % count
     }
 
-    /// Puts the highlighted suggestion's id in the field. False when there's nothing to accept, or the
-    /// field already holds it.
+    /// Puts the highlighted suggestion's id in the field and returns to SELECT. False when there's
+    /// nothing to accept.
     @discardableResult
     public mutating func acceptHighlightedModel() -> Bool {
-        guard let option = highlightedModelSuggestion, option.id != modelText else {
+        guard showsModelSuggestions, let option = highlightedModelSuggestion else {
             return false
         }
         typeModel(option.id)
-        modelSuggestionsDismissed = true
+        endModelSearch(keepingText: true)
         return true
     }
 
@@ -417,9 +452,8 @@ public struct NewSessionFormModel: Equatable {
         return "none"
     }
 
-    /// Steps through `formOrder`, past the effort segment while the model reports no levels.
     private mutating func moveFocus(_ delta: Int) {
-        let fields = NewSessionField.formOrder.filter { $0 != .effort || hasEffortLevels }
+        let fields = NewSessionField.formOrder
         guard let index = fields.firstIndex(of: focusedField) else {
             focusedField = .path
             return
@@ -442,8 +476,6 @@ public struct NewSessionFormModel: Equatable {
                 resetModelOptions()
                 resetEffortOptions()
             }
-        case .effort:
-            cycleReasoningEffort(delta)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
         case .path, .title, .model, .prompt:

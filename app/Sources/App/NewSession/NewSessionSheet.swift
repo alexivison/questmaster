@@ -167,8 +167,12 @@ final class NewSessionSheetModel: ObservableObject {
         let shift = flags.contains(.shift)
         let field = state.model.focusedField
 
+        if field == .model, !state.model.submitting, handleModelFieldKey(event) {
+            return true
+        }
         if Keymap.NewSession.cancel.matches(event.keyCode) {
-            if dismissSuggestions() {
+            if state.showsPathSuggestions {
+                state.paths.dismiss()
                 return true
             }
             close()
@@ -186,10 +190,6 @@ final class NewSessionSheetModel: ObservableObject {
         }
         if option, Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
             moveFocus(.controlJ)
-            return true
-        }
-        if NewSessionEffortKey.cycles(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, option: option, field: field) {
-            cycleEffort(1)
             return true
         }
         if control, Keymap.NewSession.nextField.matches(chars) {
@@ -237,8 +237,8 @@ final class NewSessionSheetModel: ObservableObject {
         return false
     }
 
-    /// Tab completes the path from the highlighted row (or from disk), and takes the highlighted model
-    /// suggestion; otherwise it moves to the next field, and ⇧Tab to the previous. The prompt keeps Tab.
+    /// Tab completes the path from the highlighted row (or from disk); otherwise it moves to the next
+    /// field, and ⇧Tab to the previous. The prompt keeps Tab.
     private func handleTab(shift: Bool) -> Bool {
         switch state.model.focusedField {
         case .prompt:
@@ -246,41 +246,72 @@ final class NewSessionSheetModel: ObservableObject {
         case .path where !shift:
             completePath()
             return true
-        case .model where !shift && state.model.showsModelSuggestions:
-            if state.model.acceptHighlightedModel() {
-                modelChanged()
-                return true
-            }
         default:
-            break
+            moveFocus(shift ? .controlK : .controlJ)
+            return true
         }
-        moveFocus(shift ? .controlK : .controlJ)
-        return true
     }
 
     private func moveSuggestionHighlight(_ delta: Int) -> Bool {
-        if state.showsPathSuggestions {
-            state.paths.moveHighlight(delta)
-            return true
+        guard state.showsPathSuggestions else {
+            return false
         }
-        if state.model.showsModelSuggestions {
-            state.model.moveModelHighlight(delta)
-            return true
-        }
-        return false
+        state.paths.moveHighlight(delta)
+        return true
     }
 
-    /// Esc puts an open dropdown away before it closes the sheet.
-    private func dismissSuggestions() -> Bool {
-        if state.showsPathSuggestions {
-            state.paths.dismiss()
+    /// The model field's own keys, taken while it has focus and before the text system sees them: the
+    /// effort keys (`NewSessionEffortKey`), and its SELECT / SEARCH states (`PickerFieldMode`). In SEARCH,
+    /// Tab or Return takes the highlighted suggestion and Esc restores the text; both return to SELECT.
+    /// Tab with nothing to take moves on, which ends the search too.
+    private func handleModelFieldKey(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let command = flags.contains(.command)
+        let control = flags.contains(.control)
+        let option = flags.contains(.option)
+        let before = state.model.modelMode
+        defer {
+            state.followModelMode(from: before)
+        }
+        if NewSessionEffortKey.cycles(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, command: command, control: control, option: option, field: .model, mode: before) {
+            cycleEffort(1)
             return true
         }
-        if state.model.showsModelSuggestions {
-            state.model.dismissModelSuggestions()
+        switch before {
+        case .select:
+            guard let start = PickerFieldMode.searchStart(characters: event.characters, keyCode: event.keyCode, command: command, control: control, option: option) else {
+                return false
+            }
+            state.model.startModelSearch(start)
+            modelChanged()
             return true
+        case .search:
+            if command || control || option {
+                return false
+            }
+            if Keymap.NewSession.cancel.matches(event.keyCode) {
+                state.model.endModelSearch(keepingText: false)
+                modelChanged()
+                return true
+            }
+            let tab = Keymap.NewSession.completePath.matches(event.keyCode) && !flags.contains(.shift)
+            if tab || Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) {
+                if state.model.acceptHighlightedModel() {
+                    modelChanged()
+                    return true
+                }
+                guard !tab else {
+                    return false
+                }
+                state.model.endModelSearch(keepingText: true)
+                return true
+            }
+            if Keymap.NewSession.suggestionUp.matches(event.keyCode) || Keymap.NewSession.suggestionDown.matches(event.keyCode) {
+                state.model.moveModelHighlight(Keymap.NewSession.suggestionUp.matches(event.keyCode) ? -1 : 1)
+                return true
+            }
+            return false
         }
-        return false
     }
 
     func handleViewFocus(_ field: NewSessionField) {
@@ -322,9 +353,10 @@ final class NewSessionSheetModel: ObservableObject {
         guard suggestions.indices.contains(index) else {
             return
         }
+        let before = state.model.modelMode
         state.model.typeModel(suggestions[index].id)
-        state.model.dismissModelSuggestions()
-        state.requestFocus(.model)
+        state.model.endModelSearch(keepingText: true)
+        state.followModelMode(from: before)
         requestReasoningEffortSuggestions()
     }
 
@@ -338,11 +370,11 @@ final class NewSessionSheetModel: ObservableObject {
         }
     }
 
+    /// A click on the effort segment cycles it, wherever focus is; the segment is no stop of its own.
     func clickEffort() {
         guard !state.model.submitting else {
             return
         }
-        state.requestFocus(.effort)
         cycleEffort(1)
     }
 
@@ -467,7 +499,12 @@ final class NewSessionSheetModel: ObservableObject {
     }
 
     private func moveFocus(_ key: NewSessionFormKey) {
+        let before = state.model.modelMode
         state.model.handle(key)
+        if before == .search, state.model.modelMode == .select {
+            // Leaving mid-search kept the typed model; its levels may differ.
+            modelChanged()
+        }
         focusCurrentField()
     }
 

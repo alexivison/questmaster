@@ -10,6 +10,7 @@ struct NewSessionLogicTests {
         typedModelSurvivesLaterResolves()
         modelSuggestionsMatchWhatIsTyped()
         acceptingAModelSuggestionPutsTheDropdownAway()
+        modelSearchStartsOnAKeyAndEndsOnEscOrLeaving()
         agentChangeDropsAnotherHarnessModel()
         setModelOptionsDropsWhitespaceOnlyIDs()
         cyclingASingleAgentListDoesNotResetModelOptions()
@@ -36,6 +37,7 @@ struct NewSessionLogicTests {
     private static func focusMovesThroughFieldsWithControlJAndK() {
         var model = NewSessionFormModel(initialPath: "/tmp/project")
         expect(model.focusedField == .path, "initial focus should be path")
+        model.setEffortOptions(["low", "high"])
 
         model.handle(.controlJ)
         expect(model.focusedField == .title, "control-j should move to title")
@@ -44,18 +46,12 @@ struct NewSessionLogicTests {
         model.handle(.controlJ)
         expect(model.focusedField == .model, "control-j should move to model")
         model.handle(.controlJ)
-        expect(model.focusedField == .prompt, "without effort levels, control-j should skip the effort segment")
+        expect(model.focusedField == .prompt, "control-j should move from the model to the prompt: the effort segment is no stop")
         model.handle(.controlK)
         expect(model.focusedField == .model, "control-k should move back to model")
-
-        model.setEffortOptions(["low", "high"])
-        model.handle(.controlJ)
-        expect(model.focusedField == .effort, "with effort levels, control-j should reach the effort segment")
-        model.handle(.controlJ)
-        expect(model.focusedField == .prompt, "control-j should move from the effort segment to the prompt")
+        expect(NewSessionField.formOrder == [.path, .title, .agent, .model, .prompt], "the visible inputs, top to bottom")
     }
 
-    // New Session has no colour field: a new session takes the default colour.
     private static func focusCycleWrapsThroughFields() {
         var model = NewSessionFormModel(initialPath: "/tmp/project")
         model.handle(.controlK)
@@ -115,6 +111,7 @@ struct NewSessionLogicTests {
         model.typeModel("gpt")
         expect(model.modelSuggestions.isEmpty, "no match should list nothing")
         model.focusedField = .model
+        model.startModelSearch(.editCurrent)
         expect(!model.showsModelSuggestions, "an empty match should show no dropdown")
         model.typeModel("")
         expect(model.modelSuggestions.count == NewSessionFormModel.maxModelSuggestions, "an empty field should browse the list")
@@ -125,18 +122,35 @@ struct NewSessionLogicTests {
     private static func acceptingAModelSuggestionPutsTheDropdownAway() {
         var model = NewSessionFormModel(initialPath: "/tmp/project", initialFocus: .model)
         model.setModelOptions([SessionModelOption(id: "claude-opus-5-5", label: "claude-opus-5-5")])
+        expect(model.modelMode == .select && !model.showsModelSuggestions, "the field should start in SELECT, with no list")
+        model.startModelSearch(.seed("o"))
         model.typeModel("opus")
-        expect(model.showsModelSuggestions, "a match should show while the field is focused")
+        expect(model.modelMode == .search && model.showsModelSuggestions, "a match should show while searching")
         expect(model.acceptHighlightedModel(), "the highlighted suggestion should be taken")
         expect(model.selectedModel == "claude-opus-5-5", "the field should hold the taken id")
-        expect(!model.showsModelSuggestions, "taking a suggestion should put the dropdown away")
-        expect(!model.acceptHighlightedModel(), "taking the id the field already holds should be a no-op")
-        model.typeModel("claude-opus-5-5")
-        expect(!model.showsModelSuggestions, "a lone row that is already the text offers nothing")
+        expect(model.modelMode == .select && !model.showsModelSuggestions, "taking a suggestion should return to SELECT")
+        expect(!model.acceptHighlightedModel(), "nothing should be taken in SELECT")
+        model.startModelSearch(.editCurrent)
         model.typeModel("claude-opus-5-")
         expect(model.showsModelSuggestions, "typing again should bring the dropdown back")
         model.dismissModelSuggestions()
-        expect(!model.showsModelSuggestions, "Esc should put the dropdown away")
+        expect(!model.showsModelSuggestions, "the dropdown can be put away")
+    }
+
+    private static func modelSearchStartsOnAKeyAndEndsOnEscOrLeaving() {
+        var model = NewSessionFormModel(initialPath: "/tmp/project", initialFocus: .model)
+        model.setModelOptions([], defaultModel: "sonnet")
+        model.startModelSearch(.seed("x"))
+        expect(model.modelMode == .search && model.selectedModel == "x", "a printable key should start a search on that text")
+        model.endModelSearch(keepingText: false)
+        expect(model.modelMode == .select && model.selectedModel == "sonnet", "Esc should restore the text the search started from")
+        model.setModelOptions([], defaultModel: "opus")
+        expect(model.selectedModel == "opus", "an untyped default should still follow resolves after Esc")
+        model.startModelSearch(.editCurrent)
+        expect(model.selectedModel == "opus", "Backspace or Return should edit the current text")
+        model.typeModel("my-model")
+        model.focusedField = .prompt
+        expect(model.modelMode == .select && model.selectedModel == "my-model", "leaving the field should end the search and keep what was typed")
     }
 
     private static func agentChangeDropsAnotherHarnessModel() {
@@ -252,29 +266,26 @@ struct NewSessionLogicTests {
 
         model.resetEffortOptions()
         model.setEffortOptions(["low", "high"], defaultLevel: "high")
-        model.focusedField = .effort
         expect(model.effortLabel == "high", "the segment shows the level id")
-        model.handle(.left)
-        expect(model.selectedReasoningEffort == "low", "left on the segment should cycle back")
-        model.handle(.left)
+        model.cycleReasoningEffort(-1)
+        expect(model.selectedReasoningEffort == "low", "cycling back should reach the previous level")
+        model.cycleReasoningEffort(-1)
         expect(model.effortLabel == NewSessionFormModel.defaultEffortLabel, "cycling should reach default, the harness's own level")
     }
 
     private static func effortKeysCycleOnlyWhereAnECannotBeTyped() {
-        func cycles(_ characters: String, option: Bool = false, _ field: NewSessionField) -> Bool {
-            NewSessionEffortKey.cycles(characters: characters, keyCode: 14, option: option, field: field)
+        func cycles(_ characters: String, control: Bool = false, option: Bool = false, _ field: NewSessionField, _ mode: PickerFieldMode = .select) -> Bool {
+            NewSessionEffortKey.cycles(characters: characters, keyCode: 14, command: false, control: control, option: option, field: field, mode: mode)
         }
-        expect(cycles("e", .effort), "e should cycle on the effort segment")
-        expect(cycles("e", .agent), "e should cycle on the agent tabs")
-        expect(!cycles("e", .model), "a plain e should type in the model field")
-        expect(cycles("´", option: true, .model), "⌥e should cycle in the model field")
-        expect(!cycles("e", option: true, .effort), "⌥e is the model field's alone")
-        for field in [NewSessionField.path, .title, .prompt] {
-            expect(!cycles("e", field) && !cycles("´", option: true, field), "no effort key in \(field)")
+        expect(cycles("e", .model, .select), "e should cycle in the model field's SELECT state")
+        expect(!cycles("e", .model, .search), "e should type while searching")
+        expect(cycles("e", control: true, .model, .select) && cycles("e", control: true, .model, .search), "⌃e should cycle in both states")
+        expect(!cycles("´", option: true, .model, .search), "⌥e is the accent dead key, not an effort key")
+        for field in [NewSessionField.path, .title, .agent, .color, .prompt] {
+            expect(!cycles("e", field) && !cycles("e", control: true, field), "no effort key with \(field) focused")
         }
-        expect(!NewSessionEffortKey.cycles(characters: "E", keyCode: 14, option: false, field: .agent), "E (shift) is not the effort key")
-        expect(Keymap.NewSession.cycleReasoningEffortInModel.keyCodes == [14], "⌥e is the e key")
-        expect(Keymap.NewSession.cycleReasoningEffortInModel.modifiers == [.option], "⌥e needs option")
+        expect(!NewSessionEffortKey.cycles(characters: "E", keyCode: 14, command: false, control: false, option: false, field: .model, mode: .select), "E (shift) is not the effort key")
+        expect(Keymap.NewSession.cycleReasoningEffortInModel.keyCodes == [14] && Keymap.NewSession.cycleReasoningEffortInModel.modifiers == [.control], "⌃e is the e key with control")
     }
 
     private static func submittingNeedsOnlyAPath() {

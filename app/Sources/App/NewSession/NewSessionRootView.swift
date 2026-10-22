@@ -20,15 +20,26 @@ final class NewSessionViewState: ObservableObject {
         model.focusedField == .path && paths.isVisible
     }
 
+    /// The model field takes focus in SELECT, without the caret (`showCaret` puts it in for a search).
     func requestFocus(_ field: NewSessionField) {
         model.focusedField = field
         switch field {
-        case .path, .title, .model:
+        case .path, .title:
             focusNonces[field, default: 0] += 1
-        case .agent, .effort, .color:
+        case .agent, .model, .color:
             sinkNonce += 1
         case .prompt:
             break
+        }
+    }
+
+    /// Moves the caret into or out of the model text as its search starts or ends.
+    func followModelMode(from before: PickerFieldMode) {
+        let after = model.modelMode
+        if before == .select, after == .search {
+            focusNonces[.model, default: 0] += 1
+        } else if before == .search, after == .select {
+            sinkNonce += 1
         }
     }
 }
@@ -109,8 +120,17 @@ struct NewSessionRootView: View {
             ),
             placeholder: "Default model...",
             focusNonce: state.focusNonces[.model, default: 0],
-            focused: model.focusedField == .model || model.focusedField == .effort,
-            onFocusChanged: { focusedByClick(.model, $0) }
+            focused: model.focusedField == .model,
+            onFocusChanged: { editing in
+                // A click into the text: focus the field, and the click's caret starts a search.
+                guard editing, !state.model.submitting else {
+                    return
+                }
+                focusedByClick(.model, true)
+                if state.model.modelMode == .select {
+                    state.model.startModelSearch(.editCurrent)
+                }
+            }
         ) {
             effortSegment
         }
@@ -121,18 +141,11 @@ struct NewSessionRootView: View {
         ) : nil)
     }
 
-    /// "| level" at the model field's end: the level ids as the app has always shown them. Click it, or
-    /// focus it and use ←/→, h/l or e, to cycle. A model without levels shows "default", inert.
+    /// "| level" at the model field's end: the level ids as the app has always shown them. A click, e in
+    /// SELECT or ⌃e cycles it; it is no focus stop. A model without levels shows "default", inert.
     private var effortSegment: some View {
         let model = state.model
-        let color: NSColor
-        if !model.hasEffortLevels {
-            color = AppPalette.fieldInert
-        } else if model.focusedField == .effort {
-            color = AppPalette.questLogRowSelected
-        } else {
-            color = AppPalette.questLogFilterHint
-        }
+        let color = model.hasEffortLevels ? AppPalette.questLogFilterHint : AppPalette.fieldInert
         return HStack(spacing: FormFieldMetrics.segmentSpacing) {
             Rectangle()
                 .fill(AppPalette.line.swiftUI)

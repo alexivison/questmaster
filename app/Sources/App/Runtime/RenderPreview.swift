@@ -19,6 +19,9 @@ enum RenderPreview {
         render(newSessionView(.initial), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-init.png")
         render(newSessionView(.filled), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
         render(newSessionView(.openCode), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode.png")
+        render(newSessionView(.openCodeResting), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode-resting.png")
+        render(newSessionView(.tabsFocused), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-tabs-focused.png")
+        render(newSessionView(.modelSelect), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-model-select.png")
         render(newSessionView(.noEffort), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-no-effort.png")
         render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-init.png")
         render(newQuestSheetView(typing: true), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
@@ -998,7 +1001,13 @@ enum RenderPreview {
     /// with OpenCode selected, or on a model that reports no effort levels.
     enum NewSessionPreview {
         case initial
+        /// Searching the model field ("opus" typed, its match listed).
         case filled
+        /// The model field focused in SELECT: no list, e cycles the effort.
+        case modelSelect
+        /// Claude selected with the tab row focused, and OpenCode selected at rest and focused.
+        case tabsFocused
+        case openCodeResting
         case openCode
         case noEffort
     }
@@ -1020,8 +1029,28 @@ enum RenderPreview {
             model.title = "PR Reviews"
             model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
             model.setEffortOptions(levels, defaultLevel: "xhigh")
-            model.typeModel("opus")
             model.focusedField = .model
+            model.startModelSearch(.seed("o"))
+            model.typeModel("opus")
+        case .modelSelect:
+            model.path = "/Users/aleksi.tuominen/Code"
+            model.title = "PR Reviews"
+            model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
+            model.setEffortOptions(levels, defaultLevel: "xhigh")
+            model.focusedField = .model
+        case .tabsFocused:
+            model.path = "/Users/aleksi.tuominen/Code"
+            model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
+            model.setEffortOptions(levels, defaultLevel: "medium")
+            model.focusedField = .agent
+        case .openCodeResting:
+            model.path = "/Users/aleksi.tuominen/Code/questmaster"
+            model.focusedField = .agent
+            model.handle(.right)
+            model.handle(.right)
+            model.setModelOptions([SessionModelOption(id: "openai/gpt-6-sol", label: "openai/gpt-6-sol")], defaultModel: "openai/gpt-6-sol")
+            model.setEffortOptions(["low", "medium", "high"], defaultLevel: "high")
+            model.focusedField = .prompt
         case .openCode:
             model.path = "/Users/aleksi.tuominen/Code/questmaster"
             model.focusedField = .agent

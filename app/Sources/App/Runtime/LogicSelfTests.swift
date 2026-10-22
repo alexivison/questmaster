@@ -2767,9 +2767,8 @@ enum LogicSelfTests {
         try expect(thrown != nil, "should propagate the last connect failure once retries are exhausted")
     }
 
-    // The model field is free text full of e's: plain e cycles the effort
-    // only where it can't be typed (the effort segment and the agent tabs),
-    // and ⌥e cycles it while typing a model.
+    // The effort keys are the model field's own: e in its SELECT state, ⌃e in
+    // both, and nothing effort-related with focus anywhere else.
     private static func testNewSessionEffortKeysCycleWhereAnECannotBeTyped() throws {
         let effortClient = StubReasoningEffortClient(
             efforts: ["claude": ["low", "high"]],
@@ -2783,21 +2782,22 @@ enum LogicSelfTests {
         })
         try expect(model.state.model.selectedEffortOption == nil, "precondition: nothing selected, since xhigh isn't in this resolved list")
 
-        try expect(!model.handle(try keyEvent("e", keyCode: 14)), "a plain e in the model field should type")
-        try expect(model.handle(try keyEvent("e", keyCode: 14, modifierFlags: .option)), "⌥e should be consumed in the model field")
-        try expect(model.state.model.selectedReasoningEffort == "low", "⌥e should cycle to the first resolved level")
+        try expect(model.handle(try keyEvent("e", keyCode: 14)), "e should be consumed in SELECT")
+        try expect(model.state.model.selectedReasoningEffort == "low", "e in SELECT should cycle to the first level")
+        try expect(model.state.model.modelMode == .select, "e should not start a search")
 
-        model.state.model.focusedField = .effort
-        try expect(model.handle(try keyEvent("e", keyCode: 14)), "e should cycle on the effort segment")
-        try expect(model.state.model.selectedReasoningEffort == "high", "e should cycle to the next level")
-        try expect(model.handle(try keyEvent("h", keyCode: 4)), "h should cycle the effort segment back")
-        try expect(model.state.model.selectedReasoningEffort == "low", "h should cycle to the previous level")
+        try expect(model.handle(try keyEvent("o", keyCode: 31)), "a letter should be consumed in SELECT")
+        try expect(model.state.model.modelMode == .search && model.state.model.modelText == "o", "a letter should start a search on itself")
+        try expect(!model.handle(try keyEvent("e", keyCode: 14)), "e should type while searching")
+        try expect(model.handle(try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)), "⌃e should be consumed while searching")
+        try expect(model.state.model.selectedReasoningEffort == "high", "⌃e should cycle to the next level")
+        try expect(model.handle(try keyEvent("\u{1b}", keyCode: 53)), "Esc should end the search")
+        try expect(model.state.model.modelMode == .select && model.state.model.modelText.isEmpty, "Esc should restore the text")
 
         model.state.model.focusedField = .agent
-        try expect(model.handle(try keyEvent("e", keyCode: 14)), "e should cycle on the agent tabs")
-
-        model.state.model.focusedField = .title
-        try expect(!model.handle(try keyEvent("e", keyCode: 14)), "a plain e in the title should type")
+        try expect(!model.handle(try keyEvent("e", keyCode: 14)), "e on the agent tabs is not an effort key")
+        try expect(!model.handle(try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)), "⌃e on the agent tabs is not an effort key")
+        try expect(model.state.model.selectedReasoningEffort == "high", "nothing outside the model field cycles the effort")
     }
 
     private static func testNewSessionTabTakesTheHighlightedModelThenMovesOn() throws {
@@ -2811,17 +2811,16 @@ enum LogicSelfTests {
         try waitForMainQueue("model and effort suggestions", until: {
             !model.state.model.modelOptions.isEmpty && model.state.model.hasEffortLevels
         })
+        try expect(model.handle(try keyEvent("o", keyCode: 31)), "a letter should start the search")
         model.state.model.typeModel("opus")
         try expect(model.state.model.showsModelSuggestions, "typing should show the matching model")
 
         try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should be consumed")
         try expect(model.state.model.selectedModel == "claude-opus-5-5", "Tab should take the highlighted model")
-        try expect(!model.state.model.showsModelSuggestions, "taking a model should put the dropdown away")
+        try expect(model.state.model.modelMode == .select && !model.state.model.showsModelSuggestions, "taking a model should return to SELECT")
 
         try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should be consumed again")
-        try expect(model.state.model.focusedField == .effort, "the next Tab should move to the effort segment")
-        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab on the effort segment")
-        try expect(model.state.model.focusedField == .prompt, "Tab should move from the effort segment to the prompt")
+        try expect(model.state.model.focusedField == .prompt, "the next Tab should move to the prompt: the effort segment is no stop")
     }
 
     private static func testNewSessionEscapePutsADropdownAwayBeforeClosing() throws {
