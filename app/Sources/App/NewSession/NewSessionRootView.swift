@@ -33,13 +33,15 @@ final class NewSessionViewState: ObservableObject {
         }
     }
 
-    /// Moves the caret into or out of the model text as its search starts or ends.
+    /// Moves the caret into or out of the model text as its search starts or ends (`PickerFieldMode.caretChange`).
     func followModelMode(from before: PickerFieldMode) {
-        let after = model.modelMode
-        if before == .select, after == .search {
+        switch PickerFieldMode.caretChange(from: before, to: model.modelMode, fieldFocused: model.focusedField == .model) {
+        case .intoText:
             focusNonces[.model, default: 0] += 1
-        } else if before == .search, after == .select {
+        case .outOfText:
             sinkNonce += 1
+        case nil:
+            break
         }
     }
 }
@@ -136,7 +138,7 @@ struct NewSessionRootView: View {
         }
         .suggestionDropdown(model.showsModelSuggestions ? SuggestionDropdown(
             rows: model.modelSuggestions.map(\.label),
-            highlightedIndex: model.highlightedModelIndex,
+            highlightedIndex: model.visibleModelHighlightIndex,
             onSelect: onSelectModel
         ) : nil)
     }

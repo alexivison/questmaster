@@ -26,11 +26,15 @@ private struct TrackerColorFocus {
     var textNonce = 0
     var sinkNonce = 0
 
+    /// `PickerFieldMode.caretChange`, with the colour input focused.
     mutating func follow(from before: PickerFieldMode, to after: PickerFieldMode) {
-        if before == .select, after == .search {
+        switch PickerFieldMode.caretChange(from: before, to: after, fieldFocused: true) {
+        case .intoText:
             textNonce += 1
-        } else if before == .search, after == .select {
+        case .outOfText:
             sinkNonce += 1
+        case nil:
+            break
         }
     }
 }
@@ -107,14 +111,18 @@ struct TrackerEditSessionSheet: View {
     }
 
     private func submit() {
+        // Saving mid-search takes the colour the swatch is showing.
+        var committed = color
+        committed.commitPendingPick()
+        color = committed
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanTitle.isEmpty else {
             errorMessage = "title is required"
             return
         }
         let resolvedColor = NewSessionFormModel.resolvedColorForSave(
-            selectedColor: color.selectedColor,
-            selectedColorIndex: color.selectedIndex,
+            selectedColor: committed.selectedColor,
+            selectedColorIndex: committed.selectedIndex,
             initialColorIndex: initialColorIndex,
             initialColor: initialColor
         )
@@ -130,10 +138,9 @@ struct TrackerEditSessionSheet: View {
         guard field != focus else {
             return
         }
+        // Leaving the colour input ends its search; the caret goes where focus goes, not to the sink.
         if focus == .color {
-            let before = color.mode
             color.endSearch()
-            colorFocus.follow(from: before, to: color.mode)
         }
         focus = field
         guard !byClick else {
@@ -236,9 +243,13 @@ struct TrackerEditRepoSheet: View {
     }
 
     private func submit() {
+        // Saving mid-search takes the colour the swatch is showing.
+        var committed = color
+        committed.commitPendingPick()
+        color = committed
         let resolvedColor = NewSessionFormModel.resolvedColorForSave(
-            selectedColor: color.selectedColor,
-            selectedColorIndex: color.selectedIndex,
+            selectedColor: committed.selectedColor,
+            selectedColorIndex: committed.selectedIndex,
             initialColorIndex: initialColorIndex,
             initialColor: initialColor
         )

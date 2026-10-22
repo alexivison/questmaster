@@ -52,4 +52,21 @@ public enum PickerFieldMode: Equatable {
         }
         return exact + prefix + contains
     }
+
+    /// Where the caret goes as a picker field's mode changes.
+    public enum CaretChange: Equatable {
+        /// A search started: into the text.
+        case intoText
+        /// The field returned to SELECT and keeps focus: out of the text (the sheet's focus sink).
+        case outOfText
+    }
+
+    /// How the caret follows a picker field's mode. A search that ended because focus left the field
+    /// leaves the caret to wherever focus went: taking it here would race the field that now has focus.
+    public static func caretChange(from before: PickerFieldMode, to after: PickerFieldMode, fieldFocused: Bool) -> CaretChange? {
+        guard fieldFocused, before != after else {
+            return nil
+        }
+        return after == .search ? .intoText : .outOfText
+    }
 }

@@ -10,10 +10,8 @@ public struct ColorFieldModel: Equatable {
     public private(set) var selectedIndex: Int
     /// The field's text: the selected colour's name until the user types.
     public private(set) var text: String
-    /// Into `matches`.
-    public private(set) var highlightedIndex = 0
-    /// The first of the `visibleRows` matches the dropdown shows; it follows the highlight.
-    public private(set) var windowStart = 0
+    /// The highlight over all of `matches`, and the visible rows following it.
+    public private(set) var window = PickerListWindow(visibleRows: ColorFieldModel.visibleRows)
     public private(set) var isDismissed = true
     public private(set) var mode = PickerFieldMode.select
     /// The text the search started from: while it is unchanged (Backspace or Return editing the name),
@@ -58,17 +56,16 @@ public struct ColorFieldModel: Equatable {
     }
 
     public var visibleMatches: [String] {
-        Array(matches.dropFirst(windowStart).prefix(Self.visibleRows))
+        window.visible(matches)
     }
 
     /// The highlighted row's position among `visibleMatches`.
     public var visibleHighlightIndex: Int {
-        highlightedIndex - windowStart
+        window.visibleHighlightIndex
     }
 
     public var highlightedColor: String? {
-        let all = matches
-        return all.indices.contains(highlightedIndex) ? all[highlightedIndex] : nil
+        window.highlighted(matches)
     }
 
     /// The swatch: the highlighted colour while the list shows (the best match as you type, each colour
@@ -108,8 +105,7 @@ public struct ColorFieldModel: Equatable {
     /// The best match, or the selected colour while the list browses every colour.
     private mutating func resetHighlight() {
         let all = matches
-        highlightedIndex = isBrowsing ? all.firstIndex(of: selectedColor) ?? 0 : 0
-        windowStart = min(highlightedIndex, max(0, all.count - Self.visibleRows))
+        window.reset(highlighting: isBrowsing ? all.firstIndex(of: selectedColor) ?? 0 : 0, count: all.count)
     }
 
     /// ↑/↓ while searching: opens a closed list, then moves through it (wrapping), previewing each colour.
@@ -121,12 +117,13 @@ public struct ColorFieldModel: Equatable {
             open()
             return
         }
-        let count = matches.count
-        highlightedIndex = (highlightedIndex + delta + count) % count
-        if highlightedIndex < windowStart {
-            windowStart = highlightedIndex
-        } else if highlightedIndex >= windowStart + Self.visibleRows {
-            windowStart = highlightedIndex - Self.visibleRows + 1
+        window.move(delta, count: matches.count)
+    }
+
+    /// Saving while a search shows a highlight takes that colour first: the swatch already shows it.
+    public mutating func commitPendingPick() {
+        if showsSuggestions {
+            pick()
         }
     }
 

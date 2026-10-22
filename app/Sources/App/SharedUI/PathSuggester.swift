@@ -16,8 +16,7 @@ final class PathSuggester {
         self.client = client
     }
 
-    /// `recentsOnly`: the recent paths alone (⌃r). An empty answer falls back to the recents, and with
-    /// no recents either, a typed path suggests itself.
+    /// `recentsOnly`: the recent paths alone (⌃r). The rows follow `SuggestionList.pathRows`.
     func request(_ query: String, recentsOnly: Bool = false, apply: @escaping ([String]) -> Void) {
         debounceTask?.cancel()
         requestID += 1
@@ -27,14 +26,13 @@ final class PathSuggester {
                 guard let self, self.requestID == id else {
                     return
                 }
-                var values: [String] = []
+                var suggestions: [String] = []
+                var recents: [String] = []
                 if case .success(let response) = result {
-                    values = recentsOnly ? response.recents : response.suggestions
-                    if values.isEmpty {
-                        values = response.recents
-                    }
+                    suggestions = response.suggestions
+                    recents = response.recents
                 }
-                apply(Self.rows(values, query: query))
+                apply(SuggestionList.pathRows(suggestions: suggestions, recents: recents, query: query, recentsOnly: recentsOnly, maxRows: Self.maxRows))
             }
         }
     }
@@ -57,14 +55,6 @@ final class PathSuggester {
         debounceTask?.cancel()
         debounceTask = nil
         requestID += 1
-    }
-
-    private static func rows(_ values: [String], query: String) -> [String] {
-        if !values.isEmpty {
-            return Array(values.prefix(maxRows))
-        }
-        let clean = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return clean.isEmpty ? [] : [clean]
     }
 
     /// Tab without a highlighted row: completes the last component from the directories on disk, to the

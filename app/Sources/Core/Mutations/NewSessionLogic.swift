@@ -65,6 +65,14 @@ public enum NewSessionEffortKey {
     }
 }
 
+/// ⌃r refetches the models past the backend's catalog cache, while the model field has focus (the path
+/// field's own ⌃r lists its recent directories).
+public enum NewSessionModelRefreshKey {
+    public static func refreshes(keyCode: UInt16, command: Bool, control: Bool, option: Bool, field: NewSessionField) -> Bool {
+        field == .model && control && !command && !option && Keymap.NewSession.refreshModels.matches(keyCode)
+    }
+}
+
 public enum NewSessionFormKey: Equatable {
     case controlJ
     case controlK
@@ -132,8 +140,8 @@ public struct NewSessionFormModel: Equatable {
     /// The model field's text: any id, passed to the harness as typed. Empty means no override for this
     /// launch: whatever Settings has configured for this agent's master role applies.
     public private(set) var modelText = ""
-    /// The highlighted row of `modelSuggestions`.
-    public private(set) var highlightedModelIndex = 0
+    /// The highlight over all of `modelMatches`, and the `maxModelSuggestions` rows following it.
+    public private(set) var modelWindow = PickerListWindow(visibleRows: NewSessionFormModel.maxModelSuggestions)
     /// Esc, or accepting a suggestion, puts the model dropdown away until the next keystroke.
     public private(set) var modelSuggestionsDismissed = false
     /// The model field is a picker field (`PickerFieldMode`): SELECT until a key starts a search.
@@ -196,17 +204,23 @@ public struct NewSessionFormModel: Equatable {
         clean(modelText) ?? ""
     }
 
-    /// The resolved models that match what's typed, best first (`PickerFieldMode.ranked`), at most
-    /// `maxModelSuggestions`. An empty field, or the text the search started from, browses the list,
-    /// from the current model.
-    public var modelSuggestions: [SessionModelOption] {
+    /// The resolved models that match what's typed, best first (`PickerFieldMode.ranked`). An empty
+    /// field, or the text the search started from, browses every model.
+    public var modelMatches: [SessionModelOption] {
         guard !isBrowsingModels else {
-            let current = modelOptions.firstIndex { $0.id == selectedModel } ?? 0
-            let start = max(0, min(current, modelOptions.count - Self.maxModelSuggestions))
-            return Array(modelOptions.dropFirst(start).prefix(Self.maxModelSuggestions))
+            return modelOptions
         }
-        let ranked = PickerFieldMode.ranked(modelOptions, query: selectedModel.lowercased()) { $0.id.lowercased() }
-        return Array(ranked.prefix(Self.maxModelSuggestions))
+        return PickerFieldMode.ranked(modelOptions, query: selectedModel.lowercased()) { $0.id.lowercased() }
+    }
+
+    /// The dropdown's rows: `maxModelSuggestions` of the matches, following the highlight.
+    public var modelSuggestions: [SessionModelOption] {
+        modelWindow.visible(modelMatches)
+    }
+
+    /// The highlighted row's position among `modelSuggestions`.
+    public var visibleModelHighlightIndex: Int {
+        modelWindow.visibleHighlightIndex
     }
 
     private var isBrowsingModels: Bool {
@@ -215,13 +229,14 @@ public struct NewSessionFormModel: Equatable {
 
     /// The best match, or the current model while the list browses.
     private mutating func resetModelHighlight() {
-        highlightedModelIndex = isBrowsingModels ? modelSuggestions.firstIndex { $0.id == selectedModel } ?? 0 : 0
+        let matches = modelMatches
+        modelWindow.reset(highlighting: isBrowsingModels ? matches.firstIndex { $0.id == selectedModel } ?? 0 : 0, count: matches.count)
     }
 
     /// The model dropdown shows while the field is focused and has something to offer: not a lone row
     /// that is already the field's text.
     public var showsModelSuggestions: Bool {
-        let suggestions = modelSuggestions
+        let suggestions = modelMatches
         let onlyTheText = suggestions.count == 1 && suggestions[0].id == selectedModel
         return focusedField == .model && modelMode == .search && !modelSuggestionsDismissed && !suggestions.isEmpty && !onlyTheText
     }
@@ -256,7 +271,7 @@ public struct NewSessionFormModel: Equatable {
     }
 
     public var highlightedModelSuggestion: SessionModelOption? {
-        value(at: highlightedModelIndex, in: modelSuggestions)
+        modelWindow.highlighted(modelMatches)
     }
 
     /// Typing in the model field: from here on resolves leave the text alone.
@@ -268,11 +283,7 @@ public struct NewSessionFormModel: Equatable {
     }
 
     public mutating func moveModelHighlight(_ delta: Int) {
-        let count = modelSuggestions.count
-        guard count > 0 else {
-            return
-        }
-        highlightedModelIndex = (highlightedModelIndex + delta + count) % count
+        modelWindow.move(delta, count: modelMatches.count)
     }
 
     /// Puts the highlighted suggestion's id in the field and returns to SELECT. False when there's
@@ -331,7 +342,7 @@ public struct NewSessionFormModel: Equatable {
         if !modelTextEdited {
             modelText = ""
         }
-        highlightedModelIndex = 0
+        resetModelHighlight()
     }
 
     /// Replaces the reasoning-effort list with what the backend resolved for

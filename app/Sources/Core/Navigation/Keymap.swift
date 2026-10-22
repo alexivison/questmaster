@@ -173,7 +173,7 @@ public enum Keymap {
     }
 
     public enum NewSession {
-        public static let defaultFooterText = "⏎ create · tab/⌃j field · ←→ agent · type to search · e/⌃e effort · ↑↓ suggestion · esc cancel"
+        public static let defaultFooterText = "⏎ create · tab/⌃j field · ←→ agent · type to search · e/⌃e effort · ⌃r refresh models · ↑↓ suggestion · esc cancel"
         public static let promptFooterText = "⏎/^s create · ⇧⏎ newline · ⌥k field · esc cancel"
 
         public static let cancel = KeyCodeBinding(keyCodes: [53])
@@ -192,6 +192,8 @@ public enum Keymap {
         /// ⌃e: cycles the reasoning effort in either state of the model field (⌥e is the accent dead key
         /// on US layouts). It takes over the field's move-to-end-of-line; End and ⌘→ still do that.
         public static let cycleReasoningEffortInModel = KeyCodeBinding(keyCodes: [14], modifiers: [.control])
+        /// ⌃r in the model field: refetch the models past the catalog cache.
+        public static let refreshModels = KeyCodeBinding(keyCodes: [15], modifiers: [.control])
         public static let suggestionUp = KeyCodeBinding(keyCodes: [126])
         public static let suggestionDown = KeyCodeBinding(keyCodes: [125])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])

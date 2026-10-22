@@ -10,6 +10,8 @@ struct NewSessionLogicTests {
         typedModelSurvivesLaterResolves()
         modelSuggestionsMatchWhatIsTyped()
         acceptingAModelSuggestionPutsTheDropdownAway()
+        browsingReachesEveryModel()
+        modelRefreshKeyIsTheModelFieldsOwn()
         modelSearchStartsOnAKeyAndEndsOnEscOrLeaving()
         agentChangeDropsAnotherHarnessModel()
         setModelOptionsDropsWhitespaceOnlyIDs()
@@ -119,7 +121,34 @@ struct NewSessionLogicTests {
         model.typeModel("")
         expect(model.modelSuggestions.count == NewSessionFormModel.maxModelSuggestions, "an empty field should browse the list")
         model.moveModelHighlight(-1)
-        expect(model.highlightedModelIndex == NewSessionFormModel.maxModelSuggestions - 1, "up from the first suggestion should wrap to the last")
+        expect(model.highlightedModelSuggestion?.id == ids.last, "up from the first model should wrap to the last, past the visible rows")
+        expect(model.modelSuggestions.last?.id == ids.last && model.visibleModelHighlightIndex == NewSessionFormModel.maxModelSuggestions - 1, "the visible rows should follow the highlight")
+    }
+
+    private static func browsingReachesEveryModel() {
+        var model = NewSessionFormModel(initialPath: "/tmp/project", initialFocus: .model)
+        let ids = (1...8).map { "model-\($0)" }
+        model.setModelOptions(ids.map { SessionModelOption(id: $0, label: $0) }, defaultModel: "model-1")
+        model.startModelSearch(.editCurrent)
+        expect(model.modelMatches.count == 8 && model.modelSuggestions.count == NewSessionFormModel.maxModelSuggestions, "browsing should list every model, five at a time")
+        for _ in 0..<6 {
+            model.moveModelHighlight(1)
+        }
+        expect(model.highlightedModelSuggestion?.id == "model-7", "↓ should reach models past the first five")
+        expect(model.modelSuggestions.map(\.id) == ["model-3", "model-4", "model-5", "model-6", "model-7"], "the rows should scroll with the highlight")
+        expect(model.acceptHighlightedModel() && model.selectedModel == "model-7", "a model past the first five should be pickable")
+    }
+
+    private static func modelRefreshKeyIsTheModelFieldsOwn() {
+        func refreshes(control: Bool = true, option: Bool = false, _ field: NewSessionField) -> Bool {
+            NewSessionModelRefreshKey.refreshes(keyCode: 15, command: false, control: control, option: option, field: field)
+        }
+        expect(refreshes(.model), "⌃r should refresh the models in the model field")
+        expect(!refreshes(control: false, .model) && !refreshes(option: true, .model), "plain r and ⌥⌃r are not the refresh key")
+        for field in [NewSessionField.path, .title, .agent, .prompt] {
+            expect(!refreshes(field), "⌃r refreshes nothing with \(field) focused")
+        }
+        expect(Keymap.NewSession.refreshModels.keyCodes == [15] && Keymap.NewSession.refreshModels.modifiers == [.control], "⌃r is the r key with control")
     }
 
     private static func acceptingAModelSuggestionPutsTheDropdownAway() {

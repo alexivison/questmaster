@@ -277,6 +277,10 @@ final class NewSessionSheetModel: ObservableObject {
             cycleEffort(1)
             return true
         }
+        if NewSessionModelRefreshKey.refreshes(keyCode: event.keyCode, command: command, control: control, option: option, field: .model) {
+            refreshModels()
+            return true
+        }
         switch before {
         case .select:
             guard let start = PickerFieldMode.searchStart(characters: event.characters, keyCode: event.keyCode, command: command, control: control, option: option) else {
@@ -382,10 +386,18 @@ final class NewSessionSheetModel: ObservableObject {
         state.model.cycleReasoningEffort(delta)
     }
 
+    /// ⌃r in the model field: refetches the models past the backend's catalog cache.
+    func refreshModels() {
+        requestModelSuggestions(refresh: true)
+    }
+
     /// Resolves the model suggestions for the agent's master role. The list
     /// is never held in the app, and a failed resolve simply leaves no
     /// suggestions rather than raising an error the user must clear.
-    func requestModelSuggestions() {
+    ///
+    /// `refresh` forces the backend past its catalog cache: only for ⌃r,
+    /// never for the sheet's own resolves on open or an agent change.
+    func requestModelSuggestions(refresh: Bool = false) {
         guard let modelClient else {
             return
         }
@@ -396,11 +408,11 @@ final class NewSessionSheetModel: ObservableObject {
         modelRequestID += 1
         let requestID = modelRequestID
         let agent = state.model.selectedAgent
-        if let cached = modelCache[agent] {
+        if !refresh, let cached = modelCache[agent] {
             state.model.setModelOptions(cached.models, defaultModel: cached.defaultModel)
             return
         }
-        modelClient.suggestModels(agent: agent, role: "master", refresh: false) { [weak self] result in
+        modelClient.suggestModels(agent: agent, role: "master", refresh: refresh) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self, self.modelRequestID == requestID else {
                     return

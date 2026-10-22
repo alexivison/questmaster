@@ -28,6 +28,10 @@ struct QuestCoreTests {
         projectSearchSwitchesToDirectoriesForAPath()
         projectOptionsDeduplicateAndAbbreviate()
         editQuestKeepsItsProjectUnlessItChanges()
+        noProjectIsAnExplicitChoice()
+        anAssignedQuestCanBeUnfiled()
+        browsingReachesEveryProject()
+        leavingTheProjectFieldEndsItsSearch()
         startFromQuestsBuildsPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
     }
@@ -352,7 +356,7 @@ struct QuestCoreTests {
         model.startProjectSearch(.seed("quest"))
         expect(!model.canSubmit, "text that names no project is no project")
         model.typeProject("scry")
-        expect(model.canSubmit && model.resolvedProject?.projectPath == "/Users/me/Code/scry", "a project's exact name is enough")
+        expect(model.canSubmit && model.destination == .project(projects[1]), "a project's exact name is enough")
         model.content = "  "
         expect(!model.canSubmit && model.submitPayload() == nil && model.errorMessage == "content is required", "blank content should say so")
     }
@@ -395,6 +399,55 @@ struct QuestCoreTests {
         expect(NewQuestProjectOption(projectID: "", projectPath: "/Users/me", projectName: "").displayPath(home: home) == "~", "home itself is ~")
         expect(NewQuestProjectOption(projectID: "", projectPath: "/Users/meadow/x", projectName: "").displayPath(home: home) == "/Users/meadow/x", "a sibling of home keeps its path")
         expect(NewQuestProjectOption(projectID: "", projectPath: "/tmp/scratch", projectName: "").displayName == "scratch", "no name shows the folder")
+    }
+
+    private static func noProjectIsAnExplicitChoice() {
+        var model = NewQuestFormModel(content: "Loose note", projects: projects, home: home)
+        expect(!model.canSubmit, "an empty field is no choice, not no project")
+        model.startProjectSearch(.editCurrent)
+        expect(model.projectSuggestions.first == .noProject, "No project should be the first row when browsing")
+        model.typeProject("no p")
+        expect(model.projectMatches.first == .noProject, "typing should match No project")
+        expect(model.acceptHighlightedProject(), "No project should be pickable")
+        expect(model.projectText == "No project" && model.destination == .noProject, "picking it should show No project")
+        expect(model.canSubmit, "No project and content are enough")
+        let payload = model.submitPayload()
+        expect(payload?.projectID == "" && payload?.projectPath == "" && payload?.projectName == "", "a new unfiled quest should send no project")
+    }
+
+    private static func anAssignedQuestCanBeUnfiled() {
+        var edit = NewQuestFormModel(content: "Quest", initialProject: projects[0], isEditing: true, projects: projects, home: home)
+        edit.focusedField = .project
+        edit.startProjectSearch(.seed("No project"))
+        expect(edit.acceptHighlightedProject() && edit.destination == .noProject, "precondition: No project picked")
+        let payload = edit.submitPayload()
+        expect(payload?.projectChanged == true && payload?.projectPath == "" && payload?.projectID == "", "assigned to unfiled should clear the project")
+        let request = try? ServeMutationRequests.questEdit(questID: "qst-1", payload: payload!)
+        expect(request?.data["project_changed"] == "true" && request?.data["project_path"] == "", "the edit should send project_changed with empty project fields")
+
+        var unfiled = NewQuestFormModel(content: "Loose note", isEditing: true, projects: projects, home: home)
+        expect(unfiled.projectText == "No project" && unfiled.destination == .noProject, "an unfiled quest should open on No project")
+        expect(unfiled.canSubmit && unfiled.submitPayload()?.projectChanged == false, "unfiled staying unfiled should send content only")
+    }
+
+    private static func browsingReachesEveryProject() {
+        var model = NewQuestFormModel(projects: projects, home: home)
+        model.startProjectSearch(.editCurrent)
+        expect(model.projectMatches.count == projects.count + 1, "browsing should list No project and every project")
+        for _ in 0..<4 {
+            model.moveProjectHighlight(1)
+        }
+        expect(model.highlightedProject == projects[3], "↓ should reach projects past the first three")
+        expect(model.projectSuggestions == Array(projects[1...3]) && model.visibleProjectHighlightIndex == 2, "the rows should scroll with the highlight")
+    }
+
+    private static func leavingTheProjectFieldEndsItsSearch() {
+        var model = NewQuestFormModel(projects: projects, home: home)
+        model.startProjectSearch(.seed("scr"))
+        model.moveFocus(1)
+        expect(model.projectMode == .select && model.projectText == "scr", "leaving by ⌃j should end the search and keep the text")
+        model.moveFocus(-1)
+        expect(model.focusedField == .project && model.projectMode == .select, "coming back should be in SELECT")
     }
 
     private static func editQuestKeepsItsProjectUnlessItChanges() {

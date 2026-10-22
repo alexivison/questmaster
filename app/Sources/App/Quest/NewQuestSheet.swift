@@ -114,7 +114,7 @@ struct NewQuestSheetView: View {
         let home = model.form.home
         return SuggestionDropdown(
             rows: projects.map(\.displayName),
-            highlightedIndex: model.form.highlightedProjectIndex,
+            highlightedIndex: model.form.visibleProjectHighlightIndex,
             onSelect: { model.selectProject(projects[$0]) },
             accessory: { index in
                 AnyView(
@@ -259,14 +259,18 @@ final class NewQuestSheetModel: ObservableObject {
         }
     }
 
-    /// Moves the caret into or out of the project text as its search starts or ends.
+    /// Moves the caret into or out of the project text as its search starts or ends (`PickerFieldMode.caretChange`).
     private func follow(from before: PickerFieldMode) {
-        let after = form.projectMode
-        if before == .select, after == .search {
-            projectFocusNonce += 1
-        } else if before == .search, after == .select {
-            sinkNonce += 1
+        if before == .search, form.projectMode == .select {
             paths.clear()
+        }
+        switch PickerFieldMode.caretChange(from: before, to: form.projectMode, fieldFocused: form.focusedField == .project) {
+        case .intoText:
+            projectFocusNonce += 1
+        case .outOfText:
+            sinkNonce += 1
+        case nil:
+            break
         }
     }
 
@@ -283,6 +287,10 @@ final class NewQuestSheetModel: ObservableObject {
             return true
         }
         if form.submitting {
+            // Esc still closes while a submit is in flight, as in New Session.
+            if Keymap.NewSession.cancel.matches(event.keyCode) {
+                cancel()
+            }
             return true
         }
         if form.focusedField == .project, handleProjectFieldKey(event) {
@@ -356,7 +364,8 @@ final class NewQuestSheetModel: ObservableObject {
                 guard Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) else {
                     return false
                 }
-                if showsDirectorySuggestions, let highlighted = paths.highlighted {
+                // Return keeps the typed path unless ↑/↓ chose a row; Tab takes the highlighted row.
+                if showsDirectorySuggestions, paths.moved, let highlighted = paths.highlighted {
                     form.setProjectPath(highlighted)
                 }
                 form.endProjectSearch(keepingText: true)

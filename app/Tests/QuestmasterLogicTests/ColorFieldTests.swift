@@ -14,6 +14,11 @@ struct ColorFieldTests {
         selectKeysCycleAndPrintableKeysSearch()
         searchKeysMoveAndPick()
         searchStartIsPrintableTextBackspaceOrReturn()
+        savingMidSearchTakesTheHighlightedColour()
+        pickerListWindowFollowsTheHighlight()
+        caretFollowsTheModeOnlyWhileFocused()
+        pathRowsDontFallBackToRecentsForATypedPath()
+        suggestionListRemembersAMovedHighlight()
         print("ColorFieldTests: all tests passed")
     }
 
@@ -149,6 +154,58 @@ struct ColorFieldTests {
         }
         expect(start("o", 31, command: true) == nil && start("o", 31, control: true) == nil && start("ø", 31, option: true) == nil, "modified keys should not search")
         expect(start("\u{F728}", 117) == nil, "function keys should not search")
+    }
+
+    private static func savingMidSearchTakesTheHighlightedColour() {
+        var model = ColorFieldModel(selected: "blue")
+        model.startSearch(.seed("red"))
+        expect(model.swatchColor == "red" && model.selectedColor == "blue", "precondition: the swatch previews red over the saved blue")
+        model.commitPendingPick()
+        expect(model.selectedColor == "red" && model.mode == .select, "saving mid-search should take the previewed colour")
+        model.commitPendingPick()
+        expect(model.selectedColor == "red", "with no search, saving keeps the selection")
+        var unmatched = ColorFieldModel(selected: "blue")
+        unmatched.startSearch(.seed("zzz"))
+        unmatched.commitPendingPick()
+        expect(unmatched.selectedColor == "blue", "a search with no match keeps the selection")
+    }
+
+    private static func pickerListWindowFollowsTheHighlight() {
+        var window = PickerListWindow(visibleRows: 3)
+        let items = Array(0..<6)
+        window.reset(highlighting: 5, count: items.count)
+        expect(window.visible(items) == [3, 4, 5] && window.visibleHighlightIndex == 2 && !window.moved, "a highlight near the end should show the last full screen")
+        window.move(1, count: items.count)
+        expect(window.highlighted(items) == 0 && window.visible(items) == [0, 1, 2] && window.moved, "moving past the end should wrap to the top")
+        window.move(-1, count: items.count)
+        expect(window.highlighted(items) == 5 && window.visible(items) == [3, 4, 5], "moving up from the top should wrap to the end")
+        window.reset(highlighting: 9, count: 2)
+        expect(window.highlightedIndex == 1, "a reset should clamp to the list")
+    }
+
+    private static func caretFollowsTheModeOnlyWhileFocused() {
+        expect(PickerFieldMode.caretChange(from: .select, to: .search, fieldFocused: true) == .intoText, "a search should put the caret in the text")
+        expect(PickerFieldMode.caretChange(from: .search, to: .select, fieldFocused: true) == .outOfText, "SELECT should take the caret out")
+        expect(PickerFieldMode.caretChange(from: .search, to: .select, fieldFocused: false) == nil, "a search ended by leaving should leave the caret where focus went")
+        expect(PickerFieldMode.caretChange(from: .search, to: .search, fieldFocused: true) == nil, "no mode change moves no caret")
+    }
+
+    private static func pathRowsDontFallBackToRecentsForATypedPath() {
+        let recents = ["/r/one", "/r/two"]
+        expect(SuggestionList.pathRows(suggestions: [], recents: recents, query: "/tmp/nope", recentsOnly: false, maxRows: 3) == ["/tmp/nope"], "a typed path with no suggestions should offer itself, not recents")
+        expect(SuggestionList.pathRows(suggestions: [], recents: recents, query: "", recentsOnly: false, maxRows: 3) == recents, "an empty path should offer the recents")
+        expect(SuggestionList.pathRows(suggestions: ["/a"], recents: recents, query: "/a", recentsOnly: true, maxRows: 3) == recents, "⌃r should offer the recents")
+        expect(SuggestionList.pathRows(suggestions: ["/a", "/b", "/c", "/d"], recents: [], query: "/", recentsOnly: false, maxRows: 3) == ["/a", "/b", "/c"], "at most three rows")
+    }
+
+    private static func suggestionListRemembersAMovedHighlight() {
+        var list = SuggestionList()
+        list.show(["/a", "/b"])
+        expect(!list.moved, "fresh rows have no moved highlight: Return keeps the typed path")
+        list.moveHighlight(1)
+        expect(list.moved && list.highlighted == "/b", "↓ should mark the highlight as chosen")
+        list.show(["/c"])
+        expect(!list.moved, "new rows should forget the move")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

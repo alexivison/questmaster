@@ -78,6 +78,10 @@ enum LogicSelfTests {
         ("testNewSessionTabTakesTheHighlightedModelThenMovesOn", testNewSessionTabTakesTheHighlightedModelThenMovesOn),
         ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
         ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
+        ("testNewQuestReturnKeepsATypedPathUnlessARowWasChosen", testNewQuestReturnKeepsATypedPathUnlessARowWasChosen),
+        ("testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch", testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch),
+        ("testNewQuestEscapeClosesWhileSubmitting", testNewQuestEscapeClosesWhileSubmitting),
+        ("testNewSessionControlRRefreshesModelsFromTheModelField", testNewSessionControlRRefreshesModelsFromTheModelField),
         ("testConnectWithRetryRetriesUntilConnectSucceeds", testConnectWithRetryRetriesUntilConnectSucceeds),
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
@@ -2873,6 +2877,79 @@ enum LogicSelfTests {
         let data = client.sentRequests.first?.data
         try expect(data?["project_path"] == "/tmp/b", "the typed path should be sent")
         try expect(data?["project_id"] == nil && data?["project_name"] == nil, "serve derives the id and name")
+    }
+
+    private static func newQuestSheet(client: StubMutationClient = StubMutationClient(result: .failure(StubMutationError())), dismiss: @escaping () -> Void = {}) -> NewQuestSheetModel {
+        NewQuestSheetModel(
+            presentation: NewQuestSheetPresentation(
+                projects: [NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a")],
+                initialProject: nil,
+                initialContent: "Quest",
+                questID: "",
+                sessionID: "",
+                mutationClient: client,
+                directoryClient: nil,
+                onSuccess: {}
+            ),
+            dismiss: dismiss
+        )
+    }
+
+    /// Return on a typed path keeps it, even with a directory row showing; it takes a row only once ↑/↓
+    /// chose one. Tab takes the highlighted row.
+    private static func testNewQuestReturnKeepsATypedPathUnlessARowWasChosen() throws {
+        let sheet = newQuestSheet()
+        try expect(sheet.handle(try keyEvent("/", keyCode: 44)), "a / should start a path search")
+        sheet.projectTyped("/tmp/typed")
+        sheet.paths.show(["/Users/me/recent", "/Users/me/other"])
+        try expect(sheet.handle(try keyEvent("\r", keyCode: 36)), "Return should be consumed")
+        try expect(sheet.form.projectText == "/tmp/typed" && sheet.form.projectMode == .select, "Return should keep the typed path")
+
+        try expect(sheet.handle(try keyEvent("\u{7f}", keyCode: 51)), "Backspace should edit the path")
+        sheet.paths.show(["/Users/me/recent", "/Users/me/other"])
+        try expect(sheet.handle(try keyEvent("", keyCode: 125)), "↓ should move in the directories")
+        try expect(sheet.handle(try keyEvent("\r", keyCode: 36)), "Return should be consumed")
+        try expect(sheet.form.projectText == "/Users/me/other", "Return should take the row ↓ chose")
+    }
+
+    private static func testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch() throws {
+        let sheet = newQuestSheet()
+        try expect(sheet.handle(try keyEvent("s", keyCode: 1)), "a letter should start a project search")
+        try expect(sheet.form.projectMode == .search, "precondition: searching")
+        let sinkBefore = sheet.sinkNonce
+        try expect(sheet.handle(try keyEvent("j", keyCode: 38, modifierFlags: .control)), "⌃j should move on")
+        try expect(sheet.form.focusedField == .content && sheet.form.projectMode == .select, "leaving should end the search")
+        try expect(sheet.sinkNonce == sinkBefore, "leaving should leave the caret to the content, not the sink")
+        try expect(sheet.handle(try keyEvent("k", keyCode: 40, modifierFlags: .control)), "⌃k should come back")
+        try expect(sheet.form.focusedField == .project && sheet.form.projectMode == .select && sheet.form.projectText == "s", "back in SELECT with the text kept")
+        try expect(sheet.sinkNonce == sinkBefore + 1, "SELECT should take the caret out of the text")
+    }
+
+    private static func testNewQuestEscapeClosesWhileSubmitting() throws {
+        var closed = false
+        let client = StubMutationClient(result: .success(ServeMutationAck(data: nil)), deferCompletions: true)
+        let sheet = newQuestSheet(client: client, dismiss: { closed = true })
+        sheet.form.focusedField = .project
+        sheet.projectTyped("/tmp/a")
+        sheet.submit()
+        try expect(sheet.form.submitting, "precondition: the submit is in flight")
+        try expect(sheet.handle(try keyEvent("\u{1b}", keyCode: 53)), "Esc should be consumed")
+        try expect(closed, "Esc should close while a submit is in flight")
+    }
+
+    private static func testNewSessionControlRRefreshesModelsFromTheModelField() throws {
+        let client = StubModelClient(models: ["claude": [SessionModelOption(id: "opus", label: "opus")]], defaults: ["claude": "sonnet"])
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+        model.present()
+        try waitForMainQueue("initial model suggestions", until: { !model.state.model.modelOptions.isEmpty })
+        try expect(client.requests.last?.refresh == false, "the sheet's own resolve should not force a refetch")
+        try expect(model.handle(try keyEvent("\u{12}", keyCode: 15, modifierFlags: .control)), "⌃r should be consumed in the model field")
+        try waitForMainQueueTurn()
+        try expect(client.requests.last?.refresh == true, "⌃r should force a refetch past the catalog cache")
+        let count = client.requests.count
+        model.state.model.focusedField = .title
+        try expect(!model.handle(try keyEvent("\u{12}", keyCode: 15, modifierFlags: .control)), "⌃r elsewhere is not a refresh")
+        try expect(client.requests.count == count, "⌃r elsewhere should not refetch")
     }
 
     private static func newSessionSheetModel(
