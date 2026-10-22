@@ -2,14 +2,15 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Positions measured from user-quests-modal-v2.svg and -v2-nobody.svg (900 x 780). Baselines are where the
-/// design's glyph outlines sit.
+/// Positions measured from user-quests-modal-v3.svg (900 x 780), and from -v2-nobody.svg for the plain page, whose
+/// ink v3 keeps. Baselines are where the design's glyph outlines sit. v3 puts the shared modal header (ModalSheetHeader)
+/// on top and everything under it at y 101.678; the app snaps that to 102.
 private enum QuestLogMetrics {
     static let sheetSize = CGSize(width: 900, height: 780)
-    /// Filter field: 357 x 35 at (30, 40) (the design drew it 40 high; the user asked for 35), window fill,
+    /// Filter field: 357 x 35 at (30, 102), window fill,
     /// 1pt line border, radius 5. "/" 12 in; a token chip (16 high, radius 4.5, at most 117 wide) and the
     /// text field follow, all centred on the field.
-    static let filterOrigin = CGPoint(x: 30, y: 40)
+    static let filterOrigin = CGPoint(x: 30, y: 102)
     static let filterHeight: CGFloat = 35
     static let filterCornerRadius: CGFloat = 5
     static let filterInset: CGFloat = 12
@@ -36,10 +37,10 @@ private enum QuestLogMetrics {
     static let sectionHeight: CGFloat = 30
     static let sectionBaseline: CGFloat = 21
     static let markSize: CGFloat = 5
-    /// Page: a 473 x 658 base with the parchment clipped to its top 656.
-    static let pageOrigin = CGPoint(x: 397, y: 40)
-    static let pageSize = CGSize(width: 473, height: 658)
-    static let parchmentHeight: CGFloat = 656
+    /// Page: a 473 x 596 base (v3's 596.322, ending on the same y 698) with the parchment clipped to its top 594.
+    static let pageOrigin = CGPoint(x: 397, y: 102)
+    static let pageSize = CGSize(width: 473, height: 596)
+    static let parchmentHeight: CGFloat = 594
     static let pageCornerRadius: CGFloat = 5
     static let parchmentEdgeWidth: CGFloat = 3
     static let parchmentEdgeOpacity = 0.35
@@ -60,14 +61,14 @@ private enum QuestLogMetrics {
     /// How far in from the page's bottom (top) edge the ink fades while more of it lies below (above).
     static let overflowFadeHeight: CGFloat = 28
     /// The vine strips, page-local: the title's spans y 20-38 with the title baseline at 34; the rule's
-    /// spans y 190-207 with the rule at 198.
+    /// spans y 198-215 with the rule at 206.
     static let titleVineBand = (top: CGFloat(20), height: CGFloat(18))
-    static let ruleVineBand = (top: CGFloat(190), height: CGFloat(17))
+    static let ruleVineBand = (top: CGFloat(198), height: CGFloat(17))
     static let titleVineLines: [CGRect] = [
         CGRect(x: 20, y: 28.5, width: 18.6394, height: 1),
         CGRect(x: 434.361, y: 28.5, width: 18.6394, height: 1),
     ]
-    static let rule = CGRect(x: 22.946, y: 198, width: 427.845, height: 1)
+    static let rule = CGRect(x: 22.946, y: 206, width: 427.845, height: 1)
     /// Footer: each diamond starts 8.4 after the part before it and the next part 8.1 after the diamond; its
     /// centre sits 3.5 above the baseline. Wrapped lines sit on the 11pt pitch.
     static let footerLinePitch: CGFloat = 15
@@ -99,6 +100,8 @@ struct QuestLogView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            ModalSheetHeader(title: "Quest Log")
+                .frame(width: QuestLogMetrics.sheetSize.width)
             QuestLogList(store: store)
                 .frame(width: QuestLogMetrics.listWidth, height: QuestLogMetrics.pageOrigin.y + QuestLogMetrics.pageSize.height - QuestLogMetrics.listOrigin.y, alignment: .top)
                 .offset(x: QuestLogMetrics.listOrigin.x, y: QuestLogMetrics.listOrigin.y)
@@ -467,7 +470,7 @@ private struct QuestLogInk: View {
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
                     ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
                         if index > 0 {
-                            SVGShape(d: QuestLogArt.footerDiamond, origin: CGPoint(x: 101, y: 223.672))
+                            SVGShape(d: QuestLogArt.footerDiamond, origin: CGPoint(x: 81, y: 231.672))
                                 .fill(AppPalette.panel.swiftUI)
                                 .frame(width: QuestLogMetrics.footerDiamondSize, height: QuestLogMetrics.footerDiamondSize)
                                 .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + QuestLogMetrics.footerDiamondRaise }

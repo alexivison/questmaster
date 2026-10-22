@@ -9,7 +9,7 @@ struct ModalSheetScaffold<Content: View>: View {
     var errorHeight: CGFloat = 46
     /// The one departure from the shared gold chrome: a destructive sheet's
     /// title stays semantic red so its danger signal survives the theme.
-    var titleColor: NSColor = AppPalette.accent
+    var titleColor: NSColor = AppPalette.modalTitle
     var cancelLabel: String?
     var onCancel: (() -> Void)?
     var primaryLabel: String?
@@ -19,19 +19,7 @@ struct ModalSheetScaffold<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(title)
-                .font(AppFonts.title.swiftUI)
-                .textCase(.uppercase)
-                .tracking(1.4)
-                .foregroundStyle(titleColor.swiftUI)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 24)
-            .padding(.bottom, 12)
-            .padding(.horizontal, horizontalInset)
-
-            ModalChapterRule()
-                .padding(.horizontal, horizontalInset)
-                .padding(.bottom, 8)
+            ModalSheetHeader(title: title, titleColor: titleColor, horizontalInset: horizontalInset)
             content()
             errorRow
             footer
@@ -84,6 +72,30 @@ struct ModalSheetScaffold<Content: View>: View {
         }
         .padding(.top, Token.Spacing.element)
         .padding(.bottom, ModalSheetMetrics.footerBottomInset)
+    }
+}
+
+/// Every modal's title, as written, over the chapter rule. Measured from user-quests-modal-v3.svg: the title's
+/// baseline 39 down, the rule's 18pt band at y 54-72, and the content 8 below it.
+struct ModalSheetHeader: View {
+    let title: String
+    var titleColor: NSColor = AppPalette.modalTitle
+    var horizontalInset: CGFloat = 18
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(title)
+                .font(AppFonts.title.swiftUI)
+                .foregroundStyle(titleColor.swiftUI)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 21)
+                .padding(.bottom, 10)
+                .padding(.horizontal, horizontalInset)
+
+            ModalChapterRule()
+                .padding(.horizontal, horizontalInset)
+                .padding(.bottom, 8)
+        }
     }
 }
 

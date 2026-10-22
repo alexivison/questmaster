@@ -38,6 +38,8 @@ enum AppPalette {
     static let deleted = NSColor(hex: 0xff7b72)
     static let warn = NSColor(hex: 0xd29922)
     static let accent = NSColor(hex: 0xd7b13d)
+    /// Modal titles, a touch deeper than `accent`, as the Quest Log v3 design sets "Quest Log".
+    static let modalTitle = NSColor(hex: 0xd4a544)
     /// Same color as the card rows' own selected/hover border, so the active
     /// side-card pane and the active row inside it read as one consistent
     /// highlight instead of two different colors.
@@ -226,7 +228,7 @@ enum AppFonts {
     static let body = monospaced(size: 13)
     static let bodyBold = monospaced(size: 13, weight: .semibold)
     /// Sheet/modal titles.
-    static let title = monospaced(size: 15.5, weight: .semibold)
+    static let title = monospaced(size: 18, weight: .bold)
     /// Small caps-style modal field labels (e.g. "Path", "Agent").
     static let modalLabel = monospaced(size: 10, weight: .semibold)
     /// Italic flavor/helper text next to modal fields.
