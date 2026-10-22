@@ -6,6 +6,8 @@ struct ColorFieldTests {
         startsOnTheSelectedColourWithNoneFirst()
         typingFiltersTheNames()
         movingPreviewsAndScrollsTheList()
+        typingRanksAndHighlightsTheBestMatch()
+        browsingTheStartingTextHighlightsTheCurrentColour()
         pickingSelectsAndReturnsToSelect()
         cyclingWrapsWithoutTheList()
         endingASearchRestoresTheName()
@@ -37,7 +39,7 @@ struct ColorFieldTests {
         model.type("")
         expect(model.matches == model.colors, "an empty search should browse every colour")
         model.type("violet")
-        expect(model.matches == model.colors, "a whole name should browse every colour")
+        expect(model.matches == ["violet"], "a whole name should filter to that colour")
         model.type("zzz")
         expect(model.matches.isEmpty && !model.showsSuggestions, "no match should show no list")
     }
@@ -47,7 +49,7 @@ struct ColorFieldTests {
         model.startSearch(.editCurrent)
         expect(model.showsSuggestions && model.highlightedColor == "blue", "editing should open the list on the selected colour")
         expect(model.visibleMatches == ["blue", "green", "yellow"], "the list should show three rows from the selection")
-        expect(model.swatchColor == "blue" && !model.isPreviewing, "the swatch should show the selection until the highlight moves")
+        expect(model.swatchColor == "blue", "browsing should highlight, and show, the selection")
         model.moveHighlight(1)
         model.moveHighlight(1)
         model.moveHighlight(1)
@@ -56,6 +58,30 @@ struct ColorFieldTests {
         model.moveHighlight(1)
         expect(model.highlightedColor == "" && model.visibleMatches == ["", "blue", "green"], "moving past the last colour should wrap to none at the top")
         expect(model.selectedColor == "blue", "moving should not change the selection")
+    }
+
+    private static func typingRanksAndHighlightsTheBestMatch() {
+        var model = ColorFieldModel(selected: "orange")
+        model.startSearch(.seed("r"))
+        model.type("red")
+        expect(model.matches.first == "red" && model.highlightedColor == "red", "red should come first and be highlighted")
+        expect(model.swatchColor == "red", "the swatch should preview the best match")
+        model.type("re")
+        expect(model.matches == ["red", "green"], "re should list the prefix match, then the ones containing it: \(model.matches)")
+        model.type("o")
+        expect(model.matches == ["orange", NewSessionFormModel.noColor, "yellow", "gold", "indigo", "violet"], "prefix matches should come before the rest, in palette order: \(model.matches)")
+        expect(model.highlightedColor == "orange", "the best match should be highlighted")
+    }
+
+    private static func browsingTheStartingTextHighlightsTheCurrentColour() {
+        var model = ColorFieldModel(selected: "teal")
+        model.startSearch(.editCurrent)
+        expect(model.matches == model.colors, "editing the name should browse every colour")
+        expect(model.highlightedColor == "teal" && model.visibleMatches.contains("teal"), "browsing should highlight the current colour")
+        model.type("")
+        expect(model.highlightedColor == "teal", "an emptied search should browse from the current colour")
+        model.type("teal")
+        expect(model.highlightedColor == "teal" && model.matches == model.colors, "retyping the starting text should browse again")
     }
 
     private static func pickingSelectsAndReturnsToSelect() {
@@ -67,8 +93,9 @@ struct ColorFieldTests {
         expect(model.mode == .select && !model.showsSuggestions, "picking should return to SELECT")
         expect(!model.pick(), "nothing should be picked with no list")
         model.startSearch(.seed(""))
+        expect(model.visibleMatches == ["teal", "sky", "indigo"], "an emptied search should browse from the current colour")
         model.pick(visibleRow: 1)
-        expect(model.selectedColor == "blue", "a click should pick that row")
+        expect(model.selectedColor == "sky", "a click should pick that row")
     }
 
     private static func cyclingWrapsWithoutTheList() {

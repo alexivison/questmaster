@@ -196,13 +196,26 @@ public struct NewSessionFormModel: Equatable {
         clean(modelText) ?? ""
     }
 
-    /// The resolved models that match what's typed, at most `maxModelSuggestions`. Text that is exactly
-    /// one of them (the prefilled default, a picked suggestion) lists them all, so the field browses.
+    /// The resolved models that match what's typed, best first (`PickerFieldMode.ranked`), at most
+    /// `maxModelSuggestions`. An empty field, or the text the search started from, browses the list,
+    /// from the current model.
     public var modelSuggestions: [SessionModelOption] {
-        let query = selectedModel.lowercased()
-        let browsing = query.isEmpty || modelOptions.contains { $0.id.lowercased() == query }
-        let matches = browsing ? modelOptions : modelOptions.filter { $0.id.lowercased().contains(query) }
-        return Array(matches.prefix(Self.maxModelSuggestions))
+        guard !isBrowsingModels else {
+            let current = modelOptions.firstIndex { $0.id == selectedModel } ?? 0
+            let start = max(0, min(current, modelOptions.count - Self.maxModelSuggestions))
+            return Array(modelOptions.dropFirst(start).prefix(Self.maxModelSuggestions))
+        }
+        let ranked = PickerFieldMode.ranked(modelOptions, query: selectedModel.lowercased()) { $0.id.lowercased() }
+        return Array(ranked.prefix(Self.maxModelSuggestions))
+    }
+
+    private var isBrowsingModels: Bool {
+        selectedModel.isEmpty || modelText == modelTextBeforeSearch
+    }
+
+    /// The best match, or the current model while the list browses.
+    private mutating func resetModelHighlight() {
+        highlightedModelIndex = isBrowsingModels ? modelSuggestions.firstIndex { $0.id == selectedModel } ?? 0 : 0
     }
 
     /// The model dropdown shows while the field is focused and has something to offer: not a lone row
@@ -222,7 +235,7 @@ public struct NewSessionFormModel: Equatable {
         case .seed(let text):
             typeModel(text)
         case .editCurrent:
-            highlightedModelIndex = 0
+            resetModelHighlight()
             modelSuggestionsDismissed = false
         }
     }
@@ -250,7 +263,7 @@ public struct NewSessionFormModel: Equatable {
     public mutating func typeModel(_ text: String) {
         modelText = text
         modelTextEdited = true
-        highlightedModelIndex = 0
+        resetModelHighlight()
         modelSuggestionsDismissed = false
     }
 
@@ -308,7 +321,7 @@ public struct NewSessionFormModel: Equatable {
         if !modelTextEdited {
             modelText = defaultModel.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        highlightedModelIndex = 0
+        resetModelHighlight()
     }
 
     /// Drops the suggestions, for when they stop applying (the agent changed)

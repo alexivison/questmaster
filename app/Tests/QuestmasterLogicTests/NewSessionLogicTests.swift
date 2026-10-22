@@ -99,20 +99,23 @@ struct NewSessionLogicTests {
     }
 
     private static func modelSuggestionsMatchWhatIsTyped() {
-        var model = NewSessionFormModel(initialPath: "/tmp/project")
+        var model = NewSessionFormModel(initialPath: "/tmp/project", initialFocus: .model)
         let ids = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "opus", "sonnet", "haiku"]
-        model.setModelOptions(ids.map { SessionModelOption(id: $0, label: $0) }, defaultModel: "claude-sonnet-5-5")
-        expect(
-            model.modelSuggestions.map(\.id) == Array(ids.prefix(NewSessionFormModel.maxModelSuggestions)),
-            "text that is one of the models should list them all, up to the cap"
-        )
-        model.typeModel("OPU")
-        expect(model.modelSuggestions.map(\.id) == ["claude-opus-5-5", "opus"], "typing should match ids case-insensitively")
-        model.typeModel("gpt")
-        expect(model.modelSuggestions.isEmpty, "no match should list nothing")
-        model.focusedField = .model
+        model.setModelOptions(ids.map { SessionModelOption(id: $0, label: $0) }, defaultModel: "opus")
         model.startModelSearch(.editCurrent)
-        expect(!model.showsModelSuggestions, "an empty match should show no dropdown")
+        expect(model.modelSuggestions.map(\.id) == Array(ids.dropFirst(1)), "editing the current id should browse, from the current model: \(model.modelSuggestions.map(\.id))")
+        expect(model.highlightedModelSuggestion?.id == "opus", "browsing should highlight the current model")
+        model.typeModel("haiku")
+        expect(model.modelSuggestions.map(\.id) == ["haiku", "claude-haiku-5-5"], "the exact id should come first")
+        model.typeModel("opus")
+        expect(model.modelSuggestions.count == NewSessionFormModel.maxModelSuggestions, "retyping the starting text should browse again")
+        model.typeModel("OP")
+        expect(model.modelSuggestions.map(\.id) == ["opus", "claude-opus-5-5"], "a prefix match should come before a contains match, ignoring case")
+        expect(model.highlightedModelSuggestion?.id == "opus", "the best match should be highlighted")
+        model.typeModel("sonnet")
+        expect(model.modelSuggestions.first?.id == "sonnet" && model.highlightedModelSuggestion?.id == "sonnet", "sonnet should come first and be highlighted")
+        model.typeModel("gpt")
+        expect(model.modelSuggestions.isEmpty && !model.showsModelSuggestions, "no match should list nothing")
         model.typeModel("")
         expect(model.modelSuggestions.count == NewSessionFormModel.maxModelSuggestions, "an empty field should browse the list")
         model.moveModelHighlight(-1)

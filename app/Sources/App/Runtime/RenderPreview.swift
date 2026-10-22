@@ -31,6 +31,7 @@ enum RenderPreview {
         let editRepo = TrackerEditRepo(identity: "/Users/aleksi.tuominen/Code/questmaster/.git", name: "questmaster", color: "orange")
         render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session.png")
         render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .editCurrent, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-open.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .seed("red"), dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-red.png")
         render(editSheetCanvas(TrackerEditSessionSheet(session: TrackerEditSession(sessionID: "qm-1", title: "", color: "", allowsColor: true), initialFocus: .color, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-none.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")

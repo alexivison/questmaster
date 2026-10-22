@@ -33,4 +33,23 @@ public enum PickerFieldMode: Equatable {
         }
         return printable ? .seed(characters) : nil
     }
+
+    /// The items matching a search, best first: an exact match, then those starting with the query,
+    /// then those containing it, each group in the items' own order. `key` is the lowercased text to match.
+    public static func ranked<Item>(_ items: [Item], query: String, key: (Item) -> String) -> [Item] {
+        var exact: [Item] = []
+        var prefix: [Item] = []
+        var contains: [Item] = []
+        for item in items {
+            let text = key(item)
+            if text == query {
+                exact.append(item)
+            } else if text.hasPrefix(query) {
+                prefix.append(item)
+            } else if text.contains(query) {
+                contains.append(item)
+            }
+        }
+        return exact + prefix + contains
+    }
 }

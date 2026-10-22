@@ -2,8 +2,8 @@ import Foundation
 
 /// The colour input (color-input.svg): the colour's name with its swatch at the end, a picker field
 /// (`PickerFieldMode`). In SELECT, ←/→ cycle the colours as the old colour select did. In SEARCH, typing
-/// filters the names; the dropdown lists the matches three at a time, and the swatch previews the
-/// highlighted one while ↑/↓ move through them; Tab or Return picks.
+/// filters the names, best match first; the dropdown lists them three at a time, and the swatch
+/// previews the highlighted one; Tab or Return picks.
 public struct ColorFieldModel: Equatable {
     /// "" is no colour: the first option, shown as "none".
     public let colors: [String]
@@ -14,9 +14,11 @@ public struct ColorFieldModel: Equatable {
     public private(set) var highlightedIndex = 0
     /// The first of the `visibleRows` matches the dropdown shows; it follows the highlight.
     public private(set) var windowStart = 0
-    public private(set) var isPreviewing = false
     public private(set) var isDismissed = true
     public private(set) var mode = PickerFieldMode.select
+    /// The text the search started from: while it is unchanged (Backspace or Return editing the name),
+    /// the list browses every colour.
+    private var searchStartText: String
 
     public static let visibleRows = 3
 
@@ -26,6 +28,7 @@ public struct ColorFieldModel: Equatable {
         let index = self.colors.firstIndex(of: name) ?? self.colors.firstIndex(of: NewSessionFormModel.noColor) ?? 0
         selectedIndex = index
         text = Self.label(self.colors[index])
+        searchStartText = text
     }
 
     /// A colour's name as the app has it: lowercase, and "none" for no colour.
@@ -37,12 +40,21 @@ public struct ColorFieldModel: Equatable {
         colors[selectedIndex]
     }
 
-    /// The colours whose names contain the text. Text that is exactly one of the names (the selected
-    /// colour's, as the field starts) or empty lists them all, so the field browses.
+    /// The colours matching the text, best first (`PickerFieldMode.ranked`). An empty search, or the
+    /// text the search started from, lists every colour.
     public var matches: [String] {
-        let query = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let browsing = query.isEmpty || colors.contains { Self.label($0) == query }
-        return browsing ? colors : colors.filter { Self.label($0).contains(query) }
+        guard !isBrowsing else {
+            return colors
+        }
+        return PickerFieldMode.ranked(colors, query: query) { Self.label($0) }
+    }
+
+    private var query: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var isBrowsing: Bool {
+        query.isEmpty || text == searchStartText
     }
 
     public var visibleMatches: [String] {
@@ -59,9 +71,10 @@ public struct ColorFieldModel: Equatable {
         return all.indices.contains(highlightedIndex) ? all[highlightedIndex] : nil
     }
 
-    /// The swatch: the highlighted colour while moving through the list, otherwise the selected one.
+    /// The swatch: the highlighted colour while the list shows (the best match as you type, each colour
+    /// as ↑/↓ move), otherwise the selected one.
     public var swatchColor: String {
-        isPreviewing ? highlightedColor ?? selectedColor : selectedColor
+        showsSuggestions ? highlightedColor ?? selectedColor : selectedColor
     }
 
     /// The list shows only while searching.
@@ -72,6 +85,7 @@ public struct ColorFieldModel: Equatable {
     /// A key, or a click into the text, starts a search: on that text, or editing the colour's name.
     public mutating func startSearch(_ start: PickerFieldMode.SearchStart) {
         mode = .search
+        searchStartText = text
         switch start {
         case .seed(let text):
             type(text)
@@ -80,22 +94,22 @@ public struct ColorFieldModel: Equatable {
         }
     }
 
-    /// The list opens on the selected colour.
     private mutating func open() {
         isDismissed = false
-        isPreviewing = false
-        let all = matches
-        highlightedIndex = all.firstIndex(of: selectedColor) ?? 0
-        windowStart = min(highlightedIndex, max(0, all.count - Self.visibleRows))
+        resetHighlight()
     }
 
     public mutating func type(_ text: String) {
         mode = .search
         self.text = text
-        isDismissed = false
-        isPreviewing = false
-        highlightedIndex = 0
-        windowStart = 0
+        open()
+    }
+
+    /// The best match, or the selected colour while the list browses every colour.
+    private mutating func resetHighlight() {
+        let all = matches
+        highlightedIndex = isBrowsing ? all.firstIndex(of: selectedColor) ?? 0 : 0
+        windowStart = min(highlightedIndex, max(0, all.count - Self.visibleRows))
     }
 
     /// ↑/↓ while searching: opens a closed list, then moves through it (wrapping), previewing each colour.
@@ -114,7 +128,6 @@ public struct ColorFieldModel: Equatable {
         } else if highlightedIndex >= windowStart + Self.visibleRows {
             windowStart = highlightedIndex - Self.visibleRows + 1
         }
-        isPreviewing = true
     }
 
     /// Tab, Return or a click: the highlighted colour becomes the selection. False with no list open.
@@ -145,7 +158,6 @@ public struct ColorFieldModel: Equatable {
         mode = .select
         text = Self.label(selectedColor)
         isDismissed = true
-        isPreviewing = false
     }
 
     private mutating func select(_ index: Int) {
