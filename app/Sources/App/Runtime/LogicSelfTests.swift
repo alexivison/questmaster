@@ -65,19 +65,23 @@ enum LogicSelfTests {
         ("testArtifactDockDeletesSelectedArtifactsWithD", testArtifactDockDeletesSelectedArtifactsWithD),
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
-        ("testNewQuestFooterTextMatchesMode", testNewQuestFooterTextMatchesMode),
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
         ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
         ("testNewSessionResolvesModelsPerAgent", testNewSessionResolvesModelsPerAgent),
         ("testNewSessionKeepsDefaultModelWhenResolveFails", testNewSessionKeepsDefaultModelWhenResolveFails),
-        ("testNewSessionRefreshModelsKeyForcesARefetch", testNewSessionRefreshModelsKeyForcesARefetch),
-        ("testNewSessionRefreshModelsButtonTracksInFlightState", testNewSessionRefreshModelsButtonTracksInFlightState),
         ("testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne", testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne),
         ("testNewSessionResolvesReasoningEffortsPerAgentAndModel", testNewSessionResolvesReasoningEffortsPerAgentAndModel),
         ("testNewSessionKeepsDefaultReasoningEffortWhenResolveFails", testNewSessionKeepsDefaultReasoningEffortWhenResolveFails),
-        ("testNewSessionEffortKeyCyclesWhileModelFocused", testNewSessionEffortKeyCyclesWhileModelFocused),
+        ("testNewSessionEffortKeysCycleWhereAnECannotBeTyped", testNewSessionEffortKeysCycleWhereAnECannotBeTyped),
+        ("testNewSessionTabTakesTheHighlightedModelThenMovesOn", testNewSessionTabTakesTheHighlightedModelThenMovesOn),
+        ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
+        ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
+        ("testNewQuestReturnKeepsATypedPathUnlessARowWasChosen", testNewQuestReturnKeepsATypedPathUnlessARowWasChosen),
+        ("testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch", testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch),
+        ("testNewQuestEscapeClosesWhileSubmitting", testNewQuestEscapeClosesWhileSubmitting),
+        ("testNewSessionControlRRefreshesModelsFromTheModelField", testNewSessionControlRRefreshesModelsFromTheModelField),
         ("testConnectWithRetryRetriesUntilConnectSucceeds", testConnectWithRetryRetriesUntilConnectSucceeds),
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
@@ -1965,6 +1969,13 @@ enum LogicSelfTests {
         if let presentation = newSession.presentation {
             try check("New Session", NewSessionSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
         }
+        let newQuest = NewQuestSheetPresenter()
+        newQuest.present(projects: [], initialProject: nil, sessionID: nil, mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: {})
+        if let presentation = newQuest.presentation {
+            try check("New Quest", NewQuestSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
+        }
+        let editSession = TrackerEditSession(sessionID: "qm-1", title: "gjpqy", color: "orange", allowsColor: true)
+        try check("Edit Session", TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _ in true }), size: CGSize(width: 460, height: ModalFormMetrics.height(fields: 2)))
     }
 
     /// A long quest's ink scrolls under a wheel over the page: the page's point hit-tests into its scroll view,
@@ -2066,13 +2077,6 @@ enum LogicSelfTests {
         try expect(state.dockVisible && state.dockContent == .workerChat, "worker chat should open for its session")
         try expect(state.selectedArtifactID == nil, "opening worker chat should clear the artifact selection")
         try expect(coordinator.state(for: "qm-other") == .initial, "worker chat should not leak into another session")
-    }
-
-    private static func testNewQuestFooterTextMatchesMode() throws {
-        try expect(NewQuestSheetFooterText.text(isEditing: false, submitting: false).isEmpty, "create footer should have no static hint")
-        try expect(NewQuestSheetFooterText.text(isEditing: false, submitting: true) == "Creating…", "submitting create footer should say Creating")
-        try expect(NewQuestSheetFooterText.text(isEditing: true, submitting: false).isEmpty, "edit footer should have no static hint")
-        try expect(NewQuestSheetFooterText.text(isEditing: true, submitting: true) == "Saving…", "submitting edit footer should say Saving")
     }
 
     private static func testArtifactDockAllFiltersUseVisibleList() throws {
@@ -2535,22 +2539,21 @@ enum LogicSelfTests {
             ),
             dismiss: {}
         )
-        model.state.pathSuggestions = ["/a", "/b", "/c"]
-        model.state.highlightedSuggestionIndex = 0
+        model.state.paths.show(["/a", "/b", "/c"])
 
         try expect(model.handle(try keyEvent("", keyCode: 125)), "down arrow should be handled")
-        try expect(model.state.highlightedSuggestionIndex == 1, "down arrow should move to the next suggestion")
+        try expect(model.state.paths.highlightedIndex == 1, "down arrow should move to the next suggestion")
 
         try expect(model.handle(try keyEvent("", keyCode: 126)), "up arrow should be handled")
-        try expect(model.state.highlightedSuggestionIndex == 0, "up arrow should move to the previous suggestion")
+        try expect(model.state.paths.highlightedIndex == 0, "up arrow should move to the previous suggestion")
 
         try expect(model.handle(try keyEvent("", keyCode: 126)), "up arrow should be handled at the top")
-        try expect(model.state.highlightedSuggestionIndex == 2, "up arrow should wrap to the last suggestion")
+        try expect(model.state.paths.highlightedIndex == 2, "up arrow should wrap to the last suggestion")
 
         try expect(model.handle(try keyEvent("", keyCode: 125)), "down arrow should be handled at the bottom")
-        try expect(model.state.highlightedSuggestionIndex == 0, "down arrow should wrap to the first suggestion")
+        try expect(model.state.paths.highlightedIndex == 0, "down arrow should wrap to the first suggestion")
 
-        model.state.pathSuggestions = []
+        model.state.paths.clear()
         try expect(!model.handle(try keyEvent("", keyCode: 125)), "down arrow should not be consumed without suggestions")
     }
 
@@ -2574,21 +2577,16 @@ enum LogicSelfTests {
             model.state.model.modelOptions.contains(where: { $0.id == "opus" }),
             "resolved models should reach the picker"
         )
-        try expect(
-            model.state.model.selectedModelOption == nil,
-            "nothing should be selected until the user picks a model, since the resolved default isn't in this list"
-        )
-        try expect(model.state.model.selectedModel.isEmpty, "an unselected model sends no override")
+        try expect(model.state.model.selectedModel == "sonnet", "the field should start on Settings' default, listed or not")
 
-        // Cycle the model select onto a real model, then change the agent.
-        model.state.model.focusedField = .model
-        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
-        try expect(model.state.model.selectedModel == "opus", "cycling should select the resolved model")
+        // Type a model, then change the agent.
+        model.state.model.typeModel("opus")
+        try expect(model.state.model.selectedModel == "opus", "typed text is the model")
 
         model.state.model.focusedField = .agent
         try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent select")
         try expect(
-            model.state.model.selectedModel.isEmpty,
+            model.state.model.selectedModel != "opus",
             "another harness's model must not carry over"
         )
         try waitForMainQueue("model suggestions for the selected agent", until: {
@@ -2630,90 +2628,26 @@ enum LogicSelfTests {
         try expect(model.state.model.errorMessage == nil, "a failed resolve should not raise a form error")
     }
 
-    // The `r` key is the model picker's own refresh shortcut — it must reach
-    // the backend with refresh:true (bypassing the catalog cache) and only
-    // while the Model field is actually focused.
-    private static func testNewSessionRefreshModelsKeyForcesARefetch() throws {
-        let client = StubModelClient(
-            models: ["claude": [SessionModelOption(id: "opus", label: "opus")]],
-            defaults: ["claude": "sonnet"]
-        )
-        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
-
-        model.present()
-        try waitForMainQueue("initial model suggestions", until: {
-            model.state.model.modelOptions.contains(where: { $0.id == "opus" })
-        })
-
-        try expect(
-            model.handle(try keyEvent("r", keyCode: 15)),
-            "r should be consumed while the model field is focused"
-        )
-        try expect(model.state.isRefreshingModels, "r should start a model refresh")
-        try waitForMainQueue("model refresh completion", until: { !model.state.isRefreshingModels })
-        try expect(client.requests.last?.refresh == true, "r should force a refetch past the catalog cache")
-
-        model.state.model.focusedField = .agent
-        let requestsBeforeAgentR = client.requests.count
-        try expect(
-            !model.handle(try keyEvent("r", keyCode: 15)),
-            "r should not be claimed by the sheet outside the model field"
-        )
-        try waitForMainQueueTurn()
-        try expect(
-            client.requests.count == requestsBeforeAgentR,
-            "r on another field must not trigger a model refetch"
-        )
-    }
-
-    // The refresh button's disabled/dimmed state is driven by isRefreshingModels,
-    // which must be true only for the duration of an in-flight refresh.
-    private static func testNewSessionRefreshModelsButtonTracksInFlightState() throws {
-        let client = StubModelClient(
-            models: ["claude": [SessionModelOption(id: "opus", label: "opus")]],
-            defaults: ["claude": "sonnet"]
-        )
-        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
-
-        model.present()
-        try waitForMainQueue("initial model suggestions", until: {
-            model.state.model.modelOptions.contains(where: { $0.id == "opus" })
-        })
-        try expect(!model.state.isRefreshingModels, "the sheet's own resolve on open should not show as refreshing")
-
-        model.refreshModels()
-        try expect(model.state.isRefreshingModels, "a refresh should show as in-flight immediately")
-        try waitForMainQueue("model refresh completion", until: { !model.state.isRefreshingModels })
-        try expect(!model.state.isRefreshingModels, "the flag should clear once the refresh completes")
-        try expect(client.requests.last?.refresh == true, "the refresh button should force a refetch")
-    }
-
-    // The modelRequestID guard exists precisely for this: an earlier
-    // request's response arriving *after* a newer one must be discarded, not
-    // applied on top of it. StubModelClient's deferred-completion mode lets
-    // this test fire them in the opposite order from how they were called.
     private static func testNewSessionDiscardsStaleModelResponseArrivingAfterANewerOne() throws {
         let staleModel = SessionModelOption(id: "opus-initial", label: "opus-initial")
         let freshModel = SessionModelOption(id: "opus-refreshed", label: "opus-refreshed")
         let client = StubModelClient(deferCompletions: true, sequencedModels: [[staleModel], [freshModel]])
-        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .agent)
 
         model.present()
-        model.refreshModels()
-        try expect(client.requests.count == 2, "present and refreshModels should each fire one request")
+        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the agent")
+        try expect(client.requests.count == 2, "opening and the agent change should each fire one request")
 
-        // Fire the newer (refresh) request first, then the stale initial one
-        // — the opposite of call order.
+        // Fire the newer (agent change) request first, then the stale initial
+        // one — the opposite of call order.
         client.fireCompletion(forRequestAt: 1)
         try waitForMainQueue("newer model response", until: {
             model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" })
-                && !model.state.isRefreshingModels
         })
         try expect(
             model.state.model.modelOptions.contains(where: { $0.id == "opus-refreshed" }),
             "the newer response should apply"
         )
-        try expect(!model.state.isRefreshingModels, "the newer (refresh) request completing should clear the flag")
 
         client.fireCompletion(forRequestAt: 0)
         try waitForMainQueueTurn()
@@ -2750,7 +2684,7 @@ enum LogicSelfTests {
             model.state.model.effortOptions.contains(where: { $0.id == "low" })
         })
         try expect(effortClient.requests.first?.agent == "claude", "the sheet should resolve efforts for the initial agent")
-        try expect(effortClient.requests.first?.model.isEmpty == true, "the default entry sends no model override to resolve against")
+        try expect(effortClient.requests.first?.model.isEmpty == true, "with no default model yet, efforts resolve for no override")
         try expect(
             model.state.model.effortOptions.contains(where: { $0.id == "low" }),
             "resolved efforts should reach the picker"
@@ -2771,8 +2705,8 @@ enum LogicSelfTests {
         try waitForMainQueue("model suggestions for the selected agent", until: {
             model.state.model.modelOptions.contains(where: { $0.id == "gpt-6-sol" })
         })
-        model.state.model.focusedField = .model
-        try expect(model.handle(try keyEvent("l", keyCode: 37)), "l should cycle the model select")
+        model.state.model.typeModel("gpt-6-sol")
+        model.modelChanged()
         try waitForMainQueue("model-specific reasoning-effort suggestions", until: {
             model.state.model.effortOptions.map(\.id) == ["medium", "high"]
         })
@@ -2837,11 +2771,9 @@ enum LogicSelfTests {
         try expect(thrown != nil, "should propagate the last connect failure once retries are exhausted")
     }
 
-    // Effort has no row of its own: `e` must cycle it while the Model field
-    // is focused, and must not be claimed anywhere else (it would otherwise
-    // collide with typing "e" into a text field, or another select's own
-    // shortcuts).
-    private static func testNewSessionEffortKeyCyclesWhileModelFocused() throws {
+    // The effort keys are the model field's own: e in its SELECT state, ⌃e in
+    // both, and nothing effort-related with focus anywhere else.
+    private static func testNewSessionEffortKeysCycleWhereAnECannotBeTyped() throws {
         let effortClient = StubReasoningEffortClient(
             efforts: ["claude": ["low", "high"]],
             defaults: ["claude": "xhigh"]
@@ -2854,17 +2786,170 @@ enum LogicSelfTests {
         })
         try expect(model.state.model.selectedEffortOption == nil, "precondition: nothing selected, since xhigh isn't in this resolved list")
 
-        try expect(
-            model.handle(try keyEvent("e", keyCode: 14)),
-            "e should be consumed while the model field is focused"
-        )
-        try expect(model.state.model.selectedReasoningEffort == "low", "e should cycle to the first resolved level")
+        try expect(model.handle(try keyEvent("e", keyCode: 14)), "e should be consumed in SELECT")
+        try expect(model.state.model.selectedReasoningEffort == "low", "e in SELECT should cycle to the first level")
+        try expect(model.state.model.modelMode == .select, "e should not start a search")
+
+        try expect(model.handle(try keyEvent("o", keyCode: 31)), "a letter should be consumed in SELECT")
+        try expect(model.state.model.modelMode == .search && model.state.model.modelText == "o", "a letter should start a search on itself")
+        try expect(!model.handle(try keyEvent("e", keyCode: 14)), "e should type while searching")
+        try expect(model.handle(try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)), "⌃e should be consumed while searching")
+        try expect(model.state.model.selectedReasoningEffort == "high", "⌃e should cycle to the next level")
+        try expect(model.handle(try keyEvent("\u{1b}", keyCode: 53)), "Esc should end the search")
+        try expect(model.state.model.modelMode == .select && model.state.model.modelText.isEmpty, "Esc should restore the text")
 
         model.state.model.focusedField = .agent
-        try expect(
-            !model.handle(try keyEvent("e", keyCode: 14)),
-            "e should not be claimed by the sheet outside the model field"
+        try expect(!model.handle(try keyEvent("e", keyCode: 14)), "e on the agent tabs is not an effort key")
+        try expect(!model.handle(try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)), "⌃e on the agent tabs is not an effort key")
+        try expect(model.state.model.selectedReasoningEffort == "high", "nothing outside the model field cycles the effort")
+    }
+
+    private static func testNewSessionTabTakesTheHighlightedModelThenMovesOn() throws {
+        let client = StubModelClient(
+            models: ["claude": [SessionModelOption(id: "claude-opus-5-5", label: "claude-opus-5-5")]],
+            defaults: ["claude": ""]
         )
+        let effortClient = StubReasoningEffortClient(efforts: ["claude": ["low", "high"]], defaults: [:])
+        let model = newSessionSheetModel(modelClient: client, effortClient: effortClient, initialFocus: .model)
+        model.present()
+        try waitForMainQueue("model and effort suggestions", until: {
+            !model.state.model.modelOptions.isEmpty && model.state.model.hasEffortLevels
+        })
+        try expect(model.handle(try keyEvent("o", keyCode: 31)), "a letter should start the search")
+        model.state.model.typeModel("opus")
+        try expect(model.state.model.showsModelSuggestions, "typing should show the matching model")
+
+        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should be consumed")
+        try expect(model.state.model.selectedModel == "claude-opus-5-5", "Tab should take the highlighted model")
+        try expect(model.state.model.modelMode == .select && !model.state.model.showsModelSuggestions, "taking a model should return to SELECT")
+
+        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should be consumed again")
+        try expect(model.state.model.focusedField == .prompt, "the next Tab should move to the prompt: the effort segment is no stop")
+    }
+
+    private static func testNewSessionEscapePutsADropdownAwayBeforeClosing() throws {
+        var closed = false
+        let model = NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                initialPath: "",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: .path,
+                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                directoryClient: nil,
+                modelClient: nil,
+                effortClient: nil,
+                onSuccess: { _ in }
+            ),
+            dismiss: { closed = true }
+        )
+        model.state.paths.show(["/a"])
+        try expect(model.handle(try keyEvent("\u{1b}", keyCode: 53)), "Esc should be consumed")
+        try expect(!model.state.showsPathSuggestions && !closed, "the first Esc should only put the dropdown away")
+        try expect(model.handle(try keyEvent("\u{1b}", keyCode: 53)), "Esc should be consumed again")
+        try expect(closed, "the second Esc should close the sheet")
+    }
+
+    /// A typed path goes to serve alone, so it gives the quest the project `quest add --project` would.
+    private static func testNewQuestTypedPathSubmitsAPathOnlyProject() throws {
+        let client = StubMutationClient(result: .success(ServeMutationAck(data: nil)))
+        let sheet = NewQuestSheetModel(
+            presentation: NewQuestSheetPresentation(
+                projects: [NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a")],
+                initialProject: NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a"),
+                initialContent: "",
+                questID: "",
+                sessionID: "",
+                mutationClient: client,
+                directoryClient: nil,
+                onSuccess: {}
+            ),
+            dismiss: {}
+        )
+        try expect(sheet.form.projectText == "a", "the session's repo should prefill the project's name")
+        try expect(!sheet.form.canSubmit, "Inscribe should wait for content")
+        sheet.form.content = "Ship it"
+        sheet.form.focusedField = .project
+        try expect(sheet.handle(try keyEvent("/", keyCode: 44)), "a / should start a path search")
+        sheet.projectTyped("/tmp/b")
+        try expect(sheet.form.isPathText && sheet.form.canSubmit, "a path and content are enough")
+        sheet.submit()
+        let data = client.sentRequests.first?.data
+        try expect(data?["project_path"] == "/tmp/b", "the typed path should be sent")
+        try expect(data?["project_id"] == nil && data?["project_name"] == nil, "serve derives the id and name")
+    }
+
+    private static func newQuestSheet(client: StubMutationClient = StubMutationClient(result: .failure(StubMutationError())), dismiss: @escaping () -> Void = {}) -> NewQuestSheetModel {
+        NewQuestSheetModel(
+            presentation: NewQuestSheetPresentation(
+                projects: [NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a")],
+                initialProject: nil,
+                initialContent: "Quest",
+                questID: "",
+                sessionID: "",
+                mutationClient: client,
+                directoryClient: nil,
+                onSuccess: {}
+            ),
+            dismiss: dismiss
+        )
+    }
+
+    /// Return on a typed path keeps it, even with a directory row showing; it takes a row only once ↑/↓
+    /// chose one. Tab takes the highlighted row.
+    private static func testNewQuestReturnKeepsATypedPathUnlessARowWasChosen() throws {
+        let sheet = newQuestSheet()
+        try expect(sheet.handle(try keyEvent("/", keyCode: 44)), "a / should start a path search")
+        sheet.projectTyped("/tmp/typed")
+        sheet.paths.show(["/Users/me/recent", "/Users/me/other"])
+        try expect(sheet.handle(try keyEvent("\r", keyCode: 36)), "Return should be consumed")
+        try expect(sheet.form.projectText == "/tmp/typed" && sheet.form.projectMode == .select, "Return should keep the typed path")
+
+        try expect(sheet.handle(try keyEvent("\u{7f}", keyCode: 51)), "Backspace should edit the path")
+        sheet.paths.show(["/Users/me/recent", "/Users/me/other"])
+        try expect(sheet.handle(try keyEvent("", keyCode: 125)), "↓ should move in the directories")
+        try expect(sheet.handle(try keyEvent("\r", keyCode: 36)), "Return should be consumed")
+        try expect(sheet.form.projectText == "/Users/me/other", "Return should take the row ↓ chose")
+    }
+
+    private static func testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch() throws {
+        let sheet = newQuestSheet()
+        try expect(sheet.handle(try keyEvent("s", keyCode: 1)), "a letter should start a project search")
+        try expect(sheet.form.projectMode == .search, "precondition: searching")
+        let sinkBefore = sheet.sinkNonce
+        try expect(sheet.handle(try keyEvent("j", keyCode: 38, modifierFlags: .control)), "⌃j should move on")
+        try expect(sheet.form.focusedField == .content && sheet.form.projectMode == .select, "leaving should end the search")
+        try expect(sheet.sinkNonce == sinkBefore, "leaving should leave the caret to the content, not the sink")
+        try expect(sheet.handle(try keyEvent("k", keyCode: 40, modifierFlags: .control)), "⌃k should come back")
+        try expect(sheet.form.focusedField == .project && sheet.form.projectMode == .select && sheet.form.projectText == "s", "back in SELECT with the text kept")
+        try expect(sheet.sinkNonce == sinkBefore + 1, "SELECT should take the caret out of the text")
+    }
+
+    private static func testNewQuestEscapeClosesWhileSubmitting() throws {
+        var closed = false
+        let client = StubMutationClient(result: .success(ServeMutationAck(data: nil)), deferCompletions: true)
+        let sheet = newQuestSheet(client: client, dismiss: { closed = true })
+        sheet.form.focusedField = .project
+        sheet.projectTyped("/tmp/a")
+        sheet.submit()
+        try expect(sheet.form.submitting, "precondition: the submit is in flight")
+        try expect(sheet.handle(try keyEvent("\u{1b}", keyCode: 53)), "Esc should be consumed")
+        try expect(closed, "Esc should close while a submit is in flight")
+    }
+
+    private static func testNewSessionControlRRefreshesModelsFromTheModelField() throws {
+        let client = StubModelClient(models: ["claude": [SessionModelOption(id: "opus", label: "opus")]], defaults: ["claude": "sonnet"])
+        let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
+        model.present()
+        try waitForMainQueue("initial model suggestions", until: { !model.state.model.modelOptions.isEmpty })
+        try expect(client.requests.last?.refresh == false, "the sheet's own resolve should not force a refetch")
+        try expect(model.handle(try keyEvent("\u{12}", keyCode: 15, modifierFlags: .control)), "⌃r should be consumed in the model field")
+        try waitForMainQueueTurn()
+        try expect(client.requests.last?.refresh == true, "⌃r should force a refetch past the catalog cache")
+        let count = client.requests.count
+        model.state.model.focusedField = .title
+        try expect(!model.handle(try keyEvent("\u{12}", keyCode: 15, modifierFlags: .control)), "⌃r elsewhere is not a refresh")
+        try expect(client.requests.count == count, "⌃r elsewhere should not refetch")
     }
 
     private static func newSessionSheetModel(

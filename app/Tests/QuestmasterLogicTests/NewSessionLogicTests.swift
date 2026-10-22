@@ -6,13 +6,21 @@ struct NewSessionLogicTests {
         focusMovesThroughFieldsWithControlJAndK()
         focusCycleWrapsThroughFields()
         defaultAgentListIncludesOpenCode()
-        modelSelectStartsUnconfiguredAndTakesResolvedOptions()
-        modelSelectSeedsOntoSettingsCurrentDefaultOnFirstResolveOnly()
-        modelSelectionSurvivesARefreshThatStillOffersIt()
+        modelFieldStartsEmptyAndTakesSettingsDefault()
+        typedModelSurvivesLaterResolves()
+        modelSuggestionsMatchWhatIsTyped()
+        acceptingAModelSuggestionPutsTheDropdownAway()
+        browsingReachesEveryModel()
+        modelRefreshKeyIsTheModelFieldsOwn()
+        modelSearchStartsOnAKeyAndEndsOnEscOrLeaving()
         agentChangeDropsAnotherHarnessModel()
         setModelOptionsDropsWhitespaceOnlyIDs()
         cyclingASingleAgentListDoesNotResetModelOptions()
         effortSelectStartsUnconfiguredAndTakesResolvedOptions()
+        effortSegmentIsInertWithoutLevels()
+        effortKeysCycleOnlyWhereAnECannotBeTyped()
+        submittingNeedsOnlyAPath()
+        suggestionListHighlightsWrapsAndDismisses()
         agentChangeDropsTheResolvedEffortList()
         selectorsCycleOnlyOnSelectableFields()
         selectShortcutsCycleOnlyOnSelectableFields()
@@ -31,6 +39,7 @@ struct NewSessionLogicTests {
     private static func focusMovesThroughFieldsWithControlJAndK() {
         var model = NewSessionFormModel(initialPath: "/tmp/project")
         expect(model.focusedField == .path, "initial focus should be path")
+        model.setEffortOptions(["low", "high"])
 
         model.handle(.controlJ)
         expect(model.focusedField == .title, "control-j should move to title")
@@ -39,9 +48,10 @@ struct NewSessionLogicTests {
         model.handle(.controlJ)
         expect(model.focusedField == .model, "control-j should move to model")
         model.handle(.controlJ)
-        expect(model.focusedField == .color, "control-j should move to color")
+        expect(model.focusedField == .prompt, "control-j should move from the model to the prompt: the effort segment is no stop")
         model.handle(.controlK)
         expect(model.focusedField == .model, "control-k should move back to model")
+        expect(NewSessionField.formOrder == [.path, .title, .agent, .model, .prompt], "the visible inputs, top to bottom")
     }
 
     private static func focusCycleWrapsThroughFields() {
@@ -49,7 +59,8 @@ struct NewSessionLogicTests {
         model.handle(.controlK)
         expect(model.focusedField == .prompt, "control-k from path should wrap to prompt")
         model.handle(.controlK)
-        expect(model.focusedField == .color, "control-k from prompt should move to color")
+        expect(model.focusedField == .model, "control-k from prompt should move to model")
+        expect(!NewSessionField.formOrder.contains(.color), "New Session's fields should not include a colour")
     }
 
     private static func defaultAgentListIncludesOpenCode() {
@@ -60,75 +71,118 @@ struct NewSessionLogicTests {
     }
 
     // Options are never declared in the app — they come entirely from the
-    // backend, so a newly released model needs no app change. There is no
-    // synthetic "default" entry: "nothing selected" is a fact about the
-    // form's own selection state, not a member of the options list.
-    private static func modelSelectStartsUnconfiguredAndTakesResolvedOptions() {
+    // backend, so a newly released model needs no app change. The field is
+    // free text: model ids are never validated.
+    private static func modelFieldStartsEmptyAndTakesSettingsDefault() {
         var model = NewSessionFormModel(initialPath: "/tmp/project")
-        expect(model.modelOptions.isEmpty, "the picker should start with no options at all")
-        expect(model.selectedModelOption == nil, "nothing should be selected before anything resolves")
-        expect(model.selectedModel.isEmpty, "an unconfigured picker should send no model override")
-        expect(model.submitPayload()?.model == "", "an untouched picker should not override the model")
+        expect(model.modelOptions.isEmpty, "the field should start with no suggestions at all")
+        expect(model.selectedModel.isEmpty, "an untouched field should send no model override")
+        expect(model.submitPayload()?.model == "", "an untouched field should not override the model")
 
         model.setModelOptions(
-            [
-                SessionModelOption(id: "opus", label: "opus", note: "alias · tracks Claude Opus 5"),
-                SessionModelOption(id: "claude-opus-9-unreleased", label: "claude-opus-9-unreleased", note: "recent"),
-            ],
+            [SessionModelOption(id: "opus", label: "opus"), SessionModelOption(id: "claude-opus-9-unreleased", label: "claude-opus-9-unreleased")],
             defaultModel: "sonnet"
         )
-        expect(model.modelOptions.count == 2, "resolved models should be exactly the concrete options given")
-        // "sonnet" isn't one of the resolved options, so nothing gets seeded.
-        expect(model.selectedModelOption == nil, "resolving with a default missing from the list should leave nothing selected")
-
-        model.focusedField = .model
-        model.handle(.right)
-        expect(model.selectedModel == "opus", "right should select the first resolved model")
-        expect(model.submitPayload()?.model == "opus", "a picked model should reach the payload")
-        model.handle(.right)
-        expect(model.selectedModel == "claude-opus-9-unreleased", "right should reach a model no catalog knows")
-        model.handle(.left)
-        expect(model.selectedModel == "opus", "left should cycle back")
-        model.handle(.left)
-        expect(model.selectedModel.isEmpty, "left should return to nothing selected")
+        expect(model.selectedModel == "sonnet", "the field should start on Settings' default, even one the list doesn't offer")
+        model.typeModel("my-own-model")
+        expect(model.submitPayload()?.model == "my-own-model", "any typed id should reach the payload as typed")
+        model.typeModel("  ")
+        expect(model.submitPayload()?.model == "", "a blank field should send no override")
     }
 
-    // New Session is a pure consumer of whatever Settings currently has
-    // configured: the field pre-fills with that default (when it's present
-    // in the resolved list) rather than starting unselected, though it can
-    // still be overridden for this one launch — the override never writes
-    // back to Settings.
-    private static func modelSelectSeedsOntoSettingsCurrentDefaultOnFirstResolveOnly() {
+    private static func typedModelSurvivesLaterResolves() {
         var model = NewSessionFormModel(initialPath: "/tmp/project")
-        model.setModelOptions(
-            [SessionModelOption(id: "sonnet", label: "sonnet"), SessionModelOption(id: "opus", label: "opus")],
-            defaultModel: "sonnet"
-        )
-        expect(model.selectedModel == "sonnet", "New Session should pre-fill with Settings' current default")
-
-        model.focusedField = .model
-        model.handle(.right)
-        expect(model.selectedModel == "opus", "the pre-filled default can still be overridden for this one launch")
+        model.setModelOptions([SessionModelOption(id: "sonnet", label: "sonnet")], defaultModel: "sonnet")
+        model.typeModel("opus")
+        model.setModelOptions([SessionModelOption(id: "haiku", label: "haiku")], defaultModel: "haiku")
+        expect(model.selectedModel == "opus", "a resolve must not overwrite what the user typed")
+        model.resetModelOptions()
+        expect(model.selectedModel == "opus", "a failed resolve must not clear what the user typed")
     }
 
-    private static func modelSelectionSurvivesARefreshThatStillOffersIt() {
-        var model = NewSessionFormModel(initialPath: "/tmp/project")
-        model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
-        model.focusedField = .model
-        model.handle(.right)
-        expect(model.selectedModel == "opus", "precondition: opus selected")
+    private static func modelSuggestionsMatchWhatIsTyped() {
+        var model = NewSessionFormModel(initialPath: "/tmp/project", initialFocus: .model)
+        let ids = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5", "opus", "sonnet", "haiku"]
+        model.setModelOptions(ids.map { SessionModelOption(id: $0, label: $0) }, defaultModel: "opus")
+        model.startModelSearch(.editCurrent)
+        expect(model.modelSuggestions.map(\.id) == Array(ids.dropFirst(1)), "editing the current id should browse, from the current model: \(model.modelSuggestions.map(\.id))")
+        expect(model.highlightedModelSuggestion?.id == "opus", "browsing should highlight the current model")
+        model.typeModel("haiku")
+        expect(model.modelSuggestions.map(\.id) == ["haiku", "claude-haiku-5-5"], "the exact id should come first")
+        model.typeModel("opus")
+        expect(model.modelSuggestions.count == NewSessionFormModel.maxModelSuggestions, "retyping the starting text should browse again")
+        model.typeModel("OP")
+        expect(model.modelSuggestions.map(\.id) == ["opus", "claude-opus-5-5"], "a prefix match should come before a contains match, ignoring case")
+        expect(model.highlightedModelSuggestion?.id == "opus", "the best match should be highlighted")
+        model.typeModel("sonnet")
+        expect(model.modelSuggestions.first?.id == "sonnet" && model.highlightedModelSuggestion?.id == "sonnet", "sonnet should come first and be highlighted")
+        model.typeModel("gpt")
+        expect(model.modelSuggestions.isEmpty && !model.showsModelSuggestions, "no match should list nothing")
+        model.typeModel("")
+        expect(model.modelSuggestions.count == NewSessionFormModel.maxModelSuggestions, "an empty field should browse the list")
+        model.moveModelHighlight(-1)
+        expect(model.highlightedModelSuggestion?.id == ids.last, "up from the first model should wrap to the last, past the visible rows")
+        expect(model.modelSuggestions.last?.id == ids.last && model.visibleModelHighlightIndex == NewSessionFormModel.maxModelSuggestions - 1, "the visible rows should follow the highlight")
+    }
 
-        model.setModelOptions(
-            [
-                SessionModelOption(id: "sonnet", label: "sonnet"),
-                SessionModelOption(id: "opus", label: "opus"),
-            ],
-            defaultModel: "sonnet"
-        )
-        expect(model.selectedModel == "opus", "a refresh that still offers the model should keep it selected")
+    private static func browsingReachesEveryModel() {
+        var model = NewSessionFormModel(initialPath: "/tmp/project", initialFocus: .model)
+        let ids = (1...8).map { "model-\($0)" }
+        model.setModelOptions(ids.map { SessionModelOption(id: $0, label: $0) }, defaultModel: "model-1")
+        model.startModelSearch(.editCurrent)
+        expect(model.modelMatches.count == 8 && model.modelSuggestions.count == NewSessionFormModel.maxModelSuggestions, "browsing should list every model, five at a time")
+        for _ in 0..<6 {
+            model.moveModelHighlight(1)
+        }
+        expect(model.highlightedModelSuggestion?.id == "model-7", "↓ should reach models past the first five")
+        expect(model.modelSuggestions.map(\.id) == ["model-3", "model-4", "model-5", "model-6", "model-7"], "the rows should scroll with the highlight")
+        expect(model.acceptHighlightedModel() && model.selectedModel == "model-7", "a model past the first five should be pickable")
+    }
 
-        model.setModelOptions([SessionModelOption(id: "haiku", label: "haiku")], defaultModel: "sonnet")
-        expect(model.selectedModel.isEmpty, "a refresh without the model should fall back to the default")
+    private static func modelRefreshKeyIsTheModelFieldsOwn() {
+        func refreshes(control: Bool = true, option: Bool = false, _ field: NewSessionField) -> Bool {
+            NewSessionModelRefreshKey.refreshes(keyCode: 15, command: false, control: control, option: option, field: field)
+        }
+        expect(refreshes(.model), "⌃r should refresh the models in the model field")
+        expect(!refreshes(control: false, .model) && !refreshes(option: true, .model), "plain r and ⌥⌃r are not the refresh key")
+        for field in [NewSessionField.path, .title, .agent, .prompt] {
+            expect(!refreshes(field), "⌃r refreshes nothing with \(field) focused")
+        }
+        expect(Keymap.NewSession.refreshModels.keyCodes == [15] && Keymap.NewSession.refreshModels.modifiers == [.control], "⌃r is the r key with control")
+    }
+
+    private static func acceptingAModelSuggestionPutsTheDropdownAway() {
+        var model = NewSessionFormModel(initialPath: "/tmp/project", initialFocus: .model)
+        model.setModelOptions([SessionModelOption(id: "claude-opus-5-5", label: "claude-opus-5-5")])
+        expect(model.modelMode == .select && !model.showsModelSuggestions, "the field should start in SELECT, with no list")
+        model.startModelSearch(.seed("o"))
+        model.typeModel("opus")
+        expect(model.modelMode == .search && model.showsModelSuggestions, "a match should show while searching")
+        expect(model.acceptHighlightedModel(), "the highlighted suggestion should be taken")
+        expect(model.selectedModel == "claude-opus-5-5", "the field should hold the taken id")
+        expect(model.modelMode == .select && !model.showsModelSuggestions, "taking a suggestion should return to SELECT")
+        expect(!model.acceptHighlightedModel(), "nothing should be taken in SELECT")
+        model.startModelSearch(.editCurrent)
+        model.typeModel("claude-opus-5-")
+        expect(model.showsModelSuggestions, "typing again should bring the dropdown back")
+        model.dismissModelSuggestions()
+        expect(!model.showsModelSuggestions, "the dropdown can be put away")
+    }
+
+    private static func modelSearchStartsOnAKeyAndEndsOnEscOrLeaving() {
+        var model = NewSessionFormModel(initialPath: "/tmp/project", initialFocus: .model)
+        model.setModelOptions([], defaultModel: "sonnet")
+        model.startModelSearch(.seed("x"))
+        expect(model.modelMode == .search && model.selectedModel == "x", "a printable key should start a search on that text")
+        model.endModelSearch(keepingText: false)
+        expect(model.modelMode == .select && model.selectedModel == "sonnet", "Esc should restore the text the search started from")
+        model.setModelOptions([], defaultModel: "opus")
+        expect(model.selectedModel == "opus", "an untyped default should still follow resolves after Esc")
+        model.startModelSearch(.editCurrent)
+        expect(model.selectedModel == "opus", "Backspace or Return should edit the current text")
+        model.typeModel("my-model")
+        model.focusedField = .prompt
+        expect(model.modelMode == .select && model.selectedModel == "my-model", "leaving the field should end the search and keep what was typed")
     }
 
     private static func agentChangeDropsAnotherHarnessModel() {
@@ -137,20 +191,16 @@ struct NewSessionLogicTests {
             agents: ["claude", "codex"]
         )
         model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
-        model.focusedField = .model
-        model.handle(.right)
-        expect(model.selectedModel == "opus", "precondition: opus selected")
+        model.typeModel("opus")
 
         model.focusedField = .agent
         model.handle(.right)
         expect(model.selectedAgent == "codex", "precondition: agent cycled")
-        expect(model.selectedModel.isEmpty, "a claude model must not launch on codex")
+        expect(model.selectedModel.isEmpty, "a claude model must not launch on codex, typed or not")
         expect(model.modelOptions.isEmpty, "the stale list should be dropped with the agent")
 
         model.setModelOptions([SessionModelOption(id: "gpt-5.6-sol", label: "gpt-5.6-sol")], defaultModel: "gpt-5.6-terra")
-        model.focusedField = .model
-        model.handle(.right)
-        expect(model.selectedModel == "gpt-5.6-sol", "precondition: codex model selected")
+        expect(model.selectedModel == "gpt-5.6-terra", "the new agent's default should fill the field")
 
     }
 
@@ -180,14 +230,13 @@ struct NewSessionLogicTests {
             agents: ["claude"]
         )
         model.setModelOptions([SessionModelOption(id: "opus", label: "opus")], defaultModel: "sonnet")
-        model.focusedField = .model
-        model.handle(.right)
-        expect(model.selectedModel == "opus", "precondition: opus selected")
+        model.typeModel("opus")
 
         model.focusedField = .agent
         model.handle(.right)
         expect(model.selectedAgent == "claude", "precondition: cycling a single-agent list is a no-op")
-        expect(model.selectedModel == "opus", "a no-op agent cycle must not drop the resolved model list")
+        expect(model.selectedModel == "opus", "a no-op agent cycle must not drop the typed model")
+        expect(model.modelOptions.count == 1, "a no-op agent cycle must not drop the resolved model list")
     }
 
     // Mirrors modelSelectStartsUnconfiguredAndTakesResolvedOptions. Effort has
@@ -237,6 +286,62 @@ struct NewSessionLogicTests {
         model.cycleReasoningEffort()
         expect(model.selectedReasoningEffort == "low", "precondition: codex effort selected")
 
+    }
+
+    private static func effortSegmentIsInertWithoutLevels() {
+        var model = NewSessionFormModel(initialPath: "/tmp/project")
+        model.setEffortOptions([], defaultLevel: "xhigh")
+        expect(!model.hasEffortLevels, "a model without levels has none")
+        expect(model.effortLabel == NewSessionFormModel.defaultEffortLabel, "the segment should read default")
+        model.cycleReasoningEffort()
+        expect(model.selectedReasoningEffort.isEmpty, "there is nothing to cycle")
+
+        model.resetEffortOptions()
+        model.setEffortOptions(["low", "high"], defaultLevel: "high")
+        expect(model.effortLabel == "high", "the segment shows the level id")
+        model.cycleReasoningEffort(-1)
+        expect(model.selectedReasoningEffort == "low", "cycling back should reach the previous level")
+        model.cycleReasoningEffort(-1)
+        expect(model.effortLabel == NewSessionFormModel.defaultEffortLabel, "cycling should reach default, the harness's own level")
+    }
+
+    private static func effortKeysCycleOnlyWhereAnECannotBeTyped() {
+        func cycles(_ characters: String, control: Bool = false, option: Bool = false, _ field: NewSessionField, _ mode: PickerFieldMode = .select) -> Bool {
+            NewSessionEffortKey.cycles(characters: characters, keyCode: 14, command: false, control: control, option: option, field: field, mode: mode)
+        }
+        expect(cycles("e", .model, .select), "e should cycle in the model field's SELECT state")
+        expect(!cycles("e", .model, .search), "e should type while searching")
+        expect(cycles("e", control: true, .model, .select) && cycles("e", control: true, .model, .search), "⌃e should cycle in both states")
+        expect(!cycles("´", option: true, .model, .search), "⌥e is the accent dead key, not an effort key")
+        for field in [NewSessionField.path, .title, .agent, .color, .prompt] {
+            expect(!cycles("e", field) && !cycles("e", control: true, field), "no effort key with \(field) focused")
+        }
+        expect(!NewSessionEffortKey.cycles(characters: "E", keyCode: 14, command: false, control: false, option: false, field: .model, mode: .select), "E (shift) is not the effort key")
+        expect(Keymap.NewSession.cycleReasoningEffortInModel.keyCodes == [14] && Keymap.NewSession.cycleReasoningEffortInModel.modifiers == [.control], "⌃e is the e key with control")
+    }
+
+    private static func submittingNeedsOnlyAPath() {
+        var model = NewSessionFormModel(initialPath: "")
+        expect(!model.canSubmit, "Summon should wait for a path")
+        model.path = "  "
+        expect(!model.canSubmit, "a blank path is no path")
+        model.path = "/tmp/project"
+        expect(model.canSubmit, "a path is all Summon needs")
+        model.setSubmitting(true)
+        expect(!model.canSubmit, "Summon should be off while submitting")
+    }
+
+    private static func suggestionListHighlightsWrapsAndDismisses() {
+        var list = SuggestionList()
+        expect(!list.isVisible && list.highlighted == nil, "an empty list shows nothing")
+        list.show(["/a", "/b"])
+        expect(list.isVisible && list.highlighted == "/a", "a fresh list highlights its first row")
+        list.moveHighlight(-1)
+        expect(list.highlighted == "/b", "up from the first row should wrap")
+        list.dismiss()
+        expect(!list.isVisible, "a dismissed list hides")
+        list.show(["/c"])
+        expect(list.isVisible && list.highlighted == "/c", "new rows show again")
     }
 
     private static func selectorsCycleOnlyOnSelectableFields() {

@@ -16,7 +16,26 @@ enum RenderPreview {
             ? CommandLine.arguments[flagIndex + 1]
             : NSTemporaryDirectory()
 
-        render(newSessionView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
+        render(newSessionView(.initial), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-init.png")
+        render(newSessionView(.filled), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
+        render(newSessionView(.openCode), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode.png")
+        render(newSessionView(.openCodeResting), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode-resting.png")
+        render(newSessionView(.tabsFocused), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-tabs-focused.png")
+        render(newSessionView(.modelSelect), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-model-select.png")
+        render(newSessionView(.noEffort), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-no-effort.png")
+        render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-init.png")
+        render(newQuestSheetView(.typingPath), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
+        render(newQuestSheetView(.searchingProjects), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-projects.png")
+        render(colorInputView(previewing: false), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input.png")
+        render(colorInputView(previewing: true), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input-preview.png")
+        let editSession = TrackerEditSession(sessionID: "qm-1", title: "Small Fixes", color: "orange", allowsColor: true)
+        let editRepo = TrackerEditRepo(identity: "/Users/aleksi.tuominen/Code/questmaster/.git", name: "questmaster", color: "orange")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .editCurrent, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-open.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .seed("red"), dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-red.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: TrackerEditSession(sessionID: "qm-1", title: "", color: "", allowsColor: true), initialFocus: .color, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-none.png")
+        render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
+        render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
@@ -94,7 +113,6 @@ enum RenderPreview {
         scrolledPage.previewOffset = 160
         render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), pageScroll: scrolledPage, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long-scrolled.png")
         render(newSessionSheetView(title: "gjpqy quest", path: "/tmp/gjpqy/project"), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-descenders.png")
-        render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newSessionSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-sheet.png")
         let window = CGSize(width: 1400, height: 900)
         renderView(modalWindowView(newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-window.png")
@@ -981,39 +999,122 @@ enum RenderPreview {
         return shell
     }
 
+    /// The New Session form in one of the design's states (new-session-init.svg, new-session.svg), or
+    /// with OpenCode selected, or on a model that reports no effort levels.
+    enum NewSessionPreview {
+        case initial
+        /// Searching the model field ("opus" typed, its match listed).
+        case filled
+        /// The model field focused in SELECT: no list, e cycles the effort.
+        case modelSelect
+        /// Claude selected with the tab row focused, and OpenCode selected at rest and focused.
+        case tabsFocused
+        case openCodeResting
+        case openCode
+        case noEffort
+    }
+
     @MainActor
-    private static func newSessionView() -> some View {
-        let state = NewSessionViewState(model: NewSessionFormModel(
-            initialPath: "/",
-            initialFocus: .path
-        ))
-        state.pathSuggestions = [
-            "/Users/aleksi.tuominen/Code",
-            "/Users/aleksi.tuominen/Code/questmaster",
-            "/Users/aleksi.tuominen/Code/dotfiles",
-        ]
-        // Stand-ins for what the serve models/reasoning_efforts topics resolve
-        // at runtime.
-        state.model.setModelOptions(
-            [
-                SessionModelOption(id: "claude-opus-5", label: "claude-opus-5", note: "Claude Opus 5"),
-                SessionModelOption(id: "claude-sonnet-5", label: "claude-sonnet-5", note: "Claude Sonnet 5"),
-            ],
-            defaultModel: "claude-sonnet-5"
-        )
-        state.model.setEffortOptions(
-            ["low", "medium", "high", "xhigh", "max"],
-            defaultLevel: "xhigh"
-        )
-        return NewSessionRootView(
+    private static func newSessionView(_ preview: NewSessionPreview) -> some View {
+        var model = NewSessionFormModel(initialPath: "", initialFocus: .path)
+        let state = NewSessionViewState(model: model)
+        // Stand-ins for what the serve models/reasoning_efforts topics resolve at runtime.
+        let claudeModels = ["claude-sonnet-5.5", "claude-opus-5.5", "claude-haiku-5.5"].map { SessionModelOption(id: $0, label: $0) }
+        let levels = ["low", "medium", "high", "xhigh", "max"]
+        switch preview {
+        case .initial:
+            model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
+            model.setEffortOptions(levels, defaultLevel: "medium")
+            state.paths.show(["/Users/aleksi.tuominen/Code", "/Users/aleksi.tuominen/Code/Scry", "/Users/aleksi.tuominen/Code/Questmaster"])
+        case .filled:
+            model.path = "/Users/aleksi.tuominen/Code"
+            model.title = "PR Reviews"
+            model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
+            model.setEffortOptions(levels, defaultLevel: "xhigh")
+            model.focusedField = .model
+            model.startModelSearch(.seed("o"))
+            model.typeModel("opus")
+        case .modelSelect:
+            model.path = "/Users/aleksi.tuominen/Code"
+            model.title = "PR Reviews"
+            model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
+            model.setEffortOptions(levels, defaultLevel: "xhigh")
+            model.focusedField = .model
+        case .tabsFocused:
+            model.path = "/Users/aleksi.tuominen/Code"
+            model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
+            model.setEffortOptions(levels, defaultLevel: "medium")
+            model.focusedField = .agent
+        case .openCodeResting:
+            model.path = "/Users/aleksi.tuominen/Code/questmaster"
+            model.focusedField = .agent
+            model.handle(.right)
+            model.handle(.right)
+            model.setModelOptions([SessionModelOption(id: "openai/gpt-6-sol", label: "openai/gpt-6-sol")], defaultModel: "openai/gpt-6-sol")
+            model.setEffortOptions(["low", "medium", "high"], defaultLevel: "high")
+            model.focusedField = .prompt
+        case .openCode:
+            model.path = "/Users/aleksi.tuominen/Code/questmaster"
+            model.focusedField = .agent
+            model.handle(.right)
+            model.handle(.right)
+            model.setModelOptions([SessionModelOption(id: "openai/gpt-6-sol", label: "openai/gpt-6-sol")], defaultModel: "openai/gpt-6-sol")
+            model.setEffortOptions(["low", "medium", "high"], defaultLevel: "high")
+        case .noEffort:
+            model.path = "/Users/aleksi.tuominen/Code/questmaster"
+            model.focusedField = .agent
+            model.handle(.left)
+            model.setModelOptions([SessionModelOption(id: "local-model", label: "local-model")], defaultModel: "local-model")
+            model.setEffortOptions([])
+            model.focusedField = .model
+        }
+        state.model = model
+        return newSessionRoot(state)
+    }
+
+    /// color-input.svg's state: the search emptied, the list open on orange, teal and magenta, and the
+    /// swatch on the selected indigo; or, `previewing`, after ↓ to teal.
+    @MainActor
+    private static func colorInputView(previewing: Bool) -> some View {
+        var model = ColorFieldModel(colors: ["orange", "teal", "magenta", "indigo"], selected: "indigo")
+        model.startSearch(.seed(""))
+        if previewing {
+            model.moveHighlight(1)
+        }
+        return ColorField(model: .constant(model), focusNonce: 0, focused: true, onClickText: {}, onSwatchClick: {})
+            .frame(width: 500)
+            .padding(.leading, 2)
+            .frame(width: 504, height: 151, alignment: .topLeading)
+            .floatingDropdownHost()
+            .background(AppPalette.panel.swiftUI)
+    }
+
+    /// An edit sheet at the top of a canvas tall enough for its colour list, which hangs past the sheet.
+    private static let editCanvas = CGSize(width: 460, height: 300)
+
+    @MainActor
+    private static func editSheetCanvas<Sheet: View>(_ sheet: Sheet) -> some View {
+        sheet
+            .frame(width: editCanvas.width, height: editCanvas.height, alignment: .top)
+            .background(AppPalette.window.swiftUI)
+    }
+
+    @MainActor
+    private static func newSessionRoot(_ state: NewSessionViewState) -> some View {
+        NewSessionRootView(
             state: state,
             onFocusChanged: { _ in },
             onPathChanged: {},
+            onModelChanged: {},
+            onSelectPath: { _ in },
+            onSelectModel: { _ in },
+            onSelectAgent: { _ in },
+            onCycleEffort: {},
             onCreate: {},
-            onCancel: {},
-            onRefreshModels: {}
+            onCancel: {}
         )
-        .background(AppPalette.panel.swiftUI)
+        .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
+        .scoopedPanel()
     }
 
     @MainActor
@@ -1028,21 +1129,44 @@ enum RenderPreview {
         )
     }
 
+    enum NewQuestPreview {
+        /// new-quest-init.svg: empty.
+        case empty
+        /// new-quest.svg: a path typed, its directories listed.
+        case typingPath
+        /// user-new-quest-project-search.png: "questm" typed, the matching project listed.
+        case searchingProjects
+    }
+
     @MainActor
-    private static func newQuestSheetView() -> some View {
-        let presenter = NewQuestSheetPresenter()
-        presenter.present(
-            projects: [
-                NewQuestProjectOption(projectID: "", projectPath: "", projectName: "No project"),
-                NewQuestProjectOption(projectID: "questmaster", projectPath: "/Users/aleksi.tuominen/Code/questmaster", projectName: "questmaster"),
-            ],
-            selectedProjectID: "questmaster",
-            initialContent: "Add more meta data to shell sessions\n\nThe idea is to make questmaster also work well as a tmux session handler",
-            sessionID: nil,
-            mutationClient: SettingsPreviewMutationClient(),
-            onSuccess: {}
+    private static func newQuestSheetView(_ preview: NewQuestPreview = .empty) -> some View {
+        let code = (NSHomeDirectory() as NSString).appendingPathComponent("Code")
+        let projects = ["questmaster", "scry", "dotfiles"].map { name in
+            NewQuestProjectOption(projectID: "\(code)/\(name)/.git", projectPath: "\(code)/\(name)", projectName: name)
+        }
+        let sheet = NewQuestSheetModel(
+            presentation: NewQuestSheetPresentation(
+                projects: projects,
+                initialProject: nil,
+                initialContent: preview == .empty ? "" : "Add more meta data to shell sessions",
+                questID: "",
+                sessionID: "",
+                mutationClient: SettingsPreviewMutationClient(),
+                directoryClient: nil,
+                onSuccess: {}
+            ),
+            dismiss: {}
         )
-        return NewQuestSheetView(presentation: presenter.presentation!, dismiss: {})
+        switch preview {
+        case .empty:
+            break
+        case .typingPath:
+            sheet.form.startProjectSearch(.seed("/Users/aleksi.tuo"))
+            sheet.paths.show(["/Users/aleksi.tuominen/Code", "/Users/aleksi.tuominen/Code/Scry", "/Users/aleksi.tuominen/Code/Questmaster"])
+        case .searchingProjects:
+            sheet.form.startProjectSearch(.seed("questm"))
+        }
+        return NewQuestSheetView(model: sheet)
     }
 
     @MainActor
@@ -1261,14 +1385,11 @@ private final class SettingsPreviewModelClient: ServeModelSuggesting {
         refresh: Bool,
         completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
     ) {
-        // The worker row previews "not configured" (an empty default with no
-        // matching option) so that state gets a design-review look here, not
-        // just a runtime discovery; every other role previews a configured
-        // default.
-        let model = "\(agent)-\(role)-preview"
+        // settings-models.svg's values: opus-5 for the master, haiku for the worker.
+        let model = role == "worker" ? "haiku" : "opus-5"
         completion(.success(ModelSuggestionResponse(
             models: [SessionModelOption(id: model, label: model, note: "")],
-            defaultModel: role == "worker" ? "" : model
+            defaultModel: model
         )))
     }
 }
@@ -1282,7 +1403,7 @@ private final class SettingsPreviewEffortClient: ServeReasoningEffortSuggesting 
     ) {
         completion(.success(ReasoningEffortSuggestionResponse(
             efforts: ["low", "medium", "high", "xhigh"],
-            defaultEffort: role == "worker" ? "" : "xhigh"
+            defaultEffort: role == "worker" ? "high" : "xhigh"
         )))
     }
 }

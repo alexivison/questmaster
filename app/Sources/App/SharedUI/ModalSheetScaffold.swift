@@ -22,8 +22,15 @@ struct ModalSheetScaffold<Content: View>: View {
             ModalSheetHeader(title: title, titleColor: titleColor, horizontalInset: horizontalInset)
             content()
             errorRow
-            footer
+            if hasFooter {
+                footer
+            }
         }
+    }
+
+    /// A sheet with no buttons and no hint (Settings) ends without the footer's rule.
+    private var hasFooter: Bool {
+        (cancelLabel != nil && onCancel != nil) || (primaryLabel != nil && onPrimary != nil) || !footerText.isEmpty
     }
 
     private var errorRow: some View {
@@ -117,34 +124,16 @@ struct ModalSelectRow: View {
     var horizontalInset: CGFloat = 18
     var spacing: CGFloat = 18
     var onSelect: () -> Void
-    /// An optional control after the note (e.g. the model row's refresh
-    /// button). Omitted for the plain select row every other field uses.
-    var accessory: (() -> AnyView)?
-    /// An additional line below the control (e.g. the model row's current
-    /// reasoning-effort level). Omitted for every row except Model.
-    var subtext: (() -> AnyView)?
 
     var body: some View {
         ModalFormRow(
             label: label,
             labelWidth: labelWidth,
             horizontalInset: horizontalInset,
-            spacing: spacing,
-            topAligned: subtext != nil
+            spacing: spacing
         ) {
-            if let subtext {
-                // No spacing here: the connector's own stub supplies the gap,
-                // starting flush against the control's frame rather than
-                // floating below it.
-                VStack(alignment: .leading, spacing: 0) {
-                    controlRow
-                    subtext()
-                }
+            controlRow
                 .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                controlRow
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
     }
 
@@ -160,10 +149,6 @@ struct ModalSelectRow: View {
             .onTapGesture(perform: onSelect)
 
             noteText
-
-            if let accessory {
-                accessory()
-            }
         }
     }
 

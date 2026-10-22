@@ -173,14 +173,18 @@ public enum ServeMutationRequests {
     }
 
     public static func questEdit(questID: String, payload: NewQuestSubmitPayload) throws -> ServeMutationRequest {
-        ServeMutationRequest(method: "quest.edit", data: [
+        var data = [
             "quest_id": try required("quest_id", questID),
             "content": try required("content", payload.content),
-            "project_changed": "true",
-            "project_id": payload.projectID,
-            "project_path": payload.projectPath,
-            "project_name": payload.projectName,
-        ])
+        ]
+        guard payload.projectChanged else {
+            return ServeMutationRequest(method: "quest.edit", data: data)
+        }
+        data["project_changed"] = "true"
+        data["project_id"] = payload.projectID
+        data["project_path"] = payload.projectPath
+        data["project_name"] = payload.projectName
+        return ServeMutationRequest(method: "quest.edit", data: data)
     }
 
     public static func questDelete(questID: String) throws -> ServeMutationRequest {

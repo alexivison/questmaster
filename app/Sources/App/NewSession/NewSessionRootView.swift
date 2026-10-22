@@ -6,404 +6,196 @@ import SwiftUI
 @MainActor
 final class NewSessionViewState: ObservableObject {
     @Published var model: NewSessionFormModel
-    @Published var pathSuggestions: [String] = []
-    @Published var highlightedSuggestionIndex = 0
-    @Published var focusRequest: NewSessionField
-    @Published var focusGeneration = 0
-    /// Set only for an explicit refresh (button or `r`), not the sheet's own
-    /// resolves on open or agent change — those are silent.
-    @Published var isRefreshingModels = false
+    @Published var paths = SuggestionList()
+    /// Bumped per text field to move keyboard focus into it (`CommandTextField` focuses on a change).
+    @Published private(set) var focusNonces: [NewSessionField: Int] = [:]
+    /// Bumped to take focus off the text fields when a select is focused.
+    @Published private(set) var sinkNonce = 0
 
     init(model: NewSessionFormModel) {
         self.model = model
-        focusRequest = model.focusedField
     }
 
-    func clearSuggestions() {
-        pathSuggestions = []
-        highlightedSuggestionIndex = 0
+    var showsPathSuggestions: Bool {
+        model.focusedField == .path && paths.isVisible
     }
 
+    /// The model field takes focus in SELECT, without the caret (`showCaret` puts it in for a search).
     func requestFocus(_ field: NewSessionField) {
         model.focusedField = field
-        focusRequest = field
-        focusGeneration += 1
+        switch field {
+        case .path, .title:
+            focusNonces[field, default: 0] += 1
+        case .agent, .model, .color:
+            sinkNonce += 1
+        case .prompt:
+            break
+        }
+    }
+
+    /// Moves the caret into or out of the model text as its search starts or ends (`PickerFieldMode.caretChange`).
+    func followModelMode(from before: PickerFieldMode) {
+        switch PickerFieldMode.caretChange(from: before, to: model.modelMode, fieldFocused: model.focusedField == .model) {
+        case .intoText:
+            focusNonces[.model, default: 0] += 1
+        case .outOfText:
+            sinkNonce += 1
+        case nil:
+            break
+        }
     }
 }
 
+/// new-session.svg: the path (with its directory dropdown), the title, the agent tabs, the model field
+/// with the effort segment at its end (and its model dropdown), and the prompt filling the rest, 20 apart.
 struct NewSessionRootView: View {
     @ObservedObject var state: NewSessionViewState
 
+    /// The user moved focus with a click.
     var onFocusChanged: (NewSessionField) -> Void
     var onPathChanged: () -> Void
+    var onModelChanged: () -> Void
+    var onSelectPath: (String) -> Void
+    var onSelectModel: (Int) -> Void
+    var onSelectAgent: (String) -> Void
+    var onCycleEffort: () -> Void
     var onCreate: () -> Void
     var onCancel: () -> Void
-    var onRefreshModels: () -> Void
 
-    @FocusState private var focusedField: NewSessionField?
-
-    private enum Metrics {
-        static let rowLabelWidth: CGFloat = 50
-        static let horizontalInset: CGFloat = 18
-        static let controlHeight: CGFloat = 36
-        static let selectWidth: CGFloat = 164
-        static let suggestionRows = 3
-        static let suggestionRowHeight: CGFloat = 24
-        static let suggestionHintHeight: CGFloat = 23
-    }
+    private static let spacing: CGFloat = 20
 
     var body: some View {
-        ModalSheetScaffold(
+        ModalFormSheet(
             title: "New Session",
-            footerText: footerText,
             errorMessage: state.model.errorMessage,
-            horizontalInset: Metrics.horizontalInset,
-            cancelLabel: "Cancel",
-            onCancel: onCancel,
             primaryLabel: "Summon",
+            canSubmit: state.model.canSubmit,
+            onCancel: onCancel,
             onPrimary: onCreate
         ) {
-            pathRow
-            textRow(label: "Title", placeholder: "optional, auto-generated if blank", text: titleBinding, field: .title)
-            selectRow(
-                label: "Agent",
-                field: .agent,
-                note: "the agent who answers the call",
-                title: AgentKind.displayName(for: state.model.selectedAgent),
-                swatchColor: nil
-            )
-            modelSelectRow
-            selectRow(
-                label: "Color",
-                field: .color,
-                note: "its banner in the tracker",
-                title: state.model.selectedColorLabel,
-                swatchColor: AppPalette.displayColorName(state.model.selectedColor)
-            )
-            promptRow
-        }
-        .onAppear {
-            applyFocus(state.focusRequest)
-        }
-        .onChange(of: state.focusGeneration) { _, _ in
-            applyFocus(state.focusRequest)
-        }
-        .onChange(of: state.model.focusedField) { _, next in
-            applyFocus(next)
-        }
-        .onChange(of: focusedField) { _, next in
-            guard let next, state.model.focusedField != next else {
-                return
+            VStack(spacing: Self.spacing) {
+                pathField
+                    .zIndex(2)
+                textField(.title, placeholder: "Title (optional)...", text: Binding(get: { state.model.title }, set: { state.model.title = $0 }))
+                agentTabs
+                modelField
+                    .zIndex(1)
+                promptBox
             }
-            state.model.focusedField = next
-            onFocusChanged(next)
+            .background(FocusSink(nonce: state.sinkNonce))
         }
     }
 
-    private var modelSelectRow: some View {
-        ModalSelectRow(
-            label: "Model",
-            labelWidth: Metrics.rowLabelWidth,
-            title: state.model.selectedModelOption?.label ?? "Not configured",
-            note: modelNote,
-            swatchColor: nil,
-            focused: state.model.focusedField == .model,
-            disabled: state.model.submitting,
-            controlWidth: Metrics.selectWidth,
-            horizontalInset: Metrics.horizontalInset,
-            spacing: Metrics.horizontalInset,
-            onSelect: { focus(.model) },
-            accessory: { AnyView(refreshModelsButton) },
-            subtext: { AnyView(effortSubtextRow) }
-        )
-    }
-
-    private var refreshModelsButton: some View {
-        ChromeIconButton(
-            symbolName: "arrow.clockwise",
-            accessibilityLabel: "Refresh models",
-            tooltip: "Refetch the model list  r",
-            action: onRefreshModels
-        )
-        .disabled(state.model.submitting || state.isRefreshingModels)
-        .opacity(state.isRefreshingModels ? 0.5 : 1)
-    }
-
-    /// The reasoning-effort level hangs off the Model row the same way a
-    /// worker hangs off its master in the tracker — reusing that connector
-    /// marker (and the same line color) makes the relationship legible at a
-    /// glance instead of needing a label like "Effort:" to spell it out. Only
-    /// the connector picks up the control's own focused/brass color, the same
-    /// way its border does — the value's own color stays put, so it doesn't
-    /// compete with the note beside the control for the "this is focused"
-    /// signal.
-    ///
-    /// Indented past the control's own corner radius: flush against the
-    /// literal left edge, the connector's top would land against the curved
-    /// part of the control's border instead of the straight part, reading as
-    /// a gap even at zero spacing. The stub's height (not VStack spacing,
-    /// which stays 0 so the connector keeps touching the control) is what
-    /// pushes the value further from the control.
-    private var effortSubtextRow: some View {
-        let focused = state.model.focusedField == .model
-        let connectorColor = (focused ? AppPalette.brassActive : AppPalette.line).swiftUI
-        return HStack(alignment: .effortMarker, spacing: 6) {
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(connectorColor)
-                    .frame(width: Token.Size.divider, height: 12)
-                DiamondShape()
-                    .fill(connectorColor)
-                    .frame(
-                        width: EffortConnectorMarker.side,
-                        height: EffortConnectorMarker.side
-                    )
-                    .alignmentGuide(.effortMarker) { $0[VerticalAlignment.center] }
-            }
-            Text(state.model.selectedEffortOption?.label ?? "Not configured")
-                .font(AppFonts.modalHelperLarge.swiftUI)
-                .foregroundStyle(AppPalette.dim.swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .alignmentGuide(.effortMarker) { $0[VerticalAlignment.center] }
-        }
-        .padding(.leading, Token.Radius.control + 3)
-    }
-
-    private var pathRow: some View {
-        formRow(label: "Path", topAligned: true) {
-            styledTextField(placeholder: "/path/to/project", text: pathBinding, field: .path)
-                .overlay(alignment: .top) {
-                    suggestionsView
-                        .padding(.top, Metrics.controlHeight + 6)
-                }
-        }
-        .zIndex(1)
-    }
-
-    private var promptRow: some View {
-        formRow(label: "Prompt", topAligned: true, fill: true) {
-            ModalPromptEditor(
-                text: promptBinding,
-                placeholder: "the first task you set the agent — optional",
-                isEditable: !state.model.submitting,
-                isFocused: state.model.focusedField == .prompt,
-                createKey: Keymap.NewSession.create,
-                onFocus: {
-                    focus(.prompt)
-                },
-                onCreate: {
-                    guard !state.model.submitting else {
-                        return
-                    }
-                    onCreate()
-                }
-            )
-            .frame(minHeight: 76, maxHeight: .infinity)
-            .background(AppPalette.panelAlt.swiftUI)
-            .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
-            .focusedControlBorder(focused: state.model.focusedField == .prompt)
-        }
-    }
-
-    private var suggestionsView: some View {
-        let visibleSuggestions = Array(state.pathSuggestions.prefix(Metrics.suggestionRows))
-        return Group {
-            if state.model.focusedField == .path, !visibleSuggestions.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(Array(visibleSuggestions.enumerated()), id: \.offset) { index, suggestion in
-                        suggestionRow(
-                            text: suggestion,
-                            highlighted: index == state.highlightedSuggestionIndex,
-                            height: Metrics.suggestionRowHeight,
-                            truncation: .middle
-                        )
-                    }
-                    suggestionHint
-                }
-                .frame(maxWidth: .infinity)
-                .background(AppPalette.panelAlt.swiftUI)
-                .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Token.Radius.control)
-                        .stroke(AppPalette.line.swiftUI, lineWidth: 1)
-                )
-            }
-        }
-    }
-
-    private var suggestionHint: some View {
-        Text("zoxide-ranked · tab to complete · ^r for recents")
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.dim.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, minHeight: Metrics.suggestionHintHeight, maxHeight: Metrics.suggestionHintHeight, alignment: .leading)
-            .padding(.horizontal, Token.Spacing.element)
-            .background(AppPalette.panelAlt.swiftUI)
-    }
-
-    private func suggestionRow(
-        text: String,
-        highlighted: Bool,
-        height: CGFloat,
-        truncation: Text.TruncationMode
-    ) -> some View {
-        Text(text)
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle((highlighted ? AppPalette.bright : AppPalette.muted).swiftUI)
-            .lineLimit(1)
-            .truncationMode(truncation)
-            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .leading)
-            .padding(.horizontal, Token.Spacing.element)
-            .background((highlighted ? AppPalette.selection : AppPalette.panelAlt).swiftUI)
-    }
-
-    private var footerText: String {
-        state.model.submitting ? "Creating session…" : ""
-    }
-
-    /// The model row's hint: the title already shows the selected model id,
-    /// so this only needs to say what kind of value it is — that nothing is
-    /// configured for this agent's master role and the harness decides on its own, or the
-    /// selected model's own annotation (vendor name or "recent") once one is
-    /// picked. The `r`/`e` shortcuts are surfaced only while the row itself
-    /// is focused, where they're actually live.
-    private var modelNote: String {
-        let base: String
-        if let option = state.model.selectedModelOption {
-            base = option.note.isEmpty ? "passed to the harness as-is" : option.note
-        } else {
-            base = "uses whatever Settings has configured for this role"
-        }
-        guard state.model.focusedField == .model else {
-            return base
-        }
-        return state.isRefreshingModels ? "\(base) · refreshing…" : "\(base) · r refresh · e effort"
-    }
-
-    private func textRow(label: String, placeholder: String, text: Binding<String>, field: NewSessionField) -> some View {
-        formRow(label: label) {
-            styledTextField(placeholder: placeholder, text: text, field: field)
-        }
-    }
-
-    private func selectRow(
-        label: String,
-        field: NewSessionField,
-        note: String,
-        title: String,
-        swatchColor: NSColor?
-    ) -> some View {
-        ModalSelectRow(
-            label: label,
-            labelWidth: Metrics.rowLabelWidth,
-            title: title,
-            note: note,
-            swatchColor: swatchColor,
-            focused: state.model.focusedField == field,
-            disabled: state.model.submitting,
-            controlWidth: Metrics.selectWidth,
-            horizontalInset: Metrics.horizontalInset,
-            spacing: Metrics.horizontalInset,
-            onSelect: { focus(field) }
-        )
-    }
-
-    private func formRow<Content: View>(
-        label: String,
-        topAligned: Bool = false,
-        fill: Bool = false,
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        ModalFormRow(
-            label: label,
-            labelWidth: Metrics.rowLabelWidth,
-            horizontalInset: Metrics.horizontalInset,
-            spacing: Metrics.horizontalInset,
-            topAligned: topAligned,
-            fill: fill,
-            content: content
-        )
-    }
-
-    private func styledTextField(
-        placeholder: String,
-        text: Binding<String>,
-        field: NewSessionField
-    ) -> some View {
-        TextField(placeholder, text: text)
-            .styledTextField(focused: state.model.focusedField == field, height: Metrics.controlHeight)
-            .focused($focusedField, equals: field)
-            .disabled(state.model.submitting)
-            .onSubmit {
-                guard state.model.creationRequested(by: .enter) else {
-                    return
-                }
-                onCreate()
-            }
-    }
-
-    private var pathBinding: Binding<String> {
-        Binding(
+    private var pathField: some View {
+        textField(.path, placeholder: "Path to project...", text: Binding(
             get: { state.model.path },
-            set: { value in
-                state.model.path = value
+            set: {
+                state.model.path = $0
                 onPathChanged()
             }
+        ))
+        .suggestionDropdown(state.showsPathSuggestions ? SuggestionDropdown(
+            rows: state.paths.items,
+            highlightedIndex: state.paths.highlightedIndex,
+            onSelect: { onSelectPath(state.paths.items[$0]) }
+        ) : nil)
+    }
+
+    private var agentTabs: some View {
+        PillTabRow(
+            tabs: state.model.agents.map { .agent($0) },
+            selectedID: state.model.selectedAgent,
+            focused: state.model.focusedField == .agent,
+            onSelect: onSelectAgent
         )
     }
 
-    private var titleBinding: Binding<String> {
-        Binding(
-            get: { state.model.title },
-            set: { value in
-                state.model.title = value
+    private var modelField: some View {
+        let model = state.model
+        return FormTextField(
+            text: Binding(
+                get: { state.model.modelText },
+                set: {
+                    state.model.typeModel($0)
+                    onModelChanged()
+                }
+            ),
+            placeholder: "Default model...",
+            focusNonce: state.focusNonces[.model, default: 0],
+            focused: model.focusedField == .model,
+            onFocusChanged: { editing in
+                // A click into the text: focus the field, and the click's caret starts a search.
+                guard editing, !state.model.submitting else {
+                    return
+                }
+                focusedByClick(.model, true)
+                if state.model.modelMode == .select {
+                    state.model.startModelSearch(.editCurrent)
+                }
             }
-        )
+        ) {
+            effortSegment
+        }
+        .suggestionDropdown(model.showsModelSuggestions ? SuggestionDropdown(
+            rows: model.modelSuggestions.map(\.label),
+            highlightedIndex: model.visibleModelHighlightIndex,
+            onSelect: onSelectModel
+        ) : nil)
     }
 
-    private var promptBinding: Binding<String> {
-        Binding(
-            get: { state.model.prompt },
-            set: { value in
-                state.model.prompt = value
+    /// "| level" at the model field's end: the level ids as the app has always shown them. A click, e in
+    /// SELECT or ⌃e cycles it; it is no focus stop. A model without levels shows "default", inert.
+    private var effortSegment: some View {
+        let model = state.model
+        let color = model.hasEffortLevels ? AppPalette.questLogFilterHint : AppPalette.fieldInert
+        return HStack(spacing: FormFieldMetrics.segmentSpacing) {
+            Rectangle()
+                .fill(AppPalette.line.swiftUI)
+                .frame(width: Token.Size.divider, height: FormFieldMetrics.segmentDividerHeight)
+                .frame(maxHeight: .infinity)
+            BaselineText(model.effortLabel, font: AppFonts.questLogBody, color: color, baseline: FormFieldMetrics.baseline)
+        }
+        .padding(.trailing, FormFieldMetrics.segmentTrailing)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard model.hasEffortLevels else {
+                return
             }
+            onCycleEffort()
+        }
+        .accessibilityLabel("Reasoning effort \(model.effortLabel)")
+    }
+
+    private var promptBox: some View {
+        ModalPromptEditor(
+            text: Binding(get: { state.model.prompt }, set: { state.model.prompt = $0 }),
+            placeholder: "Starting prompt for the agent...",
+            isEditable: !state.model.submitting,
+            isFocused: state.model.focusedField == .prompt,
+            createKey: Keymap.NewSession.create,
+            onFocus: { focusedByClick(.prompt, true) },
+            onCreate: onCreate
+        )
+        .clipShape(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
+        .fieldChrome(focused: state.model.focusedField == .prompt)
+        .frame(maxHeight: .infinity)
+    }
+
+    private func textField(_ field: NewSessionField, placeholder: String, text: Binding<String>) -> FormTextField<EmptyView> {
+        FormTextField(
+            text: text,
+            placeholder: placeholder,
+            focusNonce: state.focusNonces[field, default: 0],
+            focused: state.model.focusedField == field,
+            onFocusChanged: { focusedByClick(field, $0) }
         )
     }
 
-    private func focus(_ field: NewSessionField) {
-        guard !state.model.submitting else {
+    private func focusedByClick(_ field: NewSessionField, _ focused: Bool) {
+        guard focused, state.model.focusedField != field, !state.model.submitting else {
             return
         }
-        state.requestFocus(field)
+        state.model.focusedField = field
         onFocusChanged(field)
     }
-
-    private func applyFocus(_ field: NewSessionField) {
-        switch field {
-        case .path, .title:
-            focusedField = field
-        case .agent, .model, .color, .prompt:
-            focusedField = nil
-        }
-    }
-}
-
-/// Aligns the effort connector's marker (not the taller stub-plus-marker
-/// column above it) with the vertical center of the effort text beside it.
-private struct EffortMarkerAlignment: AlignmentID {
-    static func defaultValue(in context: ViewDimensions) -> CGFloat {
-        context[VerticalAlignment.center]
-    }
-}
-
-private extension VerticalAlignment {
-    static let effortMarker = VerticalAlignment(EffortMarkerAlignment.self)
-}
-
-/// The small diamond where the effort connector meets its value, marking that the
-/// value hangs off the Model row above it.
-private enum EffortConnectorMarker {
-    static let side: CGFloat = 5.2
 }

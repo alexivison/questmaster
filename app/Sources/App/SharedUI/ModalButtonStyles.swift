@@ -43,7 +43,6 @@ private enum AngledButtonMetrics {
     static let goldGradientOpacity = 0.4
     static let goldGradientShadow = 0.4
     static let pressedOpacity = 0.8
-    static let disabledOpacity = 0.5
 }
 
 private struct AngledButton: View {
@@ -61,7 +60,7 @@ private struct AngledButton: View {
     var body: some View {
         configuration.label
             .font(AppFonts.questLogButton.swiftUI)
-            .foregroundStyle(AppPalette.questLogRow.swiftUI)
+            .foregroundStyle((isEnabled ? AppPalette.questLogRow : AppPalette.item).swiftUI)
             .lineLimit(1)
             .fixedSize()
             .alignmentGuide(.top) { $0[.firstTextBaseline] - AngledButtonMetrics.baseline }
@@ -69,13 +68,23 @@ private struct AngledButton: View {
             .frame(minWidth: width ?? AngledButtonMetrics.minWidth, maxHeight: .infinity, alignment: .top)
             .frame(width: width, height: AngledButtonMetrics.height)
             .background(background)
-            .overlay(AngledButtonShape().stroke(AppPalette.line.swiftUI, lineWidth: AngledButtonMetrics.borderStrokeWidth))
+            .overlay(AngledButtonShape().stroke((isEnabled ? AppPalette.line : AppPalette.item).swiftUI, lineWidth: AngledButtonMetrics.borderStrokeWidth))
             .clipShape(AngledButtonShape())
             .contentShape(AngledButtonShape())
-            .opacity(isEnabled ? (configuration.isPressed ? AngledButtonMetrics.pressedOpacity : 1) : AngledButtonMetrics.disabledOpacity)
+            .opacity(configuration.isPressed ? AngledButtonMetrics.pressedOpacity : 1)
     }
 
+    /// Disabled, every fill goes dark: the window colour, with the border and label in the item grey
+    /// (new-session-init.svg's Summon before a path is typed).
     @ViewBuilder private var background: some View {
+        if !isEnabled {
+            AppPalette.window.swiftUI
+        } else {
+            enabledBackground
+        }
+    }
+
+    @ViewBuilder private var enabledBackground: some View {
         switch fill {
         case .gold:
             ZStack {

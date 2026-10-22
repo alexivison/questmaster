@@ -202,7 +202,26 @@ struct CommandTextField: NSViewRepresentable {
         }
     }
 
+    /// The field editor puts the text 1pt above where the resting cell draws it; placing the editor 1pt
+    /// lower keeps the text still as the field takes and loses focus.
+    final class KeyTextFieldCell: NSTextFieldCell {
+        static let editorDrop: CGFloat = 1
+
+        override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+            super.select(withFrame: rect.offsetBy(dx: 0, dy: Self.editorDrop), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+        }
+
+        override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+            super.edit(withFrame: rect.offsetBy(dx: 0, dy: Self.editorDrop), in: controlView, editor: textObj, delegate: delegate, event: event)
+        }
+    }
+
     final class KeyTextField: NSTextField {
+        override class var cellClass: AnyClass? {
+            get { KeyTextFieldCell.self }
+            set {}
+        }
+
         var onCommand: (UInt16) -> Bool = { _ in false }
         /// Whether this field's editor is the window's first responder, reported on every change: on a
         /// click, on "/", and when Esc or a click elsewhere takes focus away.
@@ -229,14 +248,16 @@ struct CommandTextField: NSViewRepresentable {
             onFirstResponderChange?(focused)
         }
 
-        /// At least the font's whole line (ascent + descent + leading): AppKit's own intrinsic height rounds it
-        /// down (14 for 11pt JetBrains Mono's 14.52), and the field editor clips descenders to the field.
+        /// At least the font's whole line (ascent + descent + leading) and the editor's drop: AppKit's own
+        /// intrinsic height rounds the line down (14 for 11pt JetBrains Mono's 14.52), and the field editor
+        /// clips descenders to the field.
         override var intrinsicContentSize: NSSize {
             let size = super.intrinsicContentSize
             guard let font else {
                 return size
             }
-            return NSSize(width: size.width, height: max(size.height, (font.ascender - font.descender + font.leading).rounded(.up)))
+            let line = font.ascender - font.descender + font.leading + KeyTextFieldCell.editorDrop
+            return NSSize(width: size.width, height: max(size.height, line.rounded(.up)))
         }
 
         override func keyDown(with event: NSEvent) {

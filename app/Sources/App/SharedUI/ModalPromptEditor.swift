@@ -2,6 +2,14 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
+/// The New Session prompt and New Quest content box (new-session.svg): 12pt text in the form fields'
+/// colours, its first baseline 20.5 down and 11 in, on the window fill.
+private enum ModalPromptEditorMetrics {
+    static let font = AppFonts.questLogBody
+    /// With the text container's 5pt line padding, the text starts 11 in.
+    static let inset = NSSize(width: 6, height: 8.25)
+}
+
 struct ModalPromptEditor: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String = ""
@@ -20,9 +28,9 @@ struct ModalPromptEditor: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = false
         scrollView.borderType = .noBorder
-        scrollView.backgroundColor = AppPalette.panelAlt
+        scrollView.backgroundColor = AppPalette.window
         scrollView.contentView.drawsBackground = true
-        scrollView.contentView.backgroundColor = AppPalette.panelAlt
+        scrollView.contentView.backgroundColor = AppPalette.window
 
         let textView = ModalPromptEditorTextView()
         textView.delegate = context.coordinator
@@ -31,11 +39,11 @@ struct ModalPromptEditor: NSViewRepresentable {
         textView.placeholder = placeholder
         textView.isRichText = false
         textView.importsGraphics = false
-        textView.font = AppFonts.monospaced(size: 13.5)
-        textView.textColor = AppPalette.text
-        textView.backgroundColor = AppPalette.panelAlt
+        textView.font = ModalPromptEditorMetrics.font
+        textView.textColor = AppPalette.questLogRow
+        textView.backgroundColor = AppPalette.window
         textView.insertionPointColor = AppPalette.accent
-        textView.textContainerInset = NSSize(width: 8, height: 7)
+        textView.textContainerInset = ModalPromptEditorMetrics.inset
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
@@ -105,16 +113,17 @@ private final class ModalPromptEditorTextView: NSTextView {
         guard string.isEmpty, !placeholder.isEmpty else {
             return
         }
-        let inset = textContainerInset
+        // Where the text's first glyph would sit.
+        let lead = textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0)
         let rect = NSRect(
-            x: inset.width + 2,
-            y: inset.height,
-            width: bounds.width - (inset.width + 2) * 2,
-            height: bounds.height - inset.height * 2
+            x: lead,
+            y: textContainerInset.height,
+            width: bounds.width - lead * 2,
+            height: bounds.height - textContainerInset.height * 2
         )
         (placeholder as NSString).draw(in: rect, withAttributes: [
-            .font: AppFonts.monospaced(size: 13.5, italic: true),
-            .foregroundColor: AppPalette.dim
+            .font: ModalPromptEditorMetrics.font,
+            .foregroundColor: AppPalette.questLogFilterHint
         ])
     }
 

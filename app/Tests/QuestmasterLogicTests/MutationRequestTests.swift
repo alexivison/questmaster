@@ -272,6 +272,10 @@ struct MutationRequestTests {
             expect(editData?["project_changed"] as? String == "true", "quest edit should mark project changed")
             expect(editData?["project_id"] as? String == "repo-b", "quest edit project id should be encoded")
 
+            let contentOnly = try ServeMutationRequests.questEdit(questID: "qst-1", payload: NewQuestSubmitPayload(content: "Updated", projectChanged: false))
+            let contentOnlyData = contentOnly.jsonObject(id: "quest-content")["data"] as? NSDictionary
+            expect(contentOnlyData?["project_changed"] == nil && contentOnlyData?["project_id"] == nil, "an unchanged project should send content only")
+
             let clear = try ServeMutationRequests.questEdit(questID: "qst-1", payload: NewQuestSubmitPayload(content: "Updated"))
             let clearData = clear.jsonObject(id: "quest-clear")["data"] as? NSDictionary
             expect(clearData?["project_changed"] as? String == "true", "quest clear should mark project changed")
