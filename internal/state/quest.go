@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/alexivison/questmaster/internal/repo"
 )
 
 type Quest struct {
@@ -22,6 +24,34 @@ type Quest struct {
 	CreatedAt   string `json:"created_at,omitempty"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
 	SessionID   string `json:"session_id,omitempty"`
+}
+
+// ResolveQuestProject gives a quest's project for a path, the way `quest add --project` does: a leading
+// "~/" expands to the home directory, the path is made absolute, and its git repo supplies the id and
+// name. A path outside any repo is an error when strict and an empty project otherwise.
+func ResolveQuestProject(path string, strict bool) (id, absPath, name string, err error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", "", "", nil
+	}
+	expanded := path
+	if strings.HasPrefix(expanded, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			expanded = filepath.Join(home, expanded[2:])
+		}
+	}
+	abs, err := filepath.Abs(expanded)
+	if err != nil {
+		return "", "", "", err
+	}
+	r, ok := repo.Resolve(abs)
+	if !ok {
+		if strict {
+			return "", "", "", fmt.Errorf("project path is not in a git repo: %s", path)
+		}
+		return "", "", "", nil
+	}
+	return r.Identity, filepath.Clean(abs), r.Name, nil
 }
 
 type questRegistry struct {

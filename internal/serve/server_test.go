@@ -1142,6 +1142,60 @@ func TestQuestEditMutationUpdatesAndClearsProject(t *testing.T) {
 	}
 }
 
+func TestQuestMutationsResolveAProjectSentAsAPathOnly(t *testing.T) {
+	t.Parallel()
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	root := filepath.Join(t.TempDir(), "realm")
+	sub := filepath.Join(root, "app")
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("git dir: %v", err)
+	}
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("sub dir: %v", err)
+	}
+	wantID, wantPath, wantName, err := state.ResolveQuestProject(sub, true)
+	if err != nil || wantID == "" || wantName != "realm" || wantPath != sub {
+		t.Fatalf("resolve %s = %q %q %q, %v", sub, wantID, wantPath, wantName, err)
+	}
+	server := &Server{Snapshotter: &Snapshotter{store: store}}
+
+	addData, _ := json.Marshal(map[string]string{"content": "Typed path", "project_path": sub})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.add", Data: addData}); err != nil {
+		t.Fatalf("add quest: %v", err)
+	}
+	quests, err := state.LoadQuestsAt(store.Root())
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ProjectID != wantID || quests[0].ProjectPath != wantPath || quests[0].ProjectName != wantName {
+		t.Fatalf("added quest = %#v, want the CLI's project %q %q %q", quests, wantID, wantPath, wantName)
+	}
+
+	other := filepath.Join(t.TempDir(), "other")
+	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o755); err != nil {
+		t.Fatalf("other git dir: %v", err)
+	}
+	editData, _ := json.Marshal(map[string]string{"quest_id": quests[0].ID, "content": "Typed path", "project_changed": "true", "project_path": other})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: editData}); err != nil {
+		t.Fatalf("edit quest: %v", err)
+	}
+	quests, err = state.LoadQuestsAt(store.Root())
+	if err != nil {
+		t.Fatalf("load edited quests: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ProjectName != "other" || quests[0].ProjectPath != other || quests[0].ProjectID == wantID {
+		t.Fatalf("edited quest = %#v, want the other repo", quests)
+	}
+
+	outside, _ := json.Marshal(map[string]string{"content": "Nowhere", "project_path": t.TempDir()})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.add", Data: outside}); err == nil || !strings.Contains(err.Error(), "not in a git repo") {
+		t.Fatalf("add outside a repo: err = %v, want not in a git repo", err)
+	}
+}
+
 func TestArtifactDeleteMutationRemovesSessionAndGlobalArtifacts(t *testing.T) {
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
