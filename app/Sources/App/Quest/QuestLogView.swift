@@ -23,7 +23,7 @@ private enum QuestLogMetrics {
     /// The text field sits 1.5 further right than the HStack spacing puts it and `filterFieldDrop` above
     /// centre, which lands its text where the design's placeholder is.
     static let filterFieldLead: CGFloat = 1.5
-    static let filterFieldDrop: CGFloat = 1.75
+    static let filterFieldDrop: CGFloat = 1.25
     /// List column, straight under the field: x 30-387. A section title's baseline sits 21 below the previous
     /// box (the field or the last row) and 9 above its first row; rows are 26 high, 5 apart (a 31pt pitch),
     /// with the text baseline 17 down and 10 in.
@@ -215,9 +215,7 @@ private struct QuestLogFilterField: View {
         }
         .padding(.horizontal, QuestLogMetrics.filterInset)
         .frame(height: QuestLogMetrics.filterHeight)
-        .background(RoundedRectangle(cornerRadius: QuestLogMetrics.filterCornerRadius).fill(AppPalette.window.swiftUI))
-        // Focused: the border lifts to controlBorder. Colour only: no ornaments, glow or size change.
-        .overlay(RoundedRectangle(cornerRadius: QuestLogMetrics.filterCornerRadius).strokeBorder((showsFocus ? AppPalette.controlBorder : AppPalette.line).swiftUI, lineWidth: Token.Size.divider))
+        .fieldChrome(focused: showsFocus, cornerRadius: QuestLogMetrics.filterCornerRadius)
         .overlay(alignment: .topLeading) {
             if showsFocus && !filter.suggestions.isEmpty {
                 FilterSuggestionList(
@@ -604,29 +602,6 @@ private struct SVGShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         path.offsetBy(dx: rect.minX, dy: rect.minY)
-    }
-}
-
-/// Text whose first baseline sits `baseline` below the top of its frame.
-private struct BaselineText: View {
-    let text: String
-    let font: NSFont
-    let color: NSColor
-    let baseline: CGFloat
-
-    init(_ text: String, font: NSFont, color: NSColor, baseline: CGFloat) {
-        self.text = text
-        self.font = font
-        self.color = color
-        self.baseline = baseline
-    }
-
-    var body: some View {
-        Text(text)
-            .font(font.swiftUI)
-            .foregroundStyle(color.swiftUI)
-            .alignmentGuide(.top) { $0[.firstTextBaseline] - baseline }
-            .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 

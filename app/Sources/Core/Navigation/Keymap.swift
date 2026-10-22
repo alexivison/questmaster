@@ -173,7 +173,7 @@ public enum Keymap {
     }
 
     public enum NewSession {
-        public static let defaultFooterText = "⏎ create · ⌥k field · ←→ select · r refresh model · e effort · tab complete · esc cancel"
+        public static let defaultFooterText = "⏎ create · tab/⌃j field · ←→ agent · type to search · e/⌃e effort · ⌃r refresh models · ↑↓ suggestion · esc cancel"
         public static let promptFooterText = "⏎/^s create · ⇧⏎ newline · ⌥k field · esc cancel"
 
         public static let cancel = KeyCodeBinding(keyCodes: [53])
@@ -187,12 +187,13 @@ public enum Keymap {
         public static let selectRight = KeyCodeBinding(keyCodes: [124])
         public static let selectLeftCharacter = CharacterBinding(keys: ["h"])
         public static let selectRightCharacter = CharacterBinding(keys: ["l"])
-        /// Refetches the model list while the Model select is focused. Plain
-        /// `r` (no modifier), distinct from ^r which recents-completes the path.
-        public static let refreshModels = CharacterBinding(keys: ["r"])
-        /// Cycles the reasoning-effort sub-text while the Model select is
-        /// focused. Effort has no row of its own.
+        /// Cycles the reasoning effort in the model field's SELECT state, where an e can't be typed.
         public static let cycleReasoningEffort = CharacterBinding(keys: ["e"])
+        /// ⌃e: cycles the reasoning effort in either state of the model field (⌥e is the accent dead key
+        /// on US layouts). It takes over the field's move-to-end-of-line; End and ⌘→ still do that.
+        public static let cycleReasoningEffortInModel = KeyCodeBinding(keyCodes: [14], modifiers: [.control])
+        /// ⌃r in the model field: refetch the models past the catalog cache.
+        public static let refreshModels = KeyCodeBinding(keyCodes: [15], modifiers: [.control])
         public static let suggestionUp = KeyCodeBinding(keyCodes: [126])
         public static let suggestionDown = KeyCodeBinding(keyCodes: [125])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])
@@ -220,6 +221,20 @@ public enum Keymap {
         public static let pageDown = KeyCodeBinding(keyCodes: [121])
         public static let halfPageUp = CharacterBinding(keys: ["u"], modifiers: [.control])
         public static let halfPageDown = CharacterBinding(keys: ["d"], modifiers: [.control])
+    }
+
+    /// The picker fields' SELECT state (`PickerFieldMode`): Backspace and Return start editing the current
+    /// text; Tab, Esc and the arrows are never text.
+    public enum PickerField {
+        public static let editCurrent = KeyCodeBinding(keyCodes: [51, 36, 76])
+        public static let notText = KeyCodeBinding(keyCodes: [48, 53, 123, 124, 125, 126])
+    }
+
+    /// The colour input: ⌥←/⌥→ cycle the colours in both states (while searching they take over the text
+    /// field's move-by-word, which a one-word colour name has no use for); plain ←/→ cycle in SELECT.
+    public enum ColorField {
+        public static let cyclePrevious = KeyCodeBinding(keyCodes: [123], modifiers: [.option])
+        public static let cycleNext = KeyCodeBinding(keyCodes: [124], modifiers: [.option])
     }
 
     public enum Settings {

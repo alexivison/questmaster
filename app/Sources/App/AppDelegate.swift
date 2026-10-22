@@ -792,12 +792,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let selectedSession = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
             .first { $0.id == runtimeStore.currentTerminalSessionID }
-        let selectedProjectID = selectedSession?.repoIdentity ?? ""
         newQuestPresenter.present(
-            projects: newQuestProjectOptions(),
-            selectedProjectID: selectedProjectID,
+            projects: questProjectOptions(),
+            initialProject: questProject(id: selectedSession?.repoIdentity ?? ""),
             sessionID: runtimeStore.currentTerminalSessionID,
             mutationClient: mutationClient,
+            directoryClient: directorySuggestionClient,
             onSuccess: { [weak self] in
                 self?.toastPresenter.show(Self.questToastMessage(verb: "Created", count: 1))
             }
@@ -947,43 +947,43 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             renderSnapshot()
             return
         }
+        let ownProject = quest.projectPath.isEmpty
+            ? nil
+            : NewQuestProjectOption(projectID: quest.projectID, projectPath: quest.projectPath, projectName: quest.projectName)
         newQuestPresenter.present(
-            projects: newQuestProjectOptions(),
-            selectedProjectID: quest.projectID,
+            projects: questProjectOptions(),
+            initialProject: ownProject ?? questProject(id: quest.projectID),
             initialContent: quest.content,
             questID: quest.id,
             sessionID: runtimeStore.currentTerminalSessionID,
             mutationClient: mutationClient,
+            directoryClient: directorySuggestionClient,
             onSuccess: {}
         )
     }
 
-    private func newQuestProjectOptions() -> [NewQuestProjectOption] {
-        var options = [NewQuestProjectOption(projectID: "", projectPath: "", projectName: "No project")]
-        var seen = Set([""])
-        let tracker = runtimeStore.snapshot.tracker
+    /// The tracker's project, repo, or quest project with this id: the quest form's opening project.
+    private func questProject(id: String) -> NewQuestProjectOption? {
+        guard !id.isEmpty, id != "ungrouped" else {
+            return nil
+        }
+        return questProjectOptions().first { $0.projectID == id }
+    }
 
-        for project in tracker.projects {
-            guard !project.id.isEmpty, project.id != "ungrouped", seen.insert(project.id).inserted else {
-                continue
+    /// Every project the app knows, for the quest form's search: the tracker's projects and repos, then
+    /// the projects existing quests belong to, one per path.
+    private func questProjectOptions() -> [NewQuestProjectOption] {
+        let tracker = runtimeStore.snapshot.tracker
+        let projects = tracker.projects
+            .filter { $0.id != "ungrouped" }
+            .map { NewQuestProjectOption(projectID: $0.id, projectPath: $0.path, projectName: $0.name) }
+        let repos = tracker.repos
+            .filter { $0.id != "ungrouped" }
+            .map { repo in
+                NewQuestProjectOption(projectID: repo.id, projectPath: repo.path.isEmpty ? repo.sessions.first?.worktreePath ?? "" : repo.path, projectName: repo.name)
             }
-            options.append(NewQuestProjectOption(projectID: project.id, projectPath: project.path, projectName: project.name))
-        }
-        for repo in tracker.repos {
-            guard !repo.id.isEmpty, repo.id != "ungrouped", seen.insert(repo.id).inserted else {
-                continue
-            }
-            let path = repo.path.isEmpty ? repo.sessions.first?.worktreePath ?? "" : repo.path
-            options.append(NewQuestProjectOption(projectID: repo.id, projectPath: path, projectName: repo.name))
-        }
-        for quest in tracker.quests {
-            guard !quest.projectID.isEmpty, seen.insert(quest.projectID).inserted else {
-                continue
-            }
-            let name = quest.projectName.isEmpty ? URL(fileURLWithPath: quest.projectPath).lastPathComponent : quest.projectName
-            options.append(NewQuestProjectOption(projectID: quest.projectID, projectPath: quest.projectPath, projectName: name.isEmpty ? quest.projectID : name))
-        }
-        return options
+        let quests = tracker.quests.map { NewQuestProjectOption(projectID: $0.projectID, projectPath: $0.projectPath, projectName: $0.projectName) }
+        return NewQuestProjectOption.deduplicated(projects + repos + quests)
     }
 
 }

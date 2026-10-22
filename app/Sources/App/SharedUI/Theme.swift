@@ -78,6 +78,16 @@ enum AppPalette {
     static let questLogRowSelected = NSColor(hex: 0xe6edf3)
     /// "Send forth" is gold; "Abandon" is an angular red from deep to bright.
     static let questLogButtonGold = NSColor(hex: 0xa27c2f)
+    /// The pill tabs' Codex and OpenCode marks (Claude's and Pi's keep their own colours).
+    static let agentMarkTint = NSColor(hex: 0xb8b8b8)
+    /// The model field's effort segment when the model reports no levels: shown, but inert.
+    static let fieldInert = NSColor(hex: 0x6f757c)
+    /// Settings (settings-models.svg): section titles, labels and values; descriptions; the compact picker.
+    static let settingsText = NSColor(hex: 0xffffff)
+    static let settingsDescription = NSColor(hex: 0x69737c)
+    static let settingsPickerFill = NSColor(hex: 0x1a1e23)
+    static let settingsPickerBorder = NSColor(hex: 0x3b3e41)
+    static let settingsPickerChevron = NSColor(hex: 0xa2b2bf)
     static let questLogButtonDangerDeep = NSColor(hex: 0x703835)
     static let questLogButtonDanger = NSColor(hex: 0xb34640)
     /// The user's parchment colours: paper, its shade, the fold browns and the highlights.
@@ -233,9 +243,6 @@ enum AppFonts {
     static let modalLabel = monospaced(size: 10, weight: .semibold)
     /// Italic flavor/helper text next to modal fields.
     static let modalHelper = monospaced(size: 11.5, italic: true)
-    /// The Model row's effort sub-text — a touch larger than modalHelper
-    /// since it stands alone on its own line rather than trailing a control.
-    static let modalHelperLarge = monospaced(size: 13, italic: true)
     /// Card-style list row titles (Tracker sessions, quests, artifacts).
     static let itemTitle = monospaced(size: 12.5, weight: .semibold)
     /// Artifact row titles; tracker titles keep `itemTitle`.
@@ -247,7 +254,9 @@ enum AppFonts {
     static let sectionTitle = monospaced(size: 11, weight: .semibold)
     /// The Settings sheet's per-role group titles (Master/Worker) —
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
-    static let settingsSectionTitle = monospaced(size: 14.5, weight: .semibold)
+    static let settingsSectionTitle = monospaced(size: 15, weight: .bold)
+    static let settingsLabel = monospaced(size: 11)
+    static let settingsDescription = monospaced(size: 10)
 
     /// Worker chat lines at the design's 12pt.
     static let chat = monospaced(size: 12)
@@ -271,6 +280,8 @@ enum AppFonts {
     static let questLogRowSelected = monospaced(size: 12, weight: .bold)
     static let questLogTitle = monospaced(size: 14, weight: .bold)
     static let questLogButton = monospaced(size: 12, weight: .bold)
+    /// The pill tabs' labels.
+    static let pillTab = monospaced(size: 10)
 }
 
 extension NSColor {
