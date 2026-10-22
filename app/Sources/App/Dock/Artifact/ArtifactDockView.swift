@@ -228,7 +228,7 @@ private extension ArtifactScope {
 /// title 10 past the tile on a baseline 18.5 down; a 1pt divider at y 25 from the tile to 41 short of the right
 /// edge; the project and date on a baseline 39.5 down, the date ending on the divider's end. The 20pt gutters on
 /// either side hold the pane's margin; in select mode the left one holds the mark.
-private struct ArtifactRow: View {
+struct ArtifactRow: View {
     var artifact: ArtifactReference
     var projectTitle: String
     var look: RowLook

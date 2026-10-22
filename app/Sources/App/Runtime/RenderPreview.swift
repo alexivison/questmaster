@@ -128,6 +128,7 @@ enum RenderPreview {
         renderView(artifactPaneView(highlight: 2, suggesting: true), size: pane, to: "\(outputDir)/artifact-pane.png")
         renderView(artifactPaneView(highlight: 4, focused: false), size: pane, to: "\(outputDir)/artifact-pane-unfocused.png")
         renderView(artifactPaneView(highlight: nil), size: pane, to: "\(outputDir)/artifact-pane-rest.png")
+        render(artifactHoverView(), size: CGSize(width: 400, height: 260), to: "\(outputDir)/artifact-hover.png")
         renderView(artifactPaneView(highlight: 1, marked: [0, 2], missing: [1, 3]), size: pane, to: "\(outputDir)/artifact-pane-marked.png")
         renderView(artifactPaneView(highlight: nil, empty: true), size: pane, to: "\(outputDir)/artifact-pane-empty.png")
         renderView(dockBarView(.viewer), size: CGSize(width: 480, height: 200), to: "\(outputDir)/dock-viewer.png")
@@ -169,6 +170,34 @@ enum RenderPreview {
     /// The artifact pane as artifacts.svg draws it (480 x 1015): the All tab, a "@project questmaster" chip, eleven
     /// rows with `highlight` the cursor; `suggesting` focuses the filter with its dropdown open; `marked` rows are
     /// in the delete selection and `missing` ones lost their file; `empty` shows the Session tab with nothing in it.
+    @MainActor
+    /// Artifact rows at rest, under the pointer, on the keyboard cursor, and a missing file under the pointer. The
+    /// hover look is passed in, as `stateRow` would draw it.
+    private static func artifactHoverView() -> some View {
+        let cases: [(String, RowLook, Bool)] = [
+            ("Rest", .rest, false),
+            ("Under the pointer", RowLook.rest.underPointer(true), false),
+            ("Keyboard cursor", .highlighted, false),
+            ("Missing, under the pointer", RowLook.rest.underPointer(true), true),
+        ]
+        return VStack(spacing: 5) {
+            ForEach(Array(cases.enumerated()), id: \.offset) { _, item in
+                ArtifactRow(
+                    artifact: ArtifactReference(kind: "html", path: "/tmp/\(item.0).html", label: item.0, addedAt: "2026-04-05", missing: item.2),
+                    projectTitle: "questmaster",
+                    look: item.1,
+                    marked: false,
+                    selectMode: false,
+                    onToggle: {},
+                    action: {}
+                )
+            }
+        }
+        .padding(.vertical, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(AppPalette.artifactListColumn.swiftUI)
+    }
+
     @MainActor
     private static func artifactPaneView(
         highlight: Int?,

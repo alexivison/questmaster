@@ -105,6 +105,10 @@ struct InteractionLookTests {
             expect(look.missingFile.icon == .warn, "a missing file's icon should warn in every state")
             expect(look.missingFile.text == look.text && look.missingFile.fill == look.fill, "only the icon should change for a missing file")
         }
+        let hoveredMissing = RowLook.rest.missingFile.underPointer(true)
+        expect(hoveredMissing.fill == nil && hoveredMissing.outline == RowLook.hovered.outline && !hoveredMissing.bold,
+               "a missing file's resting row under the pointer shows the hover outline")
+        expect(hoveredMissing.icon == .warn, "and keeps its warning icon")
         expect(MarkLook.color(marked: true) == .accent, "a mark is the one gold")
         expect(MarkLook.color(marked: false) != .accent, "an unmarked row carries no gold")
     }
