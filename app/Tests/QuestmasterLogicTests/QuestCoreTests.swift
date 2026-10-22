@@ -12,6 +12,7 @@ struct QuestCoreTests {
         displayRecoversDeletedSelectionToPreviousQuest()
         questLogPageSplitsTitleAndKeepsBodyVerbatim()
         questLogPageFooterUsesProjectAndDay()
+        questLogFooterWrapsBetweenParts()
         questLogPageIsPlainWithoutABody()
         questLogStoreSyncsThroughTheFilter()
         questLogWrapsGreedilyWithoutPushingWordsDown()
@@ -52,11 +53,29 @@ struct QuestCoreTests {
     }
 
     private static func questLogPageFooterUsesProjectAndDay() {
-        let updated = QuestItem(id: "q", content: "T", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-09-08T10:00:00Z")
-        expect(QuestLogPage(quest: updated, project: "dotfiles").date == "2026/09/08", "footer should use the updated day")
-        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", createdAt: "2026-01-02T00:00:00Z"), project: "").date == "2026/01/02", "footer should fall back to the created day")
-        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", updatedAt: "soon"), project: "").date.isEmpty, "an unparseable timestamp should leave the date empty")
-        expect(QuestLogPage(quest: updated, project: "dotfiles").project == "dotfiles", "footer project mismatch")
+        let same = QuestItem(id: "q", content: "T", createdAt: "2026-09-08T09:00:00Z", updatedAt: "2026-09-08T10:00:00Z")
+        expect(
+            QuestLogPage(quest: same, project: "dotfiles").footerParts == ["dotfiles", "Created: 2026/09/08", "Updated: 2026/09/08"],
+            "both dates should show, even when equal: \(QuestLogPage(quest: same, project: "dotfiles").footerParts)"
+        )
+        let neverUpdated = QuestItem(id: "q", content: "T", createdAt: "2026-01-02T00:00:00Z")
+        expect(QuestLogPage(quest: neverUpdated, project: "dotfiles").footerParts == ["dotfiles", "Created: 2026/01/02"], "without an updated time only the created part should show")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", updatedAt: "2026-03-04T00:00:00Z"), project: "p").footerParts == ["p", "Updated: 2026/03/04"], "a missing created time is left out")
+        expect(QuestLogPage(quest: QuestItem(id: "q", content: "T", createdAt: "soon"), project: "p").footerParts == ["p"], "an unreadable timestamp should leave its date out")
+    }
+
+    private static func questLogFooterWrapsBetweenParts() {
+        let page = QuestLogPage(title: "T", body: "", project: "dotfiles", created: "2026/09/08", updated: "2026/09/08")
+        expect(page.footerLines(columns: 65, separatorColumns: 4) == [page.footerParts], "the footer should fit on one line at the page's width")
+        expect(
+            page.footerLines(columns: 32, separatorColumns: 4) == [["dotfiles", "Created: 2026/09/08"], ["Updated: 2026/09/08"]],
+            "parts should move to the next line whole, without a leading diamond: \(page.footerLines(columns: 32, separatorColumns: 4))"
+        )
+        let long = QuestLogPage(title: "T", body: "", project: "a very long project name indeed", created: "2026/09/08", updated: "")
+        expect(
+            long.footerLines(columns: 20, separatorColumns: 4) == [["a very long project"], ["name indeed"], ["Created: 2026/09/08"]],
+            "a project longer than a line should wrap like the description, without truncation: \(long.footerLines(columns: 20, separatorColumns: 4))"
+        )
     }
 
     private static func questLogPageIsPlainWithoutABody() {

@@ -3,7 +3,7 @@ import Observation
 
 /// What the Quest Log's page shows for a quest: the content's first line is the title and the rest is the
 /// description, kept verbatim (blank lines and typed "- " bullets included). The footer reads
-/// "project ◆ YYYY/MM/DD".
+/// "project ◆ Created: YYYY/MM/DD ◆ Updated: YYYY/MM/DD".
 public struct QuestLogPage: Equatable {
     /// A quest with a description gets the bold title between vines; a quest that is only its first line
     /// shows that line as plain text.
@@ -15,17 +15,27 @@ public struct QuestLogPage: Equatable {
     public var title: String
     public var body: String
     public var project: String
-    public var date: String
+    /// "YYYY/MM/DD", or "" when the timestamp is missing or unreadable.
+    public var created: String
+    public var updated: String
 
     public var layout: Layout {
         body.isEmpty ? .plain : .titled
     }
 
-    public init(title: String, body: String, project: String, date: String) {
+    /// The footer's parts, a diamond between each: the project, then both dates (even when equal). A missing
+    /// date, or project, is left out.
+    public var footerParts: [String] {
+        [project, created.isEmpty ? "" : "Created: \(created)", updated.isEmpty ? "" : "Updated: \(updated)"]
+            .filter { !$0.isEmpty }
+    }
+
+    public init(title: String, body: String, project: String, created: String, updated: String) {
         self.title = title
         self.body = body
         self.project = project
-        self.date = date
+        self.created = created
+        self.updated = updated
     }
 
     public init(quest: QuestItem, project: String) {
@@ -37,7 +47,35 @@ public struct QuestLogPage: Equatable {
             .trimmingCharacters(in: .whitespaces)
         let rest = lines.dropFirst(firstLine + 1).drop { $0.trimmingCharacters(in: .whitespaces).isEmpty }
         let body = rest.joined(separator: "\n").replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
-        self.init(title: title, body: body, project: project, date: Self.day(quest.updatedAt.isEmpty ? quest.createdAt : quest.updatedAt))
+        self.init(title: title, body: body, project: project, created: Self.day(quest.createdAt), updated: Self.day(quest.updatedAt))
+    }
+
+    /// The footer's parts set greedily on lines of `columns` characters, a separator (the diamond and its
+    /// gaps) counting `separatorColumns`. Parts break only between parts; a part longer than a line wraps
+    /// like the description.
+    public func footerLines(columns: Int, separatorColumns: Int) -> [[String]] {
+        var lines: [[String]] = []
+        var current: [String] = []
+        var used = 0
+        for part in footerParts {
+            let needed = current.isEmpty ? part.count : used + separatorColumns + part.count
+            if needed <= columns || columns <= 0 {
+                current.append(part)
+                used = needed
+                continue
+            }
+            if !current.isEmpty {
+                lines.append(current)
+            }
+            let pieces = Self.wrapped(part, columns: columns).components(separatedBy: "\n")
+            lines.append(contentsOf: pieces.dropLast().map { [$0] })
+            current = [pieces.last ?? ""]
+            used = current[0].count
+        }
+        if !current.isEmpty {
+            lines.append(current)
+        }
+        return lines
     }
 
     /// Breaks monospaced text greedily at spaces so no line passes `columns` characters, the way the design

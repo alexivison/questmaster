@@ -67,7 +67,9 @@ private enum QuestLogMetrics {
         CGRect(x: 434.361, y: 28.5, width: 18.6394, height: 1),
     ]
     static let rule = CGRect(x: 22.946, y: 198, width: 427.845, height: 1)
-    /// Footer: the diamond starts 8.4 after the project and the date 8.1 after the diamond; its centre sits 3.5 above the baseline.
+    /// Footer: each diamond starts 8.4 after the part before it and the next part 8.1 after the diamond; its
+    /// centre sits 3.5 above the baseline. Wrapped lines sit on the 11pt pitch.
+    static let footerLinePitch: CGFloat = 15
     static let footerDiamondSize: CGFloat = 5.66
     static let footerDiamondLead: CGFloat = 8.4
     static let footerDateLead: CGFloat = 8.1
@@ -455,17 +457,25 @@ private struct QuestLogInk: View {
             .alignmentGuide(.lastTextBaseline) { _ in QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top }
     }
 
+    /// "project ◆ Created: … ◆ Updated: …", wrapped between parts when it doesn't fit (QuestLogPage.footerLines).
     private var footer: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Text(page.project)
-            if !page.date.isEmpty {
-                SVGShape(d: QuestLogArt.footerDiamond, origin: CGPoint(x: 101, y: 223.672))
-                    .fill(AppPalette.panel.swiftUI)
-                    .frame(width: QuestLogMetrics.footerDiamondSize, height: QuestLogMetrics.footerDiamondSize)
-                    .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + QuestLogMetrics.footerDiamondRaise }
-                    .padding(.leading, QuestLogMetrics.footerDiamondLead)
-                Text(page.date)
-                    .padding(.leading, QuestLogMetrics.footerDateLead)
+        let separatorColumns = Int((QuestLogMetrics.footerDiamondLead + QuestLogMetrics.footerDiamondSize + QuestLogMetrics.footerDateLead) / columnWidth(AppFonts.monoSmall)) + 1
+        let lines = page.footerLines(columns: columns(QuestLogMetrics.bodyWidth, AppFonts.monoSmall), separatorColumns: separatorColumns)
+        return VStack(alignment: .leading, spacing: QuestLogMetrics.footerLinePitch - naturalLineHeight(AppFonts.monoSmall)) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, parts in
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    ForEach(Array(parts.enumerated()), id: \.offset) { index, part in
+                        if index > 0 {
+                            SVGShape(d: QuestLogArt.footerDiamond, origin: CGPoint(x: 101, y: 223.672))
+                                .fill(AppPalette.panel.swiftUI)
+                                .frame(width: QuestLogMetrics.footerDiamondSize, height: QuestLogMetrics.footerDiamondSize)
+                                .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + QuestLogMetrics.footerDiamondRaise }
+                                .padding(.leading, QuestLogMetrics.footerDiamondLead)
+                        }
+                        Text(part)
+                            .padding(.leading, index > 0 ? QuestLogMetrics.footerDateLead : 0)
+                    }
+                }
             }
         }
         .font(AppFonts.monoSmall.swiftUI)
@@ -609,7 +619,12 @@ private struct BaselineColumn: Layout {
 
 /// How many characters of a monospaced `font` fit in `width`.
 private func columns(_ width: CGFloat, _ font: NSFont) -> Int {
-    Int(width / ("M" as NSString).size(withAttributes: [.font: font]).width)
+    Int(width / columnWidth(font))
+}
+
+/// One character's advance in a monospaced `font`.
+private func columnWidth(_ font: NSFont) -> CGFloat {
+    ("M" as NSString).size(withAttributes: [.font: font]).width
 }
 
 /// The line height SwiftUI sets a font on: its ascent and descent each rounded to whole points (measured
