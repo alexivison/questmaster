@@ -22,14 +22,21 @@ final class DockChromeModel {
     }
 }
 
-private func sideCardTopBarTitle(_ title: String) -> some View {
-    Text(title)
-        .font(AppFonts.dockTopBarTitle.swiftUI)
-        .textCase(.uppercase)
-        .tracking(1.6)
-        .foregroundStyle(AppPalette.accent.swiftUI)
+/// Every dock's title (Artifacts, Worker Chat, an open artifact's name): title case, in the one gold.
+private func dockTopBarTitle(_ title: String) -> some View {
+    BaselineText(title, font: AppFonts.dockTopBarTitle, color: AppPalette.accent, baseline: ShellMetrics.dockTopBarTitleBaseline)
         .lineLimit(1)
         .truncationMode(.tail)
+}
+
+private extension View {
+    /// Centres the bar's icon buttons on the line artifacts.svg draws them on. An offset, not padding: the buttons
+    /// would otherwise reach past the bar's bottom and make it taller.
+    func dockTopBarIcons() -> some View {
+        frame(height: ChromeMetrics.iconHeight)
+            .frame(maxHeight: .infinity)
+            .offset(y: ShellMetrics.dockTopBarIconCentre - ShellMetrics.dockTopBarHeight / 2)
+    }
 }
 
 struct DockTopBar: View {
@@ -48,8 +55,7 @@ struct DockTopBar: View {
                 listBar(topBar)
             }
         }
-        .padding(.leading, ShellMetrics.dockTopBarLeadingInset)
-        .padding(.trailing, ShellMetrics.sideCardTopBarHorizontalInset)
+        .padding(.horizontal, ShellMetrics.dockTopBarHorizontalInset)
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.dockTopBarHeight)
         .background(AppPalette.panel.swiftUI)
@@ -65,8 +71,9 @@ struct DockTopBar: View {
                 Spacer(minLength: 0)
                 ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
             }
+            .dockTopBarIcons()
             if let title = topBar.title {
-                sideCardTopBarTitle(title)
+                dockTopBarTitle(title)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, ChromeMetrics.iconWidth + Token.Spacing.card)
                     .allowsHitTesting(false)
@@ -79,9 +86,10 @@ struct DockTopBar: View {
             ChromeIconButton(symbolName: "arrow.backward", accessibilityLabel: backLabel(back)) {
                 onBack(back)
             }
+            .dockTopBarIcons()
 
             if let title = topBar.title {
-                sideCardTopBarTitle(title)
+                dockTopBarTitle(title)
                     .layoutPriority(1)
                     .frame(maxWidth: .infinity)
             }
@@ -93,6 +101,7 @@ struct DockTopBar: View {
                 }
                 ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
             }
+            .dockTopBarIcons()
         }
     }
 

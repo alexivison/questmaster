@@ -2,21 +2,6 @@ import AppKit
 import SwiftUI
 
 extension View {
-    func focusedControlBorder(
-        focused: Bool,
-        cornerRadius: CGFloat = Token.Radius.control,
-        ornamentSide: CGFloat = InputCornerOrnamentMetrics.defaultSide
-    ) -> some View {
-        let color = (focused ? AppPalette.brassActive : AppPalette.lineSoftSubtle).swiftUI
-        return overlay(
-            ZStack {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(color, lineWidth: Token.Size.divider)
-                InputCornerOrnaments(color: color, side: ornamentSide)
-            }
-        )
-    }
-
     func borderedCard(
         fill: NSColor,
         borderColor: NSColor = AppPalette.line,

@@ -2,63 +2,115 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The one filter chip, as the Quest Log design draws it: "@project questmaster", 16 high, radius 4.5, at
-/// most 117 wide, `item` fill, `line` border, muted text. Click to remove it, as Backspace in an empty field does.
+/// The one filter chip: "@project questmaster" in 12pt muted text, 16 high, at most 145 wide, radius 4.5, `item`
+/// fill, `line` border. Click to remove it, as Backspace in an empty field does.
 struct FilterChip: View {
     var token: ArtifactFilterToken
     var onRemove: () -> Void
 
     private enum Metrics {
         static let height: CGFloat = 16
-        static let maxWidth: CGFloat = 117
+        static let maxWidth: CGFloat = 145
         static let cornerRadius: CGFloat = 4.5
         static let textInset: CGFloat = 6
     }
 
     var body: some View {
-        Text("\(token.kind.prefix) \(token.title)")
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.muted.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.horizontal, Metrics.textInset)
-            .frame(maxWidth: Metrics.maxWidth, minHeight: Metrics.height, maxHeight: Metrics.height, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(AppPalette.item.swiftUI))
-            .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
-            .fixedSize()
-            .onTapGesture(perform: onRemove)
-            .help("Remove \(token.kind.rawValue) filter")
+        Button(action: onRemove) {
+            Text("\(token.kind.prefix) \(token.title)")
+                .font(AppFonts.questLogBody.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, Metrics.textInset)
+                .frame(maxWidth: Metrics.maxWidth, minHeight: Metrics.height, maxHeight: Metrics.height, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(AppPalette.item.swiftUI))
+                .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remove \(token.kind.rawValue) filter \(token.title)")
+        .help("Remove \(token.kind.rawValue) filter")
     }
 }
 
-struct FilterTokenChip: View {
-    var token: ArtifactFilterToken
-    var onRemove: () -> Void
+/// The one filter field (the Quest Log's and the artifact dock's), measured from user-quests-modal-v3.svg and
+/// artifacts.svg: the shared field chrome 35 high, "/" 12 in, then the token chips and the text field, 10 apart.
+/// While it has focus the shared dropdown hangs 4 under it with `suggestions` (empty hides it). Its text is 12pt.
+struct FilterBar: View {
+    let tokens: [ArtifactFilterToken]
+    @Binding var query: String
+    let placeholder: String
+    /// A change focuses the field (`CommandTextField`).
+    let focusNonce: Int
+    let suggestions: [ArtifactFilterSuggestion]
+    let highlightedSuggestionID: String?
+    let accessibilityLabel: String
+    /// Renders the field as focused (RenderPreview).
+    var previewFocused = false
+    var onCommand: (UInt16) -> Bool
+    var onEndEditing: () -> Void = {}
+    var onRemoveToken: (ArtifactFilterToken) -> Void
+    var onSelectSuggestion: (ArtifactFilterSuggestion) -> Void
+
+    /// The field's real first-responder state (KeyTextField), so it can't stay lit after Esc.
+    @State private var focused = false
+
+    private var showsFocus: Bool { focused || previewFocused }
 
     var body: some View {
-        HStack(spacing: 5) {
-            Text(token.kind.prefix)
-                .font(AppFonts.bodyBold.swiftUI)
-                .foregroundStyle(AppPalette.muted.swiftUI)
-            Text(token.title)
-                .font(AppFonts.body.swiftUI)
-                .foregroundStyle(AppPalette.text.swiftUI)
-                .lineLimit(1)
-            Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(AppPalette.muted.swiftUI)
-                    .frame(width: 16, height: 16)
+        HStack(spacing: FilterBarMetrics.spacing) {
+            Text("/")
+                .font(AppFonts.questLogBody.swiftUI)
+                .foregroundStyle(AppPalette.textMeta.swiftUI)
+                .offset(x: FilterBarMetrics.slashNudge)
+            ForEach(tokens) { token in
+                FilterChip(token: token, onRemove: { onRemoveToken(token) })
             }
-            .buttonStyle(.plain)
-            .help("Remove \(token.kind.rawValue) filter")
-            .accessibilityLabel("Remove \(token.kind.rawValue) filter \(token.title)")
+            CommandTextField(
+                text: $query,
+                placeholder: placeholder,
+                focusNonce: focusNonce,
+                onCommand: onCommand,
+                onEndEditing: onEndEditing,
+                onFocusChanged: { focused = $0 },
+                font: AppFonts.questLogBody,
+                textColor: AppPalette.textBody,
+                placeholderColor: AppPalette.textMeta
+            )
+            // The field is as tall as its font's whole line (KeyTextField); this places that frame where the
+            // designs set the text.
+            .padding(.leading, FilterBarMetrics.textFieldLead)
+            .alignmentGuide(VerticalAlignment.center) { $0[VerticalAlignment.center] + FilterBarMetrics.textFieldDrop }
+            .frame(maxWidth: .infinity)
         }
-        .padding(.leading, 6)
-        .padding(.trailing, 3)
-        .frame(height: 22)
-        .borderedCard(fill: AppPalette.item, cornerRadius: Token.Radius.control)
+        .padding(.horizontal, FilterBarMetrics.inset)
+        .frame(height: FilterBarMetrics.height)
+        .fieldChrome(focused: showsFocus)
+        .overlay(alignment: .topLeading) {
+            if showsFocus && !suggestions.isEmpty {
+                SuggestionDropdown(
+                    filterSuggestions: suggestions,
+                    highlightedID: highlightedSuggestionID,
+                    onSelect: onSelectSuggestion
+                )
+                .offset(y: FilterBarMetrics.height + FormFieldMetrics.suggestionsGap)
+            }
+        }
+        .accessibilityLabel(accessibilityLabel)
     }
+}
+
+enum FilterBarMetrics {
+    static let height: CGFloat = 35
+    static let inset: CGFloat = 12
+    static let spacing: CGFloat = 10
+    /// The text field sits 1 further right than the spacing puts it and `textFieldDrop` above centre, which lands
+    /// its text where the designs' placeholders are: 11.04 after a chip in both.
+    static let textFieldLead: CGFloat = 1
+    static let textFieldDrop: CGFloat = 1.25
+    /// The app font's "/" sits about 0.45 right of where both designs draw theirs; drawn, not laid out, 0.5 left.
+    static let slashNudge: CGFloat = -0.5
 }
 
 struct CommandTextField: NSViewRepresentable {

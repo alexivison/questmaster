@@ -6,14 +6,15 @@ import QuestmasterCore
 /// `ShellStatusViews.swift`.
 
 enum ShellMetrics {
+    /// The dock top bar, as artifacts.svg draws it: the title's baseline 35 down, and its icon buttons centred 30
+    /// down, the close button 40 in from the right edge (28 to its button frame), clear of the scooped corner.
     static let dockTopBarHeight: CGFloat = 40
+    static let dockTopBarTitleBaseline: CGFloat = 35
+    static let dockTopBarIconCentre: CGFloat = 30
+    static let dockTopBarHorizontalInset: CGFloat = 28
     /// No extra space above the first tracker header (2026-10-07): `sideCardInset` alone now
     /// provides the window-top-to-tracker gap, matching every other G-rhythm gap in the shell.
     static let trackerTopInset: CGFloat = 0
-    static let dockViewerLeadingLineExtension: CGFloat = 56
-    /// Keeps the dock's close button clear of the scooped top-right corner (`ScoopedRectangle.radius`).
-    static let sideCardTopBarHorizontalInset: CGFloat = 20
-    static let dockTopBarLeadingInset: CGFloat = 18
     /// The shell's own single gap `G` (2026-10-07) — applies to every pane-to-pane and
     /// pane-to-window-edge gap in the shell (tracker/dock side-card inset, tracker's own leading
     /// padding, the dock's and terminal's outer margins). A dedicated constant, not
