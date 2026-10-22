@@ -6,10 +6,11 @@ import SwiftUI
 /// design's glyph outlines sit.
 private enum QuestLogMetrics {
     static let sheetSize = CGSize(width: 900, height: 780)
-    /// Filter field: 357 x 40 at (30, 40), window fill, 1pt line border, radius 5. "/" 12 in; a token chip
-    /// (16 high, radius 4.5, at most 117 wide) and the text field follow, all centred on the field.
+    /// Filter field: 357 x 35 at (30, 40) (the design drew it 40 high; the user asked for 35), window fill,
+    /// 1pt line border, radius 5. "/" 12 in; a token chip (16 high, radius 4.5, at most 117 wide) and the
+    /// text field follow, all centred on the field.
     static let filterOrigin = CGPoint(x: 30, y: 40)
-    static let filterHeight: CGFloat = 40
+    static let filterHeight: CGFloat = 35
     static let filterCornerRadius: CGFloat = 5
     static let filterInset: CGFloat = 12
     static let filterSpacing: CGFloat = 10
@@ -22,10 +23,10 @@ private enum QuestLogMetrics {
     /// centre, which lands its text where the design's placeholder is.
     static let filterFieldLead: CGFloat = 1.5
     static let filterFieldDrop: CGFloat = 1.75
-    /// List column, under the field: x 30-387. A section title's baseline sits 21 below the previous box
-    /// (the field or the last row) and 9 above its first row; rows are 26 high, 5 apart (a 31pt pitch),
+    /// List column, straight under the field: x 30-387. A section title's baseline sits 21 below the previous
+    /// box (the field or the last row) and 9 above its first row; rows are 26 high, 5 apart (a 31pt pitch),
     /// with the text baseline 17 down and 10 in.
-    static let listOrigin = CGPoint(x: 30, y: 80)
+    static let listOrigin = CGPoint(x: 30, y: filterOrigin.y + filterHeight)
     static let listWidth: CGFloat = 357
     static let rowHeight: CGFloat = 26
     static let rowSpacing: CGFloat = 5
