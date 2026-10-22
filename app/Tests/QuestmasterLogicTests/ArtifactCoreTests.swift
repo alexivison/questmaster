@@ -19,7 +19,7 @@ struct ArtifactCoreTests {
         preferredSessionChangeRecoversSelectionInTheNewSession()
         sessionSwitchNeverOpensAnArtifact()
         viewerKeepsItsArtifactAcrossSessions()
-        theBaselineRunsOnEveryTab()
+        newArtifactsOpenOnEveryTab()
         noSessionKeepsTheSelection()
         listMovementWrapsSelection()
         scopeMovementWrapsSelection()
@@ -401,9 +401,9 @@ struct ArtifactCoreTests {
         expect(live.intent == .open(newerA), "a new artifact in the viewed session should still open")
     }
 
-    /// The baseline follows the session's own artifacts whatever the tab: one added while the All tab shows doesn't
-    /// open, and the Session tab doesn't open it later either.
-    private static func theBaselineRunsOnEveryTab() {
+    /// The tab is app-wide, so auto-open works on both: the viewed session's new artifact opens on the All tab, and the
+    /// Session tab doesn't open it a second time.
+    private static func newArtifactsOpenOnEveryTab() {
         var state = ArtifactDisplayState()
         let a = artifact(path: "/tmp/a.html", label: "A")
         let newA = artifact(path: "/tmp/new-a.html", label: "New A")
@@ -414,11 +414,11 @@ struct ArtifactCoreTests {
 
         _ = state.update(with: snap([a]), preferredSessionID: "qm-a")
         let onAll = state.update(with: snap([newA, a]), preferredSessionID: "qm-a", scope: .all)
-        expect(onAll.intent == .none, "the All tab never opens a new artifact")
+        expect(onAll.intent == .open(newA), "the viewed session's new artifact should open on the All tab too")
         let backOnSession = state.update(with: snap([newA, a]), preferredSessionID: "qm-a")
-        expect(backOnSession.intent == .none, "the Session tab should not open one that arrived on the All tab")
+        expect(backOnSession.intent == .none, "the Session tab should not open it again")
         let live = state.update(with: snap([newerA, newA, a]), preferredSessionID: "qm-a")
-        expect(live.intent == .open(newerA), "a new artifact on the Session tab still opens")
+        expect(live.intent == .open(newerA), "a new artifact on the Session tab opens")
     }
 
     /// No session (a detached terminal) keeps the open artifact for when one attaches, and the next session starts a

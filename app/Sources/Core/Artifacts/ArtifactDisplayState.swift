@@ -95,8 +95,8 @@ public struct ArtifactDisplayState: Equatable {
 
         currentSessionID = session.id
         let artifacts = Self.scopedArtifacts(in: snapshot, session: session, scope: scope)
-        // The baseline is the session's own artifacts whatever the tab, so the Session tab never opens one that
-        // arrived while the All tab or the worker chat was showing.
+        // The baseline is the session's own artifacts whatever the tab, so one that arrived while the worker chat
+        // was showing never opens later.
         let currentPaths = Set(Self.scopedArtifacts(in: snapshot, session: session, scope: .session).map(\.path))
         let previousPaths = knownArtifactPaths?.sessionID == session.id ? knownArtifactPaths?.paths : nil
         let newPaths = previousPaths.map { currentPaths.subtracting($0) } ?? []
@@ -107,9 +107,9 @@ public struct ArtifactDisplayState: Equatable {
             : nil
         var nextSelectedArtifactID = kept?.id ?? Self.recoveredSelection(current: selectedArtifactID, in: artifacts)
 
+        // On either tab: the baseline holds only the viewed session's own artifacts, so a peer's never opens.
         let intent: ArtifactDisplayIntent
-        if scope == .session,
-           cleanPreferredSessionID == session.id,
+        if cleanPreferredSessionID == session.id,
            previousPaths != nil,
            let newestNewArtifact = artifacts.first(where: { newPaths.contains($0.path) }) {
             nextSelectedArtifactID = newestNewArtifact.id
