@@ -2,6 +2,35 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
+/// The one filter chip, as the Quest Log design draws it: "@project questmaster", 16 high, radius 4.5, at
+/// most 117 wide, `item` fill, `line` border, muted text. Click to remove it, as Backspace in an empty field does.
+struct FilterChip: View {
+    var token: ArtifactFilterToken
+    var onRemove: () -> Void
+
+    private enum Metrics {
+        static let height: CGFloat = 16
+        static let maxWidth: CGFloat = 117
+        static let cornerRadius: CGFloat = 4.5
+        static let textInset: CGFloat = 6
+    }
+
+    var body: some View {
+        Text("\(token.kind.prefix) \(token.title)")
+            .font(AppFonts.monoSmall.swiftUI)
+            .foregroundStyle(AppPalette.muted.swiftUI)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, Metrics.textInset)
+            .frame(maxWidth: Metrics.maxWidth, minHeight: Metrics.height, maxHeight: Metrics.height, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(AppPalette.item.swiftUI))
+            .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
+            .fixedSize()
+            .onTapGesture(perform: onRemove)
+            .help("Remove \(token.kind.rawValue) filter")
+    }
+}
+
 struct FilterTokenChip: View {
     var token: ArtifactFilterToken
     var onRemove: () -> Void

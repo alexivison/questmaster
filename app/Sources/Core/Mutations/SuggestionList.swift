@@ -36,6 +36,15 @@ public struct SuggestionList: Equatable {
         isDismissed = true
     }
 
+    /// The pointer moved onto a row: it becomes the highlight, as if the arrows had moved there.
+    public mutating func highlight(_ index: Int) {
+        guard items.indices.contains(index) else {
+            return
+        }
+        highlightedIndex = index
+        moved = true
+    }
+
     public mutating func moveHighlight(_ delta: Int) {
         guard !items.isEmpty else {
             return

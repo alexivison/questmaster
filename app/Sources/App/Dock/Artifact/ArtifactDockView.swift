@@ -56,6 +56,11 @@ struct ArtifactDockView: View {
     var onFilterCommand: (UInt16) -> Bool
     var onFilterEndEditing: () -> Void
     var onOpenExternal: (URL) -> Void
+    /// Whether the dock has keyboard focus: an unfocused dock shows its selection one step dimmer.
+    var areaFocused: Bool
+    /// The pointer moved onto an artifact or a filter suggestion: it becomes the cursor.
+    var onHighlightArtifact: (String) -> Void
+    var onHighlightFilterSuggestion: (ArtifactFilterSuggestion) -> Void
     /// Renders the filter as focused (RenderPreview).
     var previewFilterFocused = false
 
@@ -99,6 +104,7 @@ struct ArtifactDockView: View {
                             checked: model.selectedArtifactIDs.contains(artifact.id),
                             selectMode: !model.selectedArtifactIDs.isEmpty,
                             onToggle: { onToggleArtifact(artifact.id) },
+                            onHighlight: { onHighlightArtifact(artifact.id) },
                             action: { onSelectArtifact(artifact.id) }
                         )
                         .id(artifact.id)
@@ -168,6 +174,7 @@ struct ArtifactDockView: View {
         SuggestionDropdown(
             filterSuggestions: model.filterSuggestions,
             highlightedID: model.selectedFilterSuggestionID,
+            onHighlight: onHighlightFilterSuggestion,
             onSelect: onSelectFilterSuggestion
         )
     }
@@ -196,6 +203,7 @@ struct ArtifactDockView: View {
         SegmentedPicker(
             options: ArtifactScope.dockCases,
             selection: model.artifactScope,
+            areaFocused: areaFocused,
             title: \.title,
             onSelect: onSetScope,
             helpText: { "Show \($0.title.lowercased()) artifacts" },
@@ -267,11 +275,12 @@ private struct ArtifactRow: View {
     var checked: Bool
     var selectMode: Bool
     var onToggle: () -> Void
+    var onHighlight: () -> Void
     var action: () -> Void
 
     var body: some View {
-        ListRow(selected: selected, leadingInset: Token.Spacing.card) { selected, hovered in
-            ItemCardShape(selected: selected, hovered: hovered, extraLeadingInset: checkboxReservedInset)
+        ListRow(selected: selected, leadingInset: Token.Spacing.card, onHighlight: onHighlight) { selected in
+            ItemCardShape(selected: selected, extraLeadingInset: checkboxReservedInset)
         } content: {
             HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
                 if selectMode {

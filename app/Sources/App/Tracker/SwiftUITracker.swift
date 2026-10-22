@@ -309,9 +309,8 @@ struct TrackerRootView: View {
         let repos = TrackerRenderer.tracker(snapshot)
         let rows = selectableRows(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
-        // The keyboard cursor is only drawn while the tracker has focus; the hover state is
-        // unaffected.
-        let highlightedID = navigation.focusedRegion == .tracker ? selectedID : nil
+        // The cursor shows one step dimmer while the tracker doesn't have focus.
+        let areaFocused = navigation.focusedRegion == .tracker
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
@@ -330,7 +329,8 @@ struct TrackerRootView: View {
                         ForEach(Array(repos.enumerated()), id: \.offset) { index, repo in
                             TrackerRepoSection(
                                 repo: repo,
-                                selectedID: highlightedID,
+                                selectedID: selectedID,
+                                areaFocused: areaFocused,
                                 shortcutNumbers: shortcutNumbers,
                                 commandLongPressIsActive: commandLongPressIsActive,
                                 expandedMasterIDs: store.expandedMasterIDs,
@@ -616,6 +616,7 @@ struct TrackerEditRepo: Identifiable {
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
+    let areaFocused: Bool
     let shortcutNumbers: [String: Int]
     let commandLongPressIsActive: Bool
     let expandedMasterIDs: Set<String>
@@ -636,6 +637,7 @@ private struct TrackerRepoSection: View {
                         rendered: group.root,
                         projectName: projectName,
                         selectedID: selectedID,
+                        areaFocused: areaFocused,
                         shortcutNumber: shortcutNumbers[group.root.session.id],
                         commandLongPressIsActive: commandLongPressIsActive,
                         hasWorkers: !group.workers.isEmpty,
@@ -652,6 +654,7 @@ private struct TrackerRepoSection: View {
                                 rendered: worker,
                                 projectName: projectName,
                                 selectedID: selectedID,
+                                areaFocused: areaFocused,
                                 shortcutNumber: shortcutNumbers[worker.session.id],
                                 commandLongPressIsActive: commandLongPressIsActive,
                                 hasWorkers: false,
@@ -843,19 +846,6 @@ enum TrackerNameplateRole: Equatable {
     }
 }
 
-/// The band around a plate: a selection's, a hover's or a recolour hint's. Every band follows the same silhouette at the
-/// same width and holds one steady opacity. A plate's status is not a band: it lives on the portrait.
-enum TrackerPlateBand {
-    /// What surrounds a plate. A recolour hint wins, so the row being edited reads apart from the selection; then
-    /// selection, then hover.
-    static func color(isRecoloring: Bool, selected: Bool, hovered: Bool) -> NSColor? {
-        if isRecoloring { return AppPalette.dim }
-        if selected { return AppPalette.bright }
-        if hovered { return AppPalette.dim }
-        return nil
-    }
-}
-
 enum TrackerNameplateColor {
     /// Every coloured bar in the tracker (the plates' project bars, the selected-session panel's, and the cast bar's
     /// amber fill) ships at this fraction of its colour's brightness: full brightness reads too loud against the flat
@@ -1005,14 +995,14 @@ private struct TrackerPortraitOutline: View {
     }
 }
 
-/// The plate: its selection or hover band, then the art, the portrait's disc with its status ring and glow, and the
-/// text over it. The canvas is the SVG's, so it starts above a master's row by the crown pieces' reach. The portrait's
+/// The plate: its band (`PlateBand`: the highlight, dimmer while the tracker doesn't have focus, or the recolour hint),
+/// then the art, the portrait's disc with its status ring and glow, and the text over it. The canvas is the SVG's, so it starts above a master's row by the crown pieces' reach. The portrait's
 /// logo is drawn over it in the row's content layer.
 struct TrackerNameplateBackground<Text: View>: View {
     let role: TrackerNameplateRole
     let color: NSColor
-    let selected: Bool
-    let hovered: Bool
+    let highlighted: Bool
+    let areaFocused: Bool
     let isRecoloring: Bool
     let statusColor: NSColor?
     /// What the portrait's ring shows: a spinner while working, a still ring for the other active statuses.
@@ -1023,8 +1013,8 @@ struct TrackerNameplateBackground<Text: View>: View {
     var body: some View {
         let artwork = role.artwork
         ZStack(alignment: .topLeading) {
-            if let band = TrackerPlateBand.color(isRecoloring: isRecoloring, selected: selected, hovered: hovered) {
-                TrackerGlowView(path: artwork.glow, color: band)
+            if let band = PlateBand.color(highlighted: highlighted, areaFocused: areaFocused, recoloring: isRecoloring) {
+                TrackerGlowView(path: artwork.glow, color: band.color)
                     .silhouetteFrame(artwork.size)
             }
             TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
@@ -1178,13 +1168,13 @@ private struct TrackerPlateText: View {
     let rendered: TrackerRenderedSession
     let role: TrackerNameplateRole
     let projectName: String
-    let isSelected: Bool
+    let look: RowLook
     let showSessionID: Bool
 
     private var session: TrackerSession { rendered.session }
     private var title: String { showSessionID ? session.id : (session.title.isEmpty ? session.id : session.title) }
     private var snippet: String { TrackerRenderer.snippet(for: session) }
-    private var titleColor: NSColor { isSelected ? AppPalette.bright : AppPalette.text }
+    private var titleColor: NSColor { look.text.color }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -1205,7 +1195,7 @@ private struct TrackerPlateText: View {
                 TrackerPlateLine(
                     text: snippet,
                     font: AppFonts.trackerSummary,
-                    color: role.isWorker ? AppPalette.dim : AppPalette.text,
+                    color: role.isWorker ? AppPalette.dim : AppPalette.textBody,
                     x: role.snippetX,
                     width: role.textRightEdge - role.snippetX,
                     baseline: role.snippetBaseline,
@@ -1283,6 +1273,7 @@ private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
     let projectName: String
     let selectedID: String?
+    let areaFocused: Bool
     let shortcutNumber: Int?
     let commandLongPressIsActive: Bool
     let hasWorkers: Bool
@@ -1320,13 +1311,14 @@ private struct TrackerSessionRow: View {
                 onSelect(session.id)
                 onActivate(session)
             },
+            onHighlight: { onSelect(session.id) },
             leadingDecoration: { EmptyView() },
-            background: { selected, hovered in
+            background: { selected in
                 TrackerNameplateBackground(
                     role: role,
                     color: rendered.groupColor,
-                    selected: selected,
-                    hovered: hovered,
+                    highlighted: selected,
+                    areaFocused: areaFocused,
                     isRecoloring: rendered.recolorEditHint != nil,
                     statusColor: rendered.status.color,
                     // The plate's cast row shows its cast, so its ring only spins while it works.
@@ -1336,7 +1328,7 @@ private struct TrackerSessionRow: View {
                         rendered: rendered,
                         role: role,
                         projectName: projectName,
-                        isSelected: isSelected,
+                        look: RowLook.pick(highlighted: isSelected, areaFocused: areaFocused),
                         showSessionID: commandLongPressIsActive
                     )
                 )

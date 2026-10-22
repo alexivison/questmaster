@@ -8,6 +8,7 @@ struct InteractionLookTests {
         hoverNeverEqualsAnotherState()
         eachStateStepIsBrighterThanTheOneBelow()
         boldGoldAndBrassStayInTheirPlace()
+        thePointerMovesTheCursor()
         print("InteractionLookTests: all tests passed")
     }
 
@@ -27,6 +28,8 @@ struct InteractionLookTests {
         expect(OutlineLook.tab(selected: true, highlighted: false, areaFocused: false) == .tabSelectedUnfocused, "a selected tab in an unfocused row dims")
         expect(OutlineLook.field(focused: false) == .fieldRest, "a field at rest")
         expect(OutlineLook.field(focused: true) == .fieldFocused, "a focused field")
+        expect(OutlineLook.tabSelected.recessed && OutlineLook.tabSelectedUnfocused.recessed, "a selected tab's disc is recessed")
+        expect(!OutlineLook.tabRest.recessed, "a resting tab's disc is not recessed")
         expect(ToggleLook.of(on: true) == .on && ToggleLook.of(on: false) == .off, "a toggle is on or off")
         expect(PlateBand.color(highlighted: false, areaFocused: true, recoloring: false) == nil, "a plain plate has no band")
         expect(PlateBand.color(highlighted: true, areaFocused: true, recoloring: true) == .accent, "the recolour band wins over the highlight")
@@ -76,6 +79,31 @@ struct InteractionLookTests {
             expect(color != .accent && color != .brassActive, "rows, tabs and fields carry no gold or brass, got \(color)")
         }
         expect(ToggleLook.off.border != .brassActive, "an off toggle carries no brass")
+    }
+
+    /// Hover is the cursor: the row under the pointer becomes the highlight, as an arrow move would make it, so Return
+    /// takes it; a picker's rows stay where they are.
+    private static func thePointerMovesTheCursor() {
+        var list = SuggestionList()
+        list.show(["a", "b", "c"])
+        list.highlight(2)
+        expect(list.highlightedIndex == 2 && list.moved, "the pointed-at path row should be the highlight, as if moved to")
+        list.highlight(5)
+        expect(list.highlightedIndex == 2, "a row past the list should leave the highlight alone")
+
+        var window = PickerListWindow(visibleRows: 3)
+        window.reset(highlighting: 0, count: 10)
+        window.move(4, count: 10)
+        let start = window.start
+        window.highlight(visibleRow: 0, count: 10)
+        expect(window.start == start, "pointing at a row should not scroll the picker's rows")
+        expect(window.highlightedIndex == start && window.visibleHighlightIndex == 0 && window.moved, "the pointed-at picker row should be the highlight")
+        window.highlight(visibleRow: 3, count: 10)
+        expect(window.visibleHighlightIndex == 0, "a row past the visible ones should leave the highlight alone")
+        var short = PickerListWindow(visibleRows: 5)
+        short.reset(highlighting: 0, count: 2)
+        short.highlight(visibleRow: 3, count: 2)
+        expect(short.highlightedIndex == 0, "a row past a short list's end should leave the highlight alone")
     }
 
     /// A look's colours as luminances, in a fixed order; no fill counts as 0, below any fill.

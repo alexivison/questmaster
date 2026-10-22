@@ -7,7 +7,6 @@ final class ShellFocusCoordinator {
     private let window: () -> NSWindow?
     private let splitView: () -> MainSplitView?
     private let terminalShell: () -> TerminalShellView?
-    private let dockShell: () -> DockShellView?
     private let footerShell: () -> ActionBarShellView?
     private let trackerHosting: () -> NSView?
     private let dockView: () -> SwiftUIDockPane?
@@ -20,7 +19,6 @@ final class ShellFocusCoordinator {
         window: @escaping () -> NSWindow?,
         splitView: @escaping () -> MainSplitView?,
         terminalShell: @escaping () -> TerminalShellView?,
-        dockShell: @escaping () -> DockShellView?,
         footerShell: @escaping () -> ActionBarShellView?,
         trackerHosting: @escaping () -> NSView?,
         dockView: @escaping () -> SwiftUIDockPane?,
@@ -32,7 +30,6 @@ final class ShellFocusCoordinator {
         self.window = window
         self.splitView = splitView
         self.terminalShell = terminalShell
-        self.dockShell = dockShell
         self.footerShell = footerShell
         self.trackerHosting = trackerHosting
         self.dockView = dockView
@@ -87,7 +84,7 @@ final class ShellFocusCoordinator {
     func applyNavigationState(animateDockVisibility: Bool = true) {
         splitView()?.trackerVisible = navigation.trackerVisible
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
-        dockShell()?.setRegionActive(navigation.focusedRegion == .dock)
+        dockView()?.setFocused(navigation.focusedRegion == .dock)
         footerShell()?.update(
             navigation: navigation.state,
             dockContentMode: dockView()?.currentMode ?? .artifacts

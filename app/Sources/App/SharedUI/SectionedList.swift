@@ -50,12 +50,15 @@ struct SectionedList<Content: View>: View {
                 scrollSelected(with: proxy, id: selectedID)
             }
             .onChange(of: selectedID) { _, nextID in
-                guard scrollOnSelectionChange else {
+                guard scrollOnSelectionChange, !PointerHighlight.pointerJustMoved else {
                     return
                 }
                 scheduleScroll(with: proxy, id: nextID)
             }
             .onChange(of: scrollTarget) { _, next in
+                guard !PointerHighlight.pointerJustMoved else {
+                    return
+                }
                 scheduleScroll(with: proxy, id: next?.id)
             }
         }
@@ -215,25 +218,27 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     /// visible edges are live while the layout spacing stays the frame's.
     let hitOutset: CGFloat
     var onTap: (() -> Void)?
+    /// The pointer moved onto the row: the list moves its cursor here. Hover has no look of its own.
+    var onHighlight: () -> Void
     private let leadingDecoration: () -> LeadingDecoration
-    private let background: (_ selected: Bool, _ hovered: Bool) -> Background
+    private let background: (_ selected: Bool) -> Background
     private let content: () -> Content
-
-    @State private var isHovered = false
 
     init(
         selected: Bool,
         leadingInset: CGFloat,
         hitOutset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
+        onHighlight: @escaping () -> Void,
         @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
-        @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
+        @ViewBuilder background: @escaping (_ selected: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.selected = selected
         self.leadingInset = leadingInset
         self.hitOutset = hitOutset
         self.onTap = onTap
+        self.onHighlight = onHighlight
         self.leadingDecoration = leadingDecoration
         self.background = background
         self.content = content
@@ -253,12 +258,16 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
         content()
             .padding(.leading, leadingInset)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(background(selected, isHovered))
+            .background(background(selected))
             .overlay(alignment: .leading) {
                 leadingDecoration()
             }
             .contentShape(VerticallyOutsetRectangle(outset: hitOutset))
-            .onHover { isHovered = $0 }
+            .highlightOnHover {
+                if !selected {
+                    onHighlight()
+                }
+            }
     }
 }
 
@@ -267,13 +276,15 @@ extension ListRow where LeadingDecoration == EmptyView {
         selected: Bool,
         leadingInset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
-        @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
+        onHighlight: @escaping () -> Void,
+        @ViewBuilder background: @escaping (_ selected: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(
             selected: selected,
             leadingInset: leadingInset,
             onTap: onTap,
+            onHighlight: onHighlight,
             leadingDecoration: { EmptyView() },
             background: background,
             content: content

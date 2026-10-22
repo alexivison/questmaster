@@ -69,13 +69,15 @@ public struct RowLook: Equatable, Sendable {
 public struct OutlineLook: Equatable, Sendable {
     public let border: StateColor
     public let label: StateColor
+    /// A highlighted or selected tab's disc sinks to the panel colour (new-session.svg).
+    public let recessed: Bool
 
-    public static let tabRest = OutlineLook(border: .line, label: .textBody)
+    public static let tabRest = OutlineLook(border: .line, label: .textBody, recessed: false)
     /// Highlighted or selected. Tabs carry no gold or brass.
-    public static let tabSelected = OutlineLook(border: .controlBorder, label: .textSelected)
-    public static let tabSelectedUnfocused = OutlineLook(border: .controlBorder, label: .textBody)
-    public static let fieldRest = OutlineLook(border: .line, label: .textBody)
-    public static let fieldFocused = OutlineLook(border: .controlBorder, label: .textBody)
+    public static let tabSelected = OutlineLook(border: .controlBorder, label: .textSelected, recessed: true)
+    public static let tabSelectedUnfocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: true)
+    public static let fieldRest = OutlineLook(border: .line, label: .textBody, recessed: false)
+    public static let fieldFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
 
     /// In a tab row the highlight and the selection look the same; an unfocused row dims it one step.
     public static func tab(selected: Bool, highlighted: Bool, areaFocused: Bool) -> OutlineLook {

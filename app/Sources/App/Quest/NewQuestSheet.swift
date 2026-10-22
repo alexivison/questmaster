@@ -104,6 +104,7 @@ struct NewQuestSheetView: View {
             return SuggestionDropdown(
                 rows: model.paths.items,
                 highlightedIndex: model.paths.highlightedIndex,
+                onHighlight: { model.paths.highlight($0) },
                 onSelect: { model.selectDirectory(model.paths.items[$0]) }
             )
         }
@@ -115,8 +116,9 @@ struct NewQuestSheetView: View {
         return SuggestionDropdown(
             rows: projects.map(\.displayName),
             highlightedIndex: model.form.visibleProjectHighlightIndex,
+            onHighlight: { model.form.highlightProject(visibleRow: $0) },
             onSelect: { model.selectProject(projects[$0]) },
-            accessory: { AnyView(SuggestionDropdown.meta(projects[$0].displayPath(home: home), truncation: .head)) }
+            accessory: { AnyView(SuggestionDropdown.meta(projects[$0].displayPath(home: home), look: $1, truncation: .head)) }
         )
     }
 

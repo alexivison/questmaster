@@ -115,7 +115,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             window: { [weak self] in self?.shellHandles?.window },
             splitView: { [weak self] in self?.shellHandles?.splitView },
             terminalShell: { [weak self] in self?.shellHandles?.terminalShell },
-            dockShell: { [weak self] in self?.shellHandles?.dockShell },
             footerShell: { [weak self] in self?.shellHandles?.footerShell },
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
@@ -148,6 +147,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = unsetenv("TMUX")
         _ = unsetenv("TMUX_PANE")
         NSApp.setActivationPolicy(.regular)
+        PointerHighlight.install()
         signalHandler.install {
             NSApp.terminate(nil)
         }

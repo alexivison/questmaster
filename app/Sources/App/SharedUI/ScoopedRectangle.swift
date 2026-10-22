@@ -5,8 +5,8 @@ import SwiftUI
 /// by a quarter circle centred on each corner, as the Quest Log design's outer path draws them.
 struct ScoopedRectangle: Shape {
     static let radius: CGFloat = 25
-    /// The border is 1.5pt inside the shape: a 3pt stroke clipped to it.
-    static let borderStrokeWidth: CGFloat = 3
+    /// The border is 2pt inside the shape: a 4pt stroke clipped to it.
+    static let borderStrokeWidth: CGFloat = 4
 
     func path(in rect: CGRect) -> Path {
         Path(Self.cgPath(in: rect))
@@ -59,10 +59,6 @@ final class ScoopedLayerChrome {
         view.addSubview(borderView)
     }
 
-    func setBorderColor(_ color: NSColor) {
-        borderView.color = color
-    }
-
     func layout(bounds: CGRect) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -74,9 +70,7 @@ final class ScoopedLayerChrome {
 }
 
 private final class ScoopedBorderView: NSView {
-    var color: NSColor {
-        didSet { needsDisplay = true }
-    }
+    let color: NSColor
 
     init(color: NSColor) {
         self.color = color

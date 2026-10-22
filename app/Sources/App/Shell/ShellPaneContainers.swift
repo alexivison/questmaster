@@ -166,10 +166,6 @@ final class DockShellView: NSView {
         chrome?.layout(bounds: bounds)
     }
 
-    func setRegionActive(_ active: Bool) {
-        chrome.setBorderColor(active ? AppPalette.controlBorder : AppPalette.lineSoftSubtle)
-    }
-
     func updateTabs(
         mode: DockContentMode,
         artifactRoute: ArtifactDockRoute,

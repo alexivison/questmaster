@@ -150,7 +150,10 @@ builds its matching entries from (`SharedUI/Theme.swift`).
 Mouse hover and the keyboard cursor are one highlight: pointing at a row moves
 the cursor there, the arrow keys and j/k continue from it, and only one row is
 highlighted at a time. A highlight in an area without focus is one step dimmer,
-not hidden.
+not hidden. `highlightOnHover` (`SharedUI/StateRow.swift`) does this for every
+list: only real pointer motion moves the cursor, and a cursor the pointer just
+moved doesn't scroll its list (`PointerHighlight.pointerJustMoved`). In a tab row
+the pointer highlights a tab without selecting it.
 
 | Element | State | Look |
 |---|---|---|
@@ -162,6 +165,7 @@ not hidden.
 | | highlighted or selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
 | Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
+| Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
 | Tracker plate | highlighted / unfocused / recolouring (`PlateBand`) | `textSelected` / `controlBorder` / `accent` band |
 
@@ -170,11 +174,15 @@ not hidden.
 - Dividers inside rows are `line` in every state.
 - Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
   titles, project headers and marks; never for selection or focus.
-- No shadows on dropdowns or panels. Pressed is 0.8 opacity; disabled is window
-  fill with `item` border and label (the shared button styles).
-- Use the shared components: `fieldChrome`/`FormTextField` for fields,
-  `SuggestionDropdown` for every dropdown and suggestion list, `PillTab` for
-  tabs, the `AngledButton` styles for buttons.
+- No shadows on dropdowns or panels. Panel and dock borders are 2pt
+  `lineSoftSubtle` (`ScoopedRectangle`) and don't change with focus. Pressed is
+  0.8 opacity; disabled is window fill with `item` border and label (the shared
+  button styles).
+- Use the shared components: `stateRow` (and `ListRow` for tracker and artifact
+  rows) for rows, `PillTab`/`PillTabRow` or `SegmentedPicker` for tabs,
+  `fieldChrome`/`FormTextField` for fields, `SuggestionDropdown` for every
+  dropdown and suggestion list, `FilterChip` for filter chips, the
+  `AngledButton` styles for buttons.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`

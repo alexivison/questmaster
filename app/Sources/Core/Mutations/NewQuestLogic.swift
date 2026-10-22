@@ -224,6 +224,10 @@ public struct NewQuestFormModel: Equatable {
         projectWindow.move(delta, count: projectMatches.count)
     }
 
+    public mutating func highlightProject(visibleRow row: Int) {
+        projectWindow.highlight(visibleRow: row, count: projectMatches.count)
+    }
+
     /// Picks the highlighted project: the field shows its name, the path goes with the quest. False with
     /// no project list showing.
     @discardableResult

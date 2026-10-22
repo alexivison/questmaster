@@ -93,6 +93,7 @@ enum RenderPreview {
         render(artifactListView(showFilter: true, suggesting: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter-suggestions.png")
         render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
+        render(artifactListView(focused: false), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list-unfocused.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
         render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-nobody.png")
         render(QuestLogView(store: questLogStore(filteredTo: "questmaster"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filtered.png")
@@ -560,20 +561,20 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// One master plate per state, 80 points apart from y 20, then two worker plates 60 apart: idle, hovered, selected,
-    /// hovered with a working status, working, being recoloured, selected with a working status, blocked; a working
-    /// worker, and a hovered one. Hover is a view state, so the plates are drawn directly, with their logos.
+    /// One master plate per state, 80 points apart from y 20, then two worker plates 60 apart: idle, highlighted,
+    /// highlighted in an unfocused tracker, highlighted and working, working, being recoloured, recoloured while
+    /// highlighted, blocked; a working worker, and a highlighted one. The plates are drawn directly, with their logos.
     @MainActor
     private static func plateBandsView() -> some View {
         func status(_ state: String) -> NSColor {
             TrackerRenderer.status(for: TrackerSession(id: "s", title: "", repoName: "", agent: "codex", role: "master", state: state)).color
         }
-        let states: [(role: TrackerNameplateRole, selected: Bool, hovered: Bool, recoloring: Bool, status: NSColor?)] = [
-            (.master, false, false, false, nil), (.master, false, true, false, nil), (.master, true, false, false, nil),
-            (.master, false, true, false, status("working")), (.master, false, false, false, status("working")),
-            (.master, false, false, true, nil), (.master, true, false, false, status("working")),
-            (.master, false, false, false, status("blocked")),
-            (.worker, false, false, false, status("working")), (.worker, false, true, false, status("working")),
+        let states: [(role: TrackerNameplateRole, highlighted: Bool, focused: Bool, recoloring: Bool, status: NSColor?)] = [
+            (.master, false, true, false, nil), (.master, true, true, false, nil), (.master, true, false, false, nil),
+            (.master, true, true, false, status("working")), (.master, false, true, false, status("working")),
+            (.master, false, true, true, nil), (.master, true, true, true, nil),
+            (.master, false, true, false, status("blocked")),
+            (.worker, false, true, false, status("working")), (.worker, true, true, false, status("working")),
         ]
         let rowYs = states.reduce(into: [CGFloat(20)]) { ys, state in ys.append(ys.last! + (state.role == .master ? 80 : 60)) }
         return ZStack(alignment: .topLeading) {
@@ -582,8 +583,8 @@ enum RenderPreview {
                     TrackerNameplateBackground(
                         role: state.role,
                         color: AppPalette.displayColor("lime") ?? AppPalette.accent,
-                        selected: state.selected,
-                        hovered: state.hovered,
+                        highlighted: state.highlighted,
+                        areaFocused: state.focused,
                         isRecoloring: state.recoloring,
                         statusColor: state.status,
                         ring: state.status == nil ? .none : (state.status == status("blocked") ? .steady : .spinning(nil)),
@@ -815,7 +816,7 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    private static func artifactListView(selectMode: Bool = false, showFilter: Bool = false, suggesting: Bool = false) -> some View {
+    private static func artifactListView(selectMode: Bool = false, showFilter: Bool = false, suggesting: Bool = false, focused: Bool = true) -> some View {
         let artifacts = [
             ArtifactReference(
                 kind: "html",
@@ -859,6 +860,9 @@ enum RenderPreview {
             onFilterCommand: { _ in false },
             onFilterEndEditing: {},
             onOpenExternal: { _ in },
+            areaFocused: focused,
+            onHighlightArtifact: { _ in },
+            onHighlightFilterSuggestion: { _ in },
             previewFilterFocused: suggesting
         )
     }
@@ -884,7 +888,10 @@ enum RenderPreview {
             onSelectFilterSuggestion: { _ in },
             onFilterCommand: { _ in false },
             onFilterEndEditing: {},
-            onOpenExternal: { _ in }
+            onOpenExternal: { _ in },
+            areaFocused: true,
+            onHighlightArtifact: { _ in },
+            onHighlightFilterSuggestion: { _ in }
         )
     }
 

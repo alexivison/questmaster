@@ -8,17 +8,13 @@ import SwiftUI
 private enum QuestLogMetrics {
     static let sheetSize = CGSize(width: 900, height: 780)
     /// Filter field: 357 x 35 at (30, 102), window fill,
-    /// 1pt line border, radius 5. "/" 12 in; a token chip (16 high, radius 4.5, at most 117 wide) and the
-    /// text field follow, all centred on the field.
+    /// 1pt line border, radius 5. "/" 12 in; the token chips (`FilterChip`) and the text field follow, all
+    /// centred on the field.
     static let filterOrigin = CGPoint(x: 30, y: 102)
     static let filterHeight: CGFloat = 35
     static let filterCornerRadius: CGFloat = 5
     static let filterInset: CGFloat = 12
     static let filterSpacing: CGFloat = 10
-    static let chipHeight: CGFloat = 16
-    static let chipMaxWidth: CGFloat = 117
-    static let chipCornerRadius: CGFloat = 4.5
-    static let chipTextInset: CGFloat = 6
     static let suggestionsGap: CGFloat = 4
     /// The text field sits 1.5 further right than the HStack spacing puts it and `filterFieldDrop` above
     /// centre, which lands its text where the design's placeholder is.
@@ -194,7 +190,7 @@ private struct QuestLogFilterField: View {
                 .font(AppFonts.questLogBody.swiftUI)
                 .foregroundStyle(AppPalette.textMeta.swiftUI)
             ForEach(filter.tokens) { token in
-                chip(token)
+                FilterChip(token: token, onRemove: { filter.removeToken(token) })
             }
             CommandTextField(
                 text: Binding(get: { filter.query }, set: { filter.setQuery($0) }),
@@ -221,28 +217,13 @@ private struct QuestLogFilterField: View {
                 SuggestionDropdown(
                     filterSuggestions: filter.suggestions,
                     highlightedID: filter.selectedSuggestionID,
+                    onHighlight: { filter.highlightSuggestion($0) },
                     onSelect: { filter.acceptSuggestion($0) }
                 )
                 .offset(y: QuestLogMetrics.filterHeight + QuestLogMetrics.suggestionsGap)
             }
         }
         .accessibilityLabel("Filter quests")
-    }
-
-    /// A token, "@project questmaster": click to remove it, as Backspace in an empty field does.
-    private func chip(_ token: ArtifactFilterToken) -> some View {
-        Text("\(token.kind.prefix) \(token.title)")
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.muted.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.horizontal, QuestLogMetrics.chipTextInset)
-            .frame(maxWidth: QuestLogMetrics.chipMaxWidth, minHeight: QuestLogMetrics.chipHeight, maxHeight: QuestLogMetrics.chipHeight, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: QuestLogMetrics.chipCornerRadius).fill(AppPalette.item.swiftUI))
-            .overlay(RoundedRectangle(cornerRadius: QuestLogMetrics.chipCornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
-            .fixedSize()
-            .onTapGesture { filter.removeToken(token) }
-            .help("Remove \(token.kind.rawValue) filter")
     }
 }
 
@@ -280,6 +261,9 @@ private struct QuestLogList: View {
             // The view is rebuilt per opening, so the kept selection is scrolled to as it appears.
             .onAppear { scroll(proxy, to: store.selectedID) }
             .onChange(of: store.selectedID) { _, id in
+                guard !PointerHighlight.pointerJustMoved else {
+                    return
+                }
                 scroll(proxy, to: id)
             }
             .onChange(of: store.scrollNonce) { _, _ in
@@ -318,12 +302,8 @@ private struct QuestLogList: View {
         .lineLimit(1)
         .padding(.leading, QuestLogMetrics.rowTextInset)
         .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.rowHeight, maxHeight: QuestLogMetrics.rowHeight, alignment: .topLeading)
-        .background {
-            if let fill = look.fill {
-                RoundedRectangle(cornerRadius: QuestLogMetrics.rowCornerRadius)
-                    .fill(fill.color.swiftUI)
-            }
-        }
+        // Pointing at a row selects it, so the page follows the highlight.
+        .stateRow(look, cornerRadius: QuestLogMetrics.rowCornerRadius) { store.select(quest.id) }
         .overlay(alignment: .leading) {
             if store.markedIDs.contains(quest.id) {
                 DiamondShape()
@@ -332,7 +312,6 @@ private struct QuestLogList: View {
                     .padding(.leading, (QuestLogMetrics.rowTextInset - QuestLogMetrics.markSize) / 2)
             }
         }
-        .contentShape(Rectangle())
         .onTapGesture { store.select(quest.id) }
     }
 }

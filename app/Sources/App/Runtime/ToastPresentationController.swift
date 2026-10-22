@@ -111,10 +111,6 @@ private struct ToastBanner: View {
             fill: AppPalette.panel.withAlphaComponent(0.88),
             borderColor: AppPalette.accent.withAlphaComponent(0.42)
         )
-        .overlay(
-            SideCardOrnaments()
-        )
-        .shadow(color: AppPalette.window.withAlphaComponent(0.45).swiftUI, radius: 10, y: 4)
         .help(message)
     }
 }

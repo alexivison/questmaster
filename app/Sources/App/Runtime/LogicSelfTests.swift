@@ -285,14 +285,6 @@ enum LogicSelfTests {
     }
 
     private static func testTrackerBandPrecedence() throws {
-        func band(recoloring: Bool = false, selected: Bool = false, hovered: Bool = false) -> NSColor? {
-            TrackerPlateBand.color(isRecoloring: recoloring, selected: selected, hovered: hovered)
-        }
-        try expect(band(selected: true) == AppPalette.bright, "a selected row should show the bright band")
-        try expect(band(selected: true, hovered: true) == AppPalette.bright, "selection should beat hover")
-        try expect(band(hovered: true) == AppPalette.dim, "a hovered row should show the dim band")
-        try expect(band(recoloring: true, selected: true) == AppPalette.dim, "the row being recoloured should show the dim band, over selection")
-        try expect(band() == nil, "an unselected, unhovered row should show no band")
         try expect(TrackerGlowNSView.bandOpacity == 0.6, "the band should hold 0.6")
 
         let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
@@ -394,9 +386,9 @@ enum LogicSelfTests {
             try expect(unconfigured() == 0, "\(description): \(unconfigured()) status views never configured")
             return (statusViews(in: hosting).filter { $0 !== control }, control)
         }
-        func plate(status: NSColor?, selected: Bool = false, hovered: Bool = false) -> some View {
+        func plate(status: NSColor?, highlighted: Bool = false, focused: Bool = true) -> some View {
             TrackerNameplateBackground(
-                role: .master, color: AppPalette.accent, selected: selected, hovered: hovered, isRecoloring: false,
+                role: .master, color: AppPalette.accent, highlighted: highlighted, areaFocused: focused, isRecoloring: false,
                 statusColor: status, ring: status == nil ? .none : .spinning(nil), text: EmptyView()
             )
         }
@@ -405,9 +397,9 @@ enum LogicSelfTests {
         let resting = try host(plate(status: working), "a working plate")
         try expect(resting.subject.count == 1, "a working plate should draw one status, got \(resting.subject.count)")
         try expect(resting.subject[0].ringMode == .spinning(nil), "a working plate with no tool should spin its ring")
-        try expect(try host(plate(status: working, selected: true), "a selected working plate").subject.count == 1, "selection should not hide the status")
-        let hovered = try host(plate(status: working, hovered: true), "a hovered working plate")
-        try expect(hovered.subject.count == 1, "hover should not hide the status")
+        try expect(try host(plate(status: working, highlighted: true), "a highlighted working plate").subject.count == 1, "the highlight should not hide the status")
+        let unfocused = try host(plate(status: working, highlighted: true, focused: false), "a highlighted working plate, unfocused")
+        try expect(unfocused.subject.count == 1, "the unfocused highlight should not hide the status")
 
         func worker(_ id: String, state: String) -> TrackerRenderedSession {
             let session = TrackerSession(id: id, title: id, repoName: "Preview", agent: "claude", role: "worker", state: state)
@@ -1845,7 +1837,6 @@ enum LogicSelfTests {
             window: { window },
             splitView: { nil },
             terminalShell: { nil },
-            dockShell: { nil },
             footerShell: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
