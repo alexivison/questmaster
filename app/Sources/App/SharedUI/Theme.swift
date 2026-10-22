@@ -4,50 +4,28 @@ import QuestmasterCore
 enum AppPalette {
     static let window = NSColor(hex: 0x1c2128)
     static let panel = NSColor(hex: 0x22272e)
-    static let item = NSColor(hex: 0x2d333b)
-    static let panelAlt = window
+    static let item = StateColor.item.color
     static let artifactListColumn = panel
     static let artifactViewerBackground = artifactListColumn
     static let terminal = window
-    static let line = NSColor(hex: 0x444c56)
-    static let lineSoft = line
+    static let line = StateColor.line.color
     static let lineSoftSubtle = NSColor(hex: 0x373e47)
-    static let controlFill = item
-    static let controlBorder = NSColor(hex: 0x768390)
-    static let activeControlBorder = controlBorder
-    static let activeText = NSColor(hex: 0xcdd9e5)
+    static let controlBorder = StateColor.controlBorder.color
     static let text = NSColor(hex: 0xc4d0dc)
-    static let bright = activeText
-    static let muted = NSColor(hex: 0xadbac7)
+    static let bright = NSColor(hex: 0xcdd9e5)
+    static let muted = StateColor.textMetaHighlighted.color
     static let dim = NSColor(hex: 0x8d9aa8)
-    /// Reuses the existing `lineSoftSubtle` shade (one step lighter than
-    /// `item`, already part of this palette) as a selected row's fill --
-    /// subtle on purpose, and so selection still reads even when a status
-    /// border (working/blocked/done) is animating right on top of the edge
-    /// the old border-color-only cue lived on.
-    static let selection = lineSoftSubtle
-    static let hoverBackground = item
-    static let hoverBorder = activeControlBorder
     /// Muted antique-metal accent for shell frames and structural dividers.
     static let brass = NSColor(hex: 0x8c7048)
-    /// `brass`, lifted a bit — corner ornaments use this on the focused side card.
-    static let brassActive = NSColor(hex: 0xa58961)
+    /// "On", for toggles only (the action bar). Never selected or focused.
+    static let brassActive = StateColor.brassActive.color
 
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)
     static let deleted = NSColor(hex: 0xff7b72)
     static let warn = NSColor(hex: 0xd29922)
-    static let accent = NSColor(hex: 0xd7b13d)
-    /// Modal titles, a touch deeper than `accent`, as the Quest Log v3 design sets "Quest Log".
-    static let modalTitle = NSColor(hex: 0xd4a544)
-    /// Same color as the card rows' own selected/hover border, so the active
-    /// side-card pane and the active row inside it read as one consistent
-    /// highlight instead of two different colors.
-    static let activeSideCardBorder = hoverBorder
-    /// Warm "heat" amber for the active caffeinate toggle. A distinct, slightly
-    /// more orange warm tone than the masterRole gold, so the "awake" glow never
-    /// reads as the agent-role color it sits near in the chrome.
-    static let caffeineActive = NSColor(hex: 0xf0a92b)
+    /// The one gold: titles (modal titles included), project headers and marks.
+    static let accent = StateColor.accent.color
     static let masterRole = NSColor(hex: 0xf2cc60)
     static let workerRole = NSColor(hex: 0xbc8cff)
     static let claude = NSColor(hex: 0xcc785c)
@@ -57,7 +35,9 @@ enum AppPalette {
     static let trackerWorking = accent
     static let trackerBlocked = NSColor(hex: 0xe5534b)
     static let trackerDone = NSColor(hex: 0x57ab5a)
-    static let trackerIdle = NSColor(hex: 0x6f757c)
+    /// Idle and stopped sessions, the "none" display colour, and a shown-but-inert control (the model field's effort
+    /// segment when the model reports no levels).
+    static let inert = NSColor(hex: 0x6f757c)
     static let trackerNeedsInput = NSColor(hex: 0x58a6ff)
     static let trackerError = NSColor(hex: 0xe8743b)
     /// Chat item tags by RPG rarity. No existing token is close to rare. Epic is the magenta display
@@ -71,17 +51,19 @@ enum AppPalette {
     static let chatWorking = NSColor(hex: 0xe8b34a)
     /// The black the tracker plates and the selected-session panel shade with, always at a partial opacity.
     static let shadow = NSColor.black
+    /// The white highlights and blends lift toward (the item card's bezel, the cast bar's light edge), always partial.
+    static let light = NSColor.white
+    /// The opaque colour of a mask layer or view: only its alpha counts.
+    static let mask = NSColor.black
 
-    /// The Quest Log design's filter "/" and placeholder, its rows, and the selected row. Section titles are `accent`.
-    static let questLogFilterHint = NSColor(hex: 0x9da7b1)
-    static let questLogRow = NSColor(hex: 0xd8dee9)
-    static let questLogRowSelected = NSColor(hex: 0xe6edf3)
+    /// The text steps at rest: body text, and meta text (hints, placeholders, dates). A highlighted or selected
+    /// item's text comes from its state look (`RowLook`, `OutlineLook`), never from here.
+    static let textBody = StateColor.textBody.color
+    static let textMeta = StateColor.textMeta.color
     /// "Send forth" is gold; "Abandon" is an angular red from deep to bright.
     static let questLogButtonGold = NSColor(hex: 0xa27c2f)
     /// The pill tabs' Codex and OpenCode marks (Claude's and Pi's keep their own colours).
     static let agentMarkTint = NSColor(hex: 0xb8b8b8)
-    /// The model field's effort segment when the model reports no levels: shown, but inert.
-    static let fieldInert = NSColor(hex: 0x6f757c)
     /// Settings (settings-models.svg): section titles, labels and values; descriptions; the compact picker.
     static let settingsText = NSColor(hex: 0xffffff)
     static let settingsDescription = NSColor(hex: 0x69737c)
@@ -126,7 +108,7 @@ enum AppPalette {
     ]
 
     static let displayColorNames: [String: NSColor] = [
-        "none": trackerIdle,
+        "none": inert,
         "blue": NSColor(hex: 0x4d9bf0),
         "green": NSColor(hex: 0x57ab5a),
         "yellow": NSColor(hex: 0xd9a441),
@@ -282,6 +264,10 @@ enum AppFonts {
     static let questLogButton = monospaced(size: 12, weight: .bold)
     /// The pill tabs' labels.
     static let pillTab = monospaced(size: 10)
+}
+
+extension StateColor {
+    var color: NSColor { NSColor(hex: rawValue) }
 }
 
 extension NSColor {

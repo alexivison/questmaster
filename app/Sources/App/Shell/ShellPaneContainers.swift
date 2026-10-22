@@ -167,7 +167,7 @@ final class DockShellView: NSView {
     }
 
     func setRegionActive(_ active: Bool) {
-        chrome.setBorderColor(active ? AppPalette.activeSideCardBorder : AppPalette.lineSoftSubtle)
+        chrome.setBorderColor(active ? AppPalette.controlBorder : AppPalette.lineSoftSubtle)
     }
 
     func updateTabs(

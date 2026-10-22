@@ -17,22 +17,6 @@ extension View {
         )
     }
 
-    func styledTextField(
-        focused: Bool,
-        height: CGFloat = 36
-    ) -> some View {
-        textFieldStyle(.plain)
-            .font(AppFonts.monospaced(size: 13.5).swiftUI)
-            .foregroundStyle(AppPalette.text.swiftUI)
-            .lineLimit(1)
-            .padding(.horizontal, Token.Spacing.card)
-            .frame(maxWidth: .infinity)
-            .frame(height: height)
-            .background(AppPalette.panelAlt.swiftUI)
-            .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
-            .focusedControlBorder(focused: focused)
-    }
-
     func borderedCard(
         fill: NSColor,
         borderColor: NSColor = AppPalette.line,

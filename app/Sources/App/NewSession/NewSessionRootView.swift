@@ -147,7 +147,7 @@ struct NewSessionRootView: View {
     /// SELECT or ⌃e cycles it; it is no focus stop. A model without levels shows "default", inert.
     private var effortSegment: some View {
         let model = state.model
-        let color = model.hasEffortLevels ? AppPalette.questLogFilterHint : AppPalette.fieldInert
+        let color = model.hasEffortLevels ? AppPalette.textMeta : AppPalette.inert
         return HStack(spacing: FormFieldMetrics.segmentSpacing) {
             Rectangle()
                 .fill(AppPalette.line.swiftUI)

@@ -343,7 +343,7 @@ final class TrackerPortraitStatusNSView: NSView {
         spinnerMask.frame = spinnerGradient.bounds
         spinnerMask.path = geometry.ringPath(around: CGPoint(x: side / 2, y: side / 2))
         spinnerMask.lineWidth = geometry.ringLineWidth
-        spinnerMask.strokeColor = NSColor.black.cgColor
+        spinnerMask.strokeColor = AppPalette.mask.cgColor
         // A conic gradient's locations run counterclockwise, so the light head sits at the start and the tail fades out
         // behind it as the layer turns clockwise.
         let arc = Self.spinnerArc
@@ -416,7 +416,7 @@ final class TrackerPortraitStatusNSView: NSView {
         let center = geometry.layerCenter
         let middle = CGPoint(x: center.x, y: isFlipped ? center.y : bounds.height - center.y)
         let tint = applied.finishColor ?? TrackerCastFillNSView.amber
-        let light = tint.blended(withFraction: 0.5, of: .white) ?? tint
+        let light = tint.blended(withFraction: 0.5, of: AppPalette.light) ?? tint
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for sublayer in exitLayers {

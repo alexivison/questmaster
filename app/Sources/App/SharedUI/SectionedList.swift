@@ -199,31 +199,6 @@ func hideScroller(on scrollView: NSScrollView) {
     scrollView.tile()
 }
 
-struct SectionHeader: View {
-    let title: String
-    let color: NSColor
-    var leadingInset: CGFloat = Token.Spacing.content
-    var topInset: CGFloat = 12
-    var bottomInset: CGFloat = 5
-
-    var body: some View {
-        FlankedOrnamentRule(color: AppPalette.controlBorder.swiftUI) {
-            Text(title)
-                .font(AppFonts.sectionTitle.swiftUI)
-                .foregroundStyle(color.swiftUI)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
-                .offset(y: -3)
-        }
-        .padding(.horizontal, leadingInset)
-        .padding(.top, topInset)
-        .padding(.bottom, bottomInset)
-        .frame(minHeight: 28, alignment: .center)
-        .frame(maxWidth: .infinity, alignment: .center)
-    }
-}
-
 /// The row's own rectangle, grown above and below by `outset`, for a row whose artwork reaches past its layout frame.
 struct VerticallyOutsetRectangle: Shape {
     let outset: CGFloat

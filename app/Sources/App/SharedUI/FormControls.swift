@@ -28,13 +28,13 @@ enum FormFieldMetrics {
 }
 
 extension View {
-    /// A text field's box, as the Quest Log filter draws it: window fill and a 1pt border, line at rest
-    /// and controlBorder while focused. Colour only: no ornaments, glow or size change.
+    /// A text field's box, as the Quest Log filter draws it: window fill and a 1pt border in the field's state
+    /// look. Colour only: no ornaments, glow or size change.
     func fieldChrome(focused: Bool, cornerRadius: CGFloat = FormFieldMetrics.cornerRadius) -> some View {
         background(RoundedRectangle(cornerRadius: cornerRadius).fill(AppPalette.window.swiftUI))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder((focused ? AppPalette.controlBorder : AppPalette.line).swiftUI, lineWidth: Token.Size.divider)
+                    .strokeBorder(OutlineLook.field(focused: focused).border.color.swiftUI, lineWidth: Token.Size.divider)
             )
     }
 }
@@ -60,8 +60,8 @@ struct FormTextField<Trailing: View>: View {
                 onEndEditing: {},
                 onFocusChanged: onFocusChanged,
                 font: AppFonts.questLogBody,
-                textColor: AppPalette.questLogRow,
-                placeholderColor: AppPalette.questLogFilterHint
+                textColor: AppPalette.textBody,
+                placeholderColor: AppPalette.textMeta
             )
             .alignmentGuide(.top) { _ in FormFieldMetrics.editorBaseline - FormFieldMetrics.baseline }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -92,7 +92,7 @@ struct SuggestionDropdown: View {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 Text(row)
                     .font(AppFonts.questLogBody.swiftUI)
-                    .foregroundStyle(AppPalette.questLogRow.swiftUI)
+                    .foregroundStyle(AppPalette.textBody.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .alignmentGuide(.top) { $0[.firstTextBaseline] - FormFieldMetrics.suggestionBaseline }
@@ -115,6 +115,30 @@ struct SuggestionDropdown: View {
                 .strokeBorder(AppPalette.controlBorder.swiftUI, lineWidth: Token.Size.divider)
         )
         .accessibilityLabel("Suggestions")
+    }
+}
+
+extension SuggestionDropdown {
+    /// A filter field's suggestions (the Quest Log's and the artifact dock's): each title with its detail at the
+    /// row's right end.
+    init(filterSuggestions: [ArtifactFilterSuggestion], highlightedID: String?, onSelect: @escaping (ArtifactFilterSuggestion) -> Void) {
+        self.init(
+            rows: filterSuggestions.map(\.title),
+            highlightedIndex: filterSuggestions.firstIndex { $0.id == highlightedID },
+            onSelect: { onSelect(filterSuggestions[$0]) },
+            accessory: { AnyView(Self.meta(filterSuggestions[$0].detail)) }
+        )
+    }
+
+    /// A row's meta text at its right end: a project's path, a suggestion's detail.
+    static func meta(_ text: String, truncation: Text.TruncationMode = .tail) -> some View {
+        Text(text)
+            .font(AppFonts.questLogBody.swiftUI)
+            .foregroundStyle(AppPalette.textMeta.swiftUI)
+            .lineLimit(1)
+            .truncationMode(truncation)
+            .alignmentGuide(.top) { $0[.firstTextBaseline] - FormFieldMetrics.suggestionBaseline }
+            .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 

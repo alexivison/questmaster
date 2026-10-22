@@ -37,7 +37,6 @@ enum RenderPreview {
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
-        render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-skeleton.png")
@@ -91,6 +90,7 @@ enum RenderPreview {
         render(artifactViewerView(lightDocument: false), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-dark.png")
         render(artifactViewerView(lightDocument: true), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-light.png")
         render(artifactListView(showFilter: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter.png")
+        render(artifactListView(showFilter: true, suggesting: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter-suggestions.png")
         render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
@@ -815,7 +815,7 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    private static func artifactListView(selectMode: Bool = false, showFilter: Bool = false) -> some View {
+    private static func artifactListView(selectMode: Bool = false, showFilter: Bool = false, suggesting: Bool = false) -> some View {
         let artifacts = [
             ArtifactReference(
                 kind: "html",
@@ -830,6 +830,10 @@ enum RenderPreview {
                 addedAt: "2026-07-14"
             ),
         ]
+        let suggestions = [
+            ArtifactFilterSuggestion(mode: .command, kind: .project, value: "", title: "@project:", detail: "project", tokenTitle: ""),
+            ArtifactFilterSuggestion(mode: .command, kind: .type, value: "", title: "@type:", detail: "type", tokenTitle: ""),
+        ]
         let model = ArtifactDockModel(
             currentSessionTitle: "preview",
             currentSessionID: "preview",
@@ -838,7 +842,11 @@ enum RenderPreview {
             selectedArtifactID: artifacts.first?.id,
             selectedArtifactIDs: selectMode ? Set([artifacts[1].id]) : [],
             route: .list,
-            displayState: .viewing(artifacts[0])
+            displayState: .viewing(artifacts[0]),
+            artifactFilterQuery: suggesting ? "@" : "",
+            filterSuggestions: suggesting ? suggestions : [],
+            selectedFilterSuggestionID: suggesting ? suggestions[1].id : nil,
+            filterSuggestionsVisible: suggesting
         )
         return ArtifactDockView(
             model: model,
@@ -850,7 +858,8 @@ enum RenderPreview {
             onSelectFilterSuggestion: { _ in },
             onFilterCommand: { _ in false },
             onFilterEndEditing: {},
-            onOpenExternal: { _ in }
+            onOpenExternal: { _ in },
+            previewFilterFocused: suggesting
         )
     }
 
@@ -903,7 +912,7 @@ enum RenderPreview {
                     .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: Token.Radius.control)
-                            .fill(AppPalette.panelAlt.swiftUI)
+                            .fill(AppPalette.window.swiftUI)
                     )
                     .focusedControlBorder(focused: true, ornamentSide: side)
                 }
@@ -1277,11 +1286,6 @@ enum RenderPreview {
             spec: .deleteSession(sessionID: "qm-1783901769"),
             onDecision: { _ in }
         )
-    }
-
-    private static func sectionHeaderView() -> some View {
-        SectionHeader(title: "questmaster", color: NSColor(hex: 0xd29922))
-            .background(AppPalette.panel.swiftUI)
     }
 
     @MainActor

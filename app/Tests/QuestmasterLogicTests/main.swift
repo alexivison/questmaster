@@ -39,6 +39,8 @@ enum QuestmasterLogicTests {
         WorkerChatScrollTests.run()
         TrackerCastTests.run()
         ModalCommandRoutingTests.run()
+        InteractionLookTests.run()
+        StateRulesScanTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

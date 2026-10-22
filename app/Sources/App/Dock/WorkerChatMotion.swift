@@ -112,7 +112,7 @@ enum WorkerChatMotion {
     private static func solidLayer(_ frame: CGRect) -> CALayer {
         let layer = CALayer()
         layer.frame = frame
-        layer.backgroundColor = NSColor.black.cgColor
+        layer.backgroundColor = AppPalette.mask.cgColor
         return layer
     }
 

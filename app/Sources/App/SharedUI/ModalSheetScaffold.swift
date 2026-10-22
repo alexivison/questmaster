@@ -9,7 +9,7 @@ struct ModalSheetScaffold<Content: View>: View {
     var errorHeight: CGFloat = 46
     /// The one departure from the shared gold chrome: a destructive sheet's
     /// title stays semantic red so its danger signal survives the theme.
-    var titleColor: NSColor = AppPalette.modalTitle
+    var titleColor: NSColor = AppPalette.accent
     var cancelLabel: String?
     var onCancel: (() -> Void)?
     var primaryLabel: String?
@@ -86,7 +86,7 @@ struct ModalSheetScaffold<Content: View>: View {
 /// baseline 39 down, the rule's 18pt band at y 54-72, and the content 8 below it.
 struct ModalSheetHeader: View {
     let title: String
-    var titleColor: NSColor = AppPalette.modalTitle
+    var titleColor: NSColor = AppPalette.accent
     var horizontalInset: CGFloat = 18
 
     var body: some View {
@@ -110,53 +110,4 @@ private enum ModalSheetMetrics {
     static let footerRuleInset: CGFloat = 30
     static let footerHintHeight: CGFloat = 13
     static let footerBottomInset: CGFloat = 20
-}
-
-struct ModalSelectRow: View {
-    let label: String
-    let labelWidth: CGFloat
-    let title: String
-    let note: String
-    let swatchColor: NSColor?
-    let focused: Bool
-    let disabled: Bool
-    let controlWidth: CGFloat
-    var horizontalInset: CGFloat = 18
-    var spacing: CGFloat = 18
-    var onSelect: () -> Void
-
-    var body: some View {
-        ModalFormRow(
-            label: label,
-            labelWidth: labelWidth,
-            horizontalInset: horizontalInset,
-            spacing: spacing
-        ) {
-            controlRow
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private var controlRow: some View {
-        HStack(spacing: 12) {
-            ModalSelectControl(
-                title: title,
-                swatchColor: swatchColor,
-                focused: focused,
-                disabled: disabled
-            )
-            .frame(width: controlWidth, height: 36)
-            .onTapGesture(perform: onSelect)
-
-            noteText
-        }
-    }
-
-    private var noteText: some View {
-        Text(note)
-            .font(AppFonts.modalHelper.swiftUI)
-            .foregroundStyle(AppPalette.dim.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
-    }
 }

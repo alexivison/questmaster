@@ -116,17 +116,7 @@ struct NewQuestSheetView: View {
             rows: projects.map(\.displayName),
             highlightedIndex: model.form.visibleProjectHighlightIndex,
             onSelect: { model.selectProject(projects[$0]) },
-            accessory: { index in
-                AnyView(
-                    Text(projects[index].displayPath(home: home))
-                        .font(AppFonts.questLogBody.swiftUI)
-                        .foregroundStyle(AppPalette.questLogFilterHint.swiftUI)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                        .alignmentGuide(.top) { $0[.firstTextBaseline] - FormFieldMetrics.suggestionBaseline }
-                        .frame(maxHeight: .infinity, alignment: .top)
-                )
-            }
+            accessory: { AnyView(SuggestionDropdown.meta(projects[$0].displayPath(home: home), truncation: .head)) }
         )
     }
 

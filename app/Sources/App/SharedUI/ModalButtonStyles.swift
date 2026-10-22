@@ -60,7 +60,7 @@ private struct AngledButton: View {
     var body: some View {
         configuration.label
             .font(AppFonts.questLogButton.swiftUI)
-            .foregroundStyle((isEnabled ? AppPalette.questLogRow : AppPalette.item).swiftUI)
+            .foregroundStyle((isEnabled ? AppPalette.textBody : AppPalette.item).swiftUI)
             .lineLimit(1)
             .fixedSize()
             .alignmentGuide(.top) { $0[.firstTextBaseline] - AngledButtonMetrics.baseline }

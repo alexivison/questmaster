@@ -40,7 +40,7 @@ struct ModalPromptEditor: NSViewRepresentable {
         textView.isRichText = false
         textView.importsGraphics = false
         textView.font = ModalPromptEditorMetrics.font
-        textView.textColor = AppPalette.questLogRow
+        textView.textColor = AppPalette.textBody
         textView.backgroundColor = AppPalette.window
         textView.insertionPointColor = AppPalette.accent
         textView.textContainerInset = ModalPromptEditorMetrics.inset
@@ -163,7 +163,7 @@ private final class ModalPromptEditorTextView: NSTextView {
         )
         (placeholder as NSString).draw(in: rect, withAttributes: [
             .font: ModalPromptEditorMetrics.font,
-            .foregroundColor: AppPalette.questLogFilterHint
+            .foregroundColor: AppPalette.textMeta
         ])
     }
 
