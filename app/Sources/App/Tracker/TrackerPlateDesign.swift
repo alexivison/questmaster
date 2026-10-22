@@ -21,6 +21,13 @@ enum TrackerPlateDesign {
     /// How far past the master's row its hit shape reaches above and below: the crown pieces' 2.17.
     static let topLevelHitOutset: CGFloat = 3
 
+    /// Where a plate's text starts: `Space.item` past its portrait's visual right edge (the disc with its ring, or the
+    /// crown art where that reaches further), rounded up onto the 5pt grid.
+    static func textX(afterPortrait parts: [Path]) -> CGFloat {
+        let portraitRight = parts.reduce(CGRect.null) { $0.union($1.boundingRect) }.maxX
+        return ((portraitRight + Space.item) / Space.row).rounded(.up) * Space.row
+    }
+
     /// Canvas sizes, and the rows' sizes. A row ends at its plate's right edge, which a master's collapsed circles' last
     /// right edge lines up with. The master's canvas stops under the crown pieces; the circles are drawn apart.
     /// The master is 260 wide by decision (2026-10-21), not the SVG's 277; see `TrackerPlateShapes`.

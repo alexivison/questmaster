@@ -807,23 +807,21 @@ enum TrackerNameplateRole: Equatable {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
 
-    /// The text columns in canvas points: the SVGs' first glyph cells (54, 57 and 56 on the master, 67 on the worker)
-    /// snapped onto the 5pt rhythm, one column per plate. Every line stops at the column's right edge, where the elapsed
-    /// time right-aligns. The master's project name sits in its tab, the title and time on the title strip, and the
-    /// snippet on the band below; the worker has no tab.
-    static let topLevelProjectX: CGFloat = 55
-    static let topLevelTitleX: CGFloat = 55
-    static let topLevelSnippetX: CGFloat = 55
+    /// The text columns in canvas points, one per plate, past each portrait (`TrackerPlateDesign.textX`): 65 on the
+    /// master (its crown art ends at 54.2), 75 on the worker (its ring at 62). Every line stops at the column's right
+    /// edge, where the elapsed time right-aligns. The master's project name sits in its tab, the title and time on the
+    /// title strip, and the snippet on the band below; the worker has no tab.
+    static let topLevelTextX = TrackerPlateDesign.textX(afterPortrait: [TrackerPlateDesign.topLevel.discEdge] + TrackerPlateDesign.topLevel.ornaments.map(\.path))
     static let topLevelTextRightEdge: CGFloat = 250
-    static let workerTextX: CGFloat = 65
+    static let workerTextX = TrackerPlateDesign.textX(afterPortrait: [TrackerPlateDesign.worker.discEdge])
     static let workerTextRightEdge: CGFloat = 240
     static let titleTimeGap = Space.row
     /// The collapsed workers' circles start 40 points right of the master disc's left edge.
     static let circlesX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x
         - TrackerPlateDesign.topLevelDiscDiameter / 2 + TrackerPlateDesign.collapsedCirclesInset
 
-    var titleX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelTitleX }
-    var snippetX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelSnippetX }
+    var titleX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelTextX }
+    var snippetX: CGFloat { titleX }
     var textRightEdge: CGFloat { isWorker ? Self.workerTextRightEdge : Self.topLevelTextRightEdge }
     var titleBaseline: CGFloat { isWorker ? TrackerPlateDesign.workerTitleBaseline : TrackerPlateDesign.topLevelTitleBaseline }
     var timeBaseline: CGFloat { isWorker ? TrackerPlateDesign.workerTimeBaseline : TrackerPlateDesign.topLevelTimeBaseline }
@@ -1184,8 +1182,8 @@ private struct TrackerPlateText: View {
                     text: projectName,
                     font: AppFonts.monoSmall,
                     color: AppPalette.dim,
-                    x: TrackerNameplateRole.topLevelProjectX,
-                    width: role.textRightEdge - TrackerNameplateRole.topLevelProjectX,
+                    x: TrackerNameplateRole.topLevelTextX,
+                    width: role.textRightEdge - TrackerNameplateRole.topLevelTextX,
                     baseline: TrackerPlateDesign.topLevelProjectBaseline
                 )
             }

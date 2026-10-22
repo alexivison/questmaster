@@ -470,6 +470,13 @@ enum LogicSelfTests {
             "worker portrait indent"
         )
 
+        // Plate text starts 10 past the portrait's art, rounded up to 5: the master's crown art ends at 54.2, the
+        // worker's ring at 62, the panel's side diamonds at 76.
+        try expectClose(TrackerNameplateRole.topLevelTextX, 65, "master text column")
+        try expectClose(TrackerNameplateRole.workerTextX, 75, "worker text column")
+        try expectClose(SelectedSessionPanel.textX, 90, "selected-session panel text column")
+        try expectClose(TrackerNameplateRole.master.snippetX, TrackerNameplateRole.master.titleX, "master snippet under the title")
+
         // Every layer of a portrait sits at a whole-point origin. A frame on a half point snaps to a whole pixel at 1x
         // and drifts half a pixel off the disc the plate's canvas draws at exact geometry.
         for role in [TrackerNameplateRole.master, .worker] {

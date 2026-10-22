@@ -47,10 +47,11 @@ struct SelectedSessionPanel: View {
         subdirectory: "Brand",
         canvasSize: NSSize(width: logoSize.width, height: logoSize.height)
     )
-    /// Where each line's first glyph cell starts (the SVG's 78 and 79.5 snapped onto the 5pt rhythm), and its baseline.
-    /// Every line stops at `textRightEdge`, so a long title truncates instead of running under the plate's right edge.
-    private static let idX: CGFloat = 80
-    private static let textX: CGFloat = 80
+    /// Where each line's first glyph cell starts, past the portrait like a plate's text (`TrackerPlateDesign.textX`),
+    /// and its baseline. Every line stops at `textRightEdge`, so a long title truncates instead of running under the
+    /// plate's right edge.
+    static let textX = TrackerPlateDesign.textX(afterPortrait: [PanelDesign.disc] + PanelDesign.ornaments.map(\.path))
+    private static let idX = textX
     private static let textRightEdge: CGFloat = 250
     private static let idBaseline: CGFloat = 19
     private static let titleBaseline: CGFloat = 42.5
