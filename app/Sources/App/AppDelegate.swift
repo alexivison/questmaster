@@ -531,6 +531,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             copyQuests(quests)
         case .focusFilter:
             questLogFilter.focus()
+        case .scrollPage(let pages):
+            shellHandles?.questLogOverlay.pageScroll.scroll(byPages: pages)
         }
     }
 

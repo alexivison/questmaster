@@ -45,6 +45,8 @@ enum LogicSelfTests {
         ("testDockCoordinatorIgnoresNoSessionState", testDockCoordinatorIgnoresNoSessionState),
         ("testModalsPresentInsideTheWindowNotAsSystemSheets", testModalsPresentInsideTheWindowNotAsSystemSheets),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
+        ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
+        ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
@@ -1583,6 +1585,91 @@ enum LogicSelfTests {
         try expect(!host.isHidden, "the host should stay visible until the fade-out ends")
         settle()
         try expect(stack.entries.isEmpty && host.isHidden, "once the fade-out ends the stack should empty and the host hide")
+    }
+
+    /// No single-line text field is shorter than its font's full line (ascent + descent + leading): the live
+    /// field editor clips to the field's bounds, so a shorter field cuts ascenders or descenders.
+    private static func testTextFieldsFitTheirWholeLine() throws {
+        func fields(in view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { subview in
+                ((subview as? NSTextField).map { [$0] } ?? []) + fields(in: subview)
+            }
+        }
+        func check<V: View>(_ name: String, _ content: V, size: CGSize) throws {
+            let hosting = NSHostingView(rootView: content)
+            hosting.frame = NSRect(origin: .zero, size: size)
+            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: size.width, height: size.height), styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = hosting
+            window.orderFrontRegardless()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            let found = fields(in: hosting).filter { $0.isEditable }
+            try expect(!found.isEmpty, "\(name): no editable text field found")
+            for field in found {
+                guard let font = field.font else {
+                    continue
+                }
+                let line = font.ascender - font.descender + font.leading
+                try expect(field.bounds.height >= line, "\(name): a \(font.pointSize)pt field is \(field.bounds.height) high, under its \(line) line")
+            }
+        }
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest")], repos: [])
+        try check("Quest Log filter", QuestLogView(store: store, filter: QuestLogFilter(), onCommand: { _ in }), size: QuestLogView.size)
+        let newSession = NewSessionSheetPresenter()
+        newSession.present(initialPath: "/tmp/gjpqy", mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: { _ in })
+        if let presentation = newSession.presentation {
+            try check("New Session", NewSessionSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
+        }
+    }
+
+    /// A long quest's ink scrolls under a wheel over the page: the page's point hit-tests into its scroll view,
+    /// and the wheel moves it.
+    private static func testQuestLogPageScrollsWithTheWheel() throws {
+        let body = (1...60).map { "- Step \($0) of a quest long enough to scroll" }.joined(separator: "\n")
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A long quest\n\n\(body)", projectID: "p", projectName: "p")], repos: [])
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let host = QuestLogOverlayHost(store: store, filter: QuestLogFilter())
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.close() }
+        store.open()
+        host.setVisible(true)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+
+        // The page's middle, in the host's coordinates: the 900 x 780 log is centred, its page 473 wide at (397, 40).
+        let logOrigin = NSPoint(x: (1000 - 900) / 2, y: (860 - 780) / 2)
+        let pageMiddle = NSPoint(x: logOrigin.x + 397 + 236, y: host.bounds.height - (logOrigin.y + 40 + 330))
+        guard let hit = host.hitTest(host.superview?.convert(pageMiddle, from: host) ?? pageMiddle) else {
+            throw TestFailure("nothing under the page takes the wheel")
+        }
+        guard let scrollView = hit as? NSScrollView ?? hit.enclosingScrollView else {
+            throw TestFailure("the page hit-tests to \(type(of: hit)), not into a scroll view")
+        }
+        let documentHeight = scrollView.documentView?.frame.height ?? 0
+        try expect(documentHeight > scrollView.contentView.bounds.height, "the long quest should overflow the page: \(documentHeight) vs \(scrollView.contentView.bounds.height)")
+        guard let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -120, wheel2: 0, wheel3: 0),
+              let wheel = NSEvent(cgEvent: cgEvent) else {
+            throw TestFailure("could not make a wheel event")
+        }
+        try expect(host.pageScroll.moreBelow, "an overflowing page should show the cue that more ink lies below")
+        let before = scrollView.contentView.bounds.origin.y
+        hit.scrollWheel(with: wheel)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try expect(scrollView.contentView.bounds.origin.y != before, "the wheel should scroll the page (offset stayed \(before))")
+
+        // The page keys (PageDown and friends) go through the same scroller; past the end, the cue goes away.
+        let afterWheel = scrollView.contentView.bounds.origin.y
+        host.pageScroll.scroll(byPages: 0.5)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try expect(scrollView.contentView.bounds.origin.y > afterWheel, "a half-page key should scroll further down")
+        host.pageScroll.scroll(byPages: 50)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let maxOffset = documentHeight - scrollView.contentView.bounds.height
+        try expect(abs(scrollView.contentView.bounds.origin.y - maxOffset) < 1, "scrolling past the end should stop at the bottom")
+        try expect(!host.pageScroll.moreBelow, "at the bottom the overflow cue should go away")
     }
 
     /// The Quest Log fades in and its parchment unrolls without the parchment Canvas redrawing frame by frame;

@@ -94,10 +94,17 @@ enum RenderPreview {
             size: QuestLogView.size,
             to: "\(outputDir)/quest-log-suggestions.png"
         )
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-placeholder.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "gjpqy"), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-typed.png")
         render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
         render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
         renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
         recordQuestLogAnimations(to: outputDir)
+        // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.
+        let scrolledPage = QuestLogPageScroll()
+        scrolledPage.previewOffset = 160
+        render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), pageScroll: scrolledPage, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long-scrolled.png")
+        render(newSessionSheetView(title: "gjpqy quest", path: "/tmp/gjpqy/project"), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-descenders.png")
         render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newSessionSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-sheet.png")
         let window = CGSize(width: 1400, height: 900)
@@ -939,6 +946,7 @@ enum RenderPreview {
                     content: index == 0 && project == "dotfiles" ? "\(title)\n\n\(body)" : title,
                     projectID: project,
                     projectName: project,
+                    createdAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index),
                     updatedAt: String(format: "2026-09-%02dT10:00:00Z", 8 - index)
                 )
             }
@@ -1050,9 +1058,9 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func newSessionSheetView() -> some View {
+    private static func newSessionSheetView(title: String = "", path: String = "/Users/aleksi.tuominen/Code/questmaster") -> some View {
         let presenter = NewSessionSheetPresenter()
-        presenter.present(initialPath: "/Users/aleksi.tuominen/Code/questmaster", mutationClient: SettingsPreviewMutationClient(), directoryClient: nil, onSuccess: { _ in })
+        presenter.present(initialPath: path, initialTitle: title, mutationClient: SettingsPreviewMutationClient(), directoryClient: nil, onSuccess: { _ in })
         return NewSessionSheetView(presentation: presenter.presentation!, dismiss: {})
     }
 

@@ -18,8 +18,10 @@ private enum QuestLogMetrics {
     static let chipCornerRadius: CGFloat = 4.5
     static let chipTextInset: CGFloat = 6
     static let suggestionsGap: CGFloat = 4
-    /// NSTextField sets its text lower and further left than the design's placeholder, measured against it.
-    static let filterTextNudge = CGSize(width: 1.5, height: -2)
+    /// The text field sits 1.5 further right than the HStack spacing puts it and `filterFieldDrop` above
+    /// centre, which lands its text where the design's placeholder is.
+    static let filterFieldLead: CGFloat = 1.5
+    static let filterFieldDrop: CGFloat = 1.75
     /// List column, under the field: x 30-387. A section title's baseline sits 21 below the previous box
     /// (the field or the last row) and 9 above its first row; rows are 26 high, 5 apart (a 31pt pitch),
     /// with the text baseline 17 down and 10 in.
@@ -54,6 +56,8 @@ private enum QuestLogMetrics {
     static let ruleGap: CGFloat = 24
     static let footerGap: CGFloat = 32
     static let inkBottomInset: CGFloat = 24
+    /// How far in from the page's bottom (top) edge the ink fades while more of it lies below (above).
+    static let overflowFadeHeight: CGFloat = 28
     /// The vine strips, page-local: the title's spans y 20-38 with the title baseline at 34; the rule's
     /// spans y 190-207 with the rule at 198.
     static let titleVineBand = (top: CGFloat(20), height: CGFloat(18))
@@ -85,6 +89,7 @@ struct QuestLogView: View {
 
     let store: QuestLogStore
     let filter: QuestLogFilter
+    var pageScroll = QuestLogPageScroll()
     /// Offscreen renders can't focus the field; this shows its suggestions as if it were focused.
     var previewShowsSuggestions = false
     var onCommand: (QuestLogCommand) -> Void
@@ -94,7 +99,7 @@ struct QuestLogView: View {
             QuestLogList(store: store)
                 .frame(width: QuestLogMetrics.listWidth, height: QuestLogMetrics.pageOrigin.y + QuestLogMetrics.pageSize.height - QuestLogMetrics.listOrigin.y, alignment: .top)
                 .offset(x: QuestLogMetrics.listOrigin.x, y: QuestLogMetrics.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, isFiltering: filter.isActive)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, isFiltering: filter.isActive, pageScroll: pageScroll)
                 .offset(x: QuestLogMetrics.pageOrigin.x, y: QuestLogMetrics.pageOrigin.y)
             buttons
                 .frame(width: QuestLogMetrics.sheetSize.width)
@@ -124,11 +129,12 @@ struct QuestLogView: View {
 struct QuestLogOverlayView: View {
     let store: QuestLogStore
     let filter: QuestLogFilter
+    let pageScroll: QuestLogPageScroll
     var onCommand: (QuestLogCommand) -> Void
 
     var body: some View {
         // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
-        ModalLayer { QuestLogView(store: store, filter: filter, onCommand: onCommand).id(store.openGeneration) }
+        ModalLayer { QuestLogView(store: store, filter: filter, pageScroll: pageScroll, onCommand: onCommand).id(store.openGeneration) }
             .modalFade(closing: !store.isOpen)
     }
 }
@@ -161,8 +167,10 @@ private struct QuestLogFilterField: View {
                 textColor: AppPalette.questLogRow,
                 placeholderColor: AppPalette.questLogFilterHint
             )
-            .padding(.leading, QuestLogMetrics.filterTextNudge.width)
-            .offset(y: QuestLogMetrics.filterTextNudge.height)
+            // The field is as tall as its font's whole line (KeyTextField); this places that frame where the
+            // design sets the text.
+            .padding(.leading, QuestLogMetrics.filterFieldLead)
+            .alignmentGuide(VerticalAlignment.center) { $0[VerticalAlignment.center] + QuestLogMetrics.filterFieldDrop }
             .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, QuestLogMetrics.filterInset)
@@ -209,13 +217,21 @@ private struct QuestLogList: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(store.sections) { section in
-                        BaselineText(section.title, font: AppFonts.monoSmall, color: AppPalette.accent, baseline: QuestLogMetrics.sectionBaseline)
-                            .frame(height: QuestLogMetrics.sectionHeight, alignment: .top)
+                        // The title and the first row scroll into view together.
+                        VStack(alignment: .leading, spacing: 0) {
+                            BaselineText(section.title, font: AppFonts.monoSmall, color: AppPalette.accent, baseline: QuestLogMetrics.sectionBaseline)
+                                .frame(height: QuestLogMetrics.sectionHeight, alignment: .top)
+                            if let first = section.quests.first {
+                                row(first).id(first.id)
+                            }
+                        }
+                        .id(Self.sectionStartID(section.id))
                         VStack(alignment: .leading, spacing: QuestLogMetrics.rowSpacing) {
-                            ForEach(section.quests) { quest in
+                            ForEach(section.quests.dropFirst()) { quest in
                                 row(quest).id(quest.id)
                             }
                         }
+                        .padding(.top, section.quests.count > 1 ? QuestLogMetrics.rowSpacing : 0)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -223,10 +239,27 @@ private struct QuestLogList: View {
             }
             .scrollIndicators(.hidden)
             .onChange(of: store.selectedID) { _, id in
-                if let id {
-                    proxy.scrollTo(id)
-                }
+                scroll(proxy, to: id)
             }
+        }
+    }
+
+    private static func sectionStartID(_ sectionID: String) -> String {
+        "section-start:\(sectionID)"
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy, to id: String?) {
+        switch QuestDisplayState.scrollTarget(for: id, in: store.sections) {
+        case .top:
+            if let first = store.sections.first {
+                proxy.scrollTo(Self.sectionStartID(first.id), anchor: .top)
+            }
+        case .sectionStart(let sectionID):
+            proxy.scrollTo(Self.sectionStartID(sectionID))
+        case .row(let id):
+            proxy.scrollTo(id)
+        case nil:
+            break
         }
     }
 
@@ -266,6 +299,7 @@ private struct QuestLogPageView: View {
     let page: QuestLogPage?
     let pageID: String?
     let isFiltering: Bool
+    let pageScroll: QuestLogPageScroll
     @State private var unrolled = false
     @State private var inked = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -313,9 +347,25 @@ private struct QuestLogPageView: View {
         if let page {
             ScrollView(.vertical) {
                 QuestLogInk(page: page)
-                    .background(ScrollerHider())
+                    .background(ScrollerHider(onApply: { scrollView in
+                        hideScroller(on: scrollView)
+                        pageScroll.attach(scrollView)
+                    }))
             }
             .scrollIndicators(.hidden)
+            // The overflow cue: while more ink lies below (or above, once scrolled), it fades out over the
+            // page's last (or first) lines. Only the ink fades; the paper stays as it is.
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [pageScroll.moreAbove ? .clear : .black, .black], startPoint: .top, endPoint: .bottom)
+                        .frame(height: QuestLogMetrics.overflowFadeHeight)
+                    Color.black
+                    LinearGradient(colors: [.black, pageScroll.moreBelow ? .clear : .black], startPoint: .top, endPoint: .bottom)
+                        .frame(height: QuestLogMetrics.overflowFadeHeight)
+                }
+            }
+            .animation(.easeOut(duration: QuestLogMetrics.pageTransition), value: pageScroll.moreBelow)
+            .animation(.easeOut(duration: QuestLogMetrics.pageTransition), value: pageScroll.moreAbove)
             .id(pageID)
             .transition(.opacity)
         } else {
@@ -564,6 +614,73 @@ private func naturalLineHeight(_ font: NSFont) -> CGFloat {
     font.ascender.rounded() + (-font.descender).rounded() + font.leading
 }
 
+/// The page's scroll view, for the page keys (PageUp/PageDown, ⌃u/⌃d) and for the overflow cue. It follows
+/// whichever page is showing; `moreBelow` changes only when the ink starts or stops running past the bottom.
+@Observable
+@MainActor
+final class QuestLogPageScroll {
+    private(set) var moreBelow = false
+    private(set) var moreAbove = false
+    @ObservationIgnored private weak var scrollView: NSScrollView?
+    @ObservationIgnored private var observers: [NSObjectProtocol] = []
+    /// DEBUG renders: open the page scrolled this far down.
+    @ObservationIgnored var previewOffset: CGFloat?
+
+    func attach(_ scrollView: NSScrollView) {
+        guard scrollView !== self.scrollView else {
+            refresh()
+            return
+        }
+        observers.forEach(NotificationCenter.default.removeObserver)
+        self.scrollView = scrollView
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.documentView?.postsFrameChangedNotifications = true
+        observers = [
+            (NSView.boundsDidChangeNotification, scrollView.contentView as NSView),
+            (NSView.frameDidChangeNotification, scrollView.documentView),
+        ].compactMap { name, view in
+            view.map { NotificationCenter.default.addObserver(forName: name, object: $0, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            } }
+        }
+        if let previewOffset {
+            scroll(to: previewOffset, glides: false)
+        }
+        refresh()
+    }
+
+    /// Scrolls by `pages` of the visible height, gliding, clamped to the ink.
+    func scroll(byPages pages: Double) {
+        guard let clipView = scrollView?.contentView else {
+            return
+        }
+        scroll(to: clipView.bounds.origin.y + clipView.bounds.height * CGFloat(pages), glides: true)
+    }
+
+    private func scroll(to offset: CGFloat, glides: Bool) {
+        guard let scrollView else {
+            return
+        }
+        let maxOffset = max(0, (scrollView.documentView?.frame.height ?? 0) - scrollView.contentView.bounds.height)
+        WorkerChatMotion.scroll(scrollView, toOffset: min(max(0, offset), maxOffset), glides: glides)
+        refresh()
+    }
+
+    private func refresh() {
+        guard let scrollView else {
+            return
+        }
+        let below = (scrollView.documentView?.frame.height ?? 0) - scrollView.contentView.bounds.maxY > 1
+        let above = scrollView.contentView.bounds.minY > 1
+        if below != moreBelow {
+            moreBelow = below
+        }
+        if above != moreAbove {
+            moreAbove = above
+        }
+    }
+}
+
 #if DEBUG
 /// Self-test instrumentation: how often the parchment Canvas has drawn, to prove the unroll doesn't redraw it.
 enum QuestLogDebug {
@@ -581,9 +698,14 @@ final class QuestLogOverlayHost: NSHostingView<QuestLogOverlayView> {
     private var keyMonitor: Any?
     private let hiding = FadeOutHiding()
 
+    /// The page's scroll view, for the page keys.
+    let pageScroll: QuestLogPageScroll
+
     init(store: QuestLogStore, filter: QuestLogFilter) {
         var forward: ((QuestLogCommand) -> Void)?
-        super.init(rootView: QuestLogOverlayView(store: store, filter: filter, onCommand: { forward?($0) }))
+        let pageScroll = QuestLogPageScroll()
+        self.pageScroll = pageScroll
+        super.init(rootView: QuestLogOverlayView(store: store, filter: filter, pageScroll: pageScroll, onCommand: { forward?($0) }))
         forward = { [weak self] in self?.onCommand?($0) }
         // Sized only by the window edges it's pinned to, never by the log's own size (see InWindowModalHost).
         sizingOptions = []
@@ -640,7 +762,8 @@ final class QuestLogOverlayHost: NSHostingView<QuestLogOverlayView> {
         if let editor = window.firstResponder as? NSTextView, editor.isDescendant(of: self) {
             return false
         }
-        if let command = QuestLogCommand.from(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode) {
+        let control = event.modifierFlags.contains(.control)
+        if let command = QuestLogCommand.from(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, control: control) {
             onCommand?(command)
         }
         return true

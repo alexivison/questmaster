@@ -211,6 +211,11 @@ public enum Keymap {
         public static let toggleMark = CharacterBinding(keys: [" "])
         public static let focusFilter = CharacterBinding(keys: ["/"])
         public static let close = KeyCodeBinding(keyCodes: [53])
+        /// The page: PageUp / PageDown (fn-↑ / fn-↓) as in the artifact viewer, and vim's ⌃u / ⌃d by half pages.
+        public static let pageUp = KeyCodeBinding(keyCodes: [116])
+        public static let pageDown = KeyCodeBinding(keyCodes: [121])
+        public static let halfPageUp = CharacterBinding(keys: ["u"], modifiers: [.control])
+        public static let halfPageDown = CharacterBinding(keys: ["d"], modifiers: [.control])
     }
 
     public enum Settings {

@@ -7,6 +7,8 @@ struct QuestCoreTests {
         displayFallsBackToProjectColorWithoutLiveSession()
         displayFiltersByProjectID()
         displayFiltersByTextAndProjectTokens()
+        displayOrdersByCreatedNotUpdated()
+        displayScrollsSectionStartsWithTheirTitle()
         displayRecoversDeletedSelectionToPreviousQuest()
         questLogPageSplitsTitleAndKeepsBodyVerbatim()
         questLogPageFooterUsesProjectAndDay()
@@ -85,9 +87,9 @@ struct QuestCoreTests {
     }
 
     private static let logQuests = [
-        QuestItem(id: "a1", content: "A one", projectID: "a", projectName: "alpha", updatedAt: "2026-07-03T02:00:00Z"),
-        QuestItem(id: "a2", content: "A two", projectID: "a", projectName: "alpha", updatedAt: "2026-07-03T01:00:00Z"),
-        QuestItem(id: "b1", content: "B one", projectID: "b", projectName: "beta", updatedAt: "2026-07-03T03:00:00Z"),
+        QuestItem(id: "a1", content: "A one", projectID: "a", projectName: "alpha", createdAt: "2026-07-03T02:00:00Z"),
+        QuestItem(id: "a2", content: "A two", projectID: "a", projectName: "alpha", createdAt: "2026-07-03T01:00:00Z"),
+        QuestItem(id: "b1", content: "B one", projectID: "b", projectName: "beta", createdAt: "2026-07-03T03:00:00Z"),
     ]
 
     private static func questLogStoreSelectsMovesAndRecovers() {
@@ -159,6 +161,15 @@ struct QuestCoreTests {
         expect(QuestLogCommand.from(characters: " ", keyCode: 49) == .toggleMark, "space")
         expect(QuestLogCommand.from(characters: "\u{1b}", keyCode: 53) == .close, "esc")
         expect(QuestLogCommand.from(characters: "/", keyCode: 44) == .focusFilter, "/ should focus the filter")
+        expect(QuestLogCommand.from(characters: nil, keyCode: 121) == .pageDown, "PageDown scrolls the page")
+        expect(QuestLogCommand.from(characters: nil, keyCode: 116) == .pageUp, "PageUp scrolls the page")
+        expect(QuestLogCommand.from(characters: "d", keyCode: 2, control: true) == .halfPageDown, "⌃d scrolls half a page down")
+        expect(QuestLogCommand.from(characters: "u", keyCode: 32, control: true) == .halfPageUp, "⌃u scrolls half a page up")
+        expect(QuestLogCommand.from(characters: "s", keyCode: 1, control: true) == nil, "⌃s must not start a session")
+        let store = QuestLogStore()
+        expect(store.handle(.pageDown) == nil, "with nothing selected there is no page to scroll")
+        store.sync(quests: logQuests, repos: [])
+        expect(store.handle(.pageDown) == .scrollPage(0.9) && store.handle(.halfPageUp) == .scrollPage(-0.5), "page keys scroll by 0.9 and half pages")
         expect(QuestLogCommand.from(characters: "S", keyCode: 1) == nil, "shifted letters are not quest log keys")
         expect(QuestLogCommand.from(characters: "x", keyCode: 7) == nil, "x is unbound")
     }
@@ -200,11 +211,30 @@ struct QuestCoreTests {
         expect(QuestDisplayState.flatQuests(in: both).map(\.id) == ["qst-b"], "text and project tokens should both apply")
     }
 
+    private static func displayOrdersByCreatedNotUpdated() {
+        let quests = [
+            QuestItem(id: "qst-old-edited", content: "Old, just edited", projectID: "p", createdAt: "2026-07-01T00:00:00Z", updatedAt: "2026-07-09T00:00:00Z"),
+            QuestItem(id: "qst-new", content: "New", projectID: "p", createdAt: "2026-07-05T00:00:00Z", updatedAt: "2026-07-05T00:00:00Z"),
+            QuestItem(id: "qst-tie-b", content: "Tie b", projectID: "p", createdAt: "2026-07-03T00:00:00Z"),
+            QuestItem(id: "qst-tie-a", content: "Tie a", projectID: "p", createdAt: "2026-07-03T00:00:00Z"),
+        ]
+        let order = QuestDisplayState.flatQuests(in: QuestDisplayState.sections(quests: quests, repos: [])).map(\.id)
+        expect(order == ["qst-new", "qst-tie-a", "qst-tie-b", "qst-old-edited"], "quests should sort newest created first, ties by id, edits not moving them: \(order)")
+    }
+
+    private static func displayScrollsSectionStartsWithTheirTitle() {
+        let sections = QuestDisplayState.sections(quests: logQuests, repos: [])
+        expect(QuestDisplayState.scrollTarget(for: "a1", in: sections) == .top, "the first quest should scroll the list to the top")
+        expect(QuestDisplayState.scrollTarget(for: "b1", in: sections) == .sectionStart(sectionID: "b"), "a section's first quest should bring its title along")
+        expect(QuestDisplayState.scrollTarget(for: "a2", in: sections) == .row(id: "a2"), "other quests scroll to their row")
+        expect(QuestDisplayState.scrollTarget(for: "missing", in: sections) == nil && QuestDisplayState.scrollTarget(for: nil, in: sections) == nil, "nothing to scroll to")
+    }
+
     private static func displayRecoversDeletedSelectionToPreviousQuest() {
         let quests = [
-            QuestItem(id: "qst-above", content: "Above", updatedAt: "2026-07-03T03:00:00Z"),
-            QuestItem(id: "qst-deleted", content: "Deleted", updatedAt: "2026-07-03T02:00:00Z"),
-            QuestItem(id: "qst-below", content: "Below", updatedAt: "2026-07-03T01:00:00Z"),
+            QuestItem(id: "qst-above", content: "Above", createdAt: "2026-07-03T03:00:00Z"),
+            QuestItem(id: "qst-deleted", content: "Deleted", createdAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-below", content: "Below", createdAt: "2026-07-03T01:00:00Z"),
         ]
         let before = QuestDisplayState.sections(quests: quests, repos: [])
         let after = QuestDisplayState.sections(quests: [quests[0], quests[2]], repos: [])

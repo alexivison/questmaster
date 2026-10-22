@@ -207,6 +207,16 @@ struct CommandTextField: NSViewRepresentable {
     final class KeyTextField: NSTextField {
         var onCommand: (UInt16) -> Bool = { _ in false }
 
+        /// At least the font's whole line (ascent + descent + leading): AppKit's own intrinsic height rounds it
+        /// down (14 for 11pt JetBrains Mono's 14.52), and the field editor clips descenders to the field.
+        override var intrinsicContentSize: NSSize {
+            let size = super.intrinsicContentSize
+            guard let font else {
+                return size
+            }
+            return NSSize(width: size.width, height: max(size.height, (font.ascender - font.descender + font.leading).rounded(.up)))
+        }
+
         override func keyDown(with event: NSEvent) {
             if onCommand(event.keyCode) {
                 return

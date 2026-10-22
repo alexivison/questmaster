@@ -90,11 +90,23 @@ public enum QuestLogCommand: Equatable {
     case copy
     case toggleMark
     case focusFilter
+    case pageUp
+    case pageDown
+    case halfPageUp
+    case halfPageDown
     case close
 
-    public static func from(characters: String?, keyCode: UInt16) -> QuestLogCommand? {
+    /// `control`: Control is held. Only ⌃u / ⌃d mean anything then, so ⌃d never reads as d (Abandon).
+    public static func from(characters: String?, keyCode: UInt16, control: Bool = false) -> QuestLogCommand? {
         typealias Keys = Keymap.QuestLog
+        if control {
+            if Keys.halfPageUp.matches(characters) { return .halfPageUp }
+            if Keys.halfPageDown.matches(characters) { return .halfPageDown }
+            return nil
+        }
         if Keys.close.matches(keyCode) { return .close }
+        if Keys.pageUp.matches(keyCode) { return .pageUp }
+        if Keys.pageDown.matches(keyCode) { return .pageDown }
         if Keys.focusFilter.matchesExactly(characters) { return .focusFilter }
         if Keys.moveUpKeyCodes.matches(keyCode) { return .moveUp }
         if Keys.moveDownKeyCodes.matches(keyCode) { return .moveDown }
@@ -116,6 +128,8 @@ public enum QuestLogEffect: Equatable {
     case delete([QuestItem])
     case copy([QuestItem])
     case focusFilter
+    /// Scroll the page by this many of its visible heights (negative is up).
+    case scrollPage(Double)
     case close
 }
 
@@ -129,6 +143,10 @@ public final class QuestLogStore {
     public private(set) var sections: [QuestSection] = []
     public private(set) var selectedID: String?
     public private(set) var markedIDs: Set<String> = []
+
+    /// A page step keeps a line of overlap; a half page is vim's.
+    static let pageStep = 0.9
+    static let halfPageStep = 0.5
 
     public init() {}
 
@@ -200,6 +218,12 @@ public final class QuestLogStore {
             return .close
         case .focusFilter:
             return .focusFilter
+        case .pageUp, .pageDown, .halfPageUp, .halfPageDown:
+            guard selectedID != nil else {
+                return nil
+            }
+            let pages = (command == .pageUp || command == .pageDown) ? Self.pageStep : Self.halfPageStep
+            return .scrollPage(command == .pageUp || command == .halfPageUp ? -pages : pages)
         case .start:
             return targets.isEmpty ? nil : .start(targets)
         case .edit:
