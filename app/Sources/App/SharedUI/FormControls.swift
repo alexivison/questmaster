@@ -154,9 +154,9 @@ struct FocusSink: NSViewRepresentable {
     }
 }
 
-/// The New Session / New Quest sheet: the gold title on a baseline 34 down, the chapter rule centred at
-/// 55, the fields from 87 down to 546 and 20 in, then Cancel and the primary button (194 wide, 15 apart)
-/// from 567. An error shows in the band between the fields and the buttons.
+/// The New Session / New Quest sheet: the shared modal header, the fields 20 in down to 21 above the
+/// buttons, then Cancel and the primary button (194 wide, 15 apart) on a row 32 high and 21 from the
+/// bottom. An error shows in the band between the fields and the buttons.
 struct ModalFormSheet<Content: View>: View {
     private typealias Metrics = ModalFormMetrics
 
@@ -168,27 +168,19 @@ struct ModalFormSheet<Content: View>: View {
     var onPrimary: () -> Void
     @ViewBuilder var content: () -> Content
 
-
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            BaselineText(title.uppercased(), font: AppFonts.formTitle, color: AppPalette.accent, baseline: Metrics.titleBaseline)
-                .frame(width: Metrics.size.width, height: Metrics.contentTop, alignment: .top)
-            ForEach(Metrics.ruleLines, id: \.minX) { line in
-                Rectangle()
-                    .fill(AppPalette.line.swiftUI)
-                    .frame(width: line.width, height: line.height)
-                    .offset(x: line.minX, y: line.minY)
-            }
-            ModalChapterRule()
-                .frame(height: Metrics.ruleHeight)
-                .padding(.horizontal, Metrics.inset)
-                .offset(y: Metrics.ruleCenter - Metrics.ruleHeight / 2)
+        VStack(spacing: 0) {
+            ModalSheetHeader(title: title)
             content()
-                .frame(width: Metrics.size.width - 2 * Metrics.inset, height: Metrics.contentBottom - Metrics.contentTop, alignment: .top)
-                .offset(x: Metrics.inset, y: Metrics.contentTop)
-            errorLine
-                .frame(width: Metrics.size.width - 2 * Metrics.inset, height: Metrics.buttonsTop - Metrics.contentBottom)
-                .offset(x: Metrics.inset, y: Metrics.contentBottom)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.horizontal, Metrics.inset)
+            Text(errorMessage ?? "")
+                .font(AppFonts.monoSmall.swiftUI)
+                .foregroundStyle(AppPalette.deleted.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, minHeight: Metrics.bandHeight, maxHeight: Metrics.bandHeight)
+                .padding(.horizontal, Metrics.inset)
             HStack(spacing: Metrics.buttonSpacing) {
                 Button("Cancel", action: onCancel)
                     .buttonStyle(OutlineButtonStyle(width: Metrics.buttonWidth))
@@ -196,35 +188,17 @@ struct ModalFormSheet<Content: View>: View {
                     .buttonStyle(GoldButtonStyle(width: Metrics.buttonWidth))
                     .disabled(!canSubmit)
             }
-            .frame(width: Metrics.size.width)
-            .offset(y: Metrics.buttonsTop)
+            .padding(.bottom, Metrics.bandHeight)
         }
-        .frame(width: Metrics.size.width, height: Metrics.size.height, alignment: .topLeading)
-    }
-
-    private var errorLine: some View {
-        Text(errorMessage ?? "")
-            .font(AppFonts.monoSmall.swiftUI)
-            .foregroundStyle(AppPalette.deleted.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
+        .frame(width: Metrics.size.width, height: Metrics.size.height)
     }
 }
 
 enum ModalFormMetrics {
     static let size = CGSize(width: 540, height: 620)
     static let inset: CGFloat = 20
-    static let titleBaseline: CGFloat = 34
-    static let ruleCenter: CGFloat = 55
-    static let ruleHeight: CGFloat = 18
-    /// The rule runs solid out to the fields' edges, either side of the ornament.
-    static let ruleLines = [
-        CGRect(x: 20, y: 54.5, width: 199.397, height: 1),
-        CGRect(x: 320.603, y: 54.5, width: 199.397, height: 1),
-    ]
-    static let contentTop: CGFloat = 87
-    static let contentBottom: CGFloat = 546
-    static let buttonsTop: CGFloat = 567
+    /// Between the fields and the buttons (holding the error), and under the buttons.
+    static let bandHeight: CGFloat = 21
     static let buttonWidth: CGFloat = 194
     static let buttonSpacing: CGFloat = 15
 }

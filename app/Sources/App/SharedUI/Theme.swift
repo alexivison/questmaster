@@ -280,8 +280,7 @@ enum AppFonts {
     static let questLogRowSelected = monospaced(size: 12, weight: .bold)
     static let questLogTitle = monospaced(size: 14, weight: .bold)
     static let questLogButton = monospaced(size: 12, weight: .bold)
-    /// The New Session / New Quest title, and the pill tabs' labels.
-    static let formTitle = monospaced(size: 16, weight: .bold)
+    /// The pill tabs' labels.
     static let pillTab = monospaced(size: 10)
 }
 

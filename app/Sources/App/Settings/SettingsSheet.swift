@@ -35,8 +35,6 @@ struct SettingsSheetPresentation: Identifiable {
 /// title over a vine-ended rule and two rows of label, description and a compact "‹ value ›" picker.
 private enum SettingsMetrics {
     static let inset: CGFloat = 20
-    /// Under the scaffold's title and rule, so the tabs' discs start 91.68 down, as in the design.
-    static let topInset: CGFloat = 8.75
     static let sidebarWidth: CGFloat = 250
     static let columnSpacing: CGFloat = 20
     static let columnWidth = SettingsSheetModel.sheetSize.width - 2 * inset - sidebarWidth - columnSpacing
@@ -100,7 +98,6 @@ struct SettingsSheetView: View {
                 sectionColumn
             }
             .padding(.horizontal, SettingsMetrics.inset)
-            .padding(.top, SettingsMetrics.topInset)
             // Greedy on height so this area absorbs the sheet's fixed 900 x 780 footprint and the
             // content stays pinned to the top.
             .frame(maxHeight: .infinity, alignment: .top)
@@ -180,11 +177,11 @@ struct SettingsSheetView: View {
 }
 
 /// The rule under a section title: a 1pt line with the Quest Log's rule vines at each end. `QuestLogArt`
-/// draws them about its rule at y 198 from x 20; here they hang off a line at the frame's top.
+/// draws them about its rule at y 206 from x 20; here they hang off a line at the frame's top.
 private struct SettingsSectionRule: View {
     let width: CGFloat
 
-    private static let artRuleY: CGFloat = 198
+    private static let artRuleY: CGFloat = 206
     private static let artVineLeft: CGFloat = 20
     private static let artVineRight: CGFloat = 453
     /// The vines stand 8 above the line and 9 below it; the line runs 4 in from each end.
