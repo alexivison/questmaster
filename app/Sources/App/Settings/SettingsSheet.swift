@@ -114,7 +114,10 @@ struct SettingsSheetView: View {
                 PillTab(
                     title: section.title,
                     icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: OutlineLook.tabSelected.label.color, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
-                    look: .tabSelected
+                    look: .tabSelected,
+                    selected: true,
+                    help: "\(section.title) settings",
+                    accessibilityLabel: "Settings section \(section.title)"
                 )
             }
         }

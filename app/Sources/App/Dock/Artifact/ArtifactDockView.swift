@@ -155,7 +155,9 @@ struct ArtifactDockView: View {
 
     private var scopeTabs: some View {
         PillTabRow(
-            tabs: ArtifactScope.dockCases.map { .init(id: $0, title: $0.title, icon: nil) },
+            tabs: ArtifactScope.dockCases.map {
+                .init(id: $0, title: $0.title, icon: nil, help: "Show \($0.title.lowercased()) artifacts", accessibilityLabel: "Artifact scope \($0.title)")
+            },
             selectedID: model.artifactScope,
             focused: areaFocused,
             spacing: ArtifactPaneMetrics.gap,

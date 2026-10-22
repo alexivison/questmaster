@@ -6,13 +6,27 @@ import SwiftUI
 /// with scalloped ends, a 30pt disc holding the icon 10 in, and the 10pt label on a baseline 17 down,
 /// 45 in. A tab without an icon (artifacts.svg's Session/All) has no disc: the pill alone, its label centred on
 /// the same baseline. It draws its `OutlineLook`: the outline and disc ring in its border colour, the label in its
-/// label colour, and a highlighted or selected tab's disc recessed to the panel colour.
+/// label colour, and a highlighted or selected tab's disc recessed to the panel colour. It is one accessibility
+/// element: its label, "Selected" as the value while selected, and its help.
 struct PillTab: View {
     let title: String
     let icon: NSImage?
     let look: OutlineLook
+    let selected: Bool
+    let help: String
+    let accessibilityLabel: String
 
     var body: some View {
+        tab
+            .help(help)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityValue(selected ? "Selected" : "")
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    @ViewBuilder
+    private var tab: some View {
         if icon == nil {
             pill
                 .overlay {
@@ -77,6 +91,8 @@ struct PillTabRow<ID: Hashable>: View {
         let id: ID
         let title: String
         let icon: NSImage?
+        let help: String
+        let accessibilityLabel: String
     }
 
     let tabs: [Tab]
@@ -91,10 +107,12 @@ struct PillTabRow<ID: Hashable>: View {
                 PillTab(
                     title: tab.title,
                     icon: tab.icon,
-                    look: .tab(selected: tab.id == selectedID, areaFocused: focused)
+                    look: .tab(selected: tab.id == selectedID, areaFocused: focused),
+                    selected: tab.id == selectedID,
+                    help: tab.help,
+                    accessibilityLabel: tab.accessibilityLabel
                 )
                 .onTapGesture { onSelect(tab.id) }
-                .accessibilityAddTraits(tab.id == selectedID ? [.isButton, .isSelected] : .isButton)
             }
         }
     }
@@ -104,7 +122,14 @@ extension PillTabRow.Tab where ID == String {
     /// An agent's tab: its display name and its mark, drawn so the mark's ink is about 20 across, as the
     /// design's Claude, Codex and Pi marks are.
     static func agent(_ agent: String) -> Self {
-        Self(id: agent, title: AgentKind.displayName(for: agent), icon: TrackerAgentMark.image(for: agent, side: PillTabMetrics.logoSide(for: agent), tint: AppPalette.agentMarkTint))
+        let name = AgentKind.displayName(for: agent)
+        return Self(
+            id: agent,
+            title: name,
+            icon: TrackerAgentMark.image(for: agent, side: PillTabMetrics.logoSide(for: agent), tint: AppPalette.agentMarkTint),
+            help: "Choose \(name)",
+            accessibilityLabel: "Agent \(name)"
+        )
     }
 }
 

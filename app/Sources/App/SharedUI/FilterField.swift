@@ -16,18 +16,21 @@ struct FilterChip: View {
     }
 
     var body: some View {
-        Text("\(token.kind.prefix) \(token.title)")
-            .font(AppFonts.questLogBody.swiftUI)
-            .foregroundStyle(AppPalette.muted.swiftUI)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.horizontal, Metrics.textInset)
-            .frame(maxWidth: Metrics.maxWidth, minHeight: Metrics.height, maxHeight: Metrics.height, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(AppPalette.item.swiftUI))
-            .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
-            .fixedSize()
-            .onTapGesture(perform: onRemove)
-            .help("Remove \(token.kind.rawValue) filter")
+        Button(action: onRemove) {
+            Text("\(token.kind.prefix) \(token.title)")
+                .font(AppFonts.questLogBody.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, Metrics.textInset)
+                .frame(maxWidth: Metrics.maxWidth, minHeight: Metrics.height, maxHeight: Metrics.height, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(AppPalette.item.swiftUI))
+                .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
+                .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Remove \(token.kind.rawValue) filter \(token.title)")
+        .help("Remove \(token.kind.rawValue) filter")
     }
 }
 
