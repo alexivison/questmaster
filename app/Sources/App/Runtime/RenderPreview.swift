@@ -123,6 +123,9 @@ enum RenderPreview {
         renderView(modalWindowView(overQuestLog: true, newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-over-quest-log.png")
         // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
         render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
+        renderView(dockFrameView(focused: true), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-focused.png")
+        renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
+        render(ToastBanner(message: "Copied qm-1783901769").padding(20).background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         print("RenderPreview: done")
         exit(0)
@@ -152,6 +155,19 @@ enum RenderPreview {
         splitView.setDockVisible(true, animated: false)
         splitView.applyCanonicalLayout()
         return splitView
+    }
+
+    /// The dock alone on the window colour, with or without keyboard focus, for its frame.
+    @MainActor
+    private static func dockFrameView(focused: Bool) -> NSView {
+        let dock = DockShellView(body: SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+        dock.setFocused(focused)
+        dock.frame = NSRect(x: 20, y: 20, width: 344, height: 400)
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = AppPalette.window.cgColor
+        container.addSubview(dock)
+        return container
     }
 
     /// The full window shell with the action bar footer, for judging the window-centred

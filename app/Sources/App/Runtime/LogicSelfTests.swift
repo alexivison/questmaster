@@ -48,6 +48,7 @@ enum LogicSelfTests {
         ("testShellFocusRequestsWaitForTheModals", testShellFocusRequestsWaitForTheModals),
         ("testSummonLeavesFocusOnTheNewTerminal", testSummonLeavesFocusOnTheNewTerminal),
         ("testClosingAChildRefocusesTheModalItUncovers", testClosingAChildRefocusesTheModalItUncovers),
+        ("testDockFrameFollowsFocusAndModals", testDockFrameFollowsFocusAndModals),
         ("testRestoringFocusAfterTheLastModalKeepsAFieldsCaret", testRestoringFocusAfterTheLastModalKeepsAFieldsCaret),
         ("testClosingAChildKeepsTheUncoveredFieldsSelection", testClosingAChildKeepsTheUncoveredFieldsSelection),
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
@@ -1837,6 +1838,7 @@ enum LogicSelfTests {
             window: { window },
             splitView: { nil },
             terminalShell: { nil },
+            dockShell: { nil },
             footerShell: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
@@ -1875,6 +1877,66 @@ enum LogicSelfTests {
         stack.dismiss(id: "modal")
         settle()
         try expect(window.firstResponder === terminal.view, "the last request should take the keys once the modal has faded, got \(String(describing: window.firstResponder))")
+    }
+
+    /// The dock's frame lifts while the dock is the focused region and no modal is drawn: a modal opening over the
+    /// focused dock drops it, a dock focus request deferred under a modal doesn't light it, and it lights once the
+    /// modal has faded.
+    private static func testDockFrameFollowsFocusAndModals() throws {
+        final class StandIn: NSView { override var acceptsFirstResponder: Bool { true } }
+        let stack = InWindowModalStack()
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 600))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
+        let tracker = StandIn(frame: NSRect(x: 0, y: 0, width: 500, height: 600))
+        let dock = DockShellView(body: NSView())
+        dock.frame = NSRect(x: 600, y: 0, width: 400, height: 600)
+        let host = InWindowModalHost(stack: stack)
+        content.addSubview(tracker)
+        content.addSubview(dock)
+        host.frame = content.bounds
+        content.addSubview(host)
+        window.contentView = content
+        let navigation = NavigationStore()
+        let coordinator = ShellFocusCoordinator(
+            navigation: navigation,
+            window: { window },
+            splitView: { nil },
+            terminalShell: { nil },
+            dockShell: { dock },
+            footerShell: { nil },
+            trackerHosting: { tracker },
+            dockView: { nil },
+            terminalHost: { nil },
+            modalHost: { host },
+            updateDockTabs: {}
+        )
+        host.onEmpty = { coordinator.focusCurrentRegion() }
+        host.onDrawingChange = { coordinator.updateDockFocus() }
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+
+        coordinator.focus(.dock)
+        try expect(dock.isFocused, "the dock's frame should lift while the dock has focus")
+        coordinator.focus(.tracker)
+        try expect(!dock.isFocused, "the frame should drop when focus leaves the dock")
+
+        coordinator.focus(.dock)
+        stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        try expect(!dock.isFocused, "a modal over the focused dock should drop its frame")
+        stack.dismiss(id: "modal")
+        settle()
+        try expect(dock.isFocused, "the frame should lift again once the modal has faded")
+
+        coordinator.focus(.tracker)
+        stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        coordinator.focus(.dock)
+        try expect(!dock.isFocused, "a dock focus request deferred under a modal should not light the frame")
+        stack.dismiss(id: "modal")
+        settle()
+        try expect(dock.isFocused, "the deferred dock focus should light the frame once the modal has faded")
     }
 
     /// A child (⌘T's New Quest over the Quest Log) closing hands the keys back to what had them in the modal it

@@ -9,7 +9,7 @@ enum AppPalette {
     static let artifactViewerBackground = artifactListColumn
     static let terminal = window
     static let line = StateColor.line.color
-    static let lineSoftSubtle = NSColor(hex: 0x373e47)
+    static let lineSoftSubtle = StateColor.lineSoftSubtle.color
     static let controlBorder = StateColor.controlBorder.color
     /// Text outside the lists (status views, the toast, panels, chat). List rows use the text steps and their looks.
     static let text = NSColor(hex: 0xc4d0dc)

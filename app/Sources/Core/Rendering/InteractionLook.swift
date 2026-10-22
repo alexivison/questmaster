@@ -3,6 +3,8 @@ import Foundation
 /// The colours the interaction states are drawn in, as sRGB hex. AppPalette builds its matching colours from these,
 /// so a state look and the palette can't drift apart. The rules they serve are in AGENTS.md, "Interaction states".
 public enum StateColor: UInt32, CaseIterable, Sendable {
+    /// Panel and dock frames at rest.
+    case lineSoftSubtle = 0x373e47
     /// Outlines at rest, and every divider inside a row.
     case line = 0x444c56
     /// A highlighted or selected row's fill.
@@ -65,7 +67,7 @@ public struct RowLook: Equatable, Sendable {
     }
 }
 
-/// A tab's or a field's outline and label.
+/// A tab's, a field's or a frame's outline and label.
 public struct OutlineLook: Equatable, Sendable {
     public let border: StateColor
     public let label: StateColor
@@ -78,6 +80,9 @@ public struct OutlineLook: Equatable, Sendable {
     public static let tabSelectedUnfocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: true)
     public static let fieldRest = OutlineLook(border: .line, label: .textBody, recessed: false)
     public static let fieldFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
+    /// A dock's 2pt frame: it lifts one step while the dock has keyboard focus.
+    public static let frameRest = OutlineLook(border: .lineSoftSubtle, label: .textBody, recessed: false)
+    public static let frameFocused = OutlineLook(border: .controlBorder, label: .textBody, recessed: false)
 
     /// In a tab row the highlight and the selection look the same; an unfocused row dims it one step.
     public static func tab(selected: Bool, highlighted: Bool, areaFocused: Bool) -> OutlineLook {
@@ -87,6 +92,10 @@ public struct OutlineLook: Equatable, Sendable {
 
     public static func field(focused: Bool) -> OutlineLook {
         focused ? .fieldFocused : .fieldRest
+    }
+
+    public static func frame(focused: Bool) -> OutlineLook {
+        focused ? .frameFocused : .frameRest
     }
 }
 

@@ -165,6 +165,7 @@ the pointer highlights a tab without selecting it.
 | | highlighted or selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
 | Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
+| Dock frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
 | Tracker plate | highlighted / unfocused / recolouring (`PlateBand`) | `textSelected` / `controlBorder` / `accent` band |
@@ -174,8 +175,10 @@ the pointer highlights a tab without selecting it.
 - Dividers inside rows are `line` in every state.
 - Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
   titles, project headers and marks; never for selection or focus.
-- No shadows on dropdowns or panels. Panel and dock borders are 2pt
-  `lineSoftSubtle` (`ScoopedRectangle`) and don't change with focus. Pressed is
+- No shadows on dropdowns or panels. Panel, dock and toast borders are 2pt
+  `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). The dock's frame lifts to
+  `controlBorder` while the dock has keyboard focus and no modal is drawn
+  (`OutlineLook.frame`, `ShellFocusCoordinator.updateDockFocus`). Pressed is
   0.8 opacity; disabled is window fill with `item` border and label (the shared
   button styles).
 - Use the shared components: `stateRow` (and `ListRow` for tracker and artifact

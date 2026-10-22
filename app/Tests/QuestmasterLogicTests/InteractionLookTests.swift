@@ -28,6 +28,7 @@ struct InteractionLookTests {
         expect(OutlineLook.tab(selected: true, highlighted: false, areaFocused: false) == .tabSelectedUnfocused, "a selected tab in an unfocused row dims")
         expect(OutlineLook.field(focused: false) == .fieldRest, "a field at rest")
         expect(OutlineLook.field(focused: true) == .fieldFocused, "a focused field")
+        expect(OutlineLook.frame(focused: false) == .frameRest && OutlineLook.frame(focused: true) == .frameFocused, "a dock frame lifts with focus")
         expect(OutlineLook.tabSelected.recessed && OutlineLook.tabSelectedUnfocused.recessed, "a selected tab's disc is recessed")
         expect(!OutlineLook.tabRest.recessed, "a resting tab's disc is not recessed")
         expect(ToggleLook.of(on: true) == .on && ToggleLook.of(on: false) == .off, "a toggle is on or off")
@@ -54,6 +55,7 @@ struct InteractionLookTests {
         ]
         expect(Set(bands.map { $0?.rawValue ?? 0 }).count == bands.count, "every plate band state should differ: \(bands)")
         expect(OutlineLook.fieldFocused != .fieldRest, "a focused field should not look at rest")
+        expect(OutlineLook.frameFocused != .frameRest, "a focused dock frame should not look at rest")
         expect(ToggleLook.on != .off, "an on toggle should not look off")
     }
 
@@ -62,6 +64,7 @@ struct InteractionLookTests {
         expectBrighter([RowLook.rest, .selected].map(levels), "lasting rows")
         expectBrighter([OutlineLook.tabRest, .tabSelectedUnfocused, .tabSelected].map(levels), "tabs")
         expectBrighter([OutlineLook.fieldRest, .fieldFocused].map(levels), "fields")
+        expectBrighter([OutlineLook.frameRest, .frameFocused].map(levels), "dock frames")
         expectBrighter([ToggleLook.off, .on].map { [$0.border.luminance] }, "toggles")
         let band = { (focused: Bool) in PlateBand.color(highlighted: true, areaFocused: focused, recoloring: false)?.luminance ?? 0 }
         expectBrighter([[0], [band(false)], [band(true)]], "plate bands")
@@ -74,7 +77,7 @@ struct InteractionLookTests {
         let rows = [RowLook.rest, .highlighted, .highlightedUnfocused, .selected]
         expect(rows.filter(\.bold) == [.selected], "only the lasting selection should be bold")
         let rowColors = rows.flatMap { [$0.fill, $0.text, $0.meta, $0.icon, $0.iconBorder].compactMap { $0 } }
-        let outlineColors = [OutlineLook.tabRest, .tabSelected, .tabSelectedUnfocused, .fieldRest, .fieldFocused].flatMap { [$0.border, $0.label] }
+        let outlineColors = [OutlineLook.tabRest, .tabSelected, .tabSelectedUnfocused, .fieldRest, .fieldFocused, .frameRest, .frameFocused].flatMap { [$0.border, $0.label] }
         for color in rowColors + outlineColors {
             expect(color != .accent && color != .brassActive, "rows, tabs and fields carry no gold or brass, got \(color)")
         }
