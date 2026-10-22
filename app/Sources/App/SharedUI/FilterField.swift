@@ -63,7 +63,7 @@ struct FilterBar: View {
             Text("/")
                 .font(AppFonts.questLogBody.swiftUI)
                 .foregroundStyle(AppPalette.textMeta.swiftUI)
-                .offset(x: FilterBarMetrics.slashNudge)
+                .offset(x: FilterBarMetrics.slashGlyphNudge)
             ForEach(tokens) { token in
                 FilterChip(token: token, onRemove: { onRemoveToken(token) })
             }
@@ -110,7 +110,7 @@ enum FilterBarMetrics {
     static let textFieldLead: CGFloat = 1
     static let textFieldDrop: CGFloat = 1.25
     /// The app font's "/" sits about 0.45 right of where both designs draw theirs; drawn, not laid out, 0.5 left.
-    static let slashNudge: CGFloat = -0.5
+    static let slashGlyphNudge: CGFloat = -0.5
 }
 
 struct CommandTextField: NSViewRepresentable {

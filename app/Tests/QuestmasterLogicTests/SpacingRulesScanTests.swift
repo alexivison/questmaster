@@ -10,32 +10,41 @@ import Foundation
 /// - scale-restated: a gap, inset, spacing, margin, padding or gutter constant of 5, 10, 20 or 40 names its
 ///   `Space` step instead of the number.
 /// - off-rhythm: a CGFloat constant or default whose name says it is a layout length (gap, spacing, margin,
-///   padding, gutter, pitch, indent, inset, clearance, offset, height, width, side, size) is a multiple of 5, or 0
+///   padding, gutter, pitch, indent, inset, clearance, offset, height, width, side, size, lead, trail, nudge, origin,
+///   x, y) is a multiple of 5, or 0
 ///   or 1. Names that say they aren't spacing are exempt: baselines and line heights (typography), radii, strokes,
 ///   borders, rings and glows (stroke widths), point sizes and fonts, and art, design, glyph, icon, logo, mark,
 ///   symbol and ink geometry (path data and glyph sizes). No marker excuses a spacing or a control size.
 ///
-/// The scan reads lines, so it can't see arithmetic on literals, CGPoint/CGSize/CGRect literals, or numbers passed
-/// through a helper's parameter; the render-pitch self-test (`LogicSelfTests`) measures what the lines can't.
+/// raw-spacing also reads ternaries and added or subtracted numbers in those arguments (`Space.item + 3`); off-rhythm
+/// also reads the numbers of an NSSize/CGSize assigned to an inset, padding, margin or gap. The scan reads lines, so it can't see other CGPoint/CGSize/CGRect
+/// literals, constants built from arithmetic, or numbers passed through a helper's parameter; the render-pitch
+/// self-test (`LogicSelfTests`) measures what the lines can't.
 struct SpacingRulesScanTests {
     static let exempt = StateRulesScanTests.exempt + ["Runtime/RingPreview.swift", "SharedUI/DesignTokens.swift"]
 
     /// A number other than 0 and 1.
     private static let number = #"(?<![\w.])-?(?!0(?![\d.])|1(?:\.0+)?(?![\d.]))(?:0\.\d*[1-9]\d*|[1-9]\d*(?:\.\d+)?)(?![\w.])"#
+    /// An argument's number, alone, as a ternary's branch, or added to or taken from a step. A scale factor
+    /// (`* 2`, `/ 2`, `2 * Self.border`) isn't a length.
+    private static let value = #"(?:[^,)]*?[?:+\-]\s*)?"# + number + #"(?!\s*[*/])"#
     private static let rawLayout = [
-        #"\.padding\(\s*(?:\.[a-zA-Z]+\s*,\s*)?(?:[^)]*\?\s*)?"# + number,
-        #"\b(?:[HVZ]Stack|LazyVStack|LazyHStack|Grid)\([^)]*spacing:\s*(?:[^,)]*\?\s*)?"# + number,
-        #"\.spacing\s*=\s*"# + number,
-        #"\.frame\([^)]*\b(?:width|height|min\w*|max\w*|ideal\w*):\s*(?:[^,)]*\?\s*)?"# + number,
-        #"\b(?:EdgeInsets|NSEdgeInsets)\([^)]*:\s*"# + number,
-        #"[cC]onstant:\s*"# + number,
-        #"\.offset\([^)]*\b[xy]:\s*"# + number,
+        #"\.padding\(\s*(?:\.[a-zA-Z]+\s*,\s*)?"# + value,
+        #"\b(?:[HVZ]Stack|LazyVStack|LazyHStack|Grid)\([^)]*spacing:\s*"# + value,
+        #"\.spacing\s*=\s*"# + value,
+        #"\.frame\([^)]*\b(?:width|height|min\w*|max\w*|ideal\w*):\s*"# + value,
+        #"\b(?:EdgeInsets|NSEdgeInsets)\([^)]*:\s*"# + value,
+        #"[cC]onstant:\s*"# + value,
+        #"\.offset\([^)]*\b[xy]:\s*"# + value,
     ].map(regex)
+    /// An NSSize/CGSize assigned to an inset, padding, margin or gap, and the numbers in it.
+    private static let insetSize = regex(#"(?i:inset|padding|margin|gap)\w*\s*[:=]\s*(?:NS|CG)Size\(([^)]*)\)"#)
+    private static let literal = regex(#"(?<![\w.])\d+(?:\.\d+)?(?![\w.])"#)
     private static let metricsEnum = regex(#"\benum\s+\w*(?:Metrics|Layout|Design)\b"#)
     private static let constant = regex(#"\b(?:let|var)\s+(\w+)\s*(?::\s*CGFloat)?\s*=\s*(-?\d+(?:\.\d+)?)\s*(?://.*)?$"#)
     private static let nameWord = regex(#"[A-Z]?[a-z]+|[A-Z]+(?![a-z])"#)
 
-    private static let lengthWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "pitch", "indent", "inset", "clearance", "offset", "height", "width", "side", "size"]
+    private static let lengthWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "pitch", "indent", "inset", "clearance", "offset", "height", "width", "side", "size", "lead", "trail", "nudge", "origin", "x", "y"]
     private static let spacingWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "inset"]
     private static let notSpacingWords: Set = ["baseline", "radius", "stroke", "border", "ring", "glow", "point", "font", "art", "design", "glyph", "icon", "logo", "mark", "symbol", "ink"]
 
@@ -58,12 +67,23 @@ struct SpacingRulesScanTests {
             expect(found[rule]?.count == 1, "\(rule) should fire once on its deliberate break, got \(found[rule] ?? [])")
         }
         let raws = [".padding(8)", "VStack(spacing: 6) {", "stack.spacing = 8", ".frame(width: 420)", ".frame(height: open ? 12 : 0)",
-                    "EdgeInsets(top: 24, leading: 0, bottom: 0, trailing: 0)", "view.topAnchor.constraint(equalTo: top, constant: -18)", ".offset(x: 1.5)"]
+                    "EdgeInsets(top: 24, leading: 0, bottom: 0, trailing: 0)", "view.topAnchor.constraint(equalTo: top, constant: -18)", ".offset(x: 1.5)",
+                    ".padding(.top, Space.item + 3)", ".frame(width: open ? Space.item : 7)", ".offset(y: Space.row - 2)",
+                    #"Text("https://example.com").padding(8)"#]
         for line in raws {
             expect(violations(in: line, file: "Quest/Example.swift")["raw-spacing"] != nil, "raw-spacing should fire on \(line)")
         }
+        for line in ["static let inset = NSSize(width: 6, height: 8.25)", "view.textContainerInset = CGSize(width: Space.item, height: 3)",
+                     "static let footerDiamondLead: CGFloat = 8.4", "static let labelX: CGFloat = 12", "static let titleNudge: CGFloat = 2.5"] {
+            expect(violations(in: line, file: "Quest/Example.swift")["off-rhythm"] != nil, "off-rhythm should fire on \(line)")
+        }
         let clean = """
         Color.clear.frame(width: Space.item, height: 1)
+        .padding(.top, Space.item + Space.row)
+        let canvas = CGSize(width: 340, height: 420)
+        static let inset = NSSize(width: Space.item, height: 15)
+        .frame(width: barWidth - 2 * Self.border)
+        Text("a // b").padding(Space.item) // .padding(8) in a trailing comment is fine
         .padding(.top, 0)
         .frame(maxWidth: .infinity)
         enum ExampleMetrics {
@@ -94,14 +114,14 @@ struct SpacingRulesScanTests {
         // One entry per open brace: whether it opened, or sits inside, a metrics enum.
         var braces: [Bool] = []
         for (index, line) in source.components(separatedBy: "\n").enumerated() {
-            let code = line.components(separatedBy: "//")[0]
+            let code = withoutComment(line)
             let isComment = line.trimmingCharacters(in: .whitespaces).hasPrefix("//")
             if !isComment {
                 let inMetrics = braces.last ?? false
                 if !inMetrics && rawLayout.contains(where: { matches($0, code) }) {
                     found["raw-spacing", default: []].append(index + 1)
                 }
-                if let rule = constantRule(line) {
+                if let rule = constantRule(line) ?? insetSizeRule(code) {
                     found[rule, default: []].append(index + 1)
                 }
             }
@@ -116,6 +136,33 @@ struct SpacingRulesScanTests {
             }
         }
         return found
+    }
+
+    /// An inset size is spacing wherever it is, metrics enums included: each number in it is on the 5pt rhythm.
+    private static func insetSizeRule(_ code: String) -> String? {
+        guard let match = insetSize.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)),
+              let argumentsRange = Range(match.range(at: 1), in: code) else {
+            return nil
+        }
+        let arguments = String(code[argumentsRange])
+        let values = literal.matches(in: arguments, range: NSRange(arguments.startIndex..., in: arguments)).compactMap { Range($0.range, in: arguments).flatMap { Double(arguments[$0]) } }
+        return values.contains { $0 != 0 && $0 != 1 && $0.truncatingRemainder(dividingBy: 5) != 0 } ? "off-rhythm" : nil
+    }
+
+    /// The line up to a `//` comment; a `//` inside a string literal is no comment.
+    private static func withoutComment(_ line: String) -> String {
+        var inString = false
+        var previous: Character = " "
+        for index in line.indices {
+            let character = line[index]
+            if character == "\"" && previous != "\\" {
+                inString.toggle()
+            } else if character == "/" && previous == "/" && !inString {
+                return String(line[..<line.index(before: index)])
+            }
+            previous = character
+        }
+        return line
     }
 
     /// The rule a named constant breaks, if any.

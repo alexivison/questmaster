@@ -239,12 +239,16 @@ breaks:
 
 - **raw-spacing**: no layout number in a view (`.padding`, stack `spacing`,
   `.frame` sizes, `EdgeInsets`, constraint constants, `.offset`), except 0 and 1
-  and lines inside an `enum` named `*Metrics`, `*Layout` or `*Design`.
+  and lines inside an `enum` named `*Metrics`, `*Layout` or `*Design`. A number
+  in a ternary branch or added to a step (`Space.item + 3`) counts; a scale
+  factor (`2 * border`, `/ 2`) doesn't. A `//` inside a string is no comment.
 - **scale-restated**: a gap/inset/spacing/margin/padding/gutter constant of 5,
   10, 20 or 40 names its `Space` step.
 - **off-rhythm**: a CGFloat constant or default named as a length (gap,
   spacing, margin, padding, gutter, pitch, indent, inset, clearance, offset,
-  height, width, side, size) is a multiple of 5. Only names that say they aren't
+  height, width, side, size, lead, trail, nudge, origin, x, y) is a multiple of
+  5, and so is each number of an `NSSize`/`CGSize` assigned to an inset,
+  padding, margin or gap, metrics enums included. Only names that say they aren't
   spacing are exempt (`baseline`, `lineHeight`, `radius`, `stroke`, `border`,
   `ring`, `glow`, `pointSize`, `font`, and `art`/`design`/`glyph`/`icon`/`logo`/
   `mark`/`symbol`/`ink` geometry).

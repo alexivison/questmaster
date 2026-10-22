@@ -3,9 +3,9 @@ import QuestmasterCore
 import SwiftUI
 
 /// Where a plate's cast row sits, from the user's Figma mocks: a tool square centred under the disc and 5pt below it,
-/// then 2pt on, a bar as tall as the square. The master's row is 15pt and its bar ends 10pt short of the plate; the
-/// worker's is 12pt and its bar reaches the plate's right edge. While the row shows, a master's collapsed circles sit
-/// 5pt under it.
+/// then 2pt on, a bar as tall as the square. The row is 15pt, tall enough for the 11pt label; the master's bar ends 10pt
+/// short of the plate and the worker's reaches the plate's right edge. While the row shows, a master's collapsed
+/// circles sit 5pt under it.
 enum TrackerCastLayout {
     struct Metrics {
         let side: CGFloat
@@ -15,15 +15,15 @@ enum TrackerCastLayout {
     }
 
     static let master = Metrics(side: 15, iconSide: 9, labelBaseline: 11.5)
-    static let worker = Metrics(side: 10, iconSide: 8, labelBaseline: 9)
+    static let worker = master
     static let spacing = Space.row
     static let squareToBar = Token.Size.hairline
     static let masterBarRight: CGFloat = 250
 
     static func metrics(_ role: TrackerNameplateRole) -> Metrics { role.isWorker ? worker : master }
 
-    /// The square's left edge: centred on the disc's whole-point centre. The worker's even square centres exactly; the
-    /// master's odd one sits half a point right of centre so its edges stay on whole pixels.
+    /// The square's left edge: centred on the disc's whole-point centre. The odd square sits half a point right of
+    /// centre so its edges stay on whole pixels.
     static func squareX(_ role: TrackerNameplateRole) -> CGFloat {
         role.portraitCenter.x - (metrics(role).side / 2).rounded(.down)
     }

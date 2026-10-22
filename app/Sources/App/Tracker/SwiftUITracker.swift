@@ -1106,7 +1106,12 @@ struct TrackerPlateLine: View {
                     .frame(width: width, alignment: alignment)
                     .alignmentGuide(.top) { $0[.firstTextBaseline] }
             }
-            .offset(x: x, y: (baseline * displayScale - 0.5).rounded(.up) / displayScale)
+            .offset(x: x, y: pixelBaseline)
+    }
+
+    /// The baseline on the first whole pixel at or below it.
+    private var pixelBaseline: CGFloat {
+        (baseline * displayScale - 0.5).rounded(.up) / displayScale
     }
 
     @ViewBuilder private var label: some View {
