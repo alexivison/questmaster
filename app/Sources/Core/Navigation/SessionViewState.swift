@@ -4,7 +4,6 @@ import Foundation
 public enum DockContent: Equatable {
     case artifactList
     case artifactViewer
-    case questList
     case workerChat
 }
 
@@ -14,7 +13,6 @@ public struct SessionViewState: Equatable {
     public var dockVisible: Bool
     public var dockContent: DockContent
     public var selectedArtifactID: String?
-    public var selectedQuestID: String?
     public var dockPreferredWidth: Double?
     public var artifactScope: ArtifactScope
     public var artifactFilterQuery: String
@@ -24,7 +22,6 @@ public struct SessionViewState: Equatable {
         dockVisible: Bool = false,
         dockContent: DockContent = .artifactList,
         selectedArtifactID: String? = nil,
-        selectedQuestID: String? = nil,
         dockPreferredWidth: Double? = nil,
         artifactScope: ArtifactScope = .session,
         artifactFilterQuery: String = "",
@@ -33,7 +30,6 @@ public struct SessionViewState: Equatable {
         self.dockVisible = dockVisible
         self.dockContent = dockContent
         self.selectedArtifactID = selectedArtifactID
-        self.selectedQuestID = selectedQuestID
         self.dockPreferredWidth = dockPreferredWidth
         self.artifactScope = artifactScope
         self.artifactFilterQuery = artifactFilterQuery

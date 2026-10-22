@@ -11,17 +11,11 @@ enum ShellMetrics {
     /// provides the window-top-to-tracker gap, matching every other G-rhythm gap in the shell.
     static let trackerTopInset: CGFloat = 0
     static let dockViewerLeadingLineExtension: CGFloat = 56
-    static let sideCardTopBarHorizontalInset: CGFloat = 8
-    static let sideCardOrnamentSide: CGFloat = 32
-    static let sideCardOrnamentInset: CGFloat = 4
+    /// Keeps the dock's close button clear of the scooped top-right corner (`ScoopedRectangle.radius`).
+    static let sideCardTopBarHorizontalInset: CGFloat = 20
     static let dockTopBarLeadingInset: CGFloat = 18
     static let toastOrnamentSide: CGFloat = 16
     static let toastOrnamentInset: CGFloat = 3
-    /// Bigger than `sideCardOrnamentInset` — the modal panel isn't a
-    /// full-bleed side card, so its corners need more breathing room from
-    /// the rounded edge. Deliberately not reused for `SideCardOrnaments`'
-    /// own default so the tracker/dock inset stays untouched.
-    static let modalOrnamentInset: CGFloat = 10
     /// The shell's own single gap `G` (2026-10-07) — applies to every pane-to-pane and
     /// pane-to-window-edge gap in the shell (tracker/dock side-card inset, tracker's own leading
     /// padding, the dock's and terminal's outer margins). A dedicated constant, not
@@ -30,7 +24,6 @@ enum ShellMetrics {
     /// after seeing 20).
     static let gap: CGFloat = 20
     static let sideCardInset = gap
-    static let sideCardCornerRadius = Token.Radius.card
     /// Window edge to the tracker frame: 0, now that `TrackerListMetrics.sidePadding` (which
     /// tracks `gap`) alone, applied leading-only, provides the full gap to the plates.
     /// `trackerMaxWidth` grows to fit that same padding ahead of the plate's own fixed width, so

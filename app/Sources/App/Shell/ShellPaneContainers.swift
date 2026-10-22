@@ -17,21 +17,6 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
     }
 }
 
-private final class NonInteractiveHostingView<Content: View>: NSHostingView<Content> {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
-}
-
-private func configureSideCard(_ view: NSView) {
-    view.wantsLayer = true
-    view.layer?.backgroundColor = AppPalette.panel.cgColor
-    view.layer?.borderColor = AppPalette.lineSoftSubtle.cgColor
-    view.layer?.borderWidth = 1
-    view.layer?.cornerRadius = ShellMetrics.sideCardCornerRadius
-    view.layer?.masksToBounds = true
-}
-
 /// Pins a top-bar hosting view above a body view inside `container`.
 private func layoutTopBarAndBody(
     in container: NSView,
@@ -53,17 +38,6 @@ private func layoutTopBarAndBody(
         body.leadingAnchor.constraint(equalTo: container.leadingAnchor),
         body.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         body.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-    ])
-}
-
-private func layoutSideCardOrnaments(in container: NSView, ornaments: NSView) {
-    ornaments.translatesAutoresizingMaskIntoConstraints = false
-    container.addSubview(ornaments)
-    NSLayoutConstraint.activate([
-        ornaments.topAnchor.constraint(equalTo: container.topAnchor),
-        ornaments.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-        ornaments.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ornaments.bottomAnchor.constraint(equalTo: container.bottomAnchor),
     ])
 }
 
@@ -153,7 +127,7 @@ final class TerminalShellView: NSView {
 
 final class DockShellView: NSView {
     private let model: DockChromeModel
-    private let ornaments = NonInteractiveHostingView(rootView: SideCardOrnaments())
+    private var chrome: ScoopedLayerChrome!
     var onHideDock: (() -> Void)?
     var onArtifactBack: (() -> Void)?
     var onCopyArtifactPath: (() -> Void)?
@@ -162,7 +136,6 @@ final class DockShellView: NSView {
     init(body: NSView, model: DockChromeModel = DockChromeModel()) {
         self.model = model
         super.init(frame: .zero)
-        configureSideCard(self)
         let topBar = FirstMouseHostingView(rootView: DockTopBar(
             model: model,
             onBack: { [weak self] back in
@@ -180,7 +153,7 @@ final class DockShellView: NSView {
             body: body,
             topBarHeight: ShellMetrics.dockTopBarHeight
         )
-        layoutSideCardOrnaments(in: self, ornaments: ornaments)
+        chrome = ScoopedLayerChrome(view: self)
     }
 
     @available(*, unavailable)
@@ -188,9 +161,13 @@ final class DockShellView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func layout() {
+        super.layout()
+        chrome?.layout(bounds: bounds)
+    }
+
     func setRegionActive(_ active: Bool) {
-        layer?.borderColor = (active ? AppPalette.activeSideCardBorder : AppPalette.lineSoftSubtle).cgColor
-        ornaments.rootView = SideCardOrnaments(active: active)
+        chrome.setBorderColor(active ? AppPalette.activeSideCardBorder : AppPalette.lineSoftSubtle)
     }
 
     func updateTabs(
@@ -198,7 +175,6 @@ final class DockShellView: NSView {
         artifactRoute: ArtifactDockRoute,
         artifactTitle: String?
     ) {
-        ornaments.isHidden = mode == .artifacts && artifactRoute == .viewer
         let next = DockTopBarModel.make(
             mode: mode,
             artifactRoute: artifactRoute,

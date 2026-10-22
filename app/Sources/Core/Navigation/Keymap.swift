@@ -86,7 +86,7 @@ public enum Keymap {
         // Lowercase keyEquivalent + explicit .shift (rather than an uppercase key equivalent)
         // so the modifier mask is unambiguous across keyboard layouts.
         public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "a", modifiers: [.command, .shift])
-        public static let toggleQuestDock = CommandBinding(title: "Toggle Quests", keyEquivalent: "t", modifiers: [.command, .shift])
+        public static let toggleQuestLog = CommandBinding(title: "Toggle Quest Log", keyEquivalent: "t", modifiers: [.command, .shift])
         public static let toggleWorkerChatDock = CommandBinding(title: "Toggle Worker Chat", keyEquivalent: "w", modifiers: [.command, .shift])
         // ">"/"<" match vim's window-resize convention (Ctrl-w >/Ctrl-w <). Bound via
         // their unshifted base keys ("."/",") with explicit .shift, per the layout-independence
@@ -196,6 +196,30 @@ public enum Keymap {
         public static let suggestionUp = KeyCodeBinding(keyCodes: [126])
         public static let suggestionDown = KeyCodeBinding(keyCodes: [125])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])
+    }
+
+    /// The Quest Log modal's keys. Esc closes; Cmd shortcuts pass through to the menus.
+    public enum QuestLog {
+        public static let moveUpKeyCodes = KeyCodeBinding(keyCodes: [126])
+        public static let moveDownKeyCodes = KeyCodeBinding(keyCodes: [125])
+        public static let moveUpCharacters = CharacterBinding(keys: ["k"])
+        public static let moveDownCharacters = CharacterBinding(keys: ["j"])
+        public static let start = CharacterBinding(keys: ["s"])
+        /// Return edits too, as it did in the quest dock.
+        public static let edit = CharacterBinding(keys: ["e", "\r"])
+        public static let delete = CharacterBinding(keys: ["d"])
+        public static let copy = CharacterBinding(keys: ["y"])
+        public static let toggleMark = CharacterBinding(keys: [" "])
+        public static let focusFilter = CharacterBinding(keys: ["/"])
+        /// vim's `gg` (a `g` twice) and `G`: the first and the last quest.
+        public static let jumpToFirstPrefix = CharacterBinding(keys: ["g"])
+        public static let jumpToLast = CharacterBinding(keys: ["G"])
+        public static let close = KeyCodeBinding(keyCodes: [53])
+        /// The page: PageUp / PageDown (fn-↑ / fn-↓) as in the artifact viewer, and vim's ⌃u / ⌃d by half pages.
+        public static let pageUp = KeyCodeBinding(keyCodes: [116])
+        public static let pageDown = KeyCodeBinding(keyCodes: [121])
+        public static let halfPageUp = CharacterBinding(keys: ["u"], modifiers: [.control])
+        public static let halfPageDown = CharacterBinding(keys: ["d"], modifiers: [.control])
     }
 
     public enum Settings {

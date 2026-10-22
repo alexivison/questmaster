@@ -8,7 +8,6 @@ import Foundation
 /// What content the dock pane is showing.
 public enum DockContentMode: Equatable {
     case artifacts
-    case quests
     case workerChat
 }
 
@@ -54,8 +53,6 @@ public struct DockTopBarModel: Equatable {
 
     private static func title(mode: DockContentMode, viewingArtifact: Bool, artifactTitle: String?) -> String {
         switch mode {
-        case .quests:
-            return "Quests"
         case .workerChat:
             return "Worker Chat"
         case .artifacts:

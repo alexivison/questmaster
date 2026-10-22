@@ -54,7 +54,7 @@ struct NewSessionRootView: View {
 
     var body: some View {
         ModalSheetScaffold(
-            title: "New session",
+            title: "New Session",
             footerText: footerText,
             errorMessage: state.model.errorMessage,
             horizontalInset: Metrics.horizontalInset,

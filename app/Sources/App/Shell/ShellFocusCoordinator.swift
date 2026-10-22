@@ -12,6 +12,7 @@ final class ShellFocusCoordinator {
     private let trackerHosting: () -> NSView?
     private let dockView: () -> SwiftUIDockPane?
     private let terminalHost: () -> TerminalPaneHosting?
+    private let modalHost: () -> InWindowModalHost?
     private let updateDockTabs: () -> Void
 
     init(
@@ -24,6 +25,7 @@ final class ShellFocusCoordinator {
         trackerHosting: @escaping () -> NSView?,
         dockView: @escaping () -> SwiftUIDockPane?,
         terminalHost: @escaping () -> TerminalPaneHosting?,
+        modalHost: @escaping () -> InWindowModalHost?,
         updateDockTabs: @escaping () -> Void
     ) {
         self.navigation = navigation
@@ -35,6 +37,7 @@ final class ShellFocusCoordinator {
         self.trackerHosting = trackerHosting
         self.dockView = dockView
         self.terminalHost = terminalHost
+        self.modalHost = modalHost
         self.updateDockTabs = updateDockTabs
     }
 
@@ -66,6 +69,10 @@ final class ShellFocusCoordinator {
             NSApp.activate(ignoringOtherApps: true)
         }
         applyNavigationState()
+        // Every focus request lands here; under a modal it only moves where focus goes once the modals are gone.
+        if modalHost()?.deferFocus() == true {
+            return
+        }
 
         switch navigation.focusedRegion {
         case .tracker:

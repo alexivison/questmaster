@@ -38,6 +38,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let navigation = NavigationStore()
     private let dockCoordinator = DockCoordinator()
     private let workerChatStore = WorkerChatStore()
+    private let questLogStore = QuestLogStore()
+    private let questLogFilter = QuestLogFilter()
+    private let questLogPageScroll = QuestLogPageScroll()
     private lazy var workerChatController = WorkerChatController(
         store: workerChatStore,
         feedClient: { [weak self] in self?.workerFeedClient }
@@ -117,6 +120,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
+            modalHost: { [weak self] in self?.shellHandles?.modalHost },
             updateDockTabs: { [weak self] in self?.updateDockTabs() }
         )
         runtimeConnectionController = RuntimeConnectionController(
@@ -163,7 +167,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleTracker: #selector(toggleTracker),
                 focusTerminal: #selector(focusTerminal),
                 toggleDock: #selector(toggleDock),
-                toggleQuestDock: #selector(toggleQuestDock),
+                toggleQuestLog: #selector(toggleQuestLog),
                 toggleWorkerChatDock: #selector(toggleWorkerChatDock),
                 widenDock: #selector(widenDock),
                 narrowDock: #selector(narrowDock),
@@ -233,7 +237,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onShowTracker = { [weak self] in self?.toggleTracker() }
         handles.footerShell.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
-        handles.footerShell.onOpenQuests = { [weak self] in self?.showDockContent(.questList, focusDock: true) }
+        handles.footerShell.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
+        questLogFilter.onChange = { [weak self] in self?.syncQuestLog() }
+        questLogFilter.onEdit = { [weak self] in self?.handleQuestLogCommand(.edit) }
+        questLogFilter.onMoveSelection = { [weak self] command in _ = self?.questLogStore.handle(command) }
+        questLogFilter.onLeave = { [weak window = handles.window] in window?.makeFirstResponder(nil) }
+        handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
         handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
@@ -258,12 +267,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             self.dockCoordinator.updateSelectedArtifact(artifactID, sessionID: self.runtimeStore.currentTerminalSessionID)
         }
         handles.dockView.onDeleteArtifacts = { [weak self] artifacts in self?.deleteArtifacts(artifacts) }
-        handles.dockView.onSelectedQuestChange = { [weak self] questID in
-            guard let self else {
-                return
-            }
-            self.dockCoordinator.updateSelectedQuest(questID, sessionID: self.runtimeStore.currentTerminalSessionID)
-        }
         handles.dockView.onArtifactFilterChange = { [weak self] query, tokens in
             guard let self else {
                 return
@@ -274,14 +277,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 sessionID: self.runtimeStore.currentTerminalSessionID
             )
         }
-        handles.dockView.onDeleteQuests = { [weak self] quests in self?.deleteQuests(quests) }
-        handles.dockView.onStartQuests = { [weak self] quests in self?.startFromQuests(quests) }
-        handles.dockView.onEditQuest = { [weak self] quest in self?.editQuest(quest) }
         handles.dockView.onCopyArtifactPath = { [weak self] in
             self?.toastPresenter.show("Copied artifact path")
-        }
-        handles.dockView.onCopyQuests = { [weak self] count in
-            self?.toastPresenter.show(Self.questToastMessage(verb: "Copied", count: count))
         }
 
         terminalSessionController.installPlaceholder(handles.terminalHost)
@@ -375,6 +372,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             animateDockLayout: animateDockLayout
         )
         syncWorkerChat()
+        if questLogStore.isOpen {
+            syncQuestLog()
+        }
+    }
+
+    private func syncQuestLog() {
+        let tracker = runtimeStore.snapshot.tracker
+        questLogFilter.update(tracker: tracker)
+        questLogStore.sync(
+            quests: tracker.quests,
+            repos: tracker.repos,
+            projects: tracker.projects,
+            query: questLogFilter.textQuery,
+            projectIDs: questLogFilter.projectIDs
+        )
     }
 
     private func syncWorkerChat() {
@@ -422,11 +434,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         focusCoordinator.focusTerminal()
     }
 
+    // Also reached from MenuController's key monitor, which runs before menu validation.
     @objc private func focusRegionLeft() {
+        guard InWindowModalStack.shared.isEmpty else {
+            return
+        }
         focusCoordinator.focusRegionLeft()
     }
 
     @objc private func focusRegionRight() {
+        guard InWindowModalStack.shared.isEmpty else {
+            return
+        }
         focusCoordinator.focusRegionRight()
     }
 
@@ -483,15 +502,81 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         renderSnapshot()
     }
 
-    @objc private func toggleQuestDock() {
-        if navigation.dockVisible {
-            let desired = dockCoordinator.state(for: runtimeStore.currentTerminalSessionID)
-            if desired.dockContent == .questList {
-                hideDock()
-                return
-            }
+    /// Global modal commands (shortcuts, menus, the action bar) never stack an unrelated modal: see
+    /// `ModalCommandRouting`. Modals a modal opens itself skip this.
+    private func modalCommandRoute(_ command: GlobalModalCommand) -> ModalCommandRoute {
+        InWindowModalStack.shared.route(command)
+    }
+
+    private func globalModalCommand(for action: Selector) -> GlobalModalCommand? {
+        switch action {
+        case #selector(toggleQuestLog): return .toggleQuestLog
+        case #selector(openNewQuest): return .newQuest
+        case #selector(openNewSession), #selector(openNewMasterSession): return .newSession
+        case #selector(openSettings): return .settings
+        case #selector(editFocusedSession): return .editSession
+        case #selector(editFocusedRepo): return .editRepo
+        case #selector(deleteFocusedSession): return .deleteSession
+        default: return nil
         }
-        showDockContent(.questList, focusDock: true)
+    }
+
+    @objc private func toggleQuestLog() {
+        guard modalCommandRoute(.toggleQuestLog) != .ignored else {
+            return
+        }
+        if questLogStore.isOpen {
+            closeQuestLog()
+            return
+        }
+        syncQuestLog()
+        questLogStore.open()
+        InWindowModalStack.shared.presentQuestLog(QuestLogModal(
+            store: questLogStore,
+            filter: questLogFilter,
+            pageScroll: questLogPageScroll,
+            onCommand: { [weak self] in self?.handleQuestLogCommand($0) }
+        ))
+    }
+
+    /// The modal host hands focus back once the log has faded out.
+    private func closeQuestLog() {
+        questLogStore.close()
+        InWindowModalStack.shared.dismiss(id: QuestLogModal.stackID)
+    }
+
+    /// Edit, Abandon's confirmation and Send forth's New Session open as modals over the Quest Log, which
+    /// stays open underneath; a started session closes it.
+    private func handleQuestLogCommand(_ command: QuestLogCommand) {
+        guard let effect = questLogStore.handle(command) else {
+            return
+        }
+        switch effect {
+        case .close:
+            closeQuestLog()
+        case .start(let quests):
+            startFromQuests(quests) { [weak self] in self?.closeQuestLog() }
+        case .edit(let quest):
+            editQuest(quest)
+        case .delete(let quests):
+            deleteQuests(quests)
+        case .copy(let quests):
+            copyQuests(quests)
+        case .focusFilter:
+            questLogFilter.focus()
+        case .scrollPage(let pages):
+            questLogPageScroll.scroll(byPages: pages)
+        }
+    }
+
+    private func copyQuests(_ quests: [QuestItem]) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(quests.map(\.content).joined(separator: "\n\n"), forType: .string) else {
+            NSSound.beep()
+            return
+        }
+        toastPresenter.show(Self.questToastMessage(verb: "Copied", count: quests.count))
     }
 
     @objc private func toggleWorkerChatDock() {
@@ -524,6 +609,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func deleteFocusedSession() {
+        guard modalCommandRoute(.deleteSession) != .ignored else {
+            return
+        }
         guard let window = shellHandles?.window,
               let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID) else {
             NSSound.beep()
@@ -547,6 +635,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func editFocusedSession() {
+        guard modalCommandRoute(.editSession) != .ignored else {
+            return
+        }
         guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
               shellHandles?.trackerKeyboardBridge.editSession(sessionID: sessionID) == true else {
             NSSound.beep()
@@ -555,6 +646,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func editFocusedRepo() {
+        guard modalCommandRoute(.editRepo) != .ignored else {
+            return
+        }
         guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
               shellHandles?.trackerKeyboardBridge.editRepo(sessionID: sessionID) == true else {
             NSSound.beep()
@@ -662,10 +756,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewSession() {
+        guard modalCommandRoute(.newSession) != .ignored else {
+            return
+        }
         presentNewSession()
     }
 
     @objc private func openSettings() {
+        guard modalCommandRoute(.settings) != .ignored else {
+            return
+        }
         guard let mutationClient else {
             renderSnapshot()
             return
@@ -683,6 +783,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewQuest() {
+        guard modalCommandRoute(.newQuest) != .ignored else {
+            return
+        }
         guard let mutationClient else {
             renderSnapshot()
             return
@@ -709,6 +812,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewMasterSession() {
+        guard modalCommandRoute(.newSession) != .ignored else {
+            return
+        }
         presentNewSession()
     }
 
@@ -716,7 +822,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         initialPath: String? = nil,
         initialTitle: String = "",
         initialPrompt: String = "",
-        initialFocus: NewSessionField = .path
+        initialFocus: NewSessionField = .path,
+        onCreated: (() -> Void)? = nil
     ) {
         guard let mutationClient else {
             renderSnapshot()
@@ -735,6 +842,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else {
                     return
                 }
+                onCreated?()
                 if let sessionID {
                     self.terminalSessionController.switchTerminal(to: sessionID)
                 } else {
@@ -820,13 +928,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         count == 1 ? "\(verb) quest" : "\(verb) \(count) quests"
     }
 
-    private func startFromQuests(_ quests: [QuestItem]) {
+    private func startFromQuests(_ quests: [QuestItem], onCreated: @escaping () -> Void) {
         do {
             let request = try ServeMutationRequests.startFromQuests(quests, title: nil, agent: NewSessionFormModel.defaultAgents[0])
             presentNewSession(
                 initialPath: request.data["cwd"],
                 initialPrompt: request.data["prompt"] ?? "",
-                initialFocus: .title
+                initialFocus: .title,
+                onCreated: onCreated
             )
         } catch {
             errorPresenter.showTransientError(error.localizedDescription)
@@ -845,9 +954,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             questID: quest.id,
             sessionID: runtimeStore.currentTerminalSessionID,
             mutationClient: mutationClient,
-            onSuccess: { [weak self] in
-                self?.showDockContent(.questList, focusDock: true)
-            }
+            onSuccess: {}
         )
     }
 
@@ -881,6 +988,29 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
 }
 
+extension AppDelegate: NSMenuItemValidation {
+    /// Greys out a global modal command that would stack an unrelated modal; a disabled item's shortcut does nothing.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = menuItem.action else {
+            return true
+        }
+        if Self.shellNavigationActions.contains(action) {
+            return InWindowModalStack.shared.isEmpty
+        }
+        guard let command = globalModalCommand(for: action) else {
+            return true
+        }
+        return modalCommandRoute(command) != .ignored
+    }
+
+    /// Commands that move focus between the shell's regions or switch the session: an open modal owns the
+    /// keyboard, so they're disabled under it.
+    private static let shellNavigationActions: Set<Selector> = [
+        #selector(focusTerminal), #selector(focusRegionLeft), #selector(focusRegionRight),
+        #selector(selectTrackerSession(_:)), #selector(toggleTracker), #selector(toggleDock), #selector(toggleWorkerChatDock),
+    ]
+}
+
 enum DockCommandRouting {
     static func shouldHideArtifactDock(isDockVisible: Bool, content: DockContent) -> Bool {
         isDockVisible && (content == .artifactList || content == .artifactViewer)
@@ -891,8 +1021,6 @@ enum DockContentRouting {
     static func canShow(_ content: DockContent, sessionID: String?) -> Bool {
         let hasSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         switch content {
-        case .questList:
-            return true
         case .artifactList, .artifactViewer, .workerChat:
             return hasSession
         }
@@ -906,6 +1034,11 @@ private enum QuestmasterMain {
         preloadLoginShellEnvironment()
         UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
         #if DEBUG
+        // Self-tests and renders draw in off-screen HeadlessWindows: no Dock icon, never the active app.
+        let headlessModes = ["--run-logic-tests", "--render-preview", "--render-ring-preview"]
+        if CommandLine.arguments.contains(where: headlessModes.contains) {
+            NSApplication.shared.setActivationPolicy(.prohibited)
+        }
         _ = LogicSelfTests.runIfRequested()
         _ = RenderPreview.runIfRequested()
         _ = RingPreview.runIfRequested()

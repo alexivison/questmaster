@@ -3,11 +3,11 @@ import QuestmasterCore
 @MainActor
 final class DockCoordinator {
     private let stateStore = SessionViewStateStore()
-    private var noSessionState = SessionViewState.initial
 
+    /// Without a session the dock has nothing to show, so it reports the hidden default.
     func state(for sessionID: String?) -> SessionViewState {
         guard hasSessionID(sessionID) else {
-            return noSessionState
+            return .initial
         }
         return stateStore.state(for: sessionID)
     }
@@ -20,35 +20,17 @@ final class DockCoordinator {
     }
 
     func recordDockVisibility(_ visible: Bool, sessionID: String?) {
-        if !hasSessionID(sessionID), noSessionState.dockContent == .questList {
-            noSessionState.dockVisible = visible
-            return
-        }
         mutate(sessionID) {
             $0.dockVisible = visible
         }
     }
 
     func showDockContent(_ content: DockContent, sessionID: String?) {
-        guard hasSessionID(sessionID) else {
-            guard content == .questList else {
-                return
-            }
-            noSessionState.dockVisible = true
-            noSessionState.dockContent = .questList
-            noSessionState.selectedArtifactID = nil
-            return
-        }
         mutate(sessionID) {
             $0.dockVisible = true
             $0.dockContent = content
-            switch content {
-            case .artifactList:
-                $0.selectedQuestID = nil
-            case .questList, .workerChat:
+            if content == .workerChat {
                 $0.selectedArtifactID = nil
-            case .artifactViewer:
-                break
             }
         }
     }
@@ -58,21 +40,6 @@ final class DockCoordinator {
             $0.dockVisible = true
             $0.dockContent = .artifactViewer
             $0.selectedArtifactID = artifactID
-            $0.selectedQuestID = nil
-        }
-    }
-
-    func showQuestList(sessionID: String?) {
-        guard hasSessionID(sessionID) else {
-            noSessionState.dockVisible = true
-            noSessionState.dockContent = .questList
-            noSessionState.selectedArtifactID = nil
-            return
-        }
-        mutate(sessionID) {
-            $0.dockVisible = true
-            $0.dockContent = .questList
-            $0.selectedArtifactID = nil
         }
     }
 
@@ -83,12 +50,6 @@ final class DockCoordinator {
     func updateSelectedArtifact(_ selectedArtifactID: String?, sessionID: String?) {
         mutate(sessionID) {
             $0.selectedArtifactID = selectedArtifactID
-        }
-    }
-
-    func updateSelectedQuest(_ selectedQuestID: String?, sessionID: String?) {
-        mutate(sessionID) {
-            $0.selectedQuestID = selectedQuestID
         }
     }
 
@@ -103,7 +64,6 @@ final class DockCoordinator {
         mutate(sessionID) {
             $0.artifactScope = scope
             $0.selectedArtifactID = nil
-            $0.selectedQuestID = nil
             $0.dockContent = .artifactList
         }
     }
