@@ -61,6 +61,22 @@ public struct DockState: Equatable {
         dockContent = .artifactList
     }
 
+    /// Whether the dock shows: with no session (a detached terminal) it hides, and its state stays, so it comes back
+    /// as it was when a session attaches.
+    public func isShown(hasSession: Bool) -> Bool {
+        dockVisible && hasSession
+    }
+
+    /// A new artifact in the viewed session opens in the viewer, opening the dock if it's hidden, but never over the
+    /// worker chat while it shows. Returns whether it opened.
+    public mutating func openNewArtifact(_ artifactID: String) -> Bool {
+        guard !(dockVisible && dockContent == .workerChat) else {
+            return false
+        }
+        showArtifact(artifactID)
+        return true
+    }
+
     /// What the list shows changed (a render, a session switch): its cursor follows. The viewer keeps its artifact.
     public mutating func followList(selectedArtifactID artifactID: String?) {
         guard dockContent == .artifactList else {

@@ -57,6 +57,7 @@ enum LogicSelfTests {
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
+        ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
@@ -2328,6 +2329,41 @@ enum LogicSelfTests {
         try expect(model.artifactModel.artifacts == [a1], "the Session list should list A's artifacts")
         _ = model.apply(coordinator.state, snapshot: snapshot, preferredArtifactSessionID: "qm-b")
         try expect(model.artifactModel.artifacts == [b1], "the Session list should follow the switch to B")
+    }
+
+    /// Through the real DockPaneModel: with the worker chat as the dock's content, a new artifact still reports its open
+    /// intent, so it opens a hidden dock; while the worker chat shows it doesn't open, and the list opened later
+    /// doesn't jump to it.
+    private static func testNewArtifactsOpenFromBehindTheWorkerChat() throws {
+        let a1 = ArtifactReference(kind: "html", path: "/tmp/a1.html", label: "A1", sessionID: "qm-a", addedAt: "")
+        let a2 = ArtifactReference(kind: "html", path: "/tmp/a2.html", label: "A2", sessionID: "qm-a", addedAt: "")
+        let a3 = ArtifactReference(kind: "html", path: "/tmp/a3.html", label: "A3", sessionID: "qm-a", addedAt: "")
+        func snapshot(_ artifacts: [ArtifactReference]) -> RuntimeSnapshot {
+            var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+            snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "A", repoName: "Repo", workerCount: 0, isCurrent: true, artifacts: artifacts),
+            ])])
+            return snapshot
+        }
+        let model = DockPaneModel()
+
+        var state = DockState(dockVisible: false, dockContent: .workerChat)
+        _ = model.apply(state, snapshot: snapshot([a1]), preferredArtifactSessionID: "qm-a")
+        let hidden = model.apply(state, snapshot: snapshot([a2, a1]), preferredArtifactSessionID: "qm-a")
+        try expect(hidden.intent == .open(a2), "a new artifact behind a hidden worker chat should report its open, got \(hidden.intent)")
+        try expect(state.openNewArtifact(a2.id) && state.dockContent == .artifactViewer, "it should open the dock on the viewer")
+
+        state = DockState(dockVisible: true, dockContent: .workerChat)
+        let shown = model.apply(state, snapshot: snapshot([a3, a2, a1]), preferredArtifactSessionID: "qm-a")
+        if case .open(let artifact) = shown.intent {
+            try expect(!state.openNewArtifact(artifact.id), "a new artifact should not open over the worker chat")
+        }
+        try expect(state.dockContent == .workerChat, "the worker chat should stay")
+
+        state.show(.artifactList)
+        let list = model.apply(state, snapshot: snapshot([a3, a2, a1]), preferredArtifactSessionID: "qm-a")
+        try expect(list.intent == .none, "opening the list later should not open the artifact that arrived under the worker chat")
+        try expect(model.artifactModel.artifacts == [a3, a2, a1], "the list should list the session's artifacts")
     }
 
     private static func testArtifactDockAllFiltersUseVisibleList() throws {

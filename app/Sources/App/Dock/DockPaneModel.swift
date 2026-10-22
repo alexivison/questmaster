@@ -93,14 +93,7 @@ final class DockPaneModel: ObservableObject {
             listGTracker.reset()
         }
         currentDockContent = desired.dockContent
-        if currentMode != .artifacts {
-            return ArtifactDisplayUpdate(artifacts: [], displayState: .noCurrentSession, intent: .none, selectedArtifactID: selectedArtifactID)
-        }
         let route: ArtifactDockRoute = desired.dockContent == .artifactViewer ? .viewer : .list
-        if currentArtifactRoute != route {
-            currentArtifactRoute = route
-        }
-
         var artifactUpdate = artifactDisplayState.update(
             with: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID,
@@ -108,6 +101,14 @@ final class DockPaneModel: ObservableObject {
             selectedArtifactID: desired.selectedArtifactID ?? selectedArtifactID,
             keepingSelection: route == .viewer
         )
+        // Under the worker chat the baseline and the open intent keep running (a new artifact still opens a hidden
+        // dock, and the list never later opens a stale one); only the artifact list waits.
+        guard currentMode == .artifacts else {
+            return artifactUpdate
+        }
+        if currentArtifactRoute != route {
+            currentArtifactRoute = route
+        }
         let sourceArtifacts = artifactUpdate.artifacts
         artifactUpdate = filteredUpdate(artifactUpdate, snapshot: snapshot)
         selectedArtifactIDs = selectedArtifactIDs.intersection(Set(artifactUpdate.artifacts.map(\.id)))

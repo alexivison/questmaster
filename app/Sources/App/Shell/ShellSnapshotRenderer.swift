@@ -36,12 +36,13 @@ final class ShellSnapshotRenderer {
     /// viewed session's artifacts and workers) changes.
     func render(animateDockVisibility: Bool = false, animateDockLayout: Bool = false) {
         let viewedSessionID = runtimeStore.currentTerminalSessionID
+        let hasSession = viewedSessionID != nil
         var shouldAnimateDockVisibility = animateDockVisibility
         var shouldAnimateDockLayout = animateDockLayout
-        if navigation.dockVisible != dockCoordinator.state.dockVisible {
+        if navigation.dockVisible != dockCoordinator.state.isShown(hasSession: hasSession) {
             shouldAnimateDockVisibility = true
         }
-        navigation.setDockVisible(dockCoordinator.state.dockVisible)
+        navigation.setDockVisible(dockCoordinator.state.isShown(hasSession: hasSession))
 
         let artifactUpdate = dockView()?.apply(
             dockCoordinator.state,
@@ -52,7 +53,7 @@ final class ShellSnapshotRenderer {
             if case .open(let artifact) = update.intent, openArtifactDockIfActive(artifact) {
                 shouldAnimateDockVisibility = true
                 shouldAnimateDockLayout = true
-                navigation.setDockVisible(dockCoordinator.state.dockVisible)
+                navigation.setDockVisible(dockCoordinator.state.isShown(hasSession: hasSession))
                 _ = dockView()?.apply(
                     dockCoordinator.state,
                     snapshot: runtimeStore.snapshot,
@@ -77,13 +78,13 @@ final class ShellSnapshotRenderer {
         focusCoordinator()?.applyNavigationState(animateDockVisibility: shouldAnimateDockVisibility)
     }
 
-    /// A new artifact in the viewed session opens in the dock (never a session switch: `ArtifactDisplayState`).
+    /// A new artifact in the viewed session opens in the dock (never a session switch: `ArtifactDisplayState`), but
+    /// not over the worker chat (`DockState.openNewArtifact`).
     private func openArtifactDockIfActive(_ artifact: ArtifactReference) -> Bool {
-        guard appIsActive() else {
+        guard appIsActive(), dockCoordinator.state.openNewArtifact(artifact.id) else {
             return false
         }
         navigation.showDockPreservingFocus()
-        dockCoordinator.state.showArtifact(artifact.id)
         return true
     }
 }

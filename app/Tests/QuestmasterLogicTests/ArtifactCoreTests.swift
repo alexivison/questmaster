@@ -19,6 +19,8 @@ struct ArtifactCoreTests {
         preferredSessionChangeRecoversSelectionInTheNewSession()
         sessionSwitchNeverOpensAnArtifact()
         viewerKeepsItsArtifactAcrossSessions()
+        theBaselineRunsOnEveryTab()
+        noSessionKeepsTheSelection()
         listMovementWrapsSelection()
         scopeMovementWrapsSelection()
         artifactFilterMatchesLabelPathSessionAndProject()
@@ -397,6 +399,43 @@ struct ArtifactCoreTests {
         expect(back.intent == .none, "switching back to a session with new artifacts should not open one")
         let live = state.update(with: snap([newerA, newA, a]), preferredSessionID: "qm-a")
         expect(live.intent == .open(newerA), "a new artifact in the viewed session should still open")
+    }
+
+    /// The baseline follows the session's own artifacts whatever the tab: one added while the All tab shows doesn't
+    /// open, and the Session tab doesn't open it later either.
+    private static func theBaselineRunsOnEveryTab() {
+        var state = ArtifactDisplayState()
+        let a = artifact(path: "/tmp/a.html", label: "A")
+        let newA = artifact(path: "/tmp/new-a.html", label: "New A")
+        let newerA = artifact(path: "/tmp/newer-a.html", label: "Newer A")
+        func snap(_ artifacts: [ArtifactReference]) -> TrackerSnapshot {
+            trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: artifacts)])
+        }
+
+        _ = state.update(with: snap([a]), preferredSessionID: "qm-a")
+        let onAll = state.update(with: snap([newA, a]), preferredSessionID: "qm-a", scope: .all)
+        expect(onAll.intent == .none, "the All tab never opens a new artifact")
+        let backOnSession = state.update(with: snap([newA, a]), preferredSessionID: "qm-a")
+        expect(backOnSession.intent == .none, "the Session tab should not open one that arrived on the All tab")
+        let live = state.update(with: snap([newerA, newA, a]), preferredSessionID: "qm-a")
+        expect(live.intent == .open(newerA), "a new artifact on the Session tab still opens")
+    }
+
+    /// No session (a detached terminal) keeps the open artifact for when one attaches, and the next session starts a
+    /// new baseline, so attaching opens nothing.
+    private static func noSessionKeepsTheSelection() {
+        var state = ArtifactDisplayState()
+        let a = artifact(path: "/tmp/a.html", label: "A")
+        let newA = artifact(path: "/tmp/new-a.html", label: "New A")
+        _ = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [a])]), preferredSessionID: "qm-a")
+
+        let detached = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: false, artifacts: [a])]), selectedArtifactID: a.id, keepingSelection: true)
+        expect(detached.displayState == .noCurrentSession, "no session should show no session")
+        expect(detached.selectedArtifactID == a.id, "no session should keep the open artifact")
+
+        let attached = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [newA, a])]), preferredSessionID: "qm-a", selectedArtifactID: a.id, keepingSelection: true)
+        expect(attached.intent == .none, "attaching should not open an artifact")
+        expect(attached.selectedArtifactID == a.id && attached.displayState == .viewing(a), "the viewer comes back on its artifact")
     }
 
     /// The viewer's open artifact stays across a session switch: it's shown while it exists anywhere, and the list

@@ -8,6 +8,8 @@ struct DockStateTests {
         transitionsOpenAndSwapTheDock()
         sessionSwitchLeavesTheDockStateUnchanged()
         sessionListFollowsTheSession()
+        newArtifactOpensExceptOverTheWorkerChat()
+        noSessionHidesTheDockAndKeepsItsState()
         print("DockStateTests: all tests passed")
     }
 
@@ -72,6 +74,32 @@ struct DockStateTests {
         unchanged.selectedArtifactID = a1.id
         expect(unchanged == DockState(dockVisible: true, selectedArtifactID: a1.id, dockPreferredWidth: 520, artifactFilterQuery: "x"),
                "only the cursor should change")
+    }
+
+    /// A new artifact opens the viewer, from a hidden dock too (even one left on the worker chat), but never covers the
+    /// worker chat while it shows.
+    private static func newArtifactOpensExceptOverTheWorkerChat() {
+        var hiddenChat = DockState(dockVisible: false, dockContent: .workerChat)
+        expect(hiddenChat.openNewArtifact("a"), "a new artifact should open a hidden dock left on the worker chat")
+        expect(hiddenChat.dockVisible && hiddenChat.dockContent == .artifactViewer && hiddenChat.selectedArtifactID == "a", "it opens in the viewer")
+
+        var shownChat = DockState(dockVisible: true, dockContent: .workerChat)
+        let before = shownChat
+        expect(!shownChat.openNewArtifact("a"), "a new artifact should not open over the worker chat")
+        expect(shownChat == before, "the worker chat stays as it was")
+
+        var shownList = DockState(dockVisible: true, dockContent: .artifactList)
+        expect(shownList.openNewArtifact("a") && shownList.dockContent == .artifactViewer, "a new artifact opens from the list")
+    }
+
+    /// With no session the dock hides, but its state stays, so it comes back as it was when a session attaches.
+    private static func noSessionHidesTheDockAndKeepsItsState() {
+        var state = DockState(dockVisible: true)
+        state.showArtifact("a")
+        expect(!state.isShown(hasSession: false), "the dock should hide with no session")
+        expect(state.isShown(hasSession: true), "the dock should come back when a session attaches")
+        expect(!DockState(dockVisible: false).isShown(hasSession: true), "a closed dock stays closed")
+        expect(state.selectedArtifactID == "a" && state.dockContent == .artifactViewer, "the state stays as it was")
     }
 
     private static func snapshot(a: [ArtifactReference], b: [ArtifactReference]) -> TrackerSnapshot {

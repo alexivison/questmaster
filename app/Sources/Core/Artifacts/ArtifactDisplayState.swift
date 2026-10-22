@@ -35,8 +35,8 @@ public struct ArtifactDisplayUpdate: Equatable {
 public struct ArtifactDisplayState: Equatable {
     public private(set) var currentSessionID: String?
 
-    /// The viewed session's artifact paths when last seen in the Session tab, to spot ones added since. Only that
-    /// session's: switching sessions starts a new baseline, so a switch never opens an artifact.
+    /// The viewed session's artifact paths when last seen, to spot ones added since. Only that session's: switching
+    /// sessions starts a new baseline, so a switch never opens an artifact.
     private var knownArtifactPaths: KnownPaths?
 
     private struct KnownPaths: Equatable {
@@ -81,23 +81,26 @@ public struct ArtifactDisplayState: Equatable {
     ) -> ArtifactDisplayUpdate {
         let cleanPreferredSessionID = Self.cleanSessionID(preferredSessionID)
         guard let session = Self.currentSession(in: snapshot, preferredSessionID: preferredSessionID) else {
+            // No session (a detached terminal): the dock hides, and keeps its artifact for when one attaches. The next
+            // session starts a new baseline, as a switch does.
             currentSessionID = nil
+            knownArtifactPaths = nil
             return ArtifactDisplayUpdate(
                 artifacts: [],
                 displayState: .noCurrentSession,
                 intent: .none,
-                selectedArtifactID: nil
+                selectedArtifactID: selectedArtifactID
             )
         }
 
         currentSessionID = session.id
         let artifacts = Self.scopedArtifacts(in: snapshot, session: session, scope: scope)
-        let currentPaths = Set(artifacts.map(\.path))
-        let previousPaths = scope == .session && knownArtifactPaths?.sessionID == session.id ? knownArtifactPaths?.paths : nil
+        // The baseline is the session's own artifacts whatever the tab, so the Session tab never opens one that
+        // arrived while the All tab or the worker chat was showing.
+        let currentPaths = Set(Self.scopedArtifacts(in: snapshot, session: session, scope: .session).map(\.path))
+        let previousPaths = knownArtifactPaths?.sessionID == session.id ? knownArtifactPaths?.paths : nil
         let newPaths = previousPaths.map { currentPaths.subtracting($0) } ?? []
-        if scope == .session {
-            knownArtifactPaths = KnownPaths(sessionID: session.id, paths: currentPaths)
-        }
+        knownArtifactPaths = KnownPaths(sessionID: session.id, paths: currentPaths)
 
         let kept = keepingSelection
             ? selectedArtifactID.flatMap { id in Self.scopedArtifacts(in: snapshot, session: session, scope: .all).first { $0.id == id } }
