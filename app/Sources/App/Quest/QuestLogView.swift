@@ -192,7 +192,7 @@ private struct QuestLogFilterField: View {
         HStack(spacing: QuestLogMetrics.filterSpacing) {
             Text("/")
                 .font(AppFonts.questLogBody.swiftUI)
-                .foregroundStyle(AppPalette.questLogFilterHint.swiftUI)
+                .foregroundStyle(AppPalette.textMeta.swiftUI)
             ForEach(filter.tokens) { token in
                 chip(token)
             }
@@ -204,8 +204,8 @@ private struct QuestLogFilterField: View {
                 onEndEditing: {},
                 onFocusChanged: { focused = $0 },
                 font: AppFonts.monoSmall,
-                textColor: AppPalette.questLogRow,
-                placeholderColor: AppPalette.questLogFilterHint
+                textColor: AppPalette.textBody,
+                placeholderColor: AppPalette.textMeta
             )
             // The field is as tall as its font's whole line (KeyTextField); this places that frame where the
             // design sets the text.
@@ -218,9 +218,9 @@ private struct QuestLogFilterField: View {
         .fieldChrome(focused: showsFocus, cornerRadius: QuestLogMetrics.filterCornerRadius)
         .overlay(alignment: .topLeading) {
             if showsFocus && !filter.suggestions.isEmpty {
-                FilterSuggestionList(
-                    suggestions: filter.suggestions,
-                    selectedID: filter.selectedSuggestionID,
+                SuggestionDropdown(
+                    filterSuggestions: filter.suggestions,
+                    highlightedID: filter.selectedSuggestionID,
                     onSelect: { filter.acceptSuggestion($0) }
                 )
                 .offset(y: QuestLogMetrics.filterHeight + QuestLogMetrics.suggestionsGap)
@@ -308,20 +308,20 @@ private struct QuestLogList: View {
     }
 
     private func row(_ quest: QuestItem) -> some View {
-        let selected = quest.id == store.selectedID
+        let look = RowLook.lasting(selected: quest.id == store.selectedID)
         return BaselineText(
             QuestLogPage(quest: quest, project: "").title,
-            font: selected ? AppFonts.questLogRowSelected : AppFonts.questLogRow,
-            color: selected ? AppPalette.questLogRowSelected : AppPalette.questLogRow,
+            font: look.bold ? AppFonts.questLogRowSelected : AppFonts.questLogRow,
+            color: look.text.color,
             baseline: QuestLogMetrics.rowBaseline
         )
         .lineLimit(1)
         .padding(.leading, QuestLogMetrics.rowTextInset)
         .frame(maxWidth: .infinity, minHeight: QuestLogMetrics.rowHeight, maxHeight: QuestLogMetrics.rowHeight, alignment: .topLeading)
         .background {
-            if selected {
+            if let fill = look.fill {
                 RoundedRectangle(cornerRadius: QuestLogMetrics.rowCornerRadius)
-                    .fill(AppPalette.item.swiftUI)
+                    .fill(fill.color.swiftUI)
             }
         }
         .overlay(alignment: .leading) {
@@ -400,11 +400,12 @@ private struct QuestLogPageView: View {
             // The overflow cue: while more ink lies below (or above, once scrolled), it fades out over the
             // page's last (or first) lines. Only the ink fades; the paper stays as it is.
             .mask {
+                let ink = AppPalette.mask.swiftUI
                 VStack(spacing: 0) {
-                    LinearGradient(colors: [pageScroll.moreAbove ? .clear : .black, .black], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: [pageScroll.moreAbove ? .clear : ink, ink], startPoint: .top, endPoint: .bottom)
                         .frame(height: QuestLogMetrics.overflowFadeHeight)
-                    Color.black
-                    LinearGradient(colors: [.black, pageScroll.moreBelow ? .clear : .black], startPoint: .top, endPoint: .bottom)
+                    ink
+                    LinearGradient(colors: [ink, pageScroll.moreBelow ? .clear : ink], startPoint: .top, endPoint: .bottom)
                         .frame(height: QuestLogMetrics.overflowFadeHeight)
                 }
             }

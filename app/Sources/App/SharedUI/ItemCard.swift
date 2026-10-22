@@ -28,7 +28,7 @@ struct ItemCardShape: View {
     private var isHighlighted: Bool { hovered || selected }
 
     private var borderColor: NSColor {
-        isHighlighted ? AppPalette.hoverBorder : AppPalette.lineSoft
+        isHighlighted ? AppPalette.controlBorder : AppPalette.line
     }
 
     var body: some View {
@@ -50,7 +50,7 @@ struct ItemCardShape: View {
         RoundedRectangle(cornerRadius: Self.cornerRadius)
             .strokeBorder(
                 LinearGradient(
-                    colors: [.white.opacity(0.18), .clear, .black.opacity(0.3)],
+                    colors: [AppPalette.light.swiftUI.opacity(0.18), .clear, AppPalette.shadow.swiftUI.opacity(0.3)],
                     startPoint: .top,
                     endPoint: .bottom
                 ),

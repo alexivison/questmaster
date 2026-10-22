@@ -186,7 +186,7 @@ final class TrackerCastFillNSView: NSView {
     /// The amber at the tracker's bar brightness, like the plates' coloured bars; its leading edge, the overrun pulse
     /// and the finish flash are this amber lifted toward white, so they tone down with it.
     static let amber = TrackerNameplateColor.barLightness(AppPalette.warn)
-    static let edgeLight = amber.blended(withFraction: 0.5, of: .white) ?? amber
+    static let edgeLight = amber.blended(withFraction: 0.5, of: AppPalette.light) ?? amber
     static let flashOpacity: Float = 0.5
     /// The overrun pulse's peak: the light overlay's opacity at the top of each breath.
     static let pulsePeak: Float = 0.2

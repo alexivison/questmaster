@@ -260,7 +260,7 @@ enum TrackerRenderer {
         case .error:
             return AppPalette.trackerError
         case .idle, .stopped:
-            return AppPalette.trackerIdle
+            return AppPalette.inert
         }
     }
 }
