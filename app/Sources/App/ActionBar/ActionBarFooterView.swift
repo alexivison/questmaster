@@ -179,7 +179,7 @@ struct ActionBarSlotButton: View {
                 .blur(radius: 2)
                 .clipShape(shape)
         } else if isEmpty {
-            shape.strokeBorder(Color.black.opacity(0.1), lineWidth: 3)
+            shape.strokeBorder(AppPalette.shadow.swiftUI.opacity(0.1), lineWidth: 3)
                 .blur(radius: 1.5)
                 .clipShape(shape)
         }

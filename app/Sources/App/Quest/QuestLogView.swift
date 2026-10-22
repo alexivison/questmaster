@@ -400,11 +400,12 @@ private struct QuestLogPageView: View {
             // The overflow cue: while more ink lies below (or above, once scrolled), it fades out over the
             // page's last (or first) lines. Only the ink fades; the paper stays as it is.
             .mask {
+                let ink = AppPalette.mask.swiftUI
                 VStack(spacing: 0) {
-                    LinearGradient(colors: [pageScroll.moreAbove ? .clear : .black, .black], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: [pageScroll.moreAbove ? .clear : ink, ink], startPoint: .top, endPoint: .bottom)
                         .frame(height: QuestLogMetrics.overflowFadeHeight)
-                    Color.black
-                    LinearGradient(colors: [.black, pageScroll.moreBelow ? .clear : .black], startPoint: .top, endPoint: .bottom)
+                    ink
+                    LinearGradient(colors: [ink, pageScroll.moreBelow ? .clear : ink], startPoint: .top, endPoint: .bottom)
                         .frame(height: QuestLogMetrics.overflowFadeHeight)
                 }
             }

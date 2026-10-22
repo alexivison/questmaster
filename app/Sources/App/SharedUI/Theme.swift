@@ -51,6 +51,10 @@ enum AppPalette {
     static let chatWorking = NSColor(hex: 0xe8b34a)
     /// The black the tracker plates and the selected-session panel shade with, always at a partial opacity.
     static let shadow = NSColor.black
+    /// The white highlights and blends lift toward (the item card's bezel, the cast bar's light edge), always partial.
+    static let light = NSColor.white
+    /// The opaque colour of a mask layer or view: only its alpha counts.
+    static let mask = NSColor.black
 
     /// The text steps at rest: body text, and meta text (hints, placeholders, dates). A highlighted or selected
     /// item's text comes from its state look (`RowLook`, `OutlineLook`), never from here.

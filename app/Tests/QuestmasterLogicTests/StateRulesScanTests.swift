@@ -26,7 +26,10 @@ struct StateRulesScanTests {
     static let rules = [
         Rule(
             name: "raw-colour",
-            pattern: #"NSColor\((hex|srgbRed|red|calibratedRed|deviceRed|displayP3Red|white|calibratedWhite|deviceWhite|genericGamma22White|cssHex:\s*")|\bColor\((red|white|hue|\.sRGB|\.displayP3|\.sRGBLinear)\b|#colorLiteral|\b(NSColor|Color)\.(red|green|blue|orange|yellow|pink|purple|gray|grey|brown|cyan|magenta|mint|teal|indigo|primary|secondary|accentColor|labelColor|secondaryLabelColor|tertiaryLabelColor|textColor|controlAccentColor|windowBackgroundColor|controlColor|system[A-Z]\w*)\b|\.foregroundStyle\(\.(primary|secondary|tertiary|tint)\)"#,
+            // Clear draws nothing, so it's allowed; black and white go through AppPalette.shadow, .light or .mask.
+            // Shorthand colours (`.red`) count where a colour is taken (fill, stroke, color:, colors:, of: …), so a
+            // `.white` enum case elsewhere (Quest Log art inks, NSFont.Weight.black) doesn't.
+            pattern: #"NSColor\((hex|srgbRed|red|calibratedRed|deviceRed|displayP3Red|white|calibratedWhite|deviceWhite|genericGamma22White|cssHex:\s*")|\bColor\((red|white|hue|\.sRGB|\.displayP3|\.sRGBLinear)\b|#colorLiteral|\b(NSColor|Color)\.(black|white|red|green|blue|orange|yellow|pink|purple|gray|grey|brown|cyan|magenta|mint|teal|indigo|primary|secondary|accentColor|labelColor|secondaryLabelColor|tertiaryLabelColor|textColor|controlAccentColor|windowBackgroundColor|controlColor|system[A-Z]\w*)\b|\.foregroundStyle\(\.(primary|secondary|tertiary|tint)\)|\b(foregroundStyle|foregroundColor|fill|stroke|strokeBorder|background|backgroundColor|tint|border|shadow|color|colors|of)\s*[(:=][^\n]*?(?<!\w)\.(black|white|red|green|blue|orange|yellow|pink|purple|gray|grey|brown|cyan|magenta|mint|teal|indigo|primary|secondary|tertiary)\b"#,
             allowedIn: [tokenLayer]
         ),
         Rule(name: "state-colour", pattern: #"\bStateColor\b|\btextSelected\b"#, allowedIn: [tokenLayer]),
@@ -86,6 +89,30 @@ struct StateRulesScanTests {
         let found = violations(in: breaks, file: "Quest/Example.swift")
         for rule in rules {
             expect(found[rule.name] == 1, "\(rule.name) should fire once on its deliberate break, got \(found[rule.name] ?? 0)")
+        }
+        let rawColours = [
+            ".foregroundStyle(.red)",
+            "shape.fill(.orange)",
+            ".stroke(.black, lineWidth: 1)",
+            ".background(.white)",
+            "shape.strokeBorder(Color.black.opacity(0.1), lineWidth: 3)",
+            "layer.backgroundColor = NSColor.white.cgColor",
+            "LinearGradient(colors: [.white.opacity(0.18), .clear], startPoint: .top, endPoint: .bottom)",
+            "let light = tint.blended(withFraction: 0.5, of: .white) ?? tint",
+            ".shadow(color: .black.opacity(0.35), radius: 18, y: 10)",
+        ]
+        for sample in rawColours {
+            expect(violations(in: sample, file: "Quest/Example.swift")["raw-colour"] == 1, "raw-colour should catch \(sample)")
+        }
+        let notColours = [
+            "Color.clear.frame(width: 0, height: 0)",
+            ".fill((index == highlightedIndex ? AppPalette.item : .clear).swiftUI)",
+            "shape.strokeBorder(AppPalette.shadow.swiftUI.opacity(0.1), lineWidth: 3)",
+            "(.white, 0.43, \"M463.659 63.502\")",
+            "let font = NSFont.systemFont(ofSize: 12, weight: .black)",
+        ]
+        for sample in notColours {
+            expect(violations(in: sample, file: "Quest/Example.swift")["raw-colour"] == nil, "raw-colour should allow \(sample)")
         }
         expect(violations(in: "let tint = NSColor(hex: 0x123456)", file: tokenLayer).isEmpty, "the token layer may name colours")
         expect(violations(in: "let border = AppPalette.brassActive", file: "ActionBar/Slot.swift").isEmpty, "the action bar may use brass")
