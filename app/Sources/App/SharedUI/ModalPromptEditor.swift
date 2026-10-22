@@ -3,11 +3,11 @@ import QuestmasterCore
 import SwiftUI
 
 /// The New Session prompt and New Quest content box (new-session.svg): 12pt text in the form fields'
-/// colours, its first baseline 20.5 down and 12 in, on the window fill.
+/// colours, its first baseline 20.5 down and 11 in, on the window fill.
 private enum ModalPromptEditorMetrics {
     static let font = AppFonts.questLogBody
-    /// With the text container's 5pt line padding, the text starts 12 in.
-    static let inset = NSSize(width: 7, height: 8.25)
+    /// With the text container's 5pt line padding, the text starts 11 in.
+    static let inset = NSSize(width: 6, height: 8.25)
 }
 
 struct ModalPromptEditor: NSViewRepresentable {
