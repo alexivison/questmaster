@@ -30,16 +30,60 @@ struct SettingsSheetPresentation: Identifiable {
     let effortClient: ServeReasoningEffortSuggesting?
 }
 
+/// settings-models.svg (900 x 780): the sections as pill tabs down the left (250 wide), and the selected
+/// section on the right (x 290-880): the agent tabs, then a "Master" and a "Worker" section, each a bold
+/// title over a vine-ended rule and two rows of label, description and a compact "‹ value ›" picker.
+private enum SettingsMetrics {
+    static let inset: CGFloat = 20
+    /// Under the scaffold's title and rule, so the tabs' discs start 91.68 down, as in the design.
+    static let topInset: CGFloat = 8.75
+    static let sidebarWidth: CGFloat = 250
+    static let columnSpacing: CGFloat = 20
+    static let columnWidth = SettingsSheetModel.sheetSize.width - 2 * inset - sidebarWidth - columnSpacing
+    static let sidebarSpacing: CGFloat = 20
+    /// From the top of the agent tabs: the first section title's baseline, then each next one 174 on.
+    static let firstSectionBaseline: CGFloat = 65
+    static let sectionPitch: CGFloat = 174
+    /// From a section title's baseline: its rule, then each row's picker top, 52 apart.
+    static let ruleDrop: CGFloat = 14
+    static let firstRowDrop: CGFloat = 35
+    static let rowPitch: CGFloat = 52
+    /// From a row's picker top: the label's baseline and the description's.
+    static let labelBaseline: CGFloat = 11
+    static let descriptionBaseline: CGFloat = 29
+    /// The picker: 32 high, radius 6, "‹", the value and "›" 8.75 apart, 11 in, the text's baseline 20 down.
+    static let pickerHeight: CGFloat = 32
+    static let pickerCornerRadius: CGFloat = 6
+    static let pickerInset: CGFloat = 11
+    static let pickerSpacing: CGFloat = 8.75
+    static let pickerBaseline: CGFloat = 20
+    static let skeletonWidth: CGFloat = 92
+}
+
+/// The sidebar's sections. Only the ones that exist are listed; a new one is a new case.
+private enum SettingsSection: CaseIterable {
+    case modelsAndReasoning
+
+    var title: String {
+        switch self {
+        case .modelsAndReasoning:
+            return "Models and Reasoning"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .modelsAndReasoning:
+            return "slider.vertical.3"
+        }
+    }
+}
+
 struct SettingsSheetView: View {
     @StateObject private var model: SettingsSheetModel
 
-    /// Role groups shown for the active tab, top-to-bottom.
+    /// Role groups shown for the active tab, top-to-bottom, with each row's description.
     private static let roleGroups = [("master", "Master"), ("worker", "Worker")]
-
-    private enum Metrics {
-        static let sidebarWidth: CGFloat = 224
-        static let controlWidth: CGFloat = 280
-    }
 
     init(presentation: SettingsSheetPresentation, dismiss: @escaping () -> Void) {
         _model = StateObject(wrappedValue: SettingsSheetModel(presentation: presentation, dismiss: dismiss))
@@ -48,28 +92,17 @@ struct SettingsSheetView: View {
     var body: some View {
         ModalSheetScaffold(
             title: "Settings",
-            footerText: "[ ] tab · ←→/hl change value · ⌃j/⌃k move · esc close",
+            footerText: "",
             errorMessage: model.errorMessage
         ) {
-            HStack(alignment: .top, spacing: Token.Spacing.content) {
+            HStack(alignment: .top, spacing: SettingsMetrics.columnSpacing) {
                 sidebar
-                VStack(alignment: .leading, spacing: 0) {
-                    tabBar
-                        .padding(.bottom, Token.Spacing.content)
-                    ForEach(Array(Self.roleGroups.enumerated()), id: \.offset) { offset, group in
-                        roleFieldGroup(role: group.0, title: group.1)
-                            .padding(.bottom, offset < Self.roleGroups.count - 1 ? Token.Spacing.groupGap : 0)
-                    }
-                }
-                .padding(.top, Token.Spacing.element)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                sectionColumn
             }
-            .padding(.horizontal, Token.Spacing.content)
-            // Greedy on height so this area (not the space after the footer)
-            // absorbs the gap between the sheet's fixed content-agnostic
-            // footprint (900x780) and the tab content's own natural size —
-            // the footer then lands near the bottom instead of right after
-            // the fields, and the fields themselves stay pinned to the top.
+            .padding(.horizontal, SettingsMetrics.inset)
+            .padding(.top, SettingsMetrics.topInset)
+            // Greedy on height so this area absorbs the sheet's fixed 900 x 780 footprint and the
+            // content stays pinned to the top.
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height)
@@ -80,160 +113,144 @@ struct SettingsSheetView: View {
     }
 
     private var sidebar: some View {
-        VStack(spacing: Token.Spacing.element) {
-            SettingsSidebarItem(title: "Models and Reasoning", symbolName: "slider.horizontal.3", selected: true)
-        }
-        .padding(.top, Token.Spacing.element)
-        .frame(width: Metrics.sidebarWidth, alignment: .top)
-    }
-
-    private var tabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(model.state.agents.enumerated()), id: \.offset) { index, agent in
-                SettingsAgentTab(
-                    title: AgentKind.displayName(for: agent),
-                    selected: index == model.state.selectedAgentIndex,
-                    onSelect: { model.selectTab(index) }
+        VStack(spacing: SettingsMetrics.sidebarSpacing) {
+            ForEach(SettingsSection.allCases, id: \.self) { section in
+                PillTab(
+                    title: section.title,
+                    icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: AppPalette.questLogRowSelected, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
+                    selected: true,
+                    selectedLabelColor: AppPalette.warn
                 )
             }
         }
+        .frame(width: SettingsMetrics.sidebarWidth)
     }
 
+    private var sectionColumn: some View {
+        ZStack(alignment: .topLeading) {
+            PillTabRow(
+                tabs: model.state.agents.map { .agent($0) },
+                selectedID: model.state.selectedAgent,
+                onSelect: { agent in
+                    if let index = model.state.agents.firstIndex(of: agent) {
+                        model.selectTab(index)
+                    }
+                }
+            )
+            ForEach(Array(Self.roleGroups.enumerated()), id: \.offset) { offset, group in
+                roleSection(role: group.0, title: group.1)
+                    .offset(y: SettingsMetrics.firstSectionBaseline + CGFloat(offset) * SettingsMetrics.sectionPitch)
+            }
+        }
+        .frame(width: SettingsMetrics.columnWidth, alignment: .topLeading)
+    }
+
+    /// Laid out from the title's baseline, which sits at the section's top.
     @ViewBuilder
-    private func roleFieldGroup(role: String, title: String) -> some View {
+    private func roleSection(role: String, title: String) -> some View {
         if let rowIndex = model.state.index(agent: model.state.selectedAgent, role: role) {
             let row = model.state.rows[rowIndex]
             let isFocusedRole = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role
-            VStack(alignment: .leading, spacing: Token.Spacing.section) {
-                Text(title)
-                    .font(AppFonts.settingsSectionTitle.swiftUI)
-                    .foregroundStyle(AppPalette.text.swiftUI)
-                SettingsSeparator()
-                SettingsFormFieldRow(
+            ZStack(alignment: .topLeading) {
+                BaselineText(title, font: AppFonts.settingsSectionTitle, color: AppPalette.settingsText, baseline: 0)
+                SettingsSectionRule(width: SettingsMetrics.columnWidth)
+                    .offset(y: SettingsMetrics.ruleDrop)
+                SettingsRoleRow(
                     title: "Model",
-                    subtitle: "The default \(role) model",
+                    description: "The default \(role) model",
                     value: row.selectedModelOption?.label ?? "Not configured",
                     isLoading: !row.hasResolvedModelOptions,
                     focused: isFocusedRole && model.state.focusedField == .model,
-                    controlWidth: Metrics.controlWidth,
                     onSelect: { model.focus(role: role, field: .model) }
                 )
-                SettingsFormFieldRow(
+                .offset(y: SettingsMetrics.firstRowDrop)
+                SettingsRoleRow(
                     title: "Reasoning effort",
-                    subtitle: "The default \(role) reasoning effort",
+                    description: "The default \(role) reasoning effort",
                     value: row.selectedEffortOption?.label ?? "Not configured",
                     isLoading: !row.hasResolvedEffortOptions,
                     focused: isFocusedRole && model.state.focusedField == .effort,
-                    controlWidth: Metrics.controlWidth,
                     onSelect: { model.focus(role: role, field: .effort) }
                 )
+                .offset(y: SettingsMetrics.firstRowDrop + SettingsMetrics.rowPitch)
             }
+            .frame(width: SettingsMetrics.columnWidth, alignment: .topLeading)
         }
     }
 }
 
-/// A sidebar section entry, styled as the same riveted `ItemCardShape` card the
-/// Quest and Artifact rows use.
-private struct SettingsSidebarItem: View {
-    let title: String
-    let symbolName: String
-    let selected: Bool
+/// The rule under a section title: a 1pt line with the Quest Log's rule vines at each end. `QuestLogArt`
+/// draws them about its rule at y 198 from x 20; here they hang off a line at the frame's top.
+private struct SettingsSectionRule: View {
+    let width: CGFloat
+
+    private static let artRuleY: CGFloat = 198
+    private static let artVineLeft: CGFloat = 20
+    private static let artVineRight: CGFloat = 453
+    /// The vines stand 8 above the line and 9 below it; the line runs 4 in from each end.
+    private static let bandAbove: CGFloat = 8
+    private static let bandHeight: CGFloat = 17
+    private static let lineInset: CGFloat = 4
 
     var body: some View {
-        ListRow(
-            selected: selected,
-            background: { selected, hovered in
-                ItemCardShape(selected: selected, hovered: hovered)
-            },
-            content: {
-                // Same content insets every Tracker/Quest/Artifact row uses,
-                // so this card reads at the same scale as the ones it's
-                // styled after instead of a cramped custom pill. A plain SF
-                // Symbol (unlike those rows' agent-mark badges) sits right at
-                // the icon column's edge, so this row adds extra clearance on
-                // top of the shared insets to keep it off the corner bolts.
-                HStack(spacing: ItemCardShape.iconLabelGap) {
-                    Image(systemName: symbolName)
-                    Text(title)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .font(AppFonts.itemTitle.swiftUI)
-                .foregroundStyle((selected ? AppPalette.bright : AppPalette.text).swiftUI)
-                .padding(.leading, ItemCardShape.contentPadding + Token.Spacing.element)
-                .padding(.trailing, ItemCardShape.trailingContentPadding + Token.Spacing.element)
-                .padding(.vertical, ItemCardShape.contentPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        Canvas { context, _ in
+            let color = GraphicsContext.Shading.color(AppPalette.line.swiftUI)
+            let dy = Self.bandAbove - Self.artRuleY
+            let pieces = QuestLogArt.ruleVineLeft.map { (SVGPath.parse($0.d, dx: -Self.artVineLeft, dy: dy), $0.evenOdd) }
+                + QuestLogArt.ruleVineRight.map { (SVGPath.parse($0.d, dx: width - Self.artVineRight, dy: dy), $0.evenOdd) }
+            for (path, evenOdd) in pieces {
+                context.fill(path, with: color, style: FillStyle(eoFill: evenOdd))
             }
-        )
-    }
-}
-
-/// One agent tab: gold text + underline when selected, dim otherwise —
-/// `[`/`]` (`Keymap.Settings.previousTab`/`.nextTab`) move between these,
-/// a click jumps straight to one.
-private struct SettingsAgentTab: View {
-    let title: String
-    let selected: Bool
-    var onSelect: () -> Void
-
-    var body: some View {
-        VStack(spacing: Token.Spacing.inline) {
-            Text(title)
-                .font(AppFonts.bodyBold.swiftUI)
-                .foregroundStyle((selected ? AppPalette.accent : AppPalette.dim).swiftUI)
-            Rectangle()
-                .fill((selected ? AppPalette.accent : AppPalette.lineSoftSubtle).swiftUI)
-                .frame(height: Token.Size.divider)
+            context.fill(Path(CGRect(x: Self.lineInset, y: Self.bandAbove, width: width - 2 * Self.lineInset, height: Token.Size.divider)), with: color)
         }
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
+        .frame(width: width, height: Self.bandHeight)
+        .offset(y: -Self.bandAbove)
     }
 }
 
-private struct SettingsSeparator: View {
-    var body: some View {
-        Rectangle()
-            .fill(AppPalette.lineSoftSubtle.swiftUI)
-            .frame(height: Token.Size.divider)
-    }
-}
-
-/// One labeled select field: a title + description on the left, a
-/// `ModalSelectControl` on the right, docked to the row's trailing edge.
-private struct SettingsFormFieldRow: View {
+/// A setting: its label and description on the left, its compact picker right-aligned. Laid out from
+/// the picker's top.
+private struct SettingsRoleRow: View {
     let title: String
-    let subtitle: String
+    let description: String
     let value: String
     let isLoading: Bool
     let focused: Bool
-    let controlWidth: CGFloat
     var onSelect: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: Token.Spacing.content) {
-            VStack(alignment: .leading, spacing: Token.Spacing.hairline) {
-                Text(title)
-                    .font(AppFonts.body.swiftUI)
-                    .foregroundStyle(AppPalette.text.swiftUI)
-                Text(subtitle)
-                    .font(AppFonts.modalHelper.swiftUI)
-                    .foregroundStyle(AppPalette.dim.swiftUI)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if isLoading {
-                SettingsSkeletonControl()
-                    .frame(width: controlWidth, height: 36)
-            } else {
-                ModalSelectControl(title: value, swatchColor: nil, focused: focused, disabled: false)
-                    .frame(width: controlWidth, height: 36)
-                    .onTapGesture(perform: onSelect)
-            }
+        ZStack(alignment: .topLeading) {
+            BaselineText(title, font: AppFonts.settingsLabel, color: AppPalette.settingsText, baseline: SettingsMetrics.labelBaseline)
+            BaselineText(description, font: AppFonts.settingsDescription, color: AppPalette.settingsDescription, baseline: SettingsMetrics.descriptionBaseline)
+            picker
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: SettingsMetrics.columnWidth, height: SettingsMetrics.pickerHeight, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var picker: some View {
+        if isLoading {
+            SettingsSkeletonControl()
+                .frame(width: SettingsMetrics.skeletonWidth, height: SettingsMetrics.pickerHeight)
+        } else {
+            HStack(spacing: SettingsMetrics.pickerSpacing) {
+                BaselineText("<", font: AppFonts.settingsLabel, color: AppPalette.settingsPickerChevron, baseline: SettingsMetrics.pickerBaseline)
+                BaselineText(value, font: AppFonts.settingsLabel, color: AppPalette.settingsText, baseline: SettingsMetrics.pickerBaseline)
+                BaselineText(">", font: AppFonts.settingsLabel, color: AppPalette.settingsPickerChevron, baseline: SettingsMetrics.pickerBaseline)
+            }
+            .padding(.horizontal, SettingsMetrics.pickerInset)
+            .frame(height: SettingsMetrics.pickerHeight)
+            .background(RoundedRectangle(cornerRadius: SettingsMetrics.pickerCornerRadius).fill(AppPalette.settingsPickerFill.swiftUI))
+            .overlay(
+                RoundedRectangle(cornerRadius: SettingsMetrics.pickerCornerRadius)
+                    .strokeBorder((focused ? AppPalette.controlBorder : AppPalette.settingsPickerBorder).swiftUI, lineWidth: Token.Size.divider)
+            )
+            .fixedSize()
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onSelect)
+            .accessibilityLabel("\(title) \(value)")
+        }
     }
 }
 
@@ -245,7 +262,7 @@ private struct SettingsSkeletonControl: View {
     @State private var pulse = false
 
     var body: some View {
-        RoundedRectangle(cornerRadius: Token.Radius.control)
+        RoundedRectangle(cornerRadius: SettingsMetrics.pickerCornerRadius)
             .fill(AppPalette.item.swiftUI)
             .opacity(pulse ? 0.7 : 0.5)
             .onAppear {

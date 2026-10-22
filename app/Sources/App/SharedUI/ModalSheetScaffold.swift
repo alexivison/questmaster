@@ -22,8 +22,15 @@ struct ModalSheetScaffold<Content: View>: View {
             ModalSheetHeader(title: title, titleColor: titleColor, horizontalInset: horizontalInset)
             content()
             errorRow
-            footer
+            if hasFooter {
+                footer
+            }
         }
+    }
+
+    /// A sheet with no buttons and no hint (Settings) ends without the footer's rule.
+    private var hasFooter: Bool {
+        (cancelLabel != nil && onCancel != nil) || (primaryLabel != nil && onPrimary != nil) || !footerText.isEmpty
     }
 
     private var errorRow: some View {

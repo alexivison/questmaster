@@ -1301,14 +1301,11 @@ private final class SettingsPreviewModelClient: ServeModelSuggesting {
         refresh: Bool,
         completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
     ) {
-        // The worker row previews "not configured" (an empty default with no
-        // matching option) so that state gets a design-review look here, not
-        // just a runtime discovery; every other role previews a configured
-        // default.
-        let model = "\(agent)-\(role)-preview"
+        // settings-models.svg's values: opus-5 for the master, haiku for the worker.
+        let model = role == "worker" ? "haiku" : "opus-5"
         completion(.success(ModelSuggestionResponse(
             models: [SessionModelOption(id: model, label: model, note: "")],
-            defaultModel: role == "worker" ? "" : model
+            defaultModel: model
         )))
     }
 }
@@ -1322,7 +1319,7 @@ private final class SettingsPreviewEffortClient: ServeReasoningEffortSuggesting 
     ) {
         completion(.success(ReasoningEffortSuggestionResponse(
             efforts: ["low", "medium", "high", "xhigh"],
-            defaultEffort: role == "worker" ? "" : "xhigh"
+            defaultEffort: role == "worker" ? "high" : "xhigh"
         )))
     }
 }

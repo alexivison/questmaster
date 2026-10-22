@@ -82,6 +82,12 @@ enum AppPalette {
     static let agentMarkTint = NSColor(hex: 0xb8b8b8)
     /// The model field's effort segment when the model reports no levels: shown, but inert.
     static let fieldInert = NSColor(hex: 0x6f757c)
+    /// Settings (settings-models.svg): section titles, labels and values; descriptions; the compact picker.
+    static let settingsText = NSColor(hex: 0xffffff)
+    static let settingsDescription = NSColor(hex: 0x69737c)
+    static let settingsPickerFill = NSColor(hex: 0x1a1e23)
+    static let settingsPickerBorder = NSColor(hex: 0x3b3e41)
+    static let settingsPickerChevron = NSColor(hex: 0xa2b2bf)
     static let questLogButtonDangerDeep = NSColor(hex: 0x703835)
     static let questLogButtonDanger = NSColor(hex: 0xb34640)
     /// The user's parchment colours: paper, its shade, the fold browns and the highlights.
@@ -248,7 +254,9 @@ enum AppFonts {
     static let sectionTitle = monospaced(size: 11, weight: .semibold)
     /// The Settings sheet's per-role group titles (Master/Worker) —
     /// a step up from `bodyBold` since each heads its own separator-ruled block.
-    static let settingsSectionTitle = monospaced(size: 14.5, weight: .semibold)
+    static let settingsSectionTitle = monospaced(size: 15, weight: .bold)
+    static let settingsLabel = monospaced(size: 11)
+    static let settingsDescription = monospaced(size: 10)
 
     /// Worker chat lines at the design's 12pt.
     static let chat = monospaced(size: 12)
