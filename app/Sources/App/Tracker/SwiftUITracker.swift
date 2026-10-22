@@ -309,7 +309,7 @@ struct TrackerRootView: View {
         let repos = TrackerRenderer.tracker(snapshot)
         let rows = selectableRows(in: repos)
         let selectedID = commandState.renderedSelectedID(in: rows)
-        // The cursor shows one step dimmer while the tracker doesn't have focus.
+        // The cursor shows while the tracker has focus, and otherwise only under the pointer (`PlateBand`).
         let areaFocused = navigation.focusedRegion == .tracker
         let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
@@ -995,14 +995,12 @@ private struct TrackerPortraitOutline: View {
     }
 }
 
-/// The plate: its band (`PlateBand`: the highlight, dimmer while the tracker doesn't have focus, or the recolour hint),
-/// then the art, the portrait's disc with its status ring and glow, and the text over it. The canvas is the SVG's, so it starts above a master's row by the crown pieces' reach. The portrait's
+/// The plate: its band (`PlateBand`: the cursor, or the recolour hint), then the art, the portrait's disc with its status ring and glow, and the text over it. The canvas is the SVG's, so it starts above a master's row by the crown pieces' reach. The portrait's
 /// logo is drawn over it in the row's content layer.
 struct TrackerNameplateBackground<Text: View>: View {
     let role: TrackerNameplateRole
     let color: NSColor
-    let highlighted: Bool
-    let areaFocused: Bool
+    let showsCursor: Bool
     let isRecoloring: Bool
     let statusColor: NSColor?
     /// What the portrait's ring shows: a spinner while working, a still ring for the other active statuses.
@@ -1013,7 +1011,7 @@ struct TrackerNameplateBackground<Text: View>: View {
     var body: some View {
         let artwork = role.artwork
         ZStack(alignment: .topLeading) {
-            if let band = PlateBand.color(highlighted: highlighted, areaFocused: areaFocused, recoloring: isRecoloring) {
+            if let band = PlateBand.color(showsCursor: showsCursor, recoloring: isRecoloring) {
                 TrackerGlowView(path: artwork.glow, color: band.color)
                     .silhouetteFrame(artwork.size)
             }
@@ -1313,12 +1311,12 @@ private struct TrackerSessionRow: View {
             },
             onHighlight: { onSelect(session.id) },
             leadingDecoration: { EmptyView() },
-            background: { selected in
+            background: { selected, pointerOver in
+                let showsCursor = PlateBand.showsCursor(highlighted: selected, areaFocused: areaFocused, pointerOver: pointerOver)
                 TrackerNameplateBackground(
                     role: role,
                     color: rendered.groupColor,
-                    highlighted: selected,
-                    areaFocused: areaFocused,
+                    showsCursor: showsCursor,
                     isRecoloring: rendered.recolorEditHint != nil,
                     statusColor: rendered.status.color,
                     // The plate's cast row shows its cast, so its ring only spins while it works.
@@ -1328,7 +1326,7 @@ private struct TrackerSessionRow: View {
                         rendered: rendered,
                         role: role,
                         projectName: projectName,
-                        look: RowLook.pick(highlighted: isSelected, areaFocused: areaFocused),
+                        look: RowLook.pick(highlighted: showsCursor, areaFocused: true),
                         showSessionID: commandLongPressIsActive
                     )
                 )

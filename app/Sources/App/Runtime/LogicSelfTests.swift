@@ -387,9 +387,9 @@ enum LogicSelfTests {
             try expect(unconfigured() == 0, "\(description): \(unconfigured()) status views never configured")
             return (statusViews(in: hosting).filter { $0 !== control }, control)
         }
-        func plate(status: NSColor?, highlighted: Bool = false, focused: Bool = true) -> some View {
+        func plate(status: NSColor?, showsCursor: Bool = false) -> some View {
             TrackerNameplateBackground(
-                role: .master, color: AppPalette.accent, highlighted: highlighted, areaFocused: focused, isRecoloring: false,
+                role: .master, color: AppPalette.accent, showsCursor: showsCursor, isRecoloring: false,
                 statusColor: status, ring: status == nil ? .none : .spinning(nil), text: EmptyView()
             )
         }
@@ -398,9 +398,7 @@ enum LogicSelfTests {
         let resting = try host(plate(status: working), "a working plate")
         try expect(resting.subject.count == 1, "a working plate should draw one status, got \(resting.subject.count)")
         try expect(resting.subject[0].ringMode == .spinning(nil), "a working plate with no tool should spin its ring")
-        try expect(try host(plate(status: working, highlighted: true), "a highlighted working plate").subject.count == 1, "the highlight should not hide the status")
-        let unfocused = try host(plate(status: working, highlighted: true, focused: false), "a highlighted working plate, unfocused")
-        try expect(unfocused.subject.count == 1, "the unfocused highlight should not hide the status")
+        try expect(try host(plate(status: working, showsCursor: true), "a working plate under the cursor").subject.count == 1, "the cursor should not hide the status")
 
         func worker(_ id: String, state: String) -> TrackerRenderedSession {
             let session = TrackerSession(id: id, title: id, repoName: "Preview", agent: "claude", role: "worker", state: state)

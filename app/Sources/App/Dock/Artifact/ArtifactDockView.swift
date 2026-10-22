@@ -279,7 +279,7 @@ private struct ArtifactRow: View {
     var action: () -> Void
 
     var body: some View {
-        ListRow(selected: selected, leadingInset: Token.Spacing.card, onHighlight: onHighlight) { selected in
+        ListRow(selected: selected, leadingInset: Token.Spacing.card, onHighlight: onHighlight) { selected, _ in
             ItemCardShape(selected: selected, extraLeadingInset: checkboxReservedInset)
         } content: {
             HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {

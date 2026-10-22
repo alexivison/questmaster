@@ -32,8 +32,12 @@ struct InteractionLookTests {
         expect(OutlineLook.tabSelected.recessed && OutlineLook.tabSelectedUnfocused.recessed, "a selected tab's disc is recessed")
         expect(!OutlineLook.tabRest.recessed, "a resting tab's disc is not recessed")
         expect(ToggleLook.of(on: true) == .on && ToggleLook.of(on: false) == .off, "a toggle is on or off")
-        expect(PlateBand.color(highlighted: false, areaFocused: true, recoloring: false) == nil, "a plain plate has no band")
-        expect(PlateBand.color(highlighted: true, areaFocused: true, recoloring: true) == .accent, "the recolour band wins over the highlight")
+        expect(PlateBand.color(showsCursor: false, recoloring: false) == nil, "a plain plate has no band")
+        expect(PlateBand.color(showsCursor: true, recoloring: true) == .accent, "the recolour band wins over the highlight")
+        expect(PlateBand.showsCursor(highlighted: true, areaFocused: true, pointerOver: false), "the cursor shows while the tracker has focus")
+        expect(!PlateBand.showsCursor(highlighted: true, areaFocused: false, pointerOver: false), "the cursor hides when the tracker loses focus")
+        expect(PlateBand.showsCursor(highlighted: true, areaFocused: false, pointerOver: true), "the plate under the pointer shows the cursor, focused or not")
+        expect(!PlateBand.showsCursor(highlighted: false, areaFocused: true, pointerOver: true), "only the cursor's plate shows it")
     }
 
     /// Hover is the highlight, so it must read apart from rest, from its own dimmed unfocused step, from a lasting
@@ -48,10 +52,9 @@ struct InteractionLookTests {
             expect(tabHover != other, "a hovered tab should not look like \(other)")
         }
         let bands = [
-            PlateBand.color(highlighted: true, areaFocused: true, recoloring: false),
-            PlateBand.color(highlighted: true, areaFocused: false, recoloring: false),
-            PlateBand.color(highlighted: false, areaFocused: true, recoloring: true),
-            PlateBand.color(highlighted: false, areaFocused: true, recoloring: false),
+            PlateBand.color(showsCursor: true, recoloring: false),
+            PlateBand.color(showsCursor: false, recoloring: true),
+            PlateBand.color(showsCursor: false, recoloring: false),
         ]
         expect(Set(bands.map { $0?.rawValue ?? 0 }).count == bands.count, "every plate band state should differ: \(bands)")
         expect(OutlineLook.fieldFocused != .fieldRest, "a focused field should not look at rest")
@@ -66,8 +69,7 @@ struct InteractionLookTests {
         expectBrighter([OutlineLook.fieldRest, .fieldFocused].map(levels), "fields")
         expectBrighter([OutlineLook.frameRest, .frameFocused].map(levels), "dock frames")
         expectBrighter([ToggleLook.off, .on].map { [$0.border.luminance] }, "toggles")
-        let band = { (focused: Bool) in PlateBand.color(highlighted: true, areaFocused: focused, recoloring: false)?.luminance ?? 0 }
-        expectBrighter([[0], [band(false)], [band(true)]], "plate bands")
+        expectBrighter([[0], [PlateBand.color(showsCursor: true, recoloring: false)?.luminance ?? 0]], "plate bands")
         expectBrighter([StateColor.textMeta, .textMetaHighlighted, .textBody, .textSelected].map { [$0.luminance] }, "text steps")
     }
 

@@ -221,8 +221,11 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     /// The pointer moved onto the row: the list moves its cursor here. Hover has no look of its own.
     var onHighlight: () -> Void
     private let leadingDecoration: () -> LeadingDecoration
-    private let background: (_ selected: Bool) -> Background
+    private let background: (_ selected: Bool, _ pointerOver: Bool) -> Background
     private let content: () -> Content
+
+    /// Whether the pointer is over the row: the tracker shows its cursor there even while it lacks focus.
+    @State private var isPointerOver = false
 
     init(
         selected: Bool,
@@ -231,7 +234,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
         onTap: (() -> Void)? = nil,
         onHighlight: @escaping () -> Void,
         @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
-        @ViewBuilder background: @escaping (_ selected: Bool) -> Background,
+        @ViewBuilder background: @escaping (_ selected: Bool, _ pointerOver: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.selected = selected
@@ -258,11 +261,12 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
         content()
             .padding(.leading, leadingInset)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(background(selected))
+            .background(background(selected, isPointerOver))
             .overlay(alignment: .leading) {
                 leadingDecoration()
             }
             .contentShape(VerticallyOutsetRectangle(outset: hitOutset))
+            .onHover { isPointerOver = $0 }
             .highlightOnHover {
                 if !selected {
                     onHighlight()
@@ -277,7 +281,7 @@ extension ListRow where LeadingDecoration == EmptyView {
         leadingInset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
         onHighlight: @escaping () -> Void,
-        @ViewBuilder background: @escaping (_ selected: Bool) -> Background,
+        @ViewBuilder background: @escaping (_ selected: Bool, _ pointerOver: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(

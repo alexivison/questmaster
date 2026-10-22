@@ -115,10 +115,16 @@ public struct ToggleLook: Equatable, Sendable {
 
 /// The band around a tracker plate. The plates keep their own art; only the band follows the shared highlight.
 public enum PlateBand {
+    /// The tracker's cursor is a pure cursor, with no lasting selection, and the tracker's design has no unfocused
+    /// state for it: it shows while the tracker has focus, or on the plate under the pointer (hover is the cursor),
+    /// and hides when focus leaves.
+    public static func showsCursor(highlighted: Bool, areaFocused: Bool, pointerOver: Bool) -> Bool {
+        highlighted && (areaFocused || pointerOver)
+    }
+
     /// The recolour hint has its own accent band, so the plate being edited never reads as hovered or selected.
-    public static func color(highlighted: Bool, areaFocused: Bool, recoloring: Bool) -> StateColor? {
+    public static func color(showsCursor: Bool, recoloring: Bool) -> StateColor? {
         if recoloring { return .accent }
-        guard highlighted else { return nil }
-        return areaFocused ? .textSelected : .controlBorder
+        return showsCursor ? .textSelected : nil
     }
 }

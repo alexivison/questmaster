@@ -149,8 +149,11 @@ builds its matching entries from (`SharedUI/Theme.swift`).
 
 Mouse hover and the keyboard cursor are one highlight: pointing at a row moves
 the cursor there, the arrow keys and j/k continue from it, and only one row is
-highlighted at a time. A highlight in an area without focus is one step dimmer,
-not hidden. `highlightOnHover` (`SharedUI/StateRow.swift`) does this for every
+highlighted at a time. When the user leaves a region, a selection that lasts
+(a tab row's) and a cursor whose design draws an unfocused state (the artifact
+list's) stay one step dimmer; a pure cursor with no lasting selection and no
+designed unfocused state (the tracker's) hides, except on the row under the
+pointer. `highlightOnHover` (`SharedUI/StateRow.swift`) does this for every
 list: only real pointer motion moves the cursor, and a cursor the pointer just
 moved doesn't scroll its list (`PointerHighlight.pointerJustMoved`). In a tab row
 the pointer highlights a tab without selecting it.
@@ -168,7 +171,7 @@ the pointer highlights a tab without selecting it.
 | Dock frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
-| Tracker plate | highlighted / unfocused / recolouring (`PlateBand`) | `textSelected` / `controlBorder` / `accent` band |
+| Tracker plate | cursor, while the tracker has focus or under the pointer (`PlateBand.showsCursor`) / recolouring | `textSelected` / `accent` band; no band otherwise |
 
 - Bold means selected and appears only in a lasting-selection list. Artifacts
   have no selected state: picking one opens it.

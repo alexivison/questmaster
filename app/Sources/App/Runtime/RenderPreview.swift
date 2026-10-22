@@ -84,6 +84,7 @@ enum RenderPreview {
         render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
+        render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -577,9 +578,10 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// One master plate per state, 80 points apart from y 20, then two worker plates 60 apart: idle, highlighted,
-    /// highlighted in an unfocused tracker, highlighted and working, working, being recoloured, recoloured while
-    /// highlighted, blocked; a working worker, and a highlighted one. The plates are drawn directly, with their logos.
+    /// One master plate per state, 80 points apart from y 20, then two worker plates 60 apart: idle, the cursor (the
+    /// tracker focused, or the plate under the pointer), the cursor in an unfocused tracker away from the pointer (no
+    /// band), the cursor on a working plate, working, being recoloured, recoloured under the cursor, blocked; a
+    /// working worker, and one under the cursor. The plates are drawn directly, with their logos.
     @MainActor
     private static func plateBandsView() -> some View {
         func status(_ state: String) -> NSColor {
@@ -599,8 +601,7 @@ enum RenderPreview {
                     TrackerNameplateBackground(
                         role: state.role,
                         color: AppPalette.displayColor("lime") ?? AppPalette.accent,
-                        highlighted: state.highlighted,
-                        areaFocused: state.focused,
+                        showsCursor: PlateBand.showsCursor(highlighted: state.highlighted, areaFocused: state.focused, pointerOver: false),
                         isRecoloring: state.recoloring,
                         statusColor: state.status,
                         ring: state.status == nil ? .none : (state.status == status("blocked") ? .steady : .spinning(nil)),
@@ -610,6 +611,34 @@ enum RenderPreview {
                         .offset(x: state.role.portraitOrigin.x, y: state.role.portraitOrigin.y)
                 }
                 .offset(x: 20, y: rowYs[index])
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The cursor's plate three ways, 80 apart: the tracker focused; the tracker unfocused (no band); the tracker
+    /// unfocused with the pointer on the plate (hover is the cursor, so it shows).
+    @MainActor
+    private static func trackerCursorView() -> some View {
+        let cases = [(focused: true, pointerOver: false), (focused: false, pointerOver: false), (focused: false, pointerOver: true)]
+        return ZStack(alignment: .topLeading) {
+            ForEach(Array(cases.enumerated()), id: \.offset) { index, state in
+                let showsCursor = PlateBand.showsCursor(highlighted: true, areaFocused: state.focused, pointerOver: state.pointerOver)
+                ZStack(alignment: .topLeading) {
+                    TrackerNameplateBackground(
+                        role: .master,
+                        color: AppPalette.displayColor("lime") ?? AppPalette.accent,
+                        showsCursor: showsCursor,
+                        isRecoloring: false,
+                        statusColor: nil,
+                        ring: .none,
+                        text: EmptyView()
+                    )
+                    TrackerAgentMark(agent: "codex", shortcutNumber: nil, diameter: TrackerNameplateRole.master.portraitDiameter, logoSide: TrackerNameplateRole.master.logoSide)
+                        .offset(x: TrackerNameplateRole.master.portraitOrigin.x, y: TrackerNameplateRole.master.portraitOrigin.y)
+                }
+                .offset(x: 20, y: 20 + CGFloat(index) * 80)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
