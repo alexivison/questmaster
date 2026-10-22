@@ -90,8 +90,8 @@ struct QuestLogView: View {
     let store: QuestLogStore
     let filter: QuestLogFilter
     var pageScroll = QuestLogPageScroll()
-    /// Offscreen renders can't focus the field; this shows its suggestions as if it were focused.
-    var previewShowsSuggestions = false
+    /// Offscreen renders can't focus the field; this draws it as focused (its border, its suggestions).
+    var previewFocused = false
     var onCommand: (QuestLogCommand) -> Void
 
     var body: some View {
@@ -104,7 +104,7 @@ struct QuestLogView: View {
             buttons
                 .frame(width: QuestLogMetrics.sheetSize.width)
                 .offset(y: QuestLogMetrics.buttonTop)
-            QuestLogFilterField(filter: filter, previewShowsSuggestions: previewShowsSuggestions)
+            QuestLogFilterField(filter: filter, previewFocused: previewFocused)
                 .frame(width: QuestLogMetrics.listWidth)
                 .offset(x: QuestLogMetrics.filterOrigin.x, y: QuestLogMetrics.filterOrigin.y)
         }
@@ -145,8 +145,11 @@ struct QuestLogOverlayView: View {
 /// while it has focus.
 private struct QuestLogFilterField: View {
     let filter: QuestLogFilter
-    var previewShowsSuggestions: Bool
+    var previewFocused: Bool
+    /// The field's real first-responder state (KeyTextField), so it can't stay lit after Esc.
     @State private var focused = false
+
+    private var showsFocus: Bool { focused || previewFocused }
 
     var body: some View {
         HStack(spacing: QuestLogMetrics.filterSpacing) {
@@ -176,9 +179,10 @@ private struct QuestLogFilterField: View {
         .padding(.horizontal, QuestLogMetrics.filterInset)
         .frame(height: QuestLogMetrics.filterHeight)
         .background(RoundedRectangle(cornerRadius: QuestLogMetrics.filterCornerRadius).fill(AppPalette.window.swiftUI))
-        .overlay(RoundedRectangle(cornerRadius: QuestLogMetrics.filterCornerRadius).strokeBorder(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
+        // Focused: the border lifts to controlBorder. Colour only: no ornaments, glow or size change.
+        .overlay(RoundedRectangle(cornerRadius: QuestLogMetrics.filterCornerRadius).strokeBorder((showsFocus ? AppPalette.controlBorder : AppPalette.line).swiftUI, lineWidth: Token.Size.divider))
         .overlay(alignment: .topLeading) {
-            if (focused || previewShowsSuggestions) && !filter.suggestions.isEmpty {
+            if showsFocus && !filter.suggestions.isEmpty {
                 FilterSuggestionList(
                     suggestions: filter.suggestions,
                     selectedID: filter.selectedSuggestionID,

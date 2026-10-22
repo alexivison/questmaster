@@ -102,6 +102,9 @@ struct CommandTextField: NSViewRepresentable {
         field.textColor = textColor
         field.cell?.usesSingleLineMode = true
         field.onCommand = onCommand
+        field.onFirstResponderChange = { [weak coordinator = context.coordinator] focused in
+            coordinator?.onFocusChanged(focused)
+        }
         context.coordinator.field = field
         return field
     }
@@ -125,7 +128,6 @@ struct CommandTextField: NSViewRepresentable {
         }
         DispatchQueue.main.async {
             field.focusEditorAtEnd()
-            onFocusChanged(field.currentEditor() != nil)
         }
     }
 
@@ -149,10 +151,6 @@ struct CommandTextField: NSViewRepresentable {
             self.onFocusChanged = onFocusChanged
         }
 
-        func controlTextDidBeginEditing(_ notification: Notification) {
-            onFocusChanged(true)
-        }
-
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else {
                 return
@@ -160,8 +158,8 @@ struct CommandTextField: NSViewRepresentable {
             text.wrappedValue = field.stringValue
         }
 
+        // Focus itself is reported by KeyTextField from the window's first responder.
         func controlTextDidEndEditing(_ notification: Notification) {
-            onFocusChanged(false)
             DispatchQueue.main.async { [weak self] in
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.field?.currentEditor() == nil else {
@@ -206,6 +204,30 @@ struct CommandTextField: NSViewRepresentable {
 
     final class KeyTextField: NSTextField {
         var onCommand: (UInt16) -> Bool = { _ in false }
+        /// Whether this field's editor is the window's first responder, reported on every change: on a
+        /// click, on "/", and when Esc or a click elsewhere takes focus away.
+        var onFirstResponderChange: ((Bool) -> Void)?
+        private var firstResponderObservation: NSKeyValueObservation?
+        private(set) var hasFocus = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            firstResponderObservation = window?.observe(\.firstResponder, options: [.initial, .new]) { [weak self] _, _ in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { self?.updateFocus() }
+                }
+            }
+        }
+
+        private func updateFocus() {
+            let editor = currentEditor()
+            let focused = editor != nil && window?.firstResponder === editor
+            guard focused != hasFocus else {
+                return
+            }
+            hasFocus = focused
+            onFirstResponderChange?(focused)
+        }
 
         /// At least the font's whole line (ascent + descent + leading): AppKit's own intrinsic height rounds it
         /// down (14 for 11pt JetBrains Mono's 14.52), and the field editor clips descenders to the field.

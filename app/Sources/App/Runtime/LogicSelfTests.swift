@@ -47,6 +47,7 @@ enum LogicSelfTests {
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
+        ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
@@ -1585,6 +1586,36 @@ enum LogicSelfTests {
         try expect(!host.isHidden, "the host should stay visible until the fade-out ends")
         settle()
         try expect(stack.entries.isEmpty && host.isHidden, "once the fade-out ends the stack should empty and the host hide")
+    }
+
+    /// The filter's focus (and so its border) follows the window's real first responder: on when the field
+    /// takes focus, off when focus leaves (Esc hands it to nil, a click on the list hands it elsewhere).
+    private static func testFilterFieldFocusFollowsTheFirstResponder() throws {
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
+        let field = CommandTextField.KeyTextField(frame: NSRect(x: 10, y: 30, width: 200, height: 20))
+        let other = NSTextField(frame: NSRect(x: 10, y: 0, width: 200, height: 20))
+        content.addSubview(field)
+        content.addSubview(other)
+        window.contentView = content
+        window.orderFrontRegardless()
+        defer { window.close() }
+        var reported: [Bool] = []
+        field.onFirstResponderChange = { reported.append($0) }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.15)) }
+        settle()
+
+        window.makeFirstResponder(field)
+        settle()
+        try expect(reported.last == true && field.hasFocus, "taking focus should light the field, reported \(reported)")
+        window.makeFirstResponder(nil)
+        settle()
+        try expect(reported.last == false && !field.hasFocus, "Esc (focus to nil) should clear it, reported \(reported)")
+        window.makeFirstResponder(field)
+        settle()
+        window.makeFirstResponder(other)
+        settle()
+        try expect(reported.last == false && !field.hasFocus, "focus moving elsewhere should clear it, reported \(reported)")
     }
 
     /// No single-line text field is shorter than its font's full line (ascent + descent + leading): the live

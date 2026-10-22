@@ -90,11 +90,12 @@ enum RenderPreview {
         render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-nobody.png")
         render(QuestLogView(store: questLogStore(filteredTo: "questmaster"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filtered.png")
         render(
-            QuestLogView(store: questLogStore(), filter: questLogFilter(token: false, typing: "@project:"), previewShowsSuggestions: true, onCommand: { _ in }),
+            QuestLogView(store: questLogStore(), filter: questLogFilter(token: false, typing: "@project:"), previewFocused: true, onCommand: { _ in }),
             size: QuestLogView.size,
             to: "\(outputDir)/quest-log-suggestions.png"
         )
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-placeholder.png")
+        render(QuestLogView(store: questLogStore(), filter: questLogFilter(token: false), previewFocused: true, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-focused.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(typing: "gjpqy"), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filter-typed.png")
         render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long.png")
         render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
