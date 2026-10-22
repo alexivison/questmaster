@@ -68,17 +68,47 @@ struct ModalPromptEditor: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
-        guard isFocused, scrollView.window?.firstResponder !== textView else {
-            return
+        // Focus comes in when the form moves it here, not on every update: an update while the form still says
+        // "focused" must not take focus back from wherever it went since (the closing New Session sheet's editor
+        // took it from the new terminal after Summon). A request made before the view has a window waits for one.
+        let coordinator = context.coordinator
+        coordinator.allowsFocus = context.environment.modalAllowsFocus
+        if isFocused != coordinator.wasFocused {
+            coordinator.wasFocused = isFocused
+            coordinator.wantsFocus = isFocused
         }
-        DispatchQueue.main.async {
-            scrollView.window?.makeFirstResponder(textView)
+        textView.onWindow = { [weak coordinator, weak textView] in
+            guard let textView else {
+                return
+            }
+            coordinator?.takeFocusIfWanted(textView)
         }
+        coordinator.takeFocusIfWanted(textView)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var onFocus: () -> Void
+        var wasFocused = false
+        var wantsFocus = false
+        var allowsFocus: @MainActor () -> Bool = { true }
+
+        /// Makes `textView` first responder on the next turn, once it has a window and its modal still allows it.
+        @MainActor
+        func takeFocusIfWanted(_ textView: NSTextView) {
+            guard wantsFocus else {
+                return
+            }
+            DispatchQueue.main.async { [weak self, weak textView] in
+                guard let self, self.wantsFocus, let textView, let window = textView.window, self.allowsFocus() else {
+                    return
+                }
+                self.wantsFocus = false
+                if window.firstResponder !== textView {
+                    window.makeFirstResponder(textView)
+                }
+            }
+        }
 
         init(text: Binding<String>, onFocus: @escaping () -> Void) {
             self.text = text
@@ -104,6 +134,16 @@ struct ModalPromptEditor: NSViewRepresentable {
 private final class ModalPromptEditorTextView: NSTextView {
     var createKey: Keymap.CharacterBinding = Keymap.NewSession.create
     var onCreate: (() -> Void)?
+    /// The view joined a window: a focus request made before it had one can go through now.
+    var onWindow: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            onWindow?()
+        }
+    }
+
     var placeholder: String = "" {
         didSet { needsDisplay = true }
     }

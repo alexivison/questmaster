@@ -188,7 +188,11 @@ struct FocusSink: NSViewRepresentable {
         guard !first else {
             return
         }
+        let allowsFocus = context.environment.modalAllowsFocus
         DispatchQueue.main.async {
+            guard allowsFocus() else {
+                return
+            }
             view.window?.makeFirstResponder(view)
         }
     }

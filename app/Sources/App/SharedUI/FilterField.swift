@@ -126,7 +126,11 @@ struct CommandTextField: NSViewRepresentable {
         guard context.coordinator.consumeFocusNonce(focusNonce) else {
             return
         }
+        let allowsFocus = context.environment.modalAllowsFocus
         DispatchQueue.main.async {
+            guard allowsFocus() else {
+                return
+            }
             field.focusEditorAtEnd()
         }
     }

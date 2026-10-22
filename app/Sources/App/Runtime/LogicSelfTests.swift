@@ -46,6 +46,7 @@ enum LogicSelfTests {
         ("testModalsPresentInsideTheWindowNotAsSystemSheets", testModalsPresentInsideTheWindowNotAsSystemSheets),
         ("testModalStackClosesTheTopModalFirstAndRestoresFocus", testModalStackClosesTheTopModalFirstAndRestoresFocus),
         ("testShellFocusRequestsWaitForTheModals", testShellFocusRequestsWaitForTheModals),
+        ("testSummonLeavesFocusOnTheNewTerminal", testSummonLeavesFocusOnTheNewTerminal),
         ("testClosingAChildRefocusesTheModalItUncovers", testClosingAChildRefocusesTheModalItUncovers),
         ("testRestoringFocusAfterTheLastModalKeepsAFieldsCaret", testRestoringFocusAfterTheLastModalKeepsAFieldsCaret),
         ("testClosingAChildKeepsTheUncoveredFieldsSelection", testClosingAChildKeepsTheUncoveredFieldsSelection),
@@ -1697,6 +1698,117 @@ enum LogicSelfTests {
         try expect(window.firstResponder === terminal, "focus should go back to the terminal, got \(String(describing: window.firstResponder))")
         try expect(fallbackFocusCount == 0, "with the terminal still there the fallback shouldn't run")
         try expect(window.frame.size == windowSize, "modals must not resize the window, got \(window.frame.size) from \(windowSize)")
+    }
+
+    /// New Session → Summon with the real sheet: the success path closes the sheet and switches to the new session,
+    /// whose focusTerminal waits under the fading sheet. Once the fade ends focus lands on the terminal, and no view
+    /// of the closing sheet takes focus at any point after Summon: not the prompt editor that held it at submit, nor
+    /// an agent-tab focus sink. The user's trace (2026-10-22) had the editor take focus during the fade and again 3ms
+    /// after the restore, each time from a sheet update that ran after the host or the terminal had focus, leaving
+    /// the window with none. Dismissing straight through the stack puts close()'s own update (it clears the path
+    /// suggestions) after the host takes focus, which makes that ordering deterministic here.
+    private static func testSummonLeavesFocusOnTheNewTerminal() throws {
+        final class StandIn: NSView { override var acceptsFirstResponder: Bool { true } }
+        final class StandInTerminalHost: TerminalPaneHosting {
+            let view: NSView = StandIn(frame: NSRect(x: 600, y: 0, width: 400, height: 700))
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            let cellMetrics: TerminalCellMetrics = .unavailable
+            var onCellMetricsChanged: (() -> Void)?
+            func start() {}
+            func stop() {}
+            func focus(in window: NSWindow?) { window?.makeFirstResponder(view) }
+            func connect(to config: TerminalLaunchConfig) throws {}
+        }
+        for start in [NewSessionField.prompt, .agent] {
+            let stack = InWindowModalStack()
+            let window = HeadlessWindow(size: CGSize(width: 1000, height: 700))
+            let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+            let tracker = StandIn(frame: NSRect(x: 0, y: 0, width: 300, height: 700))
+            let terminal = StandInTerminalHost()
+            let host = InWindowModalHost(stack: stack)
+            content.addSubview(tracker)
+            content.addSubview(terminal.view)
+            host.frame = content.bounds
+            content.addSubview(host)
+            window.contentView = content
+            let navigation = NavigationStore()
+            let coordinator = ShellFocusCoordinator(
+                navigation: navigation,
+                window: { window },
+                splitView: { nil },
+                terminalShell: { nil },
+                dockShell: { nil },
+                footerShell: { nil },
+                trackerHosting: { tracker },
+                dockView: { nil },
+                terminalHost: { terminal },
+                modalHost: { host },
+                updateDockTabs: {}
+            )
+            host.onEmpty = { coordinator.focusCurrentRegion() }
+            window.show(key: true)
+            defer { window.close() }
+            func settle(_ seconds: TimeInterval = 0.4) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+            var responders: [NSResponder?] = []
+            let observation = window.observe(\.firstResponder, options: [.new]) { window, _ in
+                MainActor.assumeIsolated { responders.append(window.firstResponder) }
+            }
+            defer { observation.invalidate() }
+
+            coordinator.focus(.terminal)
+            settle()
+            let id = UUID()
+            var summoned: String?
+            let presentation = NewSessionSheetPresentation(
+                initialPath: NSTemporaryDirectory(),
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: start,
+                mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: ["session_id": "qm-new"]))),
+                directoryClient: nil,
+                modelClient: nil,
+                effortClient: nil,
+                onSuccess: { sessionID in
+                    summoned = sessionID
+                    coordinator.focusTerminal()
+                }
+            )
+            stack.present(id: id, AnyView(NewSessionSheetView(presentation: presentation, dismiss: { stack.dismiss(id: id) })))
+            settle()
+            let holder = String(describing: window.firstResponder.map { type(of: $0) })
+            let expected = start == .prompt ? "ModalPromptEditorTextView" : "SinkView"
+            try expect(holder.contains(expected), "\(start): the sheet should start with \(expected) focused, got \(holder)")
+
+            // ⌘Return, through the sheet's own key handler, as the user summons.
+            guard let monitor = subviews(of: host).compactMap({ $0 as? SheetKeyEventMonitor.MonitorView }).first else {
+                throw TestFailure("\(start): the sheet's key monitor never mounted")
+            }
+            let submitted = responders.count
+            _ = monitor.onKeyDown(try keyEvent("\r", keyCode: 36, modifierFlags: .command))
+            settle(0.6)
+            for _ in 0..<5 {
+                settle(0.05)
+            }
+            try expect(summoned == "qm-new", "\(start): Summon should succeed, got \(String(describing: summoned))")
+            try expect(stack.entries.isEmpty && host.isHidden, "\(start): the sheet should be gone")
+            try expect(window.firstResponder === terminal.view, "\(start): focus should end on the new terminal, got \(String(describing: window.firstResponder))")
+            let sinceSubmit = responders[submitted...]
+            let neutral: (NSResponder?) -> Bool = { $0 == nil || $0 === host || $0 === window || $0 === terminal.view }
+            let taken = sinceSubmit.filter { !neutral($0) }.map { $0.map { String(describing: type(of: $0)) } ?? "nil" }
+            try expect(taken.isEmpty, "\(start): no view of the closing sheet should take focus after Summon, got \(taken)")
+            // From the restore on, focus never leaves the terminal.
+            guard let landed = sinceSubmit.firstIndex(where: { $0 === terminal.view }) else {
+                throw TestFailure("\(start): focus never reached the terminal after Summon")
+            }
+            let after = responders[landed...].filter { $0 !== terminal.view }
+            try expect(after.isEmpty, "\(start): nothing should take focus after the terminal, got \(after.map { $0.map { String(describing: type(of: $0)) } ?? "nil" })")
+        }
+    }
+
+    private static func subviews(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap(subviews(of:))
     }
 
     /// Every shell focus request (the terminal, a region, a session switch's focusTerminal) goes through

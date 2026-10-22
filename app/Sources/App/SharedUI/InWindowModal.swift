@@ -75,6 +75,13 @@ extension EnvironmentValues {
         get { self[InWindowModalEntryIDKey.self] }
         set { self[InWindowModalEntryIDKey.self] = newValue }
     }
+
+    /// Whether a view drawn here may take keyboard focus, asked when the grab runs: outside the stack always;
+    /// inside it only while its modal is open and on top, as `SheetKeyEventMonitor` takes keys. A closing modal
+    /// (fading out, or gone by the time a queued grab runs) never takes focus back from where the shell put it.
+    var modalAllowsFocus: @MainActor () -> Bool {
+        { [stack = inWindowModalStack, entryID = inWindowModalEntryID] in stack.isTop(entryID) }
+    }
 }
 
 extension View {
