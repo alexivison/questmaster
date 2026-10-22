@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -411,12 +412,16 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	projectID, projectPath, projectName, err := questProjectFromPayload(payload)
+	if err != nil {
+		return nil, err
+	}
 	quest, err := state.UpsertQuestAt(s.mutationStore().Root(), state.Quest{
 		ID:          strings.TrimSpace(firstNonEmpty(payload.QuestID, payload.ID)),
 		Content:     content,
-		ProjectID:   strings.TrimSpace(payload.ProjectID),
-		ProjectPath: strings.TrimSpace(payload.ProjectPath),
-		ProjectName: strings.TrimSpace(payload.ProjectName),
+		ProjectID:   projectID,
+		ProjectPath: projectPath,
+		ProjectName: projectName,
 		SessionID:   strings.TrimSpace(payload.SessionID),
 	})
 	if err != nil {
@@ -453,15 +458,32 @@ func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
 		strings.TrimSpace(payload.ProjectID) != "" ||
 		strings.TrimSpace(payload.ProjectPath) != "" ||
 		strings.TrimSpace(payload.ProjectName) != "" {
-		quest.ProjectID = strings.TrimSpace(payload.ProjectID)
-		quest.ProjectPath = strings.TrimSpace(payload.ProjectPath)
-		quest.ProjectName = strings.TrimSpace(payload.ProjectName)
+		quest.ProjectID, quest.ProjectPath, quest.ProjectName, err = questProjectFromPayload(payload)
+		if err != nil {
+			return nil, err
+		}
 	}
 	saved, err := state.UpsertQuestAt(s.mutationStore().Root(), quest)
 	if err != nil {
 		return nil, err
 	}
 	return saved, nil
+}
+
+// questProjectFromPayload takes the project the request names. A path sent without an id (a path typed
+// in the app) resolves to the id and name `quest add --project` would give it.
+func questProjectFromPayload(payload mutationPayload) (id, path, name string, err error) {
+	id = strings.TrimSpace(payload.ProjectID)
+	path = strings.TrimSpace(payload.ProjectPath)
+	name = strings.TrimSpace(payload.ProjectName)
+	if id != "" || path == "" {
+		return id, path, name, nil
+	}
+	// serve's working directory isn't the user's, so a relative path would resolve against the wrong place.
+	if !filepath.IsAbs(state.ExpandHome(path)) {
+		return "", "", "", fmt.Errorf("project path must be absolute: %s", path)
+	}
+	return state.ResolveQuestProject(path, true)
 }
 
 func (s *Server) mutateQuestDelete(payload mutationPayload) (any, error) {
