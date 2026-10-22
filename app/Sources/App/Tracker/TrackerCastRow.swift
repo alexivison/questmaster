@@ -87,7 +87,7 @@ struct TrackerCastRow: View {
             TrackerPlateLine(
                 text: cast.label,
                 font: AppFonts.monoSmall,
-                color: AppPalette.text,
+                color: AppPalette.textBody,
                 x: Self.border,
                 width: barWidth - 2 * Self.border,
                 baseline: metrics.labelBaseline,

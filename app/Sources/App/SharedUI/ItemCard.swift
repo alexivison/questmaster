@@ -22,13 +22,10 @@ struct ItemCardShape: View {
     private static let cornerRadius: CGFloat = Token.Radius.card
 
     var selected: Bool
-    var hovered: Bool = false
     var extraLeadingInset: CGFloat = 0
 
-    private var isHighlighted: Bool { hovered || selected }
-
     private var borderColor: NSColor {
-        isHighlighted ? AppPalette.controlBorder : AppPalette.line
+        selected ? AppPalette.controlBorder : AppPalette.line
     }
 
     var body: some View {

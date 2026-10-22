@@ -79,31 +79,33 @@ extension FormTextField where Trailing == EmptyView {
     }
 }
 
-/// The dropdown under a path, model or colour field. It overlays the fields below it rather than pushing
-/// them. `accessory` draws at a row's right end (the colour rows' swatches), 11 in.
+/// The one dropdown: under a path, model or colour field, and under the filter fields. It overlays the
+/// fields below it rather than pushing them. Its rows are pick-to-open rows; it only shows while its field
+/// has focus, so a highlighted row has the focused look. `accessory` draws at a row's right end (the colour
+/// rows' swatches, a project's path), 11 in.
 struct SuggestionDropdown: View {
     let rows: [String]
     let highlightedIndex: Int?
     var onSelect: (Int) -> Void
-    var accessory: ((Int) -> AnyView)?
+    var accessory: ((Int, RowLook) -> AnyView)?
 
     var body: some View {
         VStack(spacing: FormFieldMetrics.suggestionRowSpacing) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                let look = RowLook.pick(highlighted: index == highlightedIndex, areaFocused: true)
                 Text(row)
                     .font(AppFonts.questLogBody.swiftUI)
-                    .foregroundStyle(AppPalette.textBody.swiftUI)
+                    .foregroundStyle(look.text.color.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .alignmentGuide(.top) { $0[.firstTextBaseline] - FormFieldMetrics.suggestionBaseline }
                     .padding(.horizontal, FormFieldMetrics.suggestionTextInset)
                     .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.suggestionRowHeight, maxHeight: FormFieldMetrics.suggestionRowHeight, alignment: .topLeading)
                     .overlay(alignment: .trailing) {
-                        accessory?(index)
+                        accessory?(index, look)
                             .padding(.trailing, FormFieldMetrics.segmentTrailing - Token.Size.divider)
                     }
-                    .background((index == highlightedIndex ? AppPalette.item : .clear).swiftUI)
-                    .contentShape(Rectangle())
+                    .stateRow(look)
                     .onTapGesture { onSelect(index) }
             }
         }
@@ -121,20 +123,24 @@ struct SuggestionDropdown: View {
 extension SuggestionDropdown {
     /// A filter field's suggestions (the Quest Log's and the artifact dock's): each title with its detail at the
     /// row's right end.
-    init(filterSuggestions: [ArtifactFilterSuggestion], highlightedID: String?, onSelect: @escaping (ArtifactFilterSuggestion) -> Void) {
+    init(
+        filterSuggestions: [ArtifactFilterSuggestion],
+        highlightedID: String?,
+        onSelect: @escaping (ArtifactFilterSuggestion) -> Void
+    ) {
         self.init(
             rows: filterSuggestions.map(\.title),
             highlightedIndex: filterSuggestions.firstIndex { $0.id == highlightedID },
             onSelect: { onSelect(filterSuggestions[$0]) },
-            accessory: { AnyView(Self.meta(filterSuggestions[$0].detail)) }
+            accessory: { AnyView(Self.meta(filterSuggestions[$0].detail, look: $1)) }
         )
     }
 
-    /// A row's meta text at its right end: a project's path, a suggestion's detail.
-    static func meta(_ text: String, truncation: Text.TruncationMode = .tail) -> some View {
+    /// A row's meta text at its right end, in its row's look: a project's path, a suggestion's detail.
+    static func meta(_ text: String, look: RowLook, truncation: Text.TruncationMode = .tail) -> some View {
         Text(text)
             .font(AppFonts.questLogBody.swiftUI)
-            .foregroundStyle(AppPalette.textMeta.swiftUI)
+            .foregroundStyle(look.meta.color.swiftUI)
             .lineLimit(1)
             .truncationMode(truncation)
             .alignmentGuide(.top) { $0[.firstTextBaseline] - FormFieldMetrics.suggestionBaseline }

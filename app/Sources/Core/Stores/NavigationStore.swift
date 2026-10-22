@@ -20,6 +20,22 @@ public final class NavigationStore {
         state.focusedRegion
     }
 
+    /// A modal is drawn over the panes: the keys go to it, so no region has them.
+    public private(set) var isModalDrawn = false
+
+    public func setModalDrawn(_ drawn: Bool) {
+        guard isModalDrawn != drawn else {
+            return
+        }
+        isModalDrawn = drawn
+    }
+
+    /// Whether `region` takes the keys: it's the focused region and no modal is drawn. Its focus looks (the dock's
+    /// frame and tabs, the tracker's cursor) follow this, not the focused region alone.
+    public func hasKeys(_ region: FocusRegion) -> Bool {
+        focusedRegion == region && !isModalDrawn
+    }
+
     public var trackerVisible: Bool {
         state.trackerVisible
     }

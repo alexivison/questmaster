@@ -53,16 +53,7 @@ struct StateRulesScanTests {
     ]
 
     static let pending = [
-        Pending(rule: "state-pick", file: "SharedUI/PillTabs.swift", count: 2, reason: "focus lift and disc fill: the shared tab (PR 2)"),
-        Pending(rule: "state-pick", file: "SharedUI/SegmentedPicker.swift", count: 2, reason: "gold label and brass sprig: the shared tab (PR 2)"),
-        Pending(rule: "brass-on", file: "SharedUI/SegmentedPicker.swift", count: 1, reason: "brass sprig on the selected tab: the shared tab (PR 2)"),
-        Pending(rule: "state-pick", file: "SharedUI/FormControls.swift", count: 1, reason: "dropdown highlight text: the shared row (PR 2)"),
-        Pending(rule: "state-pick", file: "Settings/SettingsSheet.swift", count: 1, reason: "compact picker border: the shared field (PR 2)"),
-        Pending(rule: "state-pick", file: "Shell/ShellChromeControls.swift", count: 1, reason: "icon hover lift: the shared highlight (PR 2)"),
-        Pending(rule: "state-pick", file: "Shell/ShellPaneContainers.swift", count: 1, reason: "dock frame focus: 2pt panel borders (PR 2)"),
-        Pending(rule: "state-pick", file: "ActionBar/ActionBarFooterView.swift", count: 1, reason: "slot icon hover lift: the shared highlight (PR 2)"),
-        Pending(rule: "state-pick", file: "Tracker/SwiftUITracker.swift", count: 1, reason: "selected plate title: the tracker highlight merge (PR 2)"),
-        Pending(rule: "state-pick", file: "SharedUI/ItemCard.swift", count: 1, reason: "card hover = selected border: the artifact rows (PR 3)"),
+        Pending(rule: "state-pick", file: "SharedUI/ItemCard.swift", count: 1, reason: "selected card border: the artifact rows (PR 3)"),
         Pending(rule: "state-pick", file: "Dock/Artifact/ArtifactDockView.swift", count: 3, reason: "row title, icon and mark colours: the artifact rows (PR 3)"),
         Pending(rule: "state-pick", file: "SharedUI/ViewModifiers.swift", count: 1, reason: "brass filter focus: the shared field (PR 3)"),
         Pending(rule: "brass-on", file: "SharedUI/ViewModifiers.swift", count: 1, reason: "brass filter focus: the shared field (PR 3)"),

@@ -217,6 +217,8 @@ struct InWindowModalStackView: View {
 /// `onEmpty` when that is gone or a shell focus request came in meanwhile (`deferFocus`).
 final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
     var onEmpty: (() -> Void)?
+    /// A modal started or stopped being drawn: the panes under it lose or get back their focus looks.
+    var onDrawingChange: (() -> Void)?
     private var subscription: AnyCancellable?
     private var openCount = 0
     private var topID: AnyHashable?
@@ -264,6 +266,9 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// Whether a modal is drawn, closing ones included: the keys go to the modals, not the panes.
+    var isDrawing: Bool { !isHidden }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// A shell focus request (a region, the terminal, the dock) while a modal is drawn: the keys stay on the
@@ -285,6 +290,9 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
             focusBeforeModals = FocusRecord(Self.focusTarget(window?.firstResponder))
         }
         isHidden = entries.isEmpty
+        if wasDrawing != isDrawing {
+            onDrawingChange?()
+        }
         let open = entries.filter { !$0.closing }
         let nextTopID = open.last?.id
         if open.count > openCount, let topID, let record = FocusRecord(Self.focusTarget(window?.firstResponder)) {

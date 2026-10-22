@@ -49,9 +49,8 @@ private enum SettingsMetrics {
     /// From a row's picker top: the label's baseline and the description's.
     static let labelBaseline: CGFloat = 11
     static let descriptionBaseline: CGFloat = 29
-    /// The picker: 32 high, radius 6, "‹", the value and "›" 8.75 apart, 11 in, the text's baseline 20 down.
+    /// The picker: 32 high in the shared field chrome, "‹", the value and "›" 8.75 apart, 11 in, the text's baseline 20 down.
     static let pickerHeight: CGFloat = 32
-    static let pickerCornerRadius: CGFloat = 6
     static let pickerInset: CGFloat = 11
     static let pickerSpacing: CGFloat = 8.75
     static let pickerBaseline: CGFloat = 20
@@ -115,7 +114,7 @@ struct SettingsSheetView: View {
                 PillTab(
                     title: section.title,
                     icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: OutlineLook.tabSelected.label.color, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
-                    selected: true
+                    look: .tabSelected
                 )
             }
         }
@@ -127,6 +126,8 @@ struct SettingsSheetView: View {
             PillTabRow(
                 tabs: model.state.agents.map { .agent($0) },
                 selectedID: model.state.selectedAgent,
+                // The sheet's tab keys drive these tabs, so they always have keyboard focus.
+                focused: true,
                 onSelect: { agent in
                     if let index = model.state.agents.firstIndex(of: agent) {
                         model.selectTab(index)
@@ -231,17 +232,13 @@ private struct SettingsRoleRow: View {
                 .frame(width: SettingsMetrics.skeletonWidth, height: SettingsMetrics.pickerHeight)
         } else {
             HStack(spacing: SettingsMetrics.pickerSpacing) {
-                BaselineText("<", font: AppFonts.settingsLabel, color: AppPalette.settingsPickerChevron, baseline: SettingsMetrics.pickerBaseline)
-                BaselineText(value, font: AppFonts.settingsLabel, color: AppPalette.settingsText, baseline: SettingsMetrics.pickerBaseline)
-                BaselineText(">", font: AppFonts.settingsLabel, color: AppPalette.settingsPickerChevron, baseline: SettingsMetrics.pickerBaseline)
+                BaselineText("<", font: AppFonts.settingsLabel, color: AppPalette.textMeta, baseline: SettingsMetrics.pickerBaseline)
+                BaselineText(value, font: AppFonts.settingsLabel, color: AppPalette.textBody, baseline: SettingsMetrics.pickerBaseline)
+                BaselineText(">", font: AppFonts.settingsLabel, color: AppPalette.textMeta, baseline: SettingsMetrics.pickerBaseline)
             }
             .padding(.horizontal, SettingsMetrics.pickerInset)
             .frame(height: SettingsMetrics.pickerHeight)
-            .background(RoundedRectangle(cornerRadius: SettingsMetrics.pickerCornerRadius).fill(AppPalette.settingsPickerFill.swiftUI))
-            .overlay(
-                RoundedRectangle(cornerRadius: SettingsMetrics.pickerCornerRadius)
-                    .strokeBorder((focused ? AppPalette.controlBorder : AppPalette.settingsPickerBorder).swiftUI, lineWidth: Token.Size.divider)
-            )
+            .fieldChrome(focused: focused)
             .fixedSize()
             .contentShape(Rectangle())
             .onTapGesture(perform: onSelect)
@@ -258,7 +255,7 @@ private struct SettingsSkeletonControl: View {
     @State private var pulse = false
 
     var body: some View {
-        RoundedRectangle(cornerRadius: SettingsMetrics.pickerCornerRadius)
+        RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
             .fill(AppPalette.item.swiftUI)
             .opacity(pulse ? 0.7 : 0.5)
             .onAppear {

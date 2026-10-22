@@ -9,14 +9,13 @@ enum AppPalette {
     static let artifactViewerBackground = artifactListColumn
     static let terminal = window
     static let line = StateColor.line.color
-    static let lineSoftSubtle = NSColor(hex: 0x373e47)
+    static let lineSoftSubtle = StateColor.lineSoftSubtle.color
     static let controlBorder = StateColor.controlBorder.color
+    /// Text outside the lists (status views, the toast, panels, chat). List rows use the text steps and their looks.
     static let text = NSColor(hex: 0xc4d0dc)
     static let bright = NSColor(hex: 0xcdd9e5)
     static let muted = StateColor.textMetaHighlighted.color
     static let dim = NSColor(hex: 0x8d9aa8)
-    /// Muted antique-metal accent for shell frames and structural dividers.
-    static let brass = NSColor(hex: 0x8c7048)
     /// "On", for toggles only (the action bar). Never selected or focused.
     static let brassActive = StateColor.brassActive.color
 
@@ -64,12 +63,9 @@ enum AppPalette {
     static let questLogButtonGold = NSColor(hex: 0xa27c2f)
     /// The pill tabs' Codex and OpenCode marks (Claude's and Pi's keep their own colours).
     static let agentMarkTint = NSColor(hex: 0xb8b8b8)
-    /// Settings (settings-models.svg): section titles, labels and values; descriptions; the compact picker.
+    /// Settings (settings-models.svg): section titles and labels; descriptions. The compact picker is a field.
     static let settingsText = NSColor(hex: 0xffffff)
     static let settingsDescription = NSColor(hex: 0x69737c)
-    static let settingsPickerFill = NSColor(hex: 0x1a1e23)
-    static let settingsPickerBorder = NSColor(hex: 0x3b3e41)
-    static let settingsPickerChevron = NSColor(hex: 0xa2b2bf)
     static let questLogButtonDangerDeep = NSColor(hex: 0x703835)
     static let questLogButtonDanger = NSColor(hex: 0xb34640)
     /// The user's parchment colours: paper, its shade, the fold browns and the highlights.

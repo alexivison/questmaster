@@ -4,13 +4,12 @@ import SwiftUI
 
 /// Pill tabs (new-session.svg's agent tabs, settings-models.svg's agent tabs and sidebar): a 26-high pill
 /// with scalloped ends, a 30pt disc holding the icon 10 in, and the 10pt label on a baseline 17 down,
-/// 45 in. The selected tab is the light one (`OutlineLook.tabSelected`). While the row has keyboard focus its
-/// outline and disc lift one step further, to the label colour.
+/// 45 in. It draws its `OutlineLook`: the outline and disc ring in its border colour, the label in its label
+/// colour, and a highlighted or selected tab's disc recessed to the panel colour.
 struct PillTab: View {
     let title: String
     let icon: NSImage?
-    let selected: Bool
-    var focused = false
+    let look: OutlineLook
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -30,12 +29,8 @@ struct PillTab: View {
         .contentShape(PillTabShape())
     }
 
-    private var look: OutlineLook {
-        .tab(selected: selected, highlighted: false, areaFocused: true)
-    }
-
     private var borderColor: NSColor {
-        selected && focused ? look.label.color : look.border.color
+        look.border.color
     }
 
     private var labelColor: NSColor {
@@ -45,7 +40,7 @@ struct PillTab: View {
     private var disc: some View {
         ZStack {
             Circle()
-                .fill((selected ? AppPalette.panel : AppPalette.item).swiftUI)
+                .fill((look.recessed ? AppPalette.panel : AppPalette.item).swiftUI)
             Circle()
                 .strokeBorder(borderColor.swiftUI, lineWidth: Token.Size.divider)
             if let icon {
@@ -56,7 +51,8 @@ struct PillTab: View {
     }
 }
 
-/// A row of pill tabs at equal widths, 10 apart.
+/// A row of pill tabs at equal widths, 10 apart. The keys and a click move the selection. A row without keyboard
+/// focus shows its selection one step dimmer.
 struct PillTabRow<ID: Hashable>: View {
     struct Tab {
         let id: ID
@@ -66,15 +62,19 @@ struct PillTabRow<ID: Hashable>: View {
 
     let tabs: [Tab]
     let selectedID: ID
-    var focused = false
+    let focused: Bool
     var onSelect: (ID) -> Void
 
     var body: some View {
         HStack(spacing: PillTabMetrics.spacing) {
             ForEach(tabs, id: \.id) { tab in
-                PillTab(title: tab.title, icon: tab.icon, selected: tab.id == selectedID, focused: focused)
-                    .onTapGesture { onSelect(tab.id) }
-                    .accessibilityAddTraits(tab.id == selectedID ? [.isButton, .isSelected] : .isButton)
+                PillTab(
+                    title: tab.title,
+                    icon: tab.icon,
+                    look: .tab(selected: tab.id == selectedID, areaFocused: focused)
+                )
+                .onTapGesture { onSelect(tab.id) }
+                .accessibilityAddTraits(tab.id == selectedID ? [.isButton, .isSelected] : .isButton)
             }
         }
     }

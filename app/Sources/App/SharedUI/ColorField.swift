@@ -48,7 +48,7 @@ struct ColorField: View {
             rows: visible.map(ColorFieldModel.label),
             highlightedIndex: model.visibleHighlightIndex,
             onSelect: { model.pick(visibleRow: $0) },
-            accessory: { AnyView(ColorSwatch(color: visible[$0])) }
+            accessory: { index, _ in AnyView(ColorSwatch(color: visible[index])) }
         )
     }
 }

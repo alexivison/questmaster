@@ -14,8 +14,6 @@ enum ShellMetrics {
     /// Keeps the dock's close button clear of the scooped top-right corner (`ScoopedRectangle.radius`).
     static let sideCardTopBarHorizontalInset: CGFloat = 20
     static let dockTopBarLeadingInset: CGFloat = 18
-    static let toastOrnamentSide: CGFloat = 16
-    static let toastOrnamentInset: CGFloat = 3
     /// The shell's own single gap `G` (2026-10-07) — applies to every pane-to-pane and
     /// pane-to-window-edge gap in the shell (tracker/dock side-card inset, tracker's own leading
     /// padding, the dock's and terminal's outer margins). A dedicated constant, not

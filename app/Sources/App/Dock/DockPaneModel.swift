@@ -19,6 +19,8 @@ struct ArtifactFilterSuggestion: Equatable, Identifiable {
 }
 
 final class DockPaneModel: ObservableObject {
+    /// Whether the dock has keyboard focus (the shell's focused region).
+    @Published private(set) var isFocused = false
     @Published private(set) var currentArtifactRoute: ArtifactDockRoute = .list
     @Published private(set) var artifactModel = ArtifactDockModel.empty
     @Published private(set) var currentArtifactTitle: String?
@@ -396,12 +398,7 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func moveArtifactSelection(delta: Int, snapshot: RuntimeSnapshot) -> Bool {
-        let artifacts = ArtifactDisplayState.currentArtifacts(
-            in: snapshot.tracker,
-            preferredSessionID: preferredArtifactSessionID,
-            scope: artifactScope
-        )
-        let visibleArtifacts = filteredArtifacts(artifacts, tracker: snapshot.tracker)
+        let visibleArtifacts = visibleArtifacts(snapshot: snapshot)
         guard let nextID = ArtifactDisplayState.movedSelection(
             current: selectedArtifactID,
             delta: delta,
@@ -413,17 +410,21 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func moveArtifactSelectionToEdge(last: Bool, snapshot: RuntimeSnapshot) -> Bool {
-        let artifacts = ArtifactDisplayState.currentArtifacts(
-            in: snapshot.tracker,
-            preferredSessionID: preferredArtifactSessionID,
-            scope: artifactScope
-        )
-        let visibleArtifacts = filteredArtifacts(artifacts, tracker: snapshot.tracker)
+        let visibleArtifacts = visibleArtifacts(snapshot: snapshot)
         guard let nextID = (last ? visibleArtifacts.last : visibleArtifacts.first)?.id else {
             return false
         }
         artifactScrollNonce &+= 1
         return applyArtifactSelection(nextID, visibleArtifacts: visibleArtifacts, snapshot: snapshot)
+    }
+
+    private func visibleArtifacts(snapshot: RuntimeSnapshot) -> [ArtifactReference] {
+        let artifacts = ArtifactDisplayState.currentArtifacts(
+            in: snapshot.tracker,
+            preferredSessionID: preferredArtifactSessionID,
+            scope: artifactScope
+        )
+        return filteredArtifacts(artifacts, tracker: snapshot.tracker)
     }
 
     private func applyArtifactSelection(_ nextID: String, visibleArtifacts: [ArtifactReference], snapshot: RuntimeSnapshot) -> Bool {
@@ -616,6 +617,13 @@ final class DockPaneModel: ObservableObject {
         nextModel.filterFocusNonce = artifactFilterFocusNonce
         artifactModel = nextModel
         return true
+    }
+
+    func setFocused(_ focused: Bool) {
+        guard isFocused != focused else {
+            return
+        }
+        isFocused = focused
     }
 
     private func moveArtifactFilterSuggestion(delta: Int) {

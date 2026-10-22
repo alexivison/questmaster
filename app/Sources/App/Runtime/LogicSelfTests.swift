@@ -48,6 +48,7 @@ enum LogicSelfTests {
         ("testShellFocusRequestsWaitForTheModals", testShellFocusRequestsWaitForTheModals),
         ("testSummonLeavesFocusOnTheNewTerminal", testSummonLeavesFocusOnTheNewTerminal),
         ("testClosingAChildRefocusesTheModalItUncovers", testClosingAChildRefocusesTheModalItUncovers),
+        ("testDockFrameFollowsFocusAndModals", testDockFrameFollowsFocusAndModals),
         ("testRestoringFocusAfterTheLastModalKeepsAFieldsCaret", testRestoringFocusAfterTheLastModalKeepsAFieldsCaret),
         ("testClosingAChildKeepsTheUncoveredFieldsSelection", testClosingAChildKeepsTheUncoveredFieldsSelection),
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
@@ -285,14 +286,6 @@ enum LogicSelfTests {
     }
 
     private static func testTrackerBandPrecedence() throws {
-        func band(recoloring: Bool = false, selected: Bool = false, hovered: Bool = false) -> NSColor? {
-            TrackerPlateBand.color(isRecoloring: recoloring, selected: selected, hovered: hovered)
-        }
-        try expect(band(selected: true) == AppPalette.bright, "a selected row should show the bright band")
-        try expect(band(selected: true, hovered: true) == AppPalette.bright, "selection should beat hover")
-        try expect(band(hovered: true) == AppPalette.dim, "a hovered row should show the dim band")
-        try expect(band(recoloring: true, selected: true) == AppPalette.dim, "the row being recoloured should show the dim band, over selection")
-        try expect(band() == nil, "an unselected, unhovered row should show no band")
         try expect(TrackerGlowNSView.bandOpacity == 0.6, "the band should hold 0.6")
 
         let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
@@ -394,9 +387,9 @@ enum LogicSelfTests {
             try expect(unconfigured() == 0, "\(description): \(unconfigured()) status views never configured")
             return (statusViews(in: hosting).filter { $0 !== control }, control)
         }
-        func plate(status: NSColor?, selected: Bool = false, hovered: Bool = false) -> some View {
+        func plate(status: NSColor?, showsCursor: Bool = false) -> some View {
             TrackerNameplateBackground(
-                role: .master, color: AppPalette.accent, selected: selected, hovered: hovered, isRecoloring: false,
+                role: .master, color: AppPalette.accent, showsCursor: showsCursor, isRecoloring: false,
                 statusColor: status, ring: status == nil ? .none : .spinning(nil), text: EmptyView()
             )
         }
@@ -405,9 +398,7 @@ enum LogicSelfTests {
         let resting = try host(plate(status: working), "a working plate")
         try expect(resting.subject.count == 1, "a working plate should draw one status, got \(resting.subject.count)")
         try expect(resting.subject[0].ringMode == .spinning(nil), "a working plate with no tool should spin its ring")
-        try expect(try host(plate(status: working, selected: true), "a selected working plate").subject.count == 1, "selection should not hide the status")
-        let hovered = try host(plate(status: working, hovered: true), "a hovered working plate")
-        try expect(hovered.subject.count == 1, "hover should not hide the status")
+        try expect(try host(plate(status: working, showsCursor: true), "a working plate under the cursor").subject.count == 1, "the cursor should not hide the status")
 
         func worker(_ id: String, state: String) -> TrackerRenderedSession {
             let session = TrackerSession(id: id, title: id, repoName: "Preview", agent: "claude", role: "worker", state: state)
@@ -1884,6 +1875,66 @@ enum LogicSelfTests {
         stack.dismiss(id: "modal")
         settle()
         try expect(window.firstResponder === terminal.view, "the last request should take the keys once the modal has faded, got \(String(describing: window.firstResponder))")
+    }
+
+    /// The dock's frame lifts while the dock is the focused region and no modal is drawn: a modal opening over the
+    /// focused dock drops it, a dock focus request deferred under a modal doesn't light it, and it lights once the
+    /// modal has faded.
+    private static func testDockFrameFollowsFocusAndModals() throws {
+        final class StandIn: NSView { override var acceptsFirstResponder: Bool { true } }
+        let stack = InWindowModalStack()
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 600))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
+        let tracker = StandIn(frame: NSRect(x: 0, y: 0, width: 500, height: 600))
+        let dock = DockShellView(body: NSView())
+        dock.frame = NSRect(x: 600, y: 0, width: 400, height: 600)
+        let host = InWindowModalHost(stack: stack)
+        content.addSubview(tracker)
+        content.addSubview(dock)
+        host.frame = content.bounds
+        content.addSubview(host)
+        window.contentView = content
+        let navigation = NavigationStore()
+        let coordinator = ShellFocusCoordinator(
+            navigation: navigation,
+            window: { window },
+            splitView: { nil },
+            terminalShell: { nil },
+            dockShell: { dock },
+            footerShell: { nil },
+            trackerHosting: { tracker },
+            dockView: { nil },
+            terminalHost: { nil },
+            modalHost: { host },
+            updateDockTabs: {}
+        )
+        host.onEmpty = { coordinator.focusCurrentRegion() }
+        host.onDrawingChange = { coordinator.updateRegionKeys() }
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+
+        coordinator.focus(.dock)
+        try expect(dock.isFocused, "the dock's frame should lift while the dock has focus")
+        coordinator.focus(.tracker)
+        try expect(!dock.isFocused, "the frame should drop when focus leaves the dock")
+
+        coordinator.focus(.dock)
+        stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        try expect(!dock.isFocused, "a modal over the focused dock should drop its frame")
+        stack.dismiss(id: "modal")
+        settle()
+        try expect(dock.isFocused, "the frame should lift again once the modal has faded")
+
+        coordinator.focus(.tracker)
+        stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        coordinator.focus(.dock)
+        try expect(!dock.isFocused, "a dock focus request deferred under a modal should not light the frame")
+        stack.dismiss(id: "modal")
+        settle()
+        try expect(dock.isFocused, "the deferred dock focus should light the frame once the modal has faded")
     }
 
     /// A child (⌘T's New Quest over the Quest Log) closing hands the keys back to what had them in the modal it

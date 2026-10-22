@@ -164,7 +164,7 @@ struct ActionBarSlotButton: View {
                         .aspectRatio(contentMode: .fit)
                         .fontWeight(.medium)
                         .frame(width: iconSize.width, height: iconSize.height)
-                        .foregroundStyle((isHovered ? AppPalette.bright : AppPalette.dim).swiftUI)
+                        .foregroundStyle(RowLook.pick(highlighted: isHovered, areaFocused: true).icon.color.swiftUI)
                 }
             }
     }
