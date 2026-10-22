@@ -120,6 +120,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
+            modalHost: { [weak self] in self?.shellHandles?.modalHost },
             updateDockTabs: { [weak self] in self?.updateDockTabs() }
         )
         runtimeConnectionController = RuntimeConnectionController(
@@ -433,11 +434,18 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         focusCoordinator.focusTerminal()
     }
 
+    // Also reached from MenuController's key monitor, which runs before menu validation.
     @objc private func focusRegionLeft() {
+        guard InWindowModalStack.shared.isEmpty else {
+            return
+        }
         focusCoordinator.focusRegionLeft()
     }
 
     @objc private func focusRegionRight() {
+        guard InWindowModalStack.shared.isEmpty else {
+            return
+        }
         focusCoordinator.focusRegionRight()
     }
 
@@ -983,11 +991,24 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSMenuItemValidation {
     /// Greys out a global modal command that would stack an unrelated modal; a disabled item's shortcut does nothing.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard let action = menuItem.action, let command = globalModalCommand(for: action) else {
+        guard let action = menuItem.action else {
+            return true
+        }
+        if Self.shellNavigationActions.contains(action) {
+            return InWindowModalStack.shared.isEmpty
+        }
+        guard let command = globalModalCommand(for: action) else {
             return true
         }
         return modalCommandRoute(command) != .ignored
     }
+
+    /// Commands that move focus between the shell's regions or switch the session: an open modal owns the
+    /// keyboard, so they're disabled under it.
+    private static let shellNavigationActions: Set<Selector> = [
+        #selector(focusTerminal), #selector(focusRegionLeft), #selector(focusRegionRight),
+        #selector(selectTrackerSession(_:)), #selector(toggleTracker), #selector(toggleDock), #selector(toggleWorkerChatDock),
+    ]
 }
 
 enum DockCommandRouting {

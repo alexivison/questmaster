@@ -128,18 +128,26 @@ public enum QuestLogCommand: Equatable {
     case copy
     case toggleMark
     case focusFilter
+    /// A `g`: a second one within `GPrefixTracker`'s window jumps to the first quest.
+    case jumpToFirstPrefix
+    case jumpToLast
     case pageUp
     case pageDown
     case halfPageUp
     case halfPageDown
     case close
 
-    /// `control`: Control is held. Only ⌃u / ⌃d mean anything then, so ⌃d never reads as d (Abandon).
-    public static func from(characters: String?, keyCode: UInt16, control: Bool = false) -> QuestLogCommand? {
+    /// The keys mean their command only with no modifier held, so ⌃d or ⌥d never reads as d (Abandon). The
+    /// exceptions: ⌃u / ⌃d page, and Shift types `G`. Caps Lock isn't a modifier here; it only changes the letter.
+    public static func from(characters: String?, keyCode: UInt16, modifiers: Set<Keymap.Modifier> = []) -> QuestLogCommand? {
         typealias Keys = Keymap.QuestLog
-        if control {
+        if modifiers == [.control] {
             if Keys.halfPageUp.matches(characters) { return .halfPageUp }
             if Keys.halfPageDown.matches(characters) { return .halfPageDown }
+            return nil
+        }
+        if Keys.jumpToLast.matchesExactly(characters), modifiers.isSubset(of: [.shift]) { return .jumpToLast }
+        guard modifiers.isEmpty else {
             return nil
         }
         if Keys.close.matches(keyCode) { return .close }
@@ -155,6 +163,7 @@ public enum QuestLogCommand: Equatable {
         if Keys.delete.matchesExactly(characters) { return .delete }
         if Keys.copy.matchesExactly(characters) { return .copy }
         if Keys.toggleMark.matchesExactly(characters) { return .toggleMark }
+        if Keys.jumpToFirstPrefix.matchesExactly(characters) { return .jumpToFirstPrefix }
         return nil
     }
 }
@@ -181,6 +190,9 @@ public final class QuestLogStore {
     public private(set) var sections: [QuestSection] = []
     public private(set) var selectedID: String?
     public private(set) var markedIDs: Set<String> = []
+    /// Bumped when a jump asks the list to scroll to the selection even if it didn't change (`gg` / `G`).
+    public private(set) var scrollNonce = 0
+    @ObservationIgnored private var jumpToFirstChord = GPrefixTracker()
 
     /// A page step keeps a line of overlap; a half page is vim's.
     static let pageStep = 0.9
@@ -243,7 +255,19 @@ public final class QuestLogStore {
 
     /// Applies list commands here and returns the rest for the app to carry out (nil when there is nothing to act on).
     public func handle(_ command: QuestLogCommand) -> QuestLogEffect? {
+        // ponytail: only commands reset the chord, so g, an unbound key, g still jumps; reset on every key if that bites.
+        if command != .jumpToFirstPrefix {
+            jumpToFirstChord.reset()
+        }
         switch command {
+        case .jumpToFirstPrefix:
+            if jumpToFirstChord.handleG() == .jumpToTop {
+                jump(atStart: true)
+            }
+            return nil
+        case .jumpToLast:
+            jump(atStart: false)
+            return nil
         case .moveUp, .moveDown:
             selectedID = QuestDisplayState.movedSelection(current: selectedID, delta: command == .moveUp ? -1 : 1, in: sections)
             return nil
@@ -271,5 +295,13 @@ public final class QuestLogStore {
         case .copy:
             return targets.isEmpty ? nil : .copy(targets)
         }
+    }
+
+    private func jump(atStart: Bool) {
+        guard let id = QuestDisplayState.edgeSelection(atStart: atStart, in: sections) else {
+            return
+        }
+        selectedID = id
+        scrollNonce &+= 1
     }
 }

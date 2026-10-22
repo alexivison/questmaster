@@ -126,6 +126,12 @@ public enum QuestDisplayState {
         return quests[wrapped(currentIndex + delta, count: quests.count)].id
     }
 
+    /// The first (`atStart`) or last quest across all sections, for the `gg`/`G` jump shortcuts.
+    public static func edgeSelection(atStart: Bool, in sections: [QuestSection]) -> String? {
+        let quests = flatQuests(in: sections)
+        return atStart ? quests.first?.id : quests.last?.id
+    }
+
     /// Newest created first, so editing a quest doesn't move it; ties by id.
     private static func sorted(_ quests: [QuestItem]) -> [QuestItem] {
         quests.sorted { lhs, rhs in

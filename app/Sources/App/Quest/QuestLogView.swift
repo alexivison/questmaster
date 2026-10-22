@@ -159,8 +159,11 @@ struct QuestLogModal: View {
         if event.window?.firstResponder is NSTextView {
             return false
         }
-        let control = event.modifierFlags.contains(.control)
-        if let command = QuestLogCommand.from(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, control: control) {
+        var modifiers: Set<Keymap.Modifier> = []
+        if event.modifierFlags.contains(.control) { modifiers.insert(.control) }
+        if event.modifierFlags.contains(.option) { modifiers.insert(.option) }
+        if event.modifierFlags.contains(.shift) { modifiers.insert(.shift) }
+        if let command = QuestLogCommand.from(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, modifiers: modifiers) {
             onCommand(command)
         }
         return true
@@ -276,8 +279,13 @@ private struct QuestLogList: View {
                 .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
+            // The view is rebuilt per opening, so the kept selection is scrolled to as it appears.
+            .onAppear { scroll(proxy, to: store.selectedID) }
             .onChange(of: store.selectedID) { _, id in
                 scroll(proxy, to: id)
+            }
+            .onChange(of: store.scrollNonce) { _, _ in
+                scroll(proxy, to: store.selectedID)
             }
         }
     }

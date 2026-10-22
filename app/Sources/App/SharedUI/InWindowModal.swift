@@ -203,15 +203,19 @@ struct InWindowModalStackView: View {
 }
 
 /// Draws the modal stack over the whole window. Hidden while the stack is empty so it never takes a click.
-/// Whenever a modal opens or starts closing the host takes first responder, so focus never stays in a modal
-/// underneath or one fading out, and keys a modal doesn't claim never reach the terminal; a modal's own text
-/// field still takes focus as it appears. Once the last modal's fade-out ends, focus goes back to what had it
-/// before the first one opened, or to `onEmpty` when that is gone.
+/// Whenever a modal opens the host takes first responder, so focus never stays in the modal it covers and keys
+/// a modal doesn't claim never reach the terminal; a modal's own text field still takes focus as it appears.
+/// When a modal closes, focus goes back to what had it in the modal it uncovers (the host when that is gone).
+/// Once the last modal's fade-out ends, focus goes back to what had it before the first one opened, or to
+/// `onEmpty` when that is gone or a shell focus request came in meanwhile (`deferFocus`).
 final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
     var onEmpty: (() -> Void)?
     private var subscription: AnyCancellable?
     private var openCount = 0
+    private var topID: AnyHashable?
     private weak var focusBeforeModals: NSResponder?
+    /// What had focus in each modal when a child covered it, with a field's caret, so typing carries on.
+    private var focusUnderChild: [AnyHashable: (responder: NSResponder, caret: Int?)] = [:]
 
     init(stack: InWindowModalStack) {
         super.init(rootView: InWindowModalStackView(stack: stack))
@@ -220,6 +224,7 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
         sizingOptions = []
         isHidden = stack.entries.isEmpty
         openCount = stack.entries.filter { !$0.closing }.count
+        topID = stack.top?.id
         subscription = stack.$entries.sink { [weak self] entries in
             self?.entriesWillChange(to: entries)
         }
@@ -239,6 +244,17 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// A shell focus request (a region, the terminal, the dock) while a modal is drawn: the keys stay on the
+    /// modal, and the request replaces the focus recorded before the first modal, so `onEmpty` carries it out
+    /// once the last modal has faded out. False when nothing is drawn and the caller should focus now.
+    func deferFocus() -> Bool {
+        guard !isHidden else {
+            return false
+        }
+        focusBeforeModals = nil
+        return true
+    }
+
     /// Visible while anything is drawn, closing modals included. Runs before `entries` changes, from whichever
     /// path opened or closed a modal.
     private func entriesWillChange(to entries: [InWindowModalStack.Entry]) {
@@ -247,21 +263,40 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
             focusBeforeModals = Self.focusTarget(window?.firstResponder)
         }
         isHidden = entries.isEmpty
-        let nextOpenCount = entries.filter { !$0.closing }.count
-        if nextOpenCount != openCount {
-            window?.makeFirstResponder(self)
+        let open = entries.filter { !$0.closing }
+        let nextTopID = open.last?.id
+        if open.count > openCount, let topID, let responder = Self.focusTarget(window?.firstResponder) {
+            focusUnderChild[topID] = (responder, (responder as? NSTextField)?.currentEditor()?.selectedRange.location)
         }
-        openCount = nextOpenCount
+        if open.count != openCount {
+            let uncovered = nextTopID.flatMap { focusUnderChild[$0] }
+            if !refocus(uncovered?.responder, caret: uncovered?.caret) {
+                window?.makeFirstResponder(self)
+            }
+        }
+        focusUnderChild = focusUnderChild.filter { id, _ in id != nextTopID && open.contains { $0.id == id } }
+        openCount = open.count
+        topID = nextTopID
         if wasDrawing, entries.isEmpty {
             restoreFocus()
         }
     }
 
     private func restoreFocus() {
-        if let view = focusBeforeModals as? NSView, let window, view.window === window, window.makeFirstResponder(view) {
-            return
+        if !refocus(focusBeforeModals) {
+            onEmpty?()
         }
-        onEmpty?()
+    }
+
+    private func refocus(_ responder: NSResponder?, caret: Int? = nil) -> Bool {
+        guard let view = responder as? NSView, let window, view.window === window, window.makeFirstResponder(view) else {
+            return false
+        }
+        // Taking focus selects a field's whole text; put the caret back so typing doesn't replace it.
+        if let caret, let editor = (view as? NSTextField)?.currentEditor() {
+            editor.selectedRange = NSRange(location: min(caret, (editor.string as NSString).length), length: 0)
+        }
+        return true
     }
 
     /// A text field being edited reports the window's shared field editor; focus goes back to the field itself.

@@ -45,6 +45,9 @@ enum LogicSelfTests {
         ("testDockCoordinatorIgnoresNoSessionState", testDockCoordinatorIgnoresNoSessionState),
         ("testModalsPresentInsideTheWindowNotAsSystemSheets", testModalsPresentInsideTheWindowNotAsSystemSheets),
         ("testModalStackClosesTheTopModalFirstAndRestoresFocus", testModalStackClosesTheTopModalFirstAndRestoresFocus),
+        ("testShellFocusRequestsWaitForTheModals", testShellFocusRequestsWaitForTheModals),
+        ("testClosingAChildRefocusesTheModalItUncovers", testClosingAChildRefocusesTheModalItUncovers),
+        ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
@@ -1691,6 +1694,143 @@ enum LogicSelfTests {
         try expect(window.firstResponder === terminal, "focus should go back to the terminal, got \(String(describing: window.firstResponder))")
         try expect(fallbackFocusCount == 0, "with the terminal still there the fallback shouldn't run")
         try expect(window.frame.size == windowSize, "modals must not resize the window, got \(window.frame.size) from \(windowSize)")
+    }
+
+    /// Every shell focus request (the terminal, a region, a session switch's focusTerminal) goes through
+    /// `ShellFocusCoordinator.focusCurrentRegion`. Under a modal it moves only the navigation state: the keys
+    /// stay on the modal, and focus lands on the requested region once the last modal has faded out.
+    private static func testShellFocusRequestsWaitForTheModals() throws {
+        final class StandIn: NSView { override var acceptsFirstResponder: Bool { true } }
+        final class StandInTerminalHost: TerminalPaneHosting {
+            let view: NSView = StandIn(frame: NSRect(x: 500, y: 0, width: 500, height: 600))
+            var tmuxSessionID: String? { nil }
+            var onFocusRequested: (() -> Void)?
+            var onDetach: (() -> Void)?
+            let cellMetrics: TerminalCellMetrics = .unavailable
+            var onCellMetricsChanged: (() -> Void)?
+            func start() {}
+            func stop() {}
+            func focus(in window: NSWindow?) { window?.makeFirstResponder(view) }
+            func connect(to config: TerminalLaunchConfig) throws {}
+        }
+        let stack = InWindowModalStack()
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
+        let tracker = StandIn(frame: NSRect(x: 0, y: 0, width: 500, height: 600))
+        let terminal = StandInTerminalHost()
+        let host = InWindowModalHost(stack: stack)
+        content.addSubview(tracker)
+        content.addSubview(terminal.view)
+        host.frame = content.bounds
+        content.addSubview(host)
+        window.contentView = content
+        let navigation = NavigationStore()
+        let coordinator = ShellFocusCoordinator(
+            navigation: navigation,
+            window: { window },
+            splitView: { nil },
+            terminalShell: { nil },
+            dockShell: { nil },
+            footerShell: { nil },
+            trackerHosting: { tracker },
+            dockView: { nil },
+            terminalHost: { terminal },
+            modalHost: { host },
+            updateDockTabs: {}
+        )
+        host.onEmpty = { coordinator.focusCurrentRegion() }
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        func presentModal() {
+            stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
+            settle()
+        }
+        coordinator.focus(.tracker)
+        settle()
+        try expect(window.firstResponder === tracker, "the tracker should start with the keys")
+
+        // New Session's Summon: close(), then onSuccess's switchTerminal focuses the new terminal at once.
+        presentModal()
+        stack.dismiss(id: "modal")
+        coordinator.focusTerminal()
+        try expect(window.firstResponder === host, "a focus request during the fade-out should leave the keys on the host")
+        settle()
+        try expect(window.firstResponder === terminal.view, "after Summon the terminal should have the keys, got \(String(describing: window.firstResponder))")
+
+        coordinator.focus(.tracker)
+        presentModal()
+        coordinator.focusTerminal()
+        try expect(window.firstResponder === host, "focusing the terminal (⌥⌘2, a session switch) under a modal should leave the keys on it, got \(String(describing: window.firstResponder))")
+        coordinator.focusRegionLeft()
+        try expect(window.firstResponder === host, "a region move (⇧⌘H) under a modal should leave the keys on it, got \(String(describing: window.firstResponder))")
+        try expect(navigation.focusedRegion == .tracker, "the region move should still update navigation")
+        coordinator.focusTerminal()
+        stack.dismiss(id: "modal")
+        settle()
+        try expect(window.firstResponder === terminal.view, "the last request should take the keys once the modal has faded, got \(String(describing: window.firstResponder))")
+    }
+
+    /// A child (⌘T's New Quest over the Quest Log) closing hands the keys back to what had them in the modal it
+    /// uncovers: the filter's field editor, caret where it was, so typing goes on into the filter.
+    private static func testClosingAChildRefocusesTheModalItUncovers() throws {
+        let stack = InWindowModalStack()
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest", projectID: "p", projectName: "p")], repos: [])
+        let filter = QuestLogFilter()
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let host = InWindowModalHost(stack: stack)
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: filter, pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        settle()
+        filter.focus()
+        settle()
+        guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+            throw TestFailure("the filter should take focus, got \(String(describing: window.firstResponder))")
+        }
+        editor.insertText("ab", replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+        let field = editor.delegate as? NSTextField
+
+        stack.present(id: "new-quest", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        try expect(window.firstResponder === host, "the child should take the keys from the filter")
+        stack.dismiss(id: "new-quest")
+        settle()
+        guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor, restored.delegate as? NSTextField === field else {
+            throw TestFailure("closing the child should refocus the filter, got \(String(describing: window.firstResponder))")
+        }
+        try expect(restored.string == "ab" && restored.selectedRange() == NSRange(location: 1, length: 0), "the filter should keep its text and caret, got \(restored.string) \(restored.selectedRange())")
+    }
+
+    /// The log is rebuilt per opening; it opens scrolled to the selection it kept, not at the top.
+    private static func testQuestLogOpensScrolledToTheKeptSelection() throws {
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            view.subviews.flatMap { ((($0 as? NSScrollView).map { [$0] }) ?? []) + scrollViews(in: $0) }
+        }
+        let store = QuestLogStore()
+        store.sync(quests: (1...40).map { QuestItem(id: "q\($0)", content: "Quest \($0)", projectID: "p", projectName: "p") }, repos: [])
+        _ = store.handle(.jumpToLast)
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let stack = InWindowModalStack()
+        let host = InWindowModalHost(stack: stack)
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.close() }
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        let list = scrollViews(in: host).min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
+        guard let list, let height = list.documentView?.frame.height, height > list.contentView.bounds.height else {
+            throw TestFailure("the 40-quest list should overflow its scroll view")
+        }
+        try expect(list.contentView.bounds.origin.y > 0, "the log should open scrolled to the last quest, offset \(list.contentView.bounds.origin.y)")
     }
 
     /// The filter's focus (and so its border) follows the window's real first responder: on when the field

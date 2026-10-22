@@ -20,6 +20,8 @@ struct QuestCoreTests {
         questLogStoreTargetsMarkedQuestsInListOrder()
         questLogStoreReturnsEffectsAndClosingClearsMarks()
         questLogKeysMapToCommands()
+        questLogStoreJumpsToTheEdgesAndAsksForAScroll()
+        displayEdgeSelectionJumpsToFirstAndLastAcrossSections()
         newQuestFormBuildsPayload()
         startFromQuestsBuildsPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
@@ -182,15 +184,57 @@ struct QuestCoreTests {
         expect(QuestLogCommand.from(characters: "/", keyCode: 44) == .focusFilter, "/ should focus the filter")
         expect(QuestLogCommand.from(characters: nil, keyCode: 121) == .pageDown, "PageDown scrolls the page")
         expect(QuestLogCommand.from(characters: nil, keyCode: 116) == .pageUp, "PageUp scrolls the page")
-        expect(QuestLogCommand.from(characters: "d", keyCode: 2, control: true) == .halfPageDown, "⌃d scrolls half a page down")
-        expect(QuestLogCommand.from(characters: "u", keyCode: 32, control: true) == .halfPageUp, "⌃u scrolls half a page up")
-        expect(QuestLogCommand.from(characters: "s", keyCode: 1, control: true) == nil, "⌃s must not start a session")
+        expect(QuestLogCommand.from(characters: "d", keyCode: 2, modifiers: [.control]) == .halfPageDown, "⌃d scrolls half a page down")
+        expect(QuestLogCommand.from(characters: "u", keyCode: 32, modifiers: [.control]) == .halfPageUp, "⌃u scrolls half a page up")
+        expect(QuestLogCommand.from(characters: "s", keyCode: 1, modifiers: [.control]) == nil, "⌃s must not start a session")
         let store = QuestLogStore()
         expect(store.handle(.pageDown) == nil, "with nothing selected there is no page to scroll")
         store.sync(quests: logQuests, repos: [])
         expect(store.handle(.pageDown) == .scrollPage(0.9) && store.handle(.halfPageUp) == .scrollPage(-0.5), "page keys scroll by 0.9 and half pages")
         expect(QuestLogCommand.from(characters: "S", keyCode: 1) == nil, "shifted letters are not quest log keys")
         expect(QuestLogCommand.from(characters: "x", keyCode: 7) == nil, "x is unbound")
+        expect(QuestLogCommand.from(characters: "d", keyCode: 2, modifiers: [.option]) == nil, "⌥d must not open Abandon")
+        expect(QuestLogCommand.from(characters: "s", keyCode: 1, modifiers: [.option]) == nil, "⌥s must not send forth")
+        expect(QuestLogCommand.from(characters: "d", keyCode: 2, modifiers: [.control, .option]) == nil, "⌃⌥d is not ⌃d")
+        expect(QuestLogCommand.from(characters: " ", keyCode: 49, modifiers: [.shift]) == nil, "Shift isn't part of the space binding")
+        expect(QuestLogCommand.from(characters: nil, keyCode: 125, modifiers: [.option]) == nil, "⌥↓ is not a list key")
+        expect(QuestLogCommand.from(characters: "\r", keyCode: 36) == .edit, "Return edits, as in the quest dock")
+        expect(QuestLogCommand.from(characters: "g", keyCode: 5) == .jumpToFirstPrefix, "g starts gg")
+        expect(QuestLogCommand.from(characters: "G", keyCode: 5, modifiers: [.shift]) == .jumpToLast, "Shift-G jumps to the last quest")
+        expect(QuestLogCommand.from(characters: "G", keyCode: 5) == .jumpToLast, "Caps Lock G jumps to the last quest")
+        expect(QuestLogCommand.from(characters: "G", keyCode: 5, modifiers: [.option, .shift]) == nil, "⌥G is not G")
+    }
+
+    private static func questLogStoreJumpsToTheEdgesAndAsksForAScroll() {
+        let store = QuestLogStore()
+        store.sync(quests: logQuests, repos: [])
+        let ids = QuestDisplayState.flatQuests(in: store.sections).map(\.id)
+        let nonce = store.scrollNonce
+        _ = store.handle(.jumpToLast)
+        expect(store.selectedID == ids.last && store.scrollNonce == nonce + 1, "G should select the last quest and ask for a scroll")
+        _ = store.handle(.jumpToLast)
+        expect(store.scrollNonce == nonce + 2, "G on the last quest should still scroll to it")
+        _ = store.handle(.jumpToFirstPrefix)
+        expect(store.selectedID == ids.last, "one g only arms gg")
+        _ = store.handle(.jumpToFirstPrefix)
+        expect(store.selectedID == ids.first && store.scrollNonce == nonce + 3, "gg should select the first quest and ask for a scroll")
+        _ = store.handle(.jumpToFirstPrefix)
+        _ = store.handle(.moveDown)
+        _ = store.handle(.jumpToFirstPrefix)
+        expect(store.selectedID == ids.dropFirst().first, "a command between the g's cancels gg")
+    }
+
+    private static func displayEdgeSelectionJumpsToFirstAndLastAcrossSections() {
+        let quests = [
+            QuestItem(id: "qst-b", content: "Beta", projectID: "repo-b", projectName: "Alpha Beta", updatedAt: "2026-07-03T01:00:00Z"),
+            QuestItem(id: "qst-a", content: "Alpha", projectID: "repo-a", projectName: "Zeta Repo", updatedAt: "2026-07-03T02:00:00Z"),
+            QuestItem(id: "qst-none", content: "No project", updatedAt: "2026-07-03T04:00:00Z"),
+        ]
+        let sections = QuestDisplayState.sections(quests: quests, repos: [TrackerRepo(id: "repo-a", name: "Zeta Repo", color: "green", sessions: [])])
+        let ids = QuestDisplayState.flatQuests(in: sections).map(\.id)
+        expect(QuestDisplayState.edgeSelection(atStart: true, in: sections) == ids.first, "gg should land on the first quest across sections")
+        expect(QuestDisplayState.edgeSelection(atStart: false, in: sections) == "qst-none", "G should land on the last quest across sections")
+        expect(QuestDisplayState.edgeSelection(atStart: true, in: []) == nil, "edge selection with no quests should be nil")
     }
 
     private static func displayFallsBackToProjectColorWithoutLiveSession() {

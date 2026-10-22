@@ -205,11 +205,15 @@ public enum Keymap {
         public static let moveUpCharacters = CharacterBinding(keys: ["k"])
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let start = CharacterBinding(keys: ["s"])
-        public static let edit = CharacterBinding(keys: ["e"])
+        /// Return edits too, as it did in the quest dock.
+        public static let edit = CharacterBinding(keys: ["e", "\r"])
         public static let delete = CharacterBinding(keys: ["d"])
         public static let copy = CharacterBinding(keys: ["y"])
         public static let toggleMark = CharacterBinding(keys: [" "])
         public static let focusFilter = CharacterBinding(keys: ["/"])
+        /// vim's `gg` (a `g` twice) and `G`: the first and the last quest.
+        public static let jumpToFirstPrefix = CharacterBinding(keys: ["g"])
+        public static let jumpToLast = CharacterBinding(keys: ["G"])
         public static let close = KeyCodeBinding(keyCodes: [53])
         /// The page: PageUp / PageDown (fn-↑ / fn-↓) as in the artifact viewer, and vim's ⌃u / ⌃d by half pages.
         public static let pageUp = KeyCodeBinding(keyCodes: [116])
