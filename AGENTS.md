@@ -139,6 +139,49 @@ monitors, web/artifact bridges, and GhosttyKit terminal boundary are AppKit or
 AppKit-adjacent. Prefer SwiftUI for content surfaces and keep domain logic in
 Core.
 
+## Interaction states
+
+One set of state rules covers the whole app. A view asks for a state's look
+(`RowLook`, `OutlineLook`, `ToggleLook`, `PlateBand` in
+`Core/Rendering/InteractionLook.swift`) and draws it; it never picks a palette
+colour by state itself. The colours are `StateColor` cases, which `AppPalette`
+builds its matching entries from (`SharedUI/Theme.swift`).
+
+Mouse hover and the keyboard cursor are one highlight: pointing at a row moves
+the cursor there, the arrow keys and j/k continue from it, and only one row is
+highlighted at a time. A highlight in an area without focus is one step dimmer,
+not hidden.
+
+| Element | State | Look |
+|---|---|---|
+| Pick-to-open row (artifacts, dropdowns, filter suggestions) | rest | no fill, `textBody` #D8DEE9 |
+| | highlighted, area focused (`RowLook.highlighted`) | `item` fill, `textSelected` #E6EDF3, icon tile border `controlBorder`, icon `textSelected`, meta `textMetaHighlighted` #ADBAC7 |
+| | highlighted, area unfocused (`RowLook.highlightedUnfocused`) | `item` fill, `textBody`, meta `textMeta` #9DA7B1 |
+| Lasting-selection row (the Quest Log) | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
+| Tab (agent tabs, Session/All, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
+| | highlighted or selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
+| | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
+| Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
+| Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
+| Tracker plate | highlighted / unfocused / recolouring (`PlateBand`) | `textSelected` / `controlBorder` / `accent` band |
+
+- Bold means selected and appears only in a lasting-selection list. Artifacts
+  have no selected state: picking one opens it.
+- Dividers inside rows are `line` in every state.
+- Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
+  titles, project headers and marks; never for selection or focus.
+- No shadows on dropdowns or panels. Pressed is 0.8 opacity; disabled is window
+  fill with `item` border and label (the shared button styles).
+- Use the shared components: `fieldChrome`/`FormTextField` for fields,
+  `SuggestionDropdown` for every dropdown and suggestion list, `PillTab` for
+  tabs, the `AngledButton` styles for buttons.
+
+`StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
+fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`
+outside the token layer, `brassActive` or `ToggleLook` outside the action bar, a
+view picking a colour by a state flag, and a hand-rolled dropdown or field. Its
+`pending` list names today's known breaks; it may only shrink.
+
 ## Testing conventions
 
 - **Go:** stdlib `testing` only (no testify), table-driven, `t.Parallel()`,

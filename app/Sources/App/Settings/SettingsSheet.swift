@@ -114,9 +114,8 @@ struct SettingsSheetView: View {
             ForEach(SettingsSection.allCases, id: \.self) { section in
                 PillTab(
                     title: section.title,
-                    icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: AppPalette.questLogRowSelected, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
-                    selected: true,
-                    selectedLabelColor: AppPalette.warn
+                    icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: OutlineLook.tabSelected.label.color, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
+                    selected: true
                 )
             }
         }

@@ -225,7 +225,7 @@ struct TrackerEditRepoSheet: View {
         ) {
             VStack(spacing: ModalFormMetrics.fieldSpacing) {
                 // Repos can't be renamed (serve only recolours them), so the name is fixed: no focus, dim.
-                BaselineText(repo.name.isEmpty ? repo.identity : repo.name, font: AppFonts.questLogBody, color: AppPalette.questLogFilterHint, baseline: FormFieldMetrics.baseline)
+                BaselineText(repo.name.isEmpty ? repo.identity : repo.name, font: AppFonts.questLogBody, color: AppPalette.textMeta, baseline: FormFieldMetrics.baseline)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .padding(.horizontal, FormFieldMetrics.textInset)

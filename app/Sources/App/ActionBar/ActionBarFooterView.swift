@@ -146,15 +146,14 @@ struct ActionBarSlotButton: View {
         .frame(width: ActionBarMetrics.slotSize, height: ActionBarMetrics.slotSize)
     }
 
+    private var toggle: ToggleLook { .of(on: slot.isActive) }
+
     private var content: some View {
         RoundedRectangle(cornerRadius: Token.Radius.hairline)
             .fill((isEmpty ? ActionBarMetrics.SlotFill.empty : ActionBarMetrics.SlotFill.normal).swiftUI)
             .overlay(
                 RoundedRectangle(cornerRadius: Token.Radius.hairline)
-                    .strokeBorder(
-                        (slot.isActive ? ActionBarMetrics.SlotFill.activeBorder : AppPalette.line).swiftUI,
-                        lineWidth: 1
-                    )
+                    .strokeBorder(toggle.border.color.swiftUI, lineWidth: 1)
             )
             .overlay(innerShadow)
             .overlay {
@@ -165,7 +164,7 @@ struct ActionBarSlotButton: View {
                         .aspectRatio(contentMode: .fit)
                         .fontWeight(.medium)
                         .frame(width: iconSize.width, height: iconSize.height)
-                        .foregroundStyle((isHovered ? AppPalette.activeText : AppPalette.dim).swiftUI)
+                        .foregroundStyle((isHovered ? AppPalette.bright : AppPalette.dim).swiftUI)
                 }
             }
     }
@@ -175,8 +174,8 @@ struct ActionBarSlotButton: View {
     @ViewBuilder
     private var innerShadow: some View {
         let shape = RoundedRectangle(cornerRadius: Token.Radius.hairline)
-        if slot.isActive {
-            shape.strokeBorder(ActionBarMetrics.SlotFill.activeBorder.swiftUI.opacity(0.25), lineWidth: 4)
+        if toggle.glowOpacity > 0 {
+            shape.strokeBorder(toggle.border.color.swiftUI.opacity(toggle.glowOpacity), lineWidth: 4)
                 .blur(radius: 2)
                 .clipShape(shape)
         } else if isEmpty {

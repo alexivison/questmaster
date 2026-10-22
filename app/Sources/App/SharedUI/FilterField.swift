@@ -2,46 +2,6 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-struct FilterSuggestionList: View {
-    var suggestions: [ArtifactFilterSuggestion]
-    var selectedID: String?
-    var onSelect: (ArtifactFilterSuggestion) -> Void
-
-    var body: some View {
-        VStack(spacing: Token.Spacing.hairline) {
-            ForEach(suggestions) { suggestion in
-                Button {
-                    onSelect(suggestion)
-                } label: {
-                    HStack(spacing: Token.Spacing.inline) {
-                        Text(suggestion.title)
-                            .font(AppFonts.body.swiftUI)
-                            .foregroundStyle(AppPalette.text.swiftUI)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Text(suggestion.detail)
-                            .font(AppFonts.monoSmall.swiftUI)
-                            .foregroundStyle(AppPalette.dim.swiftUI)
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, Token.Spacing.card)
-                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: Token.Radius.control)
-                            .fill((suggestion.id == selectedID ? AppPalette.hoverBackground : .clear).swiftUI)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(6)
-        .frame(maxWidth: .infinity)
-        .borderedCard(fill: AppPalette.controlFill, borderColor: AppPalette.hoverBorder)
-        .shadow(color: Color.black.opacity(0.35), radius: 18, y: 10)
-        .accessibilityLabel("Filter suggestions")
-    }
-}
-
 struct FilterTokenChip: View {
     var token: ArtifactFilterToken
     var onRemove: () -> Void
@@ -68,7 +28,7 @@ struct FilterTokenChip: View {
         .padding(.leading, 6)
         .padding(.trailing, 3)
         .frame(height: 22)
-        .borderedCard(fill: AppPalette.controlFill, cornerRadius: Token.Radius.control)
+        .borderedCard(fill: AppPalette.item, cornerRadius: Token.Radius.control)
     }
 }
 

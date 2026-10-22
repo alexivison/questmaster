@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// A decorative "chapter break" rule under modal sheet titles: the same
-/// flourish-flanked-hairline family as `SectionedList`'s `SectionHeader`,
-/// with a gold diamond in place of a title.
+/// A decorative "chapter break" rule under modal sheet titles: a
+/// flourish-flanked hairline with a gold diamond at its centre.
 struct ModalChapterRule: View {
     var body: some View {
         FlankedOrnamentRule {

@@ -30,7 +30,7 @@ struct ChromeIconButton: View {
         Button(action: action) {
             Image(systemName: symbolName)
                 .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
-                .foregroundStyle((isHovered ? AppPalette.activeText : AppPalette.controlBorder).swiftUI)
+                .foregroundStyle((isHovered ? AppPalette.bright : AppPalette.controlBorder).swiftUI)
                 .frame(width: ChromeMetrics.iconWidth, height: ChromeMetrics.iconHeight)
                 .contentShape(Rectangle())
         }

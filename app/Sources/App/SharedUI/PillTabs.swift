@@ -4,15 +4,13 @@ import SwiftUI
 
 /// Pill tabs (new-session.svg's agent tabs, settings-models.svg's agent tabs and sidebar): a 26-high pill
 /// with scalloped ends, a 30pt disc holding the icon 10 in, and the 10pt label on a baseline 17 down,
-/// 45 in. The selected tab is the light one: a controlBorder outline and disc, and a bright label. While
-/// the row has keyboard focus its outline and disc lift one step further, to the bright label colour.
+/// 45 in. The selected tab is the light one (`OutlineLook.tabSelected`). While the row has keyboard focus its
+/// outline and disc lift one step further, to the label colour.
 struct PillTab: View {
     let title: String
     let icon: NSImage?
     let selected: Bool
     var focused = false
-    /// The selected label's colour: bright for the agent tabs, gold for Settings' sections (its design).
-    var selectedLabelColor = AppPalette.questLogRowSelected
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -32,15 +30,16 @@ struct PillTab: View {
         .contentShape(PillTabShape())
     }
 
+    private var look: OutlineLook {
+        .tab(selected: selected, highlighted: false, areaFocused: true)
+    }
+
     private var borderColor: NSColor {
-        guard selected else {
-            return AppPalette.line
-        }
-        return focused ? AppPalette.questLogRowSelected : AppPalette.controlBorder
+        selected && focused ? look.label.color : look.border.color
     }
 
     private var labelColor: NSColor {
-        selected ? selectedLabelColor : AppPalette.questLogRow
+        look.label.color
     }
 
     private var disc: some View {

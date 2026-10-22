@@ -56,6 +56,8 @@ struct ArtifactDockView: View {
     var onFilterCommand: (UInt16) -> Bool
     var onFilterEndEditing: () -> Void
     var onOpenExternal: (URL) -> Void
+    /// Renders the filter as focused (RenderPreview).
+    var previewFilterFocused = false
 
     @State private var filterFocused = false
 
@@ -119,7 +121,7 @@ struct ArtifactDockView: View {
     private var filterControls: some View {
         filterField
         .overlay(alignment: .topLeading) {
-            if filterFocused && model.filterSuggestionsVisible {
+            if (filterFocused || previewFilterFocused) && model.filterSuggestionsVisible {
                 filterSuggestionList
                     .offset(y: 38)
                     .zIndex(3)
@@ -156,16 +158,16 @@ struct ArtifactDockView: View {
         .frame(minHeight: 32)
         .background(
             RoundedRectangle(cornerRadius: Token.Radius.control)
-                .fill(AppPalette.panelAlt.swiftUI)
+                .fill(AppPalette.window.swiftUI)
         )
-        .focusedControlBorder(focused: filterFocused)
+        .focusedControlBorder(focused: filterFocused || previewFilterFocused)
         .accessibilityLabel("Filter artifacts")
     }
 
     private var filterSuggestionList: some View {
-        FilterSuggestionList(
-            suggestions: model.filterSuggestions,
-            selectedID: model.selectedFilterSuggestionID,
+        SuggestionDropdown(
+            filterSuggestions: model.filterSuggestions,
+            highlightedID: model.selectedFilterSuggestionID,
             onSelect: onSelectFilterSuggestion
         )
     }

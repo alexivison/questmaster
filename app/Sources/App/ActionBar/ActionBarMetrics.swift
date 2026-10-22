@@ -30,11 +30,11 @@ enum ActionBarMetrics {
         slotBarStartX + CGFloat(index) * slotSize
     }
 
-    /// The slot fills from the design's `action-bar-button`, reusing existing palette tokens.
+    /// The slot fills from the design's `action-bar-button`, reusing existing palette tokens. An active slot's
+    /// border and glow are `ToggleLook.on`.
     enum SlotFill {
         static let normal = AppPalette.item
         static let empty = AppPalette.panel
-        static let activeBorder = AppPalette.brassActive
     }
 
     /// Each slot glyph's own rendered bounding box, measured from the design, so glyphs with different
