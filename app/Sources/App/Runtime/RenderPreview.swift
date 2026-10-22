@@ -16,7 +16,12 @@ enum RenderPreview {
             ? CommandLine.arguments[flagIndex + 1]
             : NSTemporaryDirectory()
 
-        render(newSessionView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
+        render(newSessionView(.initial), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-init.png")
+        render(newSessionView(.filled), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session.png")
+        render(newSessionView(.openCode), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-opencode.png")
+        render(newSessionView(.noEffort), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-no-effort.png")
+        render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-init.png")
+        render(newQuestSheetView(typing: true), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
@@ -94,7 +99,6 @@ enum RenderPreview {
         scrolledPage.previewOffset = 160
         render(QuestLogView(store: questLogStore(longBody: true), filter: questLogFilter(token: false), pageScroll: scrolledPage, onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-long-scrolled.png")
         render(newSessionSheetView(title: "gjpqy quest", path: "/tmp/gjpqy/project"), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-descenders.png")
-        render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
         render(newSessionSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-sheet.png")
         let window = CGSize(width: 1400, height: 900)
         renderView(modalWindowView(newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-window.png")
@@ -981,39 +985,69 @@ enum RenderPreview {
         return shell
     }
 
+    /// The New Session form in one of the design's states (new-session-init.svg, new-session.svg), or
+    /// with OpenCode selected, or on a model that reports no effort levels.
+    enum NewSessionPreview {
+        case initial
+        case filled
+        case openCode
+        case noEffort
+    }
+
     @MainActor
-    private static func newSessionView() -> some View {
-        let state = NewSessionViewState(model: NewSessionFormModel(
-            initialPath: "/",
-            initialFocus: .path
-        ))
-        state.pathSuggestions = [
-            "/Users/aleksi.tuominen/Code",
-            "/Users/aleksi.tuominen/Code/questmaster",
-            "/Users/aleksi.tuominen/Code/dotfiles",
-        ]
-        // Stand-ins for what the serve models/reasoning_efforts topics resolve
-        // at runtime.
-        state.model.setModelOptions(
-            [
-                SessionModelOption(id: "claude-opus-5", label: "claude-opus-5", note: "Claude Opus 5"),
-                SessionModelOption(id: "claude-sonnet-5", label: "claude-sonnet-5", note: "Claude Sonnet 5"),
-            ],
-            defaultModel: "claude-sonnet-5"
-        )
-        state.model.setEffortOptions(
-            ["low", "medium", "high", "xhigh", "max"],
-            defaultLevel: "xhigh"
-        )
-        return NewSessionRootView(
+    private static func newSessionView(_ preview: NewSessionPreview) -> some View {
+        var model = NewSessionFormModel(initialPath: "", initialFocus: .path)
+        let state = NewSessionViewState(model: model)
+        // Stand-ins for what the serve models/reasoning_efforts topics resolve at runtime.
+        let claudeModels = ["claude-sonnet-5.5", "claude-opus-5.5", "claude-haiku-5.5"].map { SessionModelOption(id: $0, label: $0) }
+        let levels = ["low", "medium", "high", "xhigh", "max"]
+        switch preview {
+        case .initial:
+            model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
+            model.setEffortOptions(levels, defaultLevel: "medium")
+            state.paths.show(["/Users/aleksi.tuominen/Code", "/Users/aleksi.tuominen/Code/Scry", "/Users/aleksi.tuominen/Code/Questmaster"])
+        case .filled:
+            model.path = "/Users/aleksi.tuominen/Code"
+            model.title = "PR Reviews"
+            model.setModelOptions(claudeModels, defaultModel: "claude-sonnet-5.5")
+            model.setEffortOptions(levels, defaultLevel: "xhigh")
+            model.typeModel("opus")
+            model.focusedField = .model
+        case .openCode:
+            model.path = "/Users/aleksi.tuominen/Code/questmaster"
+            model.focusedField = .agent
+            model.handle(.right)
+            model.handle(.right)
+            model.setModelOptions([SessionModelOption(id: "openai/gpt-6-sol", label: "openai/gpt-6-sol")], defaultModel: "openai/gpt-6-sol")
+            model.setEffortOptions(["low", "medium", "high"], defaultLevel: "high")
+        case .noEffort:
+            model.path = "/Users/aleksi.tuominen/Code/questmaster"
+            model.focusedField = .agent
+            model.handle(.left)
+            model.setModelOptions([SessionModelOption(id: "local-model", label: "local-model")], defaultModel: "local-model")
+            model.setEffortOptions([])
+            model.focusedField = .model
+        }
+        state.model = model
+        return newSessionRoot(state)
+    }
+
+    @MainActor
+    private static func newSessionRoot(_ state: NewSessionViewState) -> some View {
+        NewSessionRootView(
             state: state,
             onFocusChanged: { _ in },
             onPathChanged: {},
+            onModelChanged: {},
+            onSelectPath: { _ in },
+            onSelectModel: { _ in },
+            onSelectAgent: { _ in },
+            onCycleEffort: {},
             onCreate: {},
-            onCancel: {},
-            onRefreshModels: {}
+            onCancel: {}
         )
-        .background(AppPalette.panel.swiftUI)
+        .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
+        .scoopedPanel()
     }
 
     @MainActor
@@ -1028,21 +1062,27 @@ enum RenderPreview {
         )
     }
 
+    /// New Quest empty (new-quest-init.svg), or with a path being typed and its suggestions open
+    /// (new-quest.svg).
     @MainActor
-    private static func newQuestSheetView() -> some View {
-        let presenter = NewQuestSheetPresenter()
-        presenter.present(
-            projects: [
-                NewQuestProjectOption(projectID: "", projectPath: "", projectName: "No project"),
-                NewQuestProjectOption(projectID: "questmaster", projectPath: "/Users/aleksi.tuominen/Code/questmaster", projectName: "questmaster"),
-            ],
-            selectedProjectID: "questmaster",
-            initialContent: "Add more meta data to shell sessions\n\nThe idea is to make questmaster also work well as a tmux session handler",
-            sessionID: nil,
-            mutationClient: SettingsPreviewMutationClient(),
-            onSuccess: {}
+    private static func newQuestSheetView(typing: Bool = false) -> some View {
+        let sheet = NewQuestSheetModel(
+            presentation: NewQuestSheetPresentation(
+                initialProject: nil,
+                initialContent: typing ? "Add more meta data to shell sessions" : "",
+                questID: "",
+                sessionID: "",
+                mutationClient: SettingsPreviewMutationClient(),
+                directoryClient: nil,
+                onSuccess: {}
+            ),
+            dismiss: {}
         )
-        return NewQuestSheetView(presentation: presenter.presentation!, dismiss: {})
+        if typing {
+            sheet.form.path = "/Users/aleksi.tuo"
+            sheet.paths.show(["/Users/aleksi.tuominen/Code", "/Users/aleksi.tuominen/Code/Scry", "/Users/aleksi.tuominen/Code/Questmaster"])
+        }
+        return NewQuestSheetView(model: sheet)
     }
 
     @MainActor

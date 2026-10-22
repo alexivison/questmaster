@@ -5,22 +5,26 @@ public enum NewSessionField: CaseIterable, Equatable, Hashable {
     case title
     case agent
     case model
+    /// The effort segment at the model field's right end.
+    case effort
+    /// Edit Session's colour select. New Session has no colour field: a new session takes the default.
     case color
     case prompt
 
     public var isSelect: Bool {
-        self == .agent || self == .color || self == .model
+        self == .agent || self == .effort || self == .color
     }
+
+    /// New Session's fields, top to bottom: the order ⌃j / ⌃k and Tab move through.
+    public static let formOrder: [NewSessionField] = [.path, .title, .agent, .model, .effort, .prompt]
 }
 
-/// One entry in the model select.
+/// One model suggestion for the model field.
 ///
 /// The options are pushed in from the serve `models` topic rather than
 /// declared here: the app must never carry a model list, or a newly released
-/// model would need an app release. There is no synthetic "default" entry —
-/// every option is a real, concrete id; "nothing selected" is a fact about
-/// the form's selection state (see `NewSessionFormModel.selectedModelIndex`),
-/// not a member of this list.
+/// model would need an app release. They only suggest: the field takes any
+/// text, and model ids are never validated.
 public struct SessionModelOption: Equatable {
     public let id: String
     public let label: String
@@ -45,6 +49,21 @@ public struct SessionReasoningEffortOption: Equatable {
     public init(id: String, label: String) {
         self.id = id
         self.label = label
+    }
+}
+
+/// The keys that cycle the reasoning effort: plain e where an e can't be typed (the effort segment and
+/// the agent tabs), ⌥e while typing in the model field, whose ids are full of e's.
+public enum NewSessionEffortKey {
+    public static func cycles(characters: String?, keyCode: UInt16, option: Bool, field: NewSessionField) -> Bool {
+        switch field {
+        case .effort, .agent:
+            return !option && Keymap.NewSession.cycleReasoningEffort.matchesExactly(characters)
+        case .model:
+            return option && Keymap.NewSession.cycleReasoningEffortInModel.matches(keyCode)
+        case .path, .title, .color, .prompt:
+            return false
+        }
     }
 }
 
@@ -105,16 +124,26 @@ public struct NewSessionFormModel: Equatable {
     public private(set) var effortOptions: [SessionReasoningEffortOption]
     public private(set) var selectedAgentIndex: Int
     public private(set) var selectedColorIndex: Int
-    /// Nil means nothing is selected — no override for this launch, whatever
-    /// Settings has configured for this agent's master role applies.
-    public private(set) var selectedModelIndex: Int?
+    /// The model field's text: any id, passed to the harness as typed. Empty means no override for this
+    /// launch: whatever Settings has configured for this agent's master role applies.
+    public private(set) var modelText = ""
+    /// The highlighted row of `modelSuggestions`.
+    public private(set) var highlightedModelIndex = 0
+    /// Esc, or accepting a suggestion, puts the model dropdown away until the next keystroke.
+    public private(set) var modelSuggestionsDismissed = false
     public private(set) var selectedEffortIndex: Int?
-    /// False until `setModelOptions`/`setEffortOptions` first resolves this
-    /// agent's master-role list — first resolve pre-selects Settings' current
-    /// default (if any); a later re-resolve (agent change) instead
-    /// preserves whatever is currently selected.
-    private var hasResolvedModelOptions = false
+    /// Until the user types in the model field, each resolve fills it with Settings' default for the role.
+    private var modelTextEdited = false
+    /// False until `setEffortOptions` first resolves this agent's master-role
+    /// list — first resolve pre-selects Settings' current default (if any); a
+    /// later re-resolve (a model change) instead preserves whatever is
+    /// currently selected.
     private var hasResolvedEffortOptions = false
+
+    /// How many model suggestions the dropdown lists at most.
+    public static let maxModelSuggestions = 5
+    /// The effort segment's text when nothing is chosen, or the model reports no levels: the harness decides.
+    public static let defaultEffortLabel = "default"
 
     public init(
         initialPath: String,
@@ -137,7 +166,6 @@ public struct NewSessionFormModel: Equatable {
         effortOptions = []
         selectedAgentIndex = 0
         selectedColorIndex = Self.colorIndex(for: initialColor, in: self.colors)
-        selectedModelIndex = nil
         selectedEffortIndex = nil
     }
 
@@ -153,13 +181,67 @@ public struct NewSessionFormModel: Equatable {
         selectedColor.isEmpty ? Self.noColorLabel : selectedColor
     }
 
-    /// The selected model id, empty when nothing is selected.
+    /// The model id this launch passes on: the field's text, trimmed. Empty means no override.
     public var selectedModel: String {
-        selectedModelOption?.id ?? ""
+        clean(modelText) ?? ""
     }
 
-    public var selectedModelOption: SessionModelOption? {
-        selectedModelIndex.flatMap { value(at: $0, in: modelOptions) }
+    /// The resolved models that match what's typed, at most `maxModelSuggestions`. Text that is exactly
+    /// one of them (the prefilled default, a picked suggestion) lists them all, so the field browses.
+    public var modelSuggestions: [SessionModelOption] {
+        let query = selectedModel.lowercased()
+        let browsing = query.isEmpty || modelOptions.contains { $0.id.lowercased() == query }
+        let matches = browsing ? modelOptions : modelOptions.filter { $0.id.lowercased().contains(query) }
+        return Array(matches.prefix(Self.maxModelSuggestions))
+    }
+
+    /// The model dropdown shows while the field is focused and has something to offer: not a lone row
+    /// that is already the field's text.
+    public var showsModelSuggestions: Bool {
+        let suggestions = modelSuggestions
+        let onlyTheText = suggestions.count == 1 && suggestions[0].id == selectedModel
+        return focusedField == .model && !modelSuggestionsDismissed && !suggestions.isEmpty && !onlyTheText
+    }
+
+    public mutating func dismissModelSuggestions() {
+        modelSuggestionsDismissed = true
+    }
+
+    public var highlightedModelSuggestion: SessionModelOption? {
+        value(at: highlightedModelIndex, in: modelSuggestions)
+    }
+
+    /// Typing in the model field: from here on resolves leave the text alone.
+    public mutating func typeModel(_ text: String) {
+        modelText = text
+        modelTextEdited = true
+        highlightedModelIndex = 0
+        modelSuggestionsDismissed = false
+    }
+
+    public mutating func moveModelHighlight(_ delta: Int) {
+        let count = modelSuggestions.count
+        guard count > 0 else {
+            return
+        }
+        highlightedModelIndex = (highlightedModelIndex + delta + count) % count
+    }
+
+    /// Puts the highlighted suggestion's id in the field. False when there's nothing to accept, or the
+    /// field already holds it.
+    @discardableResult
+    public mutating func acceptHighlightedModel() -> Bool {
+        guard let option = highlightedModelSuggestion, option.id != modelText else {
+            return false
+        }
+        typeModel(option.id)
+        modelSuggestionsDismissed = true
+        return true
+    }
+
+    /// Whether the form can be submitted: a path is all it needs.
+    public var canSubmit: Bool {
+        !submitting && clean(path) != nil
     }
 
     /// The selected reasoning-effort level, empty when nothing is selected.
@@ -171,35 +253,37 @@ public struct NewSessionFormModel: Equatable {
         selectedEffortIndex.flatMap { value(at: $0, in: effortOptions) }
     }
 
-    /// Replaces the model list with what the backend resolved for the current
-    /// agent's master role. On the very first resolve, the
-    /// selection seeds onto `defaultModel` (whatever Settings currently has
-    /// configured, if anything) directly. A later re-resolve (the effort list
-    /// refetching after the user changes the model) instead preserves
-    /// whatever is currently selected, so an in-progress choice survives.
-    public mutating func setModelOptions(_ models: [SessionModelOption], defaultModel: String = "") {
-        let firstResolve = !hasResolvedModelOptions
-        let previousID = selectedModelOption?.id
-        // A whitespace-only id would otherwise render as "selected" while
-        // MutationRequests.start's trimming silently treats it as unset at
-        // submit time — drop it here so the picker never shows a selection
-        // that launches without an override anyway.
-        modelOptions = models.filter { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if firstResolve {
-            selectedModelIndex = defaultModel.isEmpty ? nil : modelOptions.firstIndex(where: { $0.id == defaultModel })
-        } else {
-            selectedModelIndex = previousID.flatMap { id in modelOptions.firstIndex(where: { $0.id == id }) }
-        }
-        hasResolvedModelOptions = true
+    /// Whether the model reports effort levels. Without them the effort segment is inert.
+    public var hasEffortLevels: Bool {
+        !effortOptions.isEmpty
     }
 
-    /// Drops back to an empty, unresolved list, for when the resolved list
-    /// stops applying (the agent changed) or a fetch failed — the
-    /// next `setModelOptions` call is then treated as a fresh first resolve.
+    /// The effort segment's text: the chosen level's id, or "default".
+    public var effortLabel: String {
+        selectedEffortOption?.label ?? Self.defaultEffortLabel
+    }
+
+    /// Replaces the model suggestions with what the backend resolved for the
+    /// current agent's master role. Until the user types in the field, it
+    /// takes `defaultModel` (whatever Settings currently has configured, if
+    /// anything), as the old model select pre-selected it.
+    public mutating func setModelOptions(_ models: [SessionModelOption], defaultModel: String = "") {
+        // A whitespace-only id launches without an override, so it is no suggestion.
+        modelOptions = models.filter { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !modelTextEdited {
+            modelText = defaultModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        highlightedModelIndex = 0
+    }
+
+    /// Drops the suggestions, for when they stop applying (the agent changed)
+    /// or a fetch failed. Untyped text (a default) goes with them.
     public mutating func resetModelOptions() {
         modelOptions = []
-        selectedModelIndex = nil
-        hasResolvedModelOptions = false
+        if !modelTextEdited {
+            modelText = ""
+        }
+        highlightedModelIndex = 0
     }
 
     /// Replaces the reasoning-effort list with what the backend resolved for
@@ -228,14 +312,13 @@ public struct NewSessionFormModel: Equatable {
         hasResolvedEffortOptions = false
     }
 
-    /// Cycles the reasoning-effort selection independent of focus — bound to
-    /// `e` while the Model field is focused, since Effort has no row of its
-    /// own (its current value is a sub-text of the Model row instead).
-    public mutating func cycleReasoningEffort() {
-        guard !submitting else {
+    /// Cycles the reasoning effort through the model's levels and "default", independent of focus (see
+    /// `NewSessionEffortKey`). A model without levels has nothing to cycle.
+    public mutating func cycleReasoningEffort(_ delta: Int = 1) {
+        guard !submitting, hasEffortLevels else {
             return
         }
-        selectedEffortIndex = cycleOptionalIndex(selectedEffortIndex, delta: 1, count: effortOptions.count)
+        selectedEffortIndex = cycleOptionalIndex(selectedEffortIndex, delta: delta, count: effortOptions.count)
     }
 
     public mutating func handle(_ key: NewSessionFormKey) {
@@ -334,8 +417,9 @@ public struct NewSessionFormModel: Equatable {
         return "none"
     }
 
+    /// Steps through `formOrder`, past the effort segment while the model reports no levels.
     private mutating func moveFocus(_ delta: Int) {
-        let fields = NewSessionField.allCases
+        let fields = NewSessionField.formOrder.filter { $0 != .effort || hasEffortLevels }
         guard let index = fields.firstIndex(of: focusedField) else {
             focusedField = .path
             return
@@ -354,14 +438,15 @@ public struct NewSessionFormModel: Equatable {
             // single-agent list doesn't needlessly drop an already-resolved
             // list.
             if selectedAgent != previousAgent {
+                modelTextEdited = false
                 resetModelOptions()
                 resetEffortOptions()
             }
-        case .model:
-            selectedModelIndex = cycleOptionalIndex(selectedModelIndex, delta: delta, count: modelOptions.count)
+        case .effort:
+            cycleReasoningEffort(delta)
         case .color:
             selectedColorIndex = wrapped(selectedColorIndex + delta, count: colors.count)
-        case .path, .title, .prompt:
+        case .path, .title, .model, .prompt:
             break
         }
     }

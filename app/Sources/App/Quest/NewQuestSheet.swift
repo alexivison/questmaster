@@ -6,22 +6,24 @@ import SwiftUI
 final class NewQuestSheetPresenter: ObservableObject {
     @Published var presentation: NewQuestSheetPresentation?
 
+    /// `initialProject`: the project whose path prefills the field, the current session's repo for a new
+    /// quest and the quest's own when editing.
     func present(
-        projects: [NewQuestProjectOption],
-        selectedProjectID: String,
+        initialProject: NewQuestProjectOption?,
         initialContent: String = "",
         questID: String = "",
         sessionID: String?,
         mutationClient: ServeMutationSending,
+        directoryClient: ServeDirectorySuggesting?,
         onSuccess: @escaping () -> Void
     ) {
         presentation = NewQuestSheetPresentation(
-            projects: projects,
-            selectedProjectID: selectedProjectID,
+            initialProject: initialProject,
             initialContent: initialContent,
             questID: questID,
             sessionID: sessionID ?? "",
             mutationClient: mutationClient,
+            directoryClient: directoryClient,
             onSuccess: onSuccess
         )
     }
@@ -33,99 +35,109 @@ final class NewQuestSheetPresenter: ObservableObject {
 
 struct NewQuestSheetPresentation: Identifiable {
     let id = UUID()
-    let projects: [NewQuestProjectOption]
-    let selectedProjectID: String
+    let initialProject: NewQuestProjectOption?
     let initialContent: String
     let questID: String
     let sessionID: String
     let mutationClient: ServeMutationSending
+    let directoryClient: ServeDirectorySuggesting?
     let onSuccess: () -> Void
 }
 
+/// new-quest.svg: the project path (with its directory dropdown) and the content filling the rest.
 struct NewQuestSheetView: View {
     @StateObject private var model: NewQuestSheetModel
 
     init(presentation: NewQuestSheetPresentation, dismiss: @escaping () -> Void) {
-        _model = StateObject(wrappedValue: NewQuestSheetModel(presentation: presentation, dismiss: dismiss))
+        self.init(model: NewQuestSheetModel(presentation: presentation, dismiss: dismiss))
+    }
+
+    init(model: NewQuestSheetModel) {
+        _model = StateObject(wrappedValue: model)
     }
 
     var body: some View {
-        ModalSheetScaffold(
+        ModalFormSheet(
             title: model.title,
-            footerText: model.footerText,
-            errorMessage: model.model.errorMessage,
-            errorHeight: 24,
-            cancelLabel: "Cancel",
-            onCancel: { model.cancel() },
+            errorMessage: model.form.errorMessage,
             primaryLabel: model.actionTitle,
+            canSubmit: model.form.canSubmit,
+            onCancel: { model.cancel() },
             onPrimary: { model.submit() }
         ) {
-            projectRow
-            contentRow
+            VStack(spacing: 20) {
+                pathField
+                    .zIndex(1)
+                contentBox
+            }
         }
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
         .scoopedPanel()
         .background(SheetKeyEventMonitor { model.handle($0) })
+        .onAppear { model.present() }
+        .onDisappear { model.disappear() }
     }
 
-    private var projectRow: some View {
-        ModalSelectRow(
-            label: "Project",
-            labelWidth: 64,
-            title: model.projectTitle,
-            note: "the realm this quest belongs to",
-            swatchColor: nil,
-            focused: model.model.focusedField == .project,
-            disabled: model.model.submitting,
-            controlWidth: 220,
-            onSelect: { model.focus(.project) }
+    private var pathField: some View {
+        FormTextField(
+            text: Binding(get: { model.form.path }, set: { model.pathChanged($0) }),
+            placeholder: "Path to project...",
+            focusNonce: model.pathFocusNonce,
+            focused: model.form.focusedField == .path,
+            onFocusChanged: { focused in
+                if focused {
+                    model.focusedByClick(.path)
+                }
+            }
         )
+        .suggestionDropdown(model.showsPathSuggestions ? SuggestionDropdown(
+            rows: model.paths.items,
+            highlightedIndex: model.paths.highlightedIndex,
+            onSelect: { model.selectPath(model.paths.items[$0]) }
+        ) : nil)
     }
 
-    private var contentRow: some View {
-        ModalFormRow(label: "Content", labelWidth: 64, topAligned: true, fill: true) {
-            ModalPromptEditor(
-                text: Binding(get: { model.model.content }, set: { model.model.content = $0 }),
-                placeholder: "describe the deed to be done",
-                isEditable: !model.model.submitting,
-                isFocused: model.model.focusedField == .content,
-                createKey: Keymap.NewSession.create,
-                onFocus: { model.focus(.content) },
-                onCreate: { model.submit() }
-            )
-            .background(AppPalette.panelAlt.swiftUI)
-            .clipShape(RoundedRectangle(cornerRadius: Token.Radius.control))
-            .focusedControlBorder(focused: model.model.focusedField == .content)
-            .frame(maxHeight: .infinity)
-        }
+    private var contentBox: some View {
+        ModalPromptEditor(
+            text: Binding(get: { model.form.content }, set: { model.form.content = $0 }),
+            placeholder: "The contents of the quest",
+            isEditable: !model.form.submitting,
+            isFocused: model.form.focusedField == .content,
+            createKey: Keymap.NewSession.create,
+            onFocus: { model.focusedByClick(.content) },
+            onCreate: { model.submit() }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
+        .fieldChrome(focused: model.form.focusedField == .content)
+        .frame(maxHeight: .infinity)
     }
 }
 
 @MainActor
 final class NewQuestSheetModel: ObservableObject {
-    @Published var model: NewQuestFormModel
+    @Published var form: NewQuestFormModel
+    @Published var paths = SuggestionList()
+    @Published private(set) var pathFocusNonce = 0
 
     private let mutationClient: ServeMutationSending
+    private let pathSuggester: PathSuggester
     private let questID: String
     private let sessionID: String
     private let onSuccess: () -> Void
     private let dismiss: () -> Void
 
     init(presentation: NewQuestSheetPresentation, dismiss: @escaping () -> Void) {
-        model = NewQuestFormModel(
+        form = NewQuestFormModel(
             content: presentation.initialContent,
-            projects: presentation.projects,
-            selectedProjectID: presentation.selectedProjectID
+            initialProject: presentation.initialProject,
+            isEditing: !presentation.questID.isEmpty
         )
         questID = presentation.questID
         mutationClient = presentation.mutationClient
+        pathSuggester = PathSuggester(client: presentation.directoryClient)
         sessionID = presentation.sessionID
         onSuccess = presentation.onSuccess
         self.dismiss = dismiss
-    }
-
-    var projectTitle: String {
-        model.selectedProject?.projectName ?? "No project"
     }
 
     var title: String {
@@ -136,19 +148,65 @@ final class NewQuestSheetModel: ObservableObject {
         questID.isEmpty ? "Inscribe" : "Amend"
     }
 
+    var showsPathSuggestions: Bool {
+        form.focusedField == .path && paths.isVisible
+    }
+
+    func present() {
+        focus(form.focusedField)
+    }
+
+    func disappear() {
+        pathSuggester.cancel()
+        paths.clear()
+    }
+
     func cancel() {
+        disappear()
         dismiss()
     }
 
-    var footerText: String {
-        NewQuestSheetFooterText.text(isEditing: !questID.isEmpty, submitting: model.submitting)
-    }
-
+    /// Moves keyboard focus to `field`.
     func focus(_ field: NewQuestField) {
-        guard !model.submitting else {
+        guard !form.submitting else {
             return
         }
-        model.focusedField = field
+        form.focusedField = field
+        guard field == .path else {
+            return
+        }
+        pathFocusNonce += 1
+        requestPathSuggestions()
+    }
+
+    /// A click already put the caret there.
+    func focusedByClick(_ field: NewQuestField) {
+        guard !form.submitting, form.focusedField != field else {
+            return
+        }
+        form.focusedField = field
+        if field == .path {
+            requestPathSuggestions()
+        }
+    }
+
+    func pathChanged(_ path: String) {
+        form.path = path
+        paths.clear()
+        pathSuggester.requestDebounced(path) { [weak self] rows in
+            self?.paths.show(rows)
+        }
+    }
+
+    func selectPath(_ path: String) {
+        form.path = path
+        focus(.path)
+    }
+
+    private func requestPathSuggestions(recentsOnly: Bool = false) {
+        pathSuggester.request(form.path, recentsOnly: recentsOnly) { [weak self] rows in
+            self?.paths.show(rows)
+        }
     }
 
     func handle(_ event: NSEvent) -> Bool {
@@ -156,52 +214,92 @@ final class NewQuestSheetModel: ObservableObject {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let control = flags.contains(.control)
         let option = flags.contains(.option)
-        if event.keyCode == 53 {
-            dismiss()
+        if Keymap.NewSession.cancel.matches(event.keyCode) {
+            if showsPathSuggestions {
+                paths.dismiss()
+            } else {
+                cancel()
+            }
             return true
         }
-        if event.modifierFlags.contains(.command) {
-            return false
-        }
-        if model.submitting {
-            return true
-        }
-        if option, Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
-            model.moveFocus(1)
-            return true
-        }
-        if control, Keymap.NewSession.nextField.matches(chars) {
-            model.moveFocus(1)
-            return true
-        }
-        if control, Keymap.NewSession.previousField.matches(chars) {
-            model.moveFocus(-1)
-            return true
-        }
-        if control, Keymap.NewSession.createFromPrompt.matches(chars), model.focusedField == .content {
+        if flags.contains(.command) {
+            guard Keymap.NewSession.create.matches(chars) else {
+                return false
+            }
             submit()
             return true
         }
-        if model.focusedField == .project {
-            if Keymap.NewSession.selectLeft.matches(event.keyCode) || Keymap.NewSession.selectLeftCharacter.matches(chars) {
-                model.cycleProject(-1)
-                return true
+        if form.submitting {
+            return true
+        }
+        if (option && Keymap.NewSession.nextFieldOption.matches(event.keyCode))
+            || (control && (Keymap.NewSession.nextField.matches(chars) || Keymap.NewSession.previousField.matches(chars))) {
+            moveFocus()
+            return true
+        }
+        if control, Keymap.NewSession.recentPaths.matches(chars), form.focusedField == .path {
+            requestPathSuggestions(recentsOnly: true)
+            return true
+        }
+        if control, Keymap.NewSession.createFromPrompt.matches(chars), form.focusedField == .content {
+            submit()
+            return true
+        }
+        guard form.focusedField == .path else {
+            return false
+        }
+        if Keymap.NewSession.completePath.matches(event.keyCode) {
+            if flags.contains(.shift) {
+                moveFocus()
+            } else {
+                completePath()
             }
-            if Keymap.NewSession.selectRight.matches(event.keyCode) || Keymap.NewSession.selectRightCharacter.matches(chars) {
-                model.cycleProject(1)
-                return true
-            }
+            return true
+        }
+        if showsPathSuggestions, Keymap.NewSession.suggestionUp.matches(event.keyCode) || Keymap.NewSession.suggestionDown.matches(event.keyCode) {
+            paths.moveHighlight(Keymap.NewSession.suggestionUp.matches(event.keyCode) ? -1 : 1)
+            return true
+        }
+        if Keymap.NewSession.create.matches(chars) {
+            submit()
+            return true
         }
         return false
     }
 
-    func submit() {
-        guard !model.submitting, let payload = model.submitPayload() else {
+    private func moveFocus() {
+        form.moveFocus(1)
+        focus(form.focusedField)
+    }
+
+    private func completePath() {
+        if showsPathSuggestions, let highlighted = paths.highlighted {
+            form.path = highlighted
+            requestPathSuggestions()
             return
         }
-        model.submitting = true
+        let completed = PathSuggester.localCompletion(form.path)
+        guard completed != form.path else {
+            moveFocus()
+            return
+        }
+        form.path = completed
+        requestPathSuggestions()
+    }
+
+    func submit() {
+        guard !form.submitting else {
+            return
+        }
+        paths.clear()
+        guard let payload = form.submitPayload() else {
+            return
+        }
+        form.submitting = true
         do {
-            let request = try mutationRequest(for: payload)
+            let request = questID.isEmpty
+                ? try ServeMutationRequests.questAdd(payload, sessionID: sessionID)
+                : try ServeMutationRequests.questEdit(questID: questID, payload: payload)
             mutationClient.send(request) { [weak self] result in
                 DispatchQueue.main.async {
                     guard let self else {
@@ -212,30 +310,14 @@ final class NewQuestSheetModel: ObservableObject {
                         self.onSuccess()
                         self.dismiss()
                     case .failure(let error):
-                        self.model.submitting = false
-                        self.model.errorMessage = error.localizedDescription
+                        self.form.submitting = false
+                        self.form.errorMessage = error.localizedDescription
                     }
                 }
             }
         } catch {
-            model.submitting = false
-            model.errorMessage = error.localizedDescription
+            form.submitting = false
+            form.errorMessage = error.localizedDescription
         }
-    }
-
-    private func mutationRequest(for payload: NewQuestSubmitPayload) throws -> ServeMutationRequest {
-        if questID.isEmpty {
-            return try ServeMutationRequests.questAdd(payload, sessionID: sessionID)
-        }
-        return try ServeMutationRequests.questEdit(questID: questID, payload: payload)
-    }
-}
-
-enum NewQuestSheetFooterText {
-    static func text(isEditing: Bool, submitting: Bool) -> String {
-        guard submitting else {
-            return ""
-        }
-        return isEditing ? "Saving…" : "Creating…"
     }
 }

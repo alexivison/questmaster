@@ -1,12 +1,8 @@
 import Foundation
 
 public enum NewQuestField: CaseIterable, Equatable {
-    case project
+    case path
     case content
-
-    public var isSelect: Bool {
-        self == .project
-    }
 }
 
 public struct NewQuestProjectOption: Equatable, Identifiable {
@@ -27,48 +23,57 @@ public struct NewQuestSubmitPayload: Equatable {
     public var projectID: String
     public var projectPath: String
     public var projectName: String
+    /// False when an edit leaves the quest's project as it was, so the edit sends content only.
+    public var projectChanged: Bool
 
-    public init(content: String, projectID: String = "", projectPath: String = "", projectName: String = "") {
+    public init(content: String, projectID: String = "", projectPath: String = "", projectName: String = "", projectChanged: Bool = true) {
         self.content = content
         self.projectID = projectID
         self.projectPath = projectPath
         self.projectName = projectName
+        self.projectChanged = projectChanged
     }
 }
 
+/// The New Quest / Edit Quest form: a project path and the quest's content.
 public struct NewQuestFormModel: Equatable {
+    public var path: String
     public var content: String
     public var focusedField: NewQuestField
     public var submitting: Bool
     public var errorMessage: String?
-    public private(set) var projects: [NewQuestProjectOption]
-    public private(set) var selectedProjectIndex: Int
+    /// The project the form opened with: the current session's repo for a new quest, the quest's own
+    /// when editing. Its path prefills the field.
+    public let initialProject: NewQuestProjectOption?
+    public let isEditing: Bool
 
-    public init(
-        content: String = "",
-        projects: [NewQuestProjectOption] = [],
-        selectedProjectID: String = ""
-    ) {
+    public init(content: String = "", initialProject: NewQuestProjectOption? = nil, isEditing: Bool = false) {
         self.content = content
-        focusedField = .content
+        self.initialProject = initialProject
+        self.isEditing = isEditing
+        path = initialProject?.projectPath ?? ""
+        focusedField = path.isEmpty ? .path : .content
         submitting = false
         errorMessage = nil
-        self.projects = projects
-        selectedProjectIndex = projects.firstIndex { $0.projectID == selectedProjectID } ?? 0
     }
 
-    public var selectedProject: NewQuestProjectOption? {
-        guard projects.indices.contains(selectedProjectIndex) else {
-            return nil
-        }
-        return projects[selectedProjectIndex]
+    /// A new quest needs a path and content. An edit can leave a quest that has no project without one.
+    public var canSubmit: Bool {
+        !submitting && missingField == nil
     }
 
-    public mutating func cycleProject(_ delta: Int) {
-        guard !projects.isEmpty else {
-            return
+    private var missingField: String? {
+        if Self.clean(content).isEmpty {
+            return "content"
         }
-        selectedProjectIndex = wrapped(selectedProjectIndex + delta, count: projects.count)
+        if Self.clean(path).isEmpty && !(isEditing && pathUnchanged) {
+            return "path"
+        }
+        return nil
+    }
+
+    private var pathUnchanged: Bool {
+        Self.clean(path) == Self.clean(initialProject?.projectPath ?? "")
     }
 
     public mutating func moveFocus(_ delta: Int) {
@@ -88,20 +93,29 @@ public struct NewQuestFormModel: Equatable {
         errorMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The opening project while its path is untouched. A typed path goes alone: serve gives it the id
+    /// and name `quest add --project` would.
     public mutating func submitPayload() -> NewQuestSubmitPayload? {
-        let cleanContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanContent.isEmpty else {
-            errorMessage = "content is required"
+        if let missingField {
+            errorMessage = "\(missingField) is required"
             return nil
         }
         errorMessage = nil
-        let project = selectedProject
-        return NewQuestSubmitPayload(
-            content: cleanContent,
-            projectID: project?.projectID ?? "",
-            projectPath: project?.projectPath ?? "",
-            projectName: project?.projectName ?? ""
-        )
+        let content = Self.clean(content)
+        if pathUnchanged, let initialProject {
+            return NewQuestSubmitPayload(
+                content: content,
+                projectID: initialProject.projectID,
+                projectPath: initialProject.projectPath,
+                projectName: initialProject.projectName,
+                projectChanged: !isEditing
+            )
+        }
+        return NewQuestSubmitPayload(content: content, projectPath: Self.clean(path), projectChanged: !(isEditing && pathUnchanged))
+    }
+
+    private static func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
