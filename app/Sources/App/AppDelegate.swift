@@ -226,9 +226,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else {
                 return
             }
-            self.dockCoordinator.mutate(self.runtimeStore.currentTerminalSessionID) {
-                $0.dockPreferredWidth = width
-            }
+            self.dockCoordinator.state.dockPreferredWidth = width
         }
         handles.dockView.onControlDirection = { [weak self] direction in
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
@@ -266,18 +264,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else {
                 return
             }
-            self.dockCoordinator.updateSelectedArtifact(artifactID, sessionID: self.runtimeStore.currentTerminalSessionID)
+            self.dockCoordinator.state.selectedArtifactID = artifactID
         }
         handles.dockView.onDeleteArtifacts = { [weak self] artifacts in self?.deleteArtifacts(artifacts) }
         handles.dockView.onArtifactFilterChange = { [weak self] query, tokens in
             guard let self else {
                 return
             }
-            self.dockCoordinator.updateArtifactFilter(
-                query: query,
-                tokens: tokens,
-                sessionID: self.runtimeStore.currentTerminalSessionID
-            )
+            self.dockCoordinator.state.artifactFilterQuery = query
+            self.dockCoordinator.state.artifactFilterTokens = tokens
         }
         handles.dockView.onCopyArtifactPath = { [weak self] in
             self?.toastPresenter.show("Copied artifact path")
@@ -393,7 +388,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func syncWorkerChat() {
         let sessionID = runtimeStore.currentTerminalSessionID
-        let isChatDockOpen = navigation.dockVisible && dockCoordinator.state(for: sessionID).dockContent == .workerChat
+        let isChatDockOpen = navigation.dockVisible && dockCoordinator.state.dockContent == .workerChat
         workerChatController.sync(
             selectedSessionID: sessionID,
             sessions: isChatDockOpen ? runtimeStore.snapshot.tracker.repos.flatMap(\.sessions) : [],
@@ -452,8 +447,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleDock() {
-        let desired = dockCoordinator.state(for: runtimeStore.currentTerminalSessionID)
-        if DockCommandRouting.shouldHideArtifactDock(isDockVisible: navigation.dockVisible, content: desired.dockContent) {
+        if DockCommandRouting.shouldHideArtifactDock(isDockVisible: navigation.dockVisible, content: dockCoordinator.state.dockContent) {
             hideDock()
             return
         }
@@ -476,7 +470,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             renderSnapshot()
             return
         }
-        dockCoordinator.showDockContent(content, sessionID: runtimeStore.currentTerminalSessionID)
+        dockCoordinator.state.show(content)
         let outcome = focusDock ? navigation.focus(.dock) : navigation.showDockPreservingFocus()
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         if focusDock {
@@ -493,14 +487,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             renderSnapshot()
             return
         }
-        dockCoordinator.showArtifact(artifactID, sessionID: runtimeStore.currentTerminalSessionID)
+        dockCoordinator.state.showArtifact(artifactID)
         let outcome = navigation.focus(.dock)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     private func setArtifactScope(_ scope: ArtifactScope) {
-        dockCoordinator.setArtifactScope(scope, sessionID: runtimeStore.currentTerminalSessionID)
+        dockCoordinator.state.setArtifactScope(scope)
         renderSnapshot()
     }
 
@@ -583,8 +577,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleWorkerChatDock() {
         if navigation.dockVisible {
-            let desired = dockCoordinator.state(for: runtimeStore.currentTerminalSessionID)
-            if desired.dockContent == .workerChat {
+            if dockCoordinator.state.dockContent == .workerChat {
                 hideDock()
                 return
             }
@@ -702,7 +695,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let outcome: NavigationOutcome
         if navigation.dockVisible {
             outcome = navigation.toggleDock()
-            dockCoordinator.recordDockVisibility(navigation.dockVisible, sessionID: runtimeStore.currentTerminalSessionID)
+            dockCoordinator.state.dockVisible = navigation.dockVisible
         } else {
             outcome = navigation.focus(.terminal)
         }

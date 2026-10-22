@@ -42,7 +42,6 @@ enum LogicSelfTests {
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingRequiresASession", testDockContentRoutingRequiresASession),
         ("testArtifactDockCommandSwitchesFromWorkerChat", testArtifactDockCommandSwitchesFromWorkerChat),
-        ("testDockCoordinatorIgnoresNoSessionState", testDockCoordinatorIgnoresNoSessionState),
         ("testModalsPresentInsideTheWindowNotAsSystemSheets", testModalsPresentInsideTheWindowNotAsSystemSheets),
         ("testModalStackClosesTheTopModalFirstAndRestoresFocus", testModalStackClosesTheTopModalFirstAndRestoresFocus),
         ("testShellFocusRequestsWaitForTheModals", testShellFocusRequestsWaitForTheModals),
@@ -57,7 +56,7 @@ enum LogicSelfTests {
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
-        ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
+        ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
@@ -1149,7 +1148,7 @@ enum LogicSelfTests {
 
         let beforeChat = publishCount
         _ = model.apply(
-            SessionViewState(dockContent: .workerChat),
+            DockState(dockContent: .workerChat),
             snapshot: snapshot,
             preferredArtifactSessionID: nil
         )
@@ -1158,7 +1157,7 @@ enum LogicSelfTests {
 
         let beforeArtifacts = publishCount
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList),
+            DockState(dockContent: .artifactList),
             snapshot: snapshot,
             preferredArtifactSessionID: nil
         )
@@ -1178,18 +1177,18 @@ enum LogicSelfTests {
 
         let coordinator = DockCoordinator()
         let model = DockPaneModel()
-        model.onSelectedArtifactChange = { coordinator.updateSelectedArtifact($0, sessionID: "qm-a") }
+        model.onSelectedArtifactChange = { coordinator.state.selectedArtifactID = $0 }
 
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList, selectedArtifactID: first.id),
+            DockState(dockContent: .artifactList, selectedArtifactID: first.id),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
         try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should select the next artifact")
-        try expect(coordinator.state(for: "qm-a").selectedArtifactID == second.id, "artifact selection should persist before the next render")
+        try expect(coordinator.state.selectedArtifactID == second.id, "artifact selection should persist before the next render")
 
         _ = model.apply(
-            coordinator.state(for: "qm-a"),
+            coordinator.state,
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -1229,7 +1228,7 @@ enum LogicSelfTests {
 
         let model = DockPaneModel()
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList, selectedArtifactID: first.id),
+            DockState(dockContent: .artifactList, selectedArtifactID: first.id),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -1263,7 +1262,7 @@ enum LogicSelfTests {
         func listModel() -> DockPaneModel {
             let model = DockPaneModel()
             _ = model.apply(
-                SessionViewState(dockContent: .artifactList, selectedArtifactID: artifacts[1].id),
+                DockState(dockContent: .artifactList, selectedArtifactID: artifacts[1].id),
                 snapshot: snapshot,
                 preferredArtifactSessionID: "qm-a"
             )
@@ -1305,7 +1304,7 @@ enum LogicSelfTests {
         var copied = false
         model.onCopyArtifactPath = { copied = true }
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList, selectedArtifactID: artifact.id),
+            DockState(dockContent: .artifactList, selectedArtifactID: artifact.id),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -1365,7 +1364,7 @@ enum LogicSelfTests {
         ])
         let model = DockPaneModel()
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList, selectedArtifactID: artifact.id),
+            DockState(dockContent: .artifactList, selectedArtifactID: artifact.id),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -1414,7 +1413,7 @@ enum LogicSelfTests {
         var deleted: [ArtifactReference] = []
         model.onDeleteArtifacts = { deleted = $0 }
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList, selectedArtifactID: artifact.id),
+            DockState(dockContent: .artifactList, selectedArtifactID: artifact.id),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -1446,7 +1445,7 @@ enum LogicSelfTests {
         var backCount = 0
         model.onShowArtifactListIntent = { backCount += 1 }
         _ = model.apply(
-            SessionViewState(dockContent: .artifactViewer, selectedArtifactID: artifact.id),
+            DockState(dockContent: .artifactViewer, selectedArtifactID: artifact.id),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -1491,7 +1490,7 @@ enum LogicSelfTests {
         var copied = false
         model.onCopyArtifactPath = { copied = true }
         _ = model.apply(
-            SessionViewState(dockContent: .artifactViewer, selectedArtifactID: artifact.id),
+            DockState(dockContent: .artifactViewer, selectedArtifactID: artifact.id),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -2290,25 +2289,45 @@ enum LogicSelfTests {
         try expect(host.isHidden, "the Quest Log host should hide once the fade-out ends")
     }
 
-    private static func testDockCoordinatorIgnoresNoSessionState() throws {
+    /// The dock's state is app-wide: through the real dock model, a session switch keeps the viewer on its artifact
+    /// and keeps the filter, and the Session list lists the new session's artifacts.
+    private static func testDockKeepsItsStateAcrossSessionSwitches() throws {
+        let a1 = ArtifactReference(kind: "html", path: "/tmp/a1.html", label: "A1", sessionID: "qm-a", addedAt: "")
+        let b1 = ArtifactReference(kind: "html", path: "/tmp/b1.html", label: "B1", sessionID: "qm-b", addedAt: "")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(
+            repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [
+                TrackerSession(id: "qm-a", title: "A", repoName: "Repo", workerCount: 0, isCurrent: true, artifacts: [a1]),
+                TrackerSession(id: "qm-b", title: "B", repoName: "Repo", workerCount: 0, isCurrent: false, artifacts: [b1]),
+            ])]
+        )
         let coordinator = DockCoordinator()
-        coordinator.showDockContent(.artifactList, sessionID: nil)
-        coordinator.recordDockVisibility(true, sessionID: nil)
-        try expect(coordinator.state(for: nil) == .initial, "without a session the dock should stay at its hidden default")
-    }
+        let model = DockPaneModel()
+        model.onSelectedArtifactChange = { coordinator.state.selectedArtifactID = $0 }
+        model.onArtifactFilterChange = { query, tokens in
+            coordinator.state.artifactFilterQuery = query
+            coordinator.state.artifactFilterTokens = tokens
+        }
 
-    private static func testDockCoordinatorShowsWorkerChatPerSession() throws {
-        let coordinator = DockCoordinator()
+        coordinator.state.showArtifact(a1.id)
+        _ = model.apply(coordinator.state, snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        let before = coordinator.state
+        _ = model.apply(coordinator.state, snapshot: snapshot, preferredArtifactSessionID: "qm-b")
+        try expect(coordinator.state == before, "a session switch should leave the dock state as it was, got \(coordinator.state)")
+        try expect(model.artifactModel.displayState == .viewing(a1), "the viewer should stay on A's artifact in B, got \(model.artifactModel.displayState)")
 
-        coordinator.showDockContent(.workerChat, sessionID: nil)
-        try expect(coordinator.state(for: nil) == .initial, "worker chat should not create no-session dock state")
+        coordinator.state.setArtifactScope(.all)
+        _ = model.apply(coordinator.state, snapshot: snapshot, preferredArtifactSessionID: "qm-b")
+        model.setArtifactFilterQuery("a1")
+        try expect(coordinator.state.artifactFilterQuery == "a1", "the filter should reach the dock state")
+        _ = model.apply(coordinator.state, snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        try expect(model.artifactModel.artifactFilterQuery == "a1", "a session switch should keep the filter")
 
-        coordinator.mutate("qm-master") { $0.selectedArtifactID = "artifact-1" }
-        coordinator.showDockContent(.workerChat, sessionID: "qm-master")
-        let state = coordinator.state(for: "qm-master")
-        try expect(state.dockVisible && state.dockContent == .workerChat, "worker chat should open for its session")
-        try expect(state.selectedArtifactID == nil, "opening worker chat should clear the artifact selection")
-        try expect(coordinator.state(for: "qm-other") == .initial, "worker chat should not leak into another session")
+        coordinator.state.setArtifactScope(.session)
+        _ = model.apply(coordinator.state, snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        try expect(model.artifactModel.artifacts == [a1], "the Session list should list A's artifacts")
+        _ = model.apply(coordinator.state, snapshot: snapshot, preferredArtifactSessionID: "qm-b")
+        try expect(model.artifactModel.artifacts == [b1], "the Session list should follow the switch to B")
     }
 
     private static func testArtifactDockAllFiltersUseVisibleList() throws {
@@ -2387,7 +2406,7 @@ enum LogicSelfTests {
 
         let model = DockPaneModel()
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            DockState(dockContent: .artifactList, artifactScope: .all),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -2413,12 +2432,12 @@ enum LogicSelfTests {
         )
 
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList, selectedArtifactID: screenshot.id, artifactScope: .all),
+            DockState(dockContent: .artifactList, selectedArtifactID: screenshot.id, artifactScope: .all),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
         _ = model.apply(
-            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            DockState(dockContent: .artifactList, artifactScope: .all),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -2426,7 +2445,7 @@ enum LogicSelfTests {
 
         let commandModel = DockPaneModel()
         _ = commandModel.apply(
-            SessionViewState(dockContent: .artifactList, artifactScope: .all),
+            DockState(dockContent: .artifactList, artifactScope: .all),
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
@@ -2481,50 +2500,39 @@ enum LogicSelfTests {
         model.setArtifactFilterQuery("plan")
         try expect(model.artifactModel.artifacts.isEmpty, "query/project/type filters should combine")
 
-        _ = model.apply(
-            SessionViewState(dockContent: .artifactList, artifactScope: .session),
-            snapshot: snapshot,
-            preferredArtifactSessionID: "qm-a"
+        // From here the model renders the app-wide dock state, as the shell does: its filter edits report back to it.
+        let coordinator = DockCoordinator()
+        coordinator.state = DockState(
+            dockContent: .artifactList,
+            artifactScope: .all,
+            artifactFilterQuery: model.artifactModel.artifactFilterQuery,
+            artifactFilterTokens: model.artifactModel.artifactFilterTokens
         )
+        model.onArtifactFilterChange = { query, tokens in
+            coordinator.state.artifactFilterQuery = query
+            coordinator.state.artifactFilterTokens = tokens
+        }
+        func render(scope: ArtifactScope, session: String) {
+            coordinator.state.artifactScope = scope
+            _ = model.apply(coordinator.state, snapshot: snapshot, preferredArtifactSessionID: session)
+        }
+
+        render(scope: .session, session: "qm-a")
         try expect(model.artifactModel.artifactFilterQuery == "plan", "leaving All should preserve query filter")
         try expect(model.artifactModel.artifactProjectFilterIDs == Set(["repo-b", "_misc"]), "leaving All should preserve project filters")
         try expect(model.artifactModel.artifactTypeFilterIDs.isEmpty, "leaving All should preserve cleared type filters")
         try expect(model.artifactModel.artifacts == [plan], "session scope should ignore persisted All filters")
 
-        _ = model.apply(
-            SessionViewState(dockContent: .artifactList, artifactScope: .all),
-            snapshot: snapshot,
-            preferredArtifactSessionID: "qm-a"
-        )
+        render(scope: .all, session: "qm-a")
         try expect(model.artifactModel.artifacts.isEmpty, "returning to All should reapply persisted filters")
 
-        _ = model.apply(
-            SessionViewState(dockContent: .artifactList, artifactScope: .all),
-            snapshot: snapshot,
-            preferredArtifactSessionID: "qm-b"
-        )
-        try expect(model.artifactModel.artifactFilterQuery.isEmpty, "switching sessions should not leak the previous session's filter query")
-        try expect(model.artifactModel.artifactFilterTokens.isEmpty, "switching sessions should not leak the previous session's filter tokens")
-
-        _ = model.apply(
-            SessionViewState(
-                dockContent: .artifactList,
-                artifactScope: .all,
-                artifactFilterQuery: "plan",
-                artifactFilterTokens: [
-                    ArtifactFilterToken(kind: .project, value: "repo-b", title: "Beta Repo"),
-                    ArtifactFilterToken(kind: .project, value: "_misc", title: "misc"),
-                ]
-            ),
-            snapshot: snapshot,
-            preferredArtifactSessionID: "qm-a"
-        )
-        try expect(model.artifactModel.artifactFilterQuery == "plan", "returning to a session should restore its own persisted filter query")
+        render(scope: .all, session: "qm-b")
+        try expect(model.artifactModel.artifactFilterQuery == "plan", "the filter is app-wide: switching sessions should keep its query")
         try expect(
             model.artifactModel.artifactProjectFilterIDs == Set(["repo-b", "_misc"]),
-            "returning to a session should restore its own persisted project filters"
+            "the filter is app-wide: switching sessions should keep its tokens"
         )
-        try expect(model.artifactModel.artifacts.isEmpty, "restored filters should reapply to the artifact list")
+        try expect(model.artifactModel.artifacts.isEmpty, "the kept filter should still apply in the other session")
     }
 
     private static func lineIndex(in lines: [String], containing text: String) throws -> Int {
