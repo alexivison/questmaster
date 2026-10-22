@@ -213,9 +213,24 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
     private var subscription: AnyCancellable?
     private var openCount = 0
     private var topID: AnyHashable?
-    private weak var focusBeforeModals: NSResponder?
-    /// What had focus in each modal when a child covered it, with a field's caret, so typing carries on.
-    private var focusUnderChild: [AnyHashable: (responder: NSResponder, caret: Int?)] = [:]
+    private var focusBeforeModals: FocusRecord?
+    /// What had focus in each modal when a child covered it.
+    private var focusUnderChild: [AnyHashable: FocusRecord] = [:]
+
+    /// A view that had focus, with a text field's whole selection, so typing carries on where it was.
+    private struct FocusRecord {
+        weak var responder: NSResponder?
+        let selection: NSRange?
+
+        /// `responder`: the focus target (a field, not its field editor).
+        init?(_ responder: NSResponder?) {
+            guard let responder else {
+                return nil
+            }
+            self.responder = responder
+            selection = (responder as? NSTextField)?.currentEditor()?.selectedRange
+        }
+    }
 
     init(stack: InWindowModalStack) {
         super.init(rootView: InWindowModalStackView(stack: stack))
@@ -260,17 +275,17 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
     private func entriesWillChange(to entries: [InWindowModalStack.Entry]) {
         let wasDrawing = !isHidden
         if !wasDrawing, !entries.isEmpty {
-            focusBeforeModals = Self.focusTarget(window?.firstResponder)
+            focusBeforeModals = FocusRecord(Self.focusTarget(window?.firstResponder))
         }
         isHidden = entries.isEmpty
         let open = entries.filter { !$0.closing }
         let nextTopID = open.last?.id
-        if open.count > openCount, let topID, let responder = Self.focusTarget(window?.firstResponder) {
-            focusUnderChild[topID] = (responder, (responder as? NSTextField)?.currentEditor()?.selectedRange.location)
+        if open.count > openCount, let topID, let record = FocusRecord(Self.focusTarget(window?.firstResponder)) {
+            focusUnderChild[topID] = record
         }
         if open.count != openCount {
             let uncovered = nextTopID.flatMap { focusUnderChild[$0] }
-            if !refocus(uncovered?.responder, caret: uncovered?.caret) {
+            if !refocus(uncovered) {
                 window?.makeFirstResponder(self)
             }
         }
@@ -288,13 +303,16 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
         }
     }
 
-    private func refocus(_ responder: NSResponder?, caret: Int? = nil) -> Bool {
-        guard let view = responder as? NSView, let window, view.window === window, window.makeFirstResponder(view) else {
+    private func refocus(_ record: FocusRecord?) -> Bool {
+        guard let view = record?.responder as? NSView, let window, view.window === window, window.makeFirstResponder(view) else {
             return false
         }
-        // Taking focus selects a field's whole text; put the caret back so typing doesn't replace it.
-        if let caret, let editor = (view as? NSTextField)?.currentEditor() {
-            editor.selectedRange = NSRange(location: min(caret, (editor.string as NSString).length), length: 0)
+        // Taking focus selects a field's whole text; put its selection back, clamped to the text it has now, so
+        // typing doesn't replace it.
+        if let selection = record?.selection, let editor = (view as? NSTextField)?.currentEditor() {
+            let length = (editor.string as NSString).length
+            let location = min(selection.location, length)
+            editor.selectedRange = NSRange(location: location, length: min(selection.length, length - location))
         }
         return true
     }

@@ -47,6 +47,8 @@ enum LogicSelfTests {
         ("testModalStackClosesTheTopModalFirstAndRestoresFocus", testModalStackClosesTheTopModalFirstAndRestoresFocus),
         ("testShellFocusRequestsWaitForTheModals", testShellFocusRequestsWaitForTheModals),
         ("testClosingAChildRefocusesTheModalItUncovers", testClosingAChildRefocusesTheModalItUncovers),
+        ("testRestoringFocusAfterTheLastModalKeepsAFieldsCaret", testRestoringFocusAfterTheLastModalKeepsAFieldsCaret),
+        ("testClosingAChildKeepsTheUncoveredFieldsSelection", testClosingAChildKeepsTheUncoveredFieldsSelection),
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
@@ -1803,6 +1805,75 @@ enum LogicSelfTests {
             throw TestFailure("closing the child should refocus the filter, got \(String(describing: window.firstResponder))")
         }
         try expect(restored.string == "ab" && restored.selectedRange() == NSRange(location: 1, length: 0), "the filter should keep its text and caret, got \(restored.string) \(restored.selectedRange())")
+    }
+
+    /// A child closing gives the uncovered field back its whole selection, not just a caret at its start.
+    private static func testClosingAChildKeepsTheUncoveredFieldsSelection() throws {
+        let stack = InWindowModalStack()
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest", projectID: "p", projectName: "p")], repos: [])
+        let filter = QuestLogFilter()
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
+        let host = InWindowModalHost(stack: stack)
+        host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
+        window.contentView = host
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: filter, pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
+        settle()
+        filter.focus()
+        settle()
+        guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+            throw TestFailure("the filter should take focus, got \(String(describing: window.firstResponder))")
+        }
+        editor.insertText("abcd", replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: 1, length: 2))
+
+        stack.present(id: "new-quest", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        stack.dismiss(id: "new-quest")
+        settle()
+        guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor else {
+            throw TestFailure("closing the child should refocus the filter, got \(String(describing: window.firstResponder))")
+        }
+        try expect(restored.string == "abcd" && restored.selectedRange() == NSRange(location: 1, length: 2), "the filter should keep its selection, got \(restored.string) \(restored.selectedRange())")
+    }
+
+    /// A text field focused before the first modal (the artifact filter with "foo" typed, then ⌘T, then Esc)
+    /// gets its caret back once the last modal has faded, not all its text selected.
+    private static func testRestoringFocusAfterTheLastModalKeepsAFieldsCaret() throws {
+        let stack = InWindowModalStack()
+        let size = CGSize(width: 600, height: 400)
+        let window = HeadlessWindow(size: size)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        let field = NSTextField(frame: NSRect(x: 20, y: 20, width: 200, height: 24))
+        container.addSubview(field)
+        let host = InWindowModalHost(stack: stack)
+        host.frame = container.bounds
+        container.addSubview(host)
+        window.contentView = container
+        window.show(key: true)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        settle()
+        window.makeFirstResponder(field)
+        guard let editor = field.currentEditor() as? NSTextView else {
+            throw TestFailure("the field should take focus")
+        }
+        editor.insertText("foo", replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+
+        stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
+        settle()
+        try expect(window.firstResponder === host, "the modal should take the keys from the field")
+        stack.dismiss(id: "modal")
+        settle()
+        guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor, restored.delegate as? NSTextField === field else {
+            throw TestFailure("the last modal fading should refocus the field, got \(String(describing: window.firstResponder))")
+        }
+        try expect(restored.string == "foo" && restored.selectedRange() == NSRange(location: 1, length: 0), "the field should keep its text and caret, got \(restored.string) \(restored.selectedRange())")
     }
 
     /// The log is rebuilt per opening; it opens scrolled to the selection it kept, not at the top.
