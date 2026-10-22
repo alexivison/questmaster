@@ -95,7 +95,7 @@ private final class ToastHostingView: NSHostingView<ToastBanner> {
     }
 }
 
-private struct ToastBanner: View {
+struct ToastBanner: View {
     let message: String
 
     var body: some View {
@@ -109,12 +109,9 @@ private struct ToastBanner: View {
         .frame(maxWidth: 360, alignment: .leading)
         .borderedCard(
             fill: AppPalette.panel.withAlphaComponent(0.88),
-            borderColor: AppPalette.accent.withAlphaComponent(0.42)
+            borderColor: AppPalette.lineSoftSubtle,
+            lineWidth: ScoopedRectangle.borderWidth
         )
-        .overlay(
-            SideCardOrnaments()
-        )
-        .shadow(color: AppPalette.window.withAlphaComponent(0.45).swiftUI, radius: 10, y: 4)
         .help(message)
     }
 }

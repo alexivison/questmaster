@@ -53,7 +53,12 @@ struct SectionedList<Content: View>: View {
                 guard scrollOnSelectionChange else {
                     return
                 }
-                scheduleScroll(with: proxy, id: nextID)
+                switch PointerHighlight.cursor.scrollStep(to: nextID) {
+                case .scroll:
+                    scheduleScroll(with: proxy, id: nextID)
+                case .cancelQueued:
+                    scrollDebounceTask?.cancel()
+                }
             }
             .onChange(of: scrollTarget) { _, next in
                 scheduleScroll(with: proxy, id: next?.id)
@@ -215,25 +220,30 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     /// visible edges are live while the layout spacing stays the frame's.
     let hitOutset: CGFloat
     var onTap: (() -> Void)?
+    /// The pointer moved onto the row, for a list whose cursor hover moves (the focused tracker).
+    var onHighlight: (() -> Void)?
     private let leadingDecoration: () -> LeadingDecoration
-    private let background: (_ selected: Bool, _ hovered: Bool) -> Background
+    private let background: (_ selected: Bool, _ pointerOver: Bool) -> Background
     private let content: () -> Content
 
-    @State private var isHovered = false
+    /// Whether the pointer is over the row: the tracker shows its cursor there even while it lacks focus.
+    @State private var isPointerOver = false
 
     init(
         selected: Bool,
         leadingInset: CGFloat,
         hitOutset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
+        onHighlight: (() -> Void)? = nil,
         @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
-        @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
+        @ViewBuilder background: @escaping (_ selected: Bool, _ pointerOver: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.selected = selected
         self.leadingInset = leadingInset
         self.hitOutset = hitOutset
         self.onTap = onTap
+        self.onHighlight = onHighlight
         self.leadingDecoration = leadingDecoration
         self.background = background
         self.content = content
@@ -253,12 +263,17 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
         content()
             .padding(.leading, leadingInset)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(background(selected, isHovered))
+            .background(background(selected, isPointerOver))
             .overlay(alignment: .leading) {
                 leadingDecoration()
             }
             .contentShape(VerticallyOutsetRectangle(outset: hitOutset))
-            .onHover { isHovered = $0 }
+            .onHover { isPointerOver = $0 }
+            .highlightOnHover {
+                if !selected {
+                    onHighlight?()
+                }
+            }
     }
 }
 
@@ -267,13 +282,15 @@ extension ListRow where LeadingDecoration == EmptyView {
         selected: Bool,
         leadingInset: CGFloat = 0,
         onTap: (() -> Void)? = nil,
-        @ViewBuilder background: @escaping (_ selected: Bool, _ hovered: Bool) -> Background,
+        onHighlight: (() -> Void)? = nil,
+        @ViewBuilder background: @escaping (_ selected: Bool, _ pointerOver: Bool) -> Background,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.init(
             selected: selected,
             leadingInset: leadingInset,
             onTap: onTap,
+            onHighlight: onHighlight,
             leadingDecoration: { EmptyView() },
             background: background,
             content: content

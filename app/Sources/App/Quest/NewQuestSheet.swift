@@ -116,7 +116,7 @@ struct NewQuestSheetView: View {
             rows: projects.map(\.displayName),
             highlightedIndex: model.form.visibleProjectHighlightIndex,
             onSelect: { model.selectProject(projects[$0]) },
-            accessory: { AnyView(SuggestionDropdown.meta(projects[$0].displayPath(home: home), truncation: .head)) }
+            accessory: { AnyView(SuggestionDropdown.meta(projects[$0].displayPath(home: home), look: $1, truncation: .head)) }
         )
     }
 
@@ -354,7 +354,8 @@ final class NewQuestSheetModel: ObservableObject {
                 guard Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) else {
                     return false
                 }
-                // Return keeps the typed path unless ↑/↓ chose a row; Tab takes the highlighted row.
+                // Return keeps the typed path unless ↑/↓ moved the highlight to a row (the pointer never does: it
+                // only shows the hover look); Tab completes from the highlighted row (completePath).
                 if showsDirectorySuggestions, paths.moved, let highlighted = paths.highlighted {
                     form.setProjectPath(highlighted)
                 }

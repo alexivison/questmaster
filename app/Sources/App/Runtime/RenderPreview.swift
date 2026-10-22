@@ -84,6 +84,8 @@ enum RenderPreview {
         render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
+        render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
+        render(hoverLooksView(), size: CGSize(width: 420, height: 230), to: "\(outputDir)/hover-looks.png")
         render(trackerColorGalleryView(), size: CGSize(width: 520, height: 500), to: "\(outputDir)/tracker-color-gallery.png")
         render(dockTopBarView(route: .list), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-list.png")
         render(dockTopBarView(route: .viewer), size: CGSize(width: 344, height: 40), to: "\(outputDir)/dock-top-bar-viewer.png")
@@ -93,6 +95,7 @@ enum RenderPreview {
         render(artifactListView(showFilter: true, suggesting: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter-suggestions.png")
         render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
+        render(artifactListView(focused: false), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list-unfocused.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
         render(QuestLogView(store: questLogStore(selecting: "dotfiles-1"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-nobody.png")
         render(QuestLogView(store: questLogStore(filteredTo: "questmaster"), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-filtered.png")
@@ -122,6 +125,9 @@ enum RenderPreview {
         renderView(modalWindowView(overQuestLog: true, newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-over-quest-log.png")
         // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
         render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
+        renderView(dockFrameView(focused: true), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-focused.png")
+        renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
+        render(ToastBanner(message: "Copied qm-1783901769").padding(20).background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         print("RenderPreview: done")
         exit(0)
@@ -151,6 +157,19 @@ enum RenderPreview {
         splitView.setDockVisible(true, animated: false)
         splitView.applyCanonicalLayout()
         return splitView
+    }
+
+    /// The dock alone on the window colour, with or without keyboard focus, for its frame.
+    @MainActor
+    private static func dockFrameView(focused: Bool) -> NSView {
+        let dock = DockShellView(body: SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+        dock.setFocused(focused)
+        dock.frame = NSRect(x: 20, y: 20, width: 344, height: 400)
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = AppPalette.window.cgColor
+        container.addSubview(dock)
+        return container
     }
 
     /// The full window shell with the action bar footer, for judging the window-centred
@@ -560,20 +579,21 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// One master plate per state, 80 points apart from y 20, then two worker plates 60 apart: idle, hovered, selected,
-    /// hovered with a working status, working, being recoloured, selected with a working status, blocked; a working
-    /// worker, and a hovered one. Hover is a view state, so the plates are drawn directly, with their logos.
+    /// One master plate per state, 80 points apart from y 20, then two worker plates 60 apart: idle, the cursor (the
+    /// tracker focused, or the plate under the pointer), the cursor in an unfocused tracker away from the pointer (no
+    /// band), the cursor on a working plate, working, being recoloured, recoloured under the cursor, blocked; a
+    /// working worker, and one under the cursor. The plates are drawn directly, with their logos.
     @MainActor
     private static func plateBandsView() -> some View {
         func status(_ state: String) -> NSColor {
             TrackerRenderer.status(for: TrackerSession(id: "s", title: "", repoName: "", agent: "codex", role: "master", state: state)).color
         }
-        let states: [(role: TrackerNameplateRole, selected: Bool, hovered: Bool, recoloring: Bool, status: NSColor?)] = [
-            (.master, false, false, false, nil), (.master, false, true, false, nil), (.master, true, false, false, nil),
-            (.master, false, true, false, status("working")), (.master, false, false, false, status("working")),
-            (.master, false, false, true, nil), (.master, true, false, false, status("working")),
-            (.master, false, false, false, status("blocked")),
-            (.worker, false, false, false, status("working")), (.worker, false, true, false, status("working")),
+        let states: [(role: TrackerNameplateRole, highlighted: Bool, focused: Bool, recoloring: Bool, status: NSColor?)] = [
+            (.master, false, true, false, nil), (.master, true, true, false, nil), (.master, true, false, false, nil),
+            (.master, true, true, false, status("working")), (.master, false, true, false, status("working")),
+            (.master, false, true, true, nil), (.master, true, true, true, nil),
+            (.master, false, true, false, status("blocked")),
+            (.worker, false, true, false, status("working")), (.worker, true, true, false, status("working")),
         ]
         let rowYs = states.reduce(into: [CGFloat(20)]) { ys, state in ys.append(ys.last! + (state.role == .master ? 80 : 60)) }
         return ZStack(alignment: .topLeading) {
@@ -582,8 +602,7 @@ enum RenderPreview {
                     TrackerNameplateBackground(
                         role: state.role,
                         color: AppPalette.displayColor("lime") ?? AppPalette.accent,
-                        selected: state.selected,
-                        hovered: state.hovered,
+                        showsCursor: PlateBand.showsCursor(highlighted: state.highlighted, areaFocused: state.focused),
                         isRecoloring: state.recoloring,
                         statusColor: state.status,
                         ring: state.status == nil ? .none : (state.status == status("blocked") ? .steady : .spinning(nil)),
@@ -593,6 +612,75 @@ enum RenderPreview {
                         .offset(x: state.role.portraitOrigin.x, y: state.role.portraitOrigin.y)
                 }
                 .offset(x: 20, y: rowYs[index])
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The pointer's hover look beside the keys' looks: a dropdown (shared chrome) with a resting row, the row under
+    /// the pointer and the keyboard row; Quest Log rows at rest, under the pointer and selected. Drawn from the looks,
+    /// as `stateRow` does.
+    @MainActor
+    private static func hoverLooksView() -> some View {
+        func row(_ title: String, _ look: RowLook, radius: CGFloat) -> some View {
+            BaselineText(title, font: look.bold ? AppFonts.questLogRowSelected : AppFonts.questLogBody, color: look.text.color, baseline: 20)
+                .padding(.horizontal, 10)
+                .frame(width: 180, height: 30, alignment: .topLeading)
+                .background {
+                    if let fill = look.fill {
+                        RoundedRectangle(cornerRadius: radius).fill(fill.color.swiftUI)
+                    }
+                    if let outline = look.outline {
+                        RoundedRectangle(cornerRadius: radius).strokeBorder(outline.color.swiftUI, lineWidth: Token.Size.divider)
+                    }
+                }
+        }
+        return HStack(alignment: .top, spacing: 20) {
+            VStack(spacing: 0) {
+                row("@project: rest", .rest, radius: 0)
+                row("@project: pointer", RowLook.rest.underPointer(true), radius: 0)
+                row("@project: keys", .highlighted, radius: 0)
+                row("@project: rest", .rest, radius: 0)
+            }
+            .padding(Token.Size.divider)
+            .background(AppPalette.window.swiftUI)
+            .clipShape(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius).strokeBorder(AppPalette.controlBorder.swiftUI, lineWidth: Token.Size.divider))
+            VStack(spacing: 5) {
+                row("Quest rest", .rest, radius: 3)
+                row("Quest pointer", RowLook.rest.underPointer(true), radius: 3)
+                row("Quest selected", .selected, radius: 3)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The cursor's plate three ways, 80 apart: the tracker focused; the tracker unfocused (no band); the tracker
+    /// unfocused with the pointer on the plate (the hover band, one step below the cursor's).
+    @MainActor
+    private static func trackerCursorView() -> some View {
+        let cases = [(focused: true, pointerOver: false), (focused: false, pointerOver: false), (focused: false, pointerOver: true)]
+        return ZStack(alignment: .topLeading) {
+            ForEach(Array(cases.enumerated()), id: \.offset) { index, state in
+                let showsCursor = PlateBand.showsCursor(highlighted: true, areaFocused: state.focused)
+                ZStack(alignment: .topLeading) {
+                    TrackerNameplateBackground(
+                        role: .master,
+                        color: AppPalette.displayColor("lime") ?? AppPalette.accent,
+                        showsCursor: showsCursor,
+                        pointerOver: state.pointerOver,
+                        isRecoloring: false,
+                        statusColor: nil,
+                        ring: .none,
+                        text: EmptyView()
+                    )
+                    TrackerAgentMark(agent: "codex", shortcutNumber: nil, diameter: TrackerNameplateRole.master.portraitDiameter, logoSide: TrackerNameplateRole.master.logoSide)
+                        .offset(x: TrackerNameplateRole.master.portraitOrigin.x, y: TrackerNameplateRole.master.portraitOrigin.y)
+                }
+                .offset(x: 20, y: 20 + CGFloat(index) * 80)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -815,7 +903,7 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    private static func artifactListView(selectMode: Bool = false, showFilter: Bool = false, suggesting: Bool = false) -> some View {
+    private static func artifactListView(selectMode: Bool = false, showFilter: Bool = false, suggesting: Bool = false, focused: Bool = true) -> some View {
         let artifacts = [
             ArtifactReference(
                 kind: "html",
@@ -859,6 +947,7 @@ enum RenderPreview {
             onFilterCommand: { _ in false },
             onFilterEndEditing: {},
             onOpenExternal: { _ in },
+            areaFocused: focused,
             previewFilterFocused: suggesting
         )
     }
@@ -884,7 +973,8 @@ enum RenderPreview {
             onSelectFilterSuggestion: { _ in },
             onFilterCommand: { _ in false },
             onFilterEndEditing: {},
-            onOpenExternal: { _ in }
+            onOpenExternal: { _ in },
+            areaFocused: true
         )
     }
 

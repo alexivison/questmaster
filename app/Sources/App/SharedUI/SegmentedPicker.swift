@@ -1,8 +1,11 @@
+import QuestmasterCore
 import SwiftUI
 
+/// The dock's text tabs (Session / All): each label over a sprig rule, in the tab's `OutlineLook`.
 struct SegmentedPicker<Option: Hashable>: View {
     let options: [Option]
     let selection: Option
+    let areaFocused: Bool
     var title: (Option) -> String
     var onSelect: (Option) -> Void
     var helpText: (Option) -> String? = { _ in nil }
@@ -12,6 +15,7 @@ struct SegmentedPicker<Option: Hashable>: View {
     var body: some View {
         HStack(spacing: Token.Spacing.hairline) {
             ForEach(options, id: \.self) { option in
+                let look = OutlineLook.tab(selected: option == selection, areaFocused: areaFocused)
                 Button {
                     onSelect(option)
                 } label: {
@@ -20,11 +24,11 @@ struct SegmentedPicker<Option: Hashable>: View {
                             .font(AppFonts.dockTabTitle.swiftUI)
                             .textCase(.uppercase)
                             .tracking(1.6)
-                            .foregroundStyle((option == selection ? AppPalette.accent : AppPalette.dim).swiftUI)
+                            .foregroundStyle(look.label.color.swiftUI)
                             .lineLimit(1)
                         FlankedOrnamentRule(
                             style: .sprig,
-                            color: (option == selection ? AppPalette.brassActive : AppPalette.line).swiftUI,
+                            color: look.border.color.swiftUI,
                             centerSpacing: 0
                         ) {
                             Color.clear.frame(width: 0, height: 0)

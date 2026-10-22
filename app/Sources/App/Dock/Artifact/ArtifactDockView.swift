@@ -56,6 +56,8 @@ struct ArtifactDockView: View {
     var onFilterCommand: (UInt16) -> Bool
     var onFilterEndEditing: () -> Void
     var onOpenExternal: (URL) -> Void
+    /// Whether the dock has keyboard focus: an unfocused dock shows its selection one step dimmer.
+    var areaFocused: Bool
     /// Renders the filter as focused (RenderPreview).
     var previewFilterFocused = false
 
@@ -196,6 +198,7 @@ struct ArtifactDockView: View {
         SegmentedPicker(
             options: ArtifactScope.dockCases,
             selection: model.artifactScope,
+            areaFocused: areaFocused,
             title: \.title,
             onSelect: onSetScope,
             helpText: { "Show \($0.title.lowercased()) artifacts" },
@@ -270,8 +273,8 @@ private struct ArtifactRow: View {
     var action: () -> Void
 
     var body: some View {
-        ListRow(selected: selected, leadingInset: Token.Spacing.card) { selected, hovered in
-            ItemCardShape(selected: selected, hovered: hovered, extraLeadingInset: checkboxReservedInset)
+        ListRow(selected: selected, leadingInset: Token.Spacing.card) { selected, _ in
+            ItemCardShape(selected: selected, extraLeadingInset: checkboxReservedInset)
         } content: {
             HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
                 if selectMode {

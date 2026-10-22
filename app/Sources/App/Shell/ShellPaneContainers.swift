@@ -166,8 +166,12 @@ final class DockShellView: NSView {
         chrome?.layout(bounds: bounds)
     }
 
-    func setRegionActive(_ active: Bool) {
-        chrome.setBorderColor(active ? AppPalette.controlBorder : AppPalette.lineSoftSubtle)
+    private(set) var isFocused = false
+
+    /// The 2pt frame lifts one step while the dock has keyboard focus.
+    func setFocused(_ focused: Bool) {
+        isFocused = focused
+        chrome.setBorderColor(OutlineLook.frame(focused: focused).border.color)
     }
 
     func updateTabs(

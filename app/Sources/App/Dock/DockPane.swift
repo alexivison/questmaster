@@ -296,6 +296,10 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         return update
     }
 
+    func setFocused(_ focused: Bool) {
+        model.setFocused(focused)
+    }
+
     func focusCurrentRoute(in window: NSWindow?) {
         window?.makeFirstResponder(self)
     }
@@ -355,7 +359,8 @@ struct DockRootView: View {
                     onSelectFilterSuggestion: { _ = model.acceptArtifactFilterSuggestion($0) },
                     onFilterCommand: model.handleArtifactFilterCommand(keyCode:),
                     onFilterEndEditing: { _ = model.handleArtifactFilterCommand(keyCode: 53) },
-                    onOpenExternal: model.openURL(_:)
+                    onOpenExternal: model.openURL(_:),
+                    areaFocused: model.isFocused
                 )
             case .workerChat:
                 WorkerChatDockView(store: workerChatStore)
