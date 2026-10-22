@@ -4,20 +4,39 @@ import SwiftUI
 
 /// Pill tabs (new-session.svg's agent tabs, settings-models.svg's agent tabs and sidebar): a 26-high pill
 /// with scalloped ends, a 30pt disc holding the icon 10 in, and the 10pt label on a baseline 17 down,
-/// 45 in. It draws its `OutlineLook`: the outline and disc ring in its border colour, the label in its label
-/// colour, and a highlighted or selected tab's disc recessed to the panel colour.
+/// 45 in. A tab without an icon (artifacts.svg's Session/All) has no disc: the pill alone, its label centred on
+/// the same baseline. It draws its `OutlineLook`: the outline and disc ring in its border colour, the label in its
+/// label colour, and a highlighted or selected tab's disc recessed to the panel colour.
 struct PillTab: View {
     let title: String
     let icon: NSImage?
     let look: OutlineLook
 
     var body: some View {
+        if icon == nil {
+            pill
+                .overlay {
+                    BaselineText(title, font: AppFonts.pillTab, color: labelColor, baseline: PillTabMetrics.labelBaseline)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(PillTabShape())
+        } else {
+            withDisc
+        }
+    }
+
+    private var pill: some View {
+        PillTabShape()
+            .fill(AppPalette.item.swiftUI)
+            .overlay(PillTabShape().stroke(borderColor.swiftUI, lineWidth: 2 * Token.Size.divider))
+            .clipShape(PillTabShape())
+            .frame(height: PillTabMetrics.height)
+    }
+
+    private var withDisc: some View {
         ZStack(alignment: .topLeading) {
-            PillTabShape()
-                .fill(AppPalette.item.swiftUI)
-                .overlay(PillTabShape().stroke(borderColor.swiftUI, lineWidth: 2 * Token.Size.divider))
-                .clipShape(PillTabShape())
-                .frame(height: PillTabMetrics.height)
+            pill
                 .offset(y: PillTabMetrics.discOverhang)
             disc
                 .offset(x: PillTabMetrics.discLead)
@@ -63,10 +82,11 @@ struct PillTabRow<ID: Hashable>: View {
     let tabs: [Tab]
     let selectedID: ID
     let focused: Bool
+    var spacing = PillTabMetrics.spacing
     var onSelect: (ID) -> Void
 
     var body: some View {
-        HStack(spacing: PillTabMetrics.spacing) {
+        HStack(spacing: spacing) {
             ForEach(tabs, id: \.id) { tab in
                 PillTab(
                     title: tab.title,

@@ -93,7 +93,6 @@ enum RenderPreview {
         render(artifactViewerView(lightDocument: true), size: CGSize(width: 344, height: 470), to: "\(outputDir)/artifact-viewer-light.png")
         render(artifactListView(showFilter: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter.png")
         render(artifactListView(showFilter: true, suggesting: true), size: CGSize(width: 300, height: 180), to: "\(outputDir)/artifact-filter-suggestions.png")
-        render(inputOrnamentComparisonView(), size: CGSize(width: 344, height: 280), to: "\(outputDir)/input-ornament-comparison.png")
         render(artifactListView(selectMode: true), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-select-list.png")
         render(artifactListView(focused: false), size: CGSize(width: 300, height: 260), to: "\(outputDir)/artifact-list-unfocused.png")
         render(QuestLogView(store: questLogStore(), filter: questLogFilter(), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log.png")
@@ -125,6 +124,12 @@ enum RenderPreview {
         renderView(modalWindowView(overQuestLog: true, newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-over-quest-log.png")
         // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
         render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
+        let pane = CGSize(width: 480, height: 1015)
+        renderView(artifactPaneView(highlight: 2, suggesting: true), size: pane, to: "\(outputDir)/artifact-pane.png")
+        renderView(artifactPaneView(highlight: 4, focused: false), size: pane, to: "\(outputDir)/artifact-pane-unfocused.png")
+        renderView(artifactPaneView(highlight: nil), size: pane, to: "\(outputDir)/artifact-pane-rest.png")
+        renderView(artifactPaneView(highlight: 1, marked: [0, 2], missing: [1, 3]), size: pane, to: "\(outputDir)/artifact-pane-marked.png")
+        renderView(artifactPaneView(highlight: nil, empty: true), size: pane, to: "\(outputDir)/artifact-pane-empty.png")
         renderView(dockFrameView(focused: true), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-focused.png")
         renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
         render(ToastBanner(message: "Copied qm-1783901769").padding(20).background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
@@ -157,6 +162,63 @@ enum RenderPreview {
         splitView.setDockVisible(true, animated: false)
         splitView.applyCanonicalLayout()
         return splitView
+    }
+
+    /// The artifact pane as artifacts.svg draws it (480 x 1015): the All tab, a "@project questmaster" chip, eleven
+    /// rows with `highlight` the cursor; `suggesting` focuses the filter with its dropdown open; `marked` rows are
+    /// in the delete selection and `missing` ones lost their file; `empty` shows the Session tab with nothing in it.
+    @MainActor
+    private static func artifactPaneView(
+        highlight: Int?,
+        focused: Bool = true,
+        suggesting: Bool = false,
+        marked: Set<Int> = [],
+        missing: Set<Int> = [],
+        empty: Bool = false
+    ) -> NSView {
+        let artifacts = (0..<11).map { index in
+            ArtifactReference(
+                kind: "html",
+                path: "/tmp/artifact-\(index).html",
+                label: "Tracker rearrangement renderes and SVG diffs",
+                addedAt: "2026-04-05",
+                missing: missing.contains(index)
+            )
+        }
+        let suggestions = [
+            ArtifactFilterSuggestion(mode: .command, kind: .project, value: "project", title: "@project:", detail: "filter", tokenTitle: ""),
+            ArtifactFilterSuggestion(mode: .command, kind: .type, value: "type", title: "@type:", detail: "filter", tokenTitle: ""),
+        ]
+        let model = ArtifactDockModel(
+            currentSessionTitle: "preview",
+            currentSessionID: "preview",
+            artifacts: empty ? [] : artifacts,
+            projectTitlesByArtifactID: Dictionary(uniqueKeysWithValues: artifacts.map { ($0.id, "questmaster") }),
+            artifactScope: empty ? .session : .all,
+            selectedArtifactID: highlight.map { artifacts[$0].id },
+            selectedArtifactIDs: Set(marked.map { artifacts[$0].id }),
+            route: .list,
+            displayState: empty ? .empty(sessionID: "preview") : .viewing(artifacts[0]),
+            artifactFilterTokens: empty ? [] : [ArtifactFilterToken(kind: .project, value: "questmaster", title: "questmaster")],
+            filterSuggestions: suggesting ? suggestions : [],
+            selectedFilterSuggestionID: suggesting ? suggestions[0].id : nil,
+            filterSuggestionsVisible: suggesting
+        )
+        let body = NSHostingView(rootView: ArtifactDockView(
+            model: model,
+            onSelectArtifact: { _ in },
+            onToggleArtifact: { _ in },
+            onSetScope: { _ in },
+            onSetFilterQuery: { _ in },
+            onRemoveFilterToken: { _ in },
+            onSelectFilterSuggestion: { _ in },
+            onFilterCommand: { _ in false },
+            onFilterEndEditing: {},
+            onOpenExternal: { _ in },
+            areaFocused: focused,
+            previewFilterFocused: suggesting
+        ))
+        return DockShellView(body: body)
     }
 
     /// The dock alone on the window colour, with or without keyboard focus, for its frame.
@@ -976,40 +1038,6 @@ enum RenderPreview {
             onOpenExternal: { _ in },
             areaFocused: true
         )
-    }
-
-    private static func inputOrnamentComparisonView() -> some View {
-        VStack(alignment: .leading, spacing: Token.Spacing.element) {
-            Text("FOCUSED FILTER FIELD")
-                .font(AppFonts.monoSmall.swiftUI)
-                .tracking(1)
-                .foregroundStyle(AppPalette.dim.swiftUI)
-            ForEach([CGFloat(10), 13, 16, 19], id: \.self) { side in
-                VStack(alignment: .leading, spacing: Token.Spacing.inline) {
-                    Text("\(Int(side)) PT")
-                        .font(AppFonts.monoSmall.swiftUI)
-                        .foregroundStyle(AppPalette.accent.swiftUI)
-                    HStack(spacing: Token.Spacing.inline) {
-                        Text("/")
-                            .font(AppFonts.monoSmall.swiftUI)
-                            .foregroundStyle(AppPalette.dim.swiftUI)
-                        Text("@project: @type: or text")
-                            .font(AppFonts.monoSmall.swiftUI)
-                            .foregroundStyle(AppPalette.dim.swiftUI)
-                    }
-                    .padding(.horizontal, Token.Spacing.card)
-                    .padding(.vertical, 4)
-                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: Token.Radius.control)
-                            .fill(AppPalette.window.swiftUI)
-                    )
-                    .focusedControlBorder(focused: true, ornamentSide: side)
-                }
-            }
-        }
-        .padding(Token.Spacing.card)
-        .background(AppPalette.panel.swiftUI)
     }
 
     private static func previewHTMLArtifact(lightDocument: Bool) -> ArtifactReference {

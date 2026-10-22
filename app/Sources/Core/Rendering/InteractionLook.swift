@@ -23,6 +23,8 @@ public enum StateColor: UInt32, CaseIterable, Sendable {
     case accent = 0xd7b13d
     /// "On", for toggles only (the action bar), with its glow.
     case brassActive = 0xa58961
+    /// A warning: a missing file's icon, in every state.
+    case warn = 0xd29922
 
     /// WCAG relative luminance, 0 (black) to 1 (white).
     public var luminance: Double {
@@ -62,6 +64,11 @@ public struct RowLook: Equatable, Sendable {
     public static let selected = RowLook(
         fill: .item, outline: nil, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: true
     )
+
+    /// The same look for a row whose file is missing: its icon warns in every state.
+    public var missingFile: RowLook {
+        RowLook(fill: fill, outline: outline, text: text, meta: meta, icon: .warn, iconBorder: iconBorder, bold: bold)
+    }
 
     /// A pick-to-open row (artifacts, dropdowns, filter suggestions): picking it opens it, so it is never selected.
     public static func pick(highlighted: Bool, areaFocused: Bool) -> RowLook {
@@ -111,6 +118,13 @@ public struct OutlineLook: Equatable, Sendable {
 
     public static func frame(focused: Bool) -> OutlineLook {
         focused ? .frameFocused : .frameRest
+    }
+}
+
+/// A multi-selection mark (the artifacts' delete selection): the one gold when marked.
+public enum MarkLook {
+    public static func color(marked: Bool) -> StateColor {
+        marked ? .accent : .textMetaHighlighted
     }
 }
 

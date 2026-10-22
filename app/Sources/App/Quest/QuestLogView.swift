@@ -7,19 +7,9 @@ import SwiftUI
 /// on top and everything under it at y 101.678; the app snaps that to 102.
 private enum QuestLogMetrics {
     static let sheetSize = CGSize(width: 900, height: 780)
-    /// Filter field: 357 x 35 at (30, 102), window fill,
-    /// 1pt line border, radius 5. "/" 12 in; the token chips (`FilterChip`) and the text field follow, all
-    /// centred on the field.
+    /// Filter field (`FilterBar`): 357 x 35 at (30, 102).
     static let filterOrigin = CGPoint(x: 30, y: 102)
-    static let filterHeight: CGFloat = 35
-    static let filterCornerRadius: CGFloat = 5
-    static let filterInset: CGFloat = 12
-    static let filterSpacing: CGFloat = 10
-    static let suggestionsGap: CGFloat = 4
-    /// The text field sits 1.5 further right than the HStack spacing puts it and `filterFieldDrop` above
-    /// centre, which lands its text where the design's placeholder is.
-    static let filterFieldLead: CGFloat = 1.5
-    static let filterFieldDrop: CGFloat = 1.25
+    static let filterHeight = FilterBarMetrics.height
     /// List column, straight under the field: x 30-387. A section title's baseline sits 21 below the previous
     /// box (the field or the last row) and 9 above its first row; rows are 26 high, 5 apart (a 31pt pitch),
     /// with the text baseline 17 down and 10 in.
@@ -106,9 +96,21 @@ struct QuestLogView: View {
             buttons
                 .frame(width: QuestLogMetrics.sheetSize.width)
                 .offset(y: QuestLogMetrics.buttonTop)
-            QuestLogFilterField(filter: filter, previewFocused: previewFocused)
-                .frame(width: QuestLogMetrics.listWidth)
-                .offset(x: QuestLogMetrics.filterOrigin.x, y: QuestLogMetrics.filterOrigin.y)
+            FilterBar(
+                tokens: filter.tokens,
+                query: Binding(get: { filter.query }, set: { filter.setQuery($0) }),
+                placeholder: "@project: or text",
+                focusNonce: filter.focusNonce,
+                suggestions: filter.suggestions,
+                highlightedSuggestionID: filter.selectedSuggestionID,
+                accessibilityLabel: "Filter quests",
+                previewFocused: previewFocused,
+                onCommand: { filter.handleCommand(keyCode: $0) },
+                onRemoveToken: { filter.removeToken($0) },
+                onSelectSuggestion: { filter.acceptSuggestion($0) }
+            )
+            .frame(width: QuestLogMetrics.listWidth)
+            .offset(x: QuestLogMetrics.filterOrigin.x, y: QuestLogMetrics.filterOrigin.y)
         }
         .frame(width: QuestLogMetrics.sheetSize.width, height: QuestLogMetrics.sheetSize.height, alignment: .topLeading)
         .scoopedPanel()
@@ -169,60 +171,6 @@ struct QuestLogModal: View {
 extension InWindowModalStack {
     func presentQuestLog(_ modal: QuestLogModal) {
         present(id: QuestLogModal.stackID, kind: .questLog, AnyView(modal))
-    }
-}
-
-// MARK: - Filter
-
-/// The field over the list: "/", the `@project:` token chips, then the text field. Suggestions open under it
-/// while it has focus.
-private struct QuestLogFilterField: View {
-    let filter: QuestLogFilter
-    var previewFocused: Bool
-    /// The field's real first-responder state (KeyTextField), so it can't stay lit after Esc.
-    @State private var focused = false
-
-    private var showsFocus: Bool { focused || previewFocused }
-
-    var body: some View {
-        HStack(spacing: QuestLogMetrics.filterSpacing) {
-            Text("/")
-                .font(AppFonts.questLogBody.swiftUI)
-                .foregroundStyle(AppPalette.textMeta.swiftUI)
-            ForEach(filter.tokens) { token in
-                FilterChip(token: token, onRemove: { filter.removeToken(token) })
-            }
-            CommandTextField(
-                text: Binding(get: { filter.query }, set: { filter.setQuery($0) }),
-                placeholder: "@project: or text",
-                focusNonce: filter.focusNonce,
-                onCommand: { filter.handleCommand(keyCode: $0) },
-                onEndEditing: {},
-                onFocusChanged: { focused = $0 },
-                font: AppFonts.monoSmall,
-                textColor: AppPalette.textBody,
-                placeholderColor: AppPalette.textMeta
-            )
-            // The field is as tall as its font's whole line (KeyTextField); this places that frame where the
-            // design sets the text.
-            .padding(.leading, QuestLogMetrics.filterFieldLead)
-            .alignmentGuide(VerticalAlignment.center) { $0[VerticalAlignment.center] + QuestLogMetrics.filterFieldDrop }
-            .frame(maxWidth: .infinity)
-        }
-        .padding(.horizontal, QuestLogMetrics.filterInset)
-        .frame(height: QuestLogMetrics.filterHeight)
-        .fieldChrome(focused: showsFocus, cornerRadius: QuestLogMetrics.filterCornerRadius)
-        .overlay(alignment: .topLeading) {
-            if showsFocus && !filter.suggestions.isEmpty {
-                SuggestionDropdown(
-                    filterSuggestions: filter.suggestions,
-                    highlightedID: filter.selectedSuggestionID,
-                    onSelect: { filter.acceptSuggestion($0) }
-                )
-                .offset(y: QuestLogMetrics.filterHeight + QuestLogMetrics.suggestionsGap)
-            }
-        }
-        .accessibilityLabel("Filter quests")
     }
 }
 

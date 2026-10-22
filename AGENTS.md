@@ -168,9 +168,11 @@ hides.
 
 | Element | State | Look |
 |---|---|---|
-| Pick-to-open row (artifacts, dropdowns, filter suggestions) | rest | no fill, `textBody` #D8DEE9 |
+| Pick-to-open row (artifacts, dropdowns, filter suggestions) | rest | no fill, `textBody` #D8DEE9, icon tile border `line`, icon and meta `textMeta` #9DA7B1 |
 | | highlighted, area focused (`RowLook.highlighted`) | `item` fill, `textSelected` #E6EDF3, icon tile border `controlBorder`, icon `textSelected`, meta `textMetaHighlighted` #ADBAC7 |
 | | highlighted, area unfocused (`RowLook.highlightedUnfocused`) | `item` fill, `textBody` text and icon, icon tile border `controlBorder`, meta `textMeta` #9DA7B1 |
+| | missing file (`RowLook.missingFile`) | the row's look with a `warn` icon |
+| | marked for deletion (`MarkLook`) | `accent` diamond in the row's left gutter |
 | Any row | under the pointer (`RowLook.hovered`) | 1pt `line` outline, no fill; text, icon and meta as at rest |
 | Lasting-selection row (the Quest Log) | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
 | Tab (agent tabs, Session/All, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
@@ -193,17 +195,19 @@ hides.
   (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is
   0.8 opacity; disabled is window fill with `item` border and label (the shared
   button styles).
-- Use the shared components: `stateRow` (and `ListRow` for tracker and artifact
-  rows) for rows, `PillTab`/`PillTabRow` or `SegmentedPicker` for tabs,
-  `fieldChrome`/`FormTextField` for fields, `SuggestionDropdown` for every
-  dropdown and suggestion list, `FilterChip` for filter chips, the
-  `AngledButton` styles for buttons.
+- Use the shared components: `stateRow` for rows (`ListRow` for the tracker's
+  plates), `PillTab`/`PillTabRow` for tabs (no icon: no disc),
+  `fieldChrome`/`FormTextField` for fields, `FilterBar` for filter fields,
+  `SuggestionDropdown` for every dropdown and suggestion list, `FilterChip` for
+  filter chips, the `AngledButton` styles for buttons.
+- Dock titles (Artifacts, Worker Chat, an open artifact) are title case in
+  `accent`, 14pt bold, on the top bar's baseline 35 down.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`
 outside the token layer, `brassActive` or `ToggleLook` outside the action bar, a
-view picking a colour by a state flag, and a hand-rolled dropdown or field. Its
-`pending` list names today's known breaks; it may only shrink.
+view picking a colour by a state flag, and a hand-rolled dropdown or field. It
+must find no breaks.
 
 ## Testing conventions
 

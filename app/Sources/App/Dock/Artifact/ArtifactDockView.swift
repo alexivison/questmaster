@@ -61,8 +61,6 @@ struct ArtifactDockView: View {
     /// Renders the filter as focused (RenderPreview).
     var previewFilterFocused = false
 
-    @State private var filterFocused = false
-
     var body: some View {
         switch model.route {
         case .list:
@@ -76,11 +74,13 @@ struct ArtifactDockView: View {
         }
     }
 
+    /// artifacts.svg, under the dock's top bar: the Session/All tabs 20 down, the filter (All only) 20 under them,
+    /// and the rows 20 under that, everything 20 in from the panel's sides.
     private var artifactSelector: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            scopePicker
+        VStack(alignment: .leading, spacing: ArtifactPaneMetrics.gap) {
+            scopeTabs
             if model.artifactScope == .all {
-                filterControls
+                filterBar
             }
             switch model.displayState {
             case .noCurrentSession:
@@ -97,8 +97,8 @@ struct ArtifactDockView: View {
                         ArtifactRow(
                             artifact: artifact,
                             projectTitle: projectTitle(for: artifact),
-                            selected: artifact.id == model.selectedArtifactID,
-                            checked: model.selectedArtifactIDs.contains(artifact.id),
+                            look: RowLook.pick(highlighted: artifact.id == model.selectedArtifactID, areaFocused: areaFocused),
+                            marked: model.selectedArtifactIDs.contains(artifact.id),
                             selectMode: !model.selectedArtifactIDs.isEmpty,
                             onToggle: { onToggleArtifact(artifact.id) },
                             action: { onSelectArtifact(artifact.id) }
@@ -109,69 +109,30 @@ struct ArtifactDockView: View {
                 .accessibilityLabel("Artifact list")
             }
         }
+        .padding(.top, ArtifactPaneMetrics.gap)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)
     }
 
-    private var filterBinding: Binding<String> {
-        Binding(
-            get: { model.artifactFilterQuery },
-            set: onSetFilterQuery
+    private var filterBar: some View {
+        FilterBar(
+            tokens: model.artifactFilterTokens,
+            query: Binding(get: { model.artifactFilterQuery }, set: onSetFilterQuery),
+            placeholder: "@project or @type or text...",
+            focusNonce: model.filterFocusNonce,
+            suggestions: model.filterSuggestionsVisible ? model.filterSuggestions : [],
+            highlightedSuggestionID: model.selectedFilterSuggestionID,
+            accessibilityLabel: "Filter artifacts",
+            textFont: AppFonts.questLogBody,
+            chipMaxWidth: 141,
+            previewFocused: previewFilterFocused,
+            onCommand: onFilterCommand,
+            onEndEditing: onFilterEndEditing,
+            onRemoveToken: onRemoveFilterToken,
+            onSelectSuggestion: onSelectFilterSuggestion
         )
-    }
-
-    private var filterControls: some View {
-        filterField
-        .overlay(alignment: .topLeading) {
-            if (filterFocused || previewFilterFocused) && model.filterSuggestionsVisible {
-                filterSuggestionList
-                    .offset(y: 38)
-                    .zIndex(3)
-            }
-        }
-        .padding(.horizontal, Token.Spacing.card)
-        .padding(.bottom, Token.Spacing.element)
+        .padding(.horizontal, ArtifactPaneMetrics.gap)
         .zIndex(2)
-    }
-
-    private var filterField: some View {
-        HStack(spacing: Token.Spacing.inline) {
-            Text("/")
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(AppPalette.dim.swiftUI)
-            ForEach(model.artifactFilterTokens) { token in
-                FilterTokenChip(
-                    token: token,
-                    onRemove: { onRemoveFilterToken(token) }
-                )
-            }
-            CommandTextField(
-                text: filterBinding,
-                placeholder: "@project: @type: or text",
-                focusNonce: model.filterFocusNonce,
-                onCommand: onFilterCommand,
-                onEndEditing: onFilterEndEditing,
-                onFocusChanged: { filterFocused = $0 }
-            )
-            .frame(minWidth: 80, maxWidth: .infinity, minHeight: 22)
-        }
-        .padding(.horizontal, Token.Spacing.card)
-        .padding(.vertical, 4)
-        .frame(minHeight: 32)
-        .background(
-            RoundedRectangle(cornerRadius: Token.Radius.control)
-                .fill(AppPalette.window.swiftUI)
-        )
-        .focusedControlBorder(focused: filterFocused || previewFilterFocused)
-        .accessibilityLabel("Filter artifacts")
-    }
-
-    private var filterSuggestionList: some View {
-        SuggestionDropdown(
-            filterSuggestions: model.filterSuggestions,
-            highlightedID: model.selectedFilterSuggestionID,
-            onSelect: onSelectFilterSuggestion
-        )
     }
 
     private var emptyTitle: String {
@@ -194,34 +155,33 @@ struct ArtifactDockView: View {
         model.projectTitlesByArtifactID[artifact.id] ?? "Unknown Project"
     }
 
-    private var scopePicker: some View {
-        SegmentedPicker(
-            options: ArtifactScope.dockCases,
-            selection: model.artifactScope,
-            areaFocused: areaFocused,
-            title: \.title,
-            onSelect: onSetScope,
-            helpText: { "Show \($0.title.lowercased()) artifacts" },
-            accessibilityLabel: { "Artifact scope \($0.title)" },
-            accessibilityValue: { $0 == model.artifactScope ? "Selected" : "" }
+    private var scopeTabs: some View {
+        PillTabRow(
+            tabs: ArtifactScope.dockCases.map { .init(id: $0, title: $0.title, icon: nil) },
+            selectedID: model.artifactScope,
+            focused: areaFocused,
+            spacing: ArtifactPaneMetrics.gap,
+            onSelect: onSetScope
         )
-        .padding(.horizontal, Token.Spacing.card)
-        .padding(.top, Token.Spacing.hairline)
-        .padding(.bottom, Token.Spacing.content)
+        .padding(.horizontal, ArtifactPaneMetrics.gap)
     }
 
     private func selectorStatus(_ title: String, detail: String) -> some View {
         EmptyStatePane(
             title: title,
             message: detail,
-            padding: EdgeInsets(
-                top: Token.Spacing.content,
-                leading: Token.Spacing.content,
-                bottom: Token.Spacing.content,
-                trailing: Token.Spacing.content
-            )
+            titleFont: AppFonts.questLogBody.swiftUI,
+            titleColor: AppPalette.textBody.swiftUI,
+            messageFont: AppFonts.monoSmall.swiftUI,
+            messageColor: AppPalette.textMeta.swiftUI,
+            padding: EdgeInsets(top: 0, leading: ArtifactPaneMetrics.gap, bottom: ArtifactPaneMetrics.gap, trailing: ArtifactPaneMetrics.gap)
         )
     }
+}
+
+/// artifacts.svg's spacing: every part of the pane is 20 from the next and from the panel's sides.
+private enum ArtifactPaneMetrics {
+    static let gap: CGFloat = 20
 }
 
 private extension ArtifactScope {
@@ -263,68 +223,47 @@ private extension ArtifactScope {
     }
 }
 
+/// A pick-to-open row, measured from artifact-item-v2.svg: 50 high, radius 5, in its `RowLook` (the fill only while
+/// highlighted). The icon tile 40 square at (10, 5), radius 5, with a 1pt border and the 19.2 x 24 icon centred; the
+/// title 10 past the tile on a baseline 18.5 down; a 1pt divider at y 25 from the tile to 41 short of the right
+/// edge; the project and date on a baseline 39.5 down, the date ending on the divider's end. The 20pt gutters on
+/// either side hold the pane's margin; in select mode the left one holds the mark.
 private struct ArtifactRow: View {
     var artifact: ArtifactReference
     var projectTitle: String
-    var selected: Bool
-    var checked: Bool
+    var look: RowLook
+    var marked: Bool
     var selectMode: Bool
     var onToggle: () -> Void
     var action: () -> Void
 
+    private enum Metrics {
+        static let height: CGFloat = 50
+        static let spacing: CGFloat = 5
+        static let cornerRadius: CGFloat = 5
+        static let gutter: CGFloat = 20
+        static let tileOrigin = CGPoint(x: 10, y: 5)
+        static let tileSide: CGFloat = 40
+        static let iconSize = CGSize(width: 19.2, height: 24)
+        /// doc.richtext at this size and semibold fills `iconSize`, as the design's glyph does.
+        static let iconPointSize: CGFloat = 22.5
+        static let textX: CGFloat = 60
+        static let trailingInset: CGFloat = 41
+        static let titleBaseline: CGFloat = 18.5
+        static let dividerY: CGFloat = 25
+        static let metaBaseline: CGFloat = 39.5
+        static let markSize: CGFloat = 13
+    }
+
+    private var rowLook: RowLook { artifact.missing ? look.missingFile : look }
+
     var body: some View {
-        ListRow(selected: selected, leadingInset: Token.Spacing.card) { selected, _ in
-            ItemCardShape(selected: selected, extraLeadingInset: checkboxReservedInset)
-        } content: {
-            HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
-                if selectMode {
-                    Button(action: onToggle) {
-                        Image(systemName: checked ? "diamond.inset.filled" : "diamond")
-                            .font(.system(size: 13))
-                            .foregroundStyle((checked ? AppPalette.accent : AppPalette.muted).swiftUI)
-                            .frame(width: checkboxWidth, height: checkboxWidth)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 9)
-                    .accessibilityLabel(checked ? "Deselect \(artifact.label)" : "Select \(artifact.label)")
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
-                }
-                HStack(alignment: .top, spacing: ItemCardShape.iconLabelGap) {
-                    Image(systemName: iconName)
-                        .font(.system(size: 12, weight: .light))
-                        .foregroundStyle(iconColor)
-                        .frame(width: 14)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(artifact.label)
-                            .font(AppFonts.artifactTitle.swiftUI)
-                            .foregroundStyle(selected ? AppPalette.bright.swiftUI : AppPalette.text.swiftUI)
-                            .lineLimit(1)
-                        HStack(spacing: Token.Spacing.inline) {
-                            Text(projectTitle)
-                                .font(AppFonts.monoSmall.swiftUI)
-                                .foregroundStyle(AppPalette.dim.swiftUI)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            if let addedDate {
-                                Text(addedDate)
-                                    .font(AppFonts.monoSmall.swiftUI)
-                                    .foregroundStyle(AppPalette.muted.swiftUI)
-                                    .lineLimit(1)
-                                    .layoutPriority(1)
-                            }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, ItemCardShape.contentPadding)
-                .padding(.trailing, ItemCardShape.trailingContentPadding)
-                .padding(.vertical, ItemCardShape.contentPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(RoundedRectangle(cornerRadius: Token.Radius.card))
-                .onTapGesture(perform: action)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 0) {
+            markGutter
+            row
+            Color.clear.frame(width: Metrics.gutter, height: 1)
         }
+        .padding(.bottom, Metrics.spacing)
         .animation(.easeInOut(duration: 0.16), value: selectMode)
         .help(artifact.path)
         .accessibilityElement(children: selectMode ? .contain : .ignore)
@@ -333,21 +272,78 @@ private struct ArtifactRow: View {
         .accessibilityHint(selectMode ? "Open artifact or select for deletion" : "Open artifact")
     }
 
-    private var checkboxReservedInset: CGFloat {
-        selectMode ? checkboxWidth + Token.Spacing.card : 0
+    @ViewBuilder
+    private var markGutter: some View {
+        ZStack {
+            if selectMode {
+                Button(action: onToggle) {
+                    Image(systemName: marked ? "diamond.inset.filled" : "diamond")
+                        .font(.system(size: Metrics.markSize))
+                        .foregroundStyle(MarkLook.color(marked: marked).color.swiftUI)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(marked ? "Deselect \(artifact.label)" : "Select \(artifact.label)")
+                .transition(.opacity)
+            }
+        }
+        .frame(width: Metrics.gutter, height: Metrics.height)
     }
 
-    private var checkboxWidth: CGFloat { 15 }
+    private var row: some View {
+        GeometryReader { proxy in
+            let textWidth = max(0, proxy.size.width - Metrics.trailingInset - Metrics.textX)
+            ZStack(alignment: .topLeading) {
+                tile
+                    .offset(x: Metrics.tileOrigin.x, y: Metrics.tileOrigin.y)
+                BaselineText(artifact.label, font: AppFonts.artifactTitle, color: rowLook.text.color, baseline: Metrics.titleBaseline)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(width: textWidth, alignment: .leading)
+                    .offset(x: Metrics.textX)
+                Rectangle()
+                    .fill(AppPalette.line.swiftUI)
+                    .frame(width: max(0, proxy.size.width - Metrics.trailingInset - Metrics.tileOrigin.x - Metrics.tileSide), height: Token.Size.divider)
+                    .offset(x: Metrics.tileOrigin.x + Metrics.tileSide, y: Metrics.dividerY - Token.Size.divider / 2)
+                HStack(spacing: Token.Spacing.element) {
+                    BaselineText(projectTitle, font: AppFonts.monoSmall, color: rowLook.meta.color, baseline: Metrics.metaBaseline)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    if let addedDate {
+                        BaselineText(addedDate, font: AppFonts.monoSmall, color: rowLook.meta.color, baseline: Metrics.metaBaseline)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                    }
+                }
+                .frame(width: textWidth)
+                .offset(x: Metrics.textX)
+            }
+        }
+        .frame(height: Metrics.height)
+        .stateRow(rowLook, cornerRadius: Metrics.cornerRadius)
+        .onTapGesture(perform: action)
+    }
+
+    private var tile: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: Metrics.cornerRadius)
+                .fill(AppPalette.panel.swiftUI)
+            RoundedRectangle(cornerRadius: Metrics.cornerRadius)
+                .strokeBorder(rowLook.iconBorder.color.swiftUI, lineWidth: Token.Size.divider)
+            Image(systemName: iconName)
+                .font(.system(size: Metrics.iconPointSize, weight: .semibold))
+                .frame(width: Metrics.iconSize.width, height: Metrics.iconSize.height)
+                .foregroundStyle(rowLook.icon.color.swiftUI)
+        }
+        .frame(width: Metrics.tileSide, height: Metrics.tileSide)
+    }
 
     private var accessibilityValue: String {
         var parts = [artifact.path]
         if artifact.missing {
             parts.append("Missing")
         }
-        if selected {
-            parts.append("Selected")
-        }
-        if checked {
+        if marked {
             parts.append("Selected for deletion")
         }
         return parts.joined(separator: ", ")
@@ -372,15 +368,6 @@ private struct ArtifactRow: View {
             return nil
         }
         return date
-    }
-
-    private var iconColor: Color { iconTintColor.swiftUI }
-
-    private var iconTintColor: NSColor {
-        if artifact.missing {
-            return AppPalette.warn
-        }
-        return selected ? AppPalette.accent : AppPalette.muted
     }
 
     private var iconName: String {
