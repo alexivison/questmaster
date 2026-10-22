@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -477,6 +478,10 @@ func questProjectFromPayload(payload mutationPayload) (id, path, name string, er
 	name = strings.TrimSpace(payload.ProjectName)
 	if id != "" || path == "" {
 		return id, path, name, nil
+	}
+	// serve's working directory isn't the user's, so a relative path would resolve against the wrong place.
+	if !filepath.IsAbs(state.ExpandHome(path)) {
+		return "", "", "", fmt.Errorf("project path must be absolute: %s", path)
 	}
 	return state.ResolveQuestProject(path, true)
 }

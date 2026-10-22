@@ -26,23 +26,23 @@ type Quest struct {
 	SessionID   string `json:"session_id,omitempty"`
 }
 
-// ResolveQuestProject gives a quest's project for a path, the way `quest add --project` does: a leading
-// "~/" expands to the home directory, the path is made absolute, and its git repo supplies the id and
-// name. A path outside any repo is an error when strict and an empty project otherwise.
+// ResolveQuestProject gives a quest's project for a path, the way `quest add --project` does: "~" and a
+// leading "~/" expand to the home directory, the path is made absolute, and its git repo supplies the id
+// and name. When strict, the path must be an existing directory inside a repo; otherwise anything else
+// gives an empty project.
 func ResolveQuestProject(path string, strict bool) (id, absPath, name string, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", "", "", nil
 	}
-	expanded := path
-	if strings.HasPrefix(expanded, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			expanded = filepath.Join(home, expanded[2:])
-		}
-	}
-	abs, err := filepath.Abs(expanded)
+	abs, err := filepath.Abs(ExpandHome(path))
 	if err != nil {
 		return "", "", "", err
+	}
+	if strict {
+		if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+			return "", "", "", fmt.Errorf("project path is not a directory: %s", path)
+		}
 	}
 	r, ok := repo.Resolve(abs)
 	if !ok {
@@ -52,6 +52,19 @@ func ResolveQuestProject(path string, strict bool) (id, absPath, name string, er
 		return "", "", "", nil
 	}
 	return r.Identity, filepath.Clean(abs), r.Name, nil
+}
+
+// ExpandHome expands "~" and a leading "~/" to the home directory. Other paths, "~user" included, are
+// returned as given.
+func ExpandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, path[1:])
 }
 
 type questRegistry struct {
