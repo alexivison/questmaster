@@ -11,6 +11,7 @@ struct InteractionLookTests {
         thePointerShowsTheHoverLookAndMovesNoCursor()
         aCursorThePointerMovedDoesNotScroll()
         aRegionHasTheKeysOnlyWithoutAModal()
+        missingFilesAndMarksKeepTheirColours()
         print("InteractionLookTests: all tests passed")
     }
 
@@ -97,6 +98,19 @@ struct InteractionLookTests {
         expect(RowLook.hovered.fill == nil && RowLook.hovered.outline == .line && !RowLook.hovered.bold, "the hover look is a line outline, no fill")
         expect(RowLook.hovered.text == RowLook.rest.text && RowLook.hovered.meta == RowLook.rest.meta && RowLook.hovered.icon == RowLook.rest.icon,
                "the hover look keeps the resting text and icon")
+    }
+
+    private static func missingFilesAndMarksKeepTheirColours() {
+        for look in [RowLook.rest, .highlighted, .highlightedUnfocused] {
+            expect(look.missingFile.icon == .warn, "a missing file's icon should warn in every state")
+            expect(look.missingFile.text == look.text && look.missingFile.fill == look.fill, "only the icon should change for a missing file")
+        }
+        let hoveredMissing = RowLook.rest.missingFile.underPointer(true)
+        expect(hoveredMissing.fill == nil && hoveredMissing.outline == RowLook.hovered.outline && !hoveredMissing.bold,
+               "a missing file's resting row under the pointer shows the hover outline")
+        expect(hoveredMissing.icon == .warn, "and keeps its warning icon")
+        expect(MarkLook.color(marked: true) == .accent, "a mark is the one gold")
+        expect(MarkLook.color(marked: false) != .accent, "an unmarked row carries no gold")
     }
 
     /// Mouse movement doesn't stop the keys scrolling: only the change the pointer itself made is skipped, once, and it

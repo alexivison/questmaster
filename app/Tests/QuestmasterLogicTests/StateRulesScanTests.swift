@@ -10,15 +10,6 @@ struct StateRulesScanTests {
         let allowedIn: [String]
     }
 
-    /// A known break of a rule that a later change removes. The count must match exactly: a new break fails, and so
-    /// does a fixed one until its entry goes, so the list only shrinks.
-    struct Pending {
-        let rule: String
-        let file: String
-        let count: Int
-        let reason: String
-    }
-
     static let tokenLayer = "SharedUI/Theme.swift"
     /// Render fixtures and self-tests, not views.
     static let exempt = ["Runtime/RenderPreview.swift", "Runtime/LogicSelfTests.swift"]
@@ -52,14 +43,6 @@ struct StateRulesScanTests {
         ),
     ]
 
-    static let pending = [
-        Pending(rule: "state-pick", file: "SharedUI/ItemCard.swift", count: 1, reason: "selected card border: the artifact rows (PR 3)"),
-        Pending(rule: "state-pick", file: "Dock/Artifact/ArtifactDockView.swift", count: 3, reason: "row title, icon and mark colours: the artifact rows (PR 3)"),
-        Pending(rule: "state-pick", file: "SharedUI/ViewModifiers.swift", count: 1, reason: "brass filter focus: the shared field (PR 3)"),
-        Pending(rule: "brass-on", file: "SharedUI/ViewModifiers.swift", count: 1, reason: "brass filter focus: the shared field (PR 3)"),
-        Pending(rule: "field", file: "SharedUI/ViewModifiers.swift", count: 1, reason: "the artifact filter's own chrome: the shared field (PR 3)"),
-        Pending(rule: "field", file: "Dock/Artifact/ArtifactDockView.swift", count: 1, reason: "the artifact filter's own chrome: the shared field (PR 3)"),
-    ]
 
     static func run() {
         scannerCatchesEachRule()
@@ -127,24 +110,14 @@ struct StateRulesScanTests {
         guard let files = FileManager.default.enumerator(atPath: root.path)?.compactMap({ $0 as? String }) else {
             fatalError("could not list \(root.path)")
         }
-        var found: [String: Int] = [:]
-        for file in files where file.hasSuffix(".swift") && !exempt.contains(file) {
+        var failures: [String] = []
+        for file in files.sorted() where file.hasSuffix(".swift") && !exempt.contains(file) {
             guard let source = try? String(contentsOf: root.appendingPathComponent(file), encoding: .utf8) else {
                 fatalError("could not read \(file)")
             }
-            for (rule, count) in violations(in: source, file: file) {
-                found["\(rule) \(file)"] = count
+            for (rule, count) in violations(in: source, file: file).sorted(by: { $0.key < $1.key }) {
+                failures.append("\(rule) \(file): \(count) break(s) of the interaction-state rules")
             }
-        }
-        var expected: [String: Int] = [:]
-        for entry in pending {
-            expected["\(entry.rule) \(entry.file)"] = entry.count
-        }
-        let failures = Set(found.keys).union(expected.keys).sorted().compactMap { key -> String? in
-            let (actual, allowed) = (found[key] ?? 0, expected[key] ?? 0)
-            if actual > allowed { return "\(key): \(actual - allowed) new break(s) of the interaction-state rules" }
-            if actual < allowed { return "\(key): fixed; lower its pending count to \(actual)" }
-            return nil
         }
         expect(failures.isEmpty, "interaction-state rules (AGENTS.md):\n" + failures.joined(separator: "\n"))
     }

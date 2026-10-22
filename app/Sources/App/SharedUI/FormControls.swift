@@ -121,8 +121,8 @@ struct SuggestionDropdown: View {
 }
 
 extension SuggestionDropdown {
-    /// A filter field's suggestions (the Quest Log's and the artifact dock's): each title with its detail at the
-    /// row's right end.
+    /// A filter field's suggestions (the Quest Log's and the artifact dock's): each title, with a value's detail (its
+    /// count) at the row's right end. A command ("@project:") needs none: its title says what it is.
     init(
         filterSuggestions: [ArtifactFilterSuggestion],
         highlightedID: String?,
@@ -132,7 +132,10 @@ extension SuggestionDropdown {
             rows: filterSuggestions.map(\.title),
             highlightedIndex: filterSuggestions.firstIndex { $0.id == highlightedID },
             onSelect: { onSelect(filterSuggestions[$0]) },
-            accessory: { AnyView(Self.meta(filterSuggestions[$0].detail, look: $1)) }
+            accessory: { index, look in
+                let suggestion = filterSuggestions[index]
+                return suggestion.mode == .command ? AnyView(EmptyView()) : AnyView(Self.meta(suggestion.detail, look: look))
+            }
         )
     }
 

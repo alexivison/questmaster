@@ -22,7 +22,7 @@ enum AppPalette {
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)
     static let deleted = NSColor(hex: 0xff7b72)
-    static let warn = NSColor(hex: 0xd29922)
+    static let warn = StateColor.warn.color
     /// The one gold: titles (modal titles included), project headers and marks.
     static let accent = StateColor.accent.color
     static let masterRole = NSColor(hex: 0xf2cc60)
@@ -223,10 +223,11 @@ enum AppFonts {
     static let modalHelper = monospaced(size: 11.5, italic: true)
     /// Card-style list row titles (Tracker sessions, quests, artifacts).
     static let itemTitle = monospaced(size: 12.5, weight: .semibold)
-    /// Artifact row titles; tracker titles keep `itemTitle`.
-    static let artifactTitle = monospaced(size: 12.5, weight: .semibold)
+    /// Artifact row titles at 12pt, as artifact-item-v2.svg sets them; never bold (bold means selected).
+    static let artifactTitle = monospaced(size: 12)
     static let dockTabTitle = monospaced(size: 12, weight: .semibold)
-    static let dockTopBarTitle = monospaced(size: 11.5, weight: .semibold)
+    /// The dock top bar's title ("Artifacts", "Worker Chat"), as artifacts.svg sets it: 14pt bold, title case.
+    static let dockTopBarTitle = monospaced(size: 14, weight: .bold)
     static let modalButtonLabel = monospaced(size: 12.5, weight: .semibold)
     /// Sectioned-list group titles (e.g. the repo name above a Tracker group).
     static let sectionTitle = monospaced(size: 11, weight: .semibold)
