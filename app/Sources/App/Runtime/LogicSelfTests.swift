@@ -44,6 +44,7 @@ enum LogicSelfTests {
         ("testArtifactDockCommandSwitchesFromWorkerChat", testArtifactDockCommandSwitchesFromWorkerChat),
         ("testDockCoordinatorIgnoresNoSessionState", testDockCoordinatorIgnoresNoSessionState),
         ("testModalsPresentInsideTheWindowNotAsSystemSheets", testModalsPresentInsideTheWindowNotAsSystemSheets),
+        ("testModalStackClosesTheTopModalFirstAndRestoresFocus", testModalStackClosesTheTopModalFirstAndRestoresFocus),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
@@ -1588,6 +1589,110 @@ enum LogicSelfTests {
         try expect(stack.entries.isEmpty && host.isHidden, "once the fade-out ends the stack should empty and the host hide")
     }
 
+    /// The Quest Log is one entry on the same stack as every modal: what opens over it draws over it, Esc
+    /// closes the top modal only, global commands don't stack an unrelated modal over it (⌘T opens New Quest
+    /// as its child), and once the last modal has faded out focus is back where it was before the first.
+    private static func testModalStackClosesTheTopModalFirstAndRestoresFocus() throws {
+        struct Item: Identifiable { let id: String }
+        final class Holder: ObservableObject { @Published var item: Item? }
+        final class StandInTerminal: NSView { override var acceptsFirstResponder: Bool { true } }
+        struct Presenting: View {
+            @ObservedObject var newSession: NewSessionSheetPresenter
+            @ObservedObject var newQuest: Holder
+            let stack: InWindowModalStack
+            var body: some View {
+                Color.clear
+                    .inWindowSheet(item: $newSession.presentation) { NewSessionSheetView(presentation: $0, dismiss: { newSession.dismiss() }) }
+                    .inWindowSheet(item: $newQuest.item) { _ in
+                        Color.clear.frame(width: 120, height: 80).scoopedPanel()
+                            .background(SheetKeyEventMonitor { event in
+                                guard event.keyCode == 53 else {
+                                    return false
+                                }
+                                newQuest.item = nil
+                                return true
+                            })
+                    }
+                    .environment(\.inWindowModalStack, stack)
+            }
+        }
+        let stack = InWindowModalStack()
+        let newSession = NewSessionSheetPresenter()
+        let newQuest = Holder()
+        let store = QuestLogStore()
+        store.sync(quests: [QuestItem(id: "q", content: "A quest", projectID: "p", projectName: "p")], repos: [])
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 860))
+        let terminal = StandInTerminal(frame: content.bounds)
+        let presenting = NSHostingView(rootView: Presenting(newSession: newSession, newQuest: newQuest, stack: stack))
+        presenting.frame = content.bounds
+        let host = InWindowModalHost(stack: stack)
+        var fallbackFocusCount = 0
+        host.onEmpty = { fallbackFocusCount += 1 }
+        content.addSubview(terminal)
+        content.addSubview(presenting)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: content.topAnchor),
+            host.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            host.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        window.contentView = content
+        let windowSize = window.frame.size
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
+        func pressEsc() {
+            guard let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) else {
+                return
+            }
+            NSApp.sendEvent(esc)
+            settle()
+        }
+        window.makeFirstResponder(terminal)
+        settle()
+
+        store.open()
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { command in
+            guard command == .close else {
+                return
+            }
+            store.close()
+            stack.dismiss(id: QuestLogModal.stackID)
+        }))
+        settle()
+        try expect(stack.top?.kind == .questLog, "the Quest Log should be an entry on the modal stack")
+        try expect(window.firstResponder === host, "the open Quest Log should hold the keys, not the terminal")
+        try expect(stack.route(.newSession) == .ignored && stack.route(.settings) == .ignored, "a global New Session or Settings over the Quest Log should be ignored")
+        try expect(stack.route(.toggleQuestLog) == .allowed, "the Quest Log's toggle should act on it while it's on top")
+
+        // Send forth's New Session: a child the log opens itself goes on top, and Esc closes it first.
+        newSession.present(initialPath: "/tmp", mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: { _ in })
+        settle()
+        try expect(stack.entries.count == 2 && stack.entries.last?.kind == .other, "the child should draw on top of the Quest Log, got \(stack.entries.map(\.kind))")
+        try expect(stack.route(.toggleQuestLog) == .ignored, "the Quest Log's toggle should do nothing while a child is on top")
+        pressEsc()
+        try expect(newSession.presentation == nil, "the first Esc should close the child on top")
+        try expect(store.isOpen && stack.top?.kind == .questLog, "the first Esc should leave the Quest Log open")
+
+        // ⌘T over the log: New Quest opens as its child, and Esc closes it alone.
+        try expect(stack.route(.newQuest) == .child, "⌘T over the Quest Log should open New Quest as its child")
+        newQuest.item = Item(id: "new-quest")
+        settle()
+        try expect(stack.entries.last?.kind == .other && stack.entries.filter { !$0.closing }.count == 2, "New Quest should open on top of the Quest Log")
+        pressEsc()
+        try expect(newQuest.item == nil && store.isOpen, "Esc should close New Quest and leave the Quest Log open")
+
+        pressEsc()
+        try expect(!store.isOpen, "the next Esc should close the Quest Log")
+        try expect(stack.entries.isEmpty && host.isHidden, "once every modal has faded out the host should hide")
+        try expect(window.firstResponder === terminal, "focus should go back to the terminal, got \(String(describing: window.firstResponder))")
+        try expect(fallbackFocusCount == 0, "with the terminal still there the fallback shouldn't run")
+        try expect(window.frame.size == windowSize, "modals must not resize the window, got \(window.frame.size) from \(windowSize)")
+    }
+
     /// The filter's focus (and so its border) follows the window's real first responder: on when the field
     /// takes focus, off when focus leaves (Esc hands it to nil, a click on the list hands it elsewhere).
     private static func testFilterFieldFocusFollowsTheFirstResponder() throws {
@@ -1661,13 +1766,15 @@ enum LogicSelfTests {
         let store = QuestLogStore()
         store.sync(quests: [QuestItem(id: "q", content: "A long quest\n\n\(body)", projectID: "p", projectName: "p")], repos: [])
         let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
-        let host = QuestLogOverlayHost(store: store, filter: QuestLogFilter())
+        let stack = InWindowModalStack()
+        let host = InWindowModalHost(stack: stack)
         host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
         window.contentView = host
         window.orderFrontRegardless()
         defer { window.close() }
+        let pageScroll = QuestLogPageScroll()
         store.open()
-        host.setVisible(true)
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: pageScroll, onCommand: { _ in }))
         RunLoop.main.run(until: Date().addingTimeInterval(0.8))
 
         // The page's middle, in the host's coordinates: the 900 x 780 log is centred, its page 473 wide at (397, 40).
@@ -1685,7 +1792,7 @@ enum LogicSelfTests {
               let wheel = NSEvent(cgEvent: cgEvent) else {
             throw TestFailure("could not make a wheel event")
         }
-        try expect(host.pageScroll.moreBelow, "an overflowing page should show the cue that more ink lies below")
+        try expect(pageScroll.moreBelow, "an overflowing page should show the cue that more ink lies below")
         let before = scrollView.contentView.bounds.origin.y
         hit.scrollWheel(with: wheel)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
@@ -1693,14 +1800,14 @@ enum LogicSelfTests {
 
         // The page keys (PageDown and friends) go through the same scroller; past the end, the cue goes away.
         let afterWheel = scrollView.contentView.bounds.origin.y
-        host.pageScroll.scroll(byPages: 0.5)
+        pageScroll.scroll(byPages: 0.5)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         try expect(scrollView.contentView.bounds.origin.y > afterWheel, "a half-page key should scroll further down")
-        host.pageScroll.scroll(byPages: 50)
+        pageScroll.scroll(byPages: 50)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         let maxOffset = documentHeight - scrollView.contentView.bounds.height
         try expect(abs(scrollView.contentView.bounds.origin.y - maxOffset) < 1, "scrolling past the end should stop at the bottom")
-        try expect(!host.pageScroll.moreBelow, "at the bottom the overflow cue should go away")
+        try expect(!pageScroll.moreBelow, "at the bottom the overflow cue should go away")
     }
 
     /// The Quest Log fades in and its parchment unrolls without the parchment Canvas redrawing frame by frame;
@@ -1709,7 +1816,8 @@ enum LogicSelfTests {
         let store = QuestLogStore()
         store.sync(quests: [QuestItem(id: "q", content: "A quest\n\nWith a body", projectID: "p", projectName: "p")], repos: [])
         let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
-        let host = QuestLogOverlayHost(store: store, filter: QuestLogFilter())
+        let stack = InWindowModalStack()
+        let host = InWindowModalHost(stack: stack)
         host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
         window.contentView = host
         window.orderFrontRegardless()
@@ -1718,13 +1826,13 @@ enum LogicSelfTests {
 
         QuestLogDebug.parchmentDraws = 0
         store.open()
-        host.setVisible(true)
+        stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
         RunLoop.main.run(until: Date().addingTimeInterval(0.8))
         try expect(!host.isHidden, "opening should show the Quest Log")
         try expect((1...2).contains(QuestLogDebug.parchmentDraws), "the parchment should draw once for the opening, not per unroll frame; drew \(QuestLogDebug.parchmentDraws) times")
 
         store.close()
-        host.setVisible(false)
+        stack.dismiss(id: QuestLogModal.stackID)
         RunLoop.main.run(until: Date().addingTimeInterval(ModalFade.fadeOut / 3))
         try expect(!host.isHidden, "the Quest Log should stay visible while it fades out")
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))

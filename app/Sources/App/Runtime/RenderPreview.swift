@@ -113,6 +113,7 @@ enum RenderPreview {
         renderView(modalWindowView(newSessionSheetView()), size: window, to: "\(outputDir)/modal-new-session-window.png")
         renderView(modalWindowView(settingsView()), size: window, to: "\(outputDir)/modal-settings-window.png")
         renderView(modalWindowView(overQuestLog: true, DestructiveConfirmationSheetView(spec: .deleteQuests(count: 1), onDecision: { _ in })), size: window, to: "\(outputDir)/modal-confirm-over-quest-log.png")
+        renderView(modalWindowView(overQuestLog: true, newQuestSheetView()), size: window, to: "\(outputDir)/modal-new-quest-over-quest-log.png")
         // The shared background alone, at the Quest Log design's size, for diffing against its outer path.
         render(Color.clear.scoopedPanel(), size: QuestLogView.size, to: "\(outputDir)/scooped-panel.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
@@ -986,11 +987,9 @@ enum RenderPreview {
     private static func questLogWindowView() -> NSView {
         let size = CGSize(width: 1400, height: 900)
         let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
-        let store = questLogStore()
-        store.open()
-        let overlay = QuestLogOverlayHost(store: store, filter: questLogFilter(token: false))
-        (shell as? ShellRootContainerView)?.addOverlay(overlay)
-        overlay.setVisible(true)
+        let stack = InWindowModalStack()
+        stack.presentQuestLog(questLogModal(questLogStore()))
+        (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
         return shell
     }
 
@@ -1118,26 +1117,20 @@ enum RenderPreview {
         let modalCrop = CGRect(x: 220, y: 30, width: 960, height: 840)
         do {
             let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
-            let store = questLogStore()
-            let questLog = QuestLogOverlayHost(store: store, filter: questLogFilter(token: false))
-            (shell as? ShellRootContainerView)?.addOverlay(questLog)
+            let stack = InWindowModalStack()
+            (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
             recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * ModalFade.slowdown, to: dir) {
-                store.open()
-                questLog.setVisible(true)
+                stack.presentQuestLog(questLogModal(questLogStore()))
             }
         }
         do {
             // The log opens, then Abandon's confirmation fades in over it and back out; the log stays put.
             let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
-            let store = questLogStore()
-            let questLog = QuestLogOverlayHost(store: store, filter: questLogFilter(token: false))
             let stack = InWindowModalStack()
-            (shell as? ShellRootContainerView)?.addOverlay(questLog)
             (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
             let slow = ModalFade.slowdown
             recordAnimation("confirm-fade-gif", root: shell, size: size, crop: modalCrop, duration: 1.6 * slow, to: dir) {
-                store.open()
-                questLog.setVisible(true)
+                stack.presentQuestLog(questLogModal(questLogStore()))
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 * slow) {
                     stack.present(id: "confirm", AnyView(DestructiveConfirmationSheetView(spec: .deleteQuests(count: 1), onDecision: { _ in })))
                 }
@@ -1146,24 +1139,25 @@ enum RenderPreview {
         }
     }
 
-    /// The real window with `modal` presented the way the app presents it: the shell, optionally the Quest Log,
-    /// and the in-window modal host on top.
+    /// The real window with `modal` presented the way the app presents it: the shell and the in-window modal
+    /// host, with `modal` on top of the stack (pushed after the Quest Log when `overQuestLog`).
     @MainActor
     private static func modalWindowView(overQuestLog: Bool = false, _ modal: some View) -> NSView {
         let size = CGSize(width: 1400, height: 900)
         let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
-        let root = shell as? ShellRootContainerView
-        if overQuestLog {
-            let store = questLogStore()
-            store.open()
-            let questLog = QuestLogOverlayHost(store: store, filter: questLogFilter(token: false))
-            root?.addOverlay(questLog)
-            questLog.setVisible(true)
-        }
         let stack = InWindowModalStack()
+        if overQuestLog {
+            stack.presentQuestLog(questLogModal(questLogStore()))
+        }
         stack.present(id: "preview", AnyView(modal))
-        root?.addOverlay(InWindowModalHost(stack: stack))
+        (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
         return shell
+    }
+
+    @MainActor
+    private static func questLogModal(_ store: QuestLogStore) -> QuestLogModal {
+        store.open()
+        return QuestLogModal(store: store, filter: questLogFilter(token: false), pageScroll: QuestLogPageScroll(), onCommand: { _ in })
     }
 
     private static func confirmationView() -> some View {

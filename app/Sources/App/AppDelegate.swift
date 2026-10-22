@@ -40,6 +40,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let workerChatStore = WorkerChatStore()
     private let questLogStore = QuestLogStore()
     private let questLogFilter = QuestLogFilter()
+    private let questLogPageScroll = QuestLogPageScroll()
     private lazy var workerChatController = WorkerChatController(
         store: workerChatStore,
         feedClient: { [weak self] in self?.workerFeedClient }
@@ -47,8 +48,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var shellWindowController = ShellWindowController(
         runtimeStore: runtimeStore,
         workerChatStore: workerChatStore,
-        questLogStore: questLogStore,
-        questLogFilter: questLogFilter,
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
         newQuestPresenter: newQuestPresenter,
@@ -238,7 +237,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.footerShell.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
-        handles.questLogOverlay.onCommand = { [weak self] command in self?.handleQuestLogCommand(command) }
         questLogFilter.onChange = { [weak self] in self?.syncQuestLog() }
         questLogFilter.onEdit = { [weak self] in self?.handleQuestLogCommand(.edit) }
         questLogFilter.onMoveSelection = { [weak self] command in _ = self?.questLogStore.handle(command) }
@@ -496,24 +494,51 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         renderSnapshot()
     }
 
+    /// Global modal commands (shortcuts, menus, the action bar) never stack an unrelated modal: see
+    /// `ModalCommandRouting`. Modals a modal opens itself skip this.
+    private func modalCommandRoute(_ command: GlobalModalCommand) -> ModalCommandRoute {
+        InWindowModalStack.shared.route(command)
+    }
+
+    private func globalModalCommand(for action: Selector) -> GlobalModalCommand? {
+        switch action {
+        case #selector(toggleQuestLog): return .toggleQuestLog
+        case #selector(openNewQuest): return .newQuest
+        case #selector(openNewSession), #selector(openNewMasterSession): return .newSession
+        case #selector(openSettings): return .settings
+        case #selector(editFocusedSession): return .editSession
+        case #selector(editFocusedRepo): return .editRepo
+        case #selector(deleteFocusedSession): return .deleteSession
+        default: return nil
+        }
+    }
+
     @objc private func toggleQuestLog() {
+        guard modalCommandRoute(.toggleQuestLog) != .ignored else {
+            return
+        }
         if questLogStore.isOpen {
             closeQuestLog()
             return
         }
         syncQuestLog()
         questLogStore.open()
-        shellHandles?.questLogOverlay.setVisible(true)
+        InWindowModalStack.shared.presentQuestLog(QuestLogModal(
+            store: questLogStore,
+            filter: questLogFilter,
+            pageScroll: questLogPageScroll,
+            onCommand: { [weak self] in self?.handleQuestLogCommand($0) }
+        ))
     }
 
+    /// The modal host hands focus back once the log has faded out.
     private func closeQuestLog() {
         questLogStore.close()
-        shellHandles?.questLogOverlay.setVisible(false)
-        focusCoordinator.focusCurrentRegion()
+        InWindowModalStack.shared.dismiss(id: QuestLogModal.stackID)
     }
 
-    /// Edit, Abandon's confirmation and Send forth's New Session open as window sheets over the Quest Log,
-    /// which stays open underneath; a started session closes it.
+    /// Edit, Abandon's confirmation and Send forth's New Session open as modals over the Quest Log, which
+    /// stays open underneath; a started session closes it.
     private func handleQuestLogCommand(_ command: QuestLogCommand) {
         guard let effect = questLogStore.handle(command) else {
             return
@@ -532,7 +557,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         case .focusFilter:
             questLogFilter.focus()
         case .scrollPage(let pages):
-            shellHandles?.questLogOverlay.pageScroll.scroll(byPages: pages)
+            questLogPageScroll.scroll(byPages: pages)
         }
     }
 
@@ -576,6 +601,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func deleteFocusedSession() {
+        guard modalCommandRoute(.deleteSession) != .ignored else {
+            return
+        }
         guard let window = shellHandles?.window,
               let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID) else {
             NSSound.beep()
@@ -599,6 +627,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func editFocusedSession() {
+        guard modalCommandRoute(.editSession) != .ignored else {
+            return
+        }
         guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
               shellHandles?.trackerKeyboardBridge.editSession(sessionID: sessionID) == true else {
             NSSound.beep()
@@ -607,6 +638,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func editFocusedRepo() {
+        guard modalCommandRoute(.editRepo) != .ignored else {
+            return
+        }
         guard let sessionID = TerminalSessionChipResolver.cleanSessionID(runtimeStore.currentTerminalSessionID),
               shellHandles?.trackerKeyboardBridge.editRepo(sessionID: sessionID) == true else {
             NSSound.beep()
@@ -714,10 +748,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewSession() {
+        guard modalCommandRoute(.newSession) != .ignored else {
+            return
+        }
         presentNewSession()
     }
 
     @objc private func openSettings() {
+        guard modalCommandRoute(.settings) != .ignored else {
+            return
+        }
         guard let mutationClient else {
             renderSnapshot()
             return
@@ -735,6 +775,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewQuest() {
+        guard modalCommandRoute(.newQuest) != .ignored else {
+            return
+        }
         guard let mutationClient else {
             renderSnapshot()
             return
@@ -761,6 +804,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openNewMasterSession() {
+        guard modalCommandRoute(.newSession) != .ignored else {
+            return
+        }
         presentNewSession()
     }
 
@@ -932,6 +978,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         return options
     }
 
+}
+
+extension AppDelegate: NSMenuItemValidation {
+    /// Greys out a global modal command that would stack an unrelated modal; a disabled item's shortcut does nothing.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let action = menuItem.action, let command = globalModalCommand(for: action) else {
+            return true
+        }
+        return modalCommandRoute(command) != .ignored
+    }
 }
 
 enum DockCommandRouting {

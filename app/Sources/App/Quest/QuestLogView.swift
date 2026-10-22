@@ -131,8 +131,13 @@ struct QuestLogView: View {
     }
 }
 
-/// The Quest Log over the window, laid out like every other in-window modal.
-struct QuestLogOverlayView: View {
+/// The Quest Log as an entry on the in-window modal stack. While it is the top modal it takes every plain key:
+/// its own keys become commands and the rest are swallowed so they never reach the terminal underneath.
+/// Command-key shortcuts pass through to the menus. A modal it opens (Edit, Abandon's confirmation, New
+/// Session) goes on top and takes the keys until it closes.
+struct QuestLogModal: View {
+    static let stackID: AnyHashable = "quest-log"
+
     let store: QuestLogStore
     let filter: QuestLogFilter
     let pageScroll: QuestLogPageScroll
@@ -140,8 +145,31 @@ struct QuestLogOverlayView: View {
 
     var body: some View {
         // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
-        ModalLayer { QuestLogView(store: store, filter: filter, pageScroll: pageScroll, onCommand: onCommand).id(store.openGeneration) }
-            .modalFade(closing: !store.isOpen)
+        QuestLogView(store: store, filter: filter, pageScroll: pageScroll, onCommand: onCommand)
+            .id(store.openGeneration)
+            .background(SheetKeyEventMonitor { handle($0) })
+    }
+
+    private func handle(_ event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command) {
+            return false
+        }
+        // While the filter is being edited its field editor takes the keys (its arrows, Return and Esc come
+        // back through `QuestLogFilter.handleCommand`).
+        if event.window?.firstResponder is NSTextView {
+            return false
+        }
+        let control = event.modifierFlags.contains(.control)
+        if let command = QuestLogCommand.from(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, control: control) {
+            onCommand(command)
+        }
+        return true
+    }
+}
+
+extension InWindowModalStack {
+    func presentQuestLog(_ modal: QuestLogModal) {
+        present(id: QuestLogModal.stackID, kind: .questLog, AnyView(modal))
     }
 }
 
@@ -710,85 +738,3 @@ enum QuestLogDebug {
     nonisolated(unsafe) static var parchmentDraws = 0
 }
 #endif
-
-// MARK: - AppKit host
-
-/// Hosts the Quest Log over the window's content. While it is visible and no sheet is attached it takes
-/// every plain key: the Quest Log's own keys become commands and the rest are swallowed so they never
-/// reach the terminal underneath. Command-key shortcuts pass through to the menus.
-final class QuestLogOverlayHost: NSHostingView<QuestLogOverlayView> {
-    var onCommand: ((QuestLogCommand) -> Void)?
-    private var keyMonitor: Any?
-    private let hiding = FadeOutHiding()
-
-    /// The page's scroll view, for the page keys.
-    let pageScroll: QuestLogPageScroll
-
-    init(store: QuestLogStore, filter: QuestLogFilter) {
-        var forward: ((QuestLogCommand) -> Void)?
-        let pageScroll = QuestLogPageScroll()
-        self.pageScroll = pageScroll
-        super.init(rootView: QuestLogOverlayView(store: store, filter: filter, pageScroll: pageScroll, onCommand: { forward?($0) }))
-        forward = { [weak self] in self?.onCommand?($0) }
-        // Sized only by the window edges it's pinned to, never by the log's own size (see InWindowModalHost).
-        sizingOptions = []
-        isHidden = true
-    }
-
-    @available(*, unavailable)
-    required init(rootView: QuestLogOverlayView) {
-        fatalError("init(rootView:) has not been implemented")
-    }
-
-    @available(*, unavailable)
-    @MainActor dynamic required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        if let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
-        }
-    }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        true
-    }
-
-    /// Shows the host at once; on close the log fades out first and the host hides once the fade ends.
-    func setVisible(_ visible: Bool) {
-        if visible {
-            hiding.show(self)
-        } else {
-            hiding.hideAfterFadeOut(self)
-        }
-        if visible, keyMonitor == nil {
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                self?.handle(event) == true ? nil : event
-            }
-        } else if !visible, let keyMonitor {
-            NSEvent.removeMonitor(keyMonitor)
-            self.keyMonitor = nil
-        }
-    }
-
-    private func handle(_ event: NSEvent) -> Bool {
-        // Edit, Abandon's confirmation and New Session open as in-window modals above the log; they take the keys.
-        guard hiding.isShowing, let window, event.window === window, window.attachedSheet == nil, InWindowModalStack.shared.isEmpty else {
-            return false
-        }
-        if event.modifierFlags.contains(.command) {
-            return false
-        }
-        // While the filter is being edited its field editor takes the keys (its arrows, Return and Esc come
-        // back through `QuestLogFilter.handleCommand`).
-        if let editor = window.firstResponder as? NSTextView, editor.isDescendant(of: self) {
-            return false
-        }
-        let control = event.modifierFlags.contains(.control)
-        if let command = QuestLogCommand.from(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, control: control) {
-            onCommand?(command)
-        }
-        return true
-    }
-}

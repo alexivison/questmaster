@@ -1,11 +1,13 @@
 import AppKit
 import Combine
+import QuestmasterCore
 import SwiftUI
 
 /// The app's modals, drawn inside the main window instead of as system sheets. SwiftUI's `.sheet` on macOS
 /// is a titled sheet window whose frame puts a visual-effect panel, a rounded corner mask and a light edge
 /// behind the content, and none of that can be cleared reliably, so the scooped corners would show it.
-/// Every modal is pushed here by `.inWindowSheet(item:)` and drawn by `InWindowModalHost`, newest on top.
+/// Every modal, the Quest Log included, is pushed here and drawn by `InWindowModalHost`, newest on top; only the
+/// top open modal takes keys (`SheetKeyEventMonitor`), so Esc closes modals in stack order.
 @MainActor
 final class InWindowModalStack: ObservableObject {
     // ponytail: one stack for the app's one main window; give each window its own if the app ever opens more.
@@ -13,6 +15,7 @@ final class InWindowModalStack: ObservableObject {
 
     struct Entry: Identifiable {
         let id: AnyHashable
+        var kind: ModalKind = .other
         let view: AnyView
         /// Dismissed and fading out: still drawn, no longer interactive, removed when the fade ends.
         var closing = false
@@ -21,12 +24,25 @@ final class InWindowModalStack: ObservableObject {
     /// Every drawn modal, the closing ones included.
     @Published private(set) var entries: [Entry] = []
 
-    /// No modal is open (closing ones don't count): the Quest Log under them can take the keys again.
+    /// No modal is open (closing ones don't count).
     var isEmpty: Bool { !entries.contains { !$0.closing } }
 
-    func present(id: AnyHashable, _ view: AnyView) {
+    /// The newest modal still open: the one that takes the keys.
+    var top: Entry? { entries.last { !$0.closing } }
+
+    /// Whether the modal `id` takes the keys; nil is a view outside the stack, which always does.
+    func isTop(_ id: AnyHashable?) -> Bool {
+        id == nil || top?.id == id
+    }
+
+    /// How a global modal command (a shortcut, menu or the action bar) lands on this stack.
+    func route(_ command: GlobalModalCommand) -> ModalCommandRoute {
+        ModalCommandRouting.route(command, top: top?.kind)
+    }
+
+    func present(id: AnyHashable, kind: ModalKind = .other, _ view: AnyView) {
         entries.removeAll { $0.id == id }
-        entries.append(Entry(id: id, view: view))
+        entries.append(Entry(id: id, kind: kind, view: view))
     }
 
     func dismiss(id: AnyHashable) {
@@ -44,10 +60,20 @@ private struct InWindowModalStackKey: EnvironmentKey {
     @MainActor static var defaultValue: InWindowModalStack { .shared }
 }
 
+private struct InWindowModalEntryIDKey: EnvironmentKey {
+    static let defaultValue: AnyHashable? = nil
+}
+
 extension EnvironmentValues {
     var inWindowModalStack: InWindowModalStack {
         get { self[InWindowModalStackKey.self] }
         set { self[InWindowModalStackKey.self] = newValue }
+    }
+
+    /// The stack entry this view is drawn in, nil outside the stack.
+    var inWindowModalEntryID: AnyHashable? {
+        get { self[InWindowModalEntryIDKey.self] }
+        set { self[InWindowModalEntryIDKey.self] = newValue }
     }
 }
 
@@ -169,19 +195,23 @@ struct InWindowModalStackView: View {
             ForEach(stack.entries) { entry in
                 ModalLayer { entry.view }
                     .modalFade(closing: entry.closing)
+                    .environment(\.inWindowModalStack, stack)
+                    .environment(\.inWindowModalEntryID, entry.id)
             }
         }
     }
 }
 
-/// Draws the modal stack over the whole window, above the Quest Log. Hidden while the stack is empty so
-/// it never takes a click. When a modal opens it takes first responder, so keys a modal doesn't claim
-/// never reach the terminal; a modal's own text field still takes focus as it appears. `onEmpty` hands
-/// focus back once the last modal closes.
+/// Draws the modal stack over the whole window. Hidden while the stack is empty so it never takes a click.
+/// Whenever a modal opens or starts closing the host takes first responder, so focus never stays in a modal
+/// underneath or one fading out, and keys a modal doesn't claim never reach the terminal; a modal's own text
+/// field still takes focus as it appears. Once the last modal's fade-out ends, focus goes back to what had it
+/// before the first one opened, or to `onEmpty` when that is gone.
 final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
     var onEmpty: (() -> Void)?
     private var subscription: AnyCancellable?
-    private var hasOpenModal = false
+    private var openCount = 0
+    private weak var focusBeforeModals: NSResponder?
 
     init(stack: InWindowModalStack) {
         super.init(rootView: InWindowModalStackView(stack: stack))
@@ -189,7 +219,7 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
         // constraints, which would drag the window toward the modal's size.
         sizingOptions = []
         isHidden = stack.entries.isEmpty
-        hasOpenModal = !stack.isEmpty
+        openCount = stack.entries.filter { !$0.closing }.count
         subscription = stack.$entries.sink { [weak self] entries in
             self?.entriesWillChange(to: entries)
         }
@@ -209,39 +239,37 @@ final class InWindowModalHost: NSHostingView<InWindowModalStackView> {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// Visible while anything is drawn, closing modals included; focus moves in when the first modal opens and
-    /// back out as soon as the last one starts closing.
+    /// Visible while anything is drawn, closing modals included. Runs before `entries` changes, from whichever
+    /// path opened or closed a modal.
     private func entriesWillChange(to entries: [InWindowModalStack.Entry]) {
-        isHidden = entries.isEmpty
-        let open = entries.contains { !$0.closing }
-        if open, !hasOpenModal {
-            window?.makeFirstResponder(self)
-        } else if !open, hasOpenModal {
-            onEmpty?()
+        let wasDrawing = !isHidden
+        if !wasDrawing, !entries.isEmpty {
+            focusBeforeModals = Self.focusTarget(window?.firstResponder)
         }
-        hasOpenModal = open
-    }
-}
-
-/// Shows a modal host at once and hides it only once its modal's fade-out has finished, so the fade plays
-/// and the host doesn't keep taking clicks afterwards. Showing again cancels a pending hide.
-@MainActor
-final class FadeOutHiding {
-    private(set) var isShowing = false
-    private var pendingHide: DispatchWorkItem?
-
-    func show(_ view: NSView) {
-        pendingHide?.cancel()
-        pendingHide = nil
-        isShowing = true
-        view.isHidden = false
+        isHidden = entries.isEmpty
+        let nextOpenCount = entries.filter { !$0.closing }.count
+        if nextOpenCount != openCount {
+            window?.makeFirstResponder(self)
+        }
+        openCount = nextOpenCount
+        if wasDrawing, entries.isEmpty {
+            restoreFocus()
+        }
     }
 
-    func hideAfterFadeOut(_ view: NSView) {
-        isShowing = false
-        pendingHide?.cancel()
-        let hide = DispatchWorkItem { [weak view] in view?.isHidden = true }
-        pendingHide = hide
-        DispatchQueue.main.asyncAfter(deadline: .now() + ModalFade.fadeOut, execute: hide)
+    private func restoreFocus() {
+        if let view = focusBeforeModals as? NSView, let window, view.window === window, window.makeFirstResponder(view) {
+            return
+        }
+        onEmpty?()
+    }
+
+    /// A text field being edited reports the window's shared field editor; focus goes back to the field itself.
+    /// The window itself (nothing focused) counts as nothing.
+    private static func focusTarget(_ responder: NSResponder?) -> NSResponder? {
+        if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate as? NSView {
+            return field
+        }
+        return responder is NSWindow ? nil : responder
     }
 }
