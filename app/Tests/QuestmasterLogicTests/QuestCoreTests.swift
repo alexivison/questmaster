@@ -23,8 +23,11 @@ struct QuestCoreTests {
         questLogStoreJumpsToTheEdgesAndAsksForAScroll()
         displayEdgeSelectionJumpsToFirstAndLastAcrossSections()
         newQuestFormBuildsPayload()
-        newQuestFormNeedsAPathAndContent()
-        editQuestKeepsItsProjectUnlessThePathChanges()
+        newQuestFormNeedsAProjectAndContent()
+        projectSearchRanksByNameThenPath()
+        projectSearchSwitchesToDirectoriesForAPath()
+        projectOptionsDeduplicateAndAbbreviate()
+        editQuestKeepsItsProjectUnlessItChanges()
         startFromQuestsBuildsPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
     }
@@ -314,50 +317,103 @@ struct QuestCoreTests {
         )
     }
 
+    private static let home = "/Users/me"
+    private static let projects = [
+        NewQuestProjectOption(projectID: "q", projectPath: "/Users/me/Code/questmaster", projectName: "questmaster"),
+        NewQuestProjectOption(projectID: "s", projectPath: "/Users/me/Code/scry", projectName: "scry"),
+        NewQuestProjectOption(projectID: "d", projectPath: "/Users/me/Code/dotfiles", projectName: "dotfiles"),
+        NewQuestProjectOption(projectID: "m", projectPath: "/Users/me/Code/quest-maps", projectName: "maps"),
+    ]
+
     private static func newQuestFormBuildsPayload() {
-        var model = NewQuestFormModel(
-            content: "  Ship quests  ",
-            initialProject: NewQuestProjectOption(projectID: "repo", projectPath: "/tmp/repo", projectName: "repo")
-        )
-        expect(model.focusedField == .content, "a prefilled path should open on the content")
+        var model = NewQuestFormModel(content: "  Ship quests  ", initialProject: projects[0], projects: projects, home: home)
+        expect(model.focusedField == .content, "a prefilled project should open on the content")
+        expect(model.projectText == "questmaster", "the prefill should show the project's name")
         guard let payload = model.submitPayload() else {
             fail("new quest payload was nil")
         }
         expect(payload.content == "Ship quests", "content was not trimmed")
-        expect(payload.projectID == "repo" && payload.projectName == "repo", "an untouched path should keep the opening project")
+        expect(payload.projectID == "q" && payload.projectPath == "/Users/me/Code/questmaster", "an untouched prefill should keep the opening project")
 
-        model.path = " /tmp/other "
-        let typed = model.submitPayload()
-        expect(typed?.projectPath == "/tmp/other", "a typed path should be sent, trimmed")
-        expect(typed?.projectID == "" && typed?.projectName == "", "serve derives a typed path's id and name")
+        model.focusedField = .project
+        model.startProjectSearch(.seed("sc"))
+        expect(model.acceptHighlightedProject(), "the matching project should be picked")
+        expect(model.projectText == "scry" && model.projectMode == .select, "picking should show the name and return to SELECT")
+        let picked = model.submitPayload()
+        expect(picked?.projectPath == "/Users/me/Code/scry" && picked?.projectID == "" && picked?.projectName == "", "a picked project should send its path alone")
     }
 
-    private static func newQuestFormNeedsAPathAndContent() {
-        var model = NewQuestFormModel()
-        expect(model.focusedField == .path, "no path should open on the path")
-        expect(!model.canSubmit, "Inscribe should wait for a path and content")
+    private static func newQuestFormNeedsAProjectAndContent() {
+        var model = NewQuestFormModel(projects: projects, home: home)
+        expect(model.focusedField == .project, "no project should open on the project field")
+        expect(!model.canSubmit, "Inscribe should wait for a project and content")
         model.content = "Ship quests"
-        expect(!model.canSubmit, "Inscribe should wait for a path")
-        expect(model.submitPayload() == nil && model.errorMessage == "path is required", "a missing path should say so")
-        model.path = "/tmp/repo"
-        expect(model.canSubmit, "a path and content are enough")
+        expect(model.submitPayload() == nil && model.errorMessage == "project is required", "a missing project should say so")
+        model.startProjectSearch(.seed("quest"))
+        expect(!model.canSubmit, "text that names no project is no project")
+        model.typeProject("scry")
+        expect(model.canSubmit && model.resolvedProject?.projectPath == "/Users/me/Code/scry", "a project's exact name is enough")
         model.content = "  "
         expect(!model.canSubmit && model.submitPayload() == nil && model.errorMessage == "content is required", "blank content should say so")
     }
 
-    private static func editQuestKeepsItsProjectUnlessThePathChanges() {
-        var unfiled = NewQuestFormModel(content: "Loose note", isEditing: true)
+    private static func projectSearchRanksByNameThenPath() {
+        var model = NewQuestFormModel(projects: projects, home: home)
+        model.startProjectSearch(.seed("questm"))
+        expect(model.projectSuggestions.map(\.projectName) == ["questmaster"], "questm should list only the matching project: \(model.projectSuggestions.map(\.projectName))")
+        expect(model.highlightedProject?.projectName == "questmaster", "the best match should be highlighted")
+        model.typeProject("quest")
+        expect(model.projectSuggestions.map(\.projectName) == ["questmaster", "maps"], "name matches should come before path matches")
+        model.typeProject("code/do")
+        expect(model.projectSuggestions.map(\.projectName) == ["dotfiles"], "the path should match too, ~-abbreviated")
+        model.typeProject("")
+        expect(model.projectSuggestions.count == NewQuestFormModel.maxProjectSuggestions, "an empty search should browse the projects")
+    }
+
+    private static func projectSearchSwitchesToDirectoriesForAPath() {
+        var model = NewQuestFormModel(projects: projects, home: home)
+        model.startProjectSearch(.seed("/"))
+        expect(model.isPathText && model.showsDirectorySuggestions && !model.showsProjectSuggestions, "a / should switch to the directory suggestions")
+        model.typeProject("~/Code/new")
+        expect(model.isPathText && model.showsDirectorySuggestions, "a ~ should too")
+        model.content = "Quest"
+        let payload = model.submitPayload()
+        expect(payload?.projectPath == "~/Code/new" && payload?.projectID == "", "a typed path should be sent as typed")
+        model.typeProject("scr")
+        expect(!model.isPathText && model.showsProjectSuggestions, "a name goes back to the projects")
+    }
+
+    private static func projectOptionsDeduplicateAndAbbreviate() {
+        let options = NewQuestProjectOption.deduplicated([
+            projects[0],
+            NewQuestProjectOption(projectID: "q2", projectPath: "/Users/me/Code/questmaster/", projectName: "questmaster"),
+            NewQuestProjectOption(projectID: "", projectPath: "", projectName: "nowhere"),
+            projects[1],
+        ])
+        expect(options.map(\.projectID) == ["q", "s"], "one option per path, the first kept, none without a path: \(options.map(\.projectID))")
+        expect(projects[0].displayPath(home: home) == "~/Code/questmaster", "home should show as ~")
+        expect(NewQuestProjectOption(projectID: "", projectPath: "/Users/me", projectName: "").displayPath(home: home) == "~", "home itself is ~")
+        expect(NewQuestProjectOption(projectID: "", projectPath: "/Users/meadow/x", projectName: "").displayPath(home: home) == "/Users/meadow/x", "a sibling of home keeps its path")
+        expect(NewQuestProjectOption(projectID: "", projectPath: "/tmp/scratch", projectName: "").displayName == "scratch", "no name shows the folder")
+    }
+
+    private static func editQuestKeepsItsProjectUnlessItChanges() {
+        var unfiled = NewQuestFormModel(content: "Loose note", isEditing: true, projects: projects, home: home)
         expect(unfiled.canSubmit, "an edit can keep a quest that has no project")
         expect(unfiled.submitPayload()?.projectChanged == false, "an untouched project should send content only")
 
-        let project = NewQuestProjectOption(projectID: "repo", projectPath: "/tmp/repo", projectName: "repo")
-        var edit = NewQuestFormModel(content: "Quest", initialProject: project, isEditing: true)
-        expect(edit.submitPayload()?.projectChanged == false, "an unchanged path should leave the project alone")
-        edit.path = "/tmp/elsewhere"
+        var edit = NewQuestFormModel(content: "Quest", initialProject: projects[1], isEditing: true, projects: projects, home: home)
+        expect(edit.submitPayload()?.projectChanged == false, "an unchanged project should be left alone")
+        edit.focusedField = .project
+        edit.startProjectSearch(.seed("dot"))
+        edit.acceptHighlightedProject()
         let moved = edit.submitPayload()
-        expect(moved?.projectChanged == true && moved?.projectPath == "/tmp/elsewhere", "a new path should move the quest")
-        edit.path = ""
-        expect(!edit.canSubmit, "clearing a filed quest's path needs a new one")
+        expect(moved?.projectChanged == true && moved?.projectPath == "/Users/me/Code/dotfiles", "another project should move the quest")
+        edit.startProjectSearch(.seed("x"))
+        edit.endProjectSearch(keepingText: false)
+        expect(edit.projectText == "dotfiles", "Esc should restore the text the search started from")
+        edit.typeProject("")
+        expect(!edit.canSubmit, "clearing a filed quest's project needs a new one")
     }
 
     private static func startFromQuestsBuildsPromptAndRejectsMixedProjects() {

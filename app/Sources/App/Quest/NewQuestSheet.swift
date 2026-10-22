@@ -6,9 +6,10 @@ import SwiftUI
 final class NewQuestSheetPresenter: ObservableObject {
     @Published var presentation: NewQuestSheetPresentation?
 
-    /// `initialProject`: the project whose path prefills the field, the current session's repo for a new
-    /// quest and the quest's own when editing.
+    /// `projects`: the projects the field searches. `initialProject`: the one it opens on, the current
+    /// session's repo for a new quest and the quest's own when editing.
     func present(
+        projects: [NewQuestProjectOption],
         initialProject: NewQuestProjectOption?,
         initialContent: String = "",
         questID: String = "",
@@ -18,6 +19,7 @@ final class NewQuestSheetPresenter: ObservableObject {
         onSuccess: @escaping () -> Void
     ) {
         presentation = NewQuestSheetPresentation(
+            projects: projects,
             initialProject: initialProject,
             initialContent: initialContent,
             questID: questID,
@@ -35,6 +37,7 @@ final class NewQuestSheetPresenter: ObservableObject {
 
 struct NewQuestSheetPresentation: Identifiable {
     let id = UUID()
+    let projects: [NewQuestProjectOption]
     let initialProject: NewQuestProjectOption?
     let initialContent: String
     let questID: String
@@ -44,7 +47,8 @@ struct NewQuestSheetPresentation: Identifiable {
     let onSuccess: () -> Void
 }
 
-/// new-quest.svg: the project path (with its directory dropdown) and the content filling the rest.
+/// new-quest.svg: the project field (projects by name, or directories for a typed path) and the content
+/// filling the rest.
 struct NewQuestSheetView: View {
     @StateObject private var model: NewQuestSheetModel
 
@@ -65,11 +69,12 @@ struct NewQuestSheetView: View {
             onCancel: { model.cancel() },
             onPrimary: { model.submit() }
         ) {
-            VStack(spacing: 20) {
-                pathField
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                projectField
                     .zIndex(1)
                 contentBox
             }
+            .background(FocusSink(nonce: model.sinkNonce))
         }
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
         .scoopedPanel()
@@ -78,23 +83,51 @@ struct NewQuestSheetView: View {
         .onDisappear { model.disappear() }
     }
 
-    private var pathField: some View {
+    private var projectField: some View {
         FormTextField(
-            text: Binding(get: { model.form.path }, set: { model.pathChanged($0) }),
-            placeholder: "Path to project...",
-            focusNonce: model.pathFocusNonce,
-            focused: model.form.focusedField == .path,
-            onFocusChanged: { focused in
-                if focused {
-                    model.focusedByClick(.path)
+            text: Binding(get: { model.form.projectText }, set: { model.projectTyped($0) }),
+            placeholder: "Project or path...",
+            focusNonce: model.projectFocusNonce,
+            focused: model.form.focusedField == .project,
+            onFocusChanged: { editing in
+                if editing {
+                    model.clickedProjectText()
                 }
             }
         )
-        .suggestionDropdown(model.showsPathSuggestions ? SuggestionDropdown(
-            rows: model.paths.items,
-            highlightedIndex: model.paths.highlightedIndex,
-            onSelect: { model.selectPath(model.paths.items[$0]) }
-        ) : nil)
+        .suggestionDropdown(dropdown)
+    }
+
+    /// Projects, each with its path right-aligned and muted; or, for a typed path, directories.
+    private var dropdown: SuggestionDropdown? {
+        if model.showsDirectorySuggestions {
+            return SuggestionDropdown(
+                rows: model.paths.items,
+                highlightedIndex: model.paths.highlightedIndex,
+                onSelect: { model.selectDirectory(model.paths.items[$0]) }
+            )
+        }
+        guard model.form.showsProjectSuggestions else {
+            return nil
+        }
+        let projects = model.form.projectSuggestions
+        let home = model.form.home
+        return SuggestionDropdown(
+            rows: projects.map(\.displayName),
+            highlightedIndex: model.form.highlightedProjectIndex,
+            onSelect: { model.selectProject(projects[$0]) },
+            accessory: { index in
+                AnyView(
+                    Text(projects[index].displayPath(home: home))
+                        .font(AppFonts.questLogBody.swiftUI)
+                        .foregroundStyle(AppPalette.questLogFilterHint.swiftUI)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .alignmentGuide(.top) { $0[.firstTextBaseline] - FormFieldMetrics.suggestionBaseline }
+                        .frame(maxHeight: .infinity, alignment: .top)
+                )
+            }
+        )
     }
 
     private var contentBox: some View {
@@ -116,8 +149,12 @@ struct NewQuestSheetView: View {
 @MainActor
 final class NewQuestSheetModel: ObservableObject {
     @Published var form: NewQuestFormModel
+    /// The directory suggestions for a typed path.
     @Published var paths = SuggestionList()
-    @Published private(set) var pathFocusNonce = 0
+    /// Bumped as a search starts, to put the caret in the project text.
+    @Published private(set) var projectFocusNonce = 0
+    /// Bumped as the project field returns to SELECT, to take the caret out.
+    @Published private(set) var sinkNonce = 0
 
     private let mutationClient: ServeMutationSending
     private let pathSuggester: PathSuggester
@@ -130,7 +167,9 @@ final class NewQuestSheetModel: ObservableObject {
         form = NewQuestFormModel(
             content: presentation.initialContent,
             initialProject: presentation.initialProject,
-            isEditing: !presentation.questID.isEmpty
+            isEditing: !presentation.questID.isEmpty,
+            projects: presentation.projects,
+            home: NSHomeDirectory()
         )
         questID = presentation.questID
         mutationClient = presentation.mutationClient
@@ -148,12 +187,14 @@ final class NewQuestSheetModel: ObservableObject {
         questID.isEmpty ? "Inscribe" : "Amend"
     }
 
-    var showsPathSuggestions: Bool {
-        form.focusedField == .path && paths.isVisible
+    var showsDirectorySuggestions: Bool {
+        form.showsDirectorySuggestions && paths.isVisible
     }
 
     func present() {
-        focus(form.focusedField)
+        if form.focusedField == .project {
+            sinkNonce += 1
+        }
     }
 
     func disappear() {
@@ -166,46 +207,66 @@ final class NewQuestSheetModel: ObservableObject {
         dismiss()
     }
 
-    /// Moves keyboard focus to `field`.
-    func focus(_ field: NewQuestField) {
+    /// A click focused a field.
+    func focusedByClick(_ field: NewQuestField) {
         guard !form.submitting else {
             return
         }
         form.focusedField = field
-        guard field == .path else {
-            return
-        }
-        pathFocusNonce += 1
-        requestPathSuggestions()
     }
 
-    /// A click already put the caret there.
-    func focusedByClick(_ field: NewQuestField) {
-        guard !form.submitting, form.focusedField != field else {
+    /// A click into the project text: the click's caret starts a search.
+    func clickedProjectText() {
+        guard !form.submitting else {
             return
         }
-        form.focusedField = field
-        if field == .path {
-            requestPathSuggestions()
+        form.focusedField = .project
+        if form.projectMode == .select {
+            form.startProjectSearch(.editCurrent)
+            requestDirectoriesIfPath()
         }
     }
 
-    func pathChanged(_ path: String) {
-        form.path = path
+    func projectTyped(_ text: String) {
+        form.typeProject(text)
         paths.clear()
-        pathSuggester.requestDebounced(path) { [weak self] rows in
+        guard form.isPathText else {
+            pathSuggester.cancel()
+            return
+        }
+        pathSuggester.requestDebounced(text) { [weak self] rows in
             self?.paths.show(rows)
         }
     }
 
-    func selectPath(_ path: String) {
-        form.path = path
-        focus(.path)
+    func selectProject(_ project: NewQuestProjectOption) {
+        let before = form.projectMode
+        form.pickProject(project)
+        follow(from: before)
     }
 
-    private func requestPathSuggestions(recentsOnly: Bool = false) {
-        pathSuggester.request(form.path, recentsOnly: recentsOnly) { [weak self] rows in
+    func selectDirectory(_ path: String) {
+        form.setProjectPath(path)
+        requestDirectoriesIfPath()
+    }
+
+    private func requestDirectoriesIfPath() {
+        guard form.isPathText else {
+            return
+        }
+        pathSuggester.request(form.projectText) { [weak self] rows in
             self?.paths.show(rows)
+        }
+    }
+
+    /// Moves the caret into or out of the project text as its search starts or ends.
+    private func follow(from before: PickerFieldMode) {
+        let after = form.projectMode
+        if before == .select, after == .search {
+            projectFocusNonce += 1
+        } else if before == .search, after == .select {
+            sinkNonce += 1
+            paths.clear()
         }
     }
 
@@ -214,14 +275,6 @@ final class NewQuestSheetModel: ObservableObject {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let control = flags.contains(.control)
         let option = flags.contains(.option)
-        if Keymap.NewSession.cancel.matches(event.keyCode) {
-            if showsPathSuggestions {
-                paths.dismiss()
-            } else {
-                cancel()
-            }
-            return true
-        }
         if flags.contains(.command) {
             guard Keymap.NewSession.create.matches(chars) else {
                 return false
@@ -232,59 +285,117 @@ final class NewQuestSheetModel: ObservableObject {
         if form.submitting {
             return true
         }
-        if (option && Keymap.NewSession.nextFieldOption.matches(event.keyCode))
-            || (control && (Keymap.NewSession.nextField.matches(chars) || Keymap.NewSession.previousField.matches(chars))) {
-            moveFocus()
+        if form.focusedField == .project, handleProjectFieldKey(event) {
             return true
         }
-        if control, Keymap.NewSession.recentPaths.matches(chars), form.focusedField == .path {
-            requestPathSuggestions(recentsOnly: true)
+        if Keymap.NewSession.cancel.matches(event.keyCode) {
+            cancel()
+            return true
+        }
+        let tabOutOfProject = form.focusedField == .project && Keymap.NewSession.completePath.matches(event.keyCode)
+        if tabOutOfProject
+            || (option && Keymap.NewSession.nextFieldOption.matches(event.keyCode))
+            || (control && (Keymap.NewSession.nextField.matches(chars) || Keymap.NewSession.previousField.matches(chars))) {
+            moveFocus()
             return true
         }
         if control, Keymap.NewSession.createFromPrompt.matches(chars), form.focusedField == .content {
             submit()
             return true
         }
-        guard form.focusedField == .path else {
-            return false
-        }
-        if Keymap.NewSession.completePath.matches(event.keyCode) {
-            if flags.contains(.shift) {
-                moveFocus()
-            } else {
-                completePath()
-            }
-            return true
-        }
-        if showsPathSuggestions, Keymap.NewSession.suggestionUp.matches(event.keyCode) || Keymap.NewSession.suggestionDown.matches(event.keyCode) {
-            paths.moveHighlight(Keymap.NewSession.suggestionUp.matches(event.keyCode) ? -1 : 1)
-            return true
-        }
-        if Keymap.NewSession.create.matches(chars) {
-            submit()
-            return true
-        }
         return false
     }
 
-    private func moveFocus() {
-        form.moveFocus(1)
-        focus(form.focusedField)
+    /// The project field's own keys and its SELECT / SEARCH states (`PickerFieldMode`). In SEARCH, Tab
+    /// or Return takes the highlighted project (Tab completes a typed path), ↑/↓ move, and Esc restores
+    /// the text; picking or Esc returns to SELECT.
+    private func handleProjectFieldKey(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let command = flags.contains(.command)
+        let control = flags.contains(.control)
+        let option = flags.contains(.option)
+        let before = form.projectMode
+        defer {
+            follow(from: before)
+        }
+        switch before {
+        case .select:
+            guard let start = PickerFieldMode.searchStart(characters: event.characters, keyCode: event.keyCode, command: command, control: control, option: option) else {
+                return false
+            }
+            form.startProjectSearch(start)
+            if case .seed(let text) = start {
+                projectTyped(text)
+            } else {
+                requestDirectoriesIfPath()
+            }
+            return true
+        case .search:
+            if command || control || option {
+                return false
+            }
+            if Keymap.NewSession.cancel.matches(event.keyCode) {
+                form.endProjectSearch(keepingText: false)
+                return true
+            }
+            let tab = Keymap.NewSession.completePath.matches(event.keyCode) && !flags.contains(.shift)
+            let up = Keymap.NewSession.suggestionUp.matches(event.keyCode)
+            if up || Keymap.NewSession.suggestionDown.matches(event.keyCode) {
+                if showsDirectorySuggestions {
+                    paths.moveHighlight(up ? -1 : 1)
+                } else {
+                    form.moveProjectHighlight(up ? -1 : 1)
+                }
+                return true
+            }
+            if form.isPathText {
+                if tab {
+                    completePath()
+                    return true
+                }
+                guard Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) else {
+                    return false
+                }
+                if showsDirectorySuggestions, let highlighted = paths.highlighted {
+                    form.setProjectPath(highlighted)
+                }
+                form.endProjectSearch(keepingText: true)
+                return true
+            }
+            if tab || Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) {
+                if form.acceptHighlightedProject() {
+                    return true
+                }
+                guard !tab else {
+                    return false
+                }
+                form.endProjectSearch(keepingText: true)
+                return true
+            }
+            return false
+        }
     }
 
+    private func moveFocus() {
+        let before = form.projectMode
+        form.moveFocus(1)
+        follow(from: before)
+        if form.focusedField == .project {
+            sinkNonce += 1
+        }
+    }
+
+    /// Tab on a typed path: the highlighted directory, or the path completed from disk.
     private func completePath() {
-        if showsPathSuggestions, let highlighted = paths.highlighted {
-            form.path = highlighted
-            requestPathSuggestions()
+        if showsDirectorySuggestions, let highlighted = paths.highlighted {
+            selectDirectory(highlighted)
             return
         }
-        let completed = PathSuggester.localCompletion(form.path)
-        guard completed != form.path else {
-            moveFocus()
+        let completed = PathSuggester.localCompletion(form.projectText)
+        guard completed != form.projectText else {
             return
         }
-        form.path = completed
-        requestPathSuggestions()
+        selectDirectory(completed)
     }
 
     func submit() {

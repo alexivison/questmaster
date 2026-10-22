@@ -1,7 +1,7 @@
 import Foundation
 
 public enum NewQuestField: CaseIterable, Equatable {
-    case path
+    case project
     case content
 }
 
@@ -15,6 +15,34 @@ public struct NewQuestProjectOption: Equatable, Identifiable {
         self.projectID = projectID
         self.projectPath = projectPath
         self.projectName = projectName
+    }
+
+    /// The name the field shows: the project's name, or its path's last component without one.
+    public var displayName: String {
+        let name = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? (projectPath as NSString).lastPathComponent : name
+    }
+
+    /// The path with the home directory shown as ~, as a shell would.
+    public func displayPath(home: String) -> String {
+        let path = projectPath
+        guard !home.isEmpty else {
+            return path
+        }
+        if path == home {
+            return "~"
+        }
+        let prefix = home.hasSuffix("/") ? home : home + "/"
+        return path.hasPrefix(prefix) ? "~/" + path.dropFirst(prefix.count) : path
+    }
+
+    /// One option per path, the first of each kept, and none without a path.
+    public static func deduplicated(_ options: [NewQuestProjectOption]) -> [NewQuestProjectOption] {
+        var seen = Set<String>()
+        return options.filter { option in
+            let path = (option.projectPath.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).standardizingPath
+            return !option.projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && seen.insert(path).inserted
+        }
     }
 }
 
@@ -35,45 +63,212 @@ public struct NewQuestSubmitPayload: Equatable {
     }
 }
 
-/// The New Quest / Edit Quest form: a project path and the quest's content.
+/// The New Quest / Edit Quest form: the project and the quest's content. The project field is a picker
+/// field (`PickerFieldMode`) over the projects the app knows: its text is a project's name, matched by
+/// name and then by path; text starting with / or ~ is a path instead, with directory suggestions.
 public struct NewQuestFormModel: Equatable {
-    public var path: String
     public var content: String
-    public var focusedField: NewQuestField
+    /// Leaving the project field ends its search, keeping what was typed.
+    public var focusedField: NewQuestField {
+        didSet {
+            if focusedField != .project, projectMode == .search {
+                endProjectSearch(keepingText: true)
+            }
+        }
+    }
     public var submitting: Bool
     public var errorMessage: String?
     /// The project the form opened with: the current session's repo for a new quest, the quest's own
-    /// when editing. Its path prefills the field.
+    /// when editing. Its name prefills the field.
     public let initialProject: NewQuestProjectOption?
     public let isEditing: Bool
+    public let projects: [NewQuestProjectOption]
+    /// The home directory, shown as ~ in the paths.
+    public let home: String
+    /// The field's text: a project's name, or a path.
+    public private(set) var projectText: String
+    /// The project the text names: the one picked, or the one opened with.
+    public private(set) var chosenProject: NewQuestProjectOption?
+    public private(set) var projectMode = PickerFieldMode.select
+    public private(set) var highlightedProjectIndex = 0
+    public private(set) var projectSuggestionsDismissed = true
+    private var projectTextBeforeSearch = ""
+    private var chosenBeforeSearch: NewQuestProjectOption?
 
-    public init(content: String = "", initialProject: NewQuestProjectOption? = nil, isEditing: Bool = false) {
+    public static let maxProjectSuggestions = 3
+
+    public init(
+        content: String = "",
+        initialProject: NewQuestProjectOption? = nil,
+        isEditing: Bool = false,
+        projects: [NewQuestProjectOption] = [],
+        home: String = ""
+    ) {
+        self.home = home
         self.content = content
         self.initialProject = initialProject
         self.isEditing = isEditing
-        path = initialProject?.projectPath ?? ""
-        focusedField = path.isEmpty ? .path : .content
+        self.projects = NewQuestProjectOption.deduplicated(projects)
+        let opening = initialProject.flatMap { $0.projectPath.isEmpty ? nil : $0 }
+        chosenProject = opening
+        projectText = opening?.displayName ?? ""
+        focusedField = opening == nil ? .project : .content
         submitting = false
         errorMessage = nil
     }
 
-    /// A new quest needs a path and content. An edit can leave a quest that has no project without one.
+    // MARK: Project field
+
+    private var query: String {
+        projectText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Text starting with / or ~ is a path: the dropdown lists directories, and the path is sent as typed.
+    public var isPathText: Bool {
+        let text = projectText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.hasPrefix("/") || text.hasPrefix("~")
+    }
+
+    private var isBrowsingProjects: Bool {
+        query.isEmpty || projectText == projectTextBeforeSearch
+    }
+
+    /// The projects matching the text, best first: by name (`PickerFieldMode.ranked`), then by path.
+    /// An empty search, or the text the search started from, lists them all, from the chosen one.
+    public var projectSuggestions: [NewQuestProjectOption] {
+        guard !isBrowsingProjects else {
+            let current = projects.firstIndex { $0.projectPath == chosenProject?.projectPath } ?? 0
+            let start = max(0, min(current, projects.count - Self.maxProjectSuggestions))
+            return Array(projects.dropFirst(start).prefix(Self.maxProjectSuggestions))
+        }
+        let byName = PickerFieldMode.ranked(projects, query: query) { $0.displayName.lowercased() }
+        let rest = projects.filter { option in !byName.contains(option) }
+        let byPath = PickerFieldMode.ranked(rest, query: query) { $0.displayPath(home: home).lowercased() }
+        return Array((byName + byPath).prefix(Self.maxProjectSuggestions))
+    }
+
+    /// The project list shows while searching a name; a path shows the directory suggestions instead.
+    public var showsProjectSuggestions: Bool {
+        focusedField == .project && projectMode == .search && !projectSuggestionsDismissed && !isPathText
+            && !projectSuggestions.isEmpty
+    }
+
+    /// Whether the directory suggestions apply: searching a path.
+    public var showsDirectorySuggestions: Bool {
+        focusedField == .project && projectMode == .search && isPathText
+    }
+
+    public var highlightedProject: NewQuestProjectOption? {
+        let suggestions = projectSuggestions
+        return suggestions.indices.contains(highlightedProjectIndex) ? suggestions[highlightedProjectIndex] : nil
+    }
+
+    public mutating func startProjectSearch(_ start: PickerFieldMode.SearchStart) {
+        projectTextBeforeSearch = projectText
+        chosenBeforeSearch = chosenProject
+        projectMode = .search
+        switch start {
+        case .seed(let text):
+            typeProject(text)
+        case .editCurrent:
+            projectSuggestionsDismissed = false
+            resetProjectHighlight()
+        }
+    }
+
+    public mutating func typeProject(_ text: String) {
+        projectText = text
+        if chosenProject?.displayName != text {
+            chosenProject = nil
+        }
+        projectSuggestionsDismissed = false
+        resetProjectHighlight()
+    }
+
+    /// A directory picked or completed from the suggestions.
+    public mutating func setProjectPath(_ path: String) {
+        projectText = path
+        chosenProject = nil
+    }
+
+    public mutating func moveProjectHighlight(_ delta: Int) {
+        let count = projectSuggestions.count
+        guard count > 0 else {
+            return
+        }
+        highlightedProjectIndex = (highlightedProjectIndex + delta + count) % count
+    }
+
+    /// Picks the highlighted project: the field shows its name, the path goes with the quest. False with
+    /// no project list showing.
+    @discardableResult
+    public mutating func acceptHighlightedProject() -> Bool {
+        guard showsProjectSuggestions, let project = highlightedProject else {
+            return false
+        }
+        pickProject(project)
+        return true
+    }
+
+    public mutating func pickProject(_ project: NewQuestProjectOption) {
+        chosenProject = project
+        projectText = project.displayName
+        endProjectSearch(keepingText: true)
+    }
+
+    /// Back to SELECT. Esc restores the text the search started from; picking or leaving keeps it.
+    public mutating func endProjectSearch(keepingText: Bool) {
+        if !keepingText {
+            projectText = projectTextBeforeSearch
+            chosenProject = chosenBeforeSearch
+        }
+        projectMode = .select
+        projectSuggestionsDismissed = true
+    }
+
+    public mutating func dismissProjectSuggestions() {
+        projectSuggestionsDismissed = true
+    }
+
+    /// The best match, or the chosen project while the list browses.
+    private mutating func resetProjectHighlight() {
+        let suggestions = projectSuggestions
+        highlightedProjectIndex = isBrowsingProjects ? suggestions.firstIndex { $0.projectPath == chosenProject?.projectPath } ?? 0 : 0
+    }
+
+    // MARK: Validity and payload
+
+    /// The project the quest goes to: a typed path, or the project the text names (the chosen one, or
+    /// a known project by that exact name). Nil for text that is neither.
+    public var resolvedProject: NewQuestProjectOption? {
+        let text = projectText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isPathText {
+            return NewQuestProjectOption(projectID: "", projectPath: text, projectName: "")
+        }
+        if let chosenProject, chosenProject.displayName == text {
+            return chosenProject
+        }
+        return projects.first { $0.displayName == text }
+    }
+
+    /// A new quest needs a project (or a path) and content. An edit can leave a quest that has no
+    /// project without one.
     public var canSubmit: Bool {
         !submitting && missingField == nil
+    }
+
+    private var keepsNoProject: Bool {
+        isEditing && (initialProject?.projectPath ?? "").isEmpty && Self.clean(projectText).isEmpty
     }
 
     private var missingField: String? {
         if Self.clean(content).isEmpty {
             return "content"
         }
-        if Self.clean(path).isEmpty && !(isEditing && pathUnchanged) {
-            return "path"
+        if resolvedProject == nil && !keepsNoProject {
+            return "project"
         }
         return nil
-    }
-
-    private var pathUnchanged: Bool {
-        Self.clean(path) == Self.clean(initialProject?.projectPath ?? "")
     }
 
     public mutating func moveFocus(_ delta: Int) {
@@ -93,8 +288,8 @@ public struct NewQuestFormModel: Equatable {
         errorMessage = message?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// The opening project while its path is untouched. A typed path goes alone: serve gives it the id
-    /// and name `quest add --project` would.
+    /// The opening project while it is still the one named; any other project or path goes as its path
+    /// alone, and serve gives it the id and name `quest add --project` would.
     public mutating func submitPayload() -> NewQuestSubmitPayload? {
         if let missingField {
             errorMessage = "\(missingField) is required"
@@ -102,7 +297,10 @@ public struct NewQuestFormModel: Equatable {
         }
         errorMessage = nil
         let content = Self.clean(content)
-        if pathUnchanged, let initialProject {
+        guard let project = resolvedProject else {
+            return NewQuestSubmitPayload(content: content, projectChanged: false)
+        }
+        if let initialProject, Self.clean(project.projectPath) == Self.clean(initialProject.projectPath) {
             return NewQuestSubmitPayload(
                 content: content,
                 projectID: initialProject.projectID,
@@ -111,7 +309,7 @@ public struct NewQuestFormModel: Equatable {
                 projectChanged: !isEditing
             )
         }
-        return NewQuestSubmitPayload(content: content, projectPath: Self.clean(path), projectChanged: !(isEditing && pathUnchanged))
+        return NewQuestSubmitPayload(content: content, projectPath: Self.clean(project.projectPath))
     }
 
     private static func clean(_ value: String) -> String {

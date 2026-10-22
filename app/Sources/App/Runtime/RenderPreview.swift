@@ -24,7 +24,8 @@ enum RenderPreview {
         render(newSessionView(.modelSelect), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-model-select.png")
         render(newSessionView(.noEffort), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-no-effort.png")
         render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-init.png")
-        render(newQuestSheetView(typing: true), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
+        render(newQuestSheetView(.typingPath), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
+        render(newQuestSheetView(.searchingProjects), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-projects.png")
         render(colorInputView(previewing: false), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input.png")
         render(colorInputView(previewing: true), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input-preview.png")
         let editSession = TrackerEditSession(sessionID: "qm-1", title: "Small Fixes", color: "orange", allowsColor: true)
@@ -1128,14 +1129,26 @@ enum RenderPreview {
         )
     }
 
-    /// New Quest empty (new-quest-init.svg), or with a path being typed and its suggestions open
-    /// (new-quest.svg).
+    enum NewQuestPreview {
+        /// new-quest-init.svg: empty.
+        case empty
+        /// new-quest.svg: a path typed, its directories listed.
+        case typingPath
+        /// user-new-quest-project-search.png: "questm" typed, the matching project listed.
+        case searchingProjects
+    }
+
     @MainActor
-    private static func newQuestSheetView(typing: Bool = false) -> some View {
+    private static func newQuestSheetView(_ preview: NewQuestPreview = .empty) -> some View {
+        let code = (NSHomeDirectory() as NSString).appendingPathComponent("Code")
+        let projects = ["questmaster", "scry", "dotfiles"].map { name in
+            NewQuestProjectOption(projectID: "\(code)/\(name)/.git", projectPath: "\(code)/\(name)", projectName: name)
+        }
         let sheet = NewQuestSheetModel(
             presentation: NewQuestSheetPresentation(
+                projects: projects,
                 initialProject: nil,
-                initialContent: typing ? "Add more meta data to shell sessions" : "",
+                initialContent: preview == .empty ? "" : "Add more meta data to shell sessions",
                 questID: "",
                 sessionID: "",
                 mutationClient: SettingsPreviewMutationClient(),
@@ -1144,9 +1157,14 @@ enum RenderPreview {
             ),
             dismiss: {}
         )
-        if typing {
-            sheet.form.path = "/Users/aleksi.tuo"
+        switch preview {
+        case .empty:
+            break
+        case .typingPath:
+            sheet.form.startProjectSearch(.seed("/Users/aleksi.tuo"))
             sheet.paths.show(["/Users/aleksi.tuominen/Code", "/Users/aleksi.tuominen/Code/Scry", "/Users/aleksi.tuominen/Code/Questmaster"])
+        case .searchingProjects:
+            sheet.form.startProjectSearch(.seed("questm"))
         }
         return NewQuestSheetView(model: sheet)
     }

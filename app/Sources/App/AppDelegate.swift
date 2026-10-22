@@ -793,6 +793,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let selectedSession = runtimeStore.snapshot.tracker.repos.flatMap(\.sessions)
             .first { $0.id == runtimeStore.currentTerminalSessionID }
         newQuestPresenter.present(
+            projects: questProjectOptions(),
             initialProject: questProject(id: selectedSession?.repoIdentity ?? ""),
             sessionID: runtimeStore.currentTerminalSessionID,
             mutationClient: mutationClient,
@@ -950,6 +951,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             ? nil
             : NewQuestProjectOption(projectID: quest.projectID, projectPath: quest.projectPath, projectName: quest.projectName)
         newQuestPresenter.present(
+            projects: questProjectOptions(),
             initialProject: ownProject ?? questProject(id: quest.projectID),
             initialContent: quest.content,
             questID: quest.id,
@@ -960,23 +962,28 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    /// The tracker's project, repo, or quest project with this id, for the quest form's path.
+    /// The tracker's project, repo, or quest project with this id: the quest form's opening project.
     private func questProject(id: String) -> NewQuestProjectOption? {
         guard !id.isEmpty, id != "ungrouped" else {
             return nil
         }
+        return questProjectOptions().first { $0.projectID == id }
+    }
+
+    /// Every project the app knows, for the quest form's search: the tracker's projects and repos, then
+    /// the projects existing quests belong to, one per path.
+    private func questProjectOptions() -> [NewQuestProjectOption] {
         let tracker = runtimeStore.snapshot.tracker
-        if let project = tracker.projects.first(where: { $0.id == id }) {
-            return NewQuestProjectOption(projectID: project.id, projectPath: project.path, projectName: project.name)
-        }
-        if let repo = tracker.repos.first(where: { $0.id == id }) {
-            let path = repo.path.isEmpty ? repo.sessions.first?.worktreePath ?? "" : repo.path
-            return NewQuestProjectOption(projectID: repo.id, projectPath: path, projectName: repo.name)
-        }
-        if let quest = tracker.quests.first(where: { $0.projectID == id && !$0.projectPath.isEmpty }) {
-            return NewQuestProjectOption(projectID: quest.projectID, projectPath: quest.projectPath, projectName: quest.projectName)
-        }
-        return nil
+        let projects = tracker.projects
+            .filter { $0.id != "ungrouped" }
+            .map { NewQuestProjectOption(projectID: $0.id, projectPath: $0.path, projectName: $0.name) }
+        let repos = tracker.repos
+            .filter { $0.id != "ungrouped" }
+            .map { repo in
+                NewQuestProjectOption(projectID: repo.id, projectPath: repo.path.isEmpty ? repo.sessions.first?.worktreePath ?? "" : repo.path, projectName: repo.name)
+            }
+        let quests = tracker.quests.map { NewQuestProjectOption(projectID: $0.projectID, projectPath: $0.projectPath, projectName: $0.projectName) }
+        return NewQuestProjectOption.deduplicated(projects + repos + quests)
     }
 
 }

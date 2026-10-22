@@ -1966,7 +1966,7 @@ enum LogicSelfTests {
             try check("New Session", NewSessionSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
         }
         let newQuest = NewQuestSheetPresenter()
-        newQuest.present(initialProject: nil, sessionID: nil, mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: {})
+        newQuest.present(projects: [], initialProject: nil, sessionID: nil, mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: {})
         if let presentation = newQuest.presentation {
             try check("New Quest", NewQuestSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
         }
@@ -2851,6 +2851,7 @@ enum LogicSelfTests {
         let client = StubMutationClient(result: .success(ServeMutationAck(data: nil)))
         let sheet = NewQuestSheetModel(
             presentation: NewQuestSheetPresentation(
+                projects: [NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a")],
                 initialProject: NewQuestProjectOption(projectID: "/tmp/a/.git", projectPath: "/tmp/a", projectName: "a"),
                 initialContent: "",
                 questID: "",
@@ -2861,11 +2862,13 @@ enum LogicSelfTests {
             ),
             dismiss: {}
         )
-        try expect(sheet.form.path == "/tmp/a", "the session's repo should prefill the path")
+        try expect(sheet.form.projectText == "a", "the session's repo should prefill the project's name")
         try expect(!sheet.form.canSubmit, "Inscribe should wait for content")
         sheet.form.content = "Ship it"
-        sheet.form.path = "/tmp/b"
-        try expect(sheet.form.canSubmit, "a path and content are enough")
+        sheet.form.focusedField = .project
+        try expect(sheet.handle(try keyEvent("/", keyCode: 44)), "a / should start a path search")
+        sheet.projectTyped("/tmp/b")
+        try expect(sheet.form.isPathText && sheet.form.canSubmit, "a path and content are enough")
         sheet.submit()
         let data = client.sentRequests.first?.data
         try expect(data?["project_path"] == "/tmp/b", "the typed path should be sent")
