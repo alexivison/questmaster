@@ -79,11 +79,13 @@ extension FormTextField where Trailing == EmptyView {
     }
 }
 
-/// The dropdown under a path or model field. It overlays the fields below it rather than pushing them.
+/// The dropdown under a path, model or colour field. It overlays the fields below it rather than pushing
+/// them. `accessory` draws at a row's right end (the colour rows' swatches), 11 in.
 struct SuggestionDropdown: View {
     let rows: [String]
     let highlightedIndex: Int?
     var onSelect: (Int) -> Void
+    var accessory: ((Int) -> AnyView)?
 
     var body: some View {
         VStack(spacing: FormFieldMetrics.suggestionRowSpacing) {
@@ -96,6 +98,10 @@ struct SuggestionDropdown: View {
                     .alignmentGuide(.top) { $0[.firstTextBaseline] - FormFieldMetrics.suggestionBaseline }
                     .padding(.horizontal, FormFieldMetrics.suggestionTextInset)
                     .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.suggestionRowHeight, maxHeight: FormFieldMetrics.suggestionRowHeight, alignment: .topLeading)
+                    .overlay(alignment: .trailing) {
+                        accessory?(index)
+                            .padding(.trailing, FormFieldMetrics.segmentTrailing - Token.Size.divider)
+                    }
                     .background((index == highlightedIndex ? AppPalette.item : .clear).swiftUI)
                     .contentShape(Rectangle())
                     .onTapGesture { onSelect(index) }
@@ -120,6 +126,45 @@ extension View {
             if let dropdown {
                 dropdown
                     .offset(y: FormFieldMetrics.height + FormFieldMetrics.suggestionsGap)
+            }
+        }
+    }
+}
+
+/// A dropdown drawn by the sheet's `floatingDropdownHost()` instead of inside the field, so it can hang
+/// past a short sheet's clipped edge like a menu (the edit modals' colour list).
+struct FloatingDropdownKey: PreferenceKey {
+    struct Item {
+        let anchor: Anchor<CGRect>
+        let view: AnyView
+    }
+
+    static var defaultValue: [Item] { [] }
+
+    static func reduce(value: inout [Item], nextValue: () -> [Item]) {
+        value += nextValue()
+    }
+}
+
+extension View {
+    /// Hangs `dropdown` under this field, drawn by the nearest `floatingDropdownHost()`.
+    func floatingDropdown(_ dropdown: SuggestionDropdown?) -> some View {
+        anchorPreference(key: FloatingDropdownKey.self, value: .bounds) { anchor in
+            dropdown.map { [FloatingDropdownKey.Item(anchor: anchor, view: AnyView($0))] } ?? []
+        }
+    }
+
+    /// Draws the floating dropdowns of the fields inside, over this view and past its edges. Put it
+    /// after the sheet's clipping chrome.
+    func floatingDropdownHost() -> some View {
+        overlayPreferenceValue(FloatingDropdownKey.self) { items in
+            GeometryReader { proxy in
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    let field = proxy[item.anchor]
+                    item.view
+                        .frame(width: field.width)
+                        .offset(x: field.minX, y: field.maxY + FormFieldMetrics.suggestionsGap)
+                }
             }
         }
     }
@@ -164,6 +209,8 @@ struct ModalFormSheet<Content: View>: View {
     let errorMessage: String?
     let primaryLabel: String
     let canSubmit: Bool
+    var size = Metrics.size
+    var buttonWidth = Metrics.buttonWidth
     var onCancel: () -> Void
     var onPrimary: () -> Void
     @ViewBuilder var content: () -> Content
@@ -183,22 +230,33 @@ struct ModalFormSheet<Content: View>: View {
                 .padding(.horizontal, Metrics.inset)
             HStack(spacing: Metrics.buttonSpacing) {
                 Button("Cancel", action: onCancel)
-                    .buttonStyle(OutlineButtonStyle(width: Metrics.buttonWidth))
+                    .buttonStyle(OutlineButtonStyle(width: buttonWidth))
                 Button(primaryLabel, action: onPrimary)
-                    .buttonStyle(GoldButtonStyle(width: Metrics.buttonWidth))
+                    .buttonStyle(GoldButtonStyle(width: buttonWidth))
                     .disabled(!canSubmit)
             }
             .padding(.bottom, Metrics.bandHeight)
         }
-        .frame(width: Metrics.size.width, height: Metrics.size.height)
+        .frame(width: size.width, height: size.height)
     }
 }
 
 enum ModalFormMetrics {
     static let size = CGSize(width: 540, height: 620)
+    /// The shared header leaves the content this far down.
+    static let contentTop: CGFloat = 80
     static let inset: CGFloat = 20
+    static let fieldSpacing: CGFloat = 20
     /// Between the fields and the buttons (holding the error), and under the buttons.
     static let bandHeight: CGFloat = 21
     static let buttonWidth: CGFloat = 194
     static let buttonSpacing: CGFloat = 15
+    static let buttonHeight: CGFloat = 32
+
+    /// A sheet sized to `fields` 35pt fields: the header, the fields 20 apart, the error band, the buttons
+    /// and the bottom band.
+    static func height(fields: Int) -> CGFloat {
+        let fieldsHeight = CGFloat(fields) * FormFieldMetrics.height + CGFloat(max(0, fields - 1)) * fieldSpacing
+        return contentTop + fieldsHeight + bandHeight + buttonHeight + bandHeight
+    }
 }

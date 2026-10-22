@@ -1,0 +1,319 @@
+import AppKit
+import QuestmasterCore
+import SwiftUI
+
+/// Edit Session and Edit Repo (user-edit-modals.png): no labels; the session's title (or the repo's fixed
+/// name) and the colour input, 20 apart, then Cancel and Save, under the shared header. The overview's
+/// fields and buttons put them at 460 wide (the old modals were 420), with 152-wide buttons.
+private enum TrackerEditMetrics {
+    static let width: CGFloat = 460
+    static let buttonWidth: CGFloat = 152
+
+    static func size(fields: Int) -> CGSize {
+        CGSize(width: width, height: ModalFormMetrics.height(fields: fields))
+    }
+}
+
+/// The edit sheets' keyboard focus: the title (Edit Session only) or the colour input.
+enum TrackerEditField: Equatable {
+    case title
+    case color
+}
+
+/// The colour input's focus plumbing, shared by both sheets: the caret goes into the text as a search
+/// starts and leaves it as the field returns to SELECT.
+private struct TrackerColorFocus {
+    var textNonce = 0
+    var sinkNonce = 0
+
+    mutating func follow(from before: PickerFieldMode, to after: PickerFieldMode) {
+        if before == .select, after == .search {
+            textNonce += 1
+        } else if before == .search, after == .select {
+            sinkNonce += 1
+        }
+    }
+}
+
+struct TrackerEditSessionSheet: View {
+    let dismiss: () -> Void
+    let save: (String, String) -> Bool
+    let allowsColor: Bool
+
+    @State private var title: String
+    @State private var color: ColorFieldModel
+    @State private var focus: TrackerEditField
+    @State private var titleNonce = 0
+    @State private var colorFocus = TrackerColorFocus()
+    @State private var errorMessage: String?
+    private let initialColor: String
+    private let initialColorIndex: Int
+
+    /// `colorSearch`: opens with the colour input searching (the renders' open dropdown).
+    init(session: TrackerEditSession, initialFocus: TrackerEditField = .title, colorSearch: PickerFieldMode.SearchStart? = nil, dismiss: @escaping () -> Void, save: @escaping (String, String) -> Bool) {
+        self.dismiss = dismiss
+        self.save = save
+        allowsColor = session.allowsColor
+        _title = State(initialValue: session.title)
+        var color = ColorFieldModel(selected: session.color)
+        if let colorSearch {
+            color.startSearch(colorSearch)
+        }
+        _color = State(initialValue: color)
+        _focus = State(initialValue: session.allowsColor ? initialFocus : .title)
+        initialColor = session.color
+        initialColorIndex = color.selectedIndex
+    }
+
+    var body: some View {
+        ModalFormSheet(
+            title: "Edit Session",
+            errorMessage: errorMessage,
+            primaryLabel: "Save",
+            canSubmit: !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            size: TrackerEditMetrics.size(fields: allowsColor ? 2 : 1),
+            buttonWidth: TrackerEditMetrics.buttonWidth,
+            onCancel: dismiss,
+            onPrimary: submit
+        ) {
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                FormTextField(
+                    text: $title,
+                    placeholder: "Title of the Session",
+                    focusNonce: titleNonce,
+                    focused: focus == .title,
+                    onFocusChanged: { editing in
+                        if editing {
+                            moveFocus(to: .title, byClick: true)
+                        }
+                    }
+                )
+                if allowsColor {
+                    TrackerColorInput(color: $color, colorFocus: $colorFocus, focused: focus == .color, onFocus: { moveFocus(to: .color, byClick: true) })
+                }
+            }
+            .background(FocusSink(nonce: colorFocus.sinkNonce))
+        }
+        .scoopedPanel()
+        .floatingDropdownHost()
+        .background(SheetKeyEventMonitor(onKeyDown: handle))
+        .onAppear {
+            if focus == .title {
+                titleNonce += 1
+            } else {
+                colorFocus.sinkNonce += 1
+            }
+        }
+    }
+
+    private func submit() {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty else {
+            errorMessage = "title is required"
+            return
+        }
+        let resolvedColor = NewSessionFormModel.resolvedColorForSave(
+            selectedColor: color.selectedColor,
+            selectedColorIndex: color.selectedIndex,
+            initialColorIndex: initialColorIndex,
+            initialColor: initialColor
+        )
+        guard save(cleanTitle, resolvedColor) else {
+            errorMessage = "could not save session"
+            return
+        }
+        dismiss()
+    }
+
+    /// `byClick`: the click already placed the caret (or, on the colour input, starts the search itself).
+    private func moveFocus(to field: TrackerEditField, byClick: Bool = false) {
+        guard field != focus else {
+            return
+        }
+        if focus == .color {
+            let before = color.mode
+            color.endSearch()
+            colorFocus.follow(from: before, to: color.mode)
+        }
+        focus = field
+        guard !byClick else {
+            return
+        }
+        switch field {
+        case .title:
+            titleNonce += 1
+        case .color:
+            colorFocus.sinkNonce += 1
+        }
+    }
+
+    private func handle(_ event: NSEvent) -> Bool {
+        let chars = event.charactersIgnoringModifiers?.lowercased()
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) {
+            guard Keymap.NewSession.create.matches(chars) else {
+                return false
+            }
+            submit()
+            return true
+        }
+        if focus == .color, TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
+            return true
+        }
+        if Keymap.NewSession.cancel.matches(event.keyCode) {
+            dismiss()
+            return true
+        }
+        let movesFocus = Keymap.NewSession.completePath.matches(event.keyCode)
+            || (flags.contains(.option) && Keymap.NewSession.nextFieldOption.matches(event.keyCode))
+            || (flags.contains(.control) && (Keymap.NewSession.nextField.matches(chars) || Keymap.NewSession.previousField.matches(chars)))
+        if movesFocus {
+            if allowsColor {
+                moveFocus(to: focus == .title ? .color : .title)
+            }
+            return true
+        }
+        if Keymap.NewSession.create.matches(chars) {
+            submit()
+            return true
+        }
+        return false
+    }
+}
+
+struct TrackerEditRepoSheet: View {
+    let repo: TrackerEditRepo
+    let dismiss: () -> Void
+    let save: (String) -> Bool
+
+    @State private var color: ColorFieldModel
+    @State private var colorFocus = TrackerColorFocus()
+    @State private var errorMessage: String?
+    private let initialColor: String
+    private let initialColorIndex: Int
+
+    init(repo: TrackerEditRepo, colorSearch: PickerFieldMode.SearchStart? = nil, dismiss: @escaping () -> Void, save: @escaping (String) -> Bool) {
+        self.repo = repo
+        self.dismiss = dismiss
+        self.save = save
+        var color = ColorFieldModel(selected: repo.color)
+        if let colorSearch {
+            color.startSearch(colorSearch)
+        }
+        _color = State(initialValue: color)
+        initialColor = repo.color
+        initialColorIndex = color.selectedIndex
+    }
+
+    var body: some View {
+        ModalFormSheet(
+            title: "Edit Repo",
+            errorMessage: errorMessage,
+            primaryLabel: "Save",
+            canSubmit: true,
+            size: TrackerEditMetrics.size(fields: 2),
+            buttonWidth: TrackerEditMetrics.buttonWidth,
+            onCancel: dismiss,
+            onPrimary: submit
+        ) {
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                // Repos can't be renamed (serve only recolours them), so the name is fixed: no focus, dim.
+                BaselineText(repo.name.isEmpty ? repo.identity : repo.name, font: AppFonts.questLogBody, color: AppPalette.questLogFilterHint, baseline: FormFieldMetrics.baseline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, FormFieldMetrics.textInset)
+                    .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.height, maxHeight: FormFieldMetrics.height, alignment: .topLeading)
+                    .fieldChrome(focused: false)
+                    .accessibilityLabel("Repo \(repo.name)")
+                TrackerColorInput(color: $color, colorFocus: $colorFocus, focused: true, onFocus: {})
+            }
+            .background(FocusSink(nonce: colorFocus.sinkNonce))
+        }
+        .scoopedPanel()
+        .floatingDropdownHost()
+        .background(SheetKeyEventMonitor(onKeyDown: handle))
+        .onAppear { colorFocus.sinkNonce += 1 }
+    }
+
+    private func submit() {
+        let resolvedColor = NewSessionFormModel.resolvedColorForSave(
+            selectedColor: color.selectedColor,
+            selectedColorIndex: color.selectedIndex,
+            initialColorIndex: initialColorIndex,
+            initialColor: initialColor
+        )
+        guard save(resolvedColor) else {
+            errorMessage = "could not save repo"
+            return
+        }
+        dismiss()
+    }
+
+    private func handle(_ event: NSEvent) -> Bool {
+        let chars = event.charactersIgnoringModifiers?.lowercased()
+        if event.modifierFlags.contains(.command) {
+            guard Keymap.NewSession.create.matches(chars) else {
+                return false
+            }
+            submit()
+            return true
+        }
+        if TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
+            return true
+        }
+        if Keymap.NewSession.cancel.matches(event.keyCode) {
+            dismiss()
+            return true
+        }
+        // The colour input is the only stop: Tab and ⌃j/⌃k have nowhere else to go.
+        return Keymap.NewSession.completePath.matches(event.keyCode)
+    }
+}
+
+/// The edit sheets' colour input and its keys.
+private struct TrackerColorInput: View {
+    @Binding var color: ColorFieldModel
+    @Binding var colorFocus: TrackerColorFocus
+    let focused: Bool
+    var onFocus: () -> Void
+
+    var body: some View {
+        ColorField(
+            model: $color,
+            focusNonce: colorFocus.textNonce,
+            focused: focused,
+            onClickText: {
+                onFocus()
+                let before = color.mode
+                color.startSearch(.editCurrent)
+                colorFocus.follow(from: before, to: color.mode)
+            },
+            onSwatchClick: {
+                onFocus()
+                let before = color.mode
+                color.cycle(1)
+                colorFocus.follow(from: before, to: color.mode)
+            }
+        )
+    }
+
+    /// Runs the key the focused colour input takes (`ColorFieldModel.command`), moving the caret with the mode.
+    static func handle(_ event: NSEvent, color: inout ColorFieldModel, colorFocus: inout TrackerColorFocus) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard let command = ColorFieldModel.command(
+            keyCode: event.keyCode,
+            characters: event.characters,
+            command: flags.contains(.command),
+            control: flags.contains(.control),
+            option: flags.contains(.option),
+            mode: color.mode,
+            showsSuggestions: color.showsSuggestions
+        ) else {
+            return false
+        }
+        let before = color.mode
+        color.apply(command)
+        colorFocus.follow(from: before, to: color.mode)
+        return true
+    }
+}

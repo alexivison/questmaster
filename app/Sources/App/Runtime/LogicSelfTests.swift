@@ -1970,6 +1970,8 @@ enum LogicSelfTests {
         if let presentation = newQuest.presentation {
             try check("New Quest", NewQuestSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
         }
+        let editSession = TrackerEditSession(sessionID: "qm-1", title: "gjpqy", color: "orange", allowsColor: true)
+        try check("Edit Session", TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _ in true }), size: CGSize(width: 460, height: ModalFormMetrics.height(fields: 2)))
     }
 
     /// A long quest's ink scrolls under a wheel over the page: the page's point hit-tests into its scroll view,

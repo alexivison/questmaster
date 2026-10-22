@@ -22,6 +22,15 @@ enum RenderPreview {
         render(newSessionView(.noEffort), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-no-effort.png")
         render(newQuestSheetView(), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest-init.png")
         render(newQuestSheetView(typing: true), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-quest.png")
+        render(colorInputView(previewing: false), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input.png")
+        render(colorInputView(previewing: true), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input-preview.png")
+        let editSession = TrackerEditSession(sessionID: "qm-1", title: "Small Fixes", color: "orange", allowsColor: true)
+        let editRepo = TrackerEditRepo(identity: "/Users/aleksi.tuominen/Code/questmaster/.git", name: "questmaster", color: "orange")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .editCurrent, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-open.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: TrackerEditSession(sessionID: "qm-1", title: "", color: "", allowsColor: true), initialFocus: .color, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-none.png")
+        render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
+        render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
         render(sectionHeaderView(), size: CGSize(width: 300, height: 40), to: "\(outputDir)/section-header.png")
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
@@ -1030,6 +1039,33 @@ enum RenderPreview {
         }
         state.model = model
         return newSessionRoot(state)
+    }
+
+    /// color-input.svg's state: the search emptied, the list open on orange, teal and magenta, and the
+    /// swatch on the selected indigo; or, `previewing`, after ↓ to teal.
+    @MainActor
+    private static func colorInputView(previewing: Bool) -> some View {
+        var model = ColorFieldModel(colors: ["orange", "teal", "magenta", "indigo"], selected: "indigo")
+        model.startSearch(.seed(""))
+        if previewing {
+            model.moveHighlight(1)
+        }
+        return ColorField(model: .constant(model), focusNonce: 0, focused: true, onClickText: {}, onSwatchClick: {})
+            .frame(width: 500)
+            .padding(.leading, 2)
+            .frame(width: 504, height: 151, alignment: .topLeading)
+            .floatingDropdownHost()
+            .background(AppPalette.panel.swiftUI)
+    }
+
+    /// An edit sheet at the top of a canvas tall enough for its colour list, which hangs past the sheet.
+    private static let editCanvas = CGSize(width: 460, height: 300)
+
+    @MainActor
+    private static func editSheetCanvas<Sheet: View>(_ sheet: Sheet) -> some View {
+        sheet
+            .frame(width: editCanvas.width, height: editCanvas.height, alignment: .top)
+            .background(AppPalette.window.swiftUI)
     }
 
     @MainActor

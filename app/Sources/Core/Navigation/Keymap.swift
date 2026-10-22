@@ -220,6 +220,20 @@ public enum Keymap {
         public static let halfPageDown = CharacterBinding(keys: ["d"], modifiers: [.control])
     }
 
+    /// The picker fields' SELECT state (`PickerFieldMode`): Backspace and Return start editing the current
+    /// text; Tab, Esc and the arrows are never text.
+    public enum PickerField {
+        public static let editCurrent = KeyCodeBinding(keyCodes: [51, 36, 76])
+        public static let notText = KeyCodeBinding(keyCodes: [48, 53, 123, 124, 125, 126])
+    }
+
+    /// The colour input: ⌥←/⌥→ cycle the colours in both states (while searching they take over the text
+    /// field's move-by-word, which a one-word colour name has no use for); plain ←/→ cycle in SELECT.
+    public enum ColorField {
+        public static let cyclePrevious = KeyCodeBinding(keyCodes: [123], modifiers: [.option])
+        public static let cycleNext = KeyCodeBinding(keyCodes: [124], modifiers: [.option])
+    }
+
     public enum Settings {
         public static let previousTab = CharacterBinding(keys: ["["])
         public static let nextTab = CharacterBinding(keys: ["]"])
