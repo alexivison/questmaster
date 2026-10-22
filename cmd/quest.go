@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/alexivison/questmaster/internal/modelsuggest"
-	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -280,28 +278,8 @@ func questProject(cmd *cobra.Command, store *state.Store, sessionID, project str
 }
 
 func questProjectFromPath(path string, strict bool) (questProjectMeta, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return questProjectMeta{}, nil
-	}
-	expanded := path
-	if strings.HasPrefix(expanded, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			expanded = filepath.Join(home, expanded[2:])
-		}
-	}
-	abs, err := filepath.Abs(expanded)
-	if err != nil {
-		return questProjectMeta{}, err
-	}
-	r, ok := repo.Resolve(abs)
-	if !ok {
-		if strict {
-			return questProjectMeta{}, fmt.Errorf("project path is not in a git repo: %s", path)
-		}
-		return questProjectMeta{}, nil
-	}
-	return questProjectMeta{id: r.Identity, path: filepath.Clean(abs), name: r.Name}, nil
+	id, abs, name, err := state.ResolveQuestProject(path, strict)
+	return questProjectMeta{id: id, path: abs, name: name}, err
 }
 
 func questStateRoot(store *state.Store) string {

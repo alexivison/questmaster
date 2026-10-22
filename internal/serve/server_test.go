@@ -1142,6 +1142,101 @@ func TestQuestEditMutationUpdatesAndClearsProject(t *testing.T) {
 	}
 }
 
+func TestQuestMutationsResolveAProjectSentAsAPathOnly(t *testing.T) {
+	t.Parallel()
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	root := filepath.Join(t.TempDir(), "realm")
+	sub := filepath.Join(root, "app")
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("git dir: %v", err)
+	}
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("sub dir: %v", err)
+	}
+	wantID, wantPath, wantName, err := state.ResolveQuestProject(sub, true)
+	if err != nil || wantID == "" || wantName != "realm" || wantPath != sub {
+		t.Fatalf("resolve %s = %q %q %q, %v", sub, wantID, wantPath, wantName, err)
+	}
+	server := &Server{Snapshotter: &Snapshotter{store: store}}
+
+	addData, _ := json.Marshal(map[string]string{"content": "Typed path", "project_path": sub})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.add", Data: addData}); err != nil {
+		t.Fatalf("add quest: %v", err)
+	}
+	quests, err := state.LoadQuestsAt(store.Root())
+	if err != nil {
+		t.Fatalf("load quests: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ProjectID != wantID || quests[0].ProjectPath != wantPath || quests[0].ProjectName != wantName {
+		t.Fatalf("added quest = %#v, want the CLI's project %q %q %q", quests, wantID, wantPath, wantName)
+	}
+
+	other := filepath.Join(t.TempDir(), "other")
+	if err := os.MkdirAll(filepath.Join(other, ".git"), 0o755); err != nil {
+		t.Fatalf("other git dir: %v", err)
+	}
+	editData, _ := json.Marshal(map[string]string{"quest_id": quests[0].ID, "content": "Typed path", "project_changed": "true", "project_path": other})
+	if _, err := server.mutate(t.Context(), Request{Method: "quest.edit", Data: editData}); err != nil {
+		t.Fatalf("edit quest: %v", err)
+	}
+	quests, err = state.LoadQuestsAt(store.Root())
+	if err != nil {
+		t.Fatalf("load edited quests: %v", err)
+	}
+	if len(quests) != 1 || quests[0].ProjectName != "other" || quests[0].ProjectPath != other || quests[0].ProjectID == wantID {
+		t.Fatalf("edited quest = %#v, want the other repo", quests)
+	}
+
+	rejected := map[string]struct {
+		path string
+		want string
+	}{
+		"outside a repo":          {path: t.TempDir(), want: "not in a git repo"},
+		"missing dir in a repo":   {path: filepath.Join(root, "missing"), want: "not a directory"},
+		"file in a repo":          {path: writeQuestTestFile(t, root), want: "not a directory"},
+		"relative to serve's cwd": {path: "realm/app", want: "must be absolute"},
+		"another user's home":     {path: "~nobody/realm", want: "must be absolute"},
+	}
+	for name, tc := range rejected {
+		data, _ := json.Marshal(map[string]string{"content": "Nowhere", "project_path": tc.path})
+		if _, err := server.mutate(t.Context(), Request{Method: "quest.add", Data: data}); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: add %q: err = %v, want %q", name, tc.path, err, tc.want)
+		}
+	}
+}
+
+func writeQuestTestFile(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	return path
+}
+
+func TestExpandHomeExpandsOnlyTheUsersHome(t *testing.T) {
+	t.Parallel()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home: %v", err)
+	}
+	cases := map[string]string{
+		"~":          home,
+		"~/Code/x":   filepath.Join(home, "Code/x"),
+		"~nobody/x":  "~nobody/x",
+		"/abs/~/x":   "/abs/~/x",
+		"relative/x": "relative/x",
+	}
+	for in, want := range cases {
+		if got := state.ExpandHome(in); got != want {
+			t.Fatalf("ExpandHome(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestArtifactDeleteMutationRemovesSessionAndGlobalArtifacts(t *testing.T) {
 	store, err := state.NewStore(t.TempDir())
 	if err != nil {
