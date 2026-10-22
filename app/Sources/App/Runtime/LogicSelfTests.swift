@@ -213,7 +213,7 @@ enum LogicSelfTests {
     /// pulses, an ended cast flashes, a new learned duration only re-targets the fill; reduce motion keeps the fill but
     /// stills the rest, and nothing animates outside a window, nor keeps exiting once out of one.
     private static func testPortraitRingAnimatesByItsMode() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
         let geometry = TrackerPlateDesign.collapsedCircleStatus
         let bash = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2), typicalMS: 6000)
 
@@ -288,7 +288,7 @@ enum LogicSelfTests {
         try expect(band() == nil, "an unselected, unhovered row should show no band")
         try expect(TrackerGlowNSView.bandOpacity == 0.6, "the band should hold 0.6")
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
         let held = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         window.contentView = held
         held.configure(path: CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil), color: AppPalette.bright)
@@ -366,9 +366,9 @@ enum LogicSelfTests {
                 TrackerPortraitStatus(geometry: controlGeometry, color: AppPalette.accent, ring: .spinning(nil))
             })
             hosting.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
-            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 320, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
+            let window = HeadlessWindow(size: CGSize(width: 320, height: 240))
             window.contentView = hosting
-            window.orderFrontRegardless()
+            window.show()
             defer { window.close() }
             func control() -> TrackerPortraitStatusNSView? {
                 statusViews(in: hosting).first { $0.geometry == controlGeometry }
@@ -579,12 +579,9 @@ enum LogicSelfTests {
         }
         let idleEntries = Array(repeating: fixed, count: 30) + Array(repeating: hidden, count: 30)
         let hosting = NSHostingView(rootView: column(idleEntries))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         let startedBefore = clock.timersStarted
         pump(0.3)
@@ -602,7 +599,7 @@ enum LogicSelfTests {
     /// duration (kept under reduce motion) and a pulse from then on (none under reduce motion), an unknown one a repeating shimmer (none under reduce
     /// motion), a finishing cast neither, and nothing animates outside a window.
     private static func testCastFillAnimatesOnlyWhileCastingInAWindow() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 40))
         let started = Date().addingTimeInterval(-2)
         let bash = TrackerCast(tool: "Bash", startedAt: started, typicalMS: 6000)
         let overrun = TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-9), typicalMS: 6000)
@@ -1552,7 +1549,7 @@ enum LogicSelfTests {
         }
         let stack = InWindowModalStack()
         let holder = Holder()
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 400, height: 300))
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         let presenting = NSHostingView(rootView: Presenting(holder: holder, stack: stack))
         presenting.frame = content.bounds
@@ -1569,7 +1566,7 @@ enum LogicSelfTests {
         ])
         window.contentView = content
         let windowSize = window.frame.size
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
         settle()
@@ -1624,7 +1621,7 @@ enum LogicSelfTests {
         let newQuest = Holder()
         let store = QuestLogStore()
         store.sync(quests: [QuestItem(id: "q", content: "A quest", projectID: "p", projectName: "p")], repos: [])
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 860))
         let terminal = StandInTerminal(frame: content.bounds)
         let presenting = NSHostingView(rootView: Presenting(newSession: newSession, newQuest: newQuest, stack: stack))
@@ -1644,7 +1641,7 @@ enum LogicSelfTests {
         ])
         window.contentView = content
         let windowSize = window.frame.size
-        window.makeKeyAndOrderFront(nil)
+        window.show(key: true)
         defer { window.close() }
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
         func pressEsc() {
@@ -1714,7 +1711,7 @@ enum LogicSelfTests {
             func connect(to config: TerminalLaunchConfig) throws {}
         }
         let stack = InWindowModalStack()
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 600))
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
         let tracker = StandIn(frame: NSRect(x: 0, y: 0, width: 500, height: 600))
         let terminal = StandInTerminalHost()
@@ -1739,7 +1736,7 @@ enum LogicSelfTests {
             updateDockTabs: {}
         )
         host.onEmpty = { coordinator.focusCurrentRegion() }
-        window.makeKeyAndOrderFront(nil)
+        window.show(key: true)
         defer { window.close() }
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
         func presentModal() {
@@ -1778,11 +1775,11 @@ enum LogicSelfTests {
         let store = QuestLogStore()
         store.sync(quests: [QuestItem(id: "q", content: "A quest", projectID: "p", projectName: "p")], repos: [])
         let filter = QuestLogFilter()
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
         let host = InWindowModalHost(stack: stack)
         host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
         window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        window.show(key: true)
         defer { window.close() }
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
         store.open()
@@ -1816,12 +1813,12 @@ enum LogicSelfTests {
         let store = QuestLogStore()
         store.sync(quests: (1...40).map { QuestItem(id: "q\($0)", content: "Quest \($0)", projectID: "p", projectName: "p") }, repos: [])
         _ = store.handle(.jumpToLast)
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
         let stack = InWindowModalStack()
         let host = InWindowModalHost(stack: stack)
         host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
         window.contentView = host
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         store.open()
         stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
@@ -1836,14 +1833,14 @@ enum LogicSelfTests {
     /// The filter's focus (and so its border) follows the window's real first responder: on when the field
     /// takes focus, off when focus leaves (Esc hands it to nil, a click on the list hands it elsewhere).
     private static func testFilterFieldFocusFollowsTheFirstResponder() throws {
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 80))
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 80))
         let field = CommandTextField.KeyTextField(frame: NSRect(x: 10, y: 30, width: 200, height: 20))
         let other = NSTextField(frame: NSRect(x: 10, y: 0, width: 200, height: 20))
         content.addSubview(field)
         content.addSubview(other)
         window.contentView = content
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         var reported: [Bool] = []
         field.onFirstResponderChange = { reported.append($0) }
@@ -1874,9 +1871,9 @@ enum LogicSelfTests {
         func check<V: View>(_ name: String, _ content: V, size: CGSize) throws {
             let hosting = NSHostingView(rootView: content)
             hosting.frame = NSRect(origin: .zero, size: size)
-            let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: size.width, height: size.height), styleMask: [.titled], backing: .buffered, defer: false)
+            let window = HeadlessWindow(size: CGSize(width: size.width, height: size.height))
             window.contentView = hosting
-            window.orderFrontRegardless()
+            window.show()
             defer { window.close() }
             RunLoop.main.run(until: Date().addingTimeInterval(0.4))
             let found = fields(in: hosting).filter { $0.isEditable }
@@ -1905,12 +1902,12 @@ enum LogicSelfTests {
         let body = (1...60).map { "- Step \($0) of a quest long enough to scroll" }.joined(separator: "\n")
         let store = QuestLogStore()
         store.sync(quests: [QuestItem(id: "q", content: "A long quest\n\n\(body)", projectID: "p", projectName: "p")], repos: [])
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
         let stack = InWindowModalStack()
         let host = InWindowModalHost(stack: stack)
         host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
         window.contentView = host
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         let pageScroll = QuestLogPageScroll()
         store.open()
@@ -1955,12 +1952,12 @@ enum LogicSelfTests {
     private static func testQuestLogOpensWithoutRedrawingTheParchment() throws {
         let store = QuestLogStore()
         store.sync(quests: [QuestItem(id: "q", content: "A quest\n\nWith a body", projectID: "p", projectName: "p")], repos: [])
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1000, height: 860), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
         let stack = InWindowModalStack()
         let host = InWindowModalHost(stack: stack)
         host.frame = NSRect(x: 0, y: 0, width: 1000, height: 860)
         window.contentView = host
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
 
@@ -3042,12 +3039,9 @@ enum LogicSelfTests {
         let hider = ScrollerHidingNSView()
         documentView.addSubview(hider)
 
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = scrollView
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
@@ -3130,12 +3124,9 @@ enum LogicSelfTests {
         let rowsHeight = rows ?? contentHeight - 2 * WorkerChatMetrics.inset
         follower.frame = NSRect(x: 0, y: contentHeight - WorkerChatMetrics.inset - rowsHeight, width: 300, height: rowsHeight)
         documentView.addSubview(follower)
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = scrollView
-        window.orderFrontRegardless()
+        window.show()
         holdMotion(scrollView, true)
         return FollowerFixture(window: window, scrollView: scrollView, documentView: documentView, follower: follower)
     }
@@ -3176,12 +3167,9 @@ enum LogicSelfTests {
         ])
         let hosting = NSHostingView(rootView: WorkerChatLineView(line: line, chatFont: chatFont, nameFont: nameFont)
             .frame(width: width, height: height, alignment: .topLeading))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: width, height: height),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: width, height: height))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         hosting.layoutSubtreeIfNeeded()
         guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
@@ -3313,12 +3301,9 @@ enum LogicSelfTests {
     /// drops by an amount no single row explains) pins without a glide, and the next arrival glides.
     private static func testWorkerChatTrimWithWrappedRowsSkipsGlide() throws {
         let hosting = NSHostingView(rootView: wrappedFeed(count: 30, revision: 1, trimCount: 0, appended: false))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
         guard let scrollView = descendant(NSScrollView.self, in: hosting),
@@ -3562,12 +3547,9 @@ enum LogicSelfTests {
     /// the fade removes the mask. The band lines up with the document's own rows.
     private static func testWorkerChatHostedArrivalGlidesAndFades() throws {
         let hosting = NSHostingView(rootView: wrappedFeed(count: 30, revision: 1, trimCount: 0, appended: false))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
         guard let scrollView = descendant(NSScrollView.self, in: hosting), let documentView = scrollView.documentView else {
@@ -3711,12 +3693,9 @@ enum LogicSelfTests {
     /// only in the rows' frame. It fades the rows it added and lifts the rows into place.
     private static func testWorkerChatShortFeedArrivalFadesAndLifts() throws {
         let hosting = NSHostingView(rootView: wrappedFeed(count: 1, revision: 1, trimCount: 0, appended: true, wraps: false))
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
+        let window = HeadlessWindow(size: CGSize(width: 300, height: 200))
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         defer { window.close() }
         try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "the worker chat feed should host a scroll view")
         guard let scrollView = descendant(NSScrollView.self, in: hosting),

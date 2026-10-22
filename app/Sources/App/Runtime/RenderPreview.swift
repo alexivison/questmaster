@@ -6,18 +6,6 @@ import SwiftUI
 /// can be pixel-checked without a running GUI session. Not for shipping —
 /// gated behind DEBUG, same as LogicSelfTests.
 #if DEBUG
-/// An off-screen window that reports a fixed backing scale so text and layers rasterize at RENDER_SCALE.
-private final class ScaledRenderWindow: NSWindow {
-    private let renderScale: CGFloat
-
-    init(backingScale: CGFloat, contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
-        renderScale = backingScale
-        super.init(contentRect: contentRect, styleMask: styleMask, backing: backing, defer: flag)
-    }
-
-    override var backingScaleFactor: CGFloat { renderScale }
-}
-
 enum RenderPreview {
     @MainActor
     static func runIfRequested() -> Bool {
@@ -1075,9 +1063,9 @@ enum RenderPreview {
         let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 1)
         warmUpFirstWindow()
         root.frame = NSRect(origin: .zero, size: size)
-        let window = ScaledRenderWindow(backingScale: scale, contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = HeadlessWindow(size: size, scale: scale)
         window.contentView = root
-        window.orderFrontRegardless()
+        window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         let frames = "\(dir)/\(name)-frames"
         try? FileManager.default.createDirectory(atPath: frames, withIntermediateDirectories: true)
@@ -1195,11 +1183,8 @@ enum RenderPreview {
     private static func warmUpFirstWindow() {
         guard !didWarmUp else { return }
         didWarmUp = true
-        let window = NSWindow(
-            contentRect: NSRect(x: -10000, y: -10000, width: 10, height: 10),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.orderFrontRegardless()
+        let window = HeadlessWindow(size: CGSize(width: 10, height: 10))
+        window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         window.close()
     }
@@ -1214,14 +1199,9 @@ enum RenderPreview {
         warmUpFirstWindow()
         hostingView.frame = NSRect(origin: .zero, size: size)
 
-        let window = ScaledRenderWindow(backingScale: scale,
-            contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: size),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
+        let window = HeadlessWindow(size: size, scale: scale)
         window.contentView = hostingView
-        window.orderFrontRegardless()
+        window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(Double(environment["RENDER_SETTLE"] ?? "") ?? 0.8))
 
         if autoHeight {

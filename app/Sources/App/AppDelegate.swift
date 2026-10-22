@@ -1034,6 +1034,11 @@ private enum QuestmasterMain {
         preloadLoginShellEnvironment()
         UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
         #if DEBUG
+        // Self-tests and renders draw in off-screen HeadlessWindows: no Dock icon, never the active app.
+        let headlessModes = ["--run-logic-tests", "--render-preview", "--render-ring-preview"]
+        if CommandLine.arguments.contains(where: headlessModes.contains) {
+            NSApplication.shared.setActivationPolicy(.prohibited)
+        }
         _ = LogicSelfTests.runIfRequested()
         _ = RenderPreview.runIfRequested()
         _ = RingPreview.runIfRequested()

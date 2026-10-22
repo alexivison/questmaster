@@ -10,11 +10,6 @@ import UniformTypeIdentifiers
 /// presentation layers, which the plain offscreen snapshot cannot see. `--render-ring-preview <dir>`.
 @MainActor
 enum RingPreview {
-    private final class Window: NSWindow {
-        var scale: CGFloat = 1
-        override var backingScaleFactor: CGFloat { scale }
-    }
-
     private static let canvas = CGSize(width: 340, height: 330)
     private static let settle: TimeInterval = 0.8
 
@@ -88,10 +83,9 @@ enum RingPreview {
     private static func host(_ store: RuntimeStore, scale: CGFloat) -> (NSWindow, NSView) {
         let hosting = NSHostingView(rootView: view(store))
         hosting.frame = NSRect(origin: .zero, size: canvas)
-        let window = Window(contentRect: NSRect(origin: CGPoint(x: -10000, y: -10000), size: canvas), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.scale = scale
+        let window = HeadlessWindow(size: canvas, scale: scale)
         window.contentView = hosting
-        window.orderFrontRegardless()
+        window.show()
         wait(settle)
         return (window, hosting)
     }
