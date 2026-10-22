@@ -2,29 +2,31 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The modal forms' pieces, measured from new-session.svg and new-quest.svg (540 x 620): text fields in
-/// the Quest Log filter's box, 35 high, with 12pt text whose baseline sits 21.5 down and 12 in; and the
-/// suggestion dropdown 4 below its field, 32pt rows 5 apart inside its 1pt border, text baseline 20 down.
+/// The modal forms' pieces, from new-session.svg and new-quest.svg (540 x 620) on the 5pt rhythm: text fields in
+/// the Quest Log filter's box, 35 high, with 12pt text whose baseline sits 21.5 down and 10 in; and the
+/// suggestion dropdown 5 below its field, 30pt rows 5 apart inside its 1pt border, text baseline 19 down.
 enum FormFieldMetrics {
-    static let height: CGFloat = 35
+    static let height = ControlHeight.field
     static let cornerRadius: CGFloat = 5
-    static let textInset: CGFloat = 12
+    static let textInset = Space.item
     static let baseline: CGFloat = 21.5
     /// NSTextField draws its text 1 in from its frame, and its first baseline sits `editorBaseline` down
     /// a frame as tall as the font's line (KeyTextField); the field is placed so the text lands on
     /// `textInset` and `baseline`.
     static let editorLead: CGFloat = 1
     static let editorBaseline: CGFloat = 13
-    static let suggestionsGap: CGFloat = 4
-    static let suggestionRowHeight: CGFloat = 32
-    static let suggestionRowSpacing: CGFloat = 5
-    static let suggestionBaseline: CGFloat = 20
-    /// The effort segment: a 1 x 11.25 divider 13.5 before the level, whose ink ends 12 from the right.
-    static let segmentDividerHeight: CGFloat = 11.25
-    static let segmentSpacing: CGFloat = 13.5
-    static let segmentTrailing: CGFloat = 11
-    /// The dropdown rows' text starts 12 in from the dropdown's edge, 1 inside its border.
-    static let suggestionTextInset: CGFloat = 10
+    static let suggestionsGap = Space.row
+    static let suggestionRowHeight = ControlHeight.control
+    static let suggestionRowSpacing = Space.row
+    /// The design's 20 in its 32pt rows, moved up with the row's centre.
+    static let suggestionBaseline: CGFloat = 19
+    /// The effort segment: a 1 x 10 divider 10 before the level, whose text ends 10 from the right.
+    static let segmentDividerHeight = Space.item
+    static let segmentSpacing = Space.item
+    static let segmentTrailing = Space.item
+    /// The dropdown rows' text starts 10 in from the dropdown's outer edge, under its field's text: the inset less
+    /// the dropdown's 1pt border.
+    static let suggestionTextInset = Space.item - Token.Size.divider
 }
 
 extension View {
@@ -82,7 +84,7 @@ extension FormTextField where Trailing == EmptyView {
 /// The one dropdown: under a path, model or colour field, and under the filter fields. It overlays the
 /// fields below it rather than pushing them. Its rows are pick-to-open rows; it only shows while its field
 /// has focus, so a highlighted row has the focused look. `accessory` draws at a row's right end (the colour
-/// rows' swatches, a project's path), 11 in.
+/// rows' swatches, a project's path), 10 in.
 struct SuggestionDropdown: View {
     let rows: [String]
     let highlightedIndex: Int?
@@ -236,8 +238,8 @@ struct FocusSink: NSViewRepresentable {
     }
 }
 
-/// The New Session / New Quest sheet: the shared modal header, the fields 20 in down to 21 above the
-/// buttons, then Cancel and the primary button (194 wide, 15 apart) on a row 32 high and 21 from the
+/// The New Session / New Quest sheet: the shared modal header, the fields 20 in down to 20 above the
+/// buttons, then Cancel and the primary button (195 wide, 10 apart) on a row 30 high and 20 from the
 /// bottom. An error shows in the band between the fields and the buttons.
 struct ModalFormSheet<Content: View>: View {
     private typealias Metrics = ModalFormMetrics
@@ -281,14 +283,14 @@ struct ModalFormSheet<Content: View>: View {
 enum ModalFormMetrics {
     static let size = CGSize(width: 540, height: 620)
     /// The shared header leaves the content this far down.
-    static let contentTop: CGFloat = 80
-    static let inset: CGFloat = 20
-    static let fieldSpacing: CGFloat = 20
+    static let contentTop = ModalSheetHeader.height + Space.item
+    static let inset = Space.section
+    static let fieldSpacing = Space.section
     /// Between the fields and the buttons (holding the error), and under the buttons.
-    static let bandHeight: CGFloat = 21
-    static let buttonWidth: CGFloat = 194
-    static let buttonSpacing: CGFloat = 15
-    static let buttonHeight: CGFloat = 32
+    static let bandHeight = Space.section
+    static let buttonWidth: CGFloat = 195
+    static let buttonSpacing = Space.item
+    static let buttonHeight = ControlHeight.control
 
     /// A sheet sized to `fields` 35pt fields: the header, the fields 20 apart, the error band, the buttons
     /// and the bottom band.

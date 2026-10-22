@@ -55,6 +55,7 @@ enum LogicSelfTests {
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
+        ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
@@ -2098,6 +2099,65 @@ enum LogicSelfTests {
         try expect(reported.last == false && !field.hasFocus, "focus moving elsewhere should clear it, reported \(reported)")
     }
 
+    /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row
+    /// internals. The artifact rows' tiles sit on a 45pt pitch (a 40pt row and 5) and are 30 high; a form's first field
+    /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
+    /// in one pixel column.
+    private static func testRenderedSpacingStaysOnTheScale() throws {
+        func borderRows(_ view: NSView, size: CGSize, x: Int) throws -> [Int] {
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ), let line = AppPalette.line.usingColorSpace(.deviceRGB) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = size
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return (0..<Int(size.height)).filter { y in
+                guard let pixel = bitmap.colorAt(x: x, y: y) else {
+                    return false
+                }
+                return abs(pixel.redComponent - line.redComponent) < 0.01
+                    && abs(pixel.greenComponent - line.greenComponent) < 0.01
+                    && abs(pixel.blueComponent - line.blueComponent) < 0.01
+            }
+        }
+
+        // Inside the tile, past its 5pt corner and clear of its glyph: the gutter, the tile's inset, and 6.
+        let tileColumn = Int(Space.section + Space.item) + 6
+        let pane = CGSize(width: 480, height: 1015)
+        let paneRows = try borderRows(RenderPreview.artifactPaneView(highlight: nil), size: pane, x: tileColumn)
+        // The tiles are the last borders down the column: a top and a bottom edge each, the eleven fixture rows.
+        let tiles = Array(paneRows.suffix(22))
+        try expect(tiles.count == 22, "the artifact tiles' borders should show in the column, got rows \(paneRows)")
+        let tops = stride(from: 0, to: tiles.count, by: 2).map { tiles[$0] }
+        for (top, bottom) in zip(tops, stride(from: 1, to: tiles.count, by: 2).map { tiles[$0] }) {
+            try expect(bottom - top + 1 == 30, "an artifact tile should be 30 high, got rows \(top)-\(bottom)")
+        }
+        for (above, below) in zip(tops, tops.dropFirst()) {
+            try expect(below - above == 45, "artifact rows should sit 45 apart, got tiles at \(above) and \(below)")
+        }
+
+        let fieldColumn = Int(ModalFormMetrics.inset + Space.section)
+        let formSize = CGSize(width: 460, height: ModalFormMetrics.height(fields: 2))
+        let form = NSHostingView(rootView: ModalFormSheet(title: "Spacing", errorMessage: nil, primaryLabel: "Save", canSubmit: true, size: formSize, onCancel: {}, onPrimary: {}) {
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                FormTextField(text: .constant(""), placeholder: "First", focusNonce: 0, focused: false)
+                FormTextField(text: .constant(""), placeholder: "Second", focusNonce: 0, focused: false)
+            }
+        }.background(AppPalette.panel.swiftUI))
+        let fieldEdges = try borderRows(form, size: formSize, x: fieldColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        try expect(fieldEdges.first == Int(ModalSheetHeader.height + Space.item), "the first field should start 10 under the header's band, got rows \(fieldEdges)")
+        let secondTop = Int(ModalFormMetrics.contentTop + FormFieldMetrics.height + ModalFormMetrics.fieldSpacing)
+        try expect(fieldEdges.contains(secondTop) && !fieldEdges.contains(secondTop - 1), "the second field should start 20 under the first, got rows \(fieldEdges)")
+    }
+
     /// No single-line text field is shorter than its font's full line (ascent + descent + leading): the live
     /// field editor clips to the field's bounds, so a shorter field cuts ascenders or descenders.
     private static func testTextFieldsFitTheirWholeLine() throws {
@@ -3272,12 +3332,12 @@ enum LogicSelfTests {
     }
 
     /// A fractional footer height puts every plate border and the snapped terminal edge on half
-    /// pixels at 1x, which renders blurry — guards `ActionBarMetrics.footerHeight` against a
+    /// pixels at 1x, which renders blurry — guards `ActionBarMetrics.plateArtHeight` against a
     /// future edit reintroducing a fractional sum.
     private static func testActionBarFooterHeightIsIntegral() throws {
         try expect(
-            ActionBarMetrics.footerHeight == ActionBarMetrics.footerHeight.rounded(),
-            "footerHeight should be a whole point, got \(ActionBarMetrics.footerHeight)"
+            ActionBarMetrics.plateArtHeight == ActionBarMetrics.plateArtHeight.rounded(),
+            "plateArtHeight should be a whole point, got \(ActionBarMetrics.plateArtHeight)"
         )
     }
 
@@ -3290,7 +3350,7 @@ enum LogicSelfTests {
             "slot run should centre on the frame, got centre \((runStart + runEnd) / 2)"
         )
         try expect(
-            ActionBarMetrics.barHitRect.minY >= 0 && ActionBarMetrics.barHitRect.maxY <= ActionBarMetrics.footerHeight,
+            ActionBarMetrics.barHitRect.minY >= 0 && ActionBarMetrics.barHitRect.maxY <= ActionBarMetrics.plateArtHeight,
             "bar hit area should sit inside the footer, got \(ActionBarMetrics.barHitRect)"
         )
     }
@@ -3309,13 +3369,13 @@ enum LogicSelfTests {
             footer.leadingAnchor.constraint(equalTo: superview.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: superview.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: superview.bottomAnchor, constant: -bottomInset),
-            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.footerHeight),
+            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.plateArtHeight),
         ])
         superview.layoutSubtreeIfNeeded()
 
         let plateLeft = (superview.bounds.width - ActionBarMetrics.plateWidth) / 2
         let slotCentreX = plateLeft + ActionBarMetrics.slotX(at: 0) + ActionBarMetrics.slotSize / 2
-        let plateTopEdgeY = bottomInset + ActionBarMetrics.footerHeight
+        let plateTopEdgeY = bottomInset + ActionBarMetrics.plateArtHeight
         let slotTopEdgeY = plateTopEdgeY - ActionBarMetrics.slotTop - 0.5
         try expect(
             footer.hitTest(NSPoint(x: slotCentreX, y: slotTopEdgeY)) != nil,

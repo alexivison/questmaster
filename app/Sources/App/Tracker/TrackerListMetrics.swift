@@ -12,13 +12,13 @@ enum TrackerListMetrics {
     static let firstSectionTopInset: CGFloat = 0
     /// From the selected-session panel's bottom edge (its 76pt canvas) to the first row's top, the first disc's top edge.
     /// The master's crown pieces reach 2pt above it, so they start 38pt below the panel.
-    static let selectedPanelGap: CGFloat = 40
-    static let verticalPadding: CGFloat = 20
+    static let selectedPanelGap = Space.group
+    static let verticalPadding = Space.section
     /// Every gap in the list (2026-10-21): between project groups, between sessions, from a master to its workers and
     /// between workers, and after a session's workers. Each runs from the visible bottom of the item above (its disc, its
     /// collapsed workers' circles, or its open cast row) to the top of the next disc, and each row is exactly that tall,
     /// so the spacing is the gap.
-    static let spacing: CGFloat = Token.Spacing.element
+    static let spacing = Space.item
     /// The widest tracker content: the selected-session panel and the master plate, both 260pt, and the plate band
     /// that reaches past their right edge, which the list's scroll view would otherwise clip. The tracker column is sized
     /// to it plus the leading `sidePadding`.

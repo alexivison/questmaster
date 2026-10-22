@@ -807,16 +807,17 @@ enum TrackerNameplateRole: Equatable {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
 
-    /// The text columns in canvas points, where the SVGs start each line's first glyph cell. Every line stops at the
-    /// column's right edge, where the elapsed time right-aligns. The master's project name sits in its tab, the title
-    /// and time on the title strip, and the snippet on the band below; the worker has no tab.
-    static let topLevelProjectX: CGFloat = 54
-    static let topLevelTitleX: CGFloat = 57
-    static let topLevelSnippetX: CGFloat = 56
-    static let topLevelTextRightEdge: CGFloat = 248
-    static let workerTextX: CGFloat = 45 + TrackerPlateDesign.workerShift
-    static let workerTextRightEdge: CGFloat = 218 + TrackerPlateDesign.workerShift
-    static let titleTimeGap: CGFloat = 6
+    /// The text columns in canvas points: the SVGs' first glyph cells (54, 57 and 56 on the master, 67 on the worker)
+    /// snapped onto the 5pt rhythm, one column per plate. Every line stops at the column's right edge, where the elapsed
+    /// time right-aligns. The master's project name sits in its tab, the title and time on the title strip, and the
+    /// snippet on the band below; the worker has no tab.
+    static let topLevelProjectX: CGFloat = 55
+    static let topLevelTitleX: CGFloat = 55
+    static let topLevelSnippetX: CGFloat = 55
+    static let topLevelTextRightEdge: CGFloat = 250
+    static let workerTextX: CGFloat = 65
+    static let workerTextRightEdge: CGFloat = 240
+    static let titleTimeGap = Space.row
     /// The collapsed workers' circles start 40 points right of the master disc's left edge.
     static let circlesX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x
         - TrackerPlateDesign.topLevelDiscDiameter / 2 + TrackerPlateDesign.collapsedCirclesInset
@@ -1558,10 +1559,10 @@ private struct TrackerEmptyState: View {
             textAlignment: .center,
             frameAlignment: .center,
             padding: EdgeInsets(
-                top: 28,
-                leading: Token.Spacing.content,
-                bottom: Token.Spacing.element,
-                trailing: Token.Spacing.content
+                top: Space.section,
+                leading: Space.section,
+                bottom: Space.item,
+                trailing: Space.section
             ),
             expandHeight: false
         )

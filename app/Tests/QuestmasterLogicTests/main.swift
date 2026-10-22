@@ -41,6 +41,7 @@ enum QuestmasterLogicTests {
         ModalCommandRoutingTests.run()
         InteractionLookTests.run()
         StateRulesScanTests.run()
+        SpacingRulesScanTests.run()
 
         let packageRoot = try findPackageRoot()
         let result = try run(

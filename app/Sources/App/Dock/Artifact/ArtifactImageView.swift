@@ -18,7 +18,7 @@ struct ArtifactImageView: View {
                     .interpolation(.high)
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(Token.Spacing.content)
+                    .padding(Space.section)
             } else {
                 ArtifactStatusPane(
                     symbolName: "photo",

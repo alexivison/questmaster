@@ -167,10 +167,6 @@ enum RenderPreview {
         return splitView
     }
 
-    /// The artifact pane as artifacts.svg draws it (480 x 1015): the All tab, a "@project questmaster" chip, eleven
-    /// rows with `highlight` the cursor; `suggesting` focuses the filter with its dropdown open; `marked` rows are
-    /// in the delete selection and `missing` ones lost their file; `empty` shows the Session tab with nothing in it.
-    @MainActor
     /// Artifact rows at rest, under the pointer, on the keyboard cursor, and a missing file under the pointer. The
     /// hover look is passed in, as `stateRow` would draw it.
     private static func artifactHoverView() -> some View {
@@ -198,8 +194,12 @@ enum RenderPreview {
         .background(AppPalette.artifactListColumn.swiftUI)
     }
 
+
+    /// The artifact pane as artifacts.svg draws it (480 x 1015): the All tab, a "@project questmaster" chip, eleven
+    /// rows with `highlight` the cursor; `suggesting` focuses the filter with its dropdown open; `marked` rows are
+    /// in the delete selection and `missing` ones lost their file; `empty` shows the Session tab with nothing in it.
     @MainActor
-    private static func artifactPaneView(
+    static func artifactPaneView(
         highlight: Int?,
         focused: Bool = true,
         suggesting: Bool = false,

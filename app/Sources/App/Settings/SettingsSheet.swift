@@ -34,27 +34,28 @@ struct SettingsSheetPresentation: Identifiable {
 /// section on the right (x 290-880): the agent tabs, then a "Master" and a "Worker" section, each a bold
 /// title over a vine-ended rule and two rows of label, description and a compact "‹ value ›" picker.
 private enum SettingsMetrics {
-    static let inset: CGFloat = 20
+    static let inset = Space.section
     static let sidebarWidth: CGFloat = 250
-    static let columnSpacing: CGFloat = 20
+    static let columnSpacing = Space.section
     static let columnWidth = SettingsSheetModel.sheetSize.width - 2 * inset - sidebarWidth - columnSpacing
-    static let sidebarSpacing: CGFloat = 20
-    /// From the top of the agent tabs: the first section title's baseline, then each next one 174 on.
+    static let sidebarSpacing = Space.section
+    /// From the top of the agent tabs: the first section title's baseline, then each next one 175 on.
     static let firstSectionBaseline: CGFloat = 65
-    static let sectionPitch: CGFloat = 174
-    /// From a section title's baseline: its rule, then each row's picker top, 52 apart.
-    static let ruleDrop: CGFloat = 14
+    static let sectionPitch: CGFloat = 175
+    /// From a section title's baseline: its rule, then each row's picker top, 55 apart (a field and the 20 between).
+    static let ruleDrop: CGFloat = 15
     static let firstRowDrop: CGFloat = 35
-    static let rowPitch: CGFloat = 52
+    static let rowPitch = pickerHeight + Space.section
     /// From a row's picker top: the label's baseline and the description's.
     static let labelBaseline: CGFloat = 11
     static let descriptionBaseline: CGFloat = 29
-    /// The picker: 32 high in the shared field chrome, "‹", the value and "›" 8.75 apart, 11 in, the text's baseline 20 down.
-    static let pickerHeight: CGFloat = 32
-    static let pickerInset: CGFloat = 11
-    static let pickerSpacing: CGFloat = 8.75
-    static let pickerBaseline: CGFloat = 20
-    static let skeletonWidth: CGFloat = 92
+    /// The picker is a field: 35 high in the shared field chrome, "‹", the value and "›" 10 apart and 10 in, the text
+    /// on the field's baseline.
+    static let pickerHeight = ControlHeight.field
+    static let pickerInset = Space.item
+    static let pickerSpacing = Space.item
+    static let pickerBaseline = FormFieldMetrics.baseline
+    static let skeletonWidth: CGFloat = 90
 }
 
 /// The sidebar's sections. Only the ones that exist are listed; a new one is a new case.
@@ -89,7 +90,6 @@ struct SettingsSheetView: View {
     var body: some View {
         ModalSheetScaffold(
             title: "Settings",
-            footerText: "",
             errorMessage: model.errorMessage
         ) {
             HStack(alignment: .top, spacing: SettingsMetrics.columnSpacing) {
@@ -187,10 +187,10 @@ private struct SettingsSectionRule: View {
     private static let artRuleY: CGFloat = 206
     private static let artVineLeft: CGFloat = 20
     private static let artVineRight: CGFloat = 453
-    /// The vines stand 8 above the line and 9 below it; the line runs 4 in from each end.
+    /// The vine art stands 8 above the line and 9 below it; the line runs 4 in from each end, into the vines.
     private static let bandAbove: CGFloat = 8
-    private static let bandHeight: CGFloat = 17
-    private static let lineInset: CGFloat = 4
+    private static let artBandHeight: CGFloat = 17
+    private static let artLineInset: CGFloat = 4
 
     var body: some View {
         Canvas { context, _ in
@@ -201,9 +201,9 @@ private struct SettingsSectionRule: View {
             for (path, evenOdd) in pieces {
                 context.fill(path, with: color, style: FillStyle(eoFill: evenOdd))
             }
-            context.fill(Path(CGRect(x: Self.lineInset, y: Self.bandAbove, width: width - 2 * Self.lineInset, height: Token.Size.divider)), with: color)
+            context.fill(Path(CGRect(x: Self.artLineInset, y: Self.bandAbove, width: width - 2 * Self.artLineInset, height: Token.Size.divider)), with: color)
         }
-        .frame(width: width, height: Self.bandHeight)
+        .frame(width: width, height: Self.artBandHeight)
         .offset(y: -Self.bandAbove)
     }
 }

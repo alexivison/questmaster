@@ -2,17 +2,17 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The one filter chip: "@project questmaster" in 12pt muted text, 16 high, at most 145 wide, radius 4.5, `item`
+/// The one filter chip: "@project questmaster" in 12pt muted text, 15 high, at most 145 wide, radius 4.5, `item`
 /// fill, `line` border. Click to remove it, as Backspace in an empty field does.
 struct FilterChip: View {
     var token: ArtifactFilterToken
     var onRemove: () -> Void
 
     private enum Metrics {
-        static let height: CGFloat = 16
+        static let height = ControlHeight.chip
         static let maxWidth: CGFloat = 145
         static let cornerRadius: CGFloat = 4.5
-        static let textInset: CGFloat = 6
+        static let textInset = Space.row
     }
 
     var body: some View {
@@ -35,8 +35,8 @@ struct FilterChip: View {
 }
 
 /// The one filter field (the Quest Log's and the artifact dock's), measured from user-quests-modal-v3.svg and
-/// artifacts.svg: the shared field chrome 35 high, "/" 12 in, then the token chips and the text field, 10 apart.
-/// While it has focus the shared dropdown hangs 4 under it with `suggestions` (empty hides it). Its text is 12pt.
+/// artifacts.svg: the shared field chrome 35 high, "/" 10 in, then the token chips and the text field, 10 apart.
+/// While it has focus the shared dropdown hangs 5 under it with `suggestions` (empty hides it). Its text is 12pt.
 struct FilterBar: View {
     let tokens: [ArtifactFilterToken]
     @Binding var query: String
@@ -102,9 +102,9 @@ struct FilterBar: View {
 }
 
 enum FilterBarMetrics {
-    static let height: CGFloat = 35
-    static let inset: CGFloat = 12
-    static let spacing: CGFloat = 10
+    static let height = ControlHeight.field
+    static let inset = Space.item
+    static let spacing = Space.item
     /// The text field sits 1 further right than the spacing puts it and `textFieldDrop` above centre, which lands
     /// its text where the designs' placeholders are: 11.04 after a chip in both.
     static let textFieldLead: CGFloat = 1

@@ -209,6 +209,51 @@ outside the token layer, `brassActive` or `ToggleLook` outside the action bar, a
 view picking a colour by a state flag, and a hand-rolled dropdown or field. It
 must find no breaks.
 
+## Spacing
+
+Everything is on 5s. Every gap, margin, padding, inset, pitch and control size
+is a multiple of 5, and spacing takes one of four steps (`Space` in
+`SharedUI/DesignTokens.swift`), or a sum of them:
+
+| Step | Value | Role |
+|---|---|---|
+| `Space.row` | 5 | rows of one list control; a field and its dropdown; collapsed circles; the cast row under its disc |
+| `Space.item` | 10 | sibling items (plates, tabs, buttons, chat entries, bar icons); icon → text; text inset inside a control; header band → content |
+| `Space.section` | 20 | the shell gap (`ShellMetrics.gap`); every panel's edge margin; blocks inside a panel |
+| `Space.group` | 40 | between groups of blocks: the selected-session panel → the list |
+
+Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
+(pill tabs, Quest Log rows), `control` 30 (buttons, dropdown rows), `field` 35
+(fields, filters, the Settings picker), `bar` 40 (the dock top bar, artifact
+rows), `row` 50. A shape drawn from a design at another height keeps its path's
+own height as a `design…` constant and scales to the control's.
+
+Not spacing, so free of the rule: text baselines and line heights, optical
+nudges that centre text or a glyph inside a control, path data and art
+canvases, glyph and logo sizes, radii and stroke widths, and 0/1 spacers. A
+design value that isn't on 5s is snapped to the nearest 5, never kept with a
+marker.
+
+`SpacingRulesScanTests` (in the logic-test runner) enforces it and must find no
+breaks:
+
+- **raw-spacing**: no layout number in a view (`.padding`, stack `spacing`,
+  `.frame` sizes, `EdgeInsets`, constraint constants, `.offset`), except 0 and 1
+  and lines inside an `enum` named `*Metrics`, `*Layout` or `*Design`.
+- **scale-restated**: a gap/inset/spacing/margin/padding/gutter constant of 5,
+  10, 20 or 40 names its `Space` step.
+- **off-rhythm**: a CGFloat constant or default named as a length (gap,
+  spacing, margin, padding, gutter, pitch, indent, inset, clearance, offset,
+  height, width, side, size) is a multiple of 5. Only names that say they aren't
+  spacing are exempt (`baseline`, `lineHeight`, `radius`, `stroke`, `border`,
+  `ring`, `glow`, `pointSize`, `font`, and `art`/`design`/`glyph`/`icon`/`logo`/
+  `mark`/`symbol`/`ink` geometry).
+
+The scan reads lines, so `testRenderedSpacingStaysOnTheScale` (a
+`--run-logic-tests` self-test) measures rendered pixels for what it can't see:
+the artifact rows' 45pt pitch and a form's fields 10 under the header band and
+20 apart.
+
 ## Testing conventions
 
 - **Go:** stdlib `testing` only (no testify), table-driven, `t.Parallel()`,

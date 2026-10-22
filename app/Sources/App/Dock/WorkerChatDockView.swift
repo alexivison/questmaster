@@ -5,17 +5,20 @@ import SwiftUI
 /// Geometry measured from `Chat Item.svg` and `Chat Item Text.svg`: JetBrains Mono at 12pt (7.2pt
 /// advance, 16pt lines). Each item starts with its HH:MM time in a 41pt column (five characters, then
 /// a 5pt gap), then the agent logo and bold name in a 20pt logo column. Wrapped lines start `wrapIndent`
-/// in from the item's left edge, so they run under the time. Items sit 25pt apart (a 16pt line and a
-/// 9pt gap), 20pt from the card edge on every side.
+/// in from the item's left edge, so they run under the time. Items sit 10pt apart (the design's 9 on the
+/// 5pt rhythm), 20pt from the card edge on every side.
 enum WorkerChatMetrics {
-    static let inset: CGFloat = 20
+    static let inset = Space.section
+    /// The font's line, typography rather than spacing: JetBrains Mono 12's 15.84 ceiled.
     static let lineHeight: CGFloat = 16
-    static let itemGap: CGFloat = 9
-    static let timeColumnWidth: CGFloat = 41
+    static let itemGap = Space.item
+    /// The HH:MM time's five 7.2pt character advances.
+    static let timeAdvance: CGFloat = 36
+    static let timeColumnWidth = timeAdvance + Space.row
     static let logoColumnWidth: CGFloat = 20
     static let logoSide: CGFloat = 15
     /// Wrapped lines start this far in from the item's left edge, under the time.
-    static let wrapIndent: CGFloat = Token.Spacing.element
+    static let wrapIndent = Space.item
     /// Where the name starts on the first line, measured from the wrapped lines' left edge.
     static let nameLead: CGFloat = timeColumnWidth + logoColumnWidth - wrapIndent
     /// The design sets the time about half a point above the name's baseline.
@@ -101,12 +104,7 @@ struct WorkerChatDockView: View {
             EmptyStatePane(
                 title: "No worker activity yet.",
                 message: "Worker status, tool use and messages appear here.",
-                padding: EdgeInsets(
-                    top: Token.Spacing.content,
-                    leading: Token.Spacing.content,
-                    bottom: Token.Spacing.content,
-                    trailing: Token.Spacing.content
-                )
+                padding: EdgeInsets(top: Space.section, leading: Space.section, bottom: Space.section, trailing: Space.section)
             )
         }
     }

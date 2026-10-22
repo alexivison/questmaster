@@ -2,8 +2,8 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Pill tabs (new-session.svg's agent tabs, settings-models.svg's agent tabs and sidebar): a 26-high pill
-/// with scalloped ends, a 30pt disc holding the icon 10 in, and the 10pt label on a baseline 17 down,
+/// Pill tabs (new-session.svg's agent tabs, settings-models.svg's agent tabs and sidebar): a 25-high pill
+/// with scalloped ends, a 30pt disc holding the icon 10 in, and the 10pt label on a baseline 16.5 down,
 /// 45 in. A tab without an icon (artifacts.svg's Session/All) has no disc: the pill alone, its label centred on
 /// the same baseline. It draws its `OutlineLook`: the outline and disc ring in its border colour, the label in its
 /// label colour, and a highlighted or selected tab's disc recessed to the panel colour. It is one accessibility
@@ -98,11 +98,10 @@ struct PillTabRow<ID: Hashable>: View {
     let tabs: [Tab]
     let selectedID: ID
     let focused: Bool
-    var spacing = PillTabMetrics.spacing
     var onSelect: (ID) -> Void
 
     var body: some View {
-        HStack(spacing: spacing) {
+        HStack(spacing: PillTabMetrics.spacing) {
             ForEach(tabs, id: \.id) { tab in
                 PillTab(
                     title: tab.title,
@@ -134,16 +133,19 @@ extension PillTabRow.Tab where ID == String {
 }
 
 enum PillTabMetrics {
-    static let height: CGFloat = 26
+    /// The design's 26 on the 5pt rhythm; the outline's path keeps the design's own height and scales to it.
+    static let height = ControlHeight.compact
+    static let designHeight: CGFloat = 26
     static let discDiameter: CGFloat = 30
-    /// The disc stands 2 above and below the pill.
-    static let discOverhang: CGFloat = (discDiameter - height) / 2
+    /// The disc stands 2 above the pill and 3 below it: centred, held on whole points.
+    static let discOverhang: CGFloat = ((discDiameter - height) / 2).rounded(.down)
     static let rowHeight: CGFloat = discDiameter
-    static let discLead: CGFloat = 10
+    static let discLead = Space.item
     static let iconSide: CGFloat = 20
     static let labelLead: CGFloat = 45
-    static let labelBaseline: CGFloat = 17
-    static let spacing: CGFloat = 10
+    /// The design's 17, moved up with the pill's centre.
+    static let labelBaseline: CGFloat = 16.5
+    static let spacing = Space.item
 
     /// Pi's mark is a solid block, so at the line-drawn marks' 20pt it reads far larger (an ink area of
     /// about 245 against Claude's 140 and Codex's 155): it is drawn to their ink area instead, a 15.5pt
@@ -169,7 +171,7 @@ enum PillTabMetrics {
 struct PillTabShape: Shape {
     func path(in rect: CGRect) -> Path {
         let w = rect.width
-        let sy = rect.height / PillTabMetrics.height
+        let sy = rect.height / PillTabMetrics.designHeight
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x, y: rect.minY + y * sy) }
         func r(_ x: CGFloat, _ y: CGFloat) -> CGPoint { p(w - x, y) }
         var path = Path()

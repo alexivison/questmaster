@@ -29,13 +29,15 @@ struct DangerButtonStyle: ButtonStyle {
 }
 
 private enum AngledButtonMetrics {
-    /// The Quest Log design's buttons: 32 high with a 1.5pt inner border and the label's baseline 20 down.
-    static let height: CGFloat = 32
+    /// The Quest Log design's buttons, 32 high, on the 5pt rhythm at 30, with a 1.5pt inner border and the label's
+    /// baseline 19 down (the design's 20, moved up with the centre).
+    static let height = ControlHeight.control
+    static let designHeight: CGFloat = 32
     static let borderStrokeWidth: CGFloat = 3
-    static let baseline: CGFloat = 20
+    static let baseline: CGFloat = 19
     /// Narrower than the design's 200 so the modals' footers fit; a longer label widens the button.
     static let minWidth: CGFloat = 120
-    static let labelInset: CGFloat = 24
+    static let labelInset = Space.section
     /// Figma's angular gradients turn around the button's left end in a space squashed to the button's
     /// shape: its 2015pt unit square is scaled by width / 1000 and height / 1000 (0.2 x 0.032 at 200 x 32).
     static let gradientSpan: CGFloat = 2015
@@ -114,12 +116,12 @@ private struct AngledButton: View {
 }
 
 /// The design's angled-end button outline. The ends keep the 200 x 32 SVG's caps (11.944 deep, their
-/// points 16.372 and 15.628 down) and the straight runs stretch to the button's width.
+/// points 16.372 and 15.628 down), scaled to the button's height, and the straight runs stretch to its width.
 struct AngledButtonShape: Shape {
     func path(in rect: CGRect) -> Path {
         let cap: CGFloat = 11.944
         let w = rect.width, h = rect.height
-        let sy = h / AngledButtonMetrics.height
+        let sy = h / AngledButtonMetrics.designHeight
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x, y: rect.minY + y * sy) }
         var path = Path()
         path.move(to: p(cap, 0))

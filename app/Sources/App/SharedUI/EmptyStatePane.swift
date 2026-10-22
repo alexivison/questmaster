@@ -21,13 +21,13 @@ struct EmptyStatePane: View {
     var textAlignment: TextAlignment = .leading
     var frameAlignment: Alignment = .topLeading
     var maxTextWidth: CGFloat?
-    var padding = EdgeInsets(top: 24, leading: 24, bottom: 24, trailing: 24)
+    var padding = EdgeInsets(top: Space.section, leading: Space.section, bottom: Space.section, trailing: Space.section)
     var expandHeight = true
     var backgroundColor: NSColor?
     var detailSelectable = false
 
     var body: some View {
-        VStack(alignment: alignment, spacing: 10) {
+        VStack(alignment: alignment, spacing: Space.item) {
             if let symbolName {
                 symbol(for: symbolName)
             }

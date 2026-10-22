@@ -25,12 +25,12 @@ enum TrackerPlateDesign {
     /// right edge lines up with. The master's canvas stops under the crown pieces; the circles are drawn apart.
     /// The master is 260 wide by decision (2026-10-21), not the SVG's 277; see `TrackerPlateShapes`.
     static let topLevelArtSize = CGSize(width: 261, height: 55)
-    static let topLevelSize = CGSize(width: 260, height: 50)
+    static let topLevelSize = CGSize(width: 260, height: ControlHeight.row)
     static let workerArtSize = CGSize(width: 233 + workerShift - artInset, height: 44)
-    static let workerSize = CGSize(width: 232 + workerShift - artInset, height: 40)
+    static let workerSize = CGSize(width: 232 + workerShift - artInset, height: ControlHeight.bar)
 
     /// Room around a canvas for the plate band, so the layer doesn't clip it.
-    static let silhouetteMargin: CGFloat = 6
+    static let silhouetteMargin = Space.row
     /// The visible width of a plate band past the plate's edge.
     static let glowBandWidth: CGFloat = 2
 
@@ -50,8 +50,8 @@ enum TrackerPlateDesign {
     /// The collapsed workers' circles: 25 points across with 5 between, the first's left edge 40 points right of the
     /// master disc's, in a row a point below the disc's bottom edge.
     static let collapsedCircleDiameter: CGFloat = 25
-    static let collapsedCircleGap: CGFloat = 5
-    static let collapsedCirclesInset: CGFloat = 40
+    static let collapsedCircleGap = Space.row
+    static let collapsedCirclesInset = Space.group
     static let collapsedCirclesDrop: CGFloat = 1
     static let collapsedCircleStroke: CGFloat = 1.5
     /// A collapsed circle's status ring and glow: centred on the circle, the stroke's path 0.75 inside its edge.

@@ -15,9 +15,9 @@ enum TrackerCastLayout {
     }
 
     static let master = Metrics(side: 15, iconSide: 9, labelBaseline: 11.5)
-    static let worker = Metrics(side: 12, iconSide: 8, labelBaseline: 10)
-    static let spacing = Token.Spacing.rowCompact
-    static let squareToBar = Token.Spacing.hairline
+    static let worker = Metrics(side: 10, iconSide: 8, labelBaseline: 9)
+    static let spacing = Space.row
+    static let squareToBar = Token.Size.hairline
     static let masterBarRight: CGFloat = 250
 
     static func metrics(_ role: TrackerNameplateRole) -> Metrics { role.isWorker ? worker : master }
