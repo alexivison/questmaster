@@ -59,13 +59,11 @@ private enum QuestLogMetrics {
         CGRect(x: 434.361, y: 28.5, width: 18.6394, height: 1),
     ]
     static let rule = CGRect(x: 22.946, y: 206, width: 427.845, height: 1)
-    /// Footer: each diamond starts 8.4 after the part before it and the next part 8.1 after the diamond; its
-    /// centre sits 3.5 above the baseline. Wrapped lines sit on the 11pt pitch. The leads are page ink, like
-    /// `inkInset`: the design's diamond glyph and the text around it, measured off the SVG.
+    /// Footer: each diamond sits `footerDiamondGap` after the part before it and before the next part; its centre
+    /// sits 3.5 above the baseline. Wrapped lines sit on the 15pt pitch.
     static let footerLinePitch: CGFloat = 15
     static let footerDiamondArtSize: CGFloat = 5.66
-    static let footerDiamondInkLead: CGFloat = 8.4
-    static let footerDateInkLead: CGFloat = 8.1
+    static let footerDiamondGap = Space.item
     static let footerDiamondRaise: CGFloat = 3.5
     /// Buttons: the shared angled buttons at the design's 200 wide, 10 apart, centred, 20 under the page.
     static let buttonWidth: CGFloat = 200
@@ -426,7 +424,9 @@ private struct QuestLogInk: View {
 
     /// "project ◆ Created: … ◆ Updated: …", wrapped between parts when it doesn't fit (QuestLogPage.footerLines).
     private var footer: some View {
-        let separatorColumns = Int((QuestLogMetrics.footerDiamondInkLead + QuestLogMetrics.footerDiamondArtSize + QuestLogMetrics.footerDateInkLead) / columnWidth(AppFonts.monoSmall)) + 1
+        // The separator's width in whole columns, rounded up, so a line never runs past the body.
+        let separatorWidth = 2 * QuestLogMetrics.footerDiamondGap + QuestLogMetrics.footerDiamondArtSize
+        let separatorColumns = Int((separatorWidth / columnWidth(AppFonts.monoSmall)).rounded(.up))
         let lines = page.footerLines(columns: columns(QuestLogMetrics.bodyWidth, AppFonts.monoSmall), separatorColumns: separatorColumns)
         return VStack(alignment: .leading, spacing: QuestLogMetrics.footerLinePitch - naturalLineHeight(AppFonts.monoSmall)) {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, parts in
@@ -437,10 +437,10 @@ private struct QuestLogInk: View {
                                 .fill(AppPalette.panel.swiftUI)
                                 .frame(width: QuestLogMetrics.footerDiamondArtSize, height: QuestLogMetrics.footerDiamondArtSize)
                                 .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + QuestLogMetrics.footerDiamondRaise }
-                                .padding(.leading, QuestLogMetrics.footerDiamondInkLead)
+                                .padding(.leading, QuestLogMetrics.footerDiamondGap)
                         }
                         Text(part)
-                            .padding(.leading, index > 0 ? QuestLogMetrics.footerDateInkLead : 0)
+                            .padding(.leading, index > 0 ? QuestLogMetrics.footerDiamondGap : 0)
                     }
                 }
             }

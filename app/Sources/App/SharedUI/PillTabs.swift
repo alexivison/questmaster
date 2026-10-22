@@ -150,14 +150,14 @@ enum PillTabMetrics {
     /// Pi's mark is a solid block, so at the line-drawn marks' 20pt it reads far larger (an ink area of
     /// about 245 against Claude's 140 and Codex's 155): it is drawn to their ink area instead, a 15.5pt
     /// square. Its SVG pads that ink to 470 of 800 units.
-    static let piInkSide: CGFloat = 15.5
+    static let piLogoInkSide: CGFloat = 15.5
 
     /// The side each mark's image is drawn at for its ink to read at the same size: Claude's and Codex's
     /// SVGs fill their box, OpenCode's 20 of its 24 units, Pi's as above.
     static func logoSide(for agent: String) -> CGFloat {
         switch AgentKind(name: agent) {
         case .pi:
-            return piInkSide * 800 / 470
+            return piLogoInkSide * 800 / 470
         case .opencode:
             return iconSide * 24 / 20
         case .claude, .codex, .shell, .unknown:
