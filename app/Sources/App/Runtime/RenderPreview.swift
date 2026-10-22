@@ -130,6 +130,8 @@ enum RenderPreview {
         renderView(artifactPaneView(highlight: nil), size: pane, to: "\(outputDir)/artifact-pane-rest.png")
         renderView(artifactPaneView(highlight: 1, marked: [0, 2], missing: [1, 3]), size: pane, to: "\(outputDir)/artifact-pane-marked.png")
         renderView(artifactPaneView(highlight: nil, empty: true), size: pane, to: "\(outputDir)/artifact-pane-empty.png")
+        renderView(dockBarView(.viewer), size: CGSize(width: 480, height: 200), to: "\(outputDir)/dock-viewer.png")
+        renderView(dockBarView(.workerChat), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 200), to: "\(outputDir)/dock-worker-chat.png")
         renderView(dockFrameView(focused: true), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-focused.png")
         renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
         render(ToastBanner(message: "Copied qm-1783901769").padding(20).background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
@@ -219,6 +221,21 @@ enum RenderPreview {
             previewFilterFocused: suggesting
         ))
         return DockShellView(body: body)
+    }
+
+    enum DockBarFixture { case viewer, workerChat }
+
+    /// The dock's top bar over its content: an open artifact ("Quest log mock") in the viewer, or the worker chat feed.
+    @MainActor
+    private static func dockBarView(_ fixture: DockBarFixture) -> NSView {
+        switch fixture {
+        case .viewer:
+            let model = DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: "Quest log mock"))
+            return DockShellView(body: NSHostingView(rootView: artifactViewerView(lightDocument: false)), model: model)
+        case .workerChat:
+            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+            return DockShellView(body: NSHostingView(rootView: workerChatView()), model: model)
+        }
     }
 
     /// The dock alone on the window colour, with or without keyboard focus, for its frame.

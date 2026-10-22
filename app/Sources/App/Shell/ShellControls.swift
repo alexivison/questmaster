@@ -15,7 +15,6 @@ enum ShellMetrics {
     /// No extra space above the first tracker header (2026-10-07): `sideCardInset` alone now
     /// provides the window-top-to-tracker gap, matching every other G-rhythm gap in the shell.
     static let trackerTopInset: CGFloat = 0
-    static let dockViewerLeadingLineExtension: CGFloat = 56
     /// The shell's own single gap `G` (2026-10-07) — applies to every pane-to-pane and
     /// pane-to-window-edge gap in the shell (tracker/dock side-card inset, tracker's own leading
     /// padding, the dock's and terminal's outer margins). A dedicated constant, not

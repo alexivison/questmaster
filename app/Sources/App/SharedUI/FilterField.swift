@@ -2,28 +2,27 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The one filter chip, as the Quest Log design draws it: "@project questmaster", 16 high, radius 4.5, `item` fill,
-/// `line` border, muted text, truncated at `maxWidth` (117 in the Quest Log, 141 in the artifact pane). Click to
-/// remove it, as Backspace in an empty field does.
+/// The one filter chip: "@project questmaster" in 12pt muted text, 16 high, at most 145 wide, radius 4.5, `item`
+/// fill, `line` border. Click to remove it, as Backspace in an empty field does.
 struct FilterChip: View {
     var token: ArtifactFilterToken
-    var maxWidth: CGFloat
     var onRemove: () -> Void
 
     private enum Metrics {
         static let height: CGFloat = 16
+        static let maxWidth: CGFloat = 145
         static let cornerRadius: CGFloat = 4.5
         static let textInset: CGFloat = 6
     }
 
     var body: some View {
         Text("\(token.kind.prefix) \(token.title)")
-            .font(AppFonts.monoSmall.swiftUI)
+            .font(AppFonts.questLogBody.swiftUI)
             .foregroundStyle(AppPalette.muted.swiftUI)
             .lineLimit(1)
             .truncationMode(.tail)
             .padding(.horizontal, Metrics.textInset)
-            .frame(maxWidth: maxWidth, minHeight: Metrics.height, maxHeight: Metrics.height, alignment: .leading)
+            .frame(maxWidth: Metrics.maxWidth, minHeight: Metrics.height, maxHeight: Metrics.height, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: Metrics.cornerRadius).fill(AppPalette.item.swiftUI))
             .overlay(RoundedRectangle(cornerRadius: Metrics.cornerRadius).stroke(AppPalette.line.swiftUI, lineWidth: Token.Size.divider))
             .fixedSize()
@@ -34,8 +33,7 @@ struct FilterChip: View {
 
 /// The one filter field (the Quest Log's and the artifact dock's), measured from user-quests-modal-v3.svg and
 /// artifacts.svg: the shared field chrome 35 high, "/" 12 in, then the token chips and the text field, 10 apart.
-/// While it has focus the shared dropdown hangs 4 under it with `suggestions` (empty hides it). The two designs
-/// size the typed text (11pt, 12pt) and the chips (117, 141 wide at most) differently: `textFont`, `chipMaxWidth`.
+/// While it has focus the shared dropdown hangs 4 under it with `suggestions` (empty hides it). Its text is 12pt.
 struct FilterBar: View {
     let tokens: [ArtifactFilterToken]
     @Binding var query: String
@@ -45,8 +43,6 @@ struct FilterBar: View {
     let suggestions: [ArtifactFilterSuggestion]
     let highlightedSuggestionID: String?
     let accessibilityLabel: String
-    var textFont = AppFonts.monoSmall
-    var chipMaxWidth: CGFloat = 117
     /// Renders the field as focused (RenderPreview).
     var previewFocused = false
     var onCommand: (UInt16) -> Bool
@@ -66,7 +62,7 @@ struct FilterBar: View {
                 .foregroundStyle(AppPalette.textMeta.swiftUI)
                 .offset(x: FilterBarMetrics.slashNudge)
             ForEach(tokens) { token in
-                FilterChip(token: token, maxWidth: chipMaxWidth, onRemove: { onRemoveToken(token) })
+                FilterChip(token: token, onRemove: { onRemoveToken(token) })
             }
             CommandTextField(
                 text: $query,
@@ -75,7 +71,7 @@ struct FilterBar: View {
                 onCommand: onCommand,
                 onEndEditing: onEndEditing,
                 onFocusChanged: { focused = $0 },
-                font: textFont,
+                font: AppFonts.questLogBody,
                 textColor: AppPalette.textBody,
                 placeholderColor: AppPalette.textMeta
             )

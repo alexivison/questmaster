@@ -123,8 +123,6 @@ struct ArtifactDockView: View {
             suggestions: model.filterSuggestionsVisible ? model.filterSuggestions : [],
             highlightedSuggestionID: model.selectedFilterSuggestionID,
             accessibilityLabel: "Filter artifacts",
-            textFont: AppFonts.questLogBody,
-            chipMaxWidth: 141,
             previewFocused: previewFilterFocused,
             onCommand: onFilterCommand,
             onEndEditing: onFilterEndEditing,
@@ -393,13 +391,8 @@ private struct ArtifactViewerPane: View {
     var onOpenExternal: (URL) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(AppPalette.line.swiftUI)
-                .frame(height: Token.Size.divider)
-            viewerContent
-        }
-        .background(AppPalette.artifactViewerBackground.swiftUI)
+        viewerContent
+            .background(AppPalette.artifactViewerBackground.swiftUI)
     }
 
     @ViewBuilder
