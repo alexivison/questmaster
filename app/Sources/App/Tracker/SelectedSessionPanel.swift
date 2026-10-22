@@ -51,7 +51,8 @@ struct SelectedSessionPanel: View {
     /// Where each line's first glyph cell starts, past the portrait like a plate's text (`TrackerPlateDesign.textX`),
     /// and its baseline. Every line stops at `textRightEdge`, so a long title truncates instead of running under the
     /// plate's right edge.
-    static let textX = TrackerPlateDesign.textX(afterDisc: PanelDesign.disc)
+    /// `Space.item` past the disc, not a plate's `Space.row`, so the title clears the Q's right spike (it reaches 76).
+    static let textX = TrackerPlateDesign.textX(afterDisc: PanelDesign.disc, gap: Space.item)
     private static let idX = textX
     private static let textRightEdge: CGFloat = 250
     private static let idBaseline: CGFloat = 19

@@ -471,12 +471,12 @@ enum LogicSelfTests {
         )
 
         // The discs sit on the 5pt grid, and plate text starts 5 past the disc's round edge: the master's disc spans
-        // 0-50, the worker's 20-60, the panel's ends at 70.
+        // 0-50, the worker's 20-60; the panel's ends at 70, and its text sits 10 past it to clear the Q's spike.
         try expectRect(master.discEdge.offsetBy(dx: 0, dy: -TrackerPlateDesign.svgDiscInset), 0, 0, 50, 50, "master disc in its row")
         try expectRect(worker.discEdge.offsetBy(dx: 0, dy: -TrackerPlateDesign.svgDiscInset), 20, 0, 60, 40, "worker disc in its row")
         try expectClose(TrackerNameplateRole.topLevelTextX, 55, "master text column")
         try expectClose(TrackerNameplateRole.workerTextX, 65, "worker text column")
-        try expectClose(SelectedSessionPanel.textX, 75, "selected-session panel text column")
+        try expectClose(SelectedSessionPanel.textX, 80, "selected-session panel text column")
         try expectClose(TrackerNameplateRole.master.snippetX, TrackerNameplateRole.master.titleX, "master snippet under the title")
 
         // Every layer of a portrait sits at a whole-point origin. A frame on a half point snaps to a whole pixel at 1x

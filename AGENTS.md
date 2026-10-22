@@ -230,7 +230,8 @@ own height as an `svg…` constant and scales to the control's.
 
 Portraits sit on 5s too: the master's disc spans 0-50 and the worker's 20-60 in
 their rows, and plate text starts `Space.row` past the disc's round edge (55,
-65; the side diamonds don't count). Logos are 0.6 of their disc (30, 24, 15),
+65; the side diamonds don't count). The selected-session panel's text starts
+`Space.item` past its disc (80), clear of the Q's spike. Logos are 0.6 of their disc (30, 24, 15),
 canvases and icon, logo and mark sizes are lengths like any other.
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's

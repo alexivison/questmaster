@@ -17,6 +17,7 @@ enum TrackerCastLayout {
     static let master = Metrics(side: 15, iconSide: 9, labelBaseline: 11.5)
     static let worker = master
     static let spacing = Space.row
+    /// A 2pt line between the square and its bar, kept like the borders (2026-10-23), not a spacing step.
     static let squareToBar = Token.Size.hairline
     static let masterBarRight: CGFloat = 250
 

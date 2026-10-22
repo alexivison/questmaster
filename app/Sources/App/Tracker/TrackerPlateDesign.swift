@@ -22,10 +22,10 @@ enum TrackerPlateDesign {
     /// How far past the master's row its hit shape reaches above and below: the crown pieces' 2.17.
     static let topLevelHitOutset: CGFloat = 3
 
-    /// Where a plate's text starts: `Space.row` past its disc's round edge. The side diamonds aren't counted (their
-    /// borders aren't uniform), and the discs' edges sit on the 5pt grid, so the text does too.
-    static func textX(afterDisc disc: Path) -> CGFloat {
-        disc.boundingRect.maxX + Space.row
+    /// Where a plate's text starts: `gap` past its disc's round edge (`Space.row` on the plates). The side diamonds
+    /// aren't counted (their borders aren't uniform), and the discs' edges sit on the 5pt grid, so the text does too.
+    static func textX(afterDisc disc: Path, gap: CGFloat = Space.row) -> CGFloat {
+        disc.boundingRect.maxX + gap
     }
 
     /// Canvas sizes, and the rows' sizes. A row ends at its plate's right edge, which a master's collapsed circles' last
