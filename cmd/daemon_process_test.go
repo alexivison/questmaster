@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -501,6 +503,16 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	if !check() {
 		t.Fatal("valid replacement was not recognized")
 	}
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if after, err := h.command("daemon", "status"); err == nil && after["generation"] == float64(2) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if after := h.must("daemon", "status"); after["generation"] != float64(2) {
+		t.Fatalf("replacement did not re-exec: %+v", after)
+	}
 	if err := os.Rename(h.bin, h.bin+".valid"); err != nil {
 		t.Fatal(err)
 	}
@@ -510,8 +522,371 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	if err := os.Rename(h.bin+".valid", h.bin); err != nil {
 		t.Fatal(err)
 	}
-	if after := h.must("daemon", "status"); after["generation"] != float64(1) {
-		t.Fatalf("D1 unexpectedly re-execed: %+v", after)
+	if after := h.must("daemon", "status"); after["generation"] != float64(2) {
+		t.Fatalf("replacement generation changed: %+v", after)
+	}
+}
+
+func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
+	h := newDaemonHarness(t, "")
+	before := h.must("daemon", "start")
+	socket := before["socket"].(string)
+	held, err := net.DialTimeout("unix", socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	oldDecoder := json.NewDecoder(held)
+	var oldHello struct {
+		Generation int `json:"generation"`
+	}
+	if err := oldDecoder.Decode(&oldHello); err != nil || oldHello.Generation != 1 {
+		t.Fatalf("initial handshake: %+v %v", oldHello, err)
+	}
+	candidate := h.bin + ".new"
+	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags=-buildid=d1b-swap", "-o", candidate, "..")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("replacement build: %v\n%s", err, out)
+	}
+	if err := os.Rename(candidate, h.bin); err != nil {
+		t.Fatal(err)
+	}
+	stopDial, firstDial := make(chan struct{}), make(chan struct{})
+	dialError := make(chan error, 1)
+	var dialDone sync.WaitGroup
+	var stopOnce sync.Once
+	stop := func() {
+		stopOnce.Do(func() {
+			close(stopDial)
+			dialDone.Wait()
+		})
+	}
+	defer stop()
+	dialDone.Add(1)
+	go func() {
+		defer dialDone.Done()
+		first := true
+		for {
+			select {
+			case <-stopDial:
+				return
+			default:
+			}
+			conn, err := net.DialTimeout("unix", socket, 100*time.Millisecond)
+			if first {
+				close(firstDial)
+				first = false
+			}
+			if err != nil {
+				dialError <- err
+				return
+			}
+			conn.Close()
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+	<-firstDial
+	check := h.must("daemon", "check-upgrade")
+	if check["upgrade_started"] != true {
+		t.Fatalf("upgrade was not started: %+v", check)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	var after map[string]any
+	for time.Now().Before(deadline) {
+		after, _ = h.command("daemon", "status")
+		if after["generation"] == float64(2) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stop()
+	select {
+	case err := <-dialError:
+		t.Fatalf("socket refused a connection during re-exec: %v", err)
+	default:
+	}
+	if after["generation"] != float64(2) || after["pid"] != before["pid"] || after["socket"] != socket {
+		t.Fatalf("re-exec changed daemon identity: before=%+v after=%+v", before, after)
+	}
+	_ = held.SetReadDeadline(time.Now().Add(time.Second))
+	var staleReply map[string]any
+	if err := oldDecoder.Decode(&staleReply); !errors.Is(err, io.EOF) {
+		t.Fatalf("old connection did not close on re-exec: %v %+v", err, staleReply)
+	}
+	fresh, err := net.DialTimeout("unix", socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var freshHello struct {
+		Generation int `json:"generation"`
+	}
+	if err := json.NewDecoder(fresh).Decode(&freshHello); err != nil || freshHello.Generation != 2 {
+		fresh.Close()
+		t.Fatalf("replacement handshake: %+v %v", freshHello, err)
+	}
+	fresh.Close()
+	if after["jobs"] != true {
+		t.Fatalf("jobs were not restarted: %+v", after)
+	}
+	lock, err := os.OpenFile(filepath.Join(h.root, "daemon", "jobs.lock"), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EWOULDBLOCK {
+		t.Fatalf("jobs.lock was lost during re-exec: %v", err)
+	}
+	if status := h.must("daemon", "status"); status["generation"] != float64(2) {
+		t.Fatalf("request after swap failed: %+v", status)
+	}
+	h.must("daemon", "stop")
+	h.waitStopped()
+}
+
+func daemonRequest(socket, method string) error {
+	conn, err := net.DialTimeout("unix", socket, time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	dec := json.NewDecoder(conn)
+	var greeting map[string]any
+	if err := dec.Decode(&greeting); err != nil {
+		return err
+	}
+	if err := json.NewEncoder(conn).Encode(map[string]any{"method": method, "protocol_version": daemon.ProtocolVersion}); err != nil {
+		return err
+	}
+	var reply struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := dec.Decode(&reply); err != nil {
+		return err
+	}
+	if !reply.OK {
+		return fmt.Errorf("%s: %s", method, reply.Error)
+	}
+	return nil
+}
+
+func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
+	h := newDaemonHarness(t, "")
+	helper := filepath.Join(t.TempDir(), "qm-helper")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", helper, "../internal/daemon/testdata/exithelper")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("helper build: %v\n%s", err, out)
+	}
+	link := filepath.Join(h.home, ".local", "bin", "questmaster")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(helper, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"work", "release-drain"} {
+		if err := os.MkdirAll(filepath.Join(h.root, "daemon"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(h.root, "daemon", name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := exec.Command(helper, "daemon", "run")
+	run.Env = h.env
+	if err := run.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
+	c := daemon.Config{Root: h.root, Home: h.home, Executable: helper}
+	var before daemon.Record
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		before, _ = daemon.Status(c)
+		if before.Running {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !before.Running || !before.Jobs {
+		t.Fatalf("helper did not start with jobs: %+v", before)
+	}
+	holdDone := make(chan error, 1)
+	go func() { holdDone <- daemonRequest(before.Socket, "hold") }()
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(filepath.Join(h.root, "daemon", "hold-started")); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "daemon", "hold-started")); err != nil {
+		t.Fatal("hold request never dispatched")
+	}
+	candidate := helper + ".new"
+	build = exec.Command("go", "build", "-buildvcs=false", "-ldflags=-buildid=d1b-helper-swap", "-o", candidate, "../internal/daemon/testdata/exithelper")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("replacement helper build: %v\n%s", err, out)
+	}
+	if err := os.Rename(candidate, helper); err != nil {
+		t.Fatal(err)
+	}
+	checkDone := make(chan struct {
+		record daemon.Record
+		err    error
+	}, 1)
+	go func() {
+		record, err := daemon.CheckUpgrade(c)
+		checkDone <- struct {
+			record daemon.Record
+			err    error
+		}{record, err}
+	}()
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case result := <-checkDone:
+		t.Fatalf("upgrade passed in-flight work: %+v %v", result.record, result.err)
+	default:
+	}
+	data, err := os.ReadFile(filepath.Join(h.root, "daemon", "canonical.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var published daemon.Record
+	if err := json.Unmarshal(data, &published); err != nil || published.Generation != 1 {
+		t.Fatalf("daemon changed generation before request finished: %+v %v", published, err)
+	}
+	if err := os.WriteFile(filepath.Join(h.root, "daemon", "hold-release"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-holdDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-checkDone:
+		if result.err != nil || !result.record.UpgradeStarted {
+			t.Fatalf("upgrade was not started after request: %+v %v", result.record, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade did not resume after request")
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	var after daemon.Record
+	for time.Now().Before(deadline) {
+		after, _ = daemon.Status(c)
+		if after.Generation == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if after.Generation != 2 || after.PID != before.PID || !after.Jobs {
+		t.Fatalf("helper upgrade failed: before=%+v after=%+v", before, after)
+	}
+	starts, err := os.ReadFile(filepath.Join(h.root, "daemon", "job-starts"))
+	if err != nil || len(starts) < 2 {
+		t.Fatalf("jobs did not restart: starts=%q err=%v", starts, err)
+	}
+	if err := daemonRequest(after.Socket, "spawn-child"); err != nil {
+		t.Fatal(err)
+	}
+	pidText, err := os.ReadFile(filepath.Join(h.root, "daemon", "child-pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	childPID, err := strconv.Atoi(string(pidText))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(childPID, syscall.SIGKILL) })
+	if err := run.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = run.Wait()
+	if err := syscall.Kill(childPID, 0); err != nil {
+		t.Fatalf("child did not outlive daemon: %v", err)
+	}
+	if conn, err := net.DialTimeout("unix", after.Socket, 100*time.Millisecond); err == nil {
+		conn.Close()
+		t.Fatal("listener leaked to child")
+	}
+	for _, name := range []string{"canonical.lock", "jobs.lock"} {
+		lock, err := os.OpenFile(filepath.Join(h.root, "daemon", name), os.O_RDWR, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+			lock.Close()
+			t.Fatalf("%s leaked to child: %v", name, err)
+		}
+		lock.Close()
+	}
+}
+
+func TestDaemonBadHandoffFallsBackToLockedStart(t *testing.T) {
+	for _, missing := range []bool{false, true} {
+		name := "wrong-inode"
+		if missing {
+			name = "missing-fd"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newDaemonHarness(t, "")
+			wrong, err := os.CreateTemp(t.TempDir(), "wrong-lock")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer wrong.Close()
+			listenerFD := 999999
+			files := []*os.File{wrong}
+			if !missing {
+				otherDir, err := os.MkdirTemp("/tmp", "qm-handoff-")
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.RemoveAll(otherDir) })
+				other, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(otherDir, "other.sock"), Net: "unix"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer other.Close()
+				file, err := other.File()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer file.Close()
+				files = append(files, file)
+				listenerFD = 4
+			}
+			handoff := fmt.Sprintf(`{"root":%q,"identity":"canonical","generation":1,"lock_fd":3,"listener_fd":%d}`, h.root, listenerFD)
+			run := exec.Command(h.bin, "daemon", "run", "--idle-grace=10m")
+			run.Env = append(h.env, "QUESTMASTER_DAEMON_HANDOFF="+handoff)
+			run.ExtraFiles = files
+			if err := run.Start(); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
+			deadline := time.Now().Add(5 * time.Second)
+			var status map[string]any
+			for time.Now().Before(deadline) {
+				status, _ = h.command("daemon", "status")
+				if status["running"] == true {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if status["running"] != true || status["generation"] != float64(1) || status["pid"] != float64(run.Process.Pid) {
+				t.Fatalf("bad handoff did not start normally: %+v", status)
+			}
+			lock, err := os.OpenFile(filepath.Join(h.root, "daemon", "canonical.lock"), os.O_RDWR, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EWOULDBLOCK {
+				t.Fatalf("normal start did not hold the lifetime lock: %v", err)
+			}
+			h.must("daemon", "stop")
+			h.waitStopped()
+		})
 	}
 }
 

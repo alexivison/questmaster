@@ -29,6 +29,9 @@ type server struct {
 	lastActivity    time.Time
 	active          int
 	stop            chan struct{}
+	upgrade         chan string
+	upgrading       bool
+	nextUpgradeTry  time.Time
 	jobsCancel      context.CancelFunc
 	jobsDone        chan struct{}
 	jobsRequested   bool
@@ -39,6 +42,18 @@ func setDetached(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid:
 
 // Run holds the identity lock for the lifetime of the foreground daemon.
 func Run(ctx context.Context, config Config, jobsRequested bool) error {
+	h, handoffErr := takeHandoff()
+	if handoffErr != nil {
+		fmt.Fprintf(os.Stderr, "daemon handoff: %v\n", handoffErr)
+		if h != nil {
+			for _, fd := range []int{h.LockFD, h.JobsFD, h.ListenerFD} {
+				if fd != 0 {
+					_ = syscall.Close(fd)
+				}
+			}
+			h = nil
+		}
+	}
 	config, id, socket, err := config.resolve()
 	if err != nil {
 		return err
@@ -59,37 +74,49 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if err := os.Chdir(config.Home); err != nil {
 		return fmt.Errorf("daemon chdir home: %w", err)
 	}
-	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), lastActivity: time.Now(), jobsRequested: jobsRequested || id == "canonical"}
-	s.lock, err = os.OpenFile(filepath.Join(dir, id+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
+	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), upgrade: make(chan string, 1), lastActivity: time.Now(), jobsRequested: jobsRequested || id == "canonical"}
+	if h != nil {
+		if err := s.adopt(*h); err != nil {
+			fmt.Fprintf(os.Stderr, "daemon adoption: %v; starting normally\n", err)
+		}
+	}
+	if s.lock == nil {
+		s.lock, err = os.OpenFile(filepath.Join(dir, id+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return err
+		}
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			err = syscall.Flock(int(s.lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			if err == nil {
+				break
+			}
+			if err != syscall.EWOULDBLOCK {
+				s.lock.Close()
+				return fmt.Errorf("daemon lock: %w", err)
+			}
+			if Ready(config) == nil {
+				s.lock.Close()
+				return nil
+			}
+			if time.Now().After(deadline) {
+				s.lock.Close()
+				return errors.New("timed out waiting for daemon lock")
+			}
+			select {
+			case <-ctx.Done():
+				s.lock.Close()
+				return ctx.Err()
+			case <-time.After(config.PollInterval):
+			}
+		}
+		s.record.Generation = 1
+		if err := s.listen(); err != nil {
+			s.lock.Close()
+			return err
+		}
 	}
 	defer s.lock.Close()
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		err = syscall.Flock(int(s.lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			break
-		}
-		if err != syscall.EWOULDBLOCK {
-			return fmt.Errorf("daemon lock: %w", err)
-		}
-		if Ready(config) == nil {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return errors.New("timed out waiting for daemon lock")
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(config.PollInterval):
-		}
-	}
-	s.record.Generation = 1
-	if err := s.listen(); err != nil {
-		return err
-	}
 	defer func() {
 		if s.listener != nil {
 			_ = s.listener.Close()
@@ -107,7 +134,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if err != nil {
 		return err
 	}
-	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: config.Executable, Build: build, Generation: s.record.Generation, Accepting: true}
+	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: config.Executable, Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
 	if err := s.publish(); err != nil {
 		return err
 	}
@@ -122,6 +149,13 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 			return s.shutdown(false)
 		case <-s.stop:
 			return s.shutdown(false)
+		case path := <-s.upgrade:
+			if err := s.reexec(path); err != nil {
+				fmt.Fprintf(os.Stderr, "daemon upgrade: %v\n", err)
+				if errors.Is(err, errJobsNotDrained) || errors.Is(err, errRestoreDescriptors) {
+					return err
+				}
+			}
 		case <-ticker.C:
 			if time.Now().After(nextLogCheck) {
 				if err := rotateLog(filepath.Join(dir, id+".log")); err != nil {
@@ -254,13 +288,17 @@ func (s *server) handle(conn net.Conn) {
 			_ = enc.Encode(response{Error: "exiting"})
 			return
 		}
-		resp := s.dispatch(req)
+		resp, upgradePath := s.dispatch(req)
 		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 		_ = enc.Encode(resp)
 		s.mu.Lock()
 		s.active--
 		s.lastActivity = time.Now()
 		s.mu.Unlock()
+		if upgradePath != "" {
+			s.upgrade <- upgradePath
+			return
+		}
 		if req.Method == "stop" && resp.OK {
 			select {
 			case s.stop <- struct{}{}:
@@ -271,35 +309,39 @@ func (s *server) handle(conn net.Conn) {
 	}
 }
 
-func (s *server) dispatch(req request) response {
+func (s *server) dispatch(req request) (response, string) {
 	if req.Method == "check-upgrade" {
-		s.probeUpgrade()
-		return s.statusResponse()
+		path := s.probeUpgrade()
+		if path != "" && s.beginUpgrade() {
+			return s.statusResponse(true), path
+		}
+		return s.statusResponse(false), ""
 	}
 	if req.ProtocolVersion != ProtocolVersion {
-		return response{Error: "incompatible protocol"}
+		return response{Error: "incompatible protocol"}, ""
 	}
 	switch req.Method {
 	case "status", "stop":
-		return s.statusResponse()
+		return s.statusResponse(false), ""
 	default:
 		if s.config.Handle == nil {
-			return response{Error: "unknown method"}
+			return response{Error: "unknown method"}, ""
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := s.config.Handle(ctx, req.Method); err != nil {
-			return response{Error: err.Error()}
+			return response{Error: err.Error()}, ""
 		}
-		return response{OK: true}
+		return response{OK: true}, ""
 	}
 }
 
-func (s *server) statusResponse() response {
+func (s *server) statusResponse(upgradeStarted bool) response {
 	s.mu.Lock()
 	record := s.record
 	s.mu.Unlock()
 	record.HasWork = s.hasWork()
+	record.UpgradeStarted = upgradeStarted
 	data, _ := json.Marshal(record)
 	return response{OK: true, Data: data}
 }

@@ -24,6 +24,7 @@ type Config struct {
 	ReadIdleTimeout, WriteTimeout            time.Duration
 	Jobs                                     []Job
 	Handle                                   func(context.Context, string) error
+	Exec                                     func(string, []string, []string) error
 }
 
 func (c Config) resolve() (Config, string, string, error) {
@@ -94,6 +95,7 @@ type Record struct {
 	Jobs             bool   `json:"jobs"`
 	HasWork          bool   `json:"has_work"`
 	UpgradeAvailable bool   `json:"upgrade_available"`
+	UpgradeStarted   bool   `json:"upgrade_started"`
 	Accepting        bool   `json:"accepting"`
 }
 
@@ -160,7 +162,7 @@ func call(c Config, method string, requireReady bool) (Record, error) {
 	defer conn.Close()
 	timeout := 5 * time.Second
 	if method == "check-upgrade" {
-		timeout = 15 * time.Second
+		timeout = 45 * time.Second
 	}
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	if err := json.NewEncoder(conn).Encode(request{Method: method, ProtocolVersion: ProtocolVersion}); err != nil {
