@@ -98,11 +98,11 @@ codesign --force --deep --sign - "$BUNDLE_DIR"
 rm -rf "$INSTALL_PATH"
 ditto "$BUNDLE_DIR" "$INSTALL_PATH"
 codesign --verify --deep --strict "$INSTALL_PATH"
-# TODO(D2b): nudge the daemon after verification once its re-exec upgrade is live.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$INSTALL_PATH"
 
 mkdir -p "$HOME/.local/bin"
 ln -sf "$INSTALL_PATH/Contents/Resources/qm" "$HOME/.local/bin/questmaster"
+"$INSTALL_PATH/Contents/Resources/qm" daemon check-upgrade || true
 
 echo "Built $BUNDLE_DIR"
 echo "Installed $INSTALL_PATH"

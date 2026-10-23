@@ -26,6 +26,7 @@ type Config struct {
 	ReadIdleTimeout, WriteTimeout            time.Duration
 	Jobs                                     []Job
 	Runtime                                  *serve.Server
+	ClockInterval                            time.Duration
 	LoginEnvironmentRunner                   LoginEnvironmentRunner
 	Exec                                     func(string, []string, []string) error
 }
@@ -92,6 +93,7 @@ type Record struct {
 	Identity         string `json:"identity"`
 	Socket           string `json:"socket"`
 	Executable       string `json:"executable"`
+	ShimDirectory    string `json:"shim_directory,omitempty"`
 	Build            string `json:"build"`
 	Generation       int    `json:"generation"`
 	Clients          int    `json:"clients"`
@@ -236,6 +238,20 @@ func Ensure(ctx context.Context, c Config) (Record, error) {
 	}
 	if record, err := Status(c); err == nil {
 		return record, nil
+	}
+	if old, err := CheckUpgrade(c); err == nil && (old.UpgradeStarted || old.UpgradeAvailable) {
+		deadline := time.Now().Add(60 * time.Second)
+		for time.Now().Before(deadline) {
+			if record, err := Status(c); err == nil {
+				return record, nil
+			}
+			select {
+			case <-ctx.Done():
+				return Record{}, ctx.Err()
+			case <-time.After(c.PollInterval):
+			}
+		}
+		return Record{}, errors.New("timed out waiting for daemon upgrade")
 	}
 	dir := filepath.Join(c.Root, "daemon")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

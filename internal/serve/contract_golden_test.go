@@ -132,7 +132,6 @@ func serveContractFixtures() []contractFixture {
 			PrimaryAgent:   "codex",
 			SessionType:    "master",
 			WorkerCount:    1,
-			IsCurrent:      true,
 			Artifacts:      []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact},
 			Repo: RepoSnapshot{
 				Identity: "/tmp/questmaster/.git",
