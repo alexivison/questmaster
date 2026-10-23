@@ -35,8 +35,8 @@ final class ToastPresentationController {
                 // follows the footer's height and the row-snap leftover automatically, instead of
                 // a window-bottom-relative constant that predates the footer.
                 view.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -ShellMetrics.gap),
-                view.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 18),
-                view.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -18),
+                view.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Space.section),
+                view.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Space.section),
             ])
             toastView = view
         }
@@ -96,6 +96,7 @@ private final class ToastHostingView: NSHostingView<ToastBanner> {
 }
 
 struct ToastBanner: View {
+    static let maxWidth: CGFloat = 360
     let message: String
 
     var body: some View {
@@ -104,9 +105,9 @@ struct ToastBanner: View {
             .foregroundStyle(AppPalette.text.swiftUI)
             .lineLimit(2)
             .truncationMode(.tail)
-            .padding(.vertical, 14)
-            .padding(.horizontal, 18)
-        .frame(maxWidth: 360, alignment: .leading)
+            .padding(.vertical, Space.item)
+            .padding(.horizontal, Space.section)
+        .frame(maxWidth: Self.maxWidth, alignment: .leading)
         .borderedCard(
             fill: AppPalette.panel.withAlphaComponent(0.88),
             borderColor: AppPalette.lineSoftSubtle,

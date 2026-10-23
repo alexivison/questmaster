@@ -6,53 +6,62 @@ import SwiftUI
 /// worker's to the list's worker indent.
 ///
 /// A plate's row is the disc's outer diameter tall (the master's 50, the worker's 40), and the gaps in the list run
-/// disc edge to disc edge. Each SVG keeps 2 points around its disc for the crown pieces or the filters, so a canvas
-/// starts 2 points above its row. Under a master that collapses its workers, a row of circles hangs a point below the
-/// disc's bottom edge.
+/// disc edge to disc edge. Every disc sits on the 5pt grid: the master's spans 0-50, the worker's 20-60. Each SVG keeps
+/// 2 points around its disc for the crown pieces or the filters, so a canvas starts 2 points above its row; the master's
+/// art moves 2 left too, so its side diamond and crown pieces reach past the row's left edge, which the canvases'
+/// bleed allows. Under a master that collapses its workers, a row of circles sits right under the disc's row.
 enum TrackerPlateDesign {
     /// The master SVG sits this far off whole points in x and y, a resize slip in the design file. The plate draws
     /// every one of its layers shifted back, with the shapes and sizes as drawn.
     static let svgSlip: CGFloat = 0.1739
-    /// The worker's disc is 15 points right of the master's, so its portrait's left edge is 20 points right of the
-    /// master's.
-    static let workerShift: CGFloat = 22
-    /// How far each SVG's disc sits inside its canvas, and so how far a canvas starts above its row.
-    static let artInset: CGFloat = 2
+    /// The worker's portrait's left edge sits `Space.section` right of the master's.
+    static let workerShift = Space.section
+    /// How far each SVG's disc sits inside its canvas, and so how far a canvas starts above its row; each plate's art
+    /// moves this far left too, so its disc starts at the row's portrait column.
+    static let svgDiscInset: CGFloat = 2
     /// How far past the master's row its hit shape reaches above and below: the crown pieces' 2.17.
     static let topLevelHitOutset: CGFloat = 3
+
+    /// Where a plate's text starts: `gap` past its disc's round edge (`Space.row` on the plates). The side diamonds
+    /// aren't counted (their borders aren't uniform), and the discs' edges sit on the 5pt grid, so the text does too.
+    static func textX(afterDisc disc: Path, gap: CGFloat = Space.row) -> CGFloat {
+        disc.boundingRect.maxX + gap
+    }
 
     /// Canvas sizes, and the rows' sizes. A row ends at its plate's right edge, which a master's collapsed circles' last
     /// right edge lines up with. The master's canvas stops under the crown pieces; the circles are drawn apart.
     /// The master is 260 wide by decision (2026-10-21), not the SVG's 277; see `TrackerPlateShapes`.
-    static let topLevelArtSize = CGSize(width: 261, height: 55)
-    static let topLevelSize = CGSize(width: 260, height: 50)
-    static let workerArtSize = CGSize(width: 233 + workerShift - artInset, height: 44)
-    static let workerSize = CGSize(width: 232 + workerShift - artInset, height: 40)
+    static let topLevelArtSize = CGSize(width: 265, height: 55)
+    static let topLevelSize = CGSize(width: 260, height: ControlHeight.row)
+    static let workerArtSize = CGSize(width: 255, height: 45)
+    static let workerSize = CGSize(width: 232 + workerShift - svgDiscInset, height: ControlHeight.bar)
 
-    /// Room around a canvas for the plate band, so the layer doesn't clip it.
-    static let silhouetteMargin: CGFloat = 6
+    /// Room around a canvas for the plate band and the art past its edges (the master's side diamond reaches 2 past
+    /// x = 0), so no layer clips them.
+    static let silhouetteMargin = Space.row
     /// The visible width of a plate band past the plate's edge.
     static let glowBandWidth: CGFloat = 2
 
     /// Each portrait's centre in row points, and its outer diameter: the SVG's disc path radius plus half its stroke
     /// (23.5 + 1.5 on the master, 19 + 1 on the worker). The centre sits on whole points and the diameter is even,
     /// so the portrait's frame starts on whole points too.
-    static let topLevelPortraitCenter = CGPoint(x: 27, y: 25)
+    static let topLevelPortraitCenter = CGPoint(x: 25, y: 25)
     static let workerPortraitCenter = CGPoint(x: 20 + workerShift, y: 20)
     static let topLevelDiscDiameter: CGFloat = 50
     static let workerDiscDiameter: CGFloat = 40
-    /// The agent logo inside each portrait, as the SVGs size it: 32 of the master's 50, 24 of the worker's 40, and 15
-    /// of a collapsed circle's 25. Each sits on whole points in its disc.
-    static let topLevelLogoSide: CGFloat = 32
-    static let workerLogoSide: CGFloat = 24
-    static let collapsedLogoSide: CGFloat = 15
+    /// The agent logo inside each portrait, 0.6 of its disc: 30 of the master's 50, 24 of the worker's 40, and 15 of a
+    /// collapsed circle's 25. Each sits on whole points in its disc, so the worker's stays 24: a 25 would centre on a
+    /// half point in the 40 disc and blur at 1x.
+    static let logoShare: CGFloat = 0.6
+    static let topLevelLogoSide = topLevelDiscDiameter * logoShare
+    static let workerLogoSide = workerDiscDiameter * logoShare
+    static let collapsedLogoSide = collapsedCircleDiameter * logoShare
 
     /// The collapsed workers' circles: 25 points across with 5 between, the first's left edge 40 points right of the
-    /// master disc's, in a row a point below the disc's bottom edge.
+    /// master disc's, in a row right under the disc's.
     static let collapsedCircleDiameter: CGFloat = 25
-    static let collapsedCircleGap: CGFloat = 5
-    static let collapsedCirclesInset: CGFloat = 40
-    static let collapsedCirclesDrop: CGFloat = 1
+    static let collapsedCircleGap = Space.row
+    static let collapsedCirclesInset = Space.group
     static let collapsedCircleStroke: CGFloat = 1.5
     /// A collapsed circle's status ring and glow: centred on the circle, the stroke's path 0.75 inside its edge.
     static let collapsedCircleStatus = TrackerPortraitStatusGeometry(
@@ -83,7 +92,7 @@ enum TrackerPlateDesign {
         snippetStrip: nil,
         disc: TrackerPlateDisc(center: CGPoint(x: 27.1738, y: 27.1739), radius: 23.5, stroke: 3),
         ornaments: TrackerPlateShapes.masterOrnaments,
-        offset: CGSize(width: -svgSlip, height: -svgSlip)
+        offset: CGSize(width: -svgSlip - svgDiscInset, height: -svgSlip)
     )
     static let worker = TrackerPlateArtwork(
         size: workerArtSize,
@@ -94,7 +103,7 @@ enum TrackerPlateDesign {
         snippetStrip: TrackerPlateShapes.workerSnippetStrip,
         disc: TrackerPlateDisc(center: CGPoint(x: 22, y: 22), radius: 19, stroke: 2),
         ornaments: [],
-        offset: CGSize(width: workerShift - artInset, height: 0)
+        offset: CGSize(width: workerShift - svgDiscInset, height: 0)
     )
 }
 

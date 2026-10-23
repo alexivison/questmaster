@@ -2,52 +2,56 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Positions measured from user-quests-modal-v3.svg (900 x 780), and from -v2-nobody.svg for the plain page, whose
-/// ink v3 keeps. Baselines are where the design's glyph outlines sit. v3 puts the shared modal header (ModalSheetHeader)
-/// on top and everything under it at y 101.678; the app snaps that to 102.
+/// Positions from user-quests-modal-v3.svg (900 x 780), and from -v2-nobody.svg for the plain page, whose ink v3
+/// keeps, re-fitted to the 5pt rhythm (2026-10-22): 20 from the panel's edges and 10 under the shared header
+/// (ModalSheetHeader), where v3 draws 30 and 30. Baselines are where the design's glyph outlines sit.
 private enum QuestLogMetrics {
     static let sheetSize = CGSize(width: 900, height: 780)
-    /// Filter field (`FilterBar`): 357 x 35 at (30, 102).
-    static let filterOrigin = CGPoint(x: 30, y: 102)
+    /// Filter field (`FilterBar`): 350 x 35 at (20, 80).
+    static let filterOrigin = CGPoint(x: Space.section, y: ModalFormMetrics.contentTop)
     static let filterHeight = FilterBarMetrics.height
-    /// List column, straight under the field: x 30-387. A section title's baseline sits 21 below the previous
-    /// box (the field or the last row) and 9 above its first row; rows are 26 high, 5 apart (a 31pt pitch),
-    /// with the text baseline 17 down and 10 in.
-    static let listOrigin = CGPoint(x: 30, y: filterOrigin.y + filterHeight)
-    static let listWidth: CGFloat = 357
-    static let rowHeight: CGFloat = 26
-    static let rowSpacing: CGFloat = 5
-    static let rowBaseline: CGFloat = 17
-    static let rowTextInset: CGFloat = 10
+    /// List column, straight under the field: x 20-370. A section title's baseline sits 21 below the previous
+    /// box (the field or the last row) and 9 above its first row; rows are 25 high, 5 apart (a 30pt pitch),
+    /// with the text baseline 16.5 down and 10 in.
+    static let listOrigin = CGPoint(x: filterOrigin.x, y: filterOrigin.y + filterHeight)
+    static let listWidth: CGFloat = 350
+    static let rowHeight = ControlHeight.compact
+    static let rowSpacing = Space.row
+    static let rowBaseline: CGFloat = 16.5
+    static let rowTextInset = Space.item
     static let rowCornerRadius: CGFloat = 3
     static let sectionHeight: CGFloat = 30
     static let sectionBaseline: CGFloat = 21
     static let markSize: CGFloat = 5
-    /// Page: a 473 x 596 base (v3's 596.322, ending on the same y 698) with the parchment clipped to its top 594.
-    static let pageOrigin = CGPoint(x: 397, y: 102)
-    static let pageSize = CGSize(width: 473, height: 596)
-    static let parchmentHeight: CGFloat = 594
+    /// Page: the design's 473 x 596 page (its parchment clipped to the top 594) scaled whole to 500 x 630, the same
+    /// proportions, 10 right of the list, its top on the filter's.
+    static let svgPageWidth: CGFloat = 473
+    static let svgParchmentHeight: CGFloat = 594
+    static let pageOrigin = CGPoint(x: listOrigin.x + listWidth + Space.item, y: filterOrigin.y)
+    static let pageSize = CGSize(width: 500, height: 630)
+    static let pageScale = pageSize.width / svgPageWidth
+    static let parchmentHeight = svgParchmentHeight * pageScale
     static let pageCornerRadius: CGFloat = 5
-    static let parchmentEdgeWidth: CGFloat = 3
+    static let parchmentEdgeStroke: CGFloat = 3
     static let parchmentEdgeOpacity = 0.35
     static let parchmentOpacity = 0.7
-    /// Page ink, page-local: the titled page's title baseline 34 down, the 12pt description 36 below it on
-    /// a 16pt pitch, 20 in on each side; a plain page's line sits on a baseline 32 down. Then the rule 24
-    /// below the last baseline and the footer's baseline 32 below the rule.
-    static let inkInset: CGFloat = 20
+    /// Page ink, page-local: the titled page's title baseline 34 down, the 12pt description's 36 below it on a
+    /// 16pt line, 20 in on each side; a plain page's line sits on a baseline 32 down. Then the rule 24 below the last
+    /// baseline and the footer's baseline 32 below the rule. The vines and rules scale with the page; the text doesn't.
+    static let inkInset = Space.section
     static let bodyWidth = pageSize.width - 2 * inkInset
-    static let titleWidth: CGFloat = 306
+    static let titleWidth: CGFloat = 325
     static let titleBaseline: CGFloat = 34
     static let plainBaseline: CGFloat = 32
-    static let bodyGap: CGFloat = 36
-    static let bodyLinePitch: CGFloat = 16
-    static let ruleGap: CGFloat = 24
-    static let footerGap: CGFloat = 32
-    static let inkBottomInset: CGFloat = 24
+    static let bodyBaselineGap: CGFloat = 36
+    static let bodyLineHeight: CGFloat = 16
+    static let ruleBaselineGap: CGFloat = 24
+    static let footerBaselineGap: CGFloat = 32
+    static let inkBottomInset: CGFloat = 25
     /// How far in from the page's bottom (top) edge the ink fades while more of it lies below (above).
-    static let overflowFadeHeight: CGFloat = 28
-    /// The vine strips, page-local: the title's spans y 20-38 with the title baseline at 34; the rule's
-    /// spans y 198-215 with the rule at 206.
+    static let overflowFadeHeight: CGFloat = 30
+    /// The vine strips in the design's page points: the title's spans y 20-38 with the title baseline at 34; the
+    /// rule's spans y 198-215 with the rule at 206.
     static let titleVineBand = (top: CGFloat(20), height: CGFloat(18))
     static let ruleVineBand = (top: CGFloat(198), height: CGFloat(17))
     static let titleVineLines: [CGRect] = [
@@ -55,17 +59,16 @@ private enum QuestLogMetrics {
         CGRect(x: 434.361, y: 28.5, width: 18.6394, height: 1),
     ]
     static let rule = CGRect(x: 22.946, y: 206, width: 427.845, height: 1)
-    /// Footer: each diamond starts 8.4 after the part before it and the next part 8.1 after the diamond; its
-    /// centre sits 3.5 above the baseline. Wrapped lines sit on the 11pt pitch.
+    /// Footer: each diamond sits `footerDiamondGap` after the part before it and before the next part; its centre
+    /// sits 3.5 above the baseline. Wrapped lines sit on the 15pt pitch.
     static let footerLinePitch: CGFloat = 15
-    static let footerDiamondSize: CGFloat = 5.66
-    static let footerDiamondLead: CGFloat = 8.4
-    static let footerDateLead: CGFloat = 8.1
+    static let footerDiamondSvgSize: CGFloat = 5.66
+    static let footerDiamondGap = Space.item
     static let footerDiamondRaise: CGFloat = 3.5
-    /// Buttons: the shared angled buttons at the design's 200 wide, 10 apart, centred, at y 728.
+    /// Buttons: the shared angled buttons at the design's 200 wide, 10 apart, centred, 20 under the page.
     static let buttonWidth: CGFloat = 200
-    static let buttonSpacing: CGFloat = 10
-    static let buttonTop: CGFloat = 728
+    static let buttonSpacing = Space.item
+    static let buttonTop = pageOrigin.y + pageSize.height + Space.section
     static let pageTransition = 0.12
     /// Opening: the paper unrolls top to bottom as the fade-in ends, and the ink follows it down.
     static let unrollDelay = 0.12 * ModalFade.slowdown
@@ -369,14 +372,14 @@ private struct QuestLogInk: View {
         Group {
             switch page.layout {
             case .titled:
-                BaselineColumn(gaps: [QuestLogMetrics.titleBaseline, QuestLogMetrics.bodyGap, QuestLogMetrics.ruleGap, QuestLogMetrics.footerGap]) {
+                BaselineColumn(gaps: [QuestLogMetrics.titleBaseline, QuestLogMetrics.bodyBaselineGap, QuestLogMetrics.ruleBaselineGap, QuestLogMetrics.footerBaselineGap]) {
                     title
                     paragraph(page.body)
                     rule
                     footer
                 }
             case .plain:
-                BaselineColumn(gaps: [QuestLogMetrics.plainBaseline, QuestLogMetrics.ruleGap, QuestLogMetrics.footerGap]) {
+                BaselineColumn(gaps: [QuestLogMetrics.plainBaseline, QuestLogMetrics.ruleBaselineGap, QuestLogMetrics.footerBaselineGap]) {
                     paragraph(page.title)
                     rule
                     footer
@@ -390,7 +393,7 @@ private struct QuestLogInk: View {
     private func paragraph(_ text: String) -> some View {
         Text(QuestLogPage.wrapped(text, columns: columns(QuestLogMetrics.bodyWidth, AppFonts.questLogBody)))
             .font(AppFonts.questLogBody.swiftUI)
-            .lineSpacing(QuestLogMetrics.bodyLinePitch - naturalLineHeight(AppFonts.questLogBody))
+            .lineSpacing(QuestLogMetrics.bodyLineHeight - naturalLineHeight(AppFonts.questLogBody))
             .foregroundStyle(AppPalette.panel.swiftUI)
             .fixedSize(horizontal: false, vertical: true)
             .frame(width: QuestLogMetrics.bodyWidth, alignment: .leading)
@@ -402,7 +405,7 @@ private struct QuestLogInk: View {
     private var title: some View {
         ZStack(alignment: Alignment(horizontal: .center, vertical: .firstTextBaseline)) {
             QuestLogOrnaments(pieces: QuestLogOrnaments.titleVines, lines: QuestLogMetrics.titleVineLines, band: QuestLogMetrics.titleVineBand)
-                .alignmentGuide(.firstTextBaseline) { _ in QuestLogMetrics.titleBaseline - QuestLogMetrics.titleVineBand.top }
+                .alignmentGuide(.firstTextBaseline) { _ in (QuestLogMetrics.titleBaseline - QuestLogMetrics.titleVineBand.top) * QuestLogMetrics.pageScale }
             Text(QuestLogPage.wrapped(page.title, columns: columns(QuestLogMetrics.titleWidth, AppFonts.questLogTitle)))
                 .font(AppFonts.questLogTitle.swiftUI)
                 .foregroundStyle(AppPalette.panel.swiftUI)
@@ -415,13 +418,15 @@ private struct QuestLogInk: View {
     /// The rule and its vines; its "baseline" is the rule's top edge.
     private var rule: some View {
         QuestLogOrnaments(pieces: QuestLogOrnaments.ruleVines, lines: [QuestLogMetrics.rule], band: QuestLogMetrics.ruleVineBand)
-            .alignmentGuide(.firstTextBaseline) { _ in QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top }
-            .alignmentGuide(.lastTextBaseline) { _ in QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top }
+            .alignmentGuide(.firstTextBaseline) { _ in (QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top) * QuestLogMetrics.pageScale }
+            .alignmentGuide(.lastTextBaseline) { _ in (QuestLogMetrics.rule.minY - QuestLogMetrics.ruleVineBand.top) * QuestLogMetrics.pageScale }
     }
 
     /// "project ◆ Created: … ◆ Updated: …", wrapped between parts when it doesn't fit (QuestLogPage.footerLines).
     private var footer: some View {
-        let separatorColumns = Int((QuestLogMetrics.footerDiamondLead + QuestLogMetrics.footerDiamondSize + QuestLogMetrics.footerDateLead) / columnWidth(AppFonts.monoSmall)) + 1
+        // The separator's width in whole columns, rounded up, so a line never runs past the body.
+        let separatorWidth = 2 * QuestLogMetrics.footerDiamondGap + QuestLogMetrics.footerDiamondSvgSize
+        let separatorColumns = Int((separatorWidth / columnWidth(AppFonts.monoSmall)).rounded(.up))
         let lines = page.footerLines(columns: columns(QuestLogMetrics.bodyWidth, AppFonts.monoSmall), separatorColumns: separatorColumns)
         return VStack(alignment: .leading, spacing: QuestLogMetrics.footerLinePitch - naturalLineHeight(AppFonts.monoSmall)) {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, parts in
@@ -430,12 +435,12 @@ private struct QuestLogInk: View {
                         if index > 0 {
                             SVGShape(d: QuestLogArt.footerDiamond, origin: CGPoint(x: 81, y: 231.672))
                                 .fill(AppPalette.panel.swiftUI)
-                                .frame(width: QuestLogMetrics.footerDiamondSize, height: QuestLogMetrics.footerDiamondSize)
+                                .frame(width: QuestLogMetrics.footerDiamondSvgSize, height: QuestLogMetrics.footerDiamondSvgSize)
                                 .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + QuestLogMetrics.footerDiamondRaise }
-                                .padding(.leading, QuestLogMetrics.footerDiamondLead)
+                                .padding(.leading, QuestLogMetrics.footerDiamondGap)
                         }
                         Text(part)
-                            .padding(.leading, index > 0 ? QuestLogMetrics.footerDateLead : 0)
+                            .padding(.leading, index > 0 ? QuestLogMetrics.footerDiamondGap : 0)
                     }
                 }
             }
@@ -447,8 +452,8 @@ private struct QuestLogInk: View {
     }
 }
 
-/// The user's parchment, drawn from the design's path data: the paper, the folds masked to its outline,
-/// and a 3pt edge stroke of which only the inner half shows, all at the design's 0.7 group opacity.
+/// The user's parchment, drawn from the design's path data at the page's scale: the paper, the folds masked to its
+/// outline, and a 3pt edge stroke of which only the inner half shows, all at the design's 0.7 group opacity.
 private struct QuestLogParchment: View {
     private static let outline = SVGPath.parse(QuestLogArt.parchmentOutline)
     private static let edge = SVGPath.parse(QuestLogArt.parchmentEdge)
@@ -460,12 +465,13 @@ private struct QuestLogParchment: View {
             QuestLogDebug.parchmentDraws += 1
             #endif
             context.clip(to: Path(CGRect(origin: .zero, size: size)))
+            context.scaleBy(x: QuestLogMetrics.pageScale, y: QuestLogMetrics.pageScale)
             context.fill(Self.outline, with: .color(AppPalette.parchment.swiftUI))
             context.clip(to: Self.outline)
             for (color, path) in Self.pieces {
                 context.fill(path, with: .color(color))
             }
-            context.stroke(Self.edge, with: .color(AppPalette.parchmentInk.swiftUI.opacity(QuestLogMetrics.parchmentEdgeOpacity)), lineWidth: QuestLogMetrics.parchmentEdgeWidth)
+            context.stroke(Self.edge, with: .color(AppPalette.parchmentInk.swiftUI.opacity(QuestLogMetrics.parchmentEdgeOpacity)), lineWidth: QuestLogMetrics.parchmentEdgeStroke)
         }
         .opacity(QuestLogMetrics.parchmentOpacity)
     }
@@ -501,6 +507,7 @@ private struct QuestLogOrnaments: View {
 
     var body: some View {
         Canvas { context, _ in
+            context.scaleBy(x: QuestLogMetrics.pageScale, y: QuestLogMetrics.pageScale)
             context.translateBy(x: 0, y: -band.top)
             let color = GraphicsContext.Shading.color(AppPalette.line.swiftUI)
             for piece in pieces {
@@ -510,7 +517,7 @@ private struct QuestLogOrnaments: View {
                 context.fill(Path(line), with: color)
             }
         }
-        .frame(width: QuestLogMetrics.pageSize.width, height: band.height)
+        .frame(width: QuestLogMetrics.pageSize.width, height: band.height * QuestLogMetrics.pageScale)
     }
 }
 
