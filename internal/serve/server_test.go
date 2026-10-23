@@ -772,6 +772,77 @@ func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	}
 }
 
+func TestFileChangeSourceWatchesOnlyManifestDirectories(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for _, id := range []string{"qm-manifest", "qm-orphan"} {
+		if err := os.Mkdir(filepath.Join(root, id), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := filepath.Join(root, "qm-manifest.json")
+	if err := os.WriteFile(manifest, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := NewFileChangeSource(t.Context(), NewSnapshotter(state.OpenStore(root), tmux.NewClient(fakeTmuxRunner{}), nil), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	assertWatches := func(want ...string) {
+		t.Helper()
+		source.mu.Lock()
+		defer source.mu.Unlock()
+		if len(source.watched) != len(want) {
+			t.Fatalf("watched=%v, want %v", source.watched, want)
+		}
+		for _, path := range want {
+			if _, ok := source.watched[path]; !ok {
+				t.Fatalf("%s not watched: %v", path, source.watched)
+			}
+		}
+	}
+	assertWatches(root, filepath.Join(root, "qm-manifest"))
+	if err := os.Remove(manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.watchSessionDir("qm-manifest"); err != nil {
+		t.Fatal(err)
+	}
+	assertWatches(root)
+	if err := os.WriteFile(filepath.Join(root, "qm-orphan.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.watchSessionDir("qm-orphan"); err != nil {
+		t.Fatal(err)
+	}
+	assertWatches(root, filepath.Join(root, "qm-orphan"))
+}
+
+func TestFileChangeSourceSlowSubscriberCoalescesWithoutBlockingOthers(t *testing.T) {
+	t.Parallel()
+	slow := make(chan Change, 1)
+	fast := make(chan Change, 2)
+	source := &FileChangeSource{subscribers: map[chan Change]struct{}{slow: {}, fast: {}}}
+	source.publish(topicChange(topicModels))
+	done := make(chan struct{})
+	go func() {
+		source.publish(topicChange(topicDirSuggest))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stalled subscriber blocked watcher publication")
+	}
+	if got := <-slow; !reflect.DeepEqual(got.Topics, []string{topicTracker}) {
+		t.Fatalf("slow subscriber did not coalesce to all topics: %+v", got)
+	}
+	if first, second := <-fast, <-fast; !reflect.DeepEqual(first.Topics, []string{topicModels}) || !reflect.DeepEqual(second.Topics, []string{topicDirSuggest}) {
+		t.Fatalf("fast subscriber missed changes: first=%+v second=%+v", first, second)
+	}
+}
+
 func TestFileChangeSourceClassifiesStateJSONLAsSessionChange(t *testing.T) {
 	env := seedServeFixture(t)
 	source := &FileChangeSource{

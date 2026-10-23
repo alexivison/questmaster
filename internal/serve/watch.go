@@ -165,7 +165,7 @@ func (s *FileChangeSource) addInitialWatches() error {
 		if !entry.IsDir() || !state.IsValidSessionID(entry.Name()) {
 			continue
 		}
-		if err := s.watchDir(filepath.Join(s.stateRoot, entry.Name())); err != nil {
+		if err := s.watchSessionDir(entry.Name()); err != nil {
 			return err
 		}
 	}
@@ -304,19 +304,33 @@ func (s *FileChangeSource) maybeWatchSessionDir(path string) {
 	if s.stateRoot == "" || s.stateRoot == "." || filepath.Dir(path) != s.stateRoot {
 		return
 	}
-	s.watchSessionDir(filepath.Base(path))
+	_ = s.watchSessionDir(filepath.Base(path))
 }
 
-func (s *FileChangeSource) watchSessionDir(sessionID string) {
+func (s *FileChangeSource) watchSessionDir(sessionID string) error {
 	if !state.IsValidSessionID(sessionID) {
-		return
+		return nil
 	}
 	path := filepath.Join(s.stateRoot, sessionID)
-	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() {
-		return
+	manifest, err := os.Lstat(filepath.Join(s.stateRoot, sessionID+".json"))
+	if err != nil || !manifest.Mode().IsRegular() {
+		s.unwatchDir(path)
+		return nil
 	}
-	_ = s.watchDir(path)
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	return s.watchDir(path)
+}
+
+func (s *FileChangeSource) unwatchDir(path string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.watched[path]; ok {
+		_ = s.watcher.Remove(path)
+		delete(s.watched, path)
+	}
 }
 
 func (s *FileChangeSource) classify(path string) Change {
@@ -347,7 +361,7 @@ func (s *FileChangeSource) classify(path string) Change {
 		if strings.HasSuffix(base, ".json") {
 			sessionID := strings.TrimSuffix(base, ".json")
 			if state.IsValidSessionID(sessionID) {
-				s.watchSessionDir(sessionID)
+				_ = s.watchSessionDir(sessionID)
 				return s.sessionManifestChange(sessionID)
 			}
 		}

@@ -13,17 +13,26 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/alexivison/questmaster/internal/serve"
 )
+
+type mutationRunnerFunc func(context.Context, []string, []byte) ([]byte, error)
+
+func (f mutationRunnerFunc) RunMutationCommand(ctx context.Context, args []string, stdin []byte) ([]byte, error) {
+	return f(ctx, args, stdin)
+}
 
 func TestShutdownLetsDispatchedRequestFinish(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s := &server{config: Config{PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second, Handle: func(context.Context, string) error {
+	runtime := &serve.Server{MutationRunner: mutationRunnerFunc(func(context.Context, []string, []byte) ([]byte, error) {
 		close(started)
 		<-release
-		return nil
-	}}, id: "canonical", record: Record{Root: "test", Accepting: true, Generation: 1}}
+		return []byte("{}"), nil
+	})}
+	s := &server{config: Config{PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second}, runtime: runtime, id: "canonical", record: Record{Root: "test", Accepting: true, Generation: 1}}
 	serverConn, clientConn := net.Pipe()
 	defer clientConn.Close()
 	go s.handle(serverConn)
@@ -33,7 +42,7 @@ func TestShutdownLetsDispatchedRequestFinish(t *testing.T) {
 		t.Fatal(err)
 	}
 	enc := json.NewEncoder(clientConn)
-	if err := enc.Encode(request{Method: "hold", ProtocolVersion: ProtocolVersion}); err != nil {
+	if err := enc.Encode(request{Method: "start", ProtocolVersion: ProtocolVersion}); err != nil {
 		t.Fatal(err)
 	}
 	<-started
@@ -65,7 +74,7 @@ func TestShutdownLetsDispatchedRequestFinish(t *testing.T) {
 	if !reply.OK {
 		t.Fatalf("dispatched reply: %+v", reply)
 	}
-	if err := enc.Encode(request{Method: "hold", ProtocolVersion: ProtocolVersion}); err != nil {
+	if err := enc.Encode(request{Method: "start", ProtocolVersion: ProtocolVersion}); err != nil {
 		t.Fatal(err)
 	}
 	if err := dec.Decode(&reply); err != nil {
