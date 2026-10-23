@@ -8,7 +8,7 @@
 //
 // The SIDECAR_VERSION marker must match openCodeSidecarVersion in opencode.go so
 // `questmaster hooks status opencode` can detect stale installs.
-const SIDECAR_VERSION = "phase2-v5";
+const SIDECAR_VERSION = "phase2-v6";
 const EMIT_TIMEOUT_MS = 5000;
 const EMIT_KILL_GRACE_MS = 1000;
 
@@ -94,8 +94,9 @@ export const QuestmasterOpenCode = async () => {
 
   // message.part.updated fires per streamed token chunk; forwarding each one
   // spawns a qm-hook process and rewrites state.json. Keep only the freshest
-  // delta per throttle window, and flush it before any other event so the
-  // Go side's part->message promotion still sees the final text first.
+  // update of a part per throttle window, and flush it before any other event
+  // or part so the Go side's part->message promotion still sees each part's
+  // final text.
   const PART_THROTTLE_MS = 250;
   let pendingPart = null;
   let partTimer = null;
@@ -127,6 +128,7 @@ export const QuestmasterOpenCode = async () => {
       emit(event);
       return true;
     }
+    if (pendingPart && pendingPart.properties?.part?.id !== part?.id) flushPart();
     pendingPart = event;
     armPartTimer();
     return true;
@@ -134,6 +136,9 @@ export const QuestmasterOpenCode = async () => {
 
   return {
     event: async ({ event }) => {
+      // Token deltas carry nothing the Go side reads; the settled text arrives
+      // in message.part.updated.
+      if (event?.type === "message.part.delta") return;
       if (bufferPart(event)) return;
       flushPart();
       emit(event);
