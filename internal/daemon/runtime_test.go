@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -107,7 +108,7 @@ func (j blockingWorkJob) HasWork() bool {
 	return false
 }
 
-func TestIdleCheckKeepsListenerForArrivingClient(t *testing.T) {
+func TestIdleCheckRejectsArrivingClientWithoutResuming(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "daemon")
@@ -119,7 +120,8 @@ func TestIdleCheckKeepsListenerForArrivingClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := blockingWorkJob{checking: make(chan struct{}), continueCheck: make(chan struct{})}
-	s := &server{config: Config{Root: root, PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second, Jobs: []Job{job}}, id: "canonical", socket: socket, dir: dir, record: Record{Root: root, Identity: "canonical", Accepting: true, Jobs: true}}
+	activity := time.Unix(1_000, 0)
+	s := &server{config: Config{Root: root, PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second, Jobs: []Job{job}}, id: "canonical", socket: socket, dir: dir, lastActivity: activity, record: Record{Root: root, Identity: "canonical", Accepting: true, Jobs: true}}
 	if err := s.listen(); err != nil {
 		t.Fatal(err)
 	}
@@ -141,20 +143,45 @@ func TestIdleCheckKeepsListenerForArrivingClient(t *testing.T) {
 	if greeting.Accepting {
 		t.Fatal("client arriving during idle check was told to use a quiescing daemon")
 	}
+	if s.clients() != 0 || !s.activity().Equal(activity) {
+		t.Fatal("rejected client changed the client count or idle activity")
+	}
 	close(job.continueCheck)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if s.listener != listener {
-		t.Fatal("idle resume replaced the live listener")
+	if s.listener != nil {
+		t.Fatal("rejected client prevented idle exit")
 	}
-	resumed, err := net.Dial("unix", socket)
-	if err != nil {
+	if conn, err := net.Dial("unix", socket); err == nil {
+		conn.Close()
+		t.Fatal("idle exit left the listener accepting connections")
+	}
+}
+
+func TestUpgradeQuiesceRejectsClientWithoutCountingIt(t *testing.T) {
+	t.Parallel()
+	activity := time.Unix(1_000, 0)
+	s := &server{config: Config{PollInterval: time.Millisecond, WriteTimeout: time.Second}, id: "canonical", dir: t.TempDir(), upgrade: make(chan string, 1), lastActivity: activity, record: Record{Root: "test", Accepting: true}}
+	if !s.beginUpgrade() {
+		t.Fatal("upgrade did not begin")
+	}
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	if err := clientConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	defer resumed.Close()
-	if err := json.NewDecoder(resumed).Decode(&greeting); err != nil || !greeting.Accepting {
-		t.Fatalf("resumed handshake: %+v, %v", greeting, err)
+	go s.handle(serverConn)
+	dec := json.NewDecoder(clientConn)
+	var greeting hello
+	if err := dec.Decode(&greeting); err != nil || greeting.Accepting {
+		t.Fatalf("quiescing handshake: %+v, %v", greeting, err)
+	}
+	if err := dec.Decode(&greeting); err != io.EOF {
+		t.Fatalf("rejected connection remained open: %v", err)
+	}
+	if s.clients() != 0 || !s.activity().Equal(activity) {
+		t.Fatal("rejected upgrade client changed the client count or idle activity")
 	}
 }
 

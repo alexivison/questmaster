@@ -284,13 +284,17 @@ func (s *server) accept() {
 func (s *server) handle(conn net.Conn) {
 	defer conn.Close()
 	s.mu.Lock()
-	s.record.Clients++
 	h := hello{Root: s.record.Root, Identity: s.id, ProtocolVersion: ProtocolVersion, Generation: s.record.Generation, Accepting: s.record.Accepting}
+	if h.Accepting {
+		s.record.Clients++
+	}
 	s.mu.Unlock()
-	defer func() { s.mu.Lock(); s.record.Clients--; s.lastActivity = time.Now(); s.mu.Unlock() }()
+	if h.Accepting {
+		defer func() { s.mu.Lock(); s.record.Clients--; s.lastActivity = time.Now(); s.mu.Unlock() }()
+	}
 	enc := json.NewEncoder(conn)
 	_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
-	if err := enc.Encode(h); err != nil {
+	if err := enc.Encode(h); err != nil || !h.Accepting {
 		return
 	}
 	dec := json.NewDecoder(conn)
