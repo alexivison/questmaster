@@ -32,10 +32,11 @@ const (
 
 // Request is one JSON line sent by a client.
 type Request struct {
-	ID     json.RawMessage `json:"id,omitempty"`
-	Method string          `json:"method"`
-	Topics []string        `json:"topics,omitempty"`
-	Data   json.RawMessage `json:"data,omitempty"`
+	ID              json.RawMessage `json:"id,omitempty"`
+	Method          string          `json:"method"`
+	Topics          []string        `json:"topics,omitempty"`
+	Data            json.RawMessage `json:"data,omitempty"`
+	ProtocolVersion int             `json:"protocol_version,omitempty"`
 }
 
 // Envelope is one JSON line sent by serve.
@@ -183,84 +184,51 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, changeSource Cha
 			return
 		}
 		if req.Method == "subscribe" {
-			if err := s.writeResponse(ctx, enc, req.ID, "subscribe", map[string]any{"subscribed": s.snapshotSubscribeTopics(req)}); err != nil {
+			if err := WriteEnvelope(enc, s.HandleRequest(ctx, req)); err != nil {
 				return
 			}
-			_ = s.subscribe(ctx, enc, req, changeSource)
+			_ = s.Subscribe(ctx, enc, req, changeSource)
 			return
 		}
-		if isMutationMethod(req.Method) {
-			if err := s.writeMutationResponse(ctx, enc, req); err != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == topicDirSuggest {
-			data, err := s.dirSuggest(req)
-			if err != nil {
-				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
-				continue
-			}
-			if err := s.writeResponse(ctx, enc, req.ID, topicDirSuggest, data); err != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == topicModels {
-			data, err := s.models(ctx, req)
-			if err != nil {
-				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
-				continue
-			}
-			if err := s.writeResponse(ctx, enc, req.ID, topicModels, data); err != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == topicReasoningEfforts {
-			data, err := s.reasoningEfforts(ctx, req)
-			if err != nil {
-				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
-				continue
-			}
-			if err := s.writeResponse(ctx, enc, req.ID, topicReasoningEfforts, data); err != nil {
-				return
-			}
-			continue
-		}
-		if req.Method == topicWorkerFeed {
-			data, err := s.workerFeed(req)
-			if err != nil {
-				_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
-				continue
-			}
-			if err := s.writeResponse(ctx, enc, req.ID, topicWorkerFeed, data); err != nil {
-				return
-			}
-			continue
-		}
-		topic := req.Method
-		data, err := s.snapshot(ctx, topic)
-		if err != nil {
-			_ = writeEnvelope(enc, errorEnvelope(req.ID, err))
-			continue
-		}
-		if err := s.writeResponse(ctx, enc, req.ID, topic, data); err != nil {
+		if err := WriteEnvelope(enc, s.HandleRequest(ctx, req)); err != nil {
 			return
 		}
 	}
 }
 
-func (s *Server) writeResponse(ctx context.Context, enc *json.Encoder, id json.RawMessage, topic string, data any) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
+// HandleRequest is shared by qm serve and the daemon after their transport gates.
+func (s *Server) HandleRequest(ctx context.Context, req Request) Envelope {
+	if err := ctx.Err(); err != nil {
+		return errorEnvelope(req.ID, err)
+	}
+	if req.Method == "subscribe" {
+		return Envelope{Type: "response", ID: req.ID, OK: boolPtr(true), Topic: req.Method, Data: map[string]any{"subscribed": s.snapshotSubscribeTopics(req)}}
+	}
+	if isMutationMethod(req.Method) {
+		return s.mutationResponse(ctx, req)
+	}
+	var data any
+	var err error
+	switch req.Method {
+	case topicDirSuggest:
+		data, err = s.dirSuggest(req)
+	case topicModels:
+		data, err = s.models(ctx, req)
+	case topicReasoningEfforts:
+		data, err = s.reasoningEfforts(ctx, req)
+	case topicWorkerFeed:
+		data, err = s.workerFeed(req)
 	default:
+		data, err = s.snapshot(ctx, req.Method)
 	}
-	return writeEnvelope(enc, Envelope{Type: "response", ID: id, OK: boolPtr(true), Topic: topic, Data: data})
+	if err != nil {
+		return errorEnvelope(req.ID, err)
+	}
+	return Envelope{Type: "response", ID: req.ID, OK: boolPtr(true), Topic: req.Method, Data: data}
 }
 
-func (s *Server) subscribe(ctx context.Context, enc *json.Encoder, req Request, changeSource ChangeSource) error {
+// Subscribe owns one connection after its subscribe response has been sent.
+func (s *Server) Subscribe(ctx context.Context, enc *json.Encoder, req Request, changeSource ChangeSource) error {
 	topics := s.snapshotSubscribeTopics(req)
 	last := make(map[string][]byte, len(topics))
 
@@ -298,11 +266,11 @@ func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []st
 		}
 		data, err := s.snapshotForChange(ctx, topic, change)
 		if err != nil {
-			return writeEnvelope(enc, errorEnvelope(nil, err))
+			return WriteEnvelope(enc, errorEnvelope(nil, err))
 		}
 		raw, err := json.Marshal(data)
 		if err != nil {
-			return writeEnvelope(enc, errorEnvelope(nil, err))
+			return WriteEnvelope(enc, errorEnvelope(nil, err))
 		}
 		if bytes.Equal(raw, last[topic]) {
 			continue
@@ -311,7 +279,7 @@ func (s *Server) pushChanged(ctx context.Context, enc *json.Encoder, topics []st
 		// Reuse the bytes already marshaled for dedup instead of re-encoding
 		// data: json.RawMessage emits them verbatim through enc.Encode.
 		env := Envelope{ProtocolVersion: ServeProtocolVersion, Type: "event", Topic: topic, Data: json.RawMessage(raw)}
-		if err := writeEnvelope(enc, env); err != nil {
+		if err := WriteEnvelope(enc, env); err != nil {
 			return err
 		}
 	}
@@ -352,7 +320,7 @@ func (s *Server) snapshotSubscribeTopics(req Request) []string {
 	return topics
 }
 
-func writeEnvelope(enc *json.Encoder, env Envelope) error {
+func WriteEnvelope(enc *json.Encoder, env Envelope) error {
 	if env.ProtocolVersion == 0 {
 		env.ProtocolVersion = ServeProtocolVersion
 	}

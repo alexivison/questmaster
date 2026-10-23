@@ -138,7 +138,7 @@ func isMutationMethod(method string) bool {
 	return ok
 }
 
-func (s *Server) writeMutationResponse(ctx context.Context, enc *json.Encoder, req Request) error {
+func (s *Server) mutationResponse(ctx context.Context, req Request) Envelope {
 	mutationCtx := ctx
 	cancel := func() {}
 	if mutationOperationTimeout > 0 {
@@ -147,9 +147,9 @@ func (s *Server) writeMutationResponse(ctx context.Context, enc *json.Encoder, r
 	defer cancel()
 	data, err := s.mutate(mutationCtx, req)
 	if err != nil {
-		return writeEnvelope(enc, errorEnvelope(req.ID, err))
+		return errorEnvelope(req.ID, err)
 	}
-	return writeEnvelope(enc, Envelope{Type: "response", ID: req.ID, OK: boolPtr(true), Topic: req.Method, Data: data})
+	return Envelope{Type: "response", ID: req.ID, OK: boolPtr(true), Topic: req.Method, Data: data}
 }
 
 func (s *Server) mutate(ctx context.Context, req Request) (any, error) {

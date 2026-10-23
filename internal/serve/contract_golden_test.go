@@ -30,7 +30,7 @@ func TestServeContractGoldens(t *testing.T) {
 func TestWriteEnvelopeStampsProtocolVersion(t *testing.T) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
-	if err := writeEnvelope(enc, Envelope{Type: "event", Topic: topicTracker, Data: TrackerSnapshot{}}); err != nil {
+	if err := WriteEnvelope(enc, Envelope{Type: "event", Topic: topicTracker, Data: TrackerSnapshot{}}); err != nil {
 		t.Fatalf("write envelope: %v", err)
 	}
 

@@ -13,9 +13,11 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/alexivison/questmaster/internal/serve"
 )
 
-const ProtocolVersion = 1
+const ProtocolVersion = serve.ServeProtocolVersion
 
 // Config supplies the daemon's durable identity and the testable lifetime settings.
 type Config struct {
@@ -23,7 +25,8 @@ type Config struct {
 	IdleGrace, PollInterval, JobDrainTimeout time.Duration
 	ReadIdleTimeout, WriteTimeout            time.Duration
 	Jobs                                     []Job
-	Handle                                   func(context.Context, string) error
+	Runtime                                  *serve.Server
+	LoginEnvironmentRunner                   LoginEnvironmentRunner
 	Exec                                     func(string, []string, []string) error
 }
 

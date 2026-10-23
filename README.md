@@ -139,12 +139,12 @@ The CLI is the backend and contract surface behind Questmaster.app. It keeps lif
 questmaster            # show help
 questmaster sessions   # print session summary
 questmaster serve      # run the local JSON socket backend
-questmaster daemon start   # start the D1 foundation process and wait until ready
+questmaster daemon start   # start the on-demand backend and wait until ready
 questmaster daemon status  # inspect its identity, clients, jobs, and build
 ```
 
 Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, and `delete` are available as backend commands for clients and automation.
-The app still uses `serve`; the daemon does not handle app requests yet. `daemon stop` shuts it down. `daemon check-upgrade` is connect-only: when it verifies a replacement binary, the running daemon re-execs in place with the same PID and socket.
+The app still uses `serve` until its daemon cutover. The daemon already accepts the same runtime requests, mutations, and subscriptions after its ready handshake, on its own socket under `<state-root>/daemon/`. It captures a clean login environment and writes identity-owned `qm` and `questmaster` shims under `<state-root>/daemon/bin/<identity>/`. `daemon stop` shuts it down. `daemon check-upgrade` is connect-only: when it verifies a replacement binary, the running daemon re-execs in place with the same PID and socket.
 
 When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook can rename the tmux window after the first message. An explicit title is always kept as-is.
 

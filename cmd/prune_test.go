@@ -232,6 +232,55 @@ func TestRunPrune_DryRunPreviewsManifestAndPreservesState(t *testing.T) {
 
 }
 
+func TestPruneOrphanDirectories(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"qm-orphan", "qm-recent", "qm-live", "qm-manifest", "not-a-session"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		past := time.Now().Add(-10 * 24 * time.Hour)
+		if name == "qm-recent" {
+			past = time.Now()
+		}
+		if err := os.Chtimes(filepath.Join(root, name), past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeManifestFile(t, root, "qm-manifest", map[string]any{"session_id": "qm-manifest", "cwd": "/tmp"}, 0)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "qm-symlink")); err != nil {
+		t.Fatal(err)
+	}
+	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{"qm-live": true}})
+	orphan := filepath.Join(root, "qm-orphan")
+	for _, dryRun := range []bool{true, false} {
+		result, err := pruneManifests(t.Context(), store, client, 7, dryRun)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Pruned != 1 || len(result.Paths) != 1 || result.Paths[0] != orphan {
+			t.Fatalf("dry_run=%t result=%+v", dryRun, result)
+		}
+		_, err = os.Stat(orphan)
+		if dryRun && err != nil || !dryRun && !os.IsNotExist(err) {
+			t.Fatalf("dry_run=%t orphan stat=%v", dryRun, err)
+		}
+	}
+	for _, name := range []string{"qm-recent", "qm-live", "qm-manifest", "not-a-session", "qm-symlink"} {
+		if _, err := os.Lstat(filepath.Join(root, name)); err != nil {
+			t.Fatalf("%s was removed: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatalf("symlink target was removed: %v", err)
+	}
+}
+
 func TestPrune_JSONDryRun(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)

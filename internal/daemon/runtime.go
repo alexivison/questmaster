@@ -17,6 +17,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/alexivison/questmaster/internal/serve"
+	"github.com/alexivison/questmaster/internal/state"
 )
 
 type server struct {
@@ -32,6 +35,10 @@ type server struct {
 	upgrade         chan string
 	upgrading       bool
 	nextUpgradeTry  time.Time
+	runtime         *serve.Server
+	sourceMu        sync.Mutex
+	source          serve.ChangeSource
+	sourceClients   int
 	jobsCancel      context.CancelFunc
 	jobsDone        chan struct{}
 	jobsRequested   bool
@@ -74,7 +81,20 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if err := os.Chdir(config.Home); err != nil {
 		return fmt.Errorf("daemon chdir home: %w", err)
 	}
+	if err := writeShims(config.Root, id, config.Executable); err != nil {
+		return fmt.Errorf("daemon shims: %w", err)
+	}
+	if err := installEnvironment(config.daemonEnvironment(id)); err != nil {
+		return fmt.Errorf("daemon environment: %w", err)
+	}
 	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), upgrade: make(chan string, 1), lastActivity: time.Now(), jobsRequested: jobsRequested || id == "canonical"}
+	s.runtime = config.Runtime
+	if s.runtime == nil {
+		s.runtime = &serve.Server{Snapshotter: serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)}
+	}
+	if s.runtime.Snapshotter == nil {
+		s.runtime.Snapshotter = serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)
+	}
 	if h != nil {
 		if err := s.adopt(*h); err != nil {
 			fmt.Fprintf(os.Stderr, "daemon adoption: %v; starting normally\n", err)
@@ -272,7 +292,7 @@ func (s *server) handle(conn net.Conn) {
 	}
 	dec := json.NewDecoder(conn)
 	for {
-		var req request
+		var req serve.Request
 		_ = conn.SetReadDeadline(time.Now().Add(s.config.ReadIdleTimeout))
 		if err := dec.Decode(&req); err != nil {
 			return
@@ -285,21 +305,50 @@ func (s *server) handle(conn net.Conn) {
 		s.mu.Unlock()
 		if !accepting {
 			_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
-			_ = enc.Encode(response{Error: "exiting"})
+			_ = serve.WriteEnvelope(enc, daemonError(req, "exiting"))
 			return
 		}
 		resp, upgradePath := s.dispatch(req)
+		var source serve.ChangeSource
+		var release func()
+		if req.Method == "subscribe" && resp.OK != nil && *resp.OK {
+			var err error
+			source, release, err = s.subscribeSource()
+			if err != nil {
+				resp = daemonError(req, err.Error())
+			}
+		}
 		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
-		_ = enc.Encode(resp)
+		writeErr := serve.WriteEnvelope(enc, resp)
 		s.mu.Lock()
 		s.active--
 		s.lastActivity = time.Now()
 		s.mu.Unlock()
+		if writeErr != nil {
+			if release != nil {
+				release()
+			}
+			return
+		}
+		if source != nil {
+			_ = conn.SetReadDeadline(time.Time{})
+			_ = conn.SetWriteDeadline(time.Time{})
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				var buf [1]byte
+				_, _ = conn.Read(buf[:])
+				cancel()
+			}()
+			_ = s.runtime.Subscribe(ctx, enc, req, source)
+			cancel()
+			release()
+			return
+		}
 		if upgradePath != "" {
 			s.upgrade <- upgradePath
 			return
 		}
-		if req.Method == "stop" && resp.OK {
+		if req.Method == "stop" && resp.OK != nil && *resp.OK {
 			select {
 			case s.stop <- struct{}{}:
 			default:
@@ -309,41 +358,68 @@ func (s *server) handle(conn net.Conn) {
 	}
 }
 
-func (s *server) dispatch(req request) (response, string) {
+func (s *server) dispatch(req serve.Request) (serve.Envelope, string) {
 	if req.Method == "check-upgrade" {
 		path := s.probeUpgrade()
 		if path != "" && s.beginUpgrade() {
-			return s.statusResponse(true), path
+			return s.statusResponse(req, true), path
 		}
-		return s.statusResponse(false), ""
+		return s.statusResponse(req, false), ""
 	}
-	if req.ProtocolVersion != ProtocolVersion {
-		return response{Error: "incompatible protocol"}, ""
+	if req.ProtocolVersion != 0 && req.ProtocolVersion != ProtocolVersion {
+		return daemonError(req, "incompatible protocol"), ""
 	}
 	switch req.Method {
 	case "status", "stop":
-		return s.statusResponse(false), ""
+		return s.statusResponse(req, false), ""
 	default:
-		if s.config.Handle == nil {
-			return response{Error: "unknown method"}, ""
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := s.config.Handle(ctx, req.Method); err != nil {
-			return response{Error: err.Error()}, ""
-		}
-		return response{OK: true}, ""
+		return s.runtime.HandleRequest(context.Background(), req), ""
 	}
 }
 
-func (s *server) statusResponse(upgradeStarted bool) response {
+func daemonError(req serve.Request, message string) serve.Envelope {
+	ok := false
+	return serve.Envelope{Type: "response", ID: req.ID, OK: &ok, Error: message}
+}
+
+func (s *server) statusResponse(req serve.Request, upgradeStarted bool) serve.Envelope {
 	s.mu.Lock()
 	record := s.record
 	s.mu.Unlock()
 	record.HasWork = s.hasWork()
 	record.UpgradeStarted = upgradeStarted
-	data, _ := json.Marshal(record)
-	return response{OK: true, Data: data}
+	ok := true
+	return serve.Envelope{Type: "response", ID: req.ID, OK: &ok, Topic: req.Method, Data: record}
+}
+
+func (s *server) subscribeSource() (serve.ChangeSource, func(), error) {
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
+	if s.source == nil {
+		if s.runtime.ChangeSource != nil {
+			s.source = s.runtime.ChangeSource
+		} else {
+			interval := s.runtime.ClockInterval
+			if interval <= 0 {
+				interval = time.Second
+			}
+			source, err := serve.NewFileChangeSource(context.Background(), s.runtime.Snapshotter, interval)
+			if err != nil {
+				return nil, nil, err
+			}
+			s.source = source
+		}
+	}
+	s.sourceClients++
+	return s.source, func() {
+		s.sourceMu.Lock()
+		defer s.sourceMu.Unlock()
+		s.sourceClients--
+		if s.sourceClients == 0 && s.runtime.ChangeSource == nil {
+			_ = s.source.Close()
+			s.source = nil
+		}
+	}, nil
 }
 
 func (s *server) activity() time.Time { s.mu.Lock(); defer s.mu.Unlock(); return s.lastActivity }
