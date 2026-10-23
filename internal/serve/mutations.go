@@ -17,7 +17,6 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
-	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // MutationCommandRunner runs a qm command for serve mutations that belong to
@@ -89,10 +88,9 @@ type mutationPayload struct {
 
 type mutationHandler func(*Server, context.Context, Request, mutationPayload) (any, error)
 
-// Mutation execution has three deliberately separate models:
+// Mutation execution has two deliberately separate models:
 // 1. in-process mutations that call core packages directly,
-// 2. re-execed qm commands for session lifecycle,
-// 3. direct tmux calls for focus/switch behavior that must not spawn qm.
+// 2. re-execed qm commands for session lifecycle.
 // New methods should pick one model explicitly instead of crossing layers.
 var mutationRegistry = map[string]mutationHandler{
 	"delete":   mutateDelete,
@@ -102,9 +100,6 @@ var mutationRegistry = map[string]mutationHandler{
 	},
 	"start": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
 		return s.mutateStart(ctx, req, payload)
-	},
-	"switch": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
-		return s.mutateSwitch(ctx, payload)
 	},
 	"rename": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRename(payload)
@@ -277,24 +272,6 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 		args = append(args, "--", title)
 	}
 	return s.runCommandJSON(ctx, args, stdin)
-}
-
-func (s *Server) mutateSwitch(ctx context.Context, payload mutationPayload) (any, error) {
-	sessionID, err := requiredFirst("session_id", payload.SessionID, payload.TargetID, payload.ID)
-	if err != nil {
-		return nil, err
-	}
-	if !state.IsValidSessionID(sessionID) {
-		return nil, fmt.Errorf("invalid session_id %q", sessionID)
-	}
-	client := s.TmuxClient
-	if client == nil {
-		client = tmux.NewExecClient()
-	}
-	if err := client.SwitchClientWithFallback(ctx, sessionID); err != nil {
-		return nil, err
-	}
-	return map[string]any{"session_id": sessionID, "switched": true}, nil
 }
 
 func (s *Server) mutateRename(payload mutationPayload) (any, error) {

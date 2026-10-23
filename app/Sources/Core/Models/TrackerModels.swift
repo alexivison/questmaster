@@ -314,7 +314,7 @@ public struct TrackerSession: Decodable, Equatable {
             try container.decodeIfPresent(String.self, forKey: .last_chat_at)
         )
         duration = TrackerSession.formatElapsed(elapsedSeedMS) ?? ""
-        isCurrent = try container.decode(Bool.self, forKey: .is_current)
+        isCurrent = try container.decodeIfPresent(Bool.self, forKey: .is_current) ?? false
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
         narration = try container.decodeIfPresent(String.self, forKey: .narration) ?? ""
         cast = try container.decodeIfPresent(TrackerCast.self, forKey: .cast)

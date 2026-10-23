@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import Combine
+import Darwin
 import Foundation
 import QuestmasterCore
 import SwiftUI
@@ -87,6 +88,8 @@ enum LogicSelfTests {
         ("testNewSessionControlRRefreshesModelsFromTheModelField", testNewSessionControlRRefreshesModelsFromTheModelField),
         ("testConnectWithRetryRetriesUntilConnectSucceeds", testConnectWithRetryRetriesUntilConnectSucceeds),
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
+        ("testOneShotServeClientsRejectIncompatibleEnvelopes", testOneShotServeClientsRejectIncompatibleEnvelopes),
+        ("testServeStreamReconnectsAfterProtocolMismatch", testServeStreamReconnectsAfterProtocolMismatch),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
@@ -3045,6 +3048,73 @@ enum LogicSelfTests {
         }
         try expect(attempts == UnixSocketMutationClient.connectRetryDelays.count, "should give up only after exhausting every scheduled attempt")
         try expect(thrown != nil, "should propagate the last connect failure once retries are exhausted")
+    }
+
+    private static func testOneShotServeClientsRejectIncompatibleEnvelopes() throws {
+        // Mutations, directory suggestions, models, efforts and worker feed all use sendObject/decodeAck.
+        for ok in [true, false] {
+            for version in [NSNull() as Any, 2, true] {
+                let envelope: [String: Any] = [
+                    "protocol_version": version,
+                    "type": "response",
+                    "ok": ok,
+                    "error": "ordinary backend error",
+                    "data": ["suggestions": []],
+                ]
+                let line = try JSONSerialization.data(withJSONObject: envelope)
+                do {
+                    _ = try UnixSocketMutationClient.decodeAck(line)
+                    try expect(false, "incompatible \(ok ? "success" : "error") envelope was accepted")
+                } catch let error as ServeClientError {
+                    try expect(error.isProtocolVersionMismatch, "version mismatch should win over the response payload")
+                }
+            }
+        }
+        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":1,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
+    }
+
+    private static func testServeStreamReconnectsAfterProtocolMismatch() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("qm-protocol-\(UUID().uuidString.prefix(8)).sock").path
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        try expect(listener >= 0, "could not create test socket")
+        defer {
+            close(listener)
+            unlink(path)
+        }
+        let bound = try UnixSocketIO.withAddress(path) { address, length in
+            Darwin.bind(listener, address, length)
+        }
+        try expect(bound == 0 && listen(listener, 2) == 0, "could not listen on test socket")
+
+        let lines = [
+            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wrong\",\"sessions\":[]}}\n",
+            "{\"protocol_version\":1,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[]}}\n",
+        ]
+        DispatchQueue.global().async {
+            for line in lines {
+                let peer = Darwin.accept(listener, nil, nil)
+                guard peer >= 0 else { return }
+                var requestBytes = [UInt8](repeating: 0, count: 4096)
+                var requestLines = 0
+                while requestLines < 2 {
+                    let count = Darwin.read(peer, &requestBytes, requestBytes.count)
+                    guard count > 0 else { close(peer); return }
+                    requestLines += requestBytes[..<count].filter { $0 == 0x0a }.count
+                }
+                try? UnixSocketIO.write(Data(line.utf8), to: peer)
+                close(peer)
+            }
+        }
+
+        var labels: [String] = []
+        let client = UnixSocketServeClient(socketPath: path)
+        client.start(onUpdate: { update in
+            DispatchQueue.main.async { labels.append(update.observedLabel ?? "") }
+        }, onStatus: { _ in })
+        try waitForMainQueue("protocol mismatch and recovered tracker stream", until: {
+            labels.contains(where: { $0.contains("protocol_version") }) && labels.contains("recovered")
+        })
+        try expect(!labels.contains("wrong"), "incompatible tracker data should not reach the store")
     }
 
     // The effort keys are the model field's own: e in its SELECT state, ⌃e in

@@ -20,6 +20,7 @@ import (
 )
 
 const (
+	// Bump this whenever a payload change cannot be decoded by an older app.
 	ServeProtocolVersion = 1
 
 	topicTracker          = "tracker"

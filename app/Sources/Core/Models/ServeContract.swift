@@ -3,6 +3,15 @@ import Foundation
 public enum ServeContract {
     public static let protocolVersion = 1
 
+    public static func requireProtocolVersion(_ version: Int?) throws {
+        guard let version else {
+            throw ServeClientError.protocolError("serve protocol incompatible: missing protocol_version")
+        }
+        guard version == protocolVersion else {
+            throw ServeClientError.protocolError("serve protocol incompatible: expected protocol_version \(protocolVersion), got \(version)")
+        }
+    }
+
     private static let decoder = JSONDecoder()
 
     public static func update(fromLine line: Data) throws -> RuntimeUpdate? {
@@ -95,12 +104,7 @@ private struct ServeEnvelope: Decodable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard let protocolVersion = try container.decodeIfPresent(Int.self, forKey: .protocol_version) else {
-            throw ServeClientError.protocolError("serve protocol incompatible: missing protocol_version")
-        }
-        guard protocolVersion == ServeContract.protocolVersion else {
-            throw ServeClientError.protocolError("serve protocol incompatible: expected protocol_version \(ServeContract.protocolVersion), got \(protocolVersion)")
-        }
+        try ServeContract.requireProtocolVersion(container.decodeIfPresent(Int.self, forKey: .protocol_version))
         let type = try container.decodeIfPresent(String.self, forKey: .type)
         if type == "response", try container.decodeIfPresent(Bool.self, forKey: .ok) == false {
             let message = try container.decodeIfPresent(String.self, forKey: .error) ?? "unknown serve error"

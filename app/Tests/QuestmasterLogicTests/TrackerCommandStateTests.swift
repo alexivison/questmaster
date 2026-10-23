@@ -5,6 +5,7 @@ struct TrackerCommandStateTests {
     static func run() {
         selectionMovementRecoversFromMissingSelection()
         selectedSessionUsesRenderedSelection()
+        activeSessionBelongsToEachStore()
         staleSelectionRecoversToPreviousActiveRowAfterDelete()
         deletePlanSwitchesBeforeDeletingAttachedMaster()
         deletePlanClearsTerminalWhenNoRecoveryExists()
@@ -24,8 +25,8 @@ struct TrackerCommandStateTests {
         ]
         var state = TrackerCommandState(selectedID: "missing")
 
-        expect(state.renderedSelectedID(in: rows) == "two", "missing selection should recover to current row")
-        expect(state.moveSelection(delta: 1, rows: rows), "move from recovered selection should succeed")
+        expect(state.renderedSelectedID(in: rows, currentTerminalSessionID: "two") == "two", "missing selection should recover to current row")
+        expect(state.moveSelection(delta: 1, rows: rows, currentTerminalSessionID: "two"), "move from recovered selection should succeed")
         expect(state.selectedID == "three", "move down from current row should select three")
         expect(state.moveSelection(delta: 1, rows: rows), "wrapped move should succeed")
         expect(state.selectedID == "one", "move down from last row should wrap to one")
@@ -38,7 +39,20 @@ struct TrackerCommandStateTests {
         ]
         let state = TrackerCommandState(selectedID: "missing")
 
-        expect(state.selectedSession(in: rows)?.id == "qm-current", "selected session should recover to current row")
+        expect(state.selectedSession(in: rows, currentTerminalSessionID: "qm-current")?.id == "qm-current", "selected session should recover to current row")
+    }
+
+    private static func activeSessionBelongsToEachStore() {
+        let rows = [trackerSession(id: "qm-a"), trackerSession(id: "qm-b")]
+        let first = RuntimeStore(sourceLabel: "first", currentTerminalSessionID: "qm-a")
+        let second = RuntimeStore(sourceLabel: "second", currentTerminalSessionID: "qm-b")
+        var firstState = TrackerCommandState()
+        var secondState = TrackerCommandState()
+
+        expect(firstState.renderedSelectedID(in: rows, currentTerminalSessionID: first.currentTerminalSessionID) == "qm-a", "first store should select its own terminal")
+        expect(secondState.renderedSelectedID(in: rows, currentTerminalSessionID: second.currentTerminalSessionID) == "qm-b", "second store should select its own terminal")
+        expect(firstState.effects(for: .activate(openedID: "qm-a"), rows: rows, currentTerminalSessionID: first.currentTerminalSessionID) == [.focusCurrentTerminal], "first store should focus its terminal")
+        expect(secondState.effects(for: .activate(openedID: "qm-a"), rows: rows, currentTerminalSessionID: second.currentTerminalSessionID) == [.switchSession("qm-a")], "second store should switch to the other terminal")
     }
 
     private static func staleSelectionRecoversToPreviousActiveRowAfterDelete() {

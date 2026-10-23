@@ -5,9 +5,10 @@ struct ArtifactCoreTests {
     static func run() {
         trackerDecodesArtifactsAndAbsentFieldDefaults()
         artifactKindClassifiesRendererTypes()
-        currentSessionFilteringUsesTrackerCurrentFlag()
+        currentSessionFilteringUsesAppCurrentID()
+        eachStoreResolvesItsOwnCurrentArtifacts()
         topLevelArtifactsFilterByScope()
-        preferredSessionFilteringWinsOverTrackerCurrentFlag()
+        activeSessionIDControlsArtifactScope()
         selectionRecoveryAndDisplayStatesFollowCurrentArtifacts()
         newArtifactDeltaDetectionIgnoresInitialAndUnrelatedUpdates()
         samePathReregistrationWithNewAddedAtDoesNotEmitOpenIntent()
@@ -33,7 +34,7 @@ struct ArtifactCoreTests {
         {"id":"qm-artifacts","title":"Artifacts","status":"active","state":"idle","elapsed_ms":0,"worker_count":0,"is_current":true,"artifacts":[{"kind":"html","path":"/tmp/plan.html","label":"Plan","added_at":"2026-06-19T04:19:00Z","missing":true}]}
         """
         let absent = """
-        {"id":"qm-empty","title":"No artifacts","status":"active","elapsed_ms":0,"worker_count":0,"is_current":false}
+        {"id":"qm-empty","title":"No artifacts","status":"active","elapsed_ms":0,"worker_count":0}
         """
 
         do {
@@ -47,6 +48,7 @@ struct ArtifactCoreTests {
 
             let empty = try decode(TrackerSession.self, absent)
             expect(empty.artifacts.isEmpty, "absent artifacts should decode as an empty list")
+            expect(!empty.isCurrent, "absent legacy is_current should decode as false")
         } catch {
             fail("tracker artifact decode threw \(error)")
         }
@@ -71,16 +73,30 @@ struct ArtifactCoreTests {
         )
     }
 
-    private static func currentSessionFilteringUsesTrackerCurrentFlag() {
+    private static func currentSessionFilteringUsesAppCurrentID() {
         let old = artifact(path: "/tmp/old.html", label: "Old")
         let current = artifact(path: "/tmp/current.html", label: "Current")
         let snapshot = trackerSnapshot([
-            session(id: "qm-old", isCurrent: false, artifacts: [old]),
-            session(id: "qm-current", isCurrent: true, artifacts: [current]),
+            session(id: "qm-old", artifacts: [old]),
+            session(id: "qm-current", artifacts: [current]),
         ])
 
-        expect(ArtifactDisplayState.currentSession(in: snapshot)?.id == "qm-current", "current session was not selected")
-        expect(ArtifactDisplayState.currentArtifacts(in: snapshot) == [current], "current artifacts should only come from is_current session")
+        expect(ArtifactDisplayState.currentSession(in: snapshot, preferredSessionID: "qm-current")?.id == "qm-current", "current session was not selected")
+        expect(ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-current") == [current], "current artifacts should come from the app's active session")
+    }
+
+    private static func eachStoreResolvesItsOwnCurrentArtifacts() {
+        let firstArtifact = artifact(path: "/tmp/first.html", label: "First")
+        let secondArtifact = artifact(path: "/tmp/second.html", label: "Second")
+        let snapshot = trackerSnapshot([
+            session(id: "qm-first", artifacts: [firstArtifact]),
+            session(id: "qm-second", artifacts: [secondArtifact]),
+        ])
+        let first = RuntimeStore(sourceLabel: "first", currentTerminalSessionID: "qm-first")
+        let second = RuntimeStore(sourceLabel: "second", currentTerminalSessionID: "qm-second")
+
+        expect(ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: first.currentTerminalSessionID) == [firstArtifact], "first store should show its active session")
+        expect(ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: second.currentTerminalSessionID) == [secondArtifact], "second store should show its active session despite backend flag")
     }
 
     private static func topLevelArtifactsFilterByScope() {
@@ -90,46 +106,46 @@ struct ArtifactCoreTests {
         let outside = artifact(path: "/tmp/outside.html", label: "Outside", sessionID: "qm-outside", projectID: "repo-b")
         let snapshot = trackerSnapshot(
             [
-                session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: []),
-                session(id: "qm-peer", isCurrent: false, repoIdentity: "repo-a", artifacts: []),
-                session(id: "qm-outside", isCurrent: false, repoIdentity: "repo-b", artifacts: []),
+                session(id: "qm-current", repoIdentity: "repo-a", artifacts: []),
+                session(id: "qm-peer", repoIdentity: "repo-a", artifacts: []),
+                session(id: "qm-outside", repoIdentity: "repo-b", artifacts: []),
             ],
             artifacts: [peer, current, orphan, outside]
         )
 
         expect(
-            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .session) == [current],
+            ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-current", scope: .session) == [current],
             "session scope should use top-level artifacts for the current session"
         )
         expect(
-            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .project) == [peer, current, orphan],
+            ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-current", scope: .project) == [peer, current, orphan],
             "project scope should include same-project top-level artifacts even when the owner session is absent"
         )
         expect(
-            ArtifactDisplayState.currentArtifacts(in: snapshot, scope: .all) == [peer, current, orphan, outside],
+            ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-current", scope: .all) == [peer, current, orphan, outside],
             "all scope should include every top-level artifact even when the owner session is absent"
         )
     }
 
-    private static func preferredSessionFilteringWinsOverTrackerCurrentFlag() {
+    private static func activeSessionIDControlsArtifactScope() {
         let current = artifact(path: "/tmp/current.html", label: "Current")
         let preferred = artifact(path: "/tmp/preferred.html", label: "Preferred")
         let snapshot = trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [current]),
-            session(id: "qm-selected", isCurrent: false, artifacts: [preferred]),
+            session(id: "qm-current", artifacts: [current]),
+            session(id: "qm-selected", artifacts: [preferred]),
         ])
 
         expect(
             ArtifactDisplayState.currentSession(in: snapshot, preferredSessionID: " qm-selected ")?.id == "qm-selected",
-            "preferred session should win over is_current"
+            "app active session should choose the viewed session"
         )
         expect(
             ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-selected") == [preferred],
             "preferred artifacts should come from selected terminal session"
         )
         expect(
-            ArtifactDisplayState.currentSession(in: snapshot, preferredSessionID: "qm-missing")?.id == "qm-current",
-            "missing preferred session should fall back to is_current"
+            ArtifactDisplayState.currentSession(in: snapshot, preferredSessionID: "qm-missing") == nil,
+            "missing active session should not fall back to backend is_current"
         )
     }
 
@@ -142,22 +158,23 @@ struct ArtifactCoreTests {
         let unsupported = artifact(path: "/tmp/report.pdf", kind: "pdf", label: "Report")
 
         var update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: []),
-        ]))
+            session(id: "qm-current", artifacts: []),
+        ]), preferredSessionID: "qm-current")
         expect(update.displayState == .empty(sessionID: "qm-current"), "empty current session should produce empty state")
         expect(update.selectedArtifactID == nil, "empty list should clear selection")
 
         state = ArtifactDisplayState()
         update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [html, missing, unsupported]),
-        ]))
+            session(id: "qm-current", artifacts: [html, missing, unsupported]),
+        ]), preferredSessionID: "qm-current")
         expect(update.intent == .none, "first artifact snapshot for a session should not emit an open intent")
         expect(update.selectedArtifactID == html.id, "selection should recover to first artifact")
         expect(update.displayState == .viewing(html), "html artifact should be viewable")
 
         expect(
             state.displayState(
-                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
+                for: trackerSnapshot([session(id: "qm-current", artifacts: [html, markdown, image, missing, unsupported])]),
+                preferredSessionID: "qm-current",
                 selectedArtifactID: markdown.id
             ) == .viewing(markdown),
             "markdown artifact should be viewable"
@@ -165,7 +182,8 @@ struct ArtifactCoreTests {
 
         expect(
             state.displayState(
-                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
+                for: trackerSnapshot([session(id: "qm-current", artifacts: [html, markdown, image, missing, unsupported])]),
+                preferredSessionID: "qm-current",
                 selectedArtifactID: image.id
             ) == .viewing(image),
             "image artifact should be viewable"
@@ -173,7 +191,8 @@ struct ArtifactCoreTests {
 
         expect(
             state.displayState(
-                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, markdown, image, missing, unsupported])]),
+                for: trackerSnapshot([session(id: "qm-current", artifacts: [html, markdown, image, missing, unsupported])]),
+                preferredSessionID: "qm-current",
                 selectedArtifactID: missing.id
             ) == .missing(missing),
             "missing artifact should produce missing display state"
@@ -181,7 +200,8 @@ struct ArtifactCoreTests {
 
         expect(
             state.displayState(
-                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, missing, unsupported])]),
+                for: trackerSnapshot([session(id: "qm-current", artifacts: [html, missing, unsupported])]),
+                preferredSessionID: "qm-current",
                 selectedArtifactID: unsupported.id
             ) == .unsupported(unsupported),
             "unsupported kind should produce unsupported display state"
@@ -189,7 +209,8 @@ struct ArtifactCoreTests {
 
         expect(
             state.displayState(
-                for: trackerSnapshot([session(id: "qm-current", isCurrent: true, artifacts: [html, missing, unsupported])]),
+                for: trackerSnapshot([session(id: "qm-current", artifacts: [html, missing, unsupported])]),
+                preferredSessionID: "qm-current",
                 selectedArtifactID: "/tmp/gone.html"
             ) == .viewing(html),
             "stale selection should recover to first available artifact"
@@ -207,34 +228,34 @@ struct ArtifactCoreTests {
         let new = artifact(path: "/tmp/new.html", label: "New", addedAt: "2026-06-19T04:21:00Z")
 
         var update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [old]),
+            session(id: "qm-current", artifacts: [old]),
         ]), preferredSessionID: "qm-current")
         expect(update.intent == .none, "initial snapshot should seed without opening")
 
         update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [renamedOld]),
+            session(id: "qm-current", artifacts: [renamedOld]),
         ]), preferredSessionID: "qm-current", selectedArtifactID: update.selectedArtifactID)
         expect(update.intent == .none, "existing path changes should not open")
         expect(update.selectedArtifactID == old.id, "selection should stay on existing path")
 
         update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [new, renamedOld]),
+            session(id: "qm-current", artifacts: [new, renamedOld]),
         ]), preferredSessionID: "qm-current", selectedArtifactID: update.selectedArtifactID)
         expect(update.intent == .open(new), "new path after seed should emit open intent")
         expect(update.selectedArtifactID == new.id, "new artifact should be selected")
 
         update = state.update(with: trackerSnapshot([
-            session(id: "qm-other", isCurrent: true, artifacts: [new]),
-        ]))
+            session(id: "qm-other", artifacts: [new]),
+        ]), preferredSessionID: "qm-other")
         expect(update.intent == .none, "first snapshot for a different current session should not open")
 
         var emptySeedState = ArtifactDisplayState()
         update = emptySeedState.update(with: trackerSnapshot([
-            session(id: "qm-empty-first", isCurrent: true, artifacts: []),
+            session(id: "qm-empty-first", artifacts: []),
         ]), preferredSessionID: "qm-empty-first")
         expect(update.intent == .none, "initial empty snapshot should seed without opening")
         update = emptySeedState.update(with: trackerSnapshot([
-            session(id: "qm-empty-first", isCurrent: true, artifacts: [new]),
+            session(id: "qm-empty-first", artifacts: [new]),
         ]), preferredSessionID: "qm-empty-first")
         expect(update.intent == .open(new), "new path after an initial empty snapshot should open")
     }
@@ -245,13 +266,13 @@ struct ArtifactCoreTests {
         let updated = artifact(path: "/tmp/report.html", label: "Report v2", addedAt: "2026-06-19T04:20:00Z")
 
         var update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [initial]),
+            session(id: "qm-current", artifacts: [initial]),
         ]), preferredSessionID: "qm-current")
         expect(update.intent == .none, "initial existing artifact snapshot should not open")
         expect(update.artifacts == [initial], "initial artifact list should contain one row")
 
         update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [updated]),
+            session(id: "qm-current", artifacts: [updated]),
         ]), preferredSessionID: "qm-current", selectedArtifactID: update.selectedArtifactID)
 
         expect(update.intent == .none, "same-path re-registration should not auto-open")
@@ -266,13 +287,13 @@ struct ArtifactCoreTests {
         let newPreferred = artifact(path: "/tmp/preferred-new.html", label: "Preferred new")
 
         let seeded = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [current]),
-            session(id: "qm-selected", isCurrent: false, artifacts: [oldPreferred]),
+            session(id: "qm-current", artifacts: [current]),
+            session(id: "qm-selected", artifacts: [oldPreferred]),
         ]), preferredSessionID: "qm-selected")
 
         let update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [current]),
-            session(id: "qm-selected", isCurrent: false, artifacts: [newPreferred, oldPreferred]),
+            session(id: "qm-current", artifacts: [current]),
+            session(id: "qm-selected", artifacts: [newPreferred, oldPreferred]),
         ]), preferredSessionID: "qm-selected", selectedArtifactID: seeded.selectedArtifactID)
 
         expect(update.intent == .open(newPreferred), "new preferred-session artifact should emit open intent")
@@ -287,13 +308,13 @@ struct ArtifactCoreTests {
         let otherNew = artifact(path: "/tmp/other-new.html", label: "Other new")
 
         let seeded = state.update(with: trackerSnapshot([
-            session(id: "qm-viewed", isCurrent: false, artifacts: [viewed]),
-            session(id: "qm-other", isCurrent: true, artifacts: [otherOld]),
+            session(id: "qm-viewed", artifacts: [viewed]),
+            session(id: "qm-other", artifacts: [otherOld]),
         ]), preferredSessionID: "qm-viewed")
 
         let update = state.update(with: trackerSnapshot([
-            session(id: "qm-viewed", isCurrent: false, artifacts: [viewed]),
-            session(id: "qm-other", isCurrent: true, artifacts: [otherNew, otherOld]),
+            session(id: "qm-viewed", artifacts: [viewed]),
+            session(id: "qm-other", artifacts: [otherNew, otherOld]),
         ]), preferredSessionID: "qm-viewed", selectedArtifactID: seeded.selectedArtifactID)
 
         expect(update.intent == .none, "new artifact in non-viewed session should not emit open intent")
@@ -308,16 +329,16 @@ struct ArtifactCoreTests {
         let new = artifact(path: "/tmp/new.html", label: "New")
 
         _ = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [old]),
+            session(id: "qm-current", artifacts: [old]),
         ]), preferredSessionID: "qm-current")
 
         var update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [new, old]),
+            session(id: "qm-current", artifacts: [new, old]),
         ]), preferredSessionID: "qm-current")
         expect(update.intent == .open(new), "first appearance of a new path should open")
 
         update = state.update(with: trackerSnapshot([
-            session(id: "qm-current", isCurrent: true, artifacts: [new, old]),
+            session(id: "qm-current", artifacts: [new, old]),
         ]), preferredSessionID: "qm-current")
         expect(update.intent == .none, "same new path should not repeatedly open")
     }
@@ -327,11 +348,11 @@ struct ArtifactCoreTests {
         let old = artifact(path: "/tmp/old.html", label: "Old", sessionID: "qm-current", projectID: "repo-a")
         let new = artifact(path: "/tmp/new.html", label: "New", sessionID: "qm-peer", projectID: "repo-a")
         let seed = trackerSnapshot(
-            [session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: [])],
+            [session(id: "qm-current", repoIdentity: "repo-a", artifacts: [])],
             artifacts: [old]
         )
         let next = trackerSnapshot(
-            [session(id: "qm-current", isCurrent: true, repoIdentity: "repo-a", artifacts: [])],
+            [session(id: "qm-current", repoIdentity: "repo-a", artifacts: [])],
             artifacts: [new, old]
         )
 
@@ -348,12 +369,12 @@ struct ArtifactCoreTests {
         let new = artifact(path: "/tmp/new.html", label: "New")
 
         let seeded = state.update(with: trackerSnapshot([
-            session(id: "qm-old", isCurrent: true, artifacts: [old]),
-        ]))
+            session(id: "qm-old", artifacts: [old]),
+        ]), preferredSessionID: "qm-old")
 
         let update = state.update(with: trackerSnapshot([
-            session(id: "qm-new", isCurrent: true, artifacts: [new]),
-        ]), selectedArtifactID: seeded.selectedArtifactID)
+            session(id: "qm-new", artifacts: [new]),
+        ]), preferredSessionID: "qm-new", selectedArtifactID: seeded.selectedArtifactID)
 
         expect(update.selectedArtifactID == new.id, "session change should recover selection in the new session")
         expect(update.displayState == .viewing(new), "display state should be scoped to the new current session")
@@ -364,8 +385,8 @@ struct ArtifactCoreTests {
         let first = artifact(path: "/tmp/first.html", label: "First")
         let second = artifact(path: "/tmp/second.html", label: "Second")
         let snapshot = trackerSnapshot([
-            session(id: "qm-first", isCurrent: true, artifacts: [first]),
-            session(id: "qm-second", isCurrent: false, artifacts: [second]),
+            session(id: "qm-first", artifacts: [first]),
+            session(id: "qm-second", artifacts: [second]),
         ])
 
         let seeded = state.update(with: snapshot, preferredSessionID: "qm-first")
@@ -388,8 +409,8 @@ struct ArtifactCoreTests {
         let b = artifact(path: "/tmp/b.html", label: "B")
         func snap(_ aArtifacts: [ArtifactReference]) -> TrackerSnapshot {
             trackerSnapshot([
-                session(id: "qm-a", isCurrent: true, artifacts: aArtifacts),
-                session(id: "qm-b", isCurrent: false, artifacts: [b]),
+                session(id: "qm-a", artifacts: aArtifacts),
+                session(id: "qm-b", artifacts: [b]),
             ])
         }
 
@@ -409,7 +430,7 @@ struct ArtifactCoreTests {
         let newA = artifact(path: "/tmp/new-a.html", label: "New A")
         let newerA = artifact(path: "/tmp/newer-a.html", label: "Newer A")
         func snap(_ artifacts: [ArtifactReference]) -> TrackerSnapshot {
-            trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: artifacts)])
+            trackerSnapshot([session(id: "qm-a", artifacts: artifacts)])
         }
 
         _ = state.update(with: snap([a]), preferredSessionID: "qm-a")
@@ -427,13 +448,13 @@ struct ArtifactCoreTests {
         var state = ArtifactDisplayState()
         let a = artifact(path: "/tmp/a.html", label: "A")
         let newA = artifact(path: "/tmp/new-a.html", label: "New A")
-        _ = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [a])]), preferredSessionID: "qm-a")
+        _ = state.update(with: trackerSnapshot([session(id: "qm-a", artifacts: [a])]), preferredSessionID: "qm-a")
 
-        let detached = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: false, artifacts: [a])]), selectedArtifactID: a.id, keepingSelection: true)
+        let detached = state.update(with: trackerSnapshot([session(id: "qm-a", artifacts: [a])]), selectedArtifactID: a.id, keepingSelection: true)
         expect(detached.displayState == .noCurrentSession, "no session should show no session")
         expect(detached.selectedArtifactID == a.id, "no session should keep the open artifact")
 
-        let attached = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [newA, a])]), preferredSessionID: "qm-a", selectedArtifactID: a.id, keepingSelection: true)
+        let attached = state.update(with: trackerSnapshot([session(id: "qm-a", artifacts: [newA, a])]), preferredSessionID: "qm-a", selectedArtifactID: a.id, keepingSelection: true)
         expect(attached.intent == .none, "attaching should not open an artifact")
         expect(attached.selectedArtifactID == a.id && attached.displayState == .viewing(a), "the viewer comes back on its artifact")
     }
@@ -446,8 +467,8 @@ struct ArtifactCoreTests {
         let a2 = artifact(path: "/tmp/a2.html", label: "A2")
         let b1 = artifact(path: "/tmp/b1.html", label: "B1")
         let snapshot = trackerSnapshot([
-            session(id: "qm-a", isCurrent: true, artifacts: [a1, a2]),
-            session(id: "qm-b", isCurrent: false, artifacts: [b1]),
+            session(id: "qm-a", artifacts: [a1, a2]),
+            session(id: "qm-b", artifacts: [b1]),
         ])
 
         _ = state.update(with: snapshot, preferredSessionID: "qm-a", selectedArtifactID: a2.id, keepingSelection: true)
@@ -460,7 +481,7 @@ struct ArtifactCoreTests {
         expect(listing.selectedArtifactID == b1.id, "the list's cursor should recover inside B")
 
         let gone = state.update(
-            with: trackerSnapshot([session(id: "qm-b", isCurrent: true, artifacts: [b1])]),
+            with: trackerSnapshot([session(id: "qm-b", artifacts: [b1])]),
             preferredSessionID: "qm-b",
             selectedArtifactID: a2.id,
             keepingSelection: true
@@ -573,7 +594,6 @@ struct ArtifactCoreTests {
 
     private static func session(
         id: String,
-        isCurrent: Bool,
         repoIdentity: String = "",
         artifacts: [ArtifactReference]
     ) -> TrackerSession {
@@ -583,7 +603,6 @@ struct ArtifactCoreTests {
             repoIdentity: repoIdentity,
             repoName: "repo",
             workerCount: 0,
-            isCurrent: isCurrent,
             artifacts: artifacts
         )
     }

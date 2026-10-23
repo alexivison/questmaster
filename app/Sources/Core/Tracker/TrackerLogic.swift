@@ -97,8 +97,7 @@ public enum TrackerActivationDecision {
 
     public static func action(
         for session: TrackerSession,
-        currentTerminalSessionID: String?,
-        sessionIsCurrent: Bool = false
+        currentTerminalSessionID: String?
     ) -> TrackerActivationAction {
         switch intent(for: session) {
         case .continueSession:
