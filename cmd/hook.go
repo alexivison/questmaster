@@ -724,6 +724,11 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 				pane.ClaudeLastSayTranscript = ""
 				pane.ClaudeLastStopPromptID = payload.PromptID
 				pane.ClaudeLastStopTranscript = payload.TranscriptPath
+			} else if opts.action == "tool_start" {
+				// A background task can wake a stopped turn without a
+				// UserPromptSubmit; its narration keeps the stopped prompt id.
+				pane.ClaudeLastStopPromptID = ""
+				pane.ClaudeLastStopTranscript = ""
 			} else if opts.action == "working" {
 				clearClaudeDisplay(&pane)
 				pane.ClaudePromptID = payload.PromptID

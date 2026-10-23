@@ -690,6 +690,23 @@ func TestHookClaudeDoesNotAccumulateLateDisplayAfterStop(t *testing.T) {
 	}
 }
 
+func TestHookClaudeSayAfterTurnResumesPastStop(t *testing.T) {
+	r, rec := newTestRunner(t)
+	turn := map[string]interface{}{"prompt_id": "p1", "transcript_path": "/tmp/t.jsonl"}
+	runHookWithStdin(r, "claude", "done", "qm-chat", turn)
+	// A background task wakes the turn without a UserPromptSubmit, so the
+	// next tool call and its narration carry the stopped prompt id.
+	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{
+		"prompt_id": "p1", "transcript_path": "/tmp/t.jsonl", "tool_name": "Bash", "tool_use_id": "t1",
+	})
+	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
+		"message_id": "m1", "prompt_id": "p1", "transcript_path": "/tmp/t.jsonl", "index": 0, "final": true, "delta": "Checking again.",
+	})
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "Checking again." {
+		t.Fatalf("resumed turn say = %q", got)
+	}
+}
+
 func TestReadCodexCommentaryFiltersAndAdvancesOffset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
 	appendCodexRollout(t, path, codexRolloutLine("commentary", "Checking layout"))
