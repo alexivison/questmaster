@@ -247,8 +247,8 @@ enum AppFonts {
     static let trackerPanelTitle = monospaced(size: 12, weight: .bold)
     /// Plate snippets at 11pt italic, as main set them.
     static let trackerSummary = monospaced(size: 11, italic: true)
-    /// The elapsed time on the plates, italic like the snippets.
-    static let trackerTime = trackerSummary
+    /// The elapsed time on the plates: the snippets' size, upright (2026-10-23).
+    static let trackerTime = monospaced(size: 11)
     /// Tracker section titles.
     static let trackerSectionTitle = monospaced(size: 12, weight: .semibold)
 

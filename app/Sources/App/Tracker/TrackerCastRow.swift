@@ -3,9 +3,8 @@ import QuestmasterCore
 import SwiftUI
 
 /// Where a plate's cast row sits, from the user's Figma mocks: a tool square centred under the disc and 5pt below it,
-/// then 2pt on, a bar as tall as the square. The row is 15pt, tall enough for the 11pt label; the master's bar ends 10pt
-/// short of the plate and the worker's reaches the plate's right edge. While the row shows, a master's collapsed
-/// circles sit 5pt under it.
+/// then 2pt on, a bar as tall as the square. The row is 15pt, tall enough for the 11pt label; the bar reaches the
+/// plate's right edge. While the row shows, a master's collapsed circles sit 5pt under it.
 enum TrackerCastLayout {
     struct Metrics {
         let side: CGFloat
@@ -19,7 +18,6 @@ enum TrackerCastLayout {
     static let spacing = Space.row
     /// A 2pt line between the square and its bar, kept like the borders (2026-10-23), not a spacing step.
     static let squareToBar = Token.Size.hairline
-    static let masterBarRight: CGFloat = 250
 
     static func metrics(_ role: TrackerNameplateRole) -> Metrics { role.isWorker ? worker : master }
 
@@ -32,8 +30,7 @@ enum TrackerCastLayout {
     static func top(_ role: TrackerNameplateRole) -> CGFloat { role.portraitDiameter + spacing }
 
     static func barWidth(_ role: TrackerNameplateRole) -> CGFloat {
-        let right = role.isWorker ? role.canvasSize.width : masterBarRight
-        return right - squareX(role) - metrics(role).side - squareToBar
+        role.canvasSize.width - squareX(role) - metrics(role).side - squareToBar
     }
 
     /// How much taller the row is while the cast row shows: the row and the gap above it, and for a master with
