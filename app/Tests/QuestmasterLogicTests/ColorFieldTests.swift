@@ -13,7 +13,7 @@ struct ColorFieldTests {
         endingASearchRestoresTheName()
         selectKeysCycleAndPrintableKeysSearch()
         searchKeysMoveAndPick()
-        searchStartIsPrintableTextBackspaceOrReturn()
+        searchStartIsPrintableTextOrBackspace()
         savingMidSearchTakesTheHighlightedColour()
         pickerListWindowFollowsTheHighlight()
         caretFollowsTheModeOnlyWhileFocused()
@@ -127,7 +127,8 @@ struct ColorFieldTests {
         expect(command("h", 4) == .startSearch(.seed("h")), "h should start a search in SELECT")
         expect(command("", 123, option: true) == .cycle(-1) && command("", 124, option: true, mode: .search) == .cycle(1), "⌥←/⌥→ should cycle in both states")
         expect(command("", 123, mode: .search) == nil, "plain ← should move the caret while searching")
-        expect(command("\r", 36) == .startSearch(.editCurrent) && command("", 51) == .startSearch(.editCurrent), "Return and Backspace should edit the name")
+        expect(command("", 51) == .startSearch(.editCurrent), "Backspace should edit the name")
+        expect(command("\r", 36) == nil && command("\u{3}", 76) == nil, "Return in SELECT should stay the sheet's, to submit")
         expect(command("\t", 48) == nil && command("\u{1b}", 53) == nil, "Tab and Esc in SELECT should stay the sheet's")
         expect(ColorFieldModel.command(keyCode: 1, characters: "s", command: false, control: true, option: false, mode: .select, showsSuggestions: false) == nil, "⌃ keys should stay the sheet's")
     }
@@ -143,13 +144,13 @@ struct ColorFieldTests {
         expect(command("a", 0, list: true) == nil, "letters should type while searching")
     }
 
-    private static func searchStartIsPrintableTextBackspaceOrReturn() {
+    private static func searchStartIsPrintableTextOrBackspace() {
         func start(_ characters: String?, _ keyCode: UInt16, command: Bool = false, control: Bool = false, option: Bool = false) -> PickerFieldMode.SearchStart? {
             PickerFieldMode.searchStart(characters: characters, keyCode: keyCode, command: command, control: control, option: option)
         }
         expect(start("o", 31) == .seed("o") && start("O", 31) == .seed("O") && start(" ", 49) == .seed(" "), "printable keys should seed the search")
-        expect(start(nil, 51) == .editCurrent && start("\r", 36) == .editCurrent && start("\u{3}", 76) == .editCurrent, "Backspace and Return should edit the current text")
-        for (characters, keyCode) in [("\t", UInt16(48)), ("\u{1b}", 53), ("\u{F702}", 123), ("\u{F701}", 125)] {
+        expect(start(nil, 51) == .editCurrent, "Backspace should edit the current text")
+        for (characters, keyCode) in [("\r", UInt16(36)), ("\u{3}", 76), ("\t", 48), ("\u{1b}", 53), ("\u{F702}", 123), ("\u{F701}", 125)] {
             expect(start(characters, keyCode) == nil, "key \(keyCode) is not text")
         }
         expect(start("o", 31, command: true) == nil && start("o", 31, control: true) == nil && start("ø", 31, option: true) == nil, "modified keys should not search")
