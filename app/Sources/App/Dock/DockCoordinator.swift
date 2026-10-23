@@ -1,78 +1,8 @@
 import QuestmasterCore
 
+/// Owns the dock's app-wide state (`DockState`) for the shell's renderer and the app's dock commands. Nothing here
+/// depends on the viewed session.
 @MainActor
 final class DockCoordinator {
-    private let stateStore = SessionViewStateStore()
-
-    /// Without a session the dock has nothing to show, so it reports the hidden default.
-    func state(for sessionID: String?) -> SessionViewState {
-        guard hasSessionID(sessionID) else {
-            return .initial
-        }
-        return stateStore.state(for: sessionID)
-    }
-
-    func mutate(_ sessionID: String?, _ body: (inout SessionViewState) -> Void) {
-        guard hasSessionID(sessionID) else {
-            return
-        }
-        stateStore.mutate(sessionID, body)
-    }
-
-    func recordDockVisibility(_ visible: Bool, sessionID: String?) {
-        mutate(sessionID) {
-            $0.dockVisible = visible
-        }
-    }
-
-    func showDockContent(_ content: DockContent, sessionID: String?) {
-        mutate(sessionID) {
-            $0.dockVisible = true
-            $0.dockContent = content
-            if content == .workerChat {
-                $0.selectedArtifactID = nil
-            }
-        }
-    }
-
-    func showArtifact(_ artifactID: String, sessionID: String?) {
-        mutate(sessionID) {
-            $0.dockVisible = true
-            $0.dockContent = .artifactViewer
-            $0.selectedArtifactID = artifactID
-        }
-    }
-
-    func reconcile(sessionID: String?, snapshot: RuntimeSnapshot) -> (desired: SessionViewState, changed: Bool) {
-        (state(for: sessionID), false)
-    }
-
-    func updateSelectedArtifact(_ selectedArtifactID: String?, sessionID: String?) {
-        mutate(sessionID) {
-            $0.selectedArtifactID = selectedArtifactID
-        }
-    }
-
-    func updateArtifactFilter(query: String, tokens: [ArtifactFilterToken], sessionID: String?) {
-        mutate(sessionID) {
-            $0.artifactFilterQuery = query
-            $0.artifactFilterTokens = tokens
-        }
-    }
-
-    func setArtifactScope(_ scope: ArtifactScope, sessionID: String?) {
-        mutate(sessionID) {
-            $0.artifactScope = scope
-            $0.selectedArtifactID = nil
-            $0.dockContent = .artifactList
-        }
-    }
-
-    func pruneSessions(keeping liveIDs: Set<String>, active activeID: String?) {
-        stateStore.pruneSessions(keeping: liveIDs, active: activeID)
-    }
-
-    private func hasSessionID(_ sessionID: String?) -> Bool {
-        sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
+    var state = DockState.initial
 }

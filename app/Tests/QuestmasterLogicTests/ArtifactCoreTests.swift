@@ -15,10 +15,12 @@ struct ArtifactCoreTests {
         newArtifactIntentIgnoresNonPreferredSession()
         openIntentEmitsOncePerNewPath()
         nonSessionScopesDoNotAutoOpenNewArtifacts()
-        sessionChangeClearsSelectionAndReportsChanged()
-        preferredSessionChangeClearsSelectionAndReportsChanged()
-        selectionIsPreservedPerSessionAcrossSwitches()
-        pruneSessionsDropsAbsentAndSparesCurrent()
+        sessionChangeRecoversSelectionInTheNewSession()
+        preferredSessionChangeRecoversSelectionInTheNewSession()
+        sessionSwitchNeverOpensAnArtifact()
+        viewerKeepsItsArtifactAcrossSessions()
+        newArtifactsOpenOnEveryTab()
+        noSessionKeepsTheSelection()
         listMovementWrapsSelection()
         scopeMovementWrapsSelection()
         artifactFilterMatchesLabelPathSessionAndProject()
@@ -340,7 +342,7 @@ struct ArtifactCoreTests {
         expect(update.artifacts == [new, old], "project scope should still show the updated list")
     }
 
-    private static func sessionChangeClearsSelectionAndReportsChanged() {
+    private static func sessionChangeRecoversSelectionInTheNewSession() {
         var state = ArtifactDisplayState()
         let old = artifact(path: "/tmp/old.html", label: "Old")
         let new = artifact(path: "/tmp/new.html", label: "New")
@@ -353,12 +355,11 @@ struct ArtifactCoreTests {
             session(id: "qm-new", isCurrent: true, artifacts: [new]),
         ]), selectedArtifactID: seeded.selectedArtifactID)
 
-        expect(update.sessionChanged, "current session change should be reported")
         expect(update.selectedArtifactID == new.id, "session change should recover selection in the new session")
         expect(update.displayState == .viewing(new), "display state should be scoped to the new current session")
     }
 
-    private static func preferredSessionChangeClearsSelectionAndReportsChanged() {
+    private static func preferredSessionChangeRecoversSelectionInTheNewSession() {
         var state = ArtifactDisplayState()
         let first = artifact(path: "/tmp/first.html", label: "First")
         let second = artifact(path: "/tmp/second.html", label: "Second")
@@ -371,82 +372,100 @@ struct ArtifactCoreTests {
 
         let update = state.update(with: snapshot, preferredSessionID: "qm-second", selectedArtifactID: seeded.selectedArtifactID)
 
-        expect(update.sessionChanged, "preferred session change should be reported")
         expect(state.currentSessionID == "qm-second", "current session should follow preferred session")
         expect(update.selectedArtifactID == second.id, "selection should be recovered inside new preferred session")
         expect(update.displayState == .viewing(second), "display state should be scoped to new preferred session")
     }
 
-    private static func selectionIsPreservedPerSessionAcrossSwitches() {
-        var state = ArtifactDisplayState()
-        let store = SessionViewStateStore()
-        let a1 = artifact(path: "/tmp/a1.html", label: "A1")
-        let a2 = artifact(path: "/tmp/a2.html", label: "A2")
-        let b1 = artifact(path: "/tmp/b1.html", label: "B1")
-        let b2 = artifact(path: "/tmp/b2.html", label: "B2")
-        let snapA = trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [a1, a2])])
-        let snapB = trackerSnapshot([session(id: "qm-b", isCurrent: true, artifacts: [b1, b2])])
-
-        _ = state.update(
-            with: snapA,
-            preferredSessionID: "qm-a",
-            selectedArtifactID: store.state(for: "qm-a").selectedArtifactID
-        )
-        store.mutate("qm-a") { $0.selectedArtifactID = a2.id }
-        expect(store.state(for: "qm-a").selectedArtifactID == a2.id, "A should select a2")
-
-        var update = state.update(
-            with: snapB,
-            preferredSessionID: "qm-b",
-            selectedArtifactID: store.state(for: "qm-b").selectedArtifactID
-        )
-        expect(update.selectedArtifactID == b1.id, "unseen B should recover to its first artifact")
-        store.mutate("qm-b") { $0.selectedArtifactID = b2.id }
-
-        // Returning to A restores its own remembered selection, not the first artifact.
-        update = state.update(
-            with: snapA,
-            preferredSessionID: "qm-a",
-            selectedArtifactID: store.state(for: "qm-a").selectedArtifactID
-        )
-        expect(update.selectedArtifactID == a2.id, "returning to A should restore a2")
-
-        // And B keeps its own.
-        update = state.update(
-            with: snapB,
-            preferredSessionID: "qm-b",
-            selectedArtifactID: store.state(for: "qm-b").selectedArtifactID
-        )
-        expect(update.selectedArtifactID == b2.id, "returning to B should restore b2")
-    }
-
-    private static func pruneSessionsDropsAbsentAndSparesCurrent() {
+    /// The known-paths baseline is the viewed session's only: coming back to a session that gained artifacts while
+    /// it wasn't viewed starts a new baseline instead of opening one, so a switch never opens the dock. A new artifact
+    /// in the session being viewed still opens.
+    private static func sessionSwitchNeverOpensAnArtifact() {
         var state = ArtifactDisplayState()
         let a = artifact(path: "/tmp/a.html", label: "A")
         let newA = artifact(path: "/tmp/new-a.html", label: "New A")
+        let newerA = artifact(path: "/tmp/newer-a.html", label: "Newer A")
         let b = artifact(path: "/tmp/b.html", label: "B")
-        let newB = artifact(path: "/tmp/new-b.html", label: "New B")
+        func snap(_ aArtifacts: [ArtifactReference]) -> TrackerSnapshot {
+            trackerSnapshot([
+                session(id: "qm-a", isCurrent: true, artifacts: aArtifacts),
+                session(id: "qm-b", isCurrent: false, artifacts: [b]),
+            ])
+        }
 
+        _ = state.update(with: snap([a]), preferredSessionID: "qm-a")
+        _ = state.update(with: snap([a]), preferredSessionID: "qm-b")
+        let back = state.update(with: snap([newA, a]), preferredSessionID: "qm-a")
+        expect(back.intent == .none, "switching back to a session with new artifacts should not open one")
+        let live = state.update(with: snap([newerA, newA, a]), preferredSessionID: "qm-a")
+        expect(live.intent == .open(newerA), "a new artifact in the viewed session should still open")
+    }
+
+    /// The tab is app-wide, so auto-open works on both: the viewed session's new artifact opens on the All tab, and the
+    /// Session tab doesn't open it a second time.
+    private static func newArtifactsOpenOnEveryTab() {
+        var state = ArtifactDisplayState()
+        let a = artifact(path: "/tmp/a.html", label: "A")
+        let newA = artifact(path: "/tmp/new-a.html", label: "New A")
+        let newerA = artifact(path: "/tmp/newer-a.html", label: "Newer A")
+        func snap(_ artifacts: [ArtifactReference]) -> TrackerSnapshot {
+            trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: artifacts)])
+        }
+
+        _ = state.update(with: snap([a]), preferredSessionID: "qm-a")
+        let onAll = state.update(with: snap([newA, a]), preferredSessionID: "qm-a", scope: .all)
+        expect(onAll.intent == .open(newA), "the viewed session's new artifact should open on the All tab too")
+        let backOnSession = state.update(with: snap([newA, a]), preferredSessionID: "qm-a")
+        expect(backOnSession.intent == .none, "the Session tab should not open it again")
+        let live = state.update(with: snap([newerA, newA, a]), preferredSessionID: "qm-a")
+        expect(live.intent == .open(newerA), "a new artifact on the Session tab opens")
+    }
+
+    /// No session (a detached terminal) keeps the open artifact for when one attaches, and the next session starts a
+    /// new baseline, so attaching opens nothing.
+    private static func noSessionKeepsTheSelection() {
+        var state = ArtifactDisplayState()
+        let a = artifact(path: "/tmp/a.html", label: "A")
+        let newA = artifact(path: "/tmp/new-a.html", label: "New A")
         _ = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [a])]), preferredSessionID: "qm-a")
-        _ = state.update(with: trackerSnapshot([session(id: "qm-b", isCurrent: true, artifacts: [b])]), preferredSessionID: "qm-b")
-        // qm-b is now the current session; qm-a is no longer present.
-        expect(state.currentSessionID == "qm-b", "precondition: current session is qm-b")
 
-        // Prune to a live set that omits BOTH known sessions: qm-a's cache is dropped, qm-b's
-        // cache is spared because it is current/active and tracker data can lag.
-        state.pruneSessions(keeping: [], active: "qm-b")
+        let detached = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: false, artifacts: [a])]), selectedArtifactID: a.id, keepingSelection: true)
+        expect(detached.displayState == .noCurrentSession, "no session should show no session")
+        expect(detached.selectedArtifactID == a.id, "no session should keep the open artifact")
 
-        let aUpdate = state.update(
-            with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [newA, a])]),
-            preferredSessionID: "qm-a"
+        let attached = state.update(with: trackerSnapshot([session(id: "qm-a", isCurrent: true, artifacts: [newA, a])]), preferredSessionID: "qm-a", selectedArtifactID: a.id, keepingSelection: true)
+        expect(attached.intent == .none, "attaching should not open an artifact")
+        expect(attached.selectedArtifactID == a.id && attached.displayState == .viewing(a), "the viewer comes back on its artifact")
+    }
+
+    /// The viewer's open artifact stays across a session switch: it's shown while it exists anywhere, and the list
+    /// (the Session tab) follows the new session. Without the viewer the cursor recovers inside the new list.
+    private static func viewerKeepsItsArtifactAcrossSessions() {
+        var state = ArtifactDisplayState()
+        let a1 = artifact(path: "/tmp/a1.html", label: "A1")
+        let a2 = artifact(path: "/tmp/a2.html", label: "A2")
+        let b1 = artifact(path: "/tmp/b1.html", label: "B1")
+        let snapshot = trackerSnapshot([
+            session(id: "qm-a", isCurrent: true, artifacts: [a1, a2]),
+            session(id: "qm-b", isCurrent: false, artifacts: [b1]),
+        ])
+
+        _ = state.update(with: snapshot, preferredSessionID: "qm-a", selectedArtifactID: a2.id, keepingSelection: true)
+        let viewing = state.update(with: snapshot, preferredSessionID: "qm-b", selectedArtifactID: a2.id, keepingSelection: true)
+        expect(viewing.selectedArtifactID == a2.id, "the viewer should keep A's artifact in B")
+        expect(viewing.displayState == .viewing(a2), "the viewer should still show A's artifact")
+        expect(viewing.artifacts == [b1], "the Session list should follow B")
+
+        let listing = state.update(with: snapshot, preferredSessionID: "qm-b", selectedArtifactID: a2.id)
+        expect(listing.selectedArtifactID == b1.id, "the list's cursor should recover inside B")
+
+        let gone = state.update(
+            with: trackerSnapshot([session(id: "qm-b", isCurrent: true, artifacts: [b1])]),
+            preferredSessionID: "qm-b",
+            selectedArtifactID: a2.id,
+            keepingSelection: true
         )
-        expect(aUpdate.intent == .none, "dropped cache should seed without opening")
-
-        let bUpdate = state.update(
-            with: trackerSnapshot([session(id: "qm-b", isCurrent: true, artifacts: [newB, b])]),
-            preferredSessionID: "qm-b"
-        )
-        expect(bUpdate.intent == .open(newB), "spared active cache should still detect new artifacts")
+        expect(gone.displayState == .viewing(b1), "an open artifact that no longer exists anywhere should fall back to the list's")
     }
 
     private static func listMovementWrapsSelection() {

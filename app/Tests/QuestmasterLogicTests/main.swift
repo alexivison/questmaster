@@ -26,7 +26,7 @@ enum QuestmasterLogicTests {
         ContractFixtureTests.run()
         RuntimeStoreTests.run()
         NavigationStoreTests.run()
-        SessionViewStateTests.run()
+        DockStateTests.run()
         DisplayClassificationTests.run()
         BackendShimRepairTests.run()
         ArtifactCoreTests.run()

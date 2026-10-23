@@ -278,7 +278,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 
     @discardableResult
     func apply(
-        _ desired: SessionViewState,
+        _ desired: DockState,
         snapshot: RuntimeSnapshot,
         preferredArtifactSessionID: String? = nil
     ) -> ArtifactDisplayUpdate {
@@ -333,9 +333,6 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         model.refreshCurrentArtifact()
     }
 
-    func pruneArtifactSessions(keeping liveIDs: Set<String>, active activeID: String?) {
-        model.pruneArtifactSessions(keeping: liveIDs, active: activeID)
-    }
 }
 
 struct DockRootView: View {
