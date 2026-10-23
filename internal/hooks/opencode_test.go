@@ -183,7 +183,7 @@ let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const payload = JSON.parse(input);
 if (payload.event.type === "tool.execute.before") await new Promise((resolve) => setTimeout(resolve, 250));
-appendFileSync(process.env.QM_CAPTURE + "/order.log", payload.event.type + ":" + Date.now() + "\n");
+appendFileSync(process.env.QM_CAPTURE + "/order.log", payload.event.type + ":" + Date.now() + ":" + (payload.event.properties?.part?.id ?? "") + "\n");
 if (payload.event.type === "test.timeout") {
   process.on("SIGTERM", () => appendFileSync(process.env.QM_CAPTURE + "/order.log", "test.timeout.sigterm:" + Date.now() + "\n"));
   setInterval(() => {}, 1000);
@@ -237,6 +237,18 @@ assert.ok(at("test.timeout.sigterm") - at("test.timeout") >= 70, "queue advanced
 assert.ok(at("test.after-timeout") - at("test.timeout.sigterm") >= 70, "queue advanced before the timed-out child closed");
 assert.deepEqual(lines.slice(0, 3).map((line) => line.split(":")[0]), ["tool.execute.before", "tool.execute.after", "message.part.updated"]);
 assert.ok(lines.indexOf(lines.find((line) => line.startsWith("test.timeout:"))) < lines.indexOf(lines.find((line) => line.startsWith("test.after-timeout:"))), "next event overtook the timed-out child");
+await hooks.event({ event: { type: "message.part.delta", properties: { field: "text", delta: "Listing" } } });
+await hooks.event({ event: { type: "message.part.updated", properties: { part: { id: "prt-text", type: "text", text: "Listing files." } } } });
+await hooks.event({ event: { type: "message.part.updated", properties: { part: { id: "prt-tool", type: "tool", state: { status: "running" } } } } });
+const untilParts = Date.now() + 3000;
+while (Date.now() < untilParts) {
+  lines = readFileSync(process.env.QM_CAPTURE + "/order.log", "utf8").trim().split("\n");
+  if (lines.some((line) => line.endsWith(":prt-tool"))) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+assert.ok(lines.some((line) => line.endsWith(":prt-text")), "a newer part replaced a buffered part");
+assert.ok(lines.some((line) => line.endsWith(":prt-tool")), "buffered part was not flushed");
+assert.ok(!lines.some((line) => line.startsWith("message.part.delta:")), "token delta was forwarded");
 `
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
