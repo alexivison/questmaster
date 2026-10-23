@@ -95,6 +95,9 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if s.runtime.Snapshotter == nil {
 		s.runtime.Snapshotter = serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)
 	}
+	if config.ClockInterval > 0 {
+		s.runtime.ClockInterval = config.ClockInterval
+	}
 	if h != nil {
 		if err := s.adopt(*h); err != nil {
 			fmt.Fprintf(os.Stderr, "daemon adoption: %v; starting normally\n", err)
@@ -154,7 +157,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if err != nil {
 		return err
 	}
-	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: config.Executable, Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
+	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: config.Executable, ShimDirectory: filepath.Join(config.Root, "daemon", "bin", id), Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
 	if err := s.publish(); err != nil {
 		return err
 	}

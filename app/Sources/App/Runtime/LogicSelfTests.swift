@@ -10,15 +10,12 @@ import SwiftUI
 enum LogicSelfTests {
     private static let cases: [(name: String, body: @MainActor () throws -> Void)] = [
         ("testAppBackendResolverFeedsLaunchConfiguration", testAppBackendResolverFeedsLaunchConfiguration),
-        ("testAppBackendSocketsUseShortRuntimeNamespaceAndFallback", testAppBackendSocketsUseShortRuntimeNamespaceAndFallback),
-        ("testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs", testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs),
-        ("testAppBackendPrepareRuntimeRepairsStaleDevShims", testAppBackendPrepareRuntimeRepairsStaleDevShims),
+        ("testLaunchFlagMappingTable", testLaunchFlagMappingTable),
+        ("testDaemonEnsureUsesRespawnPolicy", testDaemonEnsureUsesRespawnPolicy),
         ("testDevBackendBeatsGlobalPathInSourceCheckout", testDevBackendBeatsGlobalPathInSourceCheckout),
-        ("testDevBackendShimFallsBackToBundledQM", testDevBackendShimFallsBackToBundledQM),
         ("testPackagedBundleBeatsDevAndGlobalBackends", testPackagedBundleBeatsDevAndGlobalBackends),
-        ("testDevBackendEnvironmentUsesShimQuestmasterBin", testDevBackendEnvironmentUsesShimQuestmasterBin),
-        ("testDevBackendIdentityChangesForInternalGoFile", testDevBackendIdentityChangesForInternalGoFile),
         ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
+        ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
         ("testNavigationTogglesFocusShownRegionAndHideToTerminal", testNavigationTogglesFocusShownRegionAndHideToTerminal),
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
@@ -149,42 +146,62 @@ enum LogicSelfTests {
     private static func testAppBackendResolverFeedsLaunchConfiguration() throws {
         let fixture = try appBackendFixture()
         let config = LaunchConfiguration.load(
-            arguments: [],
             environment: fixture.environment,
             workingDirectory: fixture.workingDirectory.path,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
+            bundle: fixture.bundle
         )
-        let backend = config.backend
-
-        try expect(backend.stateRoot == fixture.stateRoot.path, "resolver should pin state root")
-        try expect(backend.executablePath == fixture.qm.path, "resolver should select bundled qm")
-        try expect(backend.source == .bundled, "resolver source should be bundled")
-        try expect(backend.backendID.hasPrefix("sha256:"), "packaged backend identity should hash qm bytes")
-        try expect(backend.runtimeToken.count == 16, "runtime token should be short")
-        try expect(backend.shimDirectory == backend.pathPrefix, "path prefix should be the shim dir")
-        try expect(backend.serveSocket == URL(fileURLWithPath: backend.runtimeDirectory).appendingPathComponent("serve.sock").path, "serve socket should live in runtime namespace")
-        try expect(config.serveSocket == backend.serveSocket, "LaunchConfiguration should use backend serve socket")
+        try expect(config.backend.stateRoot == fixture.stateRoot.path, "resolver should pin state root")
+        try expect(config.backend.executablePath == fixture.qm.path, "resolver should select bundled qm")
+        try expect(config.backend.source == .bundled, "resolver source should be bundled")
+        try expect(config.startDaemon && config.daemonSocketOverride == nil, "bundle should ensure its daemon")
+        try expect(config.backend.command("start")?.arguments == ["daemon", "start"], "bundle should use daemon start")
+        try expect(config.backend.command("start")?.workingDirectory == fixture.environment["HOME"], "bundle command should not depend on the launching cwd")
     }
 
-    private static func testAppBackendSocketsUseShortRuntimeNamespaceAndFallback() throws {
+    private static func testLaunchFlagMappingTable() throws {
         let fixture = try appBackendFixture()
-        let longComponent = String(repeating: "x", count: 160)
-        let longApplicationSupport = fixture.root.appendingPathComponent(longComponent, isDirectory: true)
-        let backend = AppBackendResolver.resolve(
-            arguments: [],
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            launchServe: true,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: longApplicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        )
+        func load(_ arguments: [String], _ environment: [String: String]? = nil) -> LaunchConfiguration {
+            LaunchConfiguration.load(arguments: arguments, environment: environment ?? fixture.environment,
+                                     workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        }
+        try expect(!load(["--no-daemon-start"]).startDaemon, "no-daemon-start should connect only")
+        let socket = fixture.root.appendingPathComponent("custom.sock").path
+        try expect(!load(["--daemon-socket", socket]).startDaemon, "daemon-socket should bypass Ensure")
+        try expect(load(["--daemon-socket", socket]).daemonSocketOverride == socket, "socket flag should be retained")
+        var env = fixture.environment
+        env["QUESTMASTER_DAEMON_SOCKET"] = socket
+        try expect(load([], env).daemonSocketOverride == socket, "socket environment should connect only")
+        let override = load(["--qm-bin", fixture.qm.path, "--state-root", fixture.root.path])
+        try expect(override.backend.source == .override && override.backend.stateRoot == fixture.root.path, "qm-bin and state-root should apply")
+        try expect(load(["--no-serve", "--serve-socket", socket]).startDaemon, "removed flags should have no effect")
+        try expect(load(["--no-serve-launch", "--external-serve", "--serve-executable", fixture.qm.path]).startDaemon,
+                   "removed launch flags should have no effect")
+        env.removeValue(forKey: "QUESTMASTER_DAEMON_SOCKET")
+        env["QUESTMASTER_QM"] = fixture.qm.path
+        env["QUESTMASTER_SERVE_SOCKET"] = socket
+        try expect(load([], env).startDaemon, "removed environment overrides should have no effect")
+    }
 
-        try expect(!backend.runtimeDirectory.hasPrefix(longApplicationSupport.path), "long Application Support path should fall back to a short runtime base")
-        try expect(backend.runtimeDirectory.contains("/qm-app-"), "fallback runtime base should be app-owned")
-        try expect(backend.serveSocket.utf8.count < UnixSocketIO.pathCapacity, "serve socket should fit sun_path")
+    private static func testDaemonEnsureUsesRespawnPolicy() throws {
+        let fixture = try appBackendFixture()
+        let marker = fixture.root.appendingPathComponent("attempts")
+        try writeExecutable("#!/bin/sh\nprintf x >> '\(marker.path)'\nexit 1\n", to: fixture.qm)
+        let start = LaunchConfiguration.load(environment: fixture.environment,
+                                             workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let connection = DaemonConnection(config: start)
+        for _ in 0..<2 {
+            var failed = false
+            do { _ = try connection.record() } catch { failed = true }
+            try expect(failed, "broken daemon command should fail")
+        }
+        let attempts = try String(contentsOf: marker, encoding: .utf8)
+        try expect(attempts == "xxxx", "Ensure should make one initial attempt and three delayed retries, then stop")
+
+        let connectOnly = LaunchConfiguration.load(arguments: ["--no-daemon-start"], environment: fixture.environment,
+                                                    workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        do { _ = try DaemonConnection(config: connectOnly).record() } catch { /* Expected. */ }
+        let afterStatus = try String(contentsOf: marker, encoding: .utf8)
+        try expect(afterStatus == "xxxxx", "connect-only should run status once and never Ensure")
     }
 
     private static func testRevertedShellRowsUseFreshShellAccent() throws {
@@ -763,189 +780,22 @@ enum LogicSelfTests {
         try expect(hiddenWorkers == 4, "overflow should count the \(fit + 3 - (fit - 1)) workers past the shown ones, got \(hiddenWorkers)")
     }
 
-    private static func testAppBackendPrepareRuntimeCreatesShimAnd0700Dirs() throws {
-        let fixture = try appBackendFixture()
-        let backend = LaunchConfiguration.load(
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        ).backend
-
-        try backend.prepareRuntime()
-
-        try expect(posixMode(backend.runtimeDirectory) == 0o700, "runtime dir should be 0700")
-        try expect(posixMode(backend.shimDirectory) == 0o700, "shim dir should be 0700")
-        for name in ["qm", "questmaster"] {
-            let shim = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent(name).path
-            try expect(FileManager.default.isExecutableFile(atPath: shim), "\(name) shim should be executable")
-            let body = try String(contentsOfFile: shim, encoding: .utf8)
-            try expect(body.contains(fixture.qm.path), "\(name) shim should exec the resolved backend")
-        }
-    }
-
-    private static func testAppBackendPrepareRuntimeRepairsStaleDevShims() throws {
-        let fixture = try appBackendFixture()
-        let backend = LaunchConfiguration.load(
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        ).backend
-        let staleBin = fixture.applicationSupport
-            .appendingPathComponent("stale", isDirectory: true)
-            .appendingPathComponent("bin", isDirectory: true)
-        let liveRoot = fixture.root.appendingPathComponent("live-worktree", isDirectory: true)
-        let liveBin = fixture.applicationSupport
-            .appendingPathComponent("live", isDirectory: true)
-            .appendingPathComponent("bin", isDirectory: true)
-        try FileManager.default.createDirectory(at: staleBin, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: liveBin, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: liveRoot, withIntermediateDirectories: true)
-        let staleShim = BackendShimRepair.devScript(go: "/usr/bin/go", repoRoot: "/tmp/deleted-worktree", fallbackExecutable: "/old/qm")
-        let liveShim = BackendShimRepair.devScript(go: "/usr/bin/go", repoRoot: liveRoot.path, fallbackExecutable: "/old/qm")
-        for name in ["qm", "questmaster"] {
-            try writeExecutable(staleShim, to: staleBin.appendingPathComponent(name))
-            try writeExecutable(liveShim, to: liveBin.appendingPathComponent(name))
-        }
-
-        try backend.prepareRuntime()
-
-        for name in ["qm", "questmaster"] {
-            let repaired = try String(contentsOf: staleBin.appendingPathComponent(name), encoding: .utf8)
-            try expect(repaired == BackendShimRepair.directScript(executable: fixture.qm.path), "\(name) stale shim should be rewritten to bundled qm")
-        }
-        let preserved = try String(contentsOf: liveBin.appendingPathComponent("qm"), encoding: .utf8)
-        try expect(preserved == liveShim, "live dev shim should stay unchanged")
-    }
-
     private static func testDevBackendBeatsGlobalPathInSourceCheckout() throws {
         let fixture = try devBackendFixture()
         let globalQM = fixture.go.deletingLastPathComponent().appendingPathComponent("qm")
         try writeExecutable("#!/bin/sh\necho old qm\n", to: globalQM)
-
-        let backend = AppBackendResolver.resolve(
-            arguments: [],
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            launchServe: true,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        )
-
-        try expect(backend.source == .dev, "source checkout should prefer go run over global qm")
-        try expect(backend.executablePath == fixture.go.path, "dev backend should use go executable")
-        try expect(backend.serveCommandTemplate?.workingDirectory == fixture.workingDirectory.path, "dev backend should run from repo root")
-    }
-
-    private static func testDevBackendShimFallsBackToBundledQM() throws {
-        let fixture = try devBackendFixture()
-        let resources = fixture.root.appendingPathComponent("Resources", isDirectory: true)
-        let bundledQM = resources.appendingPathComponent("qm")
-        try writeExecutable("#!/bin/sh\necho bundled qm\n", to: bundledQM)
-        let backend = AppBackendResolver.resolve(
-            arguments: [],
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            launchServe: true,
-            bundle: AppBackendResolver.BundleInfo(
-                bundleURL: fixture.bundle.bundleURL,
-                resourceURL: resources,
-                executableURL: fixture.bundle.executableURL
-            ),
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        )
-        try expect(backend.source == .dev, "fixture should still resolve dev backend")
-
-        try backend.prepareRuntime()
-
-        let shim = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent("qm")
-        let body = try String(contentsOf: shim, encoding: .utf8)
-        try expect(body.contains("cd '\(fixture.workingDirectory.path)' && exec '\(fixture.go.path)' run . \"$@\""), "dev shim should gate go run behind cd")
-        try expect(body.contains("exec '\(bundledQM.path)' \"$@\""), "dev shim should fall back to bundled qm")
-        try expect(!body.contains("\nexec '\(fixture.go.path)' run . \"$@\""), "dev shim should not run go from caller cwd")
+        let backend = AppBackendResolver.resolve(arguments: [], environment: fixture.environment,
+                                                workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        try expect(backend.source == .dev && backend.executablePath == fixture.go.path, "source checkout should use go")
+        try expect(backend.command("start")?.arguments == ["run", ".", "daemon", "start", "--build-from", fixture.workingDirectory.path],
+                   "dev start should build a stable daemon through Go")
     }
 
     private static func testPackagedBundleBeatsDevAndGlobalBackends() throws {
-        let fixture = try devBackendFixture()
-        let globalQM = fixture.go.deletingLastPathComponent().appendingPathComponent("qm")
-        try writeExecutable("#!/bin/sh\necho old qm\n", to: globalQM)
-        let app = fixture.root.appendingPathComponent("Questmaster.app", isDirectory: true)
-        let resources = app.appendingPathComponent("Contents/Resources", isDirectory: true)
-        let macos = app.appendingPathComponent("Contents/MacOS", isDirectory: true)
-        let bundledQM = resources.appendingPathComponent("qm")
-        let executable = macos.appendingPathComponent("Questmaster")
-        try writeExecutable("#!/bin/sh\necho bundled qm\n", to: bundledQM)
-        try writeExecutable("#!/bin/sh\nexit 0\n", to: executable)
-
-        let backend = AppBackendResolver.resolve(
-            arguments: [],
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            launchServe: true,
-            bundle: AppBackendResolver.BundleInfo(bundleURL: app, resourceURL: resources, executableURL: executable),
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        )
-
-        try expect(backend.source == .bundled, "packaged app should prefer bundled qm")
-        try expect(backend.executablePath == bundledQM.path, "packaged app should use bundled qm")
-    }
-
-    private static func testDevBackendEnvironmentUsesShimQuestmasterBin() throws {
-        let fixture = try devBackendFixture()
-        let backend = AppBackendResolver.resolve(
-            arguments: [],
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            launchServe: true,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        )
-        try expect(backend.source == .dev, "fixture should resolve dev backend")
-
-        let env = appChildProcessEnvironment(
-            environment: fixture.environment,
-            loginEnvironment: [:],
-            backend: backend
-        )
-        let shimBin = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent("qm").path
-        try expect(env["QUESTMASTER_BIN"] == shimBin, "dev QUESTMASTER_BIN should point at the qm-callable shim")
-        try expect(env["QUESTMASTER_BIN"] != fixture.go.path, "dev QUESTMASTER_BIN should not point at raw go")
-    }
-
-    private static func testDevBackendIdentityChangesForInternalGoFile() throws {
-        let fixture = try devBackendFixture()
-        let first = AppBackendResolver.resolve(
-            arguments: [],
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            launchServe: true,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        )
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSince1970: 2_000)],
-            ofItemAtPath: fixture.internalGo.path
-        )
-        let second = AppBackendResolver.resolve(
-            arguments: [],
-            environment: fixture.environment,
-            workingDirectory: fixture.workingDirectory.path,
-            launchServe: true,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
-        )
-
-        try expect(first.backendID != second.backendID, "internal Go file mtime should change dev backend identity")
-        try expect(first.runtimeToken != second.runtimeToken, "internal Go file mtime should change dev runtime token")
+        let fixture = try appBackendFixture()
+        let backend = AppBackendResolver.resolve(arguments: [], environment: fixture.environment,
+                                                workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        try expect(backend.source == .bundled && backend.executablePath == fixture.qm.path, "bundle should use its qm")
     }
 
     private static func testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath() throws {
@@ -953,9 +803,7 @@ enum LogicSelfTests {
         let backend = LaunchConfiguration.load(
             environment: fixture.environment,
             workingDirectory: fixture.workingDirectory.path,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
+            bundle: fixture.bundle
         ).backend
         let home = fixture.root.appendingPathComponent("home", isDirectory: true).path
         let env = appChildProcessEnvironment(
@@ -976,13 +824,35 @@ enum LogicSelfTests {
             backend: backend
         )
 
-        try expect(env["PATH"]?.split(separator: ":").first.map(String.init) == backend.pathPrefix, "backend path prefix should survive normalization first")
+        try expect(env["PATH"]?.contains("/usr/bin") == true, "normalized PATH should remain available")
         try expect(env["QUESTMASTER_BIN"] == backend.executablePath, "child env should expose backend executable")
         try expect(env["QUESTMASTER_STATE_ROOT"] == backend.stateRoot, "child env should expose state root")
         try expect(env["QUESTMASTER_HOME"] == nil, "child env should clear legacy quest home")
-        try expect(env["QUESTMASTER_PATH_PREFIX"] == backend.pathPrefix, "child env should expose path prefix")
+        try expect(env["QUESTMASTER_PATH_PREFIX"] == nil, "shim prefix should come from daemon record")
         try expect(env["QUESTMASTER_QM"] == nil, "child env should not preserve app override input")
         try expect(env["TMUX"] == nil && env["TMUX_PANE"] == nil && env["TMUX_TMPDIR"] == nil, "child env should strip tmux variables")
+    }
+
+    private static func testDaemonRecordFeedsTerminalEnvironment() throws {
+        let fixture = try appBackendFixture()
+        let config = LaunchConfiguration.load(environment: fixture.environment,
+                                              workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let shim = fixture.root.appendingPathComponent("daemon-shims").path
+        let json = try String(data: JSONSerialization.data(withJSONObject: [
+            "running": true, "root": fixture.stateRoot.path, "identity": "canonical",
+            "socket": fixture.root.appendingPathComponent("daemon.sock").path,
+            "executable": fixture.qm.path, "shim_directory": shim,
+            "build": "different", "generation": 1, "accepting": true,
+        ]), encoding: .utf8) ?? ""
+        try writeExecutable("#!/bin/sh\nprintf '%s\\n' '\(json)'\n", to: fixture.qm)
+        let previous = AppBackendEnvironment.current
+        defer { if let previous { AppBackendEnvironment.activate(previous) } }
+        AppBackendEnvironment.activate(config.backend)
+        _ = try DaemonConnection(config: config).record()
+        let env = appChildProcessEnvironment(environment: fixture.environment, loginEnvironment: [:], backend: config.backend)
+        try expect(env["QUESTMASTER_BIN"] == fixture.qm.path, "terminal should use executable from daemon record")
+        try expect(env["QUESTMASTER_PATH_PREFIX"] == shim, "terminal should use daemon-owned shim path")
+        try expect(env["PATH"]?.split(separator: ":").first.map(String.init) == shim, "daemon shim should be first on PATH")
     }
 
     private static func testTmuxStartupScriptScopesAppBackendEnvironmentToSession() throws {
@@ -990,18 +860,16 @@ enum LogicSelfTests {
         let backend = LaunchConfiguration.load(
             environment: fixture.environment,
             workingDirectory: fixture.workingDirectory.path,
-            bundle: fixture.bundle,
-            applicationSupportDirectory: fixture.applicationSupport,
-            temporaryDirectory: fixture.temporaryDirectory
+            bundle: fixture.bundle
         ).backend
         let env = [
             "HOME": fixture.root.appendingPathComponent("home", isDirectory: true).path,
             "SHELL": "/tmp/custom shell/zsh",
-            "PATH": "\(backend.pathPrefix):/usr/bin",
+            "PATH": "/test/prefix:/usr/bin",
             "QUESTMASTER_APP": "1",
             "QUESTMASTER_STATE_ROOT": backend.stateRoot,
             "QUESTMASTER_BIN": backend.executablePath,
-            "QUESTMASTER_PATH_PREFIX": backend.pathPrefix,
+            "QUESTMASTER_PATH_PREFIX": "/test/prefix",
         ]
         let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: env)
         let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -s \"$session\" sleep 2147483647")
@@ -1021,7 +889,7 @@ enum LogicSelfTests {
             let syncIndex = try substringIndex(in: script, "set-environment -t \"$session\" '\(key)'")
             try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
         }
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_SERVE_SOCKET"] {
+        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_DAEMON_SOCKET"] {
             try expect(script.contains("set-environment -g -r '\(key)'"), "startup script should clear stale global \(key)")
         }
         try expect(script.contains("set-environment -g -r 'QUESTMASTER_HOME'"), "startup script should clear stale global quest home")
@@ -1136,9 +1004,9 @@ enum LogicSelfTests {
     }
 
     private static func testTrackerSkeletonMatchesServeStartupMessages() throws {
-        try expect(trackerShowsSkeleton(for: "connecting to serve..."), "current startup text should show skeleton")
-        try expect(trackerShowsSkeleton(for: "serve not connected - retrying"), "retry text should keep showing the skeleton, it will resolve itself")
-        try expect(!trackerShowsSkeleton(for: "serve stopped - restart required"), "restart-required is terminal and should show as a normal empty state")
+        try expect(trackerShowsSkeleton(for: "connecting to backend..."), "current startup text should show skeleton")
+        try expect(trackerShowsSkeleton(for: "backend not connected - retrying"), "retry text should keep showing the skeleton")
+        try expect(trackerShowsSkeleton(for: "backend finishing a previous operation"), "handoff wait should show skeleton")
     }
 
     private static func testDockPanePublishesModeChanges() throws {
@@ -2593,8 +2461,6 @@ enum LogicSelfTests {
         let qm: URL
         let bundle: AppBackendResolver.BundleInfo
         let environment: [String: String]
-        let applicationSupport: URL
-        let temporaryDirectory: URL
     }
 
     private struct DevBackendFixture {
@@ -2605,8 +2471,6 @@ enum LogicSelfTests {
         let internalGo: URL
         let bundle: AppBackendResolver.BundleInfo
         let environment: [String: String]
-        let applicationSupport: URL
-        let temporaryDirectory: URL
     }
 
     private static func appBackendFixture() throws -> AppBackendFixture {
@@ -2618,7 +2482,7 @@ enum LogicSelfTests {
         let resources = app.appendingPathComponent("Contents/Resources", isDirectory: true)
         let macos = app.appendingPathComponent("Contents/MacOS", isDirectory: true)
         let qm = resources.appendingPathComponent("qm")
-        for directory in [workingDirectory, stateRoot, resources, macos] {
+        for directory in [workingDirectory, stateRoot, resources, macos, root.appendingPathComponent("user-home")] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         try writeExecutable("#!/bin/sh\necho qm\n", to: qm)
@@ -2636,8 +2500,6 @@ enum LogicSelfTests {
                 "PATH": "/usr/bin:/bin",
                 "QUESTMASTER_STATE_ROOT": stateRoot.path,
             ],
-            applicationSupport: root.appendingPathComponent("Application Support/Questmaster", isDirectory: true),
-            temporaryDirectory: root.appendingPathComponent("tmp", isDirectory: true)
         )
     }
 
@@ -2681,8 +2543,6 @@ enum LogicSelfTests {
                 "PATH": binDirectory.path,
                 "QUESTMASTER_STATE_ROOT": stateRoot.path,
             ],
-            applicationSupport: root.appendingPathComponent("Application Support/Questmaster", isDirectory: true),
-            temporaryDirectory: root.appendingPathComponent("tmp", isDirectory: true)
         )
     }
 
@@ -3051,7 +2911,7 @@ enum LogicSelfTests {
     private static func testOneShotServeClientsRejectIncompatibleEnvelopes() throws {
         // Mutations, directory suggestions, models, efforts and worker feed all use sendObject/decodeAck.
         for ok in [true, false] {
-            for version in [NSNull() as Any, 2, true] {
+            for version in [NSNull() as Any, 1, true] {
                 let envelope: [String: Any] = [
                     "protocol_version": version,
                     "type": "response",
@@ -3068,10 +2928,11 @@ enum LogicSelfTests {
                 }
             }
         }
-        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":1,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
+        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":2,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
     }
 
     private static func testServeStreamReconnectsAfterProtocolMismatch() throws {
+        let fixture = try appBackendFixture()
         let path = FileManager.default.temporaryDirectory.appendingPathComponent("qm-protocol-\(UUID().uuidString.prefix(8)).sock").path
         let listener = socket(AF_UNIX, SOCK_STREAM, 0)
         try expect(listener >= 0, "could not create test socket")
@@ -3085,13 +2946,15 @@ enum LogicSelfTests {
         try expect(bound == 0 && listen(listener, 2) == 0, "could not listen on test socket")
 
         let lines = [
-            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wrong\",\"sessions\":[]}}\n",
-            "{\"protocol_version\":1,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[]}}\n",
+            "{\"protocol_version\":1,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wrong\",\"sessions\":[]}}\n",
+            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[]}}\n",
         ]
         DispatchQueue.global().async {
             for line in lines {
                 let peer = Darwin.accept(listener, nil, nil)
                 guard peer >= 0 else { return }
+                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":2,\"accepting\":true}\n"
+                try? UnixSocketIO.write(Data(hello.utf8), to: peer)
                 var requestBytes = [UInt8](repeating: 0, count: 4096)
                 var requestLines = 0
                 while requestLines < 2 {
@@ -3105,7 +2968,15 @@ enum LogicSelfTests {
         }
 
         var labels: [String] = []
-        let client = UnixSocketServeClient(socketPath: path)
+        let recordJSON: [String: Any] = [
+            "running": true, "root": fixture.stateRoot.path, "identity": "canonical", "socket": path,
+            "executable": fixture.qm.path, "shim_directory": fixture.root.appendingPathComponent("shim").path,
+            "build": "test", "generation": 1, "accepting": true,
+        ]
+        let record = try JSONDecoder().decode(DaemonRecord.self, from: JSONSerialization.data(withJSONObject: recordJSON))
+        let config = LaunchConfiguration.load(arguments: ["--no-daemon-start"], environment: fixture.environment,
+                                              workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let client = UnixSocketServeClient(connection: DaemonConnection(config: config, record: record))
         client.start(onUpdate: { update in
             DispatchQueue.main.async { labels.append(update.observedLabel ?? "") }
         }, onStatus: { _ in })
@@ -4303,7 +4174,7 @@ enum LogicSelfTests {
     private static func trackerShowsSkeleton(for observedLabel: String) -> Bool {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(observedLabel))
-        return isServeStartingMessage(snapshot.serviceStateMessage)
+        return isBackendStartingMessage(snapshot.serviceStateMessage)
     }
 
     private static func renderedColor(_ rows: [TrackerRenderedSession], id: String) throws -> NSColor {

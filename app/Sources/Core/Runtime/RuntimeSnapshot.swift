@@ -22,11 +22,9 @@ public struct RuntimeSnapshot {
         }
         let lowercased = value.lowercased()
         guard lowercased.contains("connecting")
-            || lowercased.contains("serve not connected")
-            || lowercased.contains("serve not configured")
-            || lowercased.contains("serve down")
-            || lowercased.contains("serve stopped")
-            || lowercased.contains("serve protocol incompatible") else {
+            || lowercased.contains("backend not connected")
+            || lowercased.contains("backend finishing")
+            || lowercased.contains("incompatible backend") else {
             return nil
         }
         return value

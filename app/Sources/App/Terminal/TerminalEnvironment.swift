@@ -74,6 +74,8 @@ func appChildProcessEnvironment(
         env[key] = value
     }
     env.removeValue(forKey: "QUESTMASTER_HOME")
+    env.removeValue(forKey: "QUESTMASTER_QM")
+    env.removeValue(forKey: "QUESTMASTER_SERVE_SOCKET")
     env["HOME"] = nonEmpty(env["HOME"]) ?? NSHomeDirectory()
     env["SHELL"] = nonEmpty(env["SHELL"]) ?? "/bin/zsh"
     env["LANG"] = nonEmpty(env["LANG"]) ?? "en_US.UTF-8"
@@ -102,16 +104,15 @@ func appChildProcessEnvironment(
 private func applyBackendEnvironment(_ backend: AppBackend, to env: inout [String: String]) {
     env["QUESTMASTER_STATE_ROOT"] = backend.stateRoot
     env["QUESTMASTER_APP"] = "1"
-    env["QUESTMASTER_PATH_PREFIX"] = backend.pathPrefix
-    if backend.source == .dev, backend.shim != nil {
-        env["QUESTMASTER_BIN"] = URL(fileURLWithPath: backend.shimDirectory).appendingPathComponent("qm").path
-    } else if backend.executablePath.isEmpty {
-        env.removeValue(forKey: "QUESTMASTER_BIN")
-    } else {
+    if let record = AppBackendEnvironment.daemonRecord {
+        env["QUESTMASTER_BIN"] = record.executable
+        env["QUESTMASTER_PATH_PREFIX"] = record.shimDirectory
+        env["PATH"] = prependPathPrefix(record.shimDirectory, to: env["PATH"])
+    } else if backend.source != .dev && !backend.executablePath.isEmpty {
         env["QUESTMASTER_BIN"] = backend.executablePath
+    } else {
+        env.removeValue(forKey: "QUESTMASTER_BIN")
     }
-    env["PATH"] = prependPathPrefix(backend.pathPrefix, to: env["PATH"])
-    env.removeValue(forKey: "QUESTMASTER_QM")
 }
 
 func prependPathPrefix(_ prefix: String, to path: String?) -> String {
@@ -283,7 +284,7 @@ private func tmuxEnvironmentSyncCommandLines(environment: [String: String], sync
         "QUESTMASTER_HOME",
         "QUESTMASTER_BIN",
         "QUESTMASTER_PATH_PREFIX",
-        "QUESTMASTER_SERVE_SOCKET",
+        "QUESTMASTER_DAEMON_SOCKET",
     ]
 
     var lines: [String] = []

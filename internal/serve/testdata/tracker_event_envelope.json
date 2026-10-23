@@ -1,5 +1,5 @@
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "type": "event",
   "topic": "tracker",
   "data": {
@@ -30,7 +30,6 @@
         "primary_agent": "codex",
         "session_type": "master",
         "worker_count": 1,
-        "is_current": true,
         "artifacts": [
           {
             "kind": "html",

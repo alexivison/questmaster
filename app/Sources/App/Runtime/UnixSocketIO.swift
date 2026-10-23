@@ -80,7 +80,7 @@ enum UnixSocketIO {
     /// Reads from `fd` until the first newline and returns the bytes before it (newline excluded).
     /// Shared by one-shot request/response callers; the streaming client keeps its own buffered
     /// read loop because it must retain bytes across many lines.
-    static func readLine(from fd: Int32) throws -> Data {
+    static func readLine(from fd: Int32, maxBytes: Int? = nil) throws -> Data {
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
@@ -95,6 +95,9 @@ enum UnixSocketIO {
                 throw ServeClientError.protocolError(String(cString: strerror(errno)))
             }
             pending.append(buffer, count: count)
+            if let maxBytes, pending.count > maxBytes {
+                throw ServeClientError.protocolError("socket line exceeded \(maxBytes) bytes")
+            }
             if let newline = pending.firstRange(of: Data([0x0a])) {
                 return pending.subdata(in: pending.startIndex..<newline.lowerBound)
             }
