@@ -407,6 +407,50 @@ func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
 	}
 }
 
+// The event order follows a live OpenCode 1.19.3 capture: a message's text
+// part settles after its tool call starts, and the message then finishes with
+// tool-calls.
+func TestHookOpenCodeRecordsNarrationBeforeToolCalls(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := "qm-opencode-narration"
+	cleanupRuntimeDir(t, sessionID)
+	const ocSession = "ses_narration"
+	textPart := func(msgID, text string) map[string]interface{} {
+		return map[string]interface{}{"sessionID": ocSession, "part": map[string]interface{}{"type": "text", "text": text, "messageID": msgID}}
+	}
+	const createdMS = 1792729360824
+	assistant := func(msgID, finish string) map[string]interface{} {
+		info := map[string]interface{}{"id": msgID, "role": "assistant", "finish": finish, "time": map[string]interface{}{"created": createdMS}}
+		return map[string]interface{}{"sessionID": ocSession, "info": info}
+	}
+
+	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{"sessionID": ocSession, "tool": "bash"})
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", textPart("msg_1", "I'll list the directory contents first."))
+	openCodeHookEvent(t, r, sessionID, "tool.execute.after", map[string]interface{}{"sessionID": ocSession, "tool": "bash"})
+	openCodeHookEvent(t, r, sessionID, "message.updated", assistant("msg_1", "tool-calls"))
+	narration := rec.events[len(rec.events)-1]
+	if got := chatTextFor(narration, "say"); got != "I'll list the directory contents first." {
+		t.Fatalf("narration say = %q", got)
+	}
+	// Dated at the message's creation so the feed sorts it before its tool call.
+	if got := chatEntries(narration)[0]["chat_timestamp"]; got != time.UnixMilli(createdMS).UTC() {
+		t.Fatalf("narration timestamp = %v", got)
+	}
+	if pending := rec.lastState.Panes["primary"].PendingFinalMessage; pending != "" {
+		t.Fatalf("narration left as pending final message: %q", pending)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", textPart("msg_2", "The directory holds a.txt."))
+	openCodeHookEvent(t, r, sessionID, "message.updated", assistant("msg_2", "stop"))
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "" {
+		t.Fatalf("final message recorded as say: %q", got)
+	}
+	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": ocSession})
+	if got := chatTextFor(rec.events[len(rec.events)-1], "message"); got != "The directory holds a.txt." {
+		t.Fatalf("final message = %q", got)
+	}
+}
+
 func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 	r, rec := newTestRunner(t)
 	sessionID := "qm-opencode-one-session"

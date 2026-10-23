@@ -51,6 +51,11 @@ type openCodePatch struct {
 	partText       string
 	partMsgID      string
 	assistantMsgID string
+	// assistantFinish is "tool-calls" when the message ends in a tool call, so
+	// its text is narration rather than the turn's final message.
+	assistantFinish string
+	// assistantCreatedAt dates narration before the tool call it introduces.
+	assistantCreatedAt time.Time
 }
 
 func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
@@ -198,7 +203,7 @@ func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 		}
 		patch.failedToolCallID = openCodeToolPartErrorCallID(event)
 	case "message.updated":
-		patch.assistantMsgID = openCodeAssistantMessageID(event)
+		patch.assistantMsgID, patch.assistantFinish, patch.assistantCreatedAt = openCodeAssistantMessage(event)
 	}
 	if patch.tool == "" && event.Type == "tool.execute.before" {
 		patch.tool = "tool"
@@ -326,7 +331,18 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		if patch.assistantMsgID != "" && patch.assistantMsgID == pane.PendingPartMsgID {
 			pane.Activity = truncatePromptLine(pane.PendingPartText)
 			pane.Recent = cleanPiRecent(strings.Split(pane.PendingPartText, "\n"))
-			pane.PendingFinalMessage = workerfeed.CapText(pane.PendingPartText)
+			// OpenCode settles a message's text after its tool call starts, so
+			// narration is only known once the message finishes with tool-calls.
+			if patch.assistantFinish == "tool-calls" {
+				saidAt := patch.assistantCreatedAt
+				if saidAt.IsZero() {
+					saidAt = patch.occurredAt
+				}
+				addChatEntryAt(ev, &pane, "say", pane.PendingPartText, saidAt)
+				pane.PendingFinalMessage = ""
+			} else {
+				pane.PendingFinalMessage = workerfeed.CapText(pane.PendingPartText)
+			}
 			pane.PendingPartMsgID = ""
 			pane.PendingPartText = ""
 		}
@@ -547,19 +563,26 @@ func openCodePartText(event openCodeEvent) (string, string) {
 	return strings.TrimSpace(text), msgID
 }
 
-// openCodeAssistantMessageID returns the message id of a message.updated event
-// only when it is assistant-authored. message.updated is the only event that
-// carries the role, so it is what confirms a buffered part may be surfaced.
-func openCodeAssistantMessageID(event openCodeEvent) string {
+// openCodeAssistantMessage returns the message id, finish reason and creation
+// time of a message.updated event only when it is assistant-authored.
+// message.updated is the only event that carries the role, so it is what
+// confirms a buffered part may be surfaced.
+func openCodeAssistantMessage(event openCodeEvent) (id, finish string, createdAt time.Time) {
 	info, ok := event.Properties["info"].(map[string]interface{})
 	if !ok {
-		return ""
+		return "", "", time.Time{}
 	}
 	if role, _ := info["role"].(string); strings.TrimSpace(role) != "assistant" {
-		return ""
+		return "", "", time.Time{}
 	}
-	id, _ := info["id"].(string)
-	return strings.TrimSpace(id)
+	id, _ = info["id"].(string)
+	finish, _ = info["finish"].(string)
+	if times, ok := info["time"].(map[string]interface{}); ok {
+		if created, ok := times["created"].(float64); ok && created > 0 {
+			createdAt = time.UnixMilli(int64(created)).UTC()
+		}
+	}
+	return strings.TrimSpace(id), finish, createdAt
 }
 
 func openCodeNonTextPartActivity(event openCodeEvent) (stateValue, activity, tool string, clearTool bool) {
