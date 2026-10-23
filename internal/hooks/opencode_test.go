@@ -29,7 +29,12 @@ func runOpenCodeHookStub() int {
 	}
 	var payload struct {
 		Event struct {
-			Type string `json:"type"`
+			Type       string `json:"type"`
+			Properties struct {
+				Part struct {
+					ID string `json:"id"`
+				} `json:"part"`
+			} `json:"properties"`
 		} `json:"event"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -87,6 +92,11 @@ func runOpenCodeHookStub() int {
 	}
 	if err := writeOpenCodeCaptureFile(root, event+".json", data); err != nil {
 		return 1
+	}
+	if id := payload.Event.Properties.Part.ID; id != "" {
+		if err := writeOpenCodeCaptureFile(root, "part-"+id+".json", data); err != nil {
+			return 1
+		}
 	}
 	return 0
 }
@@ -388,6 +398,16 @@ assert.ok(at("test.timeout.sigterm") - at("test.timeout") >= 70, "queue advanced
 assert.ok(at("test.after-timeout") - at("test.timeout.sigterm") >= 70, "queue advanced before the timed-out child closed");
 assert.deepEqual(lines.slice(0, 3).map((line) => line.split(":")[0]), ["tool.execute.before", "tool.execute.after", "message.part.updated"]);
 assert.ok(lines.indexOf(lines.find((line) => line.startsWith("test.timeout:"))) < lines.indexOf(lines.find((line) => line.startsWith("test.after-timeout:"))), "next event overtook the timed-out child");
+await hooks.event({ event: { type: "message.part.delta", properties: { field: "text", delta: "Listing" } } });
+await hooks.event({ event: { type: "message.part.updated", properties: { part: { id: "prt-text", type: "text", text: "Listing files." } } } });
+const textPart = { type: "message.part.updated", properties: { part: { id: "prt-text", type: "text", text: "Listing two files." } } };
+const toolPart = { type: "message.part.updated", properties: { part: { id: "prt-tool", type: "tool", state: { status: "running" } } } };
+await hooks.event({ event: textPart });
+await hooks.event({ event: toolPart });
+assert.deepEqual((await wait("part-prt-tool")).event, toolPart, "buffered tool part was not flushed");
+assert.deepEqual((await wait("part-prt-text")).event, textPart, "a newer part replaced the latest text update");
+const partLines = readFileSync(process.env.QM_CAPTURE + "/order.log", "utf8").trim().split("\n");
+assert.ok(!partLines.some((line) => line.startsWith("message.part.delta:")), "token delta was forwarded");
 `
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()

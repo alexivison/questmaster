@@ -446,6 +446,90 @@ func TestHookOpenCodeQuestionBlocksUntilAnswered(t *testing.T) {
 	}
 }
 
+// The event order follows a live OpenCode 1.19.3 capture: a message's text
+// part settles after its tool call starts, and the message then finishes with
+// tool-calls.
+func TestHookOpenCodeRecordsNarrationBeforeToolCalls(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-narration")
+	const ocSession = "ses_narration"
+	textPart := func(msgID, text string) map[string]interface{} {
+		return map[string]interface{}{"sessionID": ocSession, "part": map[string]interface{}{"type": "text", "text": text, "messageID": msgID}}
+	}
+	createdAt := r.Now().Add(-time.Second)
+	assistant := func(msgID, finish string) map[string]interface{} {
+		info := map[string]interface{}{"id": msgID, "role": "assistant", "finish": finish, "time": map[string]interface{}{"created": createdAt.UnixMilli()}}
+		return map[string]interface{}{"sessionID": ocSession, "info": info}
+	}
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": ocSession})
+	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{"sessionID": ocSession, "tool": "bash"})
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", textPart("msg_1", "I'll list the directory contents first."))
+	openCodeHookEvent(t, r, sessionID, "tool.execute.after", map[string]interface{}{"sessionID": ocSession, "tool": "bash"})
+	openCodeHookEvent(t, r, sessionID, "message.updated", assistant("msg_1", "tool-calls"))
+	narration := rec.events[len(rec.events)-1]
+	if got := chatTextFor(narration, "say"); got != "I'll list the directory contents first." {
+		t.Fatalf("narration say = %q", got)
+	}
+	// Dated at the message's creation so the feed sorts it before its tool call.
+	if got := chatEntries(narration)[0]["chat_timestamp"]; got != createdAt {
+		t.Fatalf("narration timestamp = %v", got)
+	}
+	if pending := rec.lastState.Panes["agent"].PendingFinalMessage; pending != "" {
+		t.Fatalf("narration left as pending final message: %q", pending)
+	}
+	if got := rec.lastState.Panes["agent"].Narration; got != "I'll list the directory contents first." {
+		t.Fatalf("tracker narration = %q", got)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", textPart("msg_2", "The directory holds a.txt."))
+	openCodeHookEvent(t, r, sessionID, "message.updated", assistant("msg_2", "stop"))
+	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "" {
+		t.Fatalf("final message recorded as say: %q", got)
+	}
+	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": ocSession})
+	if got := chatTextFor(rec.events[len(rec.events)-1], "message"); got != "The directory holds a.txt." {
+		t.Fatalf("final message = %q", got)
+	}
+}
+
+func TestHookOpenCodeNarrationRedactsCredentialsAndFallsBackToEventTime(t *testing.T) {
+	r, rec := newTestRunner(t)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-narration-fallback")
+	const ocSession = "ses_narration"
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"sessionID": ocSession})
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": ocSession,
+		"part":      map[string]interface{}{"type": "text", "text": "Checking API_KEY=example-value", "messageID": "msg_1"},
+	})
+	assistant := map[string]interface{}{
+		"sessionID": ocSession,
+		"info":      map[string]interface{}{"id": "msg_1", "role": "assistant", "finish": "tool-calls"},
+	}
+	openCodeHookEvent(t, r, sessionID, "message.updated", assistant)
+	event := rec.events[len(rec.events)-1]
+	const want = "Checking API_KEY=[redacted]"
+	if got := chatTextFor(event, "say"); got != want {
+		t.Fatalf("narration = %q, want %q", got, want)
+	}
+	if at := chatEntries(event)[0]["chat_timestamp"]; at != nil {
+		t.Fatalf("fallback timestamp = %v, want the event time", at)
+	}
+	if got := rec.lastState.Panes["agent"].Narration; got != want {
+		t.Fatalf("tracker narration = %q, want %q", got, want)
+	}
+	openCodeHookEvent(t, r, sessionID, "message.updated", assistant)
+	narrations := 0
+	for _, event := range rec.events {
+		if chatTextFor(event, "say") != "" {
+			narrations++
+		}
+	}
+	if narrations != 1 {
+		t.Fatalf("narrations = %d, want one after a duplicate message update", narrations)
+	}
+}
+
 func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 	r, rec := newTestRunner(t)
 	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-one-session")
