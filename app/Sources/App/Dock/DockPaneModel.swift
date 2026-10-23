@@ -71,13 +71,15 @@ final class DockPaneModel: ObservableObject {
 
     @discardableResult
     func apply(
-        _ desired: SessionViewState,
+        _ desired: DockState,
         snapshot: RuntimeSnapshot,
         preferredArtifactSessionID: String?
     ) -> ArtifactDisplayUpdate {
         lastSnapshot = snapshot
-        if self.preferredArtifactSessionID != preferredArtifactSessionID {
-            self.preferredArtifactSessionID = preferredArtifactSessionID
+        self.preferredArtifactSessionID = preferredArtifactSessionID
+        // The filter is app-wide: a session switch keeps it. Edits here report back through onArtifactFilterChange,
+        // so this only takes a change made elsewhere.
+        if artifactFilterQuery != desired.artifactFilterQuery || artifactFilterTokens != desired.artifactFilterTokens {
             artifactFilterQuery = desired.artifactFilterQuery
             artifactFilterTokens = desired.artifactFilterTokens
             artifactFilterSuggestionIndex = 0
@@ -91,20 +93,22 @@ final class DockPaneModel: ObservableObject {
             listGTracker.reset()
         }
         currentDockContent = desired.dockContent
-        if currentMode != .artifacts {
-            return ArtifactDisplayUpdate(artifacts: [], displayState: .noCurrentSession, intent: .none, selectedArtifactID: selectedArtifactID)
-        }
         let route: ArtifactDockRoute = desired.dockContent == .artifactViewer ? .viewer : .list
-        if currentArtifactRoute != route {
-            currentArtifactRoute = route
-        }
-
         var artifactUpdate = artifactDisplayState.update(
             with: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID,
             scope: artifactScope,
-            selectedArtifactID: desired.selectedArtifactID ?? selectedArtifactID
+            selectedArtifactID: desired.selectedArtifactID ?? selectedArtifactID,
+            keepingSelection: route == .viewer
         )
+        // Under the worker chat the baseline and the open intent keep running (a new artifact still opens a hidden
+        // dock, and the list never later opens a stale one); only the artifact list waits.
+        guard currentMode == .artifacts else {
+            return artifactUpdate
+        }
+        if currentArtifactRoute != route {
+            currentArtifactRoute = route
+        }
         let sourceArtifacts = artifactUpdate.artifacts
         artifactUpdate = filteredUpdate(artifactUpdate, snapshot: snapshot)
         selectedArtifactIDs = selectedArtifactIDs.intersection(Set(artifactUpdate.artifacts.map(\.id)))
@@ -353,7 +357,8 @@ final class DockPaneModel: ObservableObject {
             with: snapshot.tracker,
             preferredSessionID: preferredArtifactSessionID,
             scope: artifactScope,
-            selectedArtifactID: selectedArtifactID
+            selectedArtifactID: selectedArtifactID,
+            keepingSelection: currentArtifactRoute == .viewer
         )
         let sourceArtifacts = update.artifacts
         update = filteredUpdate(update, snapshot: snapshot)
@@ -391,10 +396,6 @@ final class DockPaneModel: ObservableObject {
         nextModel.reloadNonce = artifactReloadNonce
         artifactModel = nextModel
         return true
-    }
-
-    func pruneArtifactSessions(keeping liveIDs: Set<String>, active activeID: String?) {
-        artifactDisplayState.pruneSessions(keeping: liveIDs, active: activeID)
     }
 
     private func moveArtifactSelection(delta: Int, snapshot: RuntimeSnapshot) -> Bool {
@@ -491,6 +492,12 @@ final class DockPaneModel: ObservableObject {
 
     private func filteredUpdate(_ update: ArtifactDisplayUpdate, snapshot: RuntimeSnapshot) -> ArtifactDisplayUpdate {
         let visibleArtifacts = filteredArtifacts(update.artifacts, tracker: snapshot.tracker)
+        // The viewer keeps its open artifact, from any session; only the list it goes back to is filtered.
+        if currentArtifactRoute == .viewer {
+            var nextUpdate = update
+            nextUpdate.artifacts = visibleArtifacts
+            return nextUpdate
+        }
         let nextSelectedArtifactID = ArtifactDisplayState.recoveredSelection(
             current: update.selectedArtifactID,
             in: visibleArtifacts
