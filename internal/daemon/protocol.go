@@ -1,0 +1,283 @@
+//go:build linux || darwin
+
+package daemon
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
+	"time"
+)
+
+const ProtocolVersion = 1
+
+// Config supplies the daemon's durable identity and the testable lifetime settings.
+type Config struct {
+	Root, Home, Executable                   string
+	IdleGrace, PollInterval, JobDrainTimeout time.Duration
+	Jobs                                     []Job
+	Handle                                   func(context.Context, string) error
+}
+
+func (c Config) resolve() (Config, string, string, error) {
+	var err error
+	if c.Home == "" {
+		c.Home, err = os.UserHomeDir()
+		if err != nil {
+			return c, "", "", err
+		}
+	}
+	if c.Executable == "" {
+		c.Executable, err = os.Executable()
+		if err != nil {
+			return c, "", "", err
+		}
+	}
+	if c.Root == "" {
+		return c, "", "", errors.New("state root is required")
+	}
+	c.Root, err = filepath.Abs(c.Root)
+	if err != nil {
+		return c, "", "", err
+	}
+	id, err := Identity(c.Root, c.Home, c.Executable)
+	if err != nil {
+		return c, "", "", err
+	}
+	socket, err := SocketPath(c.Root, id)
+	if c.IdleGrace <= 0 {
+		c.IdleGrace = 10 * time.Minute
+	}
+	if c.PollInterval <= 0 {
+		c.PollInterval = 100 * time.Millisecond
+	}
+	return c, id, socket, err
+}
+
+func (c Config) resolveClient() (Config, string, string, error) {
+	resolved, id, socket, err := c.resolve()
+	if err == nil {
+		return resolved, id, socket, nil
+	}
+	canonical, linkErr := filepath.EvalSymlinks(filepath.Join(resolved.Home, ".local", "bin", "questmaster"))
+	if linkErr != nil {
+		return resolved, "", "", err
+	}
+	resolved.Executable = canonical
+	return resolved.resolve()
+}
+
+// Record is the atomically published description of the lock holder.
+type Record struct {
+	Running          bool   `json:"running"`
+	PID              int    `json:"pid"`
+	Root             string `json:"root"`
+	Identity         string `json:"identity"`
+	Socket           string `json:"socket"`
+	Executable       string `json:"executable"`
+	Build            string `json:"build"`
+	Generation       int    `json:"generation"`
+	Clients          int    `json:"clients"`
+	Jobs             bool   `json:"jobs"`
+	HasWork          bool   `json:"has_work"`
+	UpgradeAvailable bool   `json:"upgrade_available"`
+	Accepting        bool   `json:"accepting"`
+}
+
+type hello struct {
+	Root            string `json:"root"`
+	Identity        string `json:"identity"`
+	ProtocolVersion int    `json:"protocol_version"`
+	Generation      int    `json:"generation"`
+	Accepting       bool   `json:"accepting"`
+}
+
+type request struct {
+	Method          string `json:"method"`
+	ProtocolVersion int    `json:"protocol_version"`
+}
+type response struct {
+	OK    bool            `json:"ok"`
+	Error string          `json:"error,omitempty"`
+	Data  json.RawMessage `json:"data,omitempty"`
+}
+
+func dial(c Config, requireReady bool) (net.Conn, *json.Decoder, error) {
+	c, id, socket, err := c.resolveClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	conn, err := net.DialTimeout("unix", socket, 250*time.Millisecond)
+	if err != nil {
+		return nil, nil, err
+	}
+	_ = conn.SetDeadline(time.Now().Add(time.Second))
+	dec := json.NewDecoder(conn)
+	var h hello
+	if err := dec.Decode(&h); err != nil {
+		conn.Close()
+		return nil, nil, err
+	}
+	if h.Root != c.Root || h.Identity != id {
+		conn.Close()
+		return nil, nil, fmt.Errorf("daemon identity mismatch")
+	}
+	if requireReady && (!h.Accepting || h.ProtocolVersion != ProtocolVersion) {
+		conn.Close()
+		return nil, nil, errors.New("daemon is exiting or has an incompatible protocol")
+	}
+	return conn, dec, nil
+}
+
+// Ready succeeds only after the lock holder answers the matching handshake.
+func Ready(c Config) error {
+	conn, _, err := dial(c, true)
+	if err == nil {
+		err = conn.Close()
+	}
+	return err
+}
+
+func call(c Config, method string, requireReady bool) (Record, error) {
+	conn, dec, err := dial(c, requireReady)
+	if err != nil {
+		return Record{}, err
+	}
+	defer conn.Close()
+	if err := json.NewEncoder(conn).Encode(request{Method: method, ProtocolVersion: ProtocolVersion}); err != nil {
+		return Record{}, err
+	}
+	var resp response
+	if err := dec.Decode(&resp); err != nil {
+		return Record{}, err
+	}
+	if !resp.OK {
+		return Record{}, errors.New(resp.Error)
+	}
+	var record Record
+	if len(resp.Data) > 0 {
+		err = json.Unmarshal(resp.Data, &record)
+	}
+	return record, err
+}
+
+// Status reports the running daemon without starting one.
+func Status(c Config) (Record, error) { return call(c, "status", true) }
+
+// Stop requests a clean shutdown and returns after the lifetime lock is free.
+func Stop(ctx context.Context, c Config) (Record, error) {
+	record, err := call(c, "stop", true)
+	if err != nil {
+		return Record{}, err
+	}
+	c, id, _, err := c.resolveClient()
+	if err != nil {
+		return Record{}, err
+	}
+	lock, err := os.OpenFile(filepath.Join(c.Root, "daemon", id+".lock"), os.O_RDWR, 0)
+	if err != nil {
+		return Record{}, err
+	}
+	defer lock.Close()
+	deadline, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	tick := time.NewTicker(c.PollInterval)
+	defer tick.Stop()
+	for {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+			record.Running, record.PID, record.Clients, record.Jobs, record.HasWork, record.Accepting = false, 0, 0, false, false, false
+			return record, nil
+		}
+		if err != syscall.EWOULDBLOCK {
+			return Record{}, err
+		}
+		select {
+		case <-deadline.Done():
+			return Record{}, fmt.Errorf("wait for daemon stop: %w", deadline.Err())
+		case <-tick.C:
+		}
+	}
+}
+
+// CheckUpgrade is connect-only and is handled before protocol validation.
+func CheckUpgrade(c Config) (Record, error) { return call(c, "check-upgrade", false) }
+
+// Ensure starts a detached run process if necessary and waits for readiness.
+func Ensure(ctx context.Context, c Config) (Record, error) {
+	c, id, _, err := c.resolveClient()
+	if err != nil {
+		return Record{}, err
+	}
+	if record, err := Status(c); err == nil {
+		return record, nil
+	}
+	dir := filepath.Join(c.Root, "daemon")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return Record{}, err
+	}
+	if err := os.Chmod(c.Root, 0o700); err != nil {
+		return Record{}, err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return Record{}, err
+	}
+	deadline, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	tick := time.NewTicker(c.PollInterval)
+	defer tick.Stop()
+	starter, err := os.OpenFile(filepath.Join(dir, id+".start.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return Record{}, err
+	}
+	defer starter.Close()
+	for {
+		if err := syscall.Flock(int(starter.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
+			break
+		} else if err != syscall.EWOULDBLOCK {
+			return Record{}, err
+		}
+		if record, err := Status(c); err == nil {
+			return record, nil
+		}
+		select {
+		case <-deadline.Done():
+			return Record{}, fmt.Errorf("wait for daemon starter: %w", deadline.Err())
+		case <-tick.C:
+		}
+	}
+	if record, err := Status(c); err == nil {
+		return record, nil
+	}
+	log, err := os.OpenFile(filepath.Join(dir, id+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return Record{}, err
+	}
+	defer log.Close()
+	cmd := exec.Command(c.Executable, "daemon", "run")
+	cmd.Env = append(os.Environ(), "QUESTMASTER_STATE_ROOT="+c.Root, "HOME="+c.Home)
+	cmd.Dir = c.Home
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, log, log
+	setDetached(cmd)
+	if err := cmd.Start(); err != nil {
+		return Record{}, err
+	}
+	_ = cmd.Process.Release()
+	for {
+		if record, err := Status(c); err == nil {
+			return record, nil
+		}
+		select {
+		case <-deadline.Done():
+			return Record{}, fmt.Errorf("wait for daemon readiness: %w", deadline.Err())
+		case <-tick.C:
+		}
+	}
+}
