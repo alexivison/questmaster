@@ -1,3 +1,4 @@
+import CoreFoundation
 import Darwin
 import Foundation
 import QuestmasterCore
@@ -146,11 +147,15 @@ final class UnixSocketMutationClient: ServeMutationSending {
         return try decodeAck(line)
     }
 
-    private static func decodeAck(_ line: Data) throws -> ServeMutationAck {
+    static func decodeAck(_ line: Data) throws -> ServeMutationAck {
         guard !line.isEmpty,
               let object = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
             throw ServeClientError.protocolError("mutation response is not a JSON object")
         }
+        let version = object["protocol_version"] as? NSNumber
+        try ServeContract.requireProtocolVersion(version.flatMap {
+            CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0 as? Int
+        })
         if object["type"] as? String == "response", object["ok"] as? Bool == false {
             throw ServeClientError.protocolError(object["error"] as? String ?? "mutation failed")
         }

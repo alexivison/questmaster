@@ -305,8 +305,7 @@ struct TrackerRendererTests {
         expect(
             TrackerActivationDecision.action(
                 for: trackerSession(id: "detached", state: "working"),
-                currentTerminalSessionID: nil,
-                sessionIsCurrent: true
+                currentTerminalSessionID: nil
             ) == .switchSession,
             "cleared app current terminal id should reattach the clicked row"
         )

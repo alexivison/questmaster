@@ -3,27 +3,8 @@ import QuestmasterCore
 
 struct ServeRecoveryPolicyTests {
     static func run() {
-        protocolMismatchLatchIsSticky()
         serveRespawnPolicyBoundsRetriesAndResetsAfterReady()
         print("ServeRecoveryPolicyTests: all tests passed")
-    }
-
-    private static func protocolMismatchLatchIsSticky() {
-        var latch = ServeProtocolMismatchLatch()
-        let first = latch.record(
-            ServeClientError.protocolError("serve protocol incompatible: expected protocol_version 1, got 2")
-        )
-        let second = latch.record(
-            ServeClientError.protocolError("serve protocol incompatible: expected protocol_version 1, got 3")
-        )
-
-        expect(latch.isLatched, "protocol mismatch should latch")
-        expect(first == "serve protocol incompatible: expected protocol_version 1, got 2", "first mismatch message not returned")
-        expect(second == first, "latched mismatch should keep the first incompatible state")
-        expect(
-            latch.record(ServeClientError.protocolError("temporary decode error")) == nil,
-            "non-version protocol errors should not latch"
-        )
     }
 
     private static func serveRespawnPolicyBoundsRetriesAndResetsAfterReady() {

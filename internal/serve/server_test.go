@@ -1675,49 +1675,6 @@ func TestServerModelsAndReasoningEffortsTopicsReflectPersistedRoleDefault(t *tes
 	}
 }
 
-func TestServerSwitchMutationUsesLocalTmuxAction(t *testing.T) {
-	env := seedServeFixture(t)
-	socketPath := tempSocketPath(t)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	runner := &recordingTmuxRunner{}
-	srv := &Server{
-		SocketPath:    socketPath,
-		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
-		ClockInterval: time.Hour,
-		TmuxClient:    tmux.NewClient(runner),
-	}
-	errc := serveInBackground(t, ctx, srv, socketPath)
-
-	envResp := sendMutation(t, socketPath, map[string]any{
-		"id":     "switch",
-		"method": "switch",
-		"data":   map[string]any{"session_id": "qm-demo"},
-	})
-	if envResp.Type != "response" || envResp.OK == nil || !*envResp.OK || !envelopeContains(envResp, `"switched":true`) {
-		t.Fatalf("switch response = %#v, want ok switched", envResp)
-	}
-	calls := runner.Calls()
-	if len(calls) != 1 || !reflect.DeepEqual(calls[0], []string{"switch-client", "-t", "qm-demo"}) {
-		t.Fatalf("tmux calls = %#v, want switch-client to qm-demo", calls)
-	}
-
-	badResp := sendRawMutation(t, socketPath, map[string]any{
-		"id":     "bad-switch",
-		"method": "switch",
-		"data":   map[string]any{"session_id": "../qm-demo"},
-	})
-	if badResp.Type != "response" || badResp.OK == nil || *badResp.OK || !strings.Contains(badResp.Error, "invalid session_id") {
-		t.Fatalf("bad switch response = %#v, want invalid session_id error", badResp)
-	}
-
-	cancel()
-	if err := <-errc; err != nil {
-		t.Fatalf("server returned error: %v", err)
-	}
-}
-
 func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	env := seedServeFixture(t)
 	if err := os.MkdirAll(filepath.Join(env.worktree, ".git"), 0o755); err != nil {

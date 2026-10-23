@@ -511,7 +511,7 @@ enum RenderPreview {
     @MainActor
     private static func trackerListDesignView(states: [String: String] = [:], selectedID: String? = nil) -> some View {
         func session(_ id: String, repo: String, color: String, agent: String, role: String, parent: String = "") -> TrackerSession {
-            var session = TrackerSession(
+            TrackerSession(
                 id: id,
                 title: role == "worker" ? "worker-title" : "Session Title",
                 repoName: repo,
@@ -522,8 +522,6 @@ enum RenderPreview {
                 snippet: role == "worker" ? "Ranked exact matches a..." : "Ranked exact matches and row...",
                 parentID: parent
             )
-            session.isCurrent = id == selectedID
-            return session
         }
         func workers(_ parent: String, repo: String, color: String, _ agents: [String]) -> [TrackerSession] {
             agents.enumerated().map { session("\(parent)-w\($0.offset)", repo: repo, color: color, agent: $0.element, role: "worker", parent: parent) }
@@ -543,7 +541,7 @@ enum RenderPreview {
             session("m6", repo: "Scry", color: "blue", agent: "codex", role: "master"),
             session("m7", repo: "Scry", color: "blue", agent: "codex", role: "master"),
         ] + workers("m6", repo: "Scry", color: "blue", ["codex", "codex", "codex"])
-        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["m2"])
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: selectedID ?? "none", expandedMasterIDs: ["m2"])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
             TrackerRepo(id: "dotfiles", name: "Dotfiles", color: "lime", sessions: dotfiles),
             TrackerRepo(id: "questmaster", name: "Questmaster", color: "yellow", sessions: questmaster),
@@ -662,12 +660,9 @@ enum RenderPreview {
             }
         }
         let highlightedID = sessions.last?.id ?? ""
-        if flags.contains("selected") {
-            sessions[sessions.count - 1].isCurrent = true
-        }
         let store = RuntimeStore(
             sourceLabel: "preview",
-            currentTerminalSessionID: flags.contains("attached") ? highlightedID : "none",
+            currentTerminalSessionID: flags.contains("attached") || flags.contains("selected") ? highlightedID : "none",
             expandedMasterIDs: role == "collapsed" || role == "overflow" ? [] : ["a"]
         )
         // The first row is the keyboard cursor, so park a throwaway row above the fixture.

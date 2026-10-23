@@ -1,29 +1,5 @@
 import Foundation
 
-public struct ServeProtocolMismatchLatch {
-    private var message: String?
-
-    public init() {}
-
-    public var isLatched: Bool {
-        message != nil
-    }
-
-    public var latchedMessage: String? {
-        message
-    }
-
-    public mutating func record(_ error: ServeClientError) -> String? {
-        guard error.isProtocolVersionMismatch else {
-            return nil
-        }
-        if message == nil {
-            message = error.localizedDescription
-        }
-        return message
-    }
-}
-
 public struct ServeRespawnPolicy {
     public let maxRestarts: Int
     public let delays: [TimeInterval]

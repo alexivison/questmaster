@@ -67,11 +67,7 @@ final class SessionCoordinator {
         mutationClient.send(request) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
-                case .success(let ack):
-                    if let sessionID = TerminalSessionChipResolver.foregroundSessionID(after: request, ack: ack) {
-                        self?.store.setCurrentTerminalSessionID(sessionID)
-                        self?.dependencies.clearTerminalMessage()
-                    }
+                case .success:
                     if let switchToSessionID {
                         self?.dependencies.switchTerminal(switchToSessionID, nil)
                     }
@@ -187,6 +183,6 @@ final class SessionCoordinator {
            let session = sessions.first(where: { cleanSessionID($0.id) == currentID }) {
             return session.worktreePath
         }
-        return sessions.first { $0.isCurrent }?.worktreePath
+        return nil
     }
 }

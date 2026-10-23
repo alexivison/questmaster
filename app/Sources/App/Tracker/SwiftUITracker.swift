@@ -308,7 +308,7 @@ struct TrackerRootView: View {
     private func trackerContent() -> some View {
         let repos = TrackerRenderer.tracker(snapshot)
         let rows = selectableRows(in: repos)
-        let selectedID = commandState.renderedSelectedID(in: rows)
+        let selectedID = commandState.renderedSelectedID(in: rows, currentTerminalSessionID: store.currentTerminalSessionID)
         // The cursor shows while the tracker has the keys (focused, no modal drawn); otherwise the pointer only shows
         // the hover band (`PlateBand`).
         let areaFocused = navigation.hasKeys(.tracker)
@@ -409,7 +409,7 @@ struct TrackerRootView: View {
             snapshot = store.snapshot
             currentTerminalSessionID = store.currentTerminalSessionID
             let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
-            commandState.recoverStaleSelection(previousRows: previousRows, rows: rows)
+            commandState.recoverStaleSelection(previousRows: previousRows, rows: rows, currentTerminalSessionID: store.currentTerminalSessionID)
 
             // The highlight should follow the active session by any path -- a click already
             // sets selectedID itself, but a keyboard/menu-driven switch (e.g. Cmd+N) only
@@ -466,25 +466,25 @@ struct TrackerRootView: View {
         case .openSelection:
             return dispatch(.activate(openedID: nil), rows: rows)
         case .listCommand(.copySessionID):
-            guard let sessionID = commandState.selectedSession(in: rows)?.id else {
+            guard let sessionID = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID)?.id else {
                 return false
             }
             return dispatchEffect(.copySessionID(sessionID))
         case .listCommand(.editSession):
-            guard let session = commandState.selectedSession(in: rows) else {
+            guard let session = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID) else {
                 return false
             }
             presentEditSession(session)
             return true
         case .listCommand(.editRepo):
-            guard let session = commandState.selectedSession(in: rows) else {
+            guard let session = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID) else {
                 return false
             }
             return presentEditRepo(session)
         case .listCommand(.delete):
             return dispatch(.deleteSelected, rows: rows)
         case .listCommand(.toggleWorkersCollapsed):
-            guard let session = commandState.selectedSession(in: rows),
+            guard let session = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID),
                   SessionRoleKind(role: session.role) == .master,
                   hasWorkers(session.id) else {
                 return false
@@ -500,7 +500,7 @@ struct TrackerRootView: View {
     }
 
     private func moveSelection(delta: Int, rows: [TrackerSession]) -> Bool {
-        commandState.moveSelection(delta: delta, rows: rows)
+        commandState.moveSelection(delta: delta, rows: rows, currentTerminalSessionID: store.currentTerminalSessionID)
     }
 
     private func activate(_ session: TrackerSession) {

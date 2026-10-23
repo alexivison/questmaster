@@ -50,12 +50,10 @@ public struct ArtifactDisplayState: Equatable {
     }
 
     public static func currentSession(in snapshot: TrackerSnapshot, preferredSessionID: String? = nil) -> TrackerSession? {
-        let sessions = snapshot.repos.lazy.flatMap(\.sessions)
-        if let preferredSessionID = cleanSessionID(preferredSessionID),
-           let preferred = sessions.first(where: { $0.id == preferredSessionID }) {
-            return preferred
+        guard let preferredSessionID = cleanSessionID(preferredSessionID) else {
+            return nil
         }
-        return sessions.first { $0.isCurrent }
+        return snapshot.repos.lazy.flatMap(\.sessions).first { $0.id == preferredSessionID }
     }
 
     public static func currentArtifacts(

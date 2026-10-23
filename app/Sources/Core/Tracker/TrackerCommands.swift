@@ -75,16 +75,19 @@ public struct TrackerCommandState: Equatable {
         selectedID = id
     }
 
-    public func renderedSelectedID(in rows: [TrackerSession]) -> String? {
+    public func renderedSelectedID(in rows: [TrackerSession], currentTerminalSessionID: String?) -> String? {
         if let selectedID, rows.contains(where: { $0.id == selectedID }) {
             return selectedID
         }
-        return rows.first(where: \.isCurrent)?.id ?? rows.first?.id
+        guard let currentID = cleanSessionID(currentTerminalSessionID) else {
+            return rows.first?.id
+        }
+        return rows.first { cleanSessionID($0.id) == currentID }?.id ?? rows.first?.id
     }
 
-    public mutating func moveSelection(delta: Int, rows: [TrackerSession]) -> Bool {
+    public mutating func moveSelection(delta: Int, rows: [TrackerSession], currentTerminalSessionID: String?) -> Bool {
         guard let nextID = TrackerSelection.nextSelectionID(
-            currentID: renderedSelectedID(in: rows),
+            currentID: renderedSelectedID(in: rows, currentTerminalSessionID: currentTerminalSessionID),
             sessions: rows,
             delta: delta
         ) else {
@@ -94,10 +97,10 @@ public struct TrackerCommandState: Equatable {
         return true
     }
 
-    public func selectedSession(in rows: [TrackerSession]) -> TrackerSession? {
+    public func selectedSession(in rows: [TrackerSession], currentTerminalSessionID: String?) -> TrackerSession? {
         TrackerActivationTarget.session(
             openedID: nil,
-            selectedID: renderedSelectedID(in: rows),
+            selectedID: renderedSelectedID(in: rows, currentTerminalSessionID: currentTerminalSessionID),
             sessions: rows
         )
     }
@@ -123,7 +126,7 @@ public struct TrackerCommandState: Equatable {
             }
             return [.confirmDeleteThenMutation(plan)]
         case .beginRecolor(let scope):
-            guard let status = beginRecolor(scope: scope, rows: rows) else {
+            guard let status = beginRecolor(scope: scope, rows: rows, currentTerminalSessionID: currentTerminalSessionID) else {
                 return nil
             }
             return [.showStatus(status)]
@@ -148,7 +151,7 @@ public struct TrackerCommandState: Equatable {
         self.recolorEdit = nil
     }
 
-    public mutating func recoverStaleSelection(previousRows: [TrackerSession], rows: [TrackerSession]) {
+    public mutating func recoverStaleSelection(previousRows: [TrackerSession], rows: [TrackerSession], currentTerminalSessionID: String?) {
         guard let selectedID,
               !rows.contains(where: { $0.id == selectedID }) else {
             return
@@ -156,7 +159,7 @@ public struct TrackerCommandState: Equatable {
         guard let deleted = previousRows.first(where: { $0.id == selectedID }),
               let recoveryID = TrackerSelection.nextActiveAfterDeleteID(deleted: deleted, sessions: previousRows),
               rows.contains(where: { $0.id == recoveryID }) else {
-            select(renderedSelectedID(in: rows))
+            select(renderedSelectedID(in: rows, currentTerminalSessionID: currentTerminalSessionID))
             return
         }
         select(recoveryID)
@@ -166,7 +169,7 @@ public struct TrackerCommandState: Equatable {
         rows: [TrackerSession],
         currentTerminalSessionID: String?
     ) -> TrackerDeletePlan? {
-        guard let session = selectedSession(in: rows) else {
+        guard let session = selectedSession(in: rows, currentTerminalSessionID: currentTerminalSessionID) else {
             return nil
         }
         let recoveryTarget = TrackerSelection.switchBeforeDeleteTarget(
@@ -192,9 +195,10 @@ public struct TrackerCommandState: Equatable {
 
     public mutating func beginRecolor(
         scope: TrackerRecolorScope,
-        rows: [TrackerSession]
+        rows: [TrackerSession],
+        currentTerminalSessionID: String?
     ) -> String? {
-        guard let session = selectedSession(in: rows) else {
+        guard let session = selectedSession(in: rows, currentTerminalSessionID: currentTerminalSessionID) else {
             return nil
         }
         let target = TrackerRecolorTarget(
@@ -243,15 +247,14 @@ public struct TrackerCommandState: Equatable {
     ) -> [TrackerEffect]? {
         guard let session = TrackerActivationTarget.session(
             openedID: openedID,
-            selectedID: renderedSelectedID(in: rows),
+            selectedID: renderedSelectedID(in: rows, currentTerminalSessionID: currentTerminalSessionID),
             sessions: rows
         ) else {
             return nil
         }
         switch TrackerActivationDecision.action(
             for: session,
-            currentTerminalSessionID: currentTerminalSessionID,
-            sessionIsCurrent: session.isCurrent
+            currentTerminalSessionID: currentTerminalSessionID
         ) {
         case .focusCurrentSession:
             return [.focusCurrentTerminal]

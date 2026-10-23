@@ -164,10 +164,6 @@ struct MutationRequestTests {
             expect(delete.method == "delete", "delete method mismatch")
             expect(deleteData?["session_id"] as? String == "qm-a", "delete session id should be trimmed")
 
-            let switchRequest = try ServeMutationRequests.switchSession(sessionID: " qm-b ")
-            let switchData = switchRequest.jsonObject(id: "switch")["data"] as? NSDictionary
-            expect(switchRequest.method == "switch", "switch method mismatch")
-            expect(switchData?["session_id"] as? String == "qm-b", "switch session id should be trimmed")
         } catch {
             fail("session request threw \(error)")
         }

@@ -12,7 +12,7 @@ final class UnixSocketServeClient {
     private var fd: Int32 = -1
     private var stopped = false
     private var lastUnavailableMessage = ""
-    private var protocolMismatchLatch = ServeProtocolMismatchLatch()
+    private var incompatibleMessage: String?
     private var onUpdate: ((RuntimeUpdate) -> Void)?
     private var onStatus: ((String) -> Void)?
 
@@ -54,12 +54,14 @@ final class UnixSocketServeClient {
         while !stopped {
             do {
                 fd = try connectSocket()
-                attempt = 0
-                lastUnavailableMessage = ""
                 onStatus?("serve socket connected: \(socketPath)")
                 try sendInitialRequests()
 
-                switch readLoop() {
+                let exit = readLoop()
+                if incompatibleMessage == nil {
+                    attempt = 0
+                }
+                switch exit {
                 case .stopped:
                     closeCurrentSocket()
                     return
@@ -70,8 +72,7 @@ final class UnixSocketServeClient {
                     onStatus?("serve socket read failed: \(message); reconnecting")
                     emitUnavailable("serve not connected - reconnecting")
                 case .incompatible:
-                    closeCurrentSocket()
-                    return
+                    break
                 }
             } catch {
                 if !stopped {
@@ -95,6 +96,7 @@ final class UnixSocketServeClient {
     }
 
     private func emitUnavailable(_ message: String) {
+        let message = incompatibleMessage ?? message
         guard lastUnavailableMessage != message else {
             return
         }
@@ -133,12 +135,12 @@ final class UnixSocketServeClient {
         case stopped
         case closed
         case failed(String)
-        case incompatible(String)
+        case incompatible
     }
 
     private enum LineHandleResult {
         case handled
-        case incompatible(String)
+        case incompatible
     }
 
     private func readLoop() -> ReadLoopExit {
@@ -165,8 +167,8 @@ final class UnixSocketServeClient {
                 switch handle(line) {
                 case .handled:
                     break
-                case .incompatible(let message):
-                    return .incompatible(message)
+                case .incompatible:
+                    return .incompatible
                 }
             }
             compactPendingBuffer(&pending, parseOffset: &parseOffset)
@@ -196,15 +198,17 @@ final class UnixSocketServeClient {
     private func handle(_ line: Data) -> LineHandleResult {
         do {
             if let update = try ServeContract.update(fromLine: line) {
+                incompatibleMessage = nil
+                lastUnavailableMessage = ""
                 onUpdate?(update)
             }
         } catch let error as ServeClientError where error.isProtocolVersionMismatch {
-            guard let message = protocolMismatchLatch.record(error) else {
-                return .handled
-            }
+            let message = error.localizedDescription
+            let status = "incompatible backend: \(message)"
+            incompatibleMessage = status
             onStatus?("serve decode failed: \(message)")
-            emitUnavailable(message)
-            return .incompatible(message)
+            emitUnavailable(status)
+            return .incompatible
         } catch {
             onStatus?("serve decode failed: \(error.localizedDescription)")
         }

@@ -45,10 +45,6 @@ public enum ServeMutationRequests {
         ServeMutationRequest(method: "continue", data: ["session_id": try required("session_id", sessionID)])
     }
 
-    public static func switchSession(sessionID: String) throws -> ServeMutationRequest {
-        ServeMutationRequest(method: "switch", data: ["session_id": try required("session_id", sessionID)])
-    }
-
     public static func renameSession(sessionID: String, title: String) throws -> ServeMutationRequest {
         ServeMutationRequest(method: "rename", data: [
             "session_id": try required("session_id", sessionID),
