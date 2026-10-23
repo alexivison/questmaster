@@ -8,23 +8,26 @@ final class DaemonConnection {
     private let lock = NSLock()
     private var cached: DaemonRecord?
     private var respawnPolicy = ServeRespawnPolicy()
-    private var exhausted = false
     private var lastFailure: Error?
+    private let now: () -> Date
 
-    init(config: LaunchConfiguration, record: DaemonRecord? = nil) {
+    init(config: LaunchConfiguration, record: DaemonRecord? = nil, now: @escaping () -> Date = { Date() }) {
         self.config = config
         self.cached = record
+        self.now = now
     }
 
     func invalidate() {
         lock.lock(); cached = nil; lock.unlock()
     }
 
-    func record() throws -> DaemonRecord {
+    func record(userInitiated: Bool = false) throws -> DaemonRecord {
         lock.lock()
         defer { lock.unlock() }
         if let cached { return cached }
-        if exhausted, let lastFailure { throw lastFailure }
+        if !respawnPolicy.canAttempt(now: now(), userInitiated: userInitiated) {
+            throw lastFailure ?? ServeClientError.connect("backend unavailable")
+        }
         guard let command = config.backend.command(config.startDaemon ? "start" : "status") else {
             throw ServeClientError.connect("qm backend not found")
         }
@@ -39,7 +42,6 @@ final class DaemonConnection {
                 }
                 cached = record
                 respawnPolicy.reset()
-                exhausted = false
                 lastFailure = nil
                 AppBackendEnvironment.use(record)
                 if record.shouldCheckUpgrade(diskBuild: Self.sha256(record.executable)),
@@ -51,15 +53,18 @@ final class DaemonConnection {
                 lastError = error
             }
             guard config.startDaemon, let delay = respawnPolicy.nextDelay() else {
-                if config.startDaemon { exhausted = true; lastFailure = lastError }
+                if config.startDaemon {
+                    respawnPolicy.coolDown(after: now())
+                    lastFailure = lastError
+                }
                 throw lastError
             }
             Thread.sleep(forTimeInterval: delay)
         }
     }
 
-    func connect() throws -> Int32 {
-        let record = try record()
+    func connect(userInitiated: Bool = false) throws -> Int32 {
+        let record = try record(userInitiated: userInitiated)
         let fd: Int32
         do {
             fd = try UnixSocketIO.connect(path: config.daemonSocketOverride ?? record.socket)

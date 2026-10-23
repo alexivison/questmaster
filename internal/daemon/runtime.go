@@ -432,7 +432,7 @@ func (s *server) shutdown(idle bool) error {
 	s.mu.Lock()
 	s.record.Accepting = false
 	s.mu.Unlock()
-	if s.listener != nil {
+	if !idle && s.listener != nil {
 		_ = s.listener.Close()
 		s.listener = nil
 	}
@@ -448,19 +448,19 @@ func (s *server) shutdown(idle bool) error {
 		time.Sleep(s.config.PollInterval)
 	}
 	if idle && drained && (s.hasWork() || s.clients() > 0) {
-		if err := s.listen(); err != nil {
-			return err
-		}
 		s.mu.Lock()
 		s.record.Accepting = true
 		s.lastActivity = time.Now()
 		s.mu.Unlock()
 		if err := s.publish(); err != nil {
-			return err
+			fmt.Fprintf(os.Stderr, "daemon resume record: %v\n", err)
 		}
 		s.startJobs()
-		s.accept()
 		return nil
+	}
+	if s.listener != nil {
+		_ = s.listener.Close()
+		s.listener = nil
 	}
 	s.stopJobs()
 	fmt.Fprintln(os.Stderr, "daemon stopping")

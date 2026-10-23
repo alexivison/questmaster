@@ -188,20 +188,24 @@ enum LogicSelfTests {
         try writeExecutable("#!/bin/sh\nprintf x >> '\(marker.path)'\nexit 1\n", to: fixture.qm)
         let start = LaunchConfiguration.load(environment: fixture.environment,
                                              workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
-        let connection = DaemonConnection(config: start)
+        let now = Date(timeIntervalSince1970: 1_000)
+        let connection = DaemonConnection(config: start, now: { now })
         for _ in 0..<2 {
             var failed = false
             do { _ = try connection.record() } catch { failed = true }
             try expect(failed, "broken daemon command should fail")
         }
         let attempts = try String(contentsOf: marker, encoding: .utf8)
-        try expect(attempts == "xxxx", "Ensure should make one initial attempt and three delayed retries, then stop")
+        try expect(attempts == "xxxx", "Ensure should make one initial attempt and three delayed retries, then cool down")
+        do { _ = try connection.record(userInitiated: true) } catch { /* Expected. */ }
+        let afterUserAction = try String(contentsOf: marker, encoding: .utf8)
+        try expect(afterUserAction == "xxxxxxxx", "user request should retry even during the cool-down")
 
         let connectOnly = LaunchConfiguration.load(arguments: ["--no-daemon-start"], environment: fixture.environment,
                                                     workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
         do { _ = try DaemonConnection(config: connectOnly).record() } catch { /* Expected. */ }
         let afterStatus = try String(contentsOf: marker, encoding: .utf8)
-        try expect(afterStatus == "xxxxx", "connect-only should run status once and never Ensure")
+        try expect(afterStatus == "xxxxxxxxx", "connect-only should run status once and never Ensure")
     }
 
     private static func testRevertedShellRowsUseFreshShellAccent() throws {

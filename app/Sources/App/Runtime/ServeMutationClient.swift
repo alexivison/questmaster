@@ -127,8 +127,12 @@ final class UnixSocketMutationClient: ServeMutationSending {
         throw lastError
     }
 
-    private static func sendObject(_ object: [String: Any], connection: DaemonConnection) throws -> ServeMutationAck {
-        let fd = try connectWithRetry(socketPath: "daemon", connect: { _ in try connection.connect() })
+    private static func sendObject(_ object: [String: Any], connection: DaemonConnection, userInitiated: Bool = true) throws -> ServeMutationAck {
+        var firstAttempt = true
+        let fd = try connectWithRetry(socketPath: "daemon", connect: { _ in
+            defer { firstAttempt = false }
+            return try connection.connect(userInitiated: userInitiated && firstAttempt)
+        })
         defer {
             shutdown(fd, SHUT_RDWR)
             close(fd)
@@ -281,7 +285,7 @@ extension UnixSocketMutationClient {
     func fetchWorkerFeed(_ request: WorkerFeedRequest, completion: @escaping (Result<WorkerFeedPayload, Error>) -> Void) {
         feedQueue.async { [connection] in
             do {
-                let ack = try Self.sendObject(request.jsonObject(id: UUID().uuidString), connection: connection)
+                let ack = try Self.sendObject(request.jsonObject(id: UUID().uuidString), connection: connection, userInitiated: false)
                 completion(.success(try ack.decoded(WorkerFeedPayload.self)))
             } catch {
                 completion(.failure(error))

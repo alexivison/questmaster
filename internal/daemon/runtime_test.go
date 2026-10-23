@@ -94,6 +94,70 @@ func (j workJob) Name() string                  { return "work" }
 func (j workJob) Run(ctx context.Context) error { <-ctx.Done(); return nil }
 func (j workJob) HasWork() bool                 { return j.work }
 
+type blockingWorkJob struct {
+	checking      chan struct{}
+	continueCheck chan struct{}
+}
+
+func (j blockingWorkJob) Name() string                  { return "blocking-work" }
+func (j blockingWorkJob) Run(ctx context.Context) error { <-ctx.Done(); return nil }
+func (j blockingWorkJob) HasWork() bool {
+	close(j.checking)
+	<-j.continueCheck
+	return false
+}
+
+func TestIdleCheckKeepsListenerForArrivingClient(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "daemon")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := SocketPath(root, "canonical")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := blockingWorkJob{checking: make(chan struct{}), continueCheck: make(chan struct{})}
+	s := &server{config: Config{Root: root, PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second, Jobs: []Job{job}}, id: "canonical", socket: socket, dir: dir, record: Record{Root: root, Identity: "canonical", Accepting: true, Jobs: true}}
+	if err := s.listen(); err != nil {
+		t.Fatal(err)
+	}
+	listener := s.listener
+	defer func() { listener.Close(); os.Remove(socket) }()
+	s.accept()
+	done := make(chan error, 1)
+	go func() { done <- s.shutdown(true) }()
+	<-job.checking
+	client, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	var greeting hello
+	if err := json.NewDecoder(client).Decode(&greeting); err != nil {
+		t.Fatal(err)
+	}
+	if greeting.Accepting {
+		t.Fatal("client arriving during idle check was told to use a quiescing daemon")
+	}
+	close(job.continueCheck)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if s.listener != listener {
+		t.Fatal("idle resume replaced the live listener")
+	}
+	resumed, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resumed.Close()
+	if err := json.NewDecoder(resumed).Decode(&greeting); err != nil || !greeting.Accepting {
+		t.Fatalf("resumed handshake: %+v, %v", greeting, err)
+	}
+}
+
 func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -126,6 +190,12 @@ func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 				}
 				os.Remove(socket)
 			}()
+			if tc.name == "client" {
+				// A record write failure must not kill a daemon with a live client.
+				if err := os.RemoveAll(dir); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := s.shutdown(true); err != nil {
 				t.Fatal(err)
 			}
