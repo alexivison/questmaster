@@ -58,7 +58,7 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 		record, err := daemon.Stop(cmd.Context(), config())
 		return report(cmd, record, err)
 	}})
-	parent.AddCommand(&cobra.Command{Use: "check-upgrade", Short: "Check for a verified replacement binary", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	parent.AddCommand(&cobra.Command{Use: "check-upgrade", Short: "Probe and start a verified replacement binary", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		record, err := daemon.CheckUpgrade(config())
 		return report(cmd, record, err)
 	}})

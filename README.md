@@ -144,7 +144,7 @@ questmaster daemon status  # inspect its identity, clients, jobs, and build
 ```
 
 Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, and `delete` are available as backend commands for clients and automation.
-The app still uses `serve`; the D1 daemon does not handle app requests yet. `daemon stop` shuts it down, and `daemon check-upgrade` probes a replacement binary without starting a daemon.
+The app still uses `serve`; the daemon does not handle app requests yet. `daemon stop` shuts it down. `daemon check-upgrade` is connect-only: when it verifies a replacement binary, the running daemon re-execs in place with the same PID and socket.
 
 When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook can rename the tmux window after the first message. An explicit title is always kept as-is.
 

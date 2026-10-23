@@ -112,12 +112,13 @@ func (s *server) quiesceJobs() bool {
 			drained = false
 		}
 	}
-	s.jobsCancel, s.jobsDone = nil, nil
+	if drained {
+		s.jobsCancel, s.jobsDone = nil, nil
+	}
 	return drained
 }
 
 func (s *server) stopJobs() {
-	s.quiesceJobs()
 	if s.jobsLock != nil {
 		_ = s.jobsLock.Close()
 		s.jobsLock = nil
