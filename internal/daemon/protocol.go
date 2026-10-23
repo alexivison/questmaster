@@ -21,6 +21,7 @@ const ProtocolVersion = 1
 type Config struct {
 	Root, Home, Executable                   string
 	IdleGrace, PollInterval, JobDrainTimeout time.Duration
+	ReadIdleTimeout, WriteTimeout            time.Duration
 	Jobs                                     []Job
 	Handle                                   func(context.Context, string) error
 }
@@ -56,6 +57,12 @@ func (c Config) resolve() (Config, string, string, error) {
 	}
 	if c.PollInterval <= 0 {
 		c.PollInterval = 100 * time.Millisecond
+	}
+	if c.ReadIdleTimeout <= 0 {
+		c.ReadIdleTimeout = 24 * time.Hour
+	}
+	if c.WriteTimeout <= 0 {
+		c.WriteTimeout = 30 * time.Second
 	}
 	return c, id, socket, err
 }
@@ -117,7 +124,7 @@ func dial(c Config, requireReady bool) (net.Conn, *json.Decoder, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	_ = conn.SetDeadline(time.Now().Add(time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	dec := json.NewDecoder(conn)
 	var h hello
 	if err := dec.Decode(&h); err != nil {
@@ -132,6 +139,7 @@ func dial(c Config, requireReady bool) (net.Conn, *json.Decoder, error) {
 		conn.Close()
 		return nil, nil, errors.New("daemon is exiting or has an incompatible protocol")
 	}
+	_ = conn.SetReadDeadline(time.Time{})
 	return conn, dec, nil
 }
 
@@ -150,6 +158,11 @@ func call(c Config, method string, requireReady bool) (Record, error) {
 		return Record{}, err
 	}
 	defer conn.Close()
+	timeout := 5 * time.Second
+	if method == "check-upgrade" {
+		timeout = 15 * time.Second
+	}
+	_ = conn.SetDeadline(time.Now().Add(timeout))
 	if err := json.NewEncoder(conn).Encode(request{Method: method, ProtocolVersion: ProtocolVersion}); err != nil {
 		return Record{}, err
 	}

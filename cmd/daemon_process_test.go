@@ -332,6 +332,12 @@ func TestDaemonStatusReportsMismatchedHandshake(t *testing.T) {
 func TestDaemonCanonicalAndDevJobs(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	canonical := h.must("daemon", "start")
+	if err := os.WriteFile(filepath.Join(h.root, "daemon", "test-work"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if status := h.must("daemon", "status"); status["has_work"] != false {
+		t.Fatalf("production daemon ran a test job: %+v", status)
+	}
 	dev := filepath.Join(h.root, "daemon", "bin", "dev-test", "exe", "qm")
 	if err := os.MkdirAll(filepath.Dir(dev), 0o700); err != nil {
 		t.Fatal(err)
@@ -364,6 +370,9 @@ func TestDaemonCanonicalAndDevJobs(t *testing.T) {
 	}
 	if canonical["jobs"] != true || child["jobs"] != false || child["identity"] != "dev-test" {
 		t.Fatalf("canonical=%+v dev=%+v", canonical, child)
+	}
+	if child["has_work"] != false {
+		t.Fatalf("dev daemon reported another daemon's work: %+v", child)
 	}
 	if canonical["pid"] == child["pid"] {
 		t.Fatal("dev and canonical share a process")

@@ -60,9 +60,6 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 		return fmt.Errorf("daemon chdir home: %w", err)
 	}
 	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), lastActivity: time.Now(), jobsRequested: jobsRequested || id == "canonical"}
-	if s.config.Jobs == nil {
-		s.config.Jobs = []Job{&testJob{root: config.Root}}
-	}
 	s.lock, err = os.OpenFile(filepath.Join(dir, id+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
@@ -234,14 +231,15 @@ func (s *server) handle(conn net.Conn) {
 	h := hello{Root: s.record.Root, Identity: s.id, ProtocolVersion: ProtocolVersion, Generation: s.record.Generation, Accepting: s.record.Accepting}
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); s.record.Clients--; s.lastActivity = time.Now(); s.mu.Unlock() }()
-	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 	enc := json.NewEncoder(conn)
+	_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 	if err := enc.Encode(h); err != nil {
 		return
 	}
 	dec := json.NewDecoder(conn)
 	for {
 		var req request
+		_ = conn.SetReadDeadline(time.Now().Add(s.config.ReadIdleTimeout))
 		if err := dec.Decode(&req); err != nil {
 			return
 		}
@@ -252,10 +250,12 @@ func (s *server) handle(conn net.Conn) {
 		}
 		s.mu.Unlock()
 		if !accepting {
+			_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 			_ = enc.Encode(response{Error: "exiting"})
 			return
 		}
 		resp := s.dispatch(req)
+		_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
 		_ = enc.Encode(resp)
 		s.mu.Lock()
 		s.active--

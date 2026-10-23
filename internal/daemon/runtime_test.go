@@ -8,7 +8,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -17,7 +19,7 @@ func TestShutdownLetsDispatchedRequestFinish(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s := &server{config: Config{PollInterval: time.Millisecond, Handle: func(context.Context, string) error {
+	s := &server{config: Config{PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second, Handle: func(context.Context, string) error {
 		close(started)
 		<-release
 		return nil
@@ -86,13 +88,14 @@ func (j workJob) HasWork() bool                 { return j.work }
 func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name         string
-		clients      int
-		work, resume bool
+		name                   string
+		clients                int
+		work, ownsJobs, resume bool
 	}{
-		{"client", 1, false, true},
-		{"work", 0, true, true},
-		{"exit", 0, false, false},
+		{"client", 1, false, false, true},
+		{"work", 0, true, true, true},
+		{"unowned-work", 0, true, false, false},
+		{"exit", 0, false, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -104,7 +107,7 @@ func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			s := &server{config: Config{Root: root, PollInterval: time.Millisecond, Jobs: []Job{workJob{tc.work}}}, id: "canonical", socket: socket, dir: dir, record: Record{Root: root, Identity: "canonical", Accepting: true, Clients: tc.clients}}
+			s := &server{config: Config{Root: root, PollInterval: time.Millisecond, Jobs: []Job{workJob{tc.work}}}, id: "canonical", socket: socket, dir: dir, record: Record{Root: root, Identity: "canonical", Accepting: true, Clients: tc.clients, Jobs: tc.ownsJobs}}
 			if err := s.listen(); err != nil {
 				t.Fatal(err)
 			}
@@ -121,6 +124,56 @@ func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 				t.Fatalf("resume = %t, want %t", s.listener != nil, tc.resume)
 			}
 		})
+	}
+}
+
+func TestConnectionSurvivesReadDeadlinesAndPreventsIdleExit(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "daemon")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := SocketPath(root, "canonical")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{config: Config{Root: root, ReadIdleTimeout: 200 * time.Millisecond, WriteTimeout: time.Second, PollInterval: time.Millisecond}, id: "canonical", socket: socket, dir: dir, record: Record{Root: root, Identity: "canonical", Accepting: true}}
+	if err := s.listen(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if s.listener != nil {
+			s.listener.Close()
+		}
+		os.Remove(socket)
+	}()
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	go s.handle(serverConn)
+	dec, enc := json.NewDecoder(clientConn), json.NewEncoder(clientConn)
+	var greeting hello
+	if err := dec.Decode(&greeting); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 9; i++ {
+		time.Sleep(50 * time.Millisecond)
+		if err := enc.Encode(request{Method: "status", ProtocolVersion: ProtocolVersion}); err != nil {
+			t.Fatal(err)
+		}
+		var reply response
+		if err := dec.Decode(&reply); err != nil || !reply.OK {
+			t.Fatalf("request %d: %v %+v", i, err, reply)
+		}
+	}
+	if s.clients() != 1 {
+		t.Fatal("live connection was not counted")
+	}
+	if err := s.shutdown(true); err != nil {
+		t.Fatal(err)
+	}
+	if s.listener == nil {
+		t.Fatal("idle exit ignored the live connection")
 	}
 }
 
@@ -186,6 +239,38 @@ func TestTestJobKeepsWorkOnReadErrorWithBackoff(t *testing.T) {
 	}
 }
 
+type testJob struct {
+	root       string
+	mu         sync.Mutex
+	now        func() time.Time
+	retryDelay time.Duration
+	retryAfter time.Time
+}
+
+func (j *testJob) HasWork() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	now := time.Now
+	if j.now != nil {
+		now = j.now
+	}
+	if now().Before(j.retryAfter) {
+		return true
+	}
+	info, err := os.Stat(filepath.Join(j.root, "daemon", "test-work"))
+	if err == nil && info.IsDir() {
+		err = syscall.EISDIR
+	}
+	if err != nil && !os.IsNotExist(err) {
+		delay := j.retryDelay
+		if delay <= 0 {
+			delay = time.Second
+		}
+		j.retryAfter = now().Add(delay)
+	}
+	return err == nil || !os.IsNotExist(err)
+}
+
 func TestIdleExitDoesNotResumeWithUndrainedJob(t *testing.T) {
 	t.Parallel()
 	s := &server{config: Config{JobDrainTimeout: time.Millisecond, PollInterval: time.Millisecond, Jobs: []Job{workJob{work: true}}}, jobsCancel: func() {}, jobsDone: make(chan struct{}), record: Record{Clients: 1, Accepting: true}}
@@ -240,5 +325,48 @@ func TestClientRejectsMismatchedHandshake(t *testing.T) {
 				t.Fatal("mismatched daemon accepted")
 			}
 		})
+	}
+}
+
+func TestCheckUpgradeGetsProbeDeadlineAfterHandshake(t *testing.T) {
+	t.Parallel()
+	root, home := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "daemon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, ".local", "bin", "questmaster")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/usr/bin/true", link); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := SocketPath(root, "canonical")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { ln.Close(); os.Remove(socket) }()
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_ = json.NewEncoder(conn).Encode(hello{Root: root, Identity: "canonical", ProtocolVersion: ProtocolVersion, Accepting: true})
+		var req request
+		if json.NewDecoder(conn).Decode(&req) != nil {
+			return
+		}
+		time.Sleep(1200 * time.Millisecond)
+		data, _ := json.Marshal(Record{Identity: "canonical", UpgradeAvailable: true})
+		_ = json.NewEncoder(conn).Encode(response{OK: true, Data: data})
+	}()
+	record, err := CheckUpgrade(Config{Root: root, Home: home, Executable: "/usr/bin/true"})
+	if err != nil || !record.UpgradeAvailable {
+		t.Fatalf("probe response after handshake deadline: %+v %v", record, err)
 	}
 }

@@ -19,49 +19,14 @@ type Job interface {
 	HasWork() bool
 }
 
-type testJob struct {
-	root       string
-	mu         sync.Mutex
-	now        func() time.Time
-	retryDelay time.Duration
-	retryAfter time.Time
-}
-
-func (j *testJob) Name() string                  { return "test" }
-func (j *testJob) Run(ctx context.Context) error { <-ctx.Done(); return nil }
-func (j *testJob) HasWork() bool {
-	j.mu.Lock()
-	defer j.mu.Unlock()
-	now := time.Now
-	if j.now != nil {
-		now = j.now
-	}
-	if now().Before(j.retryAfter) {
-		return true
-	}
-	info, err := os.Stat(filepath.Join(j.root, "daemon", "test-work"))
-	if err == nil && info.IsDir() {
-		err = syscall.EISDIR
-	}
-	if err != nil && !os.IsNotExist(err) {
-		delay := j.retryDelay
-		if delay <= 0 {
-			delay = time.Second
-		}
-		j.retryAfter = now().Add(delay)
-	}
-	return err == nil || !os.IsNotExist(err)
-}
-
-func (s *server) jobList() []Job {
-	if s.config.Jobs != nil {
-		return s.config.Jobs
-	}
-	return []Job{&testJob{root: s.config.Root}}
-}
-
 func (s *server) hasWork() bool {
-	for _, job := range s.jobList() {
+	s.mu.Lock()
+	runsJobs := s.record.Jobs
+	s.mu.Unlock()
+	if !runsJobs {
+		return false
+	}
+	for _, job := range s.config.Jobs {
 		if job.HasWork() {
 			return true
 		}
@@ -97,7 +62,7 @@ func (s *server) tryJobsLock() {
 	go func() {
 		defer close(s.jobsDone)
 		var wg sync.WaitGroup
-		for _, job := range s.jobList() {
+		for _, job := range s.config.Jobs {
 			wg.Add(1)
 			go func(job Job) { defer wg.Done(); runJob(ctx, job, time.Second) }(job)
 		}

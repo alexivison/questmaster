@@ -17,6 +17,7 @@ import (
 func (s *server) probeUpgrade() {
 	s.mu.Lock()
 	active := s.active
+	currentBuild := s.record.Build
 	s.record.UpgradeAvailable = false
 	s.mu.Unlock()
 	if active > 1 {
@@ -39,7 +40,7 @@ func (s *server) probeUpgrade() {
 		return
 	}
 	build, err := fileHash(path)
-	if err != nil || build == s.record.Build {
+	if err != nil || build == currentBuild {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -3,7 +3,6 @@
 package daemon
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
 )
 
@@ -22,8 +21,8 @@ func rotateLog(path string) error {
 		return err
 	}
 	defer f.Close()
-	if err := unix.Dup2(int(f.Fd()), 1); err != nil {
+	if err := dupLogFD(int(f.Fd()), 1); err != nil {
 		return err
 	}
-	return unix.Dup2(int(f.Fd()), 2)
+	return dupLogFD(int(f.Fd()), 2)
 }
