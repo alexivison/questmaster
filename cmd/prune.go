@@ -30,7 +30,7 @@ func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "prune",
-		Short: "Remove stale questmaster session manifests",
+		Short: "Remove stale session manifests and orphaned state directories",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, err := pruneManifests(cmd.Context(), store, client, days, dryRun)
 			if err != nil {
@@ -71,7 +71,28 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".lock") {
+		if e.IsDir() {
+			if !state.IsValidSessionID(name) || liveSet[name] {
+				continue
+			}
+			if _, err := os.Lstat(filepath.Join(root, name+".json")); !os.IsNotExist(err) {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil || info.ModTime().After(cutoff) {
+				continue
+			}
+			path := filepath.Join(root, name)
+			if !dryRun {
+				if err := os.RemoveAll(path); err != nil {
+					continue
+				}
+			}
+			result.Paths = append(result.Paths, path)
+			result.Pruned++
+			continue
+		}
+		if !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".lock") {
 			continue
 		}
 		sessionID := strings.TrimSuffix(name, ".json")

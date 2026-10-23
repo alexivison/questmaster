@@ -78,8 +78,10 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
   session state/event log), `serve` (socket snapshots, mutations, and fsnotify
   watch backend), `tmux` (CLI wrapper behind a mockable `Runner`), and `agent`/`hooks`
   (per-CLI integration).
-- `daemon` owns the D1 lock, handshake, idle lifetime, and explicit upgrade
-  probe; `serve` remains the app backend until D2.
+- `daemon` owns the lock, ready handshake, idle lifetime, re-exec upgrade,
+  clean child environment and identity shims. It uses `serve.Server` for the
+  same requests, mutations, snapshots and subscriptions as `qm serve`.
+  `qm serve` remains the app backend until D2b.
 
 Invariants that aren't obvious from the code:
 

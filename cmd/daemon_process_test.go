@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -543,6 +544,31 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	if err := oldDecoder.Decode(&oldHello); err != nil || oldHello.Generation != 1 {
 		t.Fatalf("initial handshake: %+v %v", oldHello, err)
 	}
+	subConn, err := net.DialTimeout("unix", socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subConn.Close()
+	subDecoder := json.NewDecoder(subConn)
+	var subLine map[string]any
+	for _, step := range []string{"handshake", "subscribe response", "initial event"} {
+		if step == "subscribe response" {
+			if err := json.NewEncoder(subConn).Encode(map[string]any{"method": "subscribe"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := subDecoder.Decode(&subLine); err != nil {
+			t.Fatalf("%s: %v", step, err)
+		}
+	}
+	if subLine["type"] != "event" || subLine["topic"] != "tracker" {
+		t.Fatalf("initial subscription event: %+v", subLine)
+	}
+	shim := filepath.Join(h.root, "daemon", "bin", "canonical", "qm")
+	oldShim, err := os.Stat(shim)
+	if err != nil {
+		t.Fatal(err)
+	}
 	candidate := h.bin + ".new"
 	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags=-buildid=d1b-swap", "-o", candidate, "..")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -602,7 +628,8 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	stop()
 	select {
 	case err := <-dialError:
-		t.Fatalf("socket refused a connection during re-exec: %v", err)
+		log, _ := os.ReadFile(filepath.Join(h.root, "daemon", "canonical.log"))
+		t.Fatalf("socket refused a connection during re-exec: %v; after=%+v; log=%s", err, after, log)
 	default:
 	}
 	if after["generation"] != float64(2) || after["pid"] != before["pid"] || after["socket"] != socket {
@@ -612,6 +639,17 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	var staleReply map[string]any
 	if err := oldDecoder.Decode(&staleReply); !errors.Is(err, io.EOF) {
 		t.Fatalf("old connection did not close on re-exec: %v %+v", err, staleReply)
+	}
+	_ = subConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		subLine = nil
+		err := subDecoder.Decode(&subLine)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("old subscription did not close on re-exec: %v %+v", err, subLine)
+		}
 	}
 	fresh, err := net.DialTimeout("unix", socket, time.Second)
 	if err != nil {
@@ -625,6 +663,29 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 		t.Fatalf("replacement handshake: %+v %v", freshHello, err)
 	}
 	fresh.Close()
+	freshSub, err := net.DialTimeout("unix", socket, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer freshSub.Close()
+	freshSubDecoder := json.NewDecoder(freshSub)
+	var freshLine map[string]any
+	if err := freshSubDecoder.Decode(&freshLine); err != nil || freshLine["generation"] != float64(2) {
+		t.Fatalf("replacement subscription handshake: %+v %v", freshLine, err)
+	}
+	if err := json.NewEncoder(freshSub).Encode(map[string]any{"method": "subscribe"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := freshSubDecoder.Decode(&freshLine); err != nil || freshLine["type"] != "response" {
+		t.Fatalf("replacement subscribe response: %+v %v", freshLine, err)
+	}
+	if err := freshSubDecoder.Decode(&freshLine); err != nil || freshLine["type"] != "event" || freshLine["topic"] != "tracker" {
+		t.Fatalf("replacement initial event: %+v %v", freshLine, err)
+	}
+	newShim, err := os.Stat(shim)
+	if err != nil || os.SameFile(oldShim, newShim) {
+		t.Fatalf("shim was not rewritten on re-exec: %v", err)
+	}
 	if after["jobs"] != true {
 		t.Fatalf("jobs were not restarted: %+v", after)
 	}
@@ -654,7 +715,7 @@ func daemonRequest(socket, method string) error {
 	if err := dec.Decode(&greeting); err != nil {
 		return err
 	}
-	if err := json.NewEncoder(conn).Encode(map[string]any{"method": method, "protocol_version": daemon.ProtocolVersion}); err != nil {
+	if err := json.NewEncoder(conn).Encode(map[string]any{"method": "start", "data": map[string]any{"title": method}, "protocol_version": daemon.ProtocolVersion}); err != nil {
 		return err
 	}
 	var reply struct {
@@ -782,9 +843,17 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 	if after.Generation != 2 || after.PID != before.PID || !after.Jobs {
 		t.Fatalf("helper upgrade failed: before=%+v after=%+v", before, after)
 	}
-	starts, err := os.ReadFile(filepath.Join(h.root, "daemon", "job-starts"))
-	if err != nil || len(starts) < 2 {
-		t.Fatalf("jobs did not restart: starts=%q err=%v", starts, err)
+	var starts []byte
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		starts, _ = os.ReadFile(filepath.Join(h.root, "daemon", "job-starts"))
+		if len(starts) >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(starts) < 2 {
+		t.Fatalf("jobs did not restart: starts=%q", starts)
 	}
 	if err := daemonRequest(after.Socket, "spawn-child"); err != nil {
 		t.Fatal(err)
@@ -888,6 +957,131 @@ func TestDaemonBadHandoffFallsBackToLockedStart(t *testing.T) {
 			h.waitStopped()
 		})
 	}
+}
+
+func TestDaemonEnvironmentFromPollutedPaneReachesBothSessionMutations(t *testing.T) {
+	h := newDaemonHarness(t, "")
+	helper := filepath.Join(t.TempDir(), "qm-helper")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", helper, "../internal/daemon/testdata/exithelper")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("helper build: %v\n%s", err, out)
+	}
+	link := filepath.Join(h.home, ".local", "bin", "questmaster")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(helper, link); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "captured-bin")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	project := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(project, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, script := range map[string]string{
+		"zoxide": "#!/bin/sh\nprintf '%s\\n' '" + project + "'\n",
+		"codex":  "#!/bin/sh\nexit 0\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	codexHome := filepath.Join(t.TempDir(), "codex-home")
+	shell := filepath.Join(t.TempDir(), "capture-shell")
+	login := fmt.Sprintf("#!/bin/sh\nprintf 'PATH=%s:/usr/local/bin:/usr/bin\\000CODEX_HOME=%s\\000TMUX_PANE=bad\\000TERM=bad\\000'\n", bin, codexHome)
+	if err := os.WriteFile(shell, []byte(login), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(h.root, "daemon"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"work", "release-drain"} {
+		if err := os.WriteFile(filepath.Join(h.root, "daemon", name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := exec.Command(helper, "daemon", "run")
+	run.Env = append(h.env,
+		"SHELL="+shell, "SSH_AUTH_SOCK=/tmp/agent.sock", "PATH=/pane/odd",
+		"CLAUDECODE=pane", "TMUX=pane", "TERM=xterm", "QUESTMASTER_SESSION=qm-pane",
+		"QUESTMASTER_QM=/pane/qm")
+	if err := run.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = run.Process.Kill(); _ = run.Wait() })
+	c := daemon.Config{Root: h.root, Home: h.home, Executable: helper}
+	deadline := time.Now().Add(5 * time.Second)
+	var record daemon.Record
+	for time.Now().Before(deadline) {
+		record, _ = daemon.Status(c)
+		if record.Running {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !record.Running {
+		t.Fatal("helper daemon did not start")
+	}
+	call := func(method string, data any) map[string]any {
+		t.Helper()
+		conn, err := net.DialTimeout("unix", record.Socket, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		dec := json.NewDecoder(conn)
+		var greeting map[string]any
+		if err := dec.Decode(&greeting); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.NewEncoder(conn).Encode(map[string]any{"method": method, "data": data}); err != nil {
+			t.Fatal(err)
+		}
+		var reply struct {
+			OK    bool           `json:"ok"`
+			Data  map[string]any `json:"data"`
+			Error string         `json:"error"`
+		}
+		if err := dec.Decode(&reply); err != nil || !reply.OK {
+			t.Fatalf("%s: %+v %v", method, reply, err)
+		}
+		return reply.Data
+	}
+	startEnv := call("start", map[string]any{"title": "environment"})
+	spawnEnv := call("spawn", map[string]any{"master_id": "qm-demo", "title": "environment"})
+	if !reflect.DeepEqual(startEnv, spawnEnv) {
+		t.Fatalf("start/spawn child environments differ: start=%+v spawn=%+v", startEnv, spawnEnv)
+	}
+	prefix := filepath.Join(h.root, "daemon", "bin", "canonical")
+	if startEnv["SSH_AUTH_SOCK"] != "/tmp/agent.sock" || startEnv["CODEX_HOME"] != codexHome ||
+		startEnv["QUESTMASTER_APP"] != "1" || startEnv["QUESTMASTER_STATE_ROOT"] != h.root ||
+		startEnv["QUESTMASTER_PATH_PREFIX"] != prefix || startEnv["QUESTMASTER_BIN"] != helper ||
+		startEnv["zoxide"] != filepath.Join(bin, "zoxide") || startEnv["codex"] != filepath.Join(bin, "codex") {
+		t.Fatalf("captured child environment=%+v", startEnv)
+	}
+	for _, key := range []string{"CLAUDECODE", "TMUX", "TERM", "QUESTMASTER_SESSION", "QUESTMASTER_QM"} {
+		if startEnv[key] != "" {
+			t.Fatalf("%s leaked into child: %+v", key, startEnv)
+		}
+	}
+	if path := startEnv["PATH"].(string); !strings.HasPrefix(path, prefix+":") || strings.Contains(path, "/pane/odd") {
+		t.Fatalf("child PATH=%q", path)
+	}
+	shims, err := os.ReadFile(filepath.Join(prefix, "qm"))
+	if err != nil || !strings.Contains(string(shims), helper) {
+		t.Fatalf("canonical shim does not target daemon binary: %q %v", shims, err)
+	}
+	suggest := call("dir_suggest", map[string]any{"query": "project"})
+	if !strings.Contains(fmt.Sprint(suggest["suggestions"]), project) {
+		t.Fatalf("captured zoxide did not answer dir_suggest: %+v", suggest)
+	}
+	if err := run.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = run.Wait()
 }
 
 func TestDaemonLogRotationKeepsStderrCurrent(t *testing.T) {

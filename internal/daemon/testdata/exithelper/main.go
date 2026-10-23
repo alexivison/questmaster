@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/daemon"
+	"github.com/alexivison/questmaster/internal/serve"
 )
 
 type drainJob struct{ root string }
@@ -71,6 +72,27 @@ func handle(ctx context.Context, root, method string) error {
 	}
 }
 
+type mutationRunner struct{ root string }
+
+func (r mutationRunner) RunMutationCommand(ctx context.Context, args []string, _ []byte) ([]byte, error) {
+	if len(args) == 0 || args[0] != "start" && args[0] != "spawn" || len(args) < 2 {
+		return nil, fmt.Errorf("unsupported test mutation %v", args)
+	}
+	if args[len(args)-1] == "environment" {
+		env := map[string]string{}
+		for _, key := range []string{"HOME", "SHELL", "LANG", "PATH", "SSH_AUTH_SOCK", "CODEX_HOME", "CLAUDECODE", "TMUX", "TERM", "QUESTMASTER_SESSION", "QUESTMASTER_HOME", "QUESTMASTER_QM", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_APP", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "XDG_CONFIG_HOME"} {
+			env[key] = os.Getenv(key)
+		}
+		env["zoxide"], _ = exec.LookPath("zoxide")
+		env["codex"], _ = exec.LookPath("codex")
+		return json.Marshal(env)
+	}
+	if err := handle(ctx, r.root, args[len(args)-1]); err != nil {
+		return nil, err
+	}
+	return []byte("{}"), nil
+}
+
 func main() {
 	if len(os.Args) == 3 && os.Args[1] == "version" && os.Args[2] == "--json" {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]int{"protocol_version": daemon.ProtocolVersion})
@@ -79,7 +101,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	root := os.Getenv("QUESTMASTER_STATE_ROOT")
-	if err := daemon.Run(ctx, daemon.Config{Root: root, Home: os.Getenv("HOME"), IdleGrace: 500 * time.Millisecond, PollInterval: 10 * time.Millisecond, Jobs: []daemon.Job{drainJob{root}}, Handle: func(ctx context.Context, method string) error { return handle(ctx, root, method) }}, false); err != nil {
+	if err := daemon.Run(ctx, daemon.Config{Root: root, Home: os.Getenv("HOME"), IdleGrace: 500 * time.Millisecond, PollInterval: 10 * time.Millisecond, Jobs: []daemon.Job{drainJob{root}}, Runtime: &serve.Server{MutationRunner: mutationRunner{root}}}, false); err != nil {
 		os.Exit(1)
 	}
 }
