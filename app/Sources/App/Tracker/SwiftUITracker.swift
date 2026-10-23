@@ -922,11 +922,10 @@ private struct TrackerPulseSubscription: ViewModifier {
 }
 
 /// The plate's art, in the SVG's order: the master's project tab, the body over its drop shadow, the title strip, and the
-/// band under it (the master's project bar, the worker's snippet strip), each strip with its inner shadow. The bar is
-/// steady: a working session shows on its portrait's ring, not on the bar.
+/// band under it (the snippet strip), each strip with its inner shadow. The project colour shows only on the master's
+/// project name and the disc's side diamonds; a working session shows on its portrait's ring.
 private struct TrackerPlateArt: View {
     let artwork: TrackerPlateArtwork
-    let barColor: NSColor
 
     var body: some View {
         Canvas { context, _ in
@@ -936,10 +935,10 @@ private struct TrackerPlateArt: View {
             }
             context.fillOuterShadow(artwork.body, .body)
             context.fill(artwork.body, with: .color(AppPalette.line.swiftUI))
-            context.fill(artwork.titleStrip, with: .color(AppPalette.lineSoftSubtle.swiftUI))
+            context.fill(artwork.titleStrip, with: .color(AppPalette.item.swiftUI))
             context.fillInnerShadow(artwork.titleStrip, .strip)
             if let bar = artwork.bar {
-                context.fill(bar, with: .color(barColor.swiftUI))
+                context.fill(bar, with: .color(AppPalette.panel.swiftUI))
                 context.fillInnerShadow(bar, .strip)
             }
             if let snippetStrip = artwork.snippetStrip {
@@ -1019,7 +1018,7 @@ struct TrackerNameplateBackground<Text: View>: View {
                 TrackerGlowView(path: artwork.glow, color: band.color)
                     .silhouetteFrame(artwork.size)
             }
-            TrackerPlateArt(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
+            TrackerPlateArt(artwork: artwork)
             TrackerPortraitDisc(artwork: artwork)
             if let statusColor {
                 TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, ring: ring, finishColor: finishColor)
@@ -1189,7 +1188,7 @@ private struct TrackerPlateText: View {
                 TrackerPlateLine(
                     text: projectName,
                     font: AppFonts.monoSmall,
-                    color: AppPalette.dim,
+                    color: TrackerNameplateColor.barLightness(rendered.groupColor),
                     x: TrackerNameplateRole.topLevelTextX,
                     width: role.textRightEdge - TrackerNameplateRole.topLevelTextX,
                     baseline: TrackerPlateDesign.topLevelProjectBaseline
@@ -1202,7 +1201,7 @@ private struct TrackerPlateText: View {
                 TrackerPlateLine(
                     text: snippet,
                     font: AppFonts.trackerSummary,
-                    color: role.isWorker ? AppPalette.dim : AppPalette.textBody,
+                    color: AppPalette.textMeta,
                     x: role.snippetX,
                     width: role.textRightEdge - role.snippetX,
                     baseline: role.snippetBaseline,
@@ -1229,7 +1228,7 @@ private struct TrackerPlateText: View {
                 TrackerPlateLine(
                     text: time,
                     font: AppFonts.trackerTime,
-                    color: AppPalette.controlBorder,
+                    color: AppPalette.textMeta,
                     x: role.textRightEdge - timeWidth,
                     width: timeWidth,
                     baseline: role.timeBaseline,
