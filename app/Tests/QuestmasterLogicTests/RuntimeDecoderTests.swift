@@ -66,7 +66,6 @@ struct RuntimeDecoderTests {
             expect(session.parentID == "parent-1", "parent_id did not decode")
             expect(session.workerCount == 3, "worker_count did not decode")
             expect(session.duration == "0:02:05", "elapsed_ms should format initial duration")
-            expect(session.isCurrent, "legacy is_current should still decode")
 
             guard let now = ISO8601DateFormatter().date(from: "2026-06-19T04:22:10Z") else {
                 fail("failed to build fixed clock")

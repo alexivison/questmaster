@@ -1175,7 +1175,7 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(
             repos: [TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
-                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: [first, second]),
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, artifacts: [first, second]),
             ])]
         )
 
@@ -1226,7 +1226,7 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
             TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
-                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: [first, second, third]),
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, artifacts: [first, second, third]),
             ]),
         ])
 
@@ -1258,7 +1258,7 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
             TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
-                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, isCurrent: true, artifacts: artifacts),
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, artifacts: artifacts),
             ]),
         ])
         let g = try keyEvent("g", keyCode: 5)
@@ -1300,7 +1300,7 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
             TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
-                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact]),
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, artifacts: [artifact]),
             ]),
         ])
 
@@ -1363,7 +1363,7 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
             TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
-                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact, secondArtifact]),
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, artifacts: [artifact, secondArtifact]),
             ]),
         ])
         let model = DockPaneModel()
@@ -1410,7 +1410,7 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
             TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
-                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact, secondArtifact]),
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, artifacts: [artifact, secondArtifact]),
             ]),
         ])
         let model = DockPaneModel()
@@ -1441,7 +1441,7 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
             TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
-                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact]),
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, artifacts: [artifact]),
             ]),
         ])
 
@@ -1486,7 +1486,7 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [
             TrackerRepo(id: "repo-a", name: "Alpha Repo", sessions: [
-                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, isCurrent: true, artifacts: [artifact]),
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha Repo", workerCount: 0, artifacts: [artifact]),
             ]),
         ])
 
@@ -2301,8 +2301,8 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(
             repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [
-                TrackerSession(id: "qm-a", title: "A", repoName: "Repo", workerCount: 0, isCurrent: true, artifacts: [a1]),
-                TrackerSession(id: "qm-b", title: "B", repoName: "Repo", workerCount: 0, isCurrent: false, artifacts: [b1]),
+                TrackerSession(id: "qm-a", title: "A", repoName: "Repo", workerCount: 0, artifacts: [a1]),
+                TrackerSession(id: "qm-b", title: "B", repoName: "Repo", workerCount: 0, artifacts: [b1]),
             ])]
         )
         let coordinator = DockCoordinator()
@@ -2344,7 +2344,7 @@ enum LogicSelfTests {
         func snapshot(_ artifacts: [ArtifactReference]) -> RuntimeSnapshot {
             var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
             snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [
-                TrackerSession(id: "qm-a", title: "A", repoName: "Repo", workerCount: 0, isCurrent: true, artifacts: artifacts),
+                TrackerSession(id: "qm-a", title: "A", repoName: "Repo", workerCount: 0, artifacts: artifacts),
             ])])
             return snapshot
         }
@@ -2420,8 +2420,7 @@ enum LogicSelfTests {
                             title: "Alpha",
                             repoIdentity: "repo-a",
                             repoName: "Alpha Repo",
-                            workerCount: 0,
-                            isCurrent: true
+                            workerCount: 0
                         ),
                     ]
                 ),
@@ -2434,8 +2433,7 @@ enum LogicSelfTests {
                             title: "Beta",
                             repoIdentity: "repo-b",
                             repoName: "Beta Repo",
-                            workerCount: 0,
-                            isCurrent: false
+                            workerCount: 0
                         ),
                     ]
                 ),

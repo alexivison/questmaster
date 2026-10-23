@@ -188,7 +188,6 @@ public struct TrackerSession: Decodable, Equatable {
     public var elapsedSince: Date?
     public var lastChatAt: Date?
     public var elapsedSeedMS: Int?
-    public var isCurrent: Bool
     public var artifacts: [ArtifactReference]
     /// The session's latest narration: its newest chat entry of kind say or message, empty when it has none.
     public var narration: String
@@ -216,7 +215,6 @@ public struct TrackerSession: Decodable, Equatable {
         elapsedSince: Date? = nil,
         lastChatAt: Date? = nil,
         elapsedSeedMS: Int? = nil,
-        isCurrent: Bool = false,
         artifacts: [ArtifactReference] = [],
         narration: String = "",
         cast: TrackerCast? = nil
@@ -241,7 +239,6 @@ public struct TrackerSession: Decodable, Equatable {
         self.elapsedSince = elapsedSince
         self.lastChatAt = lastChatAt
         self.elapsedSeedMS = elapsedSeedMS
-        self.isCurrent = isCurrent
         self.artifacts = artifacts
         self.narration = narration
         self.cast = cast
@@ -265,7 +262,6 @@ public struct TrackerSession: Decodable, Equatable {
         case elapsed_ms
         case elapsed_since
         case last_chat_at
-        case is_current
         case artifacts
         case narration
         case cast
@@ -314,7 +310,6 @@ public struct TrackerSession: Decodable, Equatable {
             try container.decodeIfPresent(String.self, forKey: .last_chat_at)
         )
         duration = TrackerSession.formatElapsed(elapsedSeedMS) ?? ""
-        isCurrent = try container.decodeIfPresent(Bool.self, forKey: .is_current) ?? false
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
         narration = try container.decodeIfPresent(String.self, forKey: .narration) ?? ""
         cast = try container.decodeIfPresent(TrackerCast.self, forKey: .cast)

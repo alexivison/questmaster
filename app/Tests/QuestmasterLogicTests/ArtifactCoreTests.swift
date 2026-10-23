@@ -48,7 +48,6 @@ struct ArtifactCoreTests {
 
             let empty = try decode(TrackerSession.self, absent)
             expect(empty.artifacts.isEmpty, "absent artifacts should decode as an empty list")
-            expect(!empty.isCurrent, "absent legacy is_current should decode as false")
         } catch {
             fail("tracker artifact decode threw \(error)")
         }

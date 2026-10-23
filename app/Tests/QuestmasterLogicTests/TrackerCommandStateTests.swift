@@ -20,7 +20,7 @@ struct TrackerCommandStateTests {
     private static func selectionMovementRecoversFromMissingSelection() {
         let rows = [
             trackerSession(id: "one"),
-            trackerSession(id: "two", isCurrent: true),
+            trackerSession(id: "two"),
             trackerSession(id: "three"),
         ]
         var state = TrackerCommandState(selectedID: "missing")
@@ -28,14 +28,14 @@ struct TrackerCommandStateTests {
         expect(state.renderedSelectedID(in: rows, currentTerminalSessionID: "two") == "two", "missing selection should recover to current row")
         expect(state.moveSelection(delta: 1, rows: rows, currentTerminalSessionID: "two"), "move from recovered selection should succeed")
         expect(state.selectedID == "three", "move down from current row should select three")
-        expect(state.moveSelection(delta: 1, rows: rows), "wrapped move should succeed")
+        expect(state.moveSelection(delta: 1, rows: rows, currentTerminalSessionID: "two"), "wrapped move should succeed")
         expect(state.selectedID == "one", "move down from last row should wrap to one")
     }
 
     private static func selectedSessionUsesRenderedSelection() {
         let rows = [
             trackerSession(id: "qm-one"),
-            trackerSession(id: "qm-current", isCurrent: true),
+            trackerSession(id: "qm-current"),
         ]
         let state = TrackerCommandState(selectedID: "missing")
 
@@ -67,7 +67,7 @@ struct TrackerCommandStateTests {
         ]
         var state = TrackerCommandState(selectedID: "qm-deleted")
 
-        state.recoverStaleSelection(previousRows: previousRows, rows: nextRows)
+        state.recoverStaleSelection(previousRows: previousRows, rows: nextRows, currentTerminalSessionID: nil)
 
         expect(state.selectedID == "qm-previous", "stale deleted selection recovered to \(String(describing: state.selectedID))")
     }
@@ -133,7 +133,7 @@ struct TrackerCommandStateTests {
     private static func activationCommandEmitsTypedEffects() {
         var focusState = TrackerCommandState(selectedID: "qm-current")
         let focusRows = [
-            trackerSession(id: "qm-current", isCurrent: true),
+            trackerSession(id: "qm-current"),
         ]
         guard let focusEffects = focusState.effects(
             for: .activate(openedID: nil),
@@ -148,7 +148,7 @@ struct TrackerCommandStateTests {
 
         var switchState = TrackerCommandState(selectedID: "qm-next")
         let switchRows = [
-            trackerSession(id: "qm-current", isCurrent: true),
+            trackerSession(id: "qm-current"),
             trackerSession(id: "qm-next"),
         ]
         guard let switchEffects = switchState.effects(
@@ -193,7 +193,7 @@ struct TrackerCommandStateTests {
         ]
         var state = TrackerCommandState(selectedID: "qm-one")
 
-        let status = state.beginRecolor(scope: .session, rows: rows)
+        let status = state.beginRecolor(scope: .session, rows: rows, currentTerminalSessionID: nil)
 
         expect(status == "recolor session qm-one: magenta", "begin recolor status was \(String(describing: status))")
         expect(state.selectedID == "qm-one", "begin recolor should keep selected target")
@@ -254,7 +254,7 @@ struct TrackerCommandStateTests {
             trackerSession(id: "qm-one", repoIdentity: "/repo/.git", displayColor: "magenta", repoColor: "green"),
         ]
         var state = TrackerCommandState(selectedID: "qm-one")
-        _ = state.beginRecolor(scope: .session, rows: rows)
+        _ = state.beginRecolor(scope: .session, rows: rows, currentTerminalSessionID: nil)
 
         guard case .status(let preview)? = state.applyInlineRecolorCommand(.right) else {
             fail("right did not produce preview status")
@@ -273,7 +273,7 @@ struct TrackerCommandStateTests {
             "color": "cyan",
         ])
 
-        _ = state.beginRecolor(scope: .repo, rows: rows)
+        _ = state.beginRecolor(scope: .repo, rows: rows, currentTerminalSessionID: nil)
         guard case .status(let cancel)? = state.applyInlineRecolorCommand(.cancel) else {
             fail("cancel did not produce status")
         }
@@ -289,8 +289,7 @@ struct TrackerCommandStateTests {
         role: String = "master",
         state: String = "idle",
         lifecycle: String = "active",
-        parentID: String = "",
-        isCurrent: Bool = false
+        parentID: String = ""
     ) -> TrackerSession {
         TrackerSession(
             id: id,
@@ -303,8 +302,7 @@ struct TrackerCommandStateTests {
             role: role,
             state: state,
             lifecycle: lifecycle,
-            parentID: parentID,
-            isCurrent: isCurrent
+            parentID: parentID
         )
     }
 

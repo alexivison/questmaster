@@ -104,8 +104,8 @@ struct DockStateTests {
 
     private static func snapshot(a: [ArtifactReference], b: [ArtifactReference]) -> TrackerSnapshot {
         TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "repo", sessions: [
-            TrackerSession(id: "qm-a", title: "a", repoIdentity: "", repoName: "repo", workerCount: 0, isCurrent: true, artifacts: a),
-            TrackerSession(id: "qm-b", title: "b", repoIdentity: "", repoName: "repo", workerCount: 0, isCurrent: false, artifacts: b),
+            TrackerSession(id: "qm-a", title: "a", repoIdentity: "", repoName: "repo", workerCount: 0, artifacts: a),
+            TrackerSession(id: "qm-b", title: "b", repoIdentity: "", repoName: "repo", workerCount: 0, artifacts: b),
         ])])
     }
 

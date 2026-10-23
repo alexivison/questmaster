@@ -72,7 +72,6 @@ struct ContractFixtureTests {
     private static func envelopeFixturesDecode() throws {
         let tracker = try requireUpdate("tracker_event_envelope.json")
         expect(tracker.tracker?.repos.first?.sessions.first?.lastKind == "PreToolUse", "tracker event did not decode")
-        expect(tracker.tracker?.repos.first?.sessions.first?.isCurrent == true, "tracker event is_current did not decode")
         expect(tracker.tracker?.quests.count == 2, "tracker event quests did not decode")
 
         let trackerResponse = try requireUpdate("tracker_response_envelope.json")
