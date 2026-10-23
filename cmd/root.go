@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"runtime/debug"
 	"strings"
 
+	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
@@ -93,19 +95,26 @@ When invoked with no subcommand, it shows help.`,
 	root.AddCommand(newSessionCmd(o.store, o.client, o.repoRoot))
 	root.AddCommand(newRepoCmd(o.store))
 	root.AddCommand(newServeCmd(o.store, o.client))
+	root.AddCommand(newDaemonCmd(o.store))
 
 	return root
 }
 
 func newVersionCmd() *cobra.Command {
-	return &cobra.Command{
+	var jsonOutput bool
+	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the questmaster version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if jsonOutput {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"version": appVersion(), "protocol_version": daemon.ProtocolVersion})
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "questmaster %s\n", appVersion())
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print machine-readable version and protocol")
+	return cmd
 }
 
 // Execute runs the root command.
