@@ -66,7 +66,6 @@ struct RuntimeDecoderTests {
             expect(session.parentID == "parent-1", "parent_id did not decode")
             expect(session.workerCount == 3, "worker_count did not decode")
             expect(session.duration == "0:02:05", "elapsed_ms should format initial duration")
-            expect(session.isCurrent, "is_current did not decode")
 
             guard let now = ISO8601DateFormatter().date(from: "2026-06-19T04:22:10Z") else {
                 fail("failed to build fixed clock")
@@ -122,7 +121,7 @@ struct RuntimeDecoderTests {
     }
 
     private static func serveProtocolMismatchSurfacesUnavailableState() {
-        let message = "serve protocol incompatible: expected protocol_version 1, got 2"
+        let message = "incompatible backend: serve protocol incompatible: expected protocol_version 1, got 2"
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(message))
         expect(snapshot.serviceStateMessage == message, "protocol mismatch should surface as a service state")

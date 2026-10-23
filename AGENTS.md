@@ -100,7 +100,8 @@ Invariants that aren't obvious from the code:
 `internal/serve/testdata/*.json` are the single source of truth for the serve wire
 shapes (tracker, dir_suggest and models payloads + response/event envelopes). Both the
 Go serve golden test and the Swift app's contract-fixture test decode the same
-files. If you change a serve payload shape, **regenerate the goldens and update
+files. Bump `ServeProtocolVersion` for any payload change an old decoder cannot read.
+If you change a serve payload shape, **regenerate the goldens and update
 both sides in the same change**:
 
 ```sh

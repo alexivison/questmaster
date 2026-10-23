@@ -7,13 +7,6 @@ enum TerminalSessionChipResolver {
     static func cleanSessionID(_ id: String?) -> String? {
         QuestmasterCore.cleanSessionID(id)
     }
-
-    static func foregroundSessionID(after request: ServeMutationRequest, ack: ServeMutationAck) -> String? {
-        guard request.method == "switch" else {
-            return nil
-        }
-        return cleanSessionID(ack.sessionID) ?? cleanSessionID(request.data["session_id"])
-    }
 }
 
 @MainActor
