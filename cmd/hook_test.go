@@ -732,6 +732,26 @@ func TestReadCodexCommentaryFiltersAndAdvancesOffset(t *testing.T) {
 	}
 }
 
+func TestReadCodexCommentaryKeepsFinalAnswerWhenInputIsSteeredIntoTurn(t *testing.T) {
+	const (
+		steered      = `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage"}}}`
+		taskComplete = `{"type":"event_msg","payload":{"type":"task_complete"}}`
+	)
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	appendCodexRollout(t, path, codexRolloutLine("final_answer", "Reviewer confirms the fix."))
+	appendCodexRollout(t, path, steered)
+	appendCodexRollout(t, path, codexRolloutLine("final_answer", "All done."))
+	appendCodexRollout(t, path, taskComplete)
+	appendCodexRollout(t, path, steered)
+	commentary, _, _, err := readCodexCommentary(path, 0, false)
+	if err != nil {
+		t.Fatalf("read rollout: %v", err)
+	}
+	if got := codexCommentaryTexts(commentary); !slices.Equal(got, []string{"Reviewer confirms the fix."}) {
+		t.Fatalf("commentary = %#v", got)
+	}
+}
+
 func TestReadCodexCommentaryRealRolloutFixture(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "real-rollout.jsonl")
 	data, err := os.ReadFile("testdata/codex_real_rollout_trimmed.jsonl")

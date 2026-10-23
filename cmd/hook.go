@@ -1501,6 +1501,12 @@ func readCodexCommentary(path string, offset int64, skipping bool) ([]codexComme
 	data = data[:lastNewline]
 	nextOffset := baseOffset + int64(lastNewline+1)
 	var commentary []codexCommentaryEntry
+	// A final answer usually ends the turn and reaches the feed through Stop.
+	// When input is steered into the turn after it, no Stop fires for it, so
+	// it is narration instead.
+	// ponytail: a read that ends between the answer and the steered input
+	// drops the answer; hooks rarely fire in that sub-second gap.
+	var pendingFinal *codexCommentaryEntry
 	for len(data) > 0 {
 		end := bytes.IndexByte(data, '\n')
 		var line []byte
@@ -1511,7 +1517,8 @@ func readCodexCommentary(path string, offset int64, skipping bool) ([]codexComme
 			line = data[:end]
 			data = data[end+1:]
 		}
-		if !bytes.Contains(line, []byte("AgentMessage")) {
+		if !bytes.Contains(line, []byte("AgentMessage")) && !bytes.Contains(line, []byte("UserMessage")) &&
+			!bytes.Contains(line, []byte("task_complete")) {
 			continue
 		}
 		var event struct {
@@ -1531,9 +1538,23 @@ func readCodexCommentary(path string, offset int64, skipping bool) ([]codexComme
 				} `json:"item"`
 			} `json:"payload"`
 		}
-		if json.Unmarshal(line, &event) == nil && event.Type == "event_msg" &&
-			event.Payload.Type == "item_completed" && event.Payload.Item.Type == "AgentMessage" &&
-			event.Payload.Item.Phase == "commentary" {
+		if json.Unmarshal(line, &event) != nil || event.Type != "event_msg" {
+			continue
+		}
+		if event.Payload.Type == "task_complete" {
+			pendingFinal = nil
+			continue
+		}
+		if event.Payload.Type != "item_completed" {
+			continue
+		}
+		if event.Payload.Item.Type == "UserMessage" && pendingFinal != nil {
+			commentary = append(commentary, *pendingFinal)
+			pendingFinal = nil
+			continue
+		}
+		phase := event.Payload.Item.Phase
+		if event.Payload.Item.Type == "AgentMessage" && (phase == "commentary" || phase == "final_answer") {
 			var text strings.Builder
 			for _, part := range event.Payload.Item.Content {
 				if strings.EqualFold(part.Type, "Text") {
@@ -1550,7 +1571,12 @@ func readCodexCommentary(path string, offset int64, skipping bool) ([]codexComme
 				} else if parsed, err := time.Parse(time.RFC3339Nano, event.Timestamp); err == nil {
 					timestamp = parsed
 				}
-				commentary = append(commentary, codexCommentaryEntry{text: text.String(), timestamp: timestamp})
+				entry := codexCommentaryEntry{text: text.String(), timestamp: timestamp}
+				if phase == "final_answer" {
+					pendingFinal = &entry
+				} else {
+					commentary = append(commentary, entry)
+				}
 			}
 		}
 	}
