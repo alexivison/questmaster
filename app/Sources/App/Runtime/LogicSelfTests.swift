@@ -55,6 +55,7 @@ enum LogicSelfTests {
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
+        ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockCoordinatorShowsWorkerChatPerSession", testDockCoordinatorShowsWorkerChatPerSession),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
@@ -339,7 +340,7 @@ enum LogicSelfTests {
         try expect(TrackerPortraitStatusGeometry.glowPeakOpacity == 0.15 && TrackerPortraitStatusGeometry.glowSigma == 1.5 && TrackerPortraitStatusGeometry.glowSpread == 1, "the glow should be tight")
 
         // The layers sit on the discs: the master's centre is the canvas', the worker's the list's worker indent.
-        try expectClose(master.center.x, 27, "master status centre x")
+        try expectClose(master.center.x, 25, "master status centre x")
         try expectClose(master.center.y, 27, "master status centre y")
         try expectClose(worker.center.x, 20 + TrackerPlateDesign.workerShift, "worker status centre x")
         try expectClose(worker.center.y, 22, "worker status centre y")
@@ -421,26 +422,26 @@ enum LogicSelfTests {
         }
         let shift = TrackerPlateDesign.workerShift
 
-        // Sizes, from the SVGs: each canvas starts 2 above its row, which is the disc's height and the plate's width.
-        try expectClose(TrackerPlateDesign.topLevel.size.width, 261, "master canvas width")
+        // Sizes: each canvas starts 2 above its row, which is the disc's height and the plate's width; canvases sit on 5s.
+        try expectClose(TrackerPlateDesign.topLevel.size.width, 265, "master canvas width")
         try expectClose(TrackerPlateDesign.topLevel.size.height, 55, "master canvas height")
         try expectClose(TrackerPlateDesign.topLevelSize.height, 50, "master row height")
         try expectClose(TrackerPlateDesign.topLevelSize.width, 260, "master row width, 260 by decision")
-        try expectClose(TrackerPlateDesign.artInset, 2, "canvas start above its row")
-        try expectClose(TrackerPlateDesign.worker.size.width, 233 + shift - 2, "worker canvas width")
-        try expectClose(TrackerPlateDesign.worker.size.height, 44, "worker canvas height")
+        try expectClose(TrackerPlateDesign.svgDiscInset, 2, "canvas start above its row")
+        try expectClose(TrackerPlateDesign.worker.size.width, 255, "worker canvas width")
+        try expectClose(TrackerPlateDesign.worker.size.height, 45, "worker canvas height")
         try expectClose(TrackerPlateDesign.workerSize.width, 232 + shift - 2, "worker row width")
         try expectClose(TrackerPlateDesign.workerSize.height, 40, "worker row height")
 
-        // The paths are the SVGs', moved onto whole points: the master's back by the SVG's slip, the worker's to the
-        // list's worker indent.
+        // The paths are the SVGs', moved onto whole points and the 5pt grid: the master's back by the SVG's slip and 2
+        // left so its disc spans 0-50 (its right edge stays at 260), the worker's to the list's worker indent.
         let master = TrackerPlateDesign.topLevel
-        try expectRect(master.tab ?? Path(), 27, 3.5, 255, 15.5, "master project tab")
-        try expectRect(master.body, 27, 15.5, 260, 50.5, "master body")
-        try expectRect(master.titleStrip, 30, 17.5, 258, 36.5, "master title strip")
-        try expectRect(master.bar ?? Path(), 30, 38.5, 258, 48.5, "master project bar")
-        try expectRect(master.disc, 3.5, 3.5, 50.5, 50.5, "master disc")
-        try expectRect(master.discEdge, 2, 2, 52, 52, "master disc edge")
+        try expectRect(master.tab ?? Path(), 25, 3.5, 255, 15.5, "master project tab")
+        try expectRect(master.body, 25, 15.5, 260, 50.5, "master body")
+        try expectRect(master.titleStrip, 28, 17.5, 258, 36.5, "master title strip")
+        try expectRect(master.bar ?? Path(), 28, 38.5, 258, 48.5, "master project bar")
+        try expectRect(master.disc, 1.5, 3.5, 48.5, 50.5, "master disc")
+        try expectRect(master.discEdge, 0, 2, 50, 52, "master disc edge")
         try expectClose(master.discStroke, 3, "master disc stroke")
         try expect(master.snippetStrip == nil, "the master's snippet sits on its project bar")
         let worker = TrackerPlateDesign.worker
@@ -453,21 +454,30 @@ enum LogicSelfTests {
 
         // The ornaments reach 2.17 past the disc: the crown pieces above and below, the diamonds on its sides.
         let ornamentBox = master.ornaments.reduce(CGRect.null) { $0.union($1.path.boundingRect) }
-        try expectRect(Path(ornamentBox), -0.1739, -0.1739, 54.1738, 54.1739, "master ornaments")
+        try expectRect(Path(ornamentBox), -2.1739, -0.1739, 52.1738, 54.1739, "master ornaments")
 
         // The disc is the row's height, and the row's centre is the disc's, in the row's points.
         try expectClose(TrackerPlateDesign.topLevelDiscDiameter, 2 * (23.5 + 1.5), "master disc outer diameter")
         try expectClose(TrackerPlateDesign.workerDiscDiameter, 2 * (19 + 1), "worker disc outer diameter")
         try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y, TrackerPlateDesign.topLevelSize.height / 2, "master disc centre in its row")
         try expectClose(TrackerPlateDesign.workerPortraitCenter.y, TrackerPlateDesign.workerSize.height / 2, "worker disc centre in its row")
-        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y + TrackerPlateDesign.artInset, 27, "master disc centre in its canvas")
-        try expectClose(TrackerPlateDesign.workerPortraitCenter.y + TrackerPlateDesign.artInset, 22, "worker disc centre in its canvas")
+        try expectClose(TrackerPlateDesign.topLevelPortraitCenter.y + TrackerPlateDesign.svgDiscInset, 27, "master disc centre in its canvas")
+        try expectClose(TrackerPlateDesign.workerPortraitCenter.y + TrackerPlateDesign.svgDiscInset, 22, "worker disc centre in its canvas")
         try expectClose(TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.topLevelPortraitCenter.x, 15, "worker disc indent")
         try expectClose(
             TrackerNameplateRole.worker.portraitOrigin.x - TrackerNameplateRole.master.portraitOrigin.x,
             20,
             "worker portrait indent"
         )
+
+        // The discs sit on the 5pt grid, and plate text starts 5 past the disc's round edge: the master's disc spans
+        // 0-50, the worker's 20-60; the panel's ends at 70, and its text sits 10 past it to clear the Q's spike.
+        try expectRect(master.discEdge.offsetBy(dx: 0, dy: -TrackerPlateDesign.svgDiscInset), 0, 0, 50, 50, "master disc in its row")
+        try expectRect(worker.discEdge.offsetBy(dx: 0, dy: -TrackerPlateDesign.svgDiscInset), 20, 0, 60, 40, "worker disc in its row")
+        try expectClose(TrackerNameplateRole.topLevelTextX, 55, "master text column")
+        try expectClose(TrackerNameplateRole.workerTextX, 65, "worker text column")
+        try expectClose(SelectedSessionPanel.textX, 80, "selected-session panel text column")
+        try expectClose(TrackerNameplateRole.master.snippetX, TrackerNameplateRole.master.titleX, "master snippet under the title")
 
         // Every layer of a portrait sits at a whole-point origin. A frame on a half point snaps to a whole pixel at 1x
         // and drifts half a pixel off the disc the plate's canvas draws at exact geometry.
@@ -484,10 +494,10 @@ enum LogicSelfTests {
         try expectClose(TrackerListMetrics.spacing, 10, "every gap in the list")
         try expectClose(TrackerListMetrics.contentWidth, SelectedSessionPanel.canvasSize.width + TrackerPlateDesign.glowBandWidth, "tracker content width, the panel's and its band's")
         try expectClose(SelectedSessionPanel.canvasSize.width, TrackerPlateDesign.topLevelSize.width, "selected-session panel width, the master plate's")
-        try expectClose(SelectedSessionPanel.canvasSize.height, 76, "selected-session panel height")
+        try expectClose(SelectedSessionPanel.canvasSize.height, 75, "selected-session panel height")
         try expectClose(TrackerListMetrics.selectedPanelGap, 40, "gap between the selected-session panel and the first disc")
 
-        // The collapsed workers hang a point below the disc's bottom edge, 40 right of its left edge, and fill the plate's width.
+        // The collapsed workers sit right under the disc's row, 40 right of its left edge, and fill the plate's width.
         let discLeft = TrackerNameplateRole.master.portraitOrigin.x
         try expectClose(TrackerNameplateRole.circlesX - discLeft, 40, "first collapsed circle's offset from the disc's left edge")
         try expectClose(TrackerPlateDesign.collapsedCircleDiameter, 25, "collapsed circle diameter")
@@ -498,15 +508,15 @@ enum LogicSelfTests {
             + CGFloat(TrackerWorkerSummary.maxCircles - 1) * TrackerPlateDesign.collapsedCircleGap
         try expect(rowRight <= TrackerPlateDesign.topLevelSize.width && rowRight + TrackerPlateDesign.collapsedCircleGap + TrackerPlateDesign.collapsedCircleDiameter > TrackerPlateDesign.topLevelSize.width,
                    "the collapsed row should hold as many circles as fit inside the plate, ending at \(rowRight)")
-        try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 76, "master row height with collapsed circles")
+        try expectClose(TrackerNameplateRole.master.rowHeight(showsCircles: true), 75, "master row height with collapsed circles")
         try expectClose(TrackerNameplateRole.worker.rowHeight(showsCircles: false), 40, "worker row height")
 
         // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents, above
         // the row and below it, past the crown's tip. The worker's has no artwork past its frame.
         let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
         let masterHit = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.hitOutset).path(in: masterRow).boundingRect
-        try expect(masterHit.minY <= -TrackerPlateDesign.artInset, "master hit shape top should reach the canvas's top, got \(masterHit.minY)")
-        let crownBottom = ornamentBox.maxY - TrackerPlateDesign.artInset
+        try expect(masterHit.minY <= -TrackerPlateDesign.svgDiscInset, "master hit shape top should reach the canvas's top, got \(masterHit.minY)")
+        let crownBottom = ornamentBox.maxY - TrackerPlateDesign.svgDiscInset
         try expect(masterHit.maxY >= crownBottom, "master hit shape bottom should reach the crown's tip at \(crownBottom), got \(masterHit.maxY)")
         try expectClose(masterHit.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
         try expect(TrackerNameplateRole.worker.hitOutset == 0, "the worker's row has no artwork past its frame")
@@ -675,7 +685,7 @@ enum LogicSelfTests {
             throw TestFailure("the panel should render to an image")
         }
         let bitmap = NSBitmapImageRep(cgImage: image)
-        try expect(bitmap.pixelsWide == 520 && bitmap.pixelsHigh == 152, "the panel should render 260 x 76 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
+        try expect(bitmap.pixelsWide == 520 && bitmap.pixelsHigh == 150, "the panel should render 260 x 75 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
         func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
             bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.usingColorSpace(.sRGB)
         }
@@ -2098,6 +2108,65 @@ enum LogicSelfTests {
         try expect(reported.last == false && !field.hasFocus, "focus moving elsewhere should clear it, reported \(reported)")
     }
 
+    /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row
+    /// internals. The artifact rows' tiles sit on a 45pt pitch (a 40pt row and 5) and are 30 high; a form's first field
+    /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
+    /// in one pixel column.
+    private static func testRenderedSpacingStaysOnTheScale() throws {
+        func borderRows(_ view: NSView, size: CGSize, x: Int) throws -> [Int] {
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ), let line = AppPalette.line.usingColorSpace(.deviceRGB) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = size
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return (0..<Int(size.height)).filter { y in
+                guard let pixel = bitmap.colorAt(x: x, y: y) else {
+                    return false
+                }
+                return abs(pixel.redComponent - line.redComponent) < 0.01
+                    && abs(pixel.greenComponent - line.greenComponent) < 0.01
+                    && abs(pixel.blueComponent - line.blueComponent) < 0.01
+            }
+        }
+
+        // Inside the tile, past its 5pt corner and clear of its glyph: the gutter, the tile's inset, and 6.
+        let tileColumn = Int(Space.section + Space.item) + 6
+        let pane = CGSize(width: 480, height: 1015)
+        let paneRows = try borderRows(RenderPreview.artifactPaneView(highlight: nil), size: pane, x: tileColumn)
+        // The tiles are the last borders down the column: a top and a bottom edge each, the eleven fixture rows.
+        let tiles = Array(paneRows.suffix(22))
+        try expect(tiles.count == 22, "the artifact tiles' borders should show in the column, got rows \(paneRows)")
+        let tops = stride(from: 0, to: tiles.count, by: 2).map { tiles[$0] }
+        for (top, bottom) in zip(tops, stride(from: 1, to: tiles.count, by: 2).map { tiles[$0] }) {
+            try expect(bottom - top + 1 == 30, "an artifact tile should be 30 high, got rows \(top)-\(bottom)")
+        }
+        for (above, below) in zip(tops, tops.dropFirst()) {
+            try expect(below - above == 45, "artifact rows should sit 45 apart, got tiles at \(above) and \(below)")
+        }
+
+        let fieldColumn = Int(ModalFormMetrics.inset + Space.section)
+        let formSize = CGSize(width: 460, height: ModalFormMetrics.height(fields: 2))
+        let form = NSHostingView(rootView: ModalFormSheet(title: "Spacing", errorMessage: nil, primaryLabel: "Save", canSubmit: true, size: formSize, onCancel: {}, onPrimary: {}) {
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                FormTextField(text: .constant(""), placeholder: "First", focusNonce: 0, focused: false)
+                FormTextField(text: .constant(""), placeholder: "Second", focusNonce: 0, focused: false)
+            }
+        }.background(AppPalette.panel.swiftUI))
+        let fieldEdges = try borderRows(form, size: formSize, x: fieldColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        try expect(fieldEdges.first == Int(ModalSheetHeader.height + Space.item), "the first field should start 10 under the header's band, got rows \(fieldEdges)")
+        let secondTop = Int(ModalFormMetrics.contentTop + FormFieldMetrics.height + ModalFormMetrics.fieldSpacing)
+        try expect(fieldEdges.contains(secondTop) && !fieldEdges.contains(secondTop - 1), "the second field should start 20 under the first, got rows \(fieldEdges)")
+    }
+
     /// No single-line text field is shorter than its font's full line (ascent + descent + leading): the live
     /// field editor clips to the field's bounds, so a shorter field cuts ascenders or descenders.
     private static func testTextFieldsFitTheirWholeLine() throws {
@@ -3272,12 +3341,12 @@ enum LogicSelfTests {
     }
 
     /// A fractional footer height puts every plate border and the snapped terminal edge on half
-    /// pixels at 1x, which renders blurry — guards `ActionBarMetrics.footerHeight` against a
+    /// pixels at 1x, which renders blurry — guards `ActionBarMetrics.plateSvgHeight` against a
     /// future edit reintroducing a fractional sum.
     private static func testActionBarFooterHeightIsIntegral() throws {
         try expect(
-            ActionBarMetrics.footerHeight == ActionBarMetrics.footerHeight.rounded(),
-            "footerHeight should be a whole point, got \(ActionBarMetrics.footerHeight)"
+            ActionBarMetrics.plateSvgHeight == ActionBarMetrics.plateSvgHeight.rounded(),
+            "plateSvgHeight should be a whole point, got \(ActionBarMetrics.plateSvgHeight)"
         )
     }
 
@@ -3290,7 +3359,7 @@ enum LogicSelfTests {
             "slot run should centre on the frame, got centre \((runStart + runEnd) / 2)"
         )
         try expect(
-            ActionBarMetrics.barHitRect.minY >= 0 && ActionBarMetrics.barHitRect.maxY <= ActionBarMetrics.footerHeight,
+            ActionBarMetrics.barHitRect.minY >= 0 && ActionBarMetrics.barHitRect.maxY <= ActionBarMetrics.plateSvgHeight,
             "bar hit area should sit inside the footer, got \(ActionBarMetrics.barHitRect)"
         )
     }
@@ -3309,13 +3378,13 @@ enum LogicSelfTests {
             footer.leadingAnchor.constraint(equalTo: superview.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: superview.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: superview.bottomAnchor, constant: -bottomInset),
-            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.footerHeight),
+            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.plateSvgHeight),
         ])
         superview.layoutSubtreeIfNeeded()
 
         let plateLeft = (superview.bounds.width - ActionBarMetrics.plateWidth) / 2
         let slotCentreX = plateLeft + ActionBarMetrics.slotX(at: 0) + ActionBarMetrics.slotSize / 2
-        let plateTopEdgeY = bottomInset + ActionBarMetrics.footerHeight
+        let plateTopEdgeY = bottomInset + ActionBarMetrics.plateSvgHeight
         let slotTopEdgeY = plateTopEdgeY - ActionBarMetrics.slotTop - 0.5
         try expect(
             footer.hitTest(NSPoint(x: slotCentreX, y: slotTopEdgeY)) != nil,

@@ -74,10 +74,10 @@ struct ArtifactDockView: View {
         }
     }
 
-    /// artifacts.svg, under the dock's top bar: the Session/All tabs 20 down, the filter (All only) 20 under them,
-    /// and the rows 20 under that, everything 20 in from the panel's sides.
+    /// artifacts.svg, under the dock's top bar: the Session/All tabs (10 apart) 20 down, the filter (All only) 20 under
+    /// them, and the rows 20 under that, everything 20 in from the panel's sides.
     private var artifactSelector: some View {
-        VStack(alignment: .leading, spacing: ArtifactPaneMetrics.gap) {
+        VStack(alignment: .leading, spacing: Space.section) {
             scopeTabs
             if model.artifactScope == .all {
                 filterBar
@@ -109,7 +109,7 @@ struct ArtifactDockView: View {
                 .accessibilityLabel("Artifact list")
             }
         }
-        .padding(.top, ArtifactPaneMetrics.gap)
+        .padding(.top, Space.section)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.artifactListColumn.swiftUI)
     }
@@ -129,7 +129,7 @@ struct ArtifactDockView: View {
             onRemoveToken: onRemoveFilterToken,
             onSelectSuggestion: onSelectFilterSuggestion
         )
-        .padding(.horizontal, ArtifactPaneMetrics.gap)
+        .padding(.horizontal, Space.section)
         .zIndex(2)
     }
 
@@ -160,10 +160,9 @@ struct ArtifactDockView: View {
             },
             selectedID: model.artifactScope,
             focused: areaFocused,
-            spacing: ArtifactPaneMetrics.gap,
             onSelect: onSetScope
         )
-        .padding(.horizontal, ArtifactPaneMetrics.gap)
+        .padding(.horizontal, Space.section)
     }
 
     private func selectorStatus(_ title: String, detail: String) -> some View {
@@ -174,14 +173,9 @@ struct ArtifactDockView: View {
             titleColor: AppPalette.textBody.swiftUI,
             messageFont: AppFonts.monoSmall.swiftUI,
             messageColor: AppPalette.textMeta.swiftUI,
-            padding: EdgeInsets(top: 0, leading: ArtifactPaneMetrics.gap, bottom: ArtifactPaneMetrics.gap, trailing: ArtifactPaneMetrics.gap)
+            padding: EdgeInsets(top: 0, leading: Space.section, bottom: Space.section, trailing: Space.section)
         )
     }
-}
-
-/// artifacts.svg's spacing: every part of the pane is 20 from the next and from the panel's sides.
-private enum ArtifactPaneMetrics {
-    static let gap: CGFloat = 20
 }
 
 private extension ArtifactScope {
@@ -223,11 +217,12 @@ private extension ArtifactScope {
     }
 }
 
-/// A pick-to-open row, measured from artifact-item-v2.svg: 50 high, radius 5, in its `RowLook` (the fill only while
-/// highlighted). The icon tile 40 square at (10, 5), radius 5, with a 1pt border and the 19.2 x 24 icon centred; the
-/// title 10 past the tile on a baseline 18.5 down; a 1pt divider at y 25 from the tile to 41 short of the right
-/// edge; the project and date on a baseline 39.5 down, the date ending on the divider's end. The 20pt gutters on
-/// either side hold the pane's margin; in select mode the left one holds the mark.
+/// A pick-to-open row: artifact-item-v2.svg's 50pt row fitted to 40 (2026-10-22, the tracker worker plate's density),
+/// radius 5, in its `RowLook` (the fill only while highlighted). The icon tile 30 square at (10, 5), radius 5, with a
+/// 1pt border and the icon at the design's 0.6 of the tile (14.4 x 18) centred; the title 10 past the tile; a 1pt
+/// divider through the row's middle from the tile to 40 short of the right edge; the title and the project and date
+/// sitting 4.5 off it on either side, the date ending on the divider's end. The 20pt gutters on either side hold the
+/// pane's margin; in select mode the left one holds the mark.
 struct ArtifactRow: View {
     var artifact: ArtifactReference
     var projectTitle: String
@@ -238,21 +233,22 @@ struct ArtifactRow: View {
     var action: () -> Void
 
     private enum Metrics {
-        static let height: CGFloat = 50
-        static let spacing: CGFloat = 5
+        static let height = ControlHeight.bar
+        static let spacing = Space.row
         static let cornerRadius: CGFloat = 5
-        static let gutter: CGFloat = 20
-        static let tileOrigin = CGPoint(x: 10, y: 5)
-        static let tileSide: CGFloat = 40
-        static let iconSize = CGSize(width: 19.2, height: 24)
+        static let gutter = Space.section
+        static let tileOrigin = CGPoint(x: Space.item, y: Space.row)
+        static let tileSide: CGFloat = 30
+        static let iconSize = CGSize(width: 14.4, height: 18)
         /// doc.richtext at this size and semibold fills `iconSize`, as the design's glyph does.
-        static let iconPointSize: CGFloat = 22.5
-        static let textX: CGFloat = 60
-        static let trailingInset: CGFloat = 41
-        static let titleBaseline: CGFloat = 18.5
-        static let dividerY: CGFloat = 25
-        static let metaBaseline: CGFloat = 39.5
-        static let markSize: CGFloat = 13
+        static let iconPointSize: CGFloat = 16.875
+        static let textX = tileOrigin.x + tileSide + Space.item
+        /// The text column ends as far from the right as the tile's far edge is from the left.
+        static let trailingInset = tileOrigin.x + tileSide
+        static let titleBaseline: CGFloat = 15.5
+        static let dividerY: CGFloat = 20
+        static let metaBaseline: CGFloat = 32.5
+        static let markPointSize: CGFloat = 13
     }
 
     private var rowLook: RowLook { artifact.missing ? look.missingFile : look }
@@ -278,7 +274,7 @@ struct ArtifactRow: View {
             if selectMode {
                 Button(action: onToggle) {
                     Image(systemName: marked ? "diamond.inset.filled" : "diamond")
-                        .font(.system(size: Metrics.markSize))
+                        .font(.system(size: Metrics.markPointSize))
                         .foregroundStyle(MarkLook.color(marked: marked).color.swiftUI)
                 }
                 .buttonStyle(.plain)
@@ -304,7 +300,7 @@ struct ArtifactRow: View {
                     .fill(AppPalette.line.swiftUI)
                     .frame(width: max(0, proxy.size.width - Metrics.trailingInset - Metrics.tileOrigin.x - Metrics.tileSide), height: Token.Size.divider)
                     .offset(x: Metrics.tileOrigin.x + Metrics.tileSide, y: Metrics.dividerY - Token.Size.divider / 2)
-                HStack(spacing: Token.Spacing.element) {
+                HStack(spacing: Space.item) {
                     BaselineText(projectTitle, font: AppFonts.monoSmall, color: rowLook.meta.color, baseline: Metrics.metaBaseline)
                         .lineLimit(1)
                         .truncationMode(.tail)

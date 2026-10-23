@@ -38,7 +38,7 @@ struct SectionedList<Content: View>: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     content()
                 }
-                .padding(.bottom, 5)
+                .padding(.bottom, Space.row)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ScrollerHider())
             }

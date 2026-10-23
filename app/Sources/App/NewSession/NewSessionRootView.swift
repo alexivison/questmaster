@@ -62,8 +62,6 @@ struct NewSessionRootView: View {
     var onCreate: () -> Void
     var onCancel: () -> Void
 
-    private static let spacing: CGFloat = 20
-
     var body: some View {
         ModalFormSheet(
             title: "New Session",
@@ -73,7 +71,7 @@ struct NewSessionRootView: View {
             onCancel: onCancel,
             onPrimary: onCreate
         ) {
-            VStack(spacing: Self.spacing) {
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
                 pathField
                     .zIndex(2)
                 textField(.title, placeholder: "Title (optional)...", text: Binding(get: { state.model.title }, set: { state.model.title = $0 }))

@@ -9,6 +9,7 @@ struct TerminalAttachSkeleton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
+    private static let barHeight: CGFloat = 10
     private let lineWidths: [CGFloat] = [190, 300, 250, 120, 280, 210, 90]
 
     private var pulseOpacity: Double {
@@ -16,19 +17,20 @@ struct TerminalAttachSkeleton: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: Space.item) {
             ForEach(Array(lineWidths.enumerated()), id: \.offset) { _, width in
                 skeletonBar(width: width)
             }
-            HStack(spacing: 7) {
-                skeletonBar(width: 14)
-                skeletonBar(width: 52)
+            HStack(spacing: Space.row) {
+                skeletonBar(width: 15)
+                skeletonBar(width: 50)
             }
-            .padding(.top, 6)
+            .padding(.top, Space.row)
         }
         .opacity(pulseOpacity)
-        .padding(.top, Token.Spacing.content)
-        .padding(.leading, Token.Spacing.content)
+        // Ghostty's own padding, where the terminal's first cell will sit.
+        .padding(.top, CGFloat(GhosttyWindowPadding.resolved.y))
+        .padding(.leading, CGFloat(GhosttyWindowPadding.resolved.x))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.terminal.swiftUI)
         .onAppear {
@@ -48,7 +50,7 @@ struct TerminalAttachSkeleton: View {
     private func skeletonBar(width: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 3)
             .fill(AppPalette.dim.swiftUI)
-            .frame(width: width, height: 10)
+            .frame(width: width, height: Self.barHeight)
     }
 }
 

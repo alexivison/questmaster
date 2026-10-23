@@ -3,9 +3,9 @@ import QuestmasterCore
 import SwiftUI
 
 /// Where a plate's cast row sits, from the user's Figma mocks: a tool square centred under the disc and 5pt below it,
-/// then 2pt on, a bar as tall as the square. The master's row is 15pt and its bar ends 10pt short of the plate; the
-/// worker's is 12pt and its bar reaches the plate's right edge. While the row shows, a master's collapsed circles sit
-/// 5pt under it.
+/// then 2pt on, a bar as tall as the square. The row is 15pt, tall enough for the 11pt label; the master's bar ends 10pt
+/// short of the plate and the worker's reaches the plate's right edge. While the row shows, a master's collapsed
+/// circles sit 5pt under it.
 enum TrackerCastLayout {
     struct Metrics {
         let side: CGFloat
@@ -15,15 +15,16 @@ enum TrackerCastLayout {
     }
 
     static let master = Metrics(side: 15, iconSide: 9, labelBaseline: 11.5)
-    static let worker = Metrics(side: 12, iconSide: 8, labelBaseline: 10)
-    static let spacing = Token.Spacing.rowCompact
-    static let squareToBar = Token.Spacing.hairline
+    static let worker = master
+    static let spacing = Space.row
+    /// A 2pt line between the square and its bar, kept like the borders (2026-10-23), not a spacing step.
+    static let squareToBar = Token.Size.hairline
     static let masterBarRight: CGFloat = 250
 
     static func metrics(_ role: TrackerNameplateRole) -> Metrics { role.isWorker ? worker : master }
 
-    /// The square's left edge: centred on the disc's whole-point centre. The worker's even square centres exactly; the
-    /// master's odd one sits half a point right of centre so its edges stay on whole pixels.
+    /// The square's left edge: centred on the disc's whole-point centre. The odd square sits half a point right of
+    /// centre so its edges stay on whole pixels.
     static func squareX(_ role: TrackerNameplateRole) -> CGFloat {
         role.portraitCenter.x - (metrics(role).side / 2).rounded(.down)
     }
@@ -36,10 +37,10 @@ enum TrackerCastLayout {
     }
 
     /// How much taller the row is while the cast row shows: the row and the gap above it, and for a master with
-    /// collapsed circles, the gap down to them (the circles' own 1pt drop under the disc gives way).
+    /// collapsed circles, the gap down to them.
     static func extraHeight(_ role: TrackerNameplateRole, showsCircles: Bool) -> CGFloat {
         let row = spacing + metrics(role).side
-        return showsCircles ? row + spacing - TrackerPlateDesign.collapsedCirclesDrop : row
+        return showsCircles ? row + spacing : row
     }
 }
 
@@ -177,12 +178,12 @@ private struct TrackerCastFillView: NSViewRepresentable {
 }
 
 /// The bar's inside, all in Core Animation so it moves without SwiftUI redrawing anything. A cast with a learned
-/// duration slides a full-width amber layer, its 6pt light leading edge at its right, linearly to full at the typical
+/// duration slides a full-width amber layer, its 5pt light leading edge at its right, linearly to full at the typical
 /// duration; the bar clips it to the fill. Past that the full bar pulses, a light overlay breathing until the tool ends.
 /// A cast with none shimmers: a dim amber wash with a light band sweeping across. A finishing cast fills and flashes.
 /// The animations are built when the cast, the phase, the size or the window change, and never per frame.
 final class TrackerCastFillNSView: NSView {
-    static let leadingEdge: CGFloat = 6
+    static let leadingEdge: CGFloat = 5
     /// The amber at the tracker's bar brightness, like the plates' coloured bars; its leading edge, the overrun pulse
     /// and the finish flash are this amber lifted toward white, so they tone down with it.
     static let amber = TrackerNameplateColor.barLightness(AppPalette.warn)

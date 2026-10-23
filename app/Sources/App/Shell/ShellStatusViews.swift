@@ -19,11 +19,17 @@ struct TerminalMessageOverlay: View {
             textAlignment: .center,
             frameAlignment: .center,
             maxTextWidth: 420,
-            padding: EdgeInsets(top: 0, leading: 28, bottom: 0, trailing: 28),
+            padding: EdgeInsets(top: 0, leading: Space.section, bottom: 0, trailing: Space.section),
             backgroundColor: AppPalette.terminal.withAlphaComponent(0.96)
         )
         .help(detail)
     }
+}
+
+enum MutationErrorBannerMetrics {
+    static let maxWidth: CGFloat = 560
+    /// Below the window's top edge: clear of the titlebar.
+    static let top: CGFloat = 60
 }
 
 struct MutationErrorBanner: View {
@@ -35,9 +41,9 @@ struct MutationErrorBanner: View {
             .foregroundStyle(AppPalette.text.swiftUI)
             .lineLimit(2)
             .truncationMode(.tail)
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: 560, alignment: .leading)
+            .padding(.vertical, Space.item)
+            .padding(.horizontal, Space.item)
+            .frame(maxWidth: MutationErrorBannerMetrics.maxWidth, alignment: .leading)
             .borderedCard(
                 fill: AppPalette.trackerError.withAlphaComponent(0.18),
                 borderColor: AppPalette.trackerError.withAlphaComponent(0.45)

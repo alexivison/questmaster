@@ -34,9 +34,9 @@ final class ErrorPresentationController {
             banner.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(banner)
             NSLayoutConstraint.activate([
-                banner.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 58),
-                banner.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18),
-                banner.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 18),
+                banner.topAnchor.constraint(equalTo: contentView.topAnchor, constant: MutationErrorBannerMetrics.top),
+                banner.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Space.section),
+                banner.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Space.section),
             ])
             mutationErrorBanner = banner
         }

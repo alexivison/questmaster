@@ -19,7 +19,7 @@ struct ArtifactMarkdownView: View {
                     .font(AppFonts.body.swiftUI)
                     .foregroundStyle(AppPalette.warn.swiftUI)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(Token.Spacing.content)
+                    .padding(Space.section)
                     .background(ScrollerHider(onApply: Self.styleScroll))
                     .textSelection(.enabled)
             } else {
@@ -35,7 +35,7 @@ struct ArtifactMarkdownView: View {
                     .markdownImageProvider(LocalMarkdownImageProvider())
                     .markdownInlineImageProvider(LocalMarkdownInlineImageProvider())
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .padding(Token.Spacing.content)
+                    .padding(Space.section)
                     .background(ScrollerHider(onApply: Self.styleScroll))
                     .textSelection(.enabled)
             }

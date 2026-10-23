@@ -37,8 +37,9 @@ struct SelectedSessionPanel: View {
     let content: SelectedSessionPanelContent
     let onCopyID: (String) -> Void
 
-    /// The SVG's 299 cut to 260 (2026-10-21), so the panel's right edge lines up with the master plates'.
-    static let canvasSize = CGSize(width: 260, height: 76)
+    /// The SVG's 299 x 76 cut to 260 (2026-10-21), so the panel's right edge lines up with the master plates', and to 75
+    /// (2026-10-23): the bottom diamond's tip still draws past it, pixel for pixel as before.
+    static let canvasSize = CGSize(width: 260, height: 75)
     /// The logo's own canvas, drawn at that size so it is never stretched. Past the panel's edge it is clear.
     private static let logoSize = CGSize(width: 289, height: 76)
     private static let logo = AppSymbolStyle.resourceImage(
@@ -47,11 +48,13 @@ struct SelectedSessionPanel: View {
         subdirectory: "Brand",
         canvasSize: NSSize(width: logoSize.width, height: logoSize.height)
     )
-    /// Where the SVG starts each line's first glyph cell, and its baseline. Every line stops at `textRightEdge`, so a
-    /// long title truncates instead of running under the plate's right edge.
-    private static let idX: CGFloat = 78
-    private static let textX: CGFloat = 79.5
-    private static let textRightEdge: CGFloat = 252
+    /// Where each line's first glyph cell starts, past the portrait like a plate's text (`TrackerPlateDesign.textX`),
+    /// and its baseline. Every line stops at `textRightEdge`, so a long title truncates instead of running under the
+    /// plate's right edge.
+    /// `Space.item` past the disc, not a plate's `Space.row`, so the title clears the Q's right spike (it reaches 76).
+    static let textX = TrackerPlateDesign.textX(afterDisc: PanelDesign.disc, gap: Space.item)
+    private static let idX = textX
+    private static let textRightEdge: CGFloat = 250
     private static let idBaseline: CGFloat = 19
     private static let titleBaseline: CGFloat = 42.5
     private static let projectBaseline: CGFloat = 64.5

@@ -135,6 +135,7 @@ final class DeferredTerminalHost: TerminalPaneHosting {
 }
 
 private final class TerminalUnavailableView: NSView {
+    private static let detailMaxWidth: CGFloat = 500
     var onFocusRequested: (() -> Void)?
 
     private let titleLabel = NSTextField(labelWithString: "")
@@ -158,16 +159,16 @@ private final class TerminalUnavailableView: NSView {
         let stackView = NSStackView(views: [titleLabel, detailLabel])
         stackView.orientation = .vertical
         stackView.alignment = .centerX
-        stackView.spacing = 8
+        stackView.spacing = Space.item
         stackView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stackView)
 
         NSLayoutConstraint.activate([
             stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 32),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -32),
-            detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 500),
+            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Space.section),
+            stackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Space.section),
+            detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: Self.detailMaxWidth),
         ])
     }
 

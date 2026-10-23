@@ -38,7 +38,7 @@ struct FlankedOrnamentRule<Center: View>: View {
 
     var style: Style = .default
     var color: Color = AppPalette.line.swiftUI
-    var centerSpacing: CGFloat = Token.Spacing.card
+    var centerSpacing = Space.item
     @ViewBuilder var center: () -> Center
 
     var body: some View {

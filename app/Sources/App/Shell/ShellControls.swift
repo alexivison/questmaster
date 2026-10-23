@@ -7,21 +7,18 @@ import QuestmasterCore
 
 enum ShellMetrics {
     /// The dock top bar, as artifacts.svg draws it: the title's baseline 35 down, and its icon buttons centred 30
-    /// down, the close button 40 in from the right edge (28 to its button frame), clear of the scooped corner.
-    static let dockTopBarHeight: CGFloat = 40
+    /// down, the close button 40 in from the right edge (30 to its 20pt button frame), clear of the scooped corner.
+    static let dockTopBarHeight = ControlHeight.bar
     static let dockTopBarTitleBaseline: CGFloat = 35
     static let dockTopBarIconCentre: CGFloat = 30
-    static let dockTopBarHorizontalInset: CGFloat = 28
+    static let dockTopBarHorizontalInset: CGFloat = 30
     /// No extra space above the first tracker header (2026-10-07): `sideCardInset` alone now
     /// provides the window-top-to-tracker gap, matching every other G-rhythm gap in the shell.
     static let trackerTopInset: CGFloat = 0
-    /// The shell's own single gap `G` (2026-10-07) — applies to every pane-to-pane and
+    /// The shell's own single gap `G`, `Space.section` — applies to every pane-to-pane and
     /// pane-to-window-edge gap in the shell (tracker/dock side-card inset, tracker's own leading
-    /// padding, the dock's and terminal's outer margins). A dedicated constant, not
-    /// `Token.Spacing.element`: that token is used all over the rest of the app and stays 10:
-    /// this is the shell's own rhythm, free to move independently (the user may bump it again
-    /// after seeing 20).
-    static let gap: CGFloat = 20
+    /// padding, the dock's and terminal's outer margins).
+    static let gap = Space.section
     static let sideCardInset = gap
     /// Window edge to the tracker frame: 0, now that `TrackerListMetrics.sidePadding` (which
     /// tracks `gap`) alone, applied leading-only, provides the full gap to the plates.
@@ -36,16 +33,18 @@ enum ShellMetrics {
     /// from the window's top edge.
     static let horizontalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.x))
     static let verticalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.y))
-    static let trackerTrailingGap: CGFloat = horizontalFlushGap
+    /// The tracker column holds the plate band's 2pt past the plates' right edge; the gap after it is that much
+    /// shorter, so the plates sit `gap` from the terminal's first cell, not `gap` + 2.
+    static let trackerTrailingGap: CGFloat = max(0, horizontalFlushGap - TrackerPlateDesign.glowBandWidth)
     /// The footer's reserved band: its plate, the shell gap below it, and the flush gap above it.
     static let footerBand = FooterBand(
-        plateHeight: Double(ActionBarMetrics.footerHeight),
+        plateHeight: Double(ActionBarMetrics.plateSvgHeight),
         bottomGap: Double(gap),
         topGap: Double(verticalFlushGap)
     )
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
-        dockDividerHitWidth: 7,
+        dockDividerHitWidth: Double(Space.item),
         trackerMaxWidth: Double(TrackerListMetrics.contentWidth) + Double(gap),
         trackerLeadingInset: Double(trackerLeadingInset),
         trackerTrailingGap: Double(trackerTrailingGap),

@@ -807,22 +807,21 @@ enum TrackerNameplateRole: Equatable {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
 
-    /// The text columns in canvas points, where the SVGs start each line's first glyph cell. Every line stops at the
-    /// column's right edge, where the elapsed time right-aligns. The master's project name sits in its tab, the title
-    /// and time on the title strip, and the snippet on the band below; the worker has no tab.
-    static let topLevelProjectX: CGFloat = 54
-    static let topLevelTitleX: CGFloat = 57
-    static let topLevelSnippetX: CGFloat = 56
-    static let topLevelTextRightEdge: CGFloat = 248
-    static let workerTextX: CGFloat = 45 + TrackerPlateDesign.workerShift
-    static let workerTextRightEdge: CGFloat = 218 + TrackerPlateDesign.workerShift
-    static let titleTimeGap: CGFloat = 6
+    /// The text columns in canvas points, one per plate, past each disc (`TrackerPlateDesign.textX`): 55 on the
+    /// master (its disc spans 0-50), 65 on the worker (20-60). Every line stops at the column's right
+    /// edge, where the elapsed time right-aligns. The master's project name sits in its tab, the title and time on the
+    /// title strip, and the snippet on the band below; the worker has no tab.
+    static let topLevelTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.topLevel.discEdge)
+    static let topLevelTextRightEdge: CGFloat = 250
+    static let workerTextX = TrackerPlateDesign.textX(afterDisc: TrackerPlateDesign.worker.discEdge)
+    static let workerTextRightEdge: CGFloat = 240
+    static let titleTimeGap = Space.row
     /// The collapsed workers' circles start 40 points right of the master disc's left edge.
     static let circlesX: CGFloat = TrackerPlateDesign.topLevelPortraitCenter.x
         - TrackerPlateDesign.topLevelDiscDiameter / 2 + TrackerPlateDesign.collapsedCirclesInset
 
-    var titleX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelTitleX }
-    var snippetX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelSnippetX }
+    var titleX: CGFloat { isWorker ? Self.workerTextX : Self.topLevelTextX }
+    var snippetX: CGFloat { titleX }
     var textRightEdge: CGFloat { isWorker ? Self.workerTextRightEdge : Self.topLevelTextRightEdge }
     var titleBaseline: CGFloat { isWorker ? TrackerPlateDesign.workerTitleBaseline : TrackerPlateDesign.topLevelTitleBaseline }
     var timeBaseline: CGFloat { isWorker ? TrackerPlateDesign.workerTimeBaseline : TrackerPlateDesign.topLevelTimeBaseline }
@@ -843,7 +842,7 @@ enum TrackerNameplateRole: Equatable {
     /// The row's height: the canvas, plus the circles a point below its bottom under a master that shows them.
     func rowHeight(showsCircles: Bool) -> CGFloat {
         guard showsCircles else { return canvasSize.height }
-        return canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop + TrackerPlateDesign.collapsedCircleDiameter
+        return canvasSize.height + TrackerPlateDesign.collapsedCircleDiameter
     }
 }
 
@@ -931,6 +930,7 @@ private struct TrackerPlateArt: View {
 
     var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             if let tab = artwork.tab {
                 context.fill(tab, with: .color(AppPalette.panel.swiftUI))
             }
@@ -947,7 +947,7 @@ private struct TrackerPlateArt: View {
                 context.fillInnerShadow(snippetStrip, .strip)
             }
         }
-        .frame(width: artwork.size.width, height: artwork.size.height)
+        .silhouetteFrame(artwork.size)
     }
 }
 
@@ -958,11 +958,12 @@ private struct TrackerPortraitDisc: View {
 
     var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.fillOuterShadow(artwork.discEdge, .discOuter)
             context.fill(artwork.discEdge, with: .color(AppPalette.panel.swiftUI))
             context.fillInnerShadow(artwork.discEdge, .discInner)
         }
-        .frame(width: artwork.size.width, height: artwork.size.height)
+        .silhouetteFrame(artwork.size)
     }
 }
 
@@ -975,6 +976,7 @@ private struct TrackerPortraitOutline: View {
 
     var body: some View {
         Canvas { context, _ in
+            context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.drawLayer { ring in
                 ring.clip(to: artwork.discRing)
                 ring.stroke(artwork.disc, with: .color(AppPalette.line.swiftUI), lineWidth: artwork.discStroke)
@@ -984,7 +986,7 @@ private struct TrackerPortraitOutline: View {
                 context.fill(ornament.path, with: .color(color(for: ornament.role)), style: FillStyle(eoFill: true))
             }
         }
-        .frame(width: artwork.size.width, height: artwork.size.height)
+        .silhouetteFrame(artwork.size)
     }
 
     private func color(for role: TrackerPlateShapes.Role) -> Color {
@@ -1026,7 +1028,7 @@ struct TrackerNameplateBackground<Text: View>: View {
             text
         }
         .frame(width: artwork.size.width, height: artwork.size.height, alignment: .topLeading)
-        .offset(y: -TrackerPlateDesign.artInset)
+        .offset(y: -TrackerPlateDesign.svgDiscInset)
         .frame(width: role.canvasSize.width, height: role.canvasSize.height, alignment: .topLeading)
     }
 }
@@ -1107,7 +1109,12 @@ struct TrackerPlateLine: View {
                     .frame(width: width, alignment: alignment)
                     .alignmentGuide(.top) { $0[.firstTextBaseline] }
             }
-            .offset(x: x, y: (baseline * displayScale - 0.5).rounded(.up) / displayScale)
+            .offset(x: x, y: pixelBaseline)
+    }
+
+    /// The baseline on the first whole pixel at or below it.
+    private var pixelBaseline: CGFloat {
+        (baseline * displayScale - 0.5).rounded(.up) / displayScale
     }
 
     @ViewBuilder private var label: some View {
@@ -1183,8 +1190,8 @@ private struct TrackerPlateText: View {
                     text: projectName,
                     font: AppFonts.monoSmall,
                     color: AppPalette.dim,
-                    x: TrackerNameplateRole.topLevelProjectX,
-                    width: role.textRightEdge - TrackerNameplateRole.topLevelProjectX,
+                    x: TrackerNameplateRole.topLevelTextX,
+                    width: role.textRightEdge - TrackerNameplateRole.topLevelTextX,
                     baseline: TrackerPlateDesign.topLevelProjectBaseline
                 )
             }
@@ -1262,7 +1269,7 @@ private struct TrackerSessionRowContent: View {
             }
             if showsCircles {
                 TrackerWorkerSummaryRow(workers: collapsedWorkers)
-                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + TrackerPlateDesign.collapsedCirclesDrop + castExtra)
+                    .offset(x: TrackerNameplateRole.circlesX, y: role.canvasSize.height + castExtra)
             }
         }
         .frame(width: role.canvasSize.width, height: role.rowHeight(showsCircles: showsCircles) + castExtra, alignment: .topLeading)
@@ -1558,10 +1565,10 @@ private struct TrackerEmptyState: View {
             textAlignment: .center,
             frameAlignment: .center,
             padding: EdgeInsets(
-                top: 28,
-                leading: Token.Spacing.content,
-                bottom: Token.Spacing.element,
-                trailing: Token.Spacing.content
+                top: Space.section,
+                leading: Space.section,
+                bottom: Space.item,
+                trailing: Space.section
             ),
             expandHeight: false
         )

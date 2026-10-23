@@ -104,22 +104,29 @@ struct StateRulesScanTests {
     }
 
     private static func appSourcesFollowTheRules() {
+        var failures: [String] = []
+        for (file, source) in appSources(except: exempt) {
+            for (rule, count) in violations(in: source, file: file).sorted(by: { $0.key < $1.key }) {
+                failures.append("\(rule) \(file): \(count) break(s) of the interaction-state rules")
+            }
+        }
+        expect(failures.isEmpty, "interaction-state rules (AGENTS.md):\n" + failures.joined(separator: "\n"))
+    }
+
+    /// Every Swift file under app/Sources/App, by its path there, with its source.
+    static func appSources(except exempt: [String]) -> [(file: String, source: String)] {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/App")
         guard let files = FileManager.default.enumerator(atPath: root.path)?.compactMap({ $0 as? String }) else {
             fatalError("could not list \(root.path)")
         }
-        var failures: [String] = []
-        for file in files.sorted() where file.hasSuffix(".swift") && !exempt.contains(file) {
+        return files.sorted().filter { $0.hasSuffix(".swift") && !exempt.contains($0) }.map { file in
             guard let source = try? String(contentsOf: root.appendingPathComponent(file), encoding: .utf8) else {
                 fatalError("could not read \(file)")
             }
-            for (rule, count) in violations(in: source, file: file).sorted(by: { $0.key < $1.key }) {
-                failures.append("\(rule) \(file): \(count) break(s) of the interaction-state rules")
-            }
+            return (file, source)
         }
-        expect(failures.isEmpty, "interaction-state rules (AGENTS.md):\n" + failures.joined(separator: "\n"))
     }
 
     /// Rule name to the number of lines that break it. Comment lines don't count.

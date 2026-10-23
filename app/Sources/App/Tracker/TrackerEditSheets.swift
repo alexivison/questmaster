@@ -4,10 +4,10 @@ import SwiftUI
 
 /// Edit Session and Edit Repo (user-edit-modals.png): no labels; the session's title (or the repo's fixed
 /// name) and the colour input, 20 apart, then Cancel and Save, under the shared header. The overview's
-/// fields and buttons put them at 460 wide (the old modals were 420), with 152-wide buttons.
+/// fields and buttons put them at 460 wide (the old modals were 420), with 150-wide buttons (the overview's 152).
 private enum TrackerEditMetrics {
     static let width: CGFloat = 460
-    static let buttonWidth: CGFloat = 152
+    static let buttonWidth: CGFloat = 150
 
     static func size(fields: Int) -> CGSize {
         CGSize(width: width, height: ModalFormMetrics.height(fields: fields))

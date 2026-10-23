@@ -53,12 +53,12 @@ struct ColorField: View {
     }
 }
 
-/// A colour's swatch bar (100 x 12, radius 5); no colour is an empty outline.
+/// A colour's swatch bar (100 x 10, radius 5); no colour is an empty outline.
 struct ColorSwatch: View {
     let color: String
 
     private enum Metrics {
-        static let size = CGSize(width: 100, height: 12)
+        static let size = CGSize(width: 100, height: 10)
         static let cornerRadius: CGFloat = 5
     }
 

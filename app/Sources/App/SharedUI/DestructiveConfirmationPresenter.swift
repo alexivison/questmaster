@@ -25,13 +25,13 @@ struct DestructiveConfirmationRequest: Identifiable {
 }
 
 struct DestructiveConfirmationSheetView: View {
+    static let width: CGFloat = 420
     let spec: DestructiveConfirmation
     let onDecision: (Bool) -> Void
 
     var body: some View {
         ModalSheetScaffold(
             title: spec.title,
-            footerText: "",
             errorMessage: nil,
             titleColor: AppPalette.deleted,
             cancelLabel: spec.cancelLabel,
@@ -40,15 +40,16 @@ struct DestructiveConfirmationSheetView: View {
             onPrimary: { onDecision(true) },
             destructivePrimary: true
         ) {
+            // The header leaves 10 above the message; 10 more under it and the footer's own 10 make the 20 between
+            // blocks.
             Text(spec.message)
                 .font(AppFonts.body.swiftUI)
                 .foregroundStyle(AppPalette.muted.swiftUI)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 18)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
+                .padding(.horizontal, Space.section)
+                .padding(.bottom, Space.item)
         }
-        .frame(width: 420)
+        .frame(width: Self.width)
         .scoopedPanel()
         .background(SheetKeyEventMonitor { event in
             if Keymap.NewSession.cancel.matches(event.keyCode) {

@@ -22,35 +22,41 @@ enum Token {
         static let card: CGFloat = 8
     }
 
-    enum Spacing {
-        /// Hairline gaps between adjacent controls (was `2`).
-        static let hairline: CGFloat = 2
-        /// Tight insets inside grouped controls (was `3`).
-        static let tight: CGFloat = 3
-        /// Compact row vertical inset.
-        static let rowCompact: CGFloat = 5
-        /// Small inline gap between related row elements.
-        static let inline: CGFloat = 6
-        /// Inset between the window edge and the side cards (was `8`).
-        static let card: CGFloat = 8
-        /// Inset around individual inline elements / control rows (was `10`).
-        static let element: CGFloat = 10
-        /// Section header offset.
-        static let section: CGFloat = 12
-        /// Standard content inset for list rows and headers (was `14`).
-        static let content: CGFloat = 14
-        /// Gap between distinct top-level groups (e.g. Settings' Master/
-        /// Worker blocks) — a clear step up from `content`, which
-        /// spaces items within one group.
-        static let groupGap: CGFloat = 24
-    }
-
     enum Size {
         /// One-pixel rules and dividers.
         static let divider: CGFloat = 1
-        /// Repository indicator dot.
-        static let repoIndicator: CGFloat = 6
+        /// Two-point hairline gaps and strokes (the cast square → bar).
+        static let hairline: CGFloat = 2
     }
+}
+
+/// The spacing scale (AGENTS.md, "Spacing"): every gap, margin, padding and inset in the app is one of these
+/// four steps, or a sum of them.
+enum Space {
+    /// Between rows of one list control; a field and its dropdown; collapsed circles; the cast row.
+    static let row: CGFloat = 5
+    /// Between sibling items; icon → text; text inset inside a control; header band → content.
+    static let item: CGFloat = 10
+    /// The shell gap, every panel's edge margin, blocks inside a panel.
+    static let section: CGFloat = 20
+    /// Between groups of blocks: the selected-session panel → the list.
+    static let group: CGFloat = 40
+}
+
+/// The control heights, one family on the 5pt rhythm (AGENTS.md, "Spacing").
+enum ControlHeight {
+    /// Filter chips.
+    static let chip: CGFloat = 15
+    /// Pill tabs, Quest Log rows.
+    static let compact: CGFloat = 25
+    /// Buttons, dropdown rows, compact pickers.
+    static let control: CGFloat = 30
+    /// Text fields, filter bars, the Settings picker.
+    static let field: CGFloat = 35
+    /// The dock's top bar, artifact rows; the tracker worker plate's row.
+    static let bar: CGFloat = 40
+    /// The tracker master plate's row.
+    static let row: CGFloat = 50
 }
 
 extension NSColor {

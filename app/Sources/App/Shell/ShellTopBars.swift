@@ -75,14 +75,14 @@ struct DockTopBar: View {
             if let title = topBar.title {
                 dockTopBarTitle(title)
                     .frame(maxWidth: .infinity)
-                    .padding(.horizontal, ChromeMetrics.iconWidth + Token.Spacing.card)
+                    .padding(.horizontal, ChromeMetrics.iconWidth + Space.item)
                     .allowsHitTesting(false)
             }
         }
     }
 
     private func viewerBar(_ topBar: DockTopBarModel, back: DockTopBarModel.Back) -> some View {
-        HStack(spacing: Token.Spacing.card) {
+        HStack(spacing: Space.item) {
             ChromeIconButton(symbolName: "arrow.backward", accessibilityLabel: backLabel(back)) {
                 onBack(back)
             }
@@ -94,7 +94,7 @@ struct DockTopBar: View {
                     .frame(maxWidth: .infinity)
             }
 
-            HStack(spacing: Token.Spacing.card) {
+            HStack(spacing: Space.item) {
                 if topBar.showArtifactActions {
                     ChromeIconButton(symbolName: "doc.on.doc", accessibilityLabel: "Copy artifact path", action: onCopyArtifactPath)
                     ChromeIconButton(symbolName: "arrow.clockwise", accessibilityLabel: "Refresh artifact", action: onRefreshArtifact)

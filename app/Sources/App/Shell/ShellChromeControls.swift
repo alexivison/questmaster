@@ -9,11 +9,10 @@ import SwiftUI
 /// appearance stays identical; the residual inline font sizes are tracked by #95.
 
 enum ChromeMetrics {
-    static let iconWidth: CGFloat = 24
-    static let iconHeight: CGFloat = 22
+    /// The icon buttons' hit square; the glyph is 15pt.
+    static let iconWidth: CGFloat = 20
+    static let iconHeight: CGFloat = 20
     static let iconPointSize: CGFloat = 15
-
-    static let controlHeight: CGFloat = 28
 }
 
 /// SF Symbol button whose icon takes the row look: rest, and the highlighted icon under the pointer.
