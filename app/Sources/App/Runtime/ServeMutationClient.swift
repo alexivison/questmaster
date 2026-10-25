@@ -76,7 +76,7 @@ protocol ServeReasoningEffortSuggesting: AnyObject {
 }
 
 final class UnixSocketMutationClient: ServeMutationSending {
-    private let socketPath: String
+    private let connection: DaemonConnection
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient")
     /// Model resolution can ask a harness to enumerate its own models, which
     /// means waiting on a subprocess. It gets its own queue so a slow harness
@@ -86,24 +86,19 @@ final class UnixSocketMutationClient: ServeMutationSending {
     /// delaying a mutation.
     private let feedQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.workerFeed")
     private static let responseTimeoutSeconds = 35
-    /// Mirrors UnixSocketServeClient's own backoff schedule: the app-launched
-    /// `qm serve` can take a few seconds to bind its socket (see
-    /// ServeProcess.waitForSocket), and this client has no equivalent
-    /// reconnect loop of its own — a New Session sheet opened (or a menu
-    /// mutation fired) in that window would otherwise fail once, silently,
-    /// with nothing to prompt a second try. Retried only before any bytes are
-    /// written, so a mutation already in flight is never repeated.
+    /// A one-shot request may race daemon startup or an upgrade. Retry only
+    /// before writing bytes, so a mutation in flight is never repeated.
     static let connectRetryDelays: [TimeInterval] = [0, 0.15, 0.3, 0.6, 1.0]
 
-    init(socketPath: String) {
-        self.socketPath = socketPath
+    init(connection: DaemonConnection) {
+        self.connection = connection
     }
 
     func send(_ request: ServeMutationRequest, completion: @escaping (Result<ServeMutationAck, Error>) -> Void) {
-        queue.async { [socketPath] in
+        queue.async { [connection] in
             do {
                 let id = UUID().uuidString
-                let ack = try Self.sendObject(request.jsonObject(id: id), socketPath: socketPath)
+                let ack = try Self.sendObject(request.jsonObject(id: id), connection: connection)
                 completion(.success(ack))
             } catch {
                 completion(.failure(error))
@@ -132,8 +127,12 @@ final class UnixSocketMutationClient: ServeMutationSending {
         throw lastError
     }
 
-    private static func sendObject(_ object: [String: Any], socketPath: String) throws -> ServeMutationAck {
-        let fd = try connectWithRetry(socketPath: socketPath)
+    private static func sendObject(_ object: [String: Any], connection: DaemonConnection, userInitiated: Bool = true) throws -> ServeMutationAck {
+        var firstAttempt = true
+        let fd = try connectWithRetry(socketPath: "daemon", connect: { _ in
+            defer { firstAttempt = false }
+            return try connection.connect(userInitiated: userInitiated && firstAttempt)
+        })
         defer {
             shutdown(fd, SHUT_RDWR)
             close(fd)
@@ -168,13 +167,13 @@ final class UnixSocketMutationClient: ServeMutationSending {
 
 extension UnixSocketMutationClient: ServeDirectorySuggesting {
     func suggestDirectories(query: String, completion: @escaping (Result<DirectorySuggestionResponse, Error>) -> Void) {
-        queue.async { [socketPath] in
+        queue.async { [connection] in
             do {
                 let ack = try Self.sendObject([
                     "id": UUID().uuidString,
                     "method": "dir_suggest",
                     "data": ["query": query],
-                ], socketPath: socketPath)
+                ], connection: connection)
                 guard let data = ack.data as? [String: Any] else {
                     throw ServeClientError.protocolError("dir_suggest response missing data")
                 }
@@ -205,7 +204,7 @@ extension UnixSocketMutationClient: ServeModelSuggesting {
         refresh: Bool,
         completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void
     ) {
-        modelQueue.async { [socketPath] in
+        modelQueue.async { [connection] in
             do {
                 let ack = try Self.sendObject([
                     "id": UUID().uuidString,
@@ -216,7 +215,7 @@ extension UnixSocketMutationClient: ServeModelSuggesting {
                         "limit": Self.modelSuggestionLimit,
                         "refresh": refresh,
                     ] as [String: Any],
-                ], socketPath: socketPath)
+                ], connection: connection)
                 guard let data = ack.data as? [String: Any] else {
                     throw ServeClientError.protocolError("models response missing data")
                 }
@@ -257,7 +256,7 @@ extension UnixSocketMutationClient: ServeReasoningEffortSuggesting {
         model: String,
         completion: @escaping (Result<ReasoningEffortSuggestionResponse, Error>) -> Void
     ) {
-        modelQueue.async { [socketPath] in
+        modelQueue.async { [connection] in
             do {
                 let ack = try Self.sendObject([
                     "id": UUID().uuidString,
@@ -267,7 +266,7 @@ extension UnixSocketMutationClient: ServeReasoningEffortSuggesting {
                         "role": role,
                         "model": model,
                     ] as [String: Any],
-                ], socketPath: socketPath)
+                ], connection: connection)
                 guard let data = ack.data as? [String: Any] else {
                     throw ServeClientError.protocolError("reasoning_efforts response missing data")
                 }
@@ -284,9 +283,9 @@ extension UnixSocketMutationClient: ServeReasoningEffortSuggesting {
 
 extension UnixSocketMutationClient {
     func fetchWorkerFeed(_ request: WorkerFeedRequest, completion: @escaping (Result<WorkerFeedPayload, Error>) -> Void) {
-        feedQueue.async { [socketPath] in
+        feedQueue.async { [connection] in
             do {
-                let ack = try Self.sendObject(request.jsonObject(id: UUID().uuidString), socketPath: socketPath)
+                let ack = try Self.sendObject(request.jsonObject(id: UUID().uuidString), connection: connection, userInitiated: false)
                 completion(.success(try ack.decoded(WorkerFeedPayload.self)))
             } catch {
                 completion(.failure(error))

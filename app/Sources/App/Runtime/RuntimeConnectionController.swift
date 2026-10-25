@@ -3,117 +3,71 @@ import QuestmasterCore
 
 @MainActor
 final class RuntimeConnectionController {
-    private let config: LaunchConfiguration
     private let runtimeStore: RuntimeStore
     private let render: () -> Void
-
-    private var serveProcess: ServeProcess?
+    private let connection: DaemonConnection
     private var runtimeClient: UnixSocketServeClient?
-    private var didStartRuntimeClient = false
     private var pendingCoalescedRender = false
+    private var connected = false
+    private var incompatible = false
 
-    init(config: LaunchConfiguration, runtimeStore: RuntimeStore, render: @escaping () -> Void) {
-        self.config = config
+    init(connection: DaemonConnection, runtimeStore: RuntimeStore, render: @escaping () -> Void) {
+        self.connection = connection
         self.runtimeStore = runtimeStore
         self.render = render
     }
 
-    func start(launchSessionID: String?) {
-        guard config.launchServe else {
-            startRuntimeClient()
-            return
-        }
-
-        let process = ServeProcess(
-            socketPath: config.serveSocket,
-            backend: config.backend,
-            sessionID: launchSessionID
-        )
-        serveProcess = process
-        process.start(
-            onStatus: { [weak self] status in
-                DispatchQueue.main.async {
-                    self?.applyServeProcessStatus(status)
-                }
-            },
-            onReady: { [weak self] in
-                DispatchQueue.main.async {
-                    self?.startRuntimeClient()
-                }
+    func start(onInitialAttemptComplete: @escaping () -> Void) {
+        guard runtimeClient == nil else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [connection, weak self] in
+            _ = try? connection.record()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.startRuntimeClient()
+                onInitialAttemptComplete()
             }
-        )
-    }
-
-    func stop() {
-        runtimeClient?.stop()
-        serveProcess?.stop()
-    }
-
-    // Coalesce serve-driven renders: multiple update/status callbacks arriving in
-    // the same runloop turn produce a single render() on the main thread.
-    private func scheduleCoalescedRender() {
-        guard !pendingCoalescedRender else {
-            return
         }
-        pendingCoalescedRender = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else {
-                return
-            }
-            self.pendingCoalescedRender = false
-            self.render()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self, !self.connected, !self.incompatible else { return }
+            self.runtimeStore.apply(.serveUnavailable(DaemonWaitingStatus.message(after: 5)))
+            self.scheduleCoalescedRender()
         }
-    }
-
-    private func applyServeProcessStatus(_ status: String) {
-        if let serviceMessage = Self.serviceStateMessage(forServeProcessStatus: status) {
-            runtimeStore.apply(.serveUnavailable(serviceMessage))
-        }
-        scheduleCoalescedRender()
     }
 
     private func startRuntimeClient() {
-        guard !didStartRuntimeClient else {
-            return
-        }
-        didStartRuntimeClient = true
-
-        let client = UnixSocketServeClient(socketPath: config.serveSocket)
+        let client = UnixSocketServeClient(connection: connection)
         runtimeClient = client
         client.start(
             onUpdate: { [weak self] update in
                 DispatchQueue.main.async {
-                    guard let self else {
-                        return
+                    guard let self else { return }
+                    if update.observedLabel?.contains("incompatible backend") == true {
+                        self.incompatible = true
+                    } else if update.observedLabel?.contains("backend") != true {
+                        self.incompatible = false
                     }
                     self.runtimeStore.apply(update)
                     self.scheduleCoalescedRender()
                 }
             },
-            onStatus: { [weak self] _ in
+            onStatus: { [weak self] status in
                 DispatchQueue.main.async {
+                    if status == "backend connected" { self?.connected = true }
                     self?.scheduleCoalescedRender()
                 }
             }
         )
     }
 
-    static func serviceStateMessage(forServeProcessStatus status: String) -> String? {
-        let lowercased = status.lowercased()
-        if lowercased.contains("starting") {
-            return "connecting to serve..."
+    func stop() { runtimeClient?.stop() }
+
+    private func scheduleCoalescedRender() {
+        guard !pendingCoalescedRender else { return }
+        pendingCoalescedRender = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingCoalescedRender = false
+            self.render()
         }
-        if lowercased.contains("not found")
-            || lowercased.contains("failed")
-            || lowercased.contains("restart limit")
-            || lowercased.contains("did not become ready")
-            || lowercased.contains("exited before")
-            || lowercased.contains("serve exited") {
-            if lowercased.contains("restart limit") {
-                return "serve stopped - restart required"
-            }
-            return "serve not connected - retrying"
-        }
-        return nil
     }
 }

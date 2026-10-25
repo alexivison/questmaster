@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
@@ -137,6 +138,29 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 		}
 		result.Paths = append(result.Paths, path)
 		result.Pruned++
+	}
+	if filepath.Clean(store.Root()) == filepath.Clean(state.StateRoot()) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return result, err
+		}
+		var agentPaths []string
+		for sessionID := range liveSet {
+			manifest, err := store.Read(sessionID)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return result, nil
+			} // Keep shims when a live session cannot be inspected.
+			agentPaths = append(agentPaths, manifest.AgentPath)
+		}
+		paths, err := daemon.PruneLegacyShims(home, agentPaths, dryRun)
+		if err != nil {
+			return result, err
+		}
+		result.Paths = append(result.Paths, paths...)
+		result.Pruned += len(paths)
 	}
 	return result, nil
 }

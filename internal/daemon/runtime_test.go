@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -94,6 +95,96 @@ func (j workJob) Name() string                  { return "work" }
 func (j workJob) Run(ctx context.Context) error { <-ctx.Done(); return nil }
 func (j workJob) HasWork() bool                 { return j.work }
 
+type blockingWorkJob struct {
+	checking      chan struct{}
+	continueCheck chan struct{}
+}
+
+func (j blockingWorkJob) Name() string                  { return "blocking-work" }
+func (j blockingWorkJob) Run(ctx context.Context) error { <-ctx.Done(); return nil }
+func (j blockingWorkJob) HasWork() bool {
+	close(j.checking)
+	<-j.continueCheck
+	return false
+}
+
+func TestIdleCheckRejectsArrivingClientWithoutResuming(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "daemon")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := SocketPath(root, "canonical")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := blockingWorkJob{checking: make(chan struct{}), continueCheck: make(chan struct{})}
+	activity := time.Unix(1_000, 0)
+	s := &server{config: Config{Root: root, PollInterval: time.Millisecond, ReadIdleTimeout: time.Hour, WriteTimeout: time.Second, Jobs: []Job{job}}, id: "canonical", socket: socket, dir: dir, lastActivity: activity, record: Record{Root: root, Identity: "canonical", Accepting: true, Jobs: true}}
+	if err := s.listen(); err != nil {
+		t.Fatal(err)
+	}
+	listener := s.listener
+	defer func() { listener.Close(); os.Remove(socket) }()
+	s.accept()
+	done := make(chan error, 1)
+	go func() { done <- s.shutdown(true) }()
+	<-job.checking
+	client, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	var greeting hello
+	if err := json.NewDecoder(client).Decode(&greeting); err != nil {
+		t.Fatal(err)
+	}
+	if greeting.Accepting {
+		t.Fatal("client arriving during idle check was told to use a quiescing daemon")
+	}
+	if s.clients() != 0 || !s.activity().Equal(activity) {
+		t.Fatal("rejected client changed the client count or idle activity")
+	}
+	close(job.continueCheck)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if s.listener != nil {
+		t.Fatal("rejected client prevented idle exit")
+	}
+	if conn, err := net.Dial("unix", socket); err == nil {
+		conn.Close()
+		t.Fatal("idle exit left the listener accepting connections")
+	}
+}
+
+func TestUpgradeQuiesceRejectsClientWithoutCountingIt(t *testing.T) {
+	t.Parallel()
+	activity := time.Unix(1_000, 0)
+	s := &server{config: Config{PollInterval: time.Millisecond, WriteTimeout: time.Second}, id: "canonical", dir: t.TempDir(), upgrade: make(chan string, 1), lastActivity: activity, record: Record{Root: "test", Accepting: true}}
+	if !s.beginUpgrade() {
+		t.Fatal("upgrade did not begin")
+	}
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+	if err := clientConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	go s.handle(serverConn)
+	dec := json.NewDecoder(clientConn)
+	var greeting hello
+	if err := dec.Decode(&greeting); err != nil || greeting.Accepting {
+		t.Fatalf("quiescing handshake: %+v, %v", greeting, err)
+	}
+	if err := dec.Decode(&greeting); err != io.EOF {
+		t.Fatalf("rejected connection remained open: %v", err)
+	}
+	if s.clients() != 0 || !s.activity().Equal(activity) {
+		t.Fatal("rejected upgrade client changed the client count or idle activity")
+	}
+}
+
 func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -126,6 +217,12 @@ func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 				}
 				os.Remove(socket)
 			}()
+			if tc.name == "client" {
+				// A record write failure must not kill a daemon with a live client.
+				if err := os.RemoveAll(dir); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := s.shutdown(true); err != nil {
 				t.Fatal(err)
 			}
