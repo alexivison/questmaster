@@ -3,7 +3,7 @@ import Foundation
 /// Surfaces how many malformed items the lossy decoders have skipped.
 ///
 /// Lossy array decoding (below) silently drops items that fail to decode so a single bad element
-/// from the serve backend cannot break a whole update. Previously the only signal was an stderr
+/// from the backend cannot break a whole update. Previously the only signal was an stderr
 /// line; this counter gives the app a programmatic signal it can surface in the UI (Phase 1 /
 /// Phase 5 of the architecture modernization). Surfacing it in the UI is a later
 /// increment; for now the count is observable and testable.

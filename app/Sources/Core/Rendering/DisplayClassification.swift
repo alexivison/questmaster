@@ -1,6 +1,6 @@
 import Foundation
 
-/// Typed classification of the stringly-typed identity fields that arrive from the serve backend.
+/// Typed classification of the stringly-typed identity fields from the daemon.
 ///
 /// Phase 1 of the architecture modernization: parsing the raw strings happens once,
 /// here in Core (testable, no AppKit), so the AppKit/SwiftUI color mapping can switch over an

@@ -1,8 +1,8 @@
 import Foundation
 
 struct LaunchConfiguration {
-    let serveSocket: String
-    let launchServe: Bool
+    let daemonSocketOverride: String?
+    let startDaemon: Bool
     let tmuxSession: String?
     let shouldAutoDetectTmuxSession: Bool
     let disableTmux: Bool
@@ -10,36 +10,30 @@ struct LaunchConfiguration {
     let backend: AppBackend
 
     var sourceLabel: String {
-        "\(launchServe ? "app-launched serve" : "serve") \(serveSocket)"
+        "daemon \(daemonSocketOverride ?? backend.stateRoot)"
     }
 
     static func load(
         arguments: [String] = Array(CommandLine.arguments.dropFirst()),
         environment: [String: String] = appChildProcessEnvironment(),
         workingDirectory: String = FileManager.default.currentDirectoryPath,
-        bundle: AppBackendResolver.BundleInfo = .main,
-        applicationSupportDirectory: URL? = nil,
-        temporaryDirectory: URL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        bundle: AppBackendResolver.BundleInfo = .main
     ) -> LaunchConfiguration {
         let disableTmux = arguments.contains("--no-tmux")
-        let launchServe = !arguments.contains("--no-serve")
-            && !arguments.contains("--no-serve-launch")
-            && !arguments.contains("--external-serve")
+        let socket = value(after: "--daemon-socket", in: arguments) ?? environment["QUESTMASTER_DAEMON_SOCKET"]
+        let startDaemon = !arguments.contains("--no-daemon-start") && socket == nil
         let backend = AppBackendResolver.resolve(
             arguments: arguments,
             environment: environment,
             workingDirectory: workingDirectory,
-            launchServe: launchServe,
-            bundle: bundle,
-            applicationSupportDirectory: applicationSupportDirectory,
-            temporaryDirectory: temporaryDirectory
+            bundle: bundle
         )
         let tmuxSession = value(after: "--session", in: arguments)
             ?? environment["QUESTMASTER_SESSION"]
 
         return LaunchConfiguration(
-            serveSocket: backend.serveSocket,
-            launchServe: launchServe,
+            daemonSocketOverride: socket.map { canonicalPath($0, relativeTo: workingDirectory) },
+            startDaemon: startDaemon,
             tmuxSession: tmuxSession,
             shouldAutoDetectTmuxSession: tmuxSession == nil && !disableTmux,
             disableTmux: disableTmux,

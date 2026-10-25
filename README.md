@@ -133,18 +133,18 @@ initial event capture.
 
 ## CLI
 
-The CLI is the backend and contract surface behind Questmaster.app. It keeps lifecycle and mutation commands scriptable, emits JSON for the main backend workflows, and runs `questmaster serve` for the native client. It intentionally does not provide a standalone terminal UI.
+The CLI is the backend and contract surface behind Questmaster.app. It keeps lifecycle and mutation commands scriptable, emits JSON for the main backend workflows, and runs an on-demand daemon for the native client. It intentionally does not provide a standalone terminal UI.
 
 ```sh
 questmaster            # show help
 questmaster sessions   # print session summary
-questmaster serve      # run the local JSON socket backend
 questmaster daemon start   # start the on-demand backend and wait until ready
 questmaster daemon status  # inspect its identity, clients, jobs, and build
+questmaster daemon stop    # cleanly stop it
 ```
 
 Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, and `delete` are available as backend commands for clients and automation.
-The app still uses `serve` until its daemon cutover. The daemon already accepts the same runtime requests, mutations, and subscriptions after its ready handshake, on its own socket under `<state-root>/daemon/`. It captures a clean login environment and writes identity-owned `qm` and `questmaster` shims under `<state-root>/daemon/bin/<identity>/`. `daemon stop` shuts it down. `daemon check-upgrade` is connect-only: when it verifies a replacement binary, the running daemon re-execs in place with the same PID and socket.
+The daemon accepts runtime requests, mutations, and subscriptions after its ready handshake on a socket under `<state-root>/daemon/`. The app gets the socket from `daemon start`'s JSON record. The daemon captures a clean login environment and writes identity-owned `qm` and `questmaster` shims under `<state-root>/daemon/bin/<identity>/`. Quitting the app leaves it running until its idle exit. `daemon check-upgrade` is connect-only: when it verifies a replacement binary, the running daemon re-execs in place with the same PID and socket.
 
 When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook can rename the tmux window after the first message. An explicit title is always kept as-is.
 
@@ -185,14 +185,14 @@ recent launches, and the built-in role defaults. Each harness declares its role
 defaults and catalog sources in one place (`internal/agent`'s `ModelPolicy`).
 
 The native app's new-session sheet has a Model row backed by the same data over
-the serve `models` topic; leaving it on `default` keeps the role default. It
+the daemon's `models` request; leaving it on `default` keeps the role default. It
 resolves fresh on open and whenever the agent changes, always through
 the cache described above; its refresh button (or `r` while the row is
 focused) forces a refetch past that cache for the currently selected agent.
 
 ## Native macOS app
 
-Questmaster.app is the native macOS human interface over the `qm` CLI and Go `serve` backend, with an AppKit shell and SwiftUI content surfaces. Packaged app launches use an app-owned serve socket namespace over the selected `QUESTMASTER_STATE_ROOT`; standalone `qm serve` still uses the default `<state-root>/serve.sock`. The app renders pushed runtime JSON, sends mutations over the same socket, and embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected, remembered, or discovered, otherwise it falls back to a local shell.
+Questmaster.app is the native macOS human interface over the `qm` CLI and daemon, with an AppKit shell and SwiftUI content surfaces. The app starts or reattaches to its daemon, validates each socket connection's ready handshake, renders pushed runtime JSON, and sends mutations over the same socket. It embeds a GPU-backed libghostty terminal through GhosttyKit. The terminal attaches to a `qm-*` tmux session when one is selected, remembered, or discovered, otherwise it falls back to a local shell.
 
 The app has three regions: Tracker on the left for repos, sessions, and agents; Terminal in the center for the tmux workspace; and Dock on the right for artifacts, with session/project/all scopes. Navigation is keyboard-first and vim-style at a high level, with `hjkl` movement patterns and region focus chords.
 
@@ -204,9 +204,9 @@ Build and install from a source checkout:
 
 The script builds the Swift package in release mode, assembles and ad-hoc codesigns `Questmaster.app`, builds the Go `qm` binary into the app bundle, and installs to `/Applications/Questmaster.app` by default. `Package.swift` declares macOS 14 and Swift tools 5.9; the build script also expects Go and the macOS command-line tools it calls (`swift`, `codesign`, and `install_name_tool`).
 
-For dev benches and test sessions, `swift run --package-path app Questmaster` from this source checkout uses the checkout backend (`go run . serve`) before any installed `qm`/`questmaster` on `PATH`. Packaged app launches still prefer the bundled `qm`, and `--serve-executable`, `--qm-bin`, or `QUESTMASTER_QM` still override both.
+For dev benches and test sessions, `swift run --package-path app Questmaster` from this source checkout uses `go run . daemon start --build-from <worktree>` before any installed `qm`/`questmaster` on `PATH`. Go builds the daemon at a stable worktree identity path. Packaged app launches prefer the bundled `qm`; `--qm-bin` overrides it. `--no-daemon-start` connects without starting a daemon, and `--daemon-socket` or `QUESTMASTER_DAEMON_SOCKET` selects a socket and also connects without starting. `--state-root` still overrides the state directory.
 
-App-created shells put private `qm`/`questmaster` shims first on `PATH` via `QUESTMASTER_PATH_PREFIX` and set `QUESTMASTER_BIN` to the resolved backend. Reattach/continue refreshes the tmux session environment after an app move or rebuild; already-running agent processes may need restart because their process environment is fixed.
+App-created shells use the daemon's identity shims on `PATH` via `QUESTMASTER_PATH_PREFIX` and set `QUESTMASTER_BIN` from the daemon record. Reattach/continue refreshes the tmux session environment after an app move or rebuild; already-running agent processes may need restart because their process environment is fixed. The first canonical `daemon start` migrates old app-written Application Support shims to the canonical binary; `prune` removes unused shim directories.
 
 GhosttyKit wrapper sources live under `app/Vendor/GhosttyKit-0.8.0`, but the `GhosttyKit.xcframework` binary is not committed. `Package.swift` fetches it as the `CGhosttyKitBinary` binary target from the `ghosttykit-0.8.0` GitHub release and pins the checksum there.
 

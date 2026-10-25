@@ -3,8 +3,7 @@ import QuestmasterCore
 
 /// Owns the app-wide `caffeinate` child process. One assertion at a time: toggling
 /// on spawns `/usr/bin/caffeinate -dims -w <appPID>`, toggling off terminates it.
-/// Mirrors `ServeProcess`'s ownership model (serial queue + termination handler)
-/// minus respawn — an unexpected exit simply reverts the UI to off. The `-w`
+/// An unexpected exit reverts the UI to off. The `-w`
 /// argument is a third safety net: if the app dies without `stop()` running, the
 /// kernel releases the assertion when our PID exits.
 final class CaffeineController {

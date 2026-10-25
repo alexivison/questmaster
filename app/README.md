@@ -1,6 +1,6 @@
 # Questmaster App
 
-macOS-first app shell for pairing the real Questmaster tmux workflow with native surfaces fed by `qm serve`.
+macOS-first app shell for pairing the real Questmaster tmux workflow with native surfaces fed by the Questmaster daemon.
 
 ## Run
 
@@ -13,25 +13,22 @@ Useful flags:
 ```sh
 swift run --package-path app Questmaster --session qm-1781764872
 swift run --package-path app Questmaster --no-tmux
-swift run --package-path app Questmaster --no-serve-launch --serve-socket /path/to/qm-serve.sock
-swift run --package-path app Questmaster --no-serve
+swift run --package-path app Questmaster --no-daemon-start
+swift run --package-path app Questmaster --daemon-socket /path/to/qm-daemon.sock
 ```
 
-By default the app launches its resolved backend on an app-owned socket under a
-short runtime namespace derived from `QUESTMASTER_STATE_ROOT` and the backend
-binary identity. The socket moves with the app backend; the state root does not. If the socket is already active,
-the app treats it as externally managed and only connects as a client. Use
-`--no-serve-launch`, `--external-serve`, or `--no-serve` to skip app-managed
-serve launch and connect to the configured/default serve socket.
+By default the app runs its resolved backend's `daemon start`, reads the JSON
+record, and connects to the record's socket. The daemon remains alive after the
+app quits. `--no-daemon-start` only connects to an existing daemon.
 
-Pass `--serve-socket` or set `QUESTMASTER_SERVE_SOCKET` to choose the socket.
-Pass `--serve-executable`, `--qm-bin`, or `QUESTMASTER_QM` to choose the `qm`
-binary. Without an explicit binary, packaged app launches use the bundled `qm`.
+Pass `--daemon-socket` or set `QUESTMASTER_DAEMON_SOCKET` to choose a socket;
+this also skips `daemon start`. Pass `--qm-bin` to choose the `qm` binary, and
+`--state-root` to choose the state directory. Packaged app launches use the bundled `qm`.
 Non-packaged `swift run` launches from a Questmaster source checkout use the
-checkout backend (`go run . serve`) before any installed `qm`/`questmaster` on
-`PATH`, so dev benches and test sessions do not need a manual override.
-App-created shells put private `qm` and `questmaster` shims first on `PATH` via
-`QUESTMASTER_PATH_PREFIX`; reattach/continue refreshes the tmux session
+checkout backend (`go run . daemon start --build-from <worktree>`), which builds
+a stable dev executable before starting it. Daemon-owned `qm` and `questmaster`
+shims go first on app-created shells' `PATH` via `QUESTMASTER_PATH_PREFIX`;
+reattach/continue refreshes the tmux session
 environment, while already-running agent processes may need restart because
 their process environment is fixed.
 The terminal attaches to `--session`/`$QUESTMASTER_SESSION` when set; otherwise it reattaches the last remembered live `qm-*` session, then the newest-created `qm-*`, otherwise a login shell.
@@ -42,8 +39,8 @@ The terminal attaches to `--session`/`$QUESTMASTER_SESSION` when set; otherwise 
 - AppKit `NSWindow` + custom `MainSplitView`.
 - GhosttyKit/libghostty terminal surface mounted through a `TerminalPaneHosting` seam.
 - Native SwiftUI Tracker and artifact dock rendered from pushed Runtime JSON.
-- Unix-domain socket newline-delimited JSON serve/mutation client.
-- App-managed `qm serve` lifecycle.
+- Unix-domain socket newline-delimited JSON runtime/mutation client.
+- An on-demand daemon that outlives the app.
 
 ## GhosttyKit
 
@@ -70,6 +67,6 @@ surface and attaches through the same startup script.
 ## Scope
 
 No Go Questmaster production code is imported by the Swift app. The app owns no
-Questmaster state; it starts `qm serve`, renders pushed state, sends mutations
-as a socket client, and stops only the serve process it launched. Closing or
-crashing the app does not kill existing tmux sessions.
+Questmaster state; it ensures the daemon, renders pushed state, and sends
+mutations as a socket client. Closing or crashing the app leaves the daemon
+and existing tmux sessions running.

@@ -2,7 +2,7 @@ import Foundation
 import QuestmasterCore
 
 /// Runs the pulls `WorkerChatStore` asks for. The store decides when to pull; this only carries
-/// a request to the serve socket and hands the response back, chaining the follow-up it returns.
+/// a request to the daemon socket and hands the response back, chaining the follow-up it returns.
 @MainActor
 final class WorkerChatController {
     private let store: WorkerChatStore

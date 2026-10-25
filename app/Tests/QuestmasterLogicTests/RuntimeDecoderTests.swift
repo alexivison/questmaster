@@ -15,7 +15,7 @@ struct RuntimeDecoderTests {
 
     private static func serveContractDecodesTrackerTopic() {
         let trackerLine = """
-        {"protocol_version":1,"type":"event","topic":"tracker","data":{"observed_at":"tracker-observed","sessions":[{"id":"s-1","title":"Tracker row","status":"active","state":"working","elapsed_ms":0,"worker_count":0,"is_current":false,"repo":{"identity":"repo-1","name":"Repo One"}}]}}
+        {"protocol_version":2,"type":"event","topic":"tracker","data":{"observed_at":"tracker-observed","sessions":[{"id":"s-1","title":"Tracker row","status":"active","state":"working","elapsed_ms":0,"worker_count":0,"repo":{"identity":"repo-1","name":"Repo One"}}]}}
         """
 
         do {
@@ -106,7 +106,7 @@ struct RuntimeDecoderTests {
 
     private static func serveContractRejectsProtocolVersionMismatch() {
         let line = """
-        {"protocol_version":2,"type":"event","topic":"tracker","data":{"observed_at":"tracker-observed","sessions":[]}}
+        {"protocol_version":1,"type":"event","topic":"tracker","data":{"observed_at":"tracker-observed","sessions":[]}}
         """
 
         do {
@@ -121,14 +121,14 @@ struct RuntimeDecoderTests {
     }
 
     private static func serveProtocolMismatchSurfacesUnavailableState() {
-        let message = "incompatible backend: serve protocol incompatible: expected protocol_version 1, got 2"
+        let message = "incompatible backend: serve protocol incompatible: expected protocol_version 2, got 1"
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(message))
         expect(snapshot.serviceStateMessage == message, "protocol mismatch should surface as a service state")
     }
 
     private static func serveStoppedSurfacesUnavailableState() {
-        let message = "serve stopped - restart required"
+        let message = "backend not connected - retrying"
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(message))
         expect(snapshot.serviceStateMessage == message, "serve stopped should surface as a service state")

@@ -95,6 +95,9 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if s.runtime.Snapshotter == nil {
 		s.runtime.Snapshotter = serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)
 	}
+	if config.ClockInterval > 0 {
+		s.runtime.ClockInterval = config.ClockInterval
+	}
 	if h != nil {
 		if err := s.adopt(*h); err != nil {
 			fmt.Fprintf(os.Stderr, "daemon adoption: %v; starting normally\n", err)
@@ -154,7 +157,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if err != nil {
 		return err
 	}
-	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: config.Executable, Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
+	s.record = Record{Running: true, PID: os.Getpid(), Root: config.Root, Identity: id, Socket: socket, Executable: config.Executable, ShimDirectory: filepath.Join(config.Root, "daemon", "bin", id), Build: build, Generation: s.record.Generation, Jobs: s.jobsLock != nil, Accepting: true}
 	if err := s.publish(); err != nil {
 		return err
 	}
@@ -281,13 +284,17 @@ func (s *server) accept() {
 func (s *server) handle(conn net.Conn) {
 	defer conn.Close()
 	s.mu.Lock()
-	s.record.Clients++
 	h := hello{Root: s.record.Root, Identity: s.id, ProtocolVersion: ProtocolVersion, Generation: s.record.Generation, Accepting: s.record.Accepting}
+	if h.Accepting {
+		s.record.Clients++
+	}
 	s.mu.Unlock()
-	defer func() { s.mu.Lock(); s.record.Clients--; s.lastActivity = time.Now(); s.mu.Unlock() }()
+	if h.Accepting {
+		defer func() { s.mu.Lock(); s.record.Clients--; s.lastActivity = time.Now(); s.mu.Unlock() }()
+	}
 	enc := json.NewEncoder(conn)
 	_ = conn.SetWriteDeadline(time.Now().Add(s.config.WriteTimeout))
-	if err := enc.Encode(h); err != nil {
+	if err := enc.Encode(h); err != nil || !h.Accepting {
 		return
 	}
 	dec := json.NewDecoder(conn)
@@ -429,7 +436,7 @@ func (s *server) shutdown(idle bool) error {
 	s.mu.Lock()
 	s.record.Accepting = false
 	s.mu.Unlock()
-	if s.listener != nil {
+	if !idle && s.listener != nil {
 		_ = s.listener.Close()
 		s.listener = nil
 	}
@@ -445,19 +452,19 @@ func (s *server) shutdown(idle bool) error {
 		time.Sleep(s.config.PollInterval)
 	}
 	if idle && drained && (s.hasWork() || s.clients() > 0) {
-		if err := s.listen(); err != nil {
-			return err
-		}
 		s.mu.Lock()
 		s.record.Accepting = true
 		s.lastActivity = time.Now()
 		s.mu.Unlock()
 		if err := s.publish(); err != nil {
-			return err
+			fmt.Fprintf(os.Stderr, "daemon resume record: %v\n", err)
 		}
 		s.startJobs()
-		s.accept()
 		return nil
+	}
+	if s.listener != nil {
+		_ = s.listener.Close()
+		s.listener = nil
 	}
 	s.stopJobs()
 	fmt.Fprintln(os.Stderr, "daemon stopping")

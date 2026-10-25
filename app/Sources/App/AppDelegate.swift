@@ -12,6 +12,7 @@ enum TerminalSessionChipResolver {
 @MainActor
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let config: LaunchConfiguration
+    private let daemonConnection: DaemonConnection
     private var shellHandles: ShellWindowController.Handles?
     private var mutationClient: ServeMutationSending?
     private var directorySuggestionClient: ServeDirectorySuggesting?
@@ -58,6 +59,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     override init() {
         config = LaunchConfiguration.load()
+        daemonConnection = DaemonConnection(config: config)
         AppBackendEnvironment.activate(config.backend)
         runtimeStore = RuntimeStore(
             sourceLabel: config.sourceLabel,
@@ -117,7 +119,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             updateDockTabs: { [weak self] in self?.updateDockTabs() }
         )
         runtimeConnectionController = RuntimeConnectionController(
-            config: config,
+            connection: daemonConnection,
             runtimeStore: runtimeStore,
             render: { [weak self] in self?.renderSnapshot() }
         )
@@ -176,7 +178,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             focusRegionLeft: { [weak self] in self?.focusRegionLeft() },
             focusRegionRight: { [weak self] in self?.focusRegionRight() }
         )
-        let serveMutationClient = UnixSocketMutationClient(socketPath: config.serveSocket)
+        let serveMutationClient = UnixSocketMutationClient(connection: daemonConnection)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
         modelSuggestionClient = serveMutationClient
@@ -184,11 +186,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         workerFeedClient = serveMutationClient
         sessionCoordinator = makeSessionCoordinator(mutationClient: serveMutationClient)
         createWindow()
-        do {
-            try config.backend.prepareRuntime()
-        } catch {
-            print("Questmaster backend runtime setup failed: \(error.localizedDescription)")
-        }
         startEnvironmentDependentServicesWhenReady()
         renderSnapshot()
         shellHandles?.window.makeKeyAndOrderFront(nil)
@@ -299,13 +296,15 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             terminalSessionController.setAutoDetectedSession(detectedTmuxSession)
         }
 
-        runtimeConnectionController.start(launchSessionID: terminalSessionController.activeTmuxSession)
-        terminalSessionController.installTerminalHost()
-        terminalSessionController.start()
-        terminalSessionController.drainPendingTerminalAttachments()
-        renderSnapshot()
-        if navigation.focusedRegion == .terminal {
-            focusCoordinator.focusCurrentRegion()
+        runtimeConnectionController.start { [weak self] in
+            guard let self else { return }
+            self.terminalSessionController.installTerminalHost()
+            self.terminalSessionController.start()
+            self.terminalSessionController.drainPendingTerminalAttachments()
+            self.renderSnapshot()
+            if self.navigation.focusedRegion == .terminal {
+                self.focusCoordinator.focusCurrentRegion()
+            }
         }
     }
 

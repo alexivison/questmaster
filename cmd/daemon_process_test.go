@@ -528,6 +528,57 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 	}
 }
 
+func TestDaemonDevBuildFromStablePath(t *testing.T) {
+	h := newDaemonHarness(t, "")
+	cache, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.env = append(h.env, "GOMODCACHE="+strings.TrimSpace(string(cache)))
+	worktree, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := func() map[string]any {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, h.bin, "daemon", "start", "--build-from", worktree)
+		cmd.Env = h.env
+		var out, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("dev start: %v\n%s", err, stderr.String())
+		}
+		var record map[string]any
+		if err := json.Unmarshal(out.Bytes(), &record); err != nil {
+			t.Fatalf("dev start JSON: %v; stdout=%s; stderr=%s", err, out.String(), stderr.String())
+		}
+		return record
+	}
+	t.Cleanup(func() {
+		_, _ = h.command("daemon", "stop", "--build-from", worktree)
+	})
+	first := start()
+	second := start()
+	if first["identity"] != second["identity"] || first["pid"] != second["pid"] {
+		t.Fatalf("dev start was not idempotent: %v %v", first, second)
+	}
+	if first["jobs"] != false {
+		t.Fatalf("dev daemon took jobs without --jobs: %v", first)
+	}
+	dev := first["executable"].(string)
+	if !strings.Contains(dev, "/daemon/bin/dev-") || !strings.HasSuffix(dev, "/exe/qm") {
+		t.Fatalf("unstable dev executable: %s", dev)
+	}
+	if _, err := os.Stat(dev); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.commandBin(dev, "daemon", "stop"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	before := h.must("daemon", "start")

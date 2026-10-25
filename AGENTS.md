@@ -12,7 +12,7 @@ the CLI relays messages and exposes runtime state over a local socket. Plain
 shell sessions remain shells.
 
 `Questmaster.app` is the **native macOS human client** over that backend. It has
-an AppKit shell with SwiftUI content surfaces, launches/connects to `qm serve`,
+an AppKit shell with SwiftUI content surfaces, starts/connects to `qm daemon`,
 renders pushed runtime JSON, sends mutation requests over the same socket, and
 embeds a libghostty terminal attached to the selected `qm-*` tmux session.
 
@@ -79,9 +79,8 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
   watch backend), `tmux` (CLI wrapper behind a mockable `Runner`), and `agent`/`hooks`
   (per-CLI integration).
 - `daemon` owns the lock, ready handshake, idle lifetime, re-exec upgrade,
-  clean child environment and identity shims. It uses `serve.Server` for the
-  same requests, mutations, snapshots and subscriptions as `qm serve`.
-  `qm serve` remains the app backend until D2b.
+  clean child environment and identity shims. It uses `serve.Server` as its
+  request layer for runtime snapshots, mutations and subscriptions.
 
 Invariants that aren't obvious from the code:
 
@@ -99,9 +98,9 @@ Invariants that aren't obvious from the code:
 
 ## The Go↔Swift contract
 
-`internal/serve/testdata/*.json` are the single source of truth for the serve wire
+`internal/serve/testdata/*.json` are the single source of truth for the runtime wire
 shapes (tracker, dir_suggest and models payloads + response/event envelopes). Both the
-Go serve golden test and the Swift app's contract-fixture test decode the same
+Go runtime golden test and the Swift app's contract-fixture test decode the same
 files. Bump `ServeProtocolVersion` for any payload change an old decoder cannot read.
 If you change a serve payload shape, **regenerate the goldens and update
 both sides in the same change**:
@@ -125,11 +124,12 @@ sockets, file watchers, subprocesses, AppKit shell, and SwiftUI views. A view
 renders shared state and dispatches commands; **a domain decision belongs in
 Core, not in a view callback.** Keep views small.
 
-- **Inbound:** `qm serve` pushes runtime JSON over the Unix socket; the app
+- **Inbound:** `qm daemon` pushes runtime JSON over the Unix socket after a
+  verified ready handshake; the app
   decodes each line and applies it to the `@Observable` `RuntimeStore`. Views
   read the stores directly and mutate state only through store methods.
 - **Outbound:** mutation builders in `Core/Mutations` build request objects;
-  `App/Runtime/ServeMutationClient.swift` sends newline-delimited serve
+  `App/Runtime/ServeMutationClient.swift` sends newline-delimited runtime
   request/response JSON over the same Unix socket (not CLI invocation).
 - **Terminal:** a libghostty terminal attaches to a `qm-*` tmux session via a
   generated startup script. Its child-process env is sanitized — it **strips

@@ -126,7 +126,6 @@ type SessionSnapshot struct {
 	SessionType    string             `json:"session_type,omitempty"`
 	ParentID       string             `json:"parent_id,omitempty"`
 	WorkerCount    int                `json:"worker_count"`
-	IsCurrent      bool               `json:"is_current"`
 	Artifacts      []ArtifactSnapshot `json:"artifacts,omitempty"`
 	Repo           RepoSnapshot       `json:"repo,omitempty"`
 	DisplayColor   string             `json:"display_color,omitempty"`
@@ -571,7 +570,6 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			SessionType:    row.SessionType,
 			ParentID:       row.ParentID,
 			WorkerCount:    row.WorkerCount,
-			IsCurrent:      row.IsCurrent,
 			Artifacts:      artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, row.ID, "")),
 			Repo: RepoSnapshot{
 				Identity: row.RepoIdentity,

@@ -313,7 +313,7 @@ func writeCatalogCache(root string, catalog Catalog) error {
 	data = append(data, '\n')
 
 	// A uniquely-named temp file (rather than a fixed "path+.tmp") keeps two
-	// concurrent writers — e.g. `qm serve` and a `questmaster models` CLI call
+	// concurrent writers — e.g. the daemon and a `questmaster models` CLI call
 	// racing a cache refresh — from interleaving writes to the same file
 	// before either renames; os.Rename itself is atomic, but two writers
 	// sharing one temp path could otherwise corrupt each other's content

@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ServeContract {
-    public static let protocolVersion = 1
+    public static let protocolVersion = 2
 
     public static func requireProtocolVersion(_ version: Int?) throws {
         guard let version else {

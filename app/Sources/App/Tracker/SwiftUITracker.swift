@@ -2,11 +2,12 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-func isServeStartingMessage(_ message: String?) -> Bool {
+func isBackendStartingMessage(_ message: String?) -> Bool {
     let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return normalized == "starting qm serve..."
-        || normalized == "connecting to serve..."
-        || normalized == "serve not connected - retrying"
+    return normalized == "connecting to backend..."
+        || normalized == "backend not connected - retrying"
+        || normalized == "backend not connected - reconnecting"
+        || normalized == "backend finishing a previous operation"
 }
 
 final class TrackerKeyboardBridge {
@@ -318,7 +319,7 @@ struct TrackerRootView: View {
 
         let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, repos: repos)
         let list = Group {
-            if isServeStartingMessage(snapshot.serviceStateMessage) {
+            if isBackendStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
             } else {
                 if rows.isEmpty {
