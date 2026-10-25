@@ -1,9 +1,9 @@
 import Foundation
 
 /// The model and colour fields are pickers until you type into them. SELECT (on focus): no caret; the
-/// field takes its picker keys (e for effort, ←/→ for colours), and any printable key, Backspace or
-/// Return starts SEARCH. SEARCH is a plain text field; picking a suggestion, Esc, or leaving the field
-/// returns to SELECT.
+/// field takes its picker keys (e for effort, ←/→ for colours), and any printable key or Backspace
+/// starts SEARCH; Return stays the sheet's and submits. SEARCH is a plain text field; picking a
+/// suggestion, Esc, or leaving the field returns to SELECT.
 public enum PickerFieldMode: Equatable {
     case select
     case search
@@ -12,7 +12,7 @@ public enum PickerFieldMode: Equatable {
     public enum SearchStart: Equatable {
         /// A printable key: the search starts on that text.
         case seed(String)
-        /// Backspace or Return: the search starts editing the current text.
+        /// Backspace: the search starts editing the current text.
         case editCurrent
     }
 

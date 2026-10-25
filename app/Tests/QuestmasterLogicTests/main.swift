@@ -82,9 +82,9 @@ enum QuestmasterLogicTests {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
-        process.waitUntilExit()
-
+        // Drain before waiting: a child that fills the pipe blocks on write until someone reads.
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 

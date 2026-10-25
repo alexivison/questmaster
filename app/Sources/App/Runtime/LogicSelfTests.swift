@@ -119,6 +119,8 @@ enum LogicSelfTests {
         ("testMarkdownFamilyNeedsEveryFaceItsThemesUse", testMarkdownFamilyNeedsEveryFaceItsThemesUse),
     ]
 
+    private static let caseTimeoutSeconds: TimeInterval = 60
+
     static func runIfRequested() -> Bool {
         guard CommandLine.arguments.contains("--run-logic-tests") else {
             return false
@@ -131,6 +133,14 @@ enum LogicSelfTests {
 
         var passed = 0
         for testCase in cases {
+            // A blocked call (process, socket, window server) never returns to the loop, so a
+            // watchdog off the main thread names the case and fails instead of hanging CI.
+            let watchdog = DispatchWorkItem {
+                fputs("Questmaster self-tests failed: \(testCase.name): no result after \(Int(caseTimeoutSeconds)) seconds\n", stderr)
+                exit(1)
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + caseTimeoutSeconds, execute: watchdog)
+            defer { watchdog.cancel() }
             do {
                 try testCase.body()
                 passed += 1

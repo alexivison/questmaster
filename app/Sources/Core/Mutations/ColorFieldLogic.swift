@@ -14,7 +14,7 @@ public struct ColorFieldModel: Equatable {
     public private(set) var window = PickerListWindow(visibleRows: ColorFieldModel.visibleRows)
     public private(set) var isDismissed = true
     public private(set) var mode = PickerFieldMode.select
-    /// The text the search started from: while it is unchanged (Backspace or Return editing the name),
+    /// The text the search started from: while it is unchanged (Backspace editing the name),
     /// the list browses every colour.
     private var searchStartText: String
 

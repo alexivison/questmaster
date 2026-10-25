@@ -223,10 +223,10 @@ public enum Keymap {
         public static let halfPageDown = CharacterBinding(keys: ["d"], modifiers: [.control])
     }
 
-    /// The picker fields' SELECT state (`PickerFieldMode`): Backspace and Return start editing the current
-    /// text; Tab, Esc and the arrows are never text.
+    /// The picker fields' SELECT state (`PickerFieldMode`): Backspace starts editing the current text; Return
+    /// is the sheet's (it submits); Tab, Esc and the arrows are never text.
     public enum PickerField {
-        public static let editCurrent = KeyCodeBinding(keyCodes: [51, 36, 76])
+        public static let editCurrent = KeyCodeBinding(keyCodes: [51])
         public static let notText = KeyCodeBinding(keyCodes: [48, 53, 123, 124, 125, 126])
     }
 
