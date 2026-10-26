@@ -7,6 +7,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const { default: extension } = await import(pathToFileURL(process.argv[2]));
+assert.ok(process.env.QUESTMASTER_STATE_ROOT, "test must isolate spawned hook state");
+assert.notEqual(process.env.QUESTMASTER_STATE_ROOT, join(process.env.HOME, ".questmaster-state"));
 const sessionID = `qm-pi-ownership-${process.pid}`;
 const runtimeDir = join("/tmp", sessionID);
 const socketPath = join(runtimeDir, "pi.sock");

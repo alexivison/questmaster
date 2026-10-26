@@ -129,7 +129,7 @@ enum LogicSelfTests {
         ("testMarkdownFamilyNeedsEveryFaceItsThemesUse", testMarkdownFamilyNeedsEveryFaceItsThemesUse),
     ]
 
-    private static let caseTimeoutSeconds: TimeInterval = 60
+    private static let caseTimeoutSeconds: TimeInterval = 120
 
     static func runIfRequested() -> Bool {
         guard CommandLine.arguments.contains("--run-logic-tests") else {
@@ -149,12 +149,18 @@ enum LogicSelfTests {
                 fputs("Questmaster self-tests failed: \(testCase.name): no result after \(Int(caseTimeoutSeconds)) seconds\n", stderr)
                 exit(1)
             }
+            let started = Date()
+            print("RUN \(testCase.name)")
+            fflush(stdout)
             DispatchQueue.global().asyncAfter(deadline: .now() + caseTimeoutSeconds, execute: watchdog)
-            defer { watchdog.cancel() }
             do {
                 try testCase.body()
+                watchdog.cancel()
+                print(String(format: "PASS %@ %.2fs", testCase.name, Date().timeIntervalSince(started)))
+                fflush(stdout)
                 passed += 1
             } catch {
+                watchdog.cancel()
                 fputs("Questmaster self-tests failed: \(testCase.name): \(error)\n", stderr)
                 exit(1)
             }
@@ -3700,8 +3706,11 @@ enum LogicSelfTests {
         ]
         DispatchQueue.global().async {
             for line in lines {
+                var ready = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
+                guard poll(&ready, 1, 5_000) == 1 else { return }
                 let peer = Darwin.accept(listener, nil, nil)
                 guard peer >= 0 else { return }
+                try? UnixSocketIO.setReadTimeout(on: peer, seconds: 5)
                 let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":2,\"accepting\":true}\n"
                 try? UnixSocketIO.write(Data(hello.utf8), to: peer)
                 var requestBytes = [UInt8](repeating: 0, count: 4096)

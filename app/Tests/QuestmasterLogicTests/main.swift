@@ -2,63 +2,65 @@ import Foundation
 
 enum QuestmasterLogicTests {
     static func main() throws {
-        TrackerRendererTests.run()
-        TrackerPlateVariantTests.run()
-        TrackerShellSectionTests.run()
-        FooterBandTests.run()
-        TrackerRecolorLogicTests.run()
-        TrackerCommandStateTests.run()
-        MutationRequestTests.run()
-        NavigationLogicTests.run()
-        ShellSplitLayoutTests.run()
-        TerminalCellSnappingTests.run()
-        GhosttyGapDerivationTests.run()
-        TrackerHeaderAlignmentTests.run()
-        DockWidthPreferenceTests.run()
-        ServeRecoveryPolicyTests.run()
-        DaemonConnectionTests.run()
-        NewSessionLogicTests.run()
-        SessionClassLogicTests.run()
-        ColorFieldTests.run()
-        RoleDefaultsLogicTests.run()
-        NewTerminalLogicTests.run()
-        DestructiveConfirmationTests.run()
-        KeymapTests.run()
-        TrackerSessionShortcutsTests.run()
-        RuntimeDecoderTests.run()
-        ContractFixtureTests.run()
-        PullRequestModelsTests.run()
-        PullRequestStoreTests.run()
-        RuntimeStoreTests.run()
-        NavigationStoreTests.run()
-        DockStateTests.run()
-        DisplayClassificationTests.run()
-        ArtifactCoreTests.run()
-        QuestCoreTests.run()
-        ShellChromeTests.run()
-        CaffeineStateTests.run()
-        GhosttyConfigParserTests.run()
-        TerminalDetachSignalTests.run()
-        WorkerChatTests.run()
-        WorkerChatScrollTests.run()
-        TrackerCastTests.run()
-        ModalCommandRoutingTests.run()
-        InteractionLookTests.run()
-        StateRulesScanTests.run()
-        SpacingRulesScanTests.run()
+        timed("TrackerRendererTests") { TrackerRendererTests.run() }
+        timed("TrackerPlateVariantTests") { TrackerPlateVariantTests.run() }
+        timed("TrackerShellSectionTests") { TrackerShellSectionTests.run() }
+        timed("FooterBandTests") { FooterBandTests.run() }
+        timed("TrackerRecolorLogicTests") { TrackerRecolorLogicTests.run() }
+        timed("TrackerCommandStateTests") { TrackerCommandStateTests.run() }
+        timed("MutationRequestTests") { MutationRequestTests.run() }
+        timed("NavigationLogicTests") { NavigationLogicTests.run() }
+        timed("ShellSplitLayoutTests") { ShellSplitLayoutTests.run() }
+        timed("TerminalCellSnappingTests") { TerminalCellSnappingTests.run() }
+        timed("GhosttyGapDerivationTests") { GhosttyGapDerivationTests.run() }
+        timed("TrackerHeaderAlignmentTests") { TrackerHeaderAlignmentTests.run() }
+        timed("DockWidthPreferenceTests") { DockWidthPreferenceTests.run() }
+        timed("ServeRecoveryPolicyTests") { ServeRecoveryPolicyTests.run() }
+        timed("DaemonConnectionTests") { DaemonConnectionTests.run() }
+        timed("NewSessionLogicTests") { NewSessionLogicTests.run() }
+        timed("SessionClassLogicTests") { SessionClassLogicTests.run() }
+        timed("ColorFieldTests") { ColorFieldTests.run() }
+        timed("RoleDefaultsLogicTests") { RoleDefaultsLogicTests.run() }
+        timed("NewTerminalLogicTests") { NewTerminalLogicTests.run() }
+        timed("DestructiveConfirmationTests") { DestructiveConfirmationTests.run() }
+        timed("KeymapTests") { KeymapTests.run() }
+        timed("TrackerSessionShortcutsTests") { TrackerSessionShortcutsTests.run() }
+        timed("RuntimeDecoderTests") { RuntimeDecoderTests.run() }
+        timed("ContractFixtureTests") { ContractFixtureTests.run() }
+        timed("PullRequestModelsTests") { PullRequestModelsTests.run() }
+        timed("PullRequestStoreTests") { PullRequestStoreTests.run() }
+        timed("RuntimeStoreTests") { RuntimeStoreTests.run() }
+        timed("NavigationStoreTests") { NavigationStoreTests.run() }
+        timed("DockStateTests") { DockStateTests.run() }
+        timed("DisplayClassificationTests") { DisplayClassificationTests.run() }
+        timed("ArtifactCoreTests") { ArtifactCoreTests.run() }
+        timed("QuestCoreTests") { QuestCoreTests.run() }
+        timed("ShellChromeTests") { ShellChromeTests.run() }
+        timed("CaffeineStateTests") { CaffeineStateTests.run() }
+        timed("GhosttyConfigParserTests") { GhosttyConfigParserTests.run() }
+        timed("TerminalDetachSignalTests") { TerminalDetachSignalTests.run() }
+        timed("WorkerChatTests") { WorkerChatTests.run() }
+        timed("WorkerChatScrollTests") { WorkerChatScrollTests.run() }
+        timed("TrackerCastTests") { TrackerCastTests.run() }
+        timed("ModalCommandRoutingTests") { ModalCommandRoutingTests.run() }
+        timed("InteractionLookTests") { InteractionLookTests.run() }
+        timed("StateRulesScanTests") { StateRulesScanTests.run() }
+        timed("SpacingRulesScanTests") { SpacingRulesScanTests.run() }
 
         let packageRoot = try findPackageRoot()
-        let result = try run(
-            executable: "/usr/bin/env",
-            arguments: [
-                "swift",
-                "run",
-                "--package-path",
-                packageRoot.path,
-                "Questmaster",
-                "--run-logic-tests",
-            ]
-        )
+        let result = try timed("Questmaster self-tests") {
+            try run(
+                executable: "/usr/bin/env",
+                arguments: [
+                    "swift",
+                    "run",
+                    "--package-path",
+                    packageRoot.path,
+                    "Questmaster",
+                    "--run-logic-tests",
+                ]
+            )
+        }
 
         try expect(result.status == 0, "logic tests exited \(result.status)\n\(result.output)")
         try expect(
@@ -73,8 +75,23 @@ enum QuestmasterLogicTests {
             ) != nil,
             "logic test pass line missing or reported zero tests\n\(result.output)"
         )
-        print(result.output.trimmingCharacters(in: .whitespacesAndNewlines))
         print("QuestmasterLogicTests: process runner passed")
+    }
+
+    private static func timed<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
+        let started = Date()
+        print("RUN \(name)")
+        fflush(stdout)
+        let watchdog = DispatchWorkItem {
+            fputs("TIMEOUT \(name) after 120 seconds\n", stderr)
+            exit(1)
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 120, execute: watchdog)
+        defer { watchdog.cancel() }
+        let result = try body()
+        print(String(format: "PASS %@ %.2fs", name, Date().timeIntervalSince(started)))
+        fflush(stdout)
+        return result
     }
 
     private static func run(executable: String, arguments: [String]) throws -> (status: Int32, output: String) {
@@ -87,7 +104,13 @@ enum QuestmasterLogicTests {
         process.standardError = pipe
         try process.run()
         // Drain before waiting: a child that fills the pipe blocks on write until someone reads.
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        var data = Data()
+        while true {
+            let chunk = pipe.fileHandleForReading.availableData
+            if chunk.isEmpty { break }
+            data.append(chunk)
+            FileHandle.standardOutput.write(chunk)
+        }
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
     }
