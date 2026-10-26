@@ -52,6 +52,8 @@ enum LogicSelfTests {
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
+        ("testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges", testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges),
+        ("testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass", testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
@@ -2446,6 +2448,191 @@ enum LogicSelfTests {
 
     /// No single-line text field is shorter than its font's full line (ascent + descent + leading): the live
     /// field editor clips to the field's bounds, so a shorter field cuts ascenders or descenders.
+    /// The title row's model for the class-segment test: the segment's text, and the title field's.
+    @MainActor
+    private final class TitleRowModel: ObservableObject {
+        @Published var label = "Random"
+        @Published var text: String
+
+        init(text: String) {
+            self.text = text
+        }
+    }
+
+    /// The title row of New Session as it is laid out, in a 460 x 60 canvas.
+    private struct TitleRowHarness: View {
+        @ObservedObject var model: TitleRowModel
+        let placeholder: String
+
+        var body: some View {
+            SessionTitleRow(portrait: .master(nil), portraitLabel: "Class") {
+                FormTextField(text: Binding(get: { model.text }, set: { model.text = $0 }), placeholder: placeholder, focusNonce: 0, focused: true) {
+                    FormFieldSegment(text: model.label, color: AppPalette.textMeta)
+                }
+            }
+            .frame(width: 460, height: 60, alignment: .topLeading)
+            .background(AppPalette.panel.swiftUI)
+        }
+    }
+
+    /// Changing the class changes the segment's width, so the title field is laid out again. Its text must not move when
+    /// that happens, nor when the field takes focus: the field editor draws where the resting cell does, always, at 1x and
+    /// at 2x (a Retina display), with typed text or the placeholder showing, and the segment stays on its baseline.
+    ///
+    /// The resting baseline is the bottom ink edge of an "H" in an unfocused twin. The placeholder and the segment are
+    /// measured the same way, in pixels. Typed text in a focused field is the editor's, whose pixels a snapshot of the view
+    /// doesn't follow, so its baseline is read off the editor's own line (layout manager), in the row's coordinates.
+    /// Once AppKit re-laid the editor out after a segment change it sat a point above where the editor was first placed
+    /// (the focus clip view's frame is recomputed on a resize, the editor in it is not), which a one-time offset of the
+    /// editor, made to match the resting cell, then got wrong.
+    private static func testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges() throws {
+        func findField(in view: NSView) -> CommandTextField.KeyTextField? {
+            (view as? CommandTextField.KeyTextField) ?? view.subviews.lazy.compactMap(findField).first
+        }
+        let size = CGSize(width: 460, height: 60)
+        // The field starts after the 40pt disc and its 10 gap; its text 10 in. The first "x" takes the caret's place at the
+        // start of an empty field, so the title's columns are the "H" after it.
+        let titleColumns = 68..<73
+        let segmentColumns = 430..<449
+        var failures: [String] = []
+        for scale in [CGFloat(1), CGFloat(2)] {
+            let factor = Int(scale)
+            // The bottom ink edge of the glyphs in `columns`, in points from the top, to the backing pixel.
+            func inkBottom(_ bitmap: NSBitmapImageRep, columns: Range<Int>) -> CGFloat? {
+                guard let window = AppPalette.window.usingColorSpace(.deviceRGB) else {
+                    return nil
+                }
+                let rows = (3 * factor..<32 * factor).filter { y in
+                    (columns.lowerBound * factor..<columns.upperBound * factor).contains { x in
+                        guard let pixel = bitmap.colorAt(x: x, y: y) else {
+                            return false
+                        }
+                        return abs(pixel.redComponent - window.redComponent) + abs(pixel.greenComponent - window.greenComponent)
+                            + abs(pixel.blueComponent - window.blueComponent) > 0.15
+                    }
+                }
+                return rows.last.map { CGFloat($0 + 1) / scale }
+            }
+            /// A title row in a window at `scale`, its field editing (caret at the end) or not.
+            func makeRow(text: String, focused: Bool) throws -> (model: TitleRowModel, view: NSView, window: HeadlessWindow) {
+                let model = TitleRowModel(text: text)
+                let view = NSHostingView(rootView: TitleRowHarness(model: model, placeholder: "xHH"))
+                view.frame = NSRect(origin: .zero, size: size)
+                let window = HeadlessWindow(size: size, scale: scale)
+                window.contentView = view
+                window.show(key: true)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                if focused {
+                    guard let field = findField(in: view) else {
+                        throw TestFailure("no title text field")
+                    }
+                    field.focusEditorAtEnd()
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                    try expect(field.currentEditor() != nil, "the title field should be editing")
+                }
+                return (model, view, window)
+            }
+            func measure(_ view: NSView) throws -> (title: CGFloat?, segment: CGFloat?) {
+                guard let bitmap = NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: Int(size.width) * factor, pixelsHigh: Int(size.height) * factor, bitsPerSample: 8,
+                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+                ) else {
+                    throw TestFailure("could not make a bitmap")
+                }
+                bitmap.size = size
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                return (inkBottom(bitmap, columns: titleColumns), inkBottom(bitmap, columns: segmentColumns))
+            }
+            /// Where the field editor's first line sits, in points from the row's top.
+            func editorBaseline(_ view: NSView) -> CGFloat? {
+                guard let editor = findField(in: view)?.currentEditor() as? NSTextView, let layout = editor.layoutManager, layout.numberOfGlyphs > 0 else {
+                    return nil
+                }
+                let line = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+                let location = layout.location(forGlyphAt: 0)
+                return view.convert(NSPoint(x: location.x, y: line.minY + location.y), from: editor).y
+            }
+
+            let resting = try makeRow(text: "xHH", focused: false)
+            defer { resting.window.close() }
+            guard let restingBaseline = try measure(resting.view).title else {
+                throw TestFailure("the resting title should show ink at \(scale)x")
+            }
+
+            for (name, text, focused) in [("typed, focused", "xHH", true), ("typed, unfocused", "xHH", false), ("placeholder, focused", "", true), ("placeholder, unfocused", "", false)] {
+                let row = try makeRow(text: text, focused: focused)
+                defer { row.window.close() }
+                let before = try measure(row.view)
+                let editorBefore = editorBaseline(row.view)
+                row.model.label = "Paladin"
+                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                let after = try measure(row.view)
+                let editorAfter = editorBaseline(row.view)
+                let label = "\(scale)x \(name)"
+
+                if before.segment == nil || before.segment != after.segment {
+                    failures.append("\(label): the segment's baseline should not move, \(String(describing: before.segment)) to \(String(describing: after.segment))")
+                }
+                if focused && !text.isEmpty {
+                    // Typed text under the editor: its line, before and after, where the resting text is.
+                    if editorBefore != restingBaseline || editorAfter != restingBaseline {
+                        failures.append("\(label): the editor's baseline should stay on the resting \(restingBaseline), \(String(describing: editorBefore)) to \(String(describing: editorAfter))")
+                    }
+                } else if before.title != restingBaseline || after.title != restingBaseline {
+                    failures.append("\(label): the title's baseline should stay on the resting \(restingBaseline), \(String(describing: before.title)) to \(String(describing: after.title))")
+                }
+            }
+        }
+        try expect(failures.isEmpty, failures.joined(separator: "; "))
+    }
+
+    /// The real Edit Session sheet: ⌃e in its focused title cycles a classless master from Random to paladin, the segment
+    /// widens by a letter, the title field is laid out again, and the editor's text stays where it was.
+    private static func testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass() throws {
+        func editingField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.currentEditor() != nil {
+                return field
+            }
+            return view.subviews.lazy.compactMap(editingField).first
+        }
+        for scale in [CGFloat(1), CGFloat(2)] {
+            let session = TrackerEditSession(sessionID: "qm-1", title: "Small fixes", color: "orange", allowsColor: true, portrait: .choosing(nil))
+            let size = CGSize(width: 460, height: 300)
+            let sheet = TrackerEditSessionSheet(session: session, dismiss: {}, save: { _, _, _ in true })
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .background(AppPalette.window.swiftUI)
+            let view = NSHostingView(rootView: sheet)
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: scale)
+            window.contentView = view
+            window.show(key: true)
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+            func baseline() throws -> (y: CGFloat, width: CGFloat) {
+                guard let field = editingField(in: view), let editor = field.currentEditor() as? NSTextView,
+                      let layout = editor.layoutManager, layout.numberOfGlyphs > 0 else {
+                    throw TestFailure("the Edit Session title should be editing at \(scale)x")
+                }
+                let line = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+                let location = layout.location(forGlyphAt: 0)
+                return (view.convert(NSPoint(x: location.x, y: line.minY + location.y), from: editor).y, field.frame.width)
+            }
+            let before = try baseline()
+            guard let controlE = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .control, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: "\u{5}", charactersIgnoringModifiers: "\u{5}",
+                isARepeat: false, keyCode: 14
+            ) else {
+                throw TestFailure("could not make a ⌃e key event")
+            }
+            NSApp.sendEvent(controlE)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            let after = try baseline()
+            try expect(before.width - after.width > 5, "⌃e should widen the class segment and narrow the title field at \(scale)x, got \(before.width) to \(after.width)")
+            try expect(before.y == after.y, "the Edit Session title's text should not move when ⌃e cycles the class at \(scale)x, baseline \(before.y) to \(after.y)")
+        }
+    }
+
     private static func testTextFieldsFitTheirWholeLine() throws {
         func fields(in view: NSView) -> [NSTextField] {
             view.subviews.flatMap { subview in
