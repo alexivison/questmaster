@@ -543,8 +543,11 @@ func TestStart_DoesNotPersistDefaultDisplayColor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if m.Display != nil {
-		t.Fatalf("manifest display metadata = %#v, want nil when no display color was selected", m.Display)
+	if m.Display == nil || m.Display.Color != "" {
+		t.Fatalf("manifest display metadata = %#v, want class metadata without a default color", m.Display)
+	}
+	if _, err := state.ValidateSessionClass(m.DisplayClass()); err != nil {
+		t.Fatalf("manifest class = %q, want a supported class", m.DisplayClass())
 	}
 }
 

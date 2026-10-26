@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ type StartOpts struct {
 	Cwd      string
 	Shell    bool
 	MasterID string // parent master session ID (for worker spawn)
+	Class    string
 	// DisplayColor is the named display color persisted with session metadata.
 	DisplayColor string
 	// ResumeIDs maps agent name → resume ID (e.g. {"claude": "abc", "codex": "xyz"}).
@@ -57,6 +59,19 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 	if opts.Shell {
 		role = ""
+	}
+	if opts.Class != "" {
+		class, err := state.ValidateSessionClass(opts.Class)
+		if err != nil {
+			return StartResult{}, err
+		}
+		opts.Class = class
+		if role == "" {
+			return StartResult{}, fmt.Errorf("start --shell: shell sessions have no class")
+		}
+		if role == roleWorker {
+			return StartResult{}, fmt.Errorf("cannot set a class for a worker; workers inherit their master's class")
+		}
 	}
 	cwd := opts.Cwd
 	if cwd == "" {
@@ -192,6 +207,17 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		for i := range manifestAgents {
 			manifestAgents[i].Window = tmux.WindowWorkspace
 		}
+	}
+	if role == roleMaster && opts.Class == "" {
+		activeClasses, err := s.activeMasterClasses(ctx)
+		if err != nil {
+			return StartResult{}, err
+		}
+		randClassIndex := s.RandClassIndex
+		if randClassIndex == nil {
+			randClassIndex = rand.IntN
+		}
+		opts.Class = state.ChooseSessionClass(activeClasses, randClassIndex)
 	}
 
 	// Atomic create-or-retry: claim an ID via Store.Create (flock-protected).
@@ -342,10 +368,25 @@ func (s *Service) startDisplayMetadata(opts StartOpts) *state.DisplayMetadata {
 			color = master.DisplayColor()
 		}
 	}
-	if strings.TrimSpace(color) == "" {
-		return nil
+	var display *state.DisplayMetadata
+	if strings.TrimSpace(color) != "" {
+		display = state.NewDisplayMetadata(color)
 	}
-	return state.NewDisplayMetadata(color)
+	if opts.MasterID == "" && !opts.Shell && opts.Class != "" {
+		if display == nil {
+			display = &state.DisplayMetadata{}
+		}
+		display.Class = opts.Class
+	}
+	return display
+}
+
+func (s *Service) activeMasterClasses(ctx context.Context) ([]string, error) {
+	_, classes, err := liveMasterClasses(ctx, s.Store, s.Client)
+	if err != nil {
+		return nil, fmt.Errorf("list live sessions for class assignment: %w", err)
+	}
+	return classes, nil
 }
 
 func (s *Service) seedRepoDisplayColor(cwd, color string) error {

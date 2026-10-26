@@ -74,6 +74,7 @@ type mutationPayload struct {
 	LegacyPrimary   json.RawMessage `json:"primary"`
 	Role            string          `json:"role"`
 	Color           string          `json:"color"`
+	Class           string          `json:"class"`
 	Shell           string          `json:"shell"`
 	Model           string          `json:"model"`
 	ReasoningEffort string          `json:"reasoning_effort"`
@@ -107,6 +108,9 @@ var mutationRegistry = map[string]mutationHandler{
 	},
 	"recolor": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRecolor(payload)
+	},
+	"reclass": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateReclass(payload)
 	},
 	"role_default.set": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRoleDefaultSet(ctx, payload)
@@ -264,6 +268,9 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 	if color := strings.TrimSpace(payload.Color); color != "" {
 		args = append(args, "--color", color)
 	}
+	if class := strings.TrimSpace(payload.Class); class != "" {
+		args = append(args, "--class", class)
+	}
 	if mutationTruthy(payload.Shell) {
 		args = append(args, "--shell")
 	}
@@ -326,6 +333,21 @@ func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {
 	default:
 		return nil, fmt.Errorf("scope is required (want session or repo)")
 	}
+}
+
+func (s *Server) mutateReclass(payload mutationPayload) (any, error) {
+	sessionID, err := requiredFirst("session_id", payload.SessionID, payload.TargetID, payload.ID)
+	if err != nil {
+		return nil, err
+	}
+	class, err := state.ValidateSessionClass(payload.Class)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.mutationStore().SetSessionClass(sessionID, class); err != nil {
+		return nil, err
+	}
+	return map[string]any{"session_id": sessionID, "class": class, "reclassified": true}, nil
 }
 
 // mutateRoleDefaultSet persists a default model and/or reasoning effort for

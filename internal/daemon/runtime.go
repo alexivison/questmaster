@@ -187,7 +187,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 				nextLogCheck = time.Now().Add(time.Minute)
 			}
 			s.tryJobsLock()
-			if time.Since(s.activity()) >= config.IdleGrace && !s.hasWork() && s.clients() == 0 {
+			if time.Since(s.activity()) >= config.IdleGrace && s.clients() == 0 && !s.hasWork() {
 				if err := s.shutdown(true); err != nil {
 					return err
 				}

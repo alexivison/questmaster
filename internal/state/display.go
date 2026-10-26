@@ -41,6 +41,7 @@ var displayColorSet = func() map[string]struct{} {
 // Extra preserves unknown nested display keys written by newer versions.
 type DisplayMetadata struct {
 	Color string `json:"color,omitempty"`
+	Class string `json:"class,omitempty"`
 	// ColorChangedAt is when Color was last set (RFC3339Nano, UTC). It drives
 	// last-write-wins resolution against a repo color; empty means "unknown",
 	// which loses to any repo color carrying a real timestamp.
@@ -76,7 +77,7 @@ func NewDisplayMetadata(color string) *DisplayMetadata {
 }
 
 func (d DisplayMetadata) IsZero() bool {
-	return d.Color == "" && d.ColorChangedAt == "" && len(d.Extra) == 0
+	return d.Color == "" && d.Class == "" && d.ColorChangedAt == "" && len(d.Extra) == 0
 }
 
 // DisplayColor returns the manifest's normalized display color, or an empty
@@ -130,9 +131,14 @@ func (d *DisplayMetadata) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON merges typed display fields with Extra to preserve unknown keys.
 func (d DisplayMetadata) MarshalJSON() ([]byte, error) {
-	fields := make(map[string]json.RawMessage, len(d.Extra)+2)
+	fields := make(map[string]json.RawMessage, len(d.Extra)+3)
 	if d.Color != "" {
 		if err := marshalField(fields, "color", d.Color); err != nil {
+			return nil, err
+		}
+	}
+	if d.Class != "" {
+		if err := marshalField(fields, "class", d.Class); err != nil {
 			return nil, err
 		}
 	}
@@ -154,6 +160,8 @@ func (d *DisplayMetadata) decodeField(dec *json.Decoder, key string) error {
 	switch key {
 	case "color":
 		return dec.Decode(&d.Color)
+	case "class":
+		return dec.Decode(&d.Class)
 	case "color_changed_at":
 		return dec.Decode(&d.ColorChangedAt)
 	default:

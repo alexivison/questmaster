@@ -141,6 +141,7 @@ func serveContractFixtures() []contractFixture {
 				Color:    "green",
 			},
 			DisplayColor: "violet",
+			Class:        "wizard",
 		}},
 		Projects: []ProjectSnapshot{{
 			ID:    "/tmp/questmaster/.git",

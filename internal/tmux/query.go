@@ -18,22 +18,21 @@ var (
 )
 
 // ListSessions returns the names of all live tmux sessions.
-// Returns an empty slice when tmux exits non-zero (no server, no sessions),
-// matching the shell convention of `tmux ls ... || true`.
-// Propagates other errors (missing binary, context cancellation).
+// Returns an empty slice when tmux exits non-zero because no server or session
+// exists. Propagates transport failures, missing binaries, and cancellation.
 func (c *Client) ListSessions(ctx context.Context) ([]string, error) {
 	if sessions, err, ok := c.cachedListSessions(); ok {
 		return sessions, err
 	}
 	out, err := c.runner.Run(ctx, "list-sessions", "-F", "#{session_name}")
 	if err != nil {
-		// tmux ran but exited non-zero (no server, no sessions) → empty result.
 		var exitErr *ExitError
 		if errors.As(err, &exitErr) {
-			c.storeListSessionsCache(nil, nil)
-			return nil, nil //nolint:nilnil
+			if !exitErr.IsConnectionError() {
+				c.storeListSessionsCache(nil, nil)
+				return nil, nil //nolint:nilnil
+			}
 		}
-		// Missing binary, context cancellation, OS errors → propagate.
 		err = fmt.Errorf("list sessions: %w", err)
 		c.storeListSessionsCache(nil, err)
 		return nil, err

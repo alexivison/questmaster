@@ -21,6 +21,7 @@ struct ContractFixtureTests {
         expect(session.repoIdentity == "/tmp/questmaster/.git", "tracker repo identity did not decode")
         expect(session.repoColor == "green", "tracker repo color did not decode")
         expect(session.displayColor == "violet", "tracker display color did not decode")
+        expect(session.sessionClass == "wizard", "tracker class did not decode")
         expect(session.workerCount == 1, "tracker worker count did not decode")
         expect(session.pullRequestsRev == "abcdef1234567890", "tracker PR revision did not decode")
         expect(session.duration == "0:02:00", "tracker elapsed_ms did not decode")
