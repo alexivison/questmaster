@@ -25,6 +25,7 @@ type Service struct {
 	// ReasoningEfforts resolves model-specific levels before launch using the
 	// resolved CLI binary.
 	ReasoningEfforts func(context.Context, string, string, string) []string
+	RandClassIndex   func(int) int
 
 	// CLIResolver resolves the questmaster launch command. Defaults to config.ResolveQuestmasterCmd.
 	CLIResolver func(repoRoot string) (string, error)
@@ -37,12 +38,13 @@ type Service struct {
 // NewService creates a session service with production defaults.
 func NewService(store *state.Store, client *tmux.Client, repoRoot string, registry ...*agent.Registry) *Service {
 	svc := &Service{
-		Store:       store,
-		Client:      client,
-		RepoRoot:    repoRoot,
-		CLIResolver: config.ResolveQuestmasterCmd,
-		Now:         func() int64 { return time.Now().Unix() },
-		RandSuffix:  func() int64 { return rand.Int64N(100000) },
+		Store:          store,
+		Client:         client,
+		RepoRoot:       repoRoot,
+		CLIResolver:    config.ResolveQuestmasterCmd,
+		Now:            func() int64 { return time.Now().Unix() },
+		RandSuffix:     func() int64 { return rand.Int64N(100000) },
+		RandClassIndex: rand.IntN,
 	}
 	if len(registry) > 0 {
 		svc.Registry = registry[0]

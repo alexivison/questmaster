@@ -130,6 +130,7 @@ type SessionSnapshot struct {
 	Artifacts       []ArtifactSnapshot `json:"artifacts,omitempty"`
 	Repo            RepoSnapshot       `json:"repo,omitempty"`
 	DisplayColor    string             `json:"display_color,omitempty"`
+	Class           string             `json:"class,omitempty"`
 }
 
 type CastSnapshot struct {
@@ -376,6 +377,7 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	if err != nil {
 		return TrackerSnapshot{}, err
 	}
+	tracker.InheritWorkerClasses(snap.Sessions)
 	observedAt := snap.ObservedAt.UTC()
 	if observedAt.IsZero() {
 		observedAt = s.now().UTC()
@@ -609,6 +611,7 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 				Color:    row.RepoColor,
 			},
 			DisplayColor: row.DisplayColor,
+			Class:        row.Class,
 		}
 		if row.Status != "active" {
 			out[i].Cast = nil

@@ -175,6 +175,7 @@ public struct TrackerSession: Decodable, Equatable {
     public var repoPath: String
     public var repoColor: String
     public var displayColor: String
+    public var sessionClass: String
     public var worktreePath: String
     public var agent: String
     public var role: String
@@ -203,6 +204,7 @@ public struct TrackerSession: Decodable, Equatable {
         repoPath: String = "",
         repoColor: String = "",
         displayColor: String = "",
+        sessionClass: String = "",
         worktreePath: String = "",
         agent: String = "",
         role: String = "shell",
@@ -228,6 +230,7 @@ public struct TrackerSession: Decodable, Equatable {
         self.repoPath = repoPath
         self.repoColor = repoColor
         self.displayColor = displayColor
+        self.sessionClass = sessionClass
         self.worktreePath = worktreePath
         self.agent = agent
         self.role = role
@@ -252,6 +255,7 @@ public struct TrackerSession: Decodable, Equatable {
         case title
         case repo
         case display_color
+        case sessionClass = "class"
         case worktree_path
         case agent
         case session_type
@@ -281,6 +285,7 @@ public struct TrackerSession: Decodable, Equatable {
         let decodedDisplayColor = try container.decodeIfPresent(String.self, forKey: .display_color)
         repoColor = repoRef?.color ?? decodedDisplayColor ?? ""
         displayColor = decodedDisplayColor ?? ""
+        sessionClass = try container.decodeIfPresent(String.self, forKey: .sessionClass) ?? ""
         worktreePath = try container.decodeIfPresent(String.self, forKey: .worktree_path) ?? ""
         agent = try container.decodeIfPresent(String.self, forKey: .agent) ?? ""
         let sessionType = try container.decodeIfPresent(String.self, forKey: .session_type) ?? ""

@@ -14,7 +14,7 @@ func TestSessionNew_JSONAndPromptFile(t *testing.T) {
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
 
-	out := runCmdInput(t, store, allPassRunner(), strings.NewReader("session prompt from stdin"), "session", "new", "--cwd", cwd, "--prompt-file", "-", "json-session")
+	out := runCmdInput(t, store, allPassRunner(), strings.NewReader("session prompt from stdin"), "session", "new", "--cwd", cwd, "--class", "paladin", "--prompt-file", "-", "json-session")
 
 	var got struct {
 		SessionID  string `json:"session_id"`
@@ -35,6 +35,9 @@ func TestSessionNew_JSONAndPromptFile(t *testing.T) {
 	}
 	if prompt := m.ExtraString("initial_prompt"); prompt != "session prompt from stdin" {
 		t.Fatalf("initial_prompt = %q, want stdin prompt", prompt)
+	}
+	if got := m.DisplayClass(); got != "paladin" {
+		t.Fatalf("session class = %q, want paladin", got)
 	}
 }
 
@@ -62,5 +65,14 @@ func TestSessionNew_ShellFlagCreatesAgentlessSession(t *testing.T) {
 	}
 	if len(m.Agents) != 0 {
 		t.Fatalf("shell manifest agents = %+v, want none", m.Agents)
+	}
+}
+
+func TestSessionNewRejectsInvalidClass(t *testing.T) {
+	store := setupStore(t)
+	writeAgentConfig(t, "")
+	_, err := runCmdErr(t, store, allPassRunner(), "session", "new", "--class", "ranger")
+	if err == nil || !strings.Contains(err.Error(), "paladin, wizard, druid, barbarian, rogue, cleric, bard") {
+		t.Fatalf("invalid session class error = %v, want supported class list", err)
 	}
 }
