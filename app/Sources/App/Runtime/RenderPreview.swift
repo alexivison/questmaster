@@ -87,7 +87,7 @@ enum RenderPreview {
         renderView(versionControlPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel-notice.png")
         render(versionControlRowsView(highlight: 1), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design.png")
         render(versionControlRowsView(highlight: nil), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design-rest.png")
-        render(pullRequestItemView(), size: CGSize(width: 661, height: 116), to: "\(outputDir)/pull-request-item.png")
+        render(pullRequestItemView(), size: CGSize(width: 686, height: 156), to: "\(outputDir)/pull-request-item.png")
         // The dock split: Version Control over the artifacts or the worker chat, each alone, and either panel with the keys.
         let splitCanvas = CGSize(width: 520, height: 900)
         renderView(dockSplitView(bottom: .artifacts, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-artifacts.png")
@@ -368,8 +368,8 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    /// `Pull Request Item.svg`'s two rows, 639 wide at its offsets (x 11, y 11 and 63): a master's own PR at rest and the
-    /// same PR with the cursor, which keeps its CI label and bubble.
+    /// `pr-item-v2.png`'s two rows, 642 wide and 10 apart on a 686 x 156 artboard: a master's own PR at rest and the same PR
+    /// with the cursor, which keeps its CI label and bubble.
     @MainActor
     private static func pullRequestItemView() -> some View {
         let sessions = [
@@ -387,14 +387,14 @@ enum RenderPreview {
         let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
         let display = PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
         func item(highlighted: Bool) -> some View {
-            VersionControlRow(row: display, look: display.look(isCursor: highlighted, areaFocused: true), showsSeparator: false, action: {})
-                .frame(width: 639 + 2 * Space.section)
+            VersionControlRow(row: display, look: display.look(isCursor: highlighted, areaFocused: true), action: {})
+                .frame(width: 642 + 2 * Space.section)
         }
         return ZStack(alignment: .topLeading) {
-            item(highlighted: false).offset(x: 11 - Space.section, y: 11)
-            item(highlighted: true).offset(x: 11 - Space.section, y: 63)
+            item(highlighted: false).offset(x: 22 - Space.section, y: 32)
+            item(highlighted: true).offset(x: 22 - Space.section, y: 87)
         }
-        .frame(width: 661, height: 116, alignment: .topLeading)
+        .frame(width: 686, height: 156, alignment: .topLeading)
         .background(AppPalette.panel.swiftUI)
     }
 
