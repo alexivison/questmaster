@@ -230,7 +230,9 @@ again where it was when the keys come back.
   `accent`, 14pt bold, on the top bar's baseline 25 down.
 - The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
   under it the artifacts or the worker chat. Each has its own title and close button, and either shows alone
-  (it then fills the dock). `DockState` keeps their visibility app-wide; ⌥⌘K and ⌥⌘J move the keys between them. A panel
+  (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them (all navigation is
+  ⇧⌘; `MenuController`'s key monitor takes them, and ⇧⌘H/L, before the terminal, so ⇧⌘J deliberately shadows Ghostty's
+  default `write_screen_file:paste`). A panel
   appearing or going away fades and slides 10pt while the other grows or shrinks, in 0.18s and only once
   (`DockPanelMotion`; Reduce Motion skips it): never an animation that keeps running, as the terminal shares the main
   thread.

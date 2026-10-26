@@ -1320,7 +1320,8 @@ enum LogicSelfTests {
     }
 
     /// The terminal consumes command-key chords as key equivalents before the menu sees them, so the chords that must work
-    /// from it (⌘⇧H/L, ⌥⌘K/J, ⇧⌘R) run from `MenuController`'s key monitor, which comes first. A stand-in for the terminal
+    /// from it (⇧⌘H/L, ⇧⌘K/J, ⇧⌘R) run from `MenuController`'s key monitor, which comes first. ⇧⌘J is also Ghostty's own
+    /// write_screen_file:paste, which the monitor deliberately shadows. A stand-in for the terminal
     /// consumes every key equivalent; an in-process key event for each chord must reach its action once, never the stand-in
     /// (so the menu can't run it a second time), and a held key must not run it again.
     private static func testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents() throws {
@@ -1351,10 +1352,10 @@ enum LogicSelfTests {
             }
             NSApp.sendEvent(event)
         }
-        // keyCodes: K 40, J 38, H 4, L 37, R 15. Option turns the character (⌥K types ˚) but not the one ignoring modifiers.
+        // keyCodes: K 40, J 38, H 4, L 37, R 15. Shift gives the capital character.
         let chords: [(name: String, characters: String, plain: String, keyCode: UInt16, flags: NSEvent.ModifierFlags)] = [
-            ("⌥⌘K", "˚", "k", 40, [.command, .option]),
-            ("⌥⌘J", "∆", "j", 38, [.command, .option]),
+            ("⇧⌘K", "K", "K", 40, [.command, .shift]),
+            ("⇧⌘J", "J", "J", 38, [.command, .shift]),
             ("⇧⌘R", "R", "R", 15, [.command, .shift]),
             ("⇧⌘H", "H", "H", 4, [.command, .shift]),
             ("⇧⌘L", "L", "L", 37, [.command, .shift]),
@@ -1377,8 +1378,8 @@ enum LogicSelfTests {
         let actions = CommandKeyActions(
             focusRegionLeft: { ran.append("⇧⌘H") },
             focusRegionRight: { ran.append("⇧⌘L") },
-            focusDockTop: { ran.append("⌥⌘K") },
-            focusDockBottom: { ran.append("⌥⌘J") },
+            focusDockTop: { ran.append("⇧⌘K") },
+            focusDockBottom: { ran.append("⇧⌘J") },
             toggleVersionControlDock: { ran.append("⇧⌘R") }
         )
         let menu = MenuController()
@@ -1409,13 +1410,13 @@ enum LogicSelfTests {
         try expect(ran == chords.map(\.name), "and run it, got \(ran)")
 
         ran.removeAll()
-        try send("˚", "k", keyCode: 40, [.command, .option], isARepeat: true)
+        try send("K", "K", keyCode: 40, [.command, .shift], isARepeat: true)
         try expect(ran.isEmpty, "a held chord is swallowed without running again")
-        try send("˚", "k", keyCode: 40, [.command, .option, .capsLock])
-        try expect(ran == ["⌥⌘K"], "Caps Lock doesn't change a chord, got \(ran)")
+        try send("K", "K", keyCode: 40, [.command, .shift, .capsLock])
+        try expect(ran == ["⇧⌘K"], "Caps Lock doesn't change a chord, got \(ran)")
 
         ran.removeAll()
-        for (characters, plain, keyCode, flags) in [("K", "K", UInt16(40), NSEvent.ModifierFlags([.command, .option, .shift])), ("k", "k", UInt16(40), []), ("r", "r", UInt16(15), [.command])] {
+        for (characters, plain, keyCode, flags) in [("˚", "k", UInt16(40), NSEvent.ModifierFlags([.command, .option])), ("K", "K", UInt16(40), NSEvent.ModifierFlags([.command, .option, .shift])), ("k", "k", UInt16(40), []), ("r", "r", UInt16(15), [.command])] {
             guard let event = NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: plain,

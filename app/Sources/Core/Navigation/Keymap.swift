@@ -104,10 +104,10 @@ public enum Keymap {
         public static let copySessionID = CommandBinding(title: "Copy Session ID", keyEquivalent: "y")
         public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .shift])
         public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .shift])
-        // K up, J down, as in vim, beside ⌥⌘2 Focus Terminal. Not ⇧⌘J/K: the user's Keeper app grabs those system-wide.
-        // Ghostty binds only ⌥⌘⇧J (write_screen_file:open).
-        public static let focusDockTop = CommandBinding(title: "Focus Top Dock Panel", keyEquivalent: "k", modifiers: [.command, .option])
-        public static let focusDockBottom = CommandBinding(title: "Focus Bottom Dock Panel", keyEquivalent: "j", modifiers: [.command, .option])
+        // K up, J down, as in vim, beside ⇧⌘H/L: all of Questmaster's navigation is ⇧⌘. ⇧⌘J shadows Ghostty's default
+        // write_screen_file:paste; MenuController's key monitor takes it before the terminal can.
+        public static let focusDockTop = CommandBinding(title: "Focus Top Dock Panel", keyEquivalent: "k", modifiers: [.command, .shift])
+        public static let focusDockBottom = CommandBinding(title: "Focus Bottom Dock Panel", keyEquivalent: "j", modifiers: [.command, .shift])
         public static let copy = CommandBinding(title: "Copy", keyEquivalent: "c")
         public static let paste = CommandBinding(title: "Paste", keyEquivalent: "v")
         public static let selectAll = CommandBinding(title: "Select All", keyEquivalent: "a")
