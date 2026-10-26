@@ -64,7 +64,7 @@ public enum ShellRowStyle {
 }
 
 extension RowLook {
-    /// A shell row at rest: no fill, and the title and the glyph in meta text, a step under a plate row's body text
-    /// (Shell Session.svg). The glyph's disc keeps its `item` border in every state.
+    /// A shell row at rest: no fill, and the title and the glyph in meta text, a step under a plate row's body text, the
+    /// glyph's disc rimmed in `item` (Shell Session.svg). A filled row takes `highlighted`'s and `selected`'s own rim.
     public static let shellRest = RowLook(fill: nil, outline: nil, text: .textMeta, meta: .textMeta, icon: .textMeta, iconBorder: .item, bold: false)
 }

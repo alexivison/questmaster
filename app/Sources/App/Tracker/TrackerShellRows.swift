@@ -17,6 +17,16 @@ enum TrackerShellMetrics {
     static let cornerRadius = FormFieldMetrics.cornerRadius
     /// The terminal glyph's own box in the SVG's coordinates (15 x 11), centred in the disc.
     static let svgGlyphSize = CGSize(width: 15, height: 11)
+    /// How many rows the pinned section shows before it scrolls: 215 of the column's height.
+    static let maxVisibleRows = 5
+
+    /// The height of `rows` rows with their gaps.
+    static func sectionHeight(rows: Int) -> CGFloat {
+        guard rows > 0 else {
+            return 0
+        }
+        return CGFloat(rows) * rowHeight + CGFloat(rows - 1) * rowSpacing
+    }
 }
 
 /// The terminal glyph of Shell Session.svg: the SVG's own paths (a rounded frame, then the prompt and its cursor), in
@@ -34,10 +44,12 @@ private enum ShellTerminalGlyph {
     }()
 }
 
-/// The icon disc of a shell row: the panel's fill, a 1pt `item` border in every state, and the terminal glyph in the
-/// look's icon colour, centred.
+/// The icon disc of a shell row: the panel's fill, a 1pt border in the look's icon-border colour (`item` at rest, as the
+/// SVG draws it, then the state rules' `controlBorder` on a filled row), and the terminal glyph in the look's icon
+/// colour, centred.
 private struct ShellRowDisc: View {
     let glyphColor: NSColor
+    let borderColor: NSColor
 
     var body: some View {
         let side = TrackerShellMetrics.discDiameter
@@ -46,7 +58,7 @@ private struct ShellRowDisc: View {
             Circle()
                 .fill(AppPalette.panel.swiftUI)
             Circle()
-                .strokeBorder(AppPalette.item.swiftUI, lineWidth: Token.Size.divider)
+                .strokeBorder(borderColor.swiftUI, lineWidth: Token.Size.divider)
             Canvas { context, _ in
                 context.translateBy(x: (side - glyph.width) / 2, y: (side - glyph.height) / 2)
                 context.fill(ShellTerminalGlyph.path, with: .color(glyphColor.swiftUI))
@@ -91,9 +103,9 @@ struct TrackerShellRow: View {
     var body: some View {
         let look = self.look
         let font = look.bold ? AppFonts.questLogRowSelected : AppFonts.questLogRow
-        let tint = ShellRowStyle.tintName(displayColor: session.displayColor).flatMap(AppPalette.displayColor)
+        let tint = TrackerRenderer.shellTint(for: session)
         ZStack(alignment: .topLeading) {
-            ShellRowDisc(glyphColor: look.icon.color)
+            ShellRowDisc(glyphColor: look.icon.color, borderColor: look.iconBorder.color)
                 .offset(x: TrackerShellMetrics.discLead, y: (TrackerShellMetrics.rowHeight - TrackerShellMetrics.discDiameter) / 2)
             if commandLongPressIsActive, let shortcutNumber {
                 TrackerShortcutNumber(
@@ -132,7 +144,9 @@ struct TrackerShellRow: View {
     }
 }
 
-/// The shell section's rows under every plate: one per shell, `Space.item` apart, inset from the column's edges.
+/// The shell section, pinned to the bottom of the tracker column under the plates' scrolling list: one row per shell,
+/// `Space.item` apart, inset from the column's edges. At most `maxVisibleRows` show; past that the section scrolls inside
+/// itself, so the section never grows to push the plates and the panel out of the column.
 struct TrackerShellRows: View {
     let shells: [TrackerRenderedShell]
     /// The tracker's cursor row.
@@ -149,6 +163,25 @@ struct TrackerShellRows: View {
     var onEditSession: (TrackerSession) -> Void
 
     var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                rows
+                    .background(ScrollerHider())
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: TrackerShellMetrics.sectionHeight(rows: min(shells.count, TrackerShellMetrics.maxVisibleRows)))
+            // The cursor on a shell scrolls it into view, as little as it takes. A plate's id isn't here, so a cursor on a
+            // plate moves nothing in this section, and a cursor on a shell moves nothing in the plates' list.
+            .onChange(of: selectedID) { _, id in
+                guard let id else {
+                    return
+                }
+                proxy.scrollTo(id)
+            }
+        }
+    }
+
+    private var rows: some View {
         VStack(alignment: .leading, spacing: TrackerShellMetrics.rowSpacing) {
             ForEach(shells, id: \.rendered.session.id) { shell in
                 let session = shell.rendered.session

@@ -68,13 +68,21 @@ enum TrackerRenderer {
                 rendered: TrackerRenderedSession(
                     session: row.session,
                     status: status(for: row.session),
-                    groupColor: AppPalette.muted,
+                    // The panel's bar colour when the shell is attached: its own colour, else the shell grey. A shell
+                    // never takes its repo's colour, as before the shell section.
+                    groupColor: shellTint(for: row.session) ?? AppPalette.muted,
                     recolorEditHint: nil
                 ),
                 repoName: row.repoName
             )
         }
         return TrackerRenderedTracker(repos: repos, shells: shells)
+    }
+
+    /// The colour a shell's own display colour gives its row's title (every state) and, attached, the panel's bar; nil
+    /// for a shell with none.
+    static func shellTint(for session: TrackerSession) -> NSColor? {
+        ShellRowStyle.tintName(displayColor: session.displayColor).flatMap(AppPalette.displayColor)
     }
 
     /// Every row in the order the cursor and the Cmd+N numbers walk: each plate group's master and workers, repo by

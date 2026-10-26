@@ -319,6 +319,7 @@ struct TrackerRootView: View {
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
 
         let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
+        let showsShells = !tracker.shells.isEmpty && !isBackendStartingMessage(snapshot.serviceStateMessage)
         let list = Group {
             if isBackendStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
@@ -344,34 +345,36 @@ struct TrackerRootView: View {
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
                             .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.spacing)
-                            .padding(.bottom, index == repos.count - 1 && tracker.shells.isEmpty ? TrackerListMetrics.verticalPadding : 0)
-                        }
-                        if !tracker.shells.isEmpty {
-                            TrackerShellRows(
-                                shells: tracker.shells,
-                                selectedID: selectedID,
-                                viewedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID),
-                                areaFocused: areaFocused,
-                                shortcutNumbers: shortcutNumbers,
-                                commandLongPressIsActive: commandLongPressIsActive,
-                                onSelect: select(_:),
-                                onActivate: activate(_:),
-                                onEditSession: presentEditSession(_:)
-                            )
-                            .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, repos.isEmpty ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.shellSectionGap)
-                            .padding(.bottom, TrackerListMetrics.verticalPadding)
+                            .padding(.bottom, index == repos.count - 1 && !showsShells ? TrackerListMetrics.verticalPadding : 0)
                         }
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The plates scroll in the space above the shell section, which ends `shellClearance` above it.
+        .padding(.bottom, showsShells ? TrackerListMetrics.shellClearance : 0)
         return VStack(alignment: .leading, spacing: 0) {
             SelectedSessionPanel(content: panelContent, onCopyID: copySessionID)
                 .padding(.leading, TrackerListMetrics.sidePadding)
                 .padding(.top, TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight))
             list
+            // The shell section is pinned to the column's bottom, at the tracker's bottom margin, whatever the plates do.
+            if showsShells {
+                TrackerShellRows(
+                    shells: tracker.shells,
+                    selectedID: selectedID,
+                    viewedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID),
+                    areaFocused: areaFocused,
+                    shortcutNumbers: shortcutNumbers,
+                    commandLongPressIsActive: commandLongPressIsActive,
+                    onSelect: select(_:),
+                    onActivate: activate(_:),
+                    onEditSession: presentEditSession(_:)
+                )
+                .padding(.leading, TrackerListMetrics.sidePadding)
+                .padding(.bottom, TrackerListMetrics.verticalPadding)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -662,44 +665,52 @@ private struct TrackerRepoSection: View {
                 let isCollapsed = !expandedMasterIDs.contains(group.root.session.id)
                 let gapAbove = index == 0 ? 0 : TrackerListMetrics.spacing
                 VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
-                    TrackerSessionRow(
-                        rendered: group.root,
-                        projectName: projectName,
-                        selectedID: selectedID,
-                        areaFocused: areaFocused,
-                        shortcutNumber: shortcutNumbers[group.root.session.id],
-                        commandLongPressIsActive: commandLongPressIsActive,
+                    plateRow(
+                        group.root,
                         hasWorkers: !group.workers.isEmpty,
                         isWorkersCollapsed: isCollapsed,
                         collapsedWorkers: isCollapsed ? group.workers : [],
-                        onSelect: onSelect,
-                        onActivate: onActivate,
-                        onEditSession: onEditSession,
                         onToggleWorkersCollapsed: onToggleWorkersCollapsed
                     )
                     if !isCollapsed {
                         ForEach(group.workers, id: \.session.id) { worker in
-                            TrackerSessionRow(
-                                rendered: worker,
-                                projectName: projectName,
-                                selectedID: selectedID,
-                                areaFocused: areaFocused,
-                                shortcutNumber: shortcutNumbers[worker.session.id],
-                                commandLongPressIsActive: commandLongPressIsActive,
-                                hasWorkers: false,
-                                isWorkersCollapsed: false,
-                                onSelect: onSelect,
-                                onActivate: onActivate,
-                                onEditSession: onEditSession,
-                                onToggleWorkersCollapsed: { _ in }
-                            )
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .zIndex(-1)
+                            plateRow(worker, hasWorkers: false, isWorkersCollapsed: false, collapsedWorkers: [], onToggleWorkersCollapsed: { _ in })
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                                .zIndex(-1)
                         }
                     }
                 }
                 .padding(.top, gapAbove)
             }
+        }
+    }
+
+    /// A master's or worker's plate. A row with no plate (a shell) draws nothing: the shell section has it.
+    @ViewBuilder
+    private func plateRow(
+        _ rendered: TrackerRenderedSession,
+        hasWorkers: Bool,
+        isWorkersCollapsed: Bool,
+        collapsedWorkers: [TrackerRenderedSession],
+        onToggleWorkersCollapsed: @escaping (String) -> Void
+    ) -> some View {
+        if let role = TrackerNameplateRole(rendered.session) {
+            TrackerSessionRow(
+                rendered: rendered,
+                role: role,
+                projectName: projectName,
+                selectedID: selectedID,
+                areaFocused: areaFocused,
+                shortcutNumber: shortcutNumbers[rendered.session.id],
+                commandLongPressIsActive: commandLongPressIsActive,
+                hasWorkers: hasWorkers,
+                isWorkersCollapsed: isWorkersCollapsed,
+                collapsedWorkers: collapsedWorkers,
+                onSelect: onSelect,
+                onActivate: onActivate,
+                onEditSession: onEditSession,
+                onToggleWorkersCollapsed: onToggleWorkersCollapsed
+            )
         }
     }
 }
@@ -804,12 +815,15 @@ enum TrackerNameplateRole: Equatable {
     case master
     case worker
 
-    init(_ session: TrackerSession) {
+    /// Nil for a row with no plate: the shell section's rows are `TrackerShellRow`s.
+    init?(_ session: TrackerSession) {
         switch TrackerPlateVariant(role: SessionRoleKind(role: session.role)) {
         case .topLevel:
             self = .master
         case .worker:
             self = .worker
+        case nil:
+            return nil
         }
     }
 
@@ -1335,6 +1349,7 @@ private struct TrackerSessionRowContent: View {
 
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
+    let role: TrackerNameplateRole
     let projectName: String
     let selectedID: String?
     let areaFocused: Bool
@@ -1362,7 +1377,6 @@ private struct TrackerSessionRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var session: TrackerSession { rendered.session }
-    private var role: TrackerNameplateRole { TrackerNameplateRole(session) }
     private var portrait: SessionPortrait? { SessionPortrait(session: session) }
     private var isSelected: Bool { selectedID == session.id }
     private var showsWorkersCollapseMenuItem: Bool { hasWorkers && role.isMaster }
@@ -1670,7 +1684,7 @@ private struct TrackerEmptyState: View {
 }
 
 /// A dim outline of the tracker while the service starts: a master with two workers, each a plate-sized placeholder,
-/// then a shell row's placeholder in the shell section.
+/// and a shell row's placeholder at the column's bottom, where the shell section is pinned.
 private struct TrackerSkeletonPlaceholder: View {
     private static let cornerRadius: CGFloat = 6
 
@@ -1688,12 +1702,12 @@ private struct TrackerSkeletonPlaceholder: View {
                 placeholder(role: .worker)
                 placeholder(role: .worker)
             }
+            Spacer(minLength: TrackerListMetrics.shellClearance)
             RoundedRectangle(cornerRadius: TrackerShellMetrics.cornerRadius)
                 .fill(AppPalette.dim.swiftUI)
                 .opacity(pulseOpacity)
                 .frame(width: TrackerShellMetrics.rowWidth, height: TrackerShellMetrics.rowHeight)
                 .padding(.leading, TrackerShellMetrics.sideInset)
-                .padding(.top, TrackerListMetrics.shellSectionGap - TrackerListMetrics.spacing)
         }
         .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.vertical, TrackerListMetrics.verticalPadding)

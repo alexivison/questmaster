@@ -24,6 +24,7 @@ enum LogicSelfTests {
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
+        ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
@@ -55,6 +56,7 @@ enum LogicSelfTests {
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
         ("testShellRowsKeepTheDesignsGeometry", testShellRowsKeepTheDesignsGeometry),
+        ("testTheShellSectionIsPinnedToTheTrackersBottom", testTheShellSectionIsPinnedToTheTrackersBottom),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
@@ -246,6 +248,30 @@ enum LogicSelfTests {
 
         let panel = SelectedSessionPanelContent.make(currentTerminalSessionID: "shell-second", tracker: tracker)
         try expect(panel.id == "shell-second" && panel.projectName == "Repo", "the panel should name an attached shell's repo, got \(panel.id) / \(panel.projectName)")
+    }
+
+    /// An attached shell's panel bar is its own display colour when it has one; without, the shell grey, never its repo's
+    /// colour (a shell keeps the accent it always had).
+    private static func testAnAttachedShellsPanelBarFollowsItsOwnColour() throws {
+        let own = TrackerSession(id: "shell-own", title: "Shell", repoName: "Repo", repoColor: "green", displayColor: "magenta", agent: "")
+        let inheriting = TrackerSession(id: "shell-inheriting", title: "Shell", repoName: "Repo", repoColor: "green", agent: "")
+        let none = TrackerSession(id: "shell-none", title: "Shell", repoName: "Repo", repoColor: "green", displayColor: "none", agent: "")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "green", sessions: [own, inheriting, none])])
+        let tracker = TrackerRenderer.tracker(snapshot)
+
+        func barColor(attached id: String) -> NSColor {
+            SelectedSessionPanelContent.make(currentTerminalSessionID: id, tracker: tracker).projectColor
+        }
+        guard let magenta = AppPalette.displayColor("magenta") else {
+            throw TestFailure("magenta should be a display colour")
+        }
+        try expect(barColor(attached: "shell-own").isEqual(TrackerNameplateColor.barLightness(magenta)), "an attached shell with its own colour should show it on the panel's bar")
+        let grey = TrackerNameplateColor.barLightness(AppPalette.muted)
+        try expect(barColor(attached: "shell-inheriting").isEqual(grey), "an attached shell with no colour should show the shell grey, not its repo's green")
+        try expect(barColor(attached: "shell-none").isEqual(grey), "the none colour is no colour")
+        try expect(TrackerRenderer.shellTint(for: own)?.isEqual(magenta) == true, "the row's title takes the same own colour")
+        try expect(TrackerRenderer.shellTint(for: inheriting) == nil && TrackerRenderer.shellTint(for: none) == nil, "no own colour tints nothing")
     }
 
     /// The ring in Core Animation: a steady ring is still, a spinning one turns, a filling one sweeps to full and then
@@ -2076,6 +2102,79 @@ enum LogicSelfTests {
         let titleLeft = discLeft + Int(TrackerShellMetrics.discDiameter + Space.item)
         let titleInk = inkColumns.first { $0 > discLeft + Int(TrackerShellMetrics.discDiameter) }
         try expect(titleInk.map { $0 >= titleLeft && $0 <= titleLeft + 3 } == true, "the title should start 10 past the disc, got x \(String(describing: titleInk))")
+    }
+
+    /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
+    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and the
+    /// section itself never grows past five rows. The last shell is the viewed one, so its filled row marks the section's
+    /// bottom; the first shell's marks its top.
+    private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {
+        let height = 700
+        func fillRows(masters: Int, shells: Int, viewed: String) throws -> (rows: [Int], windowBandClear: Bool) {
+            func session(_ id: String, role: String) -> TrackerSession {
+                TrackerSession(id: id, title: id, repoName: "Repo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
+            }
+            let plates = (0..<masters).map { session("master-\($0)", role: "master") }
+            let shellRows = (0..<shells).map { session("shell-\($0)", role: "shell") }
+            let store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: viewed, expandedMasterIDs: [])
+            store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: plates + shellRows)])))
+            let size = CGSize(width: 340, height: CGFloat(height))
+            let root = TrackerRootView(
+                store: store,
+                navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+                newSessionPresenter: NewSessionSheetPresenter(),
+                destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+            )
+            .frame(width: size.width, height: size.height)
+            .background(AppPalette.window.swiftUI)
+            let view = NSHostingView(rootView: root)
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = size
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            func isColor(_ x: Int, _ y: Int, _ color: NSColor) -> Bool {
+                guard let pixel = bitmap.colorAt(x: x, y: y), let expected = color.usingColorSpace(.deviceRGB) else {
+                    return false
+                }
+                return abs(pixel.redComponent - expected.redComponent) < 0.02
+                    && abs(pixel.greenComponent - expected.greenComponent) < 0.02
+                    && abs(pixel.blueComponent - expected.blueComponent) < 0.02
+            }
+            // Past a shell row's corner and left of its disc, below every plate's own fill column.
+            let column = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.sideInset + TrackerShellMetrics.cornerRadius) + 1
+            let rows = (0..<height).filter { isColor(column, $0, AppPalette.item) }
+            let sectionTop = height - Int(TrackerListMetrics.verticalPadding) - Int(TrackerShellMetrics.sectionHeight(rows: min(shells, TrackerShellMetrics.maxVisibleRows)))
+            let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
+            // The band between the plates' area and the section: nothing of a plate in it, at several columns.
+            let bandClear = [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
+            return (rows, bandClear)
+        }
+        let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
+        let rowHeight = Int(TrackerShellMetrics.rowHeight)
+
+        let few = try fillRows(masters: 1, shells: 2, viewed: "shell-1")
+        try expect(few.rows.last == bottom, "with few plates the section should end at the column's bottom margin, got row \(String(describing: few.rows.last)) for \(bottom)")
+        try expect(few.rows.suffix(rowHeight).first == bottom - rowHeight + 1, "the viewed shell's row should be 35 high")
+        try expect(few.windowBandClear, "there should be empty space above the section")
+
+        let many = try fillRows(masters: 14, shells: 2, viewed: "shell-1")
+        try expect(many.rows.last == bottom, "with many plates the section should stay at the column's bottom margin, got row \(String(describing: many.rows.last)) for \(bottom)")
+        try expect(many.windowBandClear, "the plates should be cut a clearance above the section, leaving its band empty")
+
+        let crowded = try fillRows(masters: 14, shells: 8, viewed: "shell-0")
+        let cappedTop = bottom + 1 - Int(TrackerShellMetrics.sectionHeight(rows: TrackerShellMetrics.maxVisibleRows))
+        try expect(crowded.rows.contains(cappedTop) && !crowded.rows.contains(cappedTop - 1), "the first of eight shells should be the section's top, five rows high, got rows \(crowded.rows.suffix(40))")
+        try expect(crowded.windowBandClear, "the capped section keeps its clearance too")
     }
 
     private static func testRenderedSpacingStaysOnTheScale() throws {

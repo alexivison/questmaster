@@ -50,6 +50,8 @@ enum RenderPreview {
         render(classTrackerView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/class-tracker.png")
         render(shellRowStatesView(), size: CGSize(width: 300, height: 400), to: "\(outputDir)/shell-rows.png")
         render(trackerWithShellsView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells.png")
+        render(trackerWithShellsView(extraMasters: 9), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells-long.png")
+        render(trackerWithShellsView(extraMasters: 9, extraShells: 5), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells-crowded.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
@@ -929,10 +931,11 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The tracker with masters, workers and the shell section at the bottom: one shell attached (filled, bold), one with a
-    /// colour, one plain.
+    /// The tracker with masters, workers and the shell section pinned to the column's bottom: one shell attached (filled,
+    /// bold), one with a colour, one plain. `extraMasters` lengthens the plates' list until it scrolls under the section's
+    /// clearance; `extraShells` crowds the section past its five rows.
     @MainActor
-    private static func trackerWithShellsView() -> some View {
+    private static func trackerWithShellsView(extraMasters: Int = 0, extraShells: Int = 0) -> some View {
         func session(_ id: String, _ repo: String, role: String = "master", sessionClass: String = "", agent: String, parent: String = "", state: String = "idle") -> TrackerSession {
             TrackerSession(
                 id: id, title: role == "worker" ? "worker-title" : "Session Title", repoName: repo, displayColor: "indigo", sessionClass: sessionClass,
@@ -954,7 +957,8 @@ enum RenderPreview {
             TrackerRepo(id: "ungrouped", name: "ungrouped", sessions: [shell("qm-shell-plain")]),
             TrackerRepo(id: "dotfiles", name: "dotfiles", color: "lime", sessions: dotfiles),
             TrackerRepo(id: "scry", name: "scry", color: "indigo", sessions: scry + [shell("qm-shell-viewed", color: "green")]),
-            TrackerRepo(id: "other", name: "other", sessions: [shell("qm-shell-blue", color: "blue")]),
+            TrackerRepo(id: "other", name: "other", sessions: [shell("qm-shell-blue", color: "blue")] + (0..<extraShells).map { shell("qm-shell-extra-\($0)") }),
+            TrackerRepo(id: "more", name: "more", color: "orange", sessions: (0..<extraMasters).map { session("more-\($0)", "more", sessionClass: "bard", agent: "claude") }),
         ])))
         return TrackerRootView(
             store: store,
