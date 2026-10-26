@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 )
@@ -223,6 +224,15 @@ func serveContractFixtures() []contractFixture {
 				{Key: "github.com/owner/repo#42", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 42, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}, Status: &state.PullRequestStatus{Title: "Ready to merge", URL: "https://github.com/owner/repo/pull/42", State: "open", HeadSHA: "abc123", UpdatedAt: observedAt.Format(time.RFC3339), Review: "approved", CI: "success", FetchedAt: observedAt.Format(time.RFC3339)}},
 				{Key: "github.com/owner/repo#43", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 43, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}, Status: &state.PullRequestStatus{InaccessibleReason: "saml", FetchedAt: observedAt.Format(time.RFC3339)}},
 			},
+		}},
+		{name: "pr_refresh_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","keys":["github.com/owner/repo#42"]}`), ProtocolVersion: ServeProtocolVersion}},
+		{name: "pr_refresh_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion,
+			Type:            "response", ID: json.RawMessage(`"pr-refresh-request"`), OK: boolPtr(true), Topic: "pr.refresh",
+			Data: struct {
+				PullRequests []state.PullRequest            `json:"pull_requests"`
+				Hosts        map[string]prstatus.HostResult `json:"hosts"`
+			}{[]state.PullRequest{{Key: "github.com/owner/repo#42", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 42, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}, Status: &state.PullRequestStatus{Title: "Ready to merge", State: "open", FetchedAt: observedAt.Format(time.RFC3339)}}}, map[string]prstatus.HostResult{"github.com": {RateLimit: &prstatus.RateLimit{Cost: 1, Remaining: 4999, ResetAt: observedAt.Format(time.RFC3339)}}}},
 		}},
 		{name: "tracker_event_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,

@@ -3,11 +3,14 @@
 package serve
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/state"
 )
 
@@ -40,6 +43,57 @@ func (s *Server) pullRequests(req Request) (any, error) {
 	}
 	state.AttachPullRequestStatuses(prs, statuses)
 	return scopedPullRequests(store, payload.SessionID, prs), nil
+}
+
+func (s *Server) refreshPullRequests(ctx context.Context, req Request) (any, error) {
+	if s.PRRefresh == nil {
+		return nil, fmt.Errorf("PR polling is unavailable on this daemon")
+	}
+	var payload struct {
+		SessionID string   `json:"session_id"`
+		Keys      []string `json:"keys"`
+	}
+	if err := json.Unmarshal(req.Data, &payload); err != nil {
+		return nil, fmt.Errorf("decode pr.refresh data: %w", err)
+	}
+	prsAny, err := s.pullRequests(Request{Data: req.Data})
+	if err != nil {
+		return nil, err
+	}
+	prs := prsAny.([]state.PullRequest)
+	if prs == nil {
+		prs = []state.PullRequest{}
+	}
+	allowed := map[string]bool{}
+	for _, pr := range prs {
+		allowed[pr.Key] = true
+	}
+	if len(payload.Keys) > 0 {
+		for _, key := range payload.Keys {
+			if !allowed[key] {
+				return nil, fmt.Errorf("PR %s is not visible to session %s", key, payload.SessionID)
+			}
+		}
+	} else {
+		for key := range allowed {
+			payload.Keys = append(payload.Keys, key)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 28*time.Second)
+	defer cancel()
+	hosts, err := s.PRRefresh(ctx, payload.Keys)
+	if err != nil {
+		return nil, err
+	}
+	statuses, err := state.LoadPullRequestStatuses(s.Snapshotter.store.Root())
+	if err != nil {
+		return nil, err
+	}
+	state.AttachPullRequestStatuses(prs, statuses)
+	return struct {
+		PullRequests []state.PullRequest            `json:"pull_requests"`
+		Hosts        map[string]prstatus.HostResult `json:"hosts"`
+	}{prs, hosts}, nil
 }
 
 func scopedPullRequests(store *state.Store, sessionID string, prs []state.PullRequest) []state.PullRequest {

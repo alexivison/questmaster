@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/serve"
 )
 
@@ -157,6 +158,72 @@ func Ready(c Config) error {
 		err = conn.Close()
 	}
 	return err
+}
+
+// Refresh asks the job owner to fetch the named PR hosts and waits for completion.
+func Refresh(ctx context.Context, c Config, keys []string) (map[string]prstatus.HostResult, error) {
+	conn, dec, err := dial(c, true)
+	if err != nil {
+		return nil, fmt.Errorf("PR refresh needs a running daemon: %w", err)
+	}
+	defer conn.Close()
+	deadline := time.Now().Add(30 * time.Second)
+	if requested, ok := ctx.Deadline(); ok && requested.Before(deadline) {
+		deadline = requested
+	}
+	_ = conn.SetDeadline(deadline)
+	data, err := json.Marshal(struct {
+		Keys []string `json:"keys"`
+		Wait bool     `json:"wait"`
+	}{keys, true})
+	if err != nil {
+		return nil, err
+	}
+	if err := json.NewEncoder(conn).Encode(serve.Request{Method: "pr.wake", Data: data, ProtocolVersion: ProtocolVersion}); err != nil {
+		return nil, err
+	}
+	var response struct {
+		OK    bool                           `json:"ok"`
+		Error string                         `json:"error"`
+		Data  map[string]prstatus.HostResult `json:"data"`
+	}
+	if err := dec.Decode(&response); err != nil {
+		return nil, fmt.Errorf("PR refresh: %w", err)
+	}
+	if !response.OK {
+		return nil, errors.New(response.Error)
+	}
+	return response.Data, nil
+}
+
+// Wake makes the named PR hosts due without waiting for GitHub.
+func Wake(c Config, keys []string) error {
+	conn, dec, err := dial(c, true)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	data, err := json.Marshal(struct {
+		Keys []string `json:"keys"`
+	}{keys})
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(conn).Encode(serve.Request{Method: "pr.wake", Data: data, ProtocolVersion: ProtocolVersion}); err != nil {
+		return err
+	}
+	var response struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := dec.Decode(&response); err != nil {
+		return err
+	}
+	if !response.OK {
+		return errors.New(response.Error)
+	}
+	return nil
 }
 
 func call(c Config, method string, requireReady bool) (Record, error) {

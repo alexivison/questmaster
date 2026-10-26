@@ -3,13 +3,30 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
 )
+
+var prEnsure = daemon.Ensure
+var prRefresh = daemon.Refresh
+var prWake = daemon.Wake
+
+func prDaemonConfig(root string) daemon.Config {
+	if path := os.Getenv("QUESTMASTER_BIN"); path != "" {
+		return daemon.Config{Root: root, Executable: path}
+	}
+	if path, err := exec.LookPath("questmaster"); err == nil {
+		return daemon.Config{Root: root, Executable: path}
+	}
+	return daemon.Config{Root: root}
+}
 
 func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	var sessionFlag string
@@ -36,9 +53,16 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			config := prDaemonConfig(store.Root())
+			ensureCtx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
+			_, _ = prEnsure(ensureCtx, config)
+			cancel()
 			added, err := state.WatchPullRequest(store.Root(), id, ref, time.Now())
 			if err != nil {
 				return err
+			}
+			if added {
+				_ = prWake(config, []string{ref.Key})
 			}
 			return writeJSON(c.OutOrStdout(), struct {
 				Key       string `json:"key"`
@@ -128,16 +152,20 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 				}
 				prs = filtered
 			}
-			result := prstatus.Result{Hosts: map[string]prstatus.HostResult{}}
-			if len(prs) > 0 {
-				result = prstatus.Fetch(c.Context(), prs, prstatus.GH, time.Now())
-				failed := map[string]bool{}
-				for host, hostResult := range result.Hosts {
-					failed[host] = hostResult.Error != ""
-				}
-				if err := state.SavePullRequestStatuses(store.Root(), result.Statuses, failed); err != nil {
-					return err
-				}
+			keys := make([]string, 0, len(prs))
+			for _, pr := range prs {
+				keys = append(keys, pr.Key)
+			}
+			config := prDaemonConfig(store.Root())
+			ensureCtx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
+			_, err = prEnsure(ensureCtx, config)
+			cancel()
+			if err != nil {
+				return fmt.Errorf("PR refresh needs a running daemon: %w", err)
+			}
+			hosts, err := prRefresh(c.Context(), config, keys)
+			if err != nil {
+				return err
 			}
 			statuses, err := state.LoadPullRequestStatuses(store.Root())
 			if err != nil {
@@ -147,7 +175,7 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			return writeJSON(c.OutOrStdout(), struct {
 				PullRequests []state.PullRequest            `json:"pull_requests"`
 				Hosts        map[string]prstatus.HostResult `json:"hosts"`
-			}{prs, result.Hosts})
+			}{prs, hosts})
 		},
 	}
 	refresh.Flags().BoolVar(&refreshAll, "all", false, "refresh all watched pull requests")

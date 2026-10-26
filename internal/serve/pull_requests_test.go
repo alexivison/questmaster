@@ -9,8 +9,61 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/state"
 )
+
+func TestPRRefreshScopesAndWaitsForStatus(t *testing.T) {
+	env := seedServeFixture(t)
+	ref, _ := state.ParsePullRequestRef("owner/repo#42")
+	other, _ := state.ParsePullRequestRef("owner/repo#43")
+	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.Create(state.Manifest{SessionID: "qm-other"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.WatchPullRequest(env.store.Root(), "qm-other", other, env.now); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	srv := &Server{Snapshotter: NewSnapshotter(env.store, env.tmuxClient, nil), PRRefresh: func(_ context.Context, keys []string) (map[string]prstatus.HostResult, error) {
+		called = true
+		if len(keys) != 1 || keys[0] != ref.Key {
+			t.Fatalf("keys=%v", keys)
+		}
+		if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref.Key: {Title: "fresh", State: "open"}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		return map[string]prstatus.HostResult{"github.com": {}}, nil
+	}}
+	response := srv.HandleRequest(context.Background(), Request{Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo"}`)})
+	if response.OK == nil || !*response.OK || !called {
+		t.Fatalf("refresh=%#v called=%v", response, called)
+	}
+	data, _ := json.Marshal(response.Data)
+	if !bytes.Contains(data, []byte(`"title":"fresh"`)) || bytes.Contains(data, []byte(other.Key)) {
+		t.Fatalf("data=%s", data)
+	}
+	denied := srv.HandleRequest(context.Background(), Request{Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","keys":["github.com/owner/repo#43"]}`)})
+	if denied.OK == nil || *denied.OK {
+		t.Fatalf("foreign key accepted: %#v", denied)
+	}
+	if _, err := state.UnwatchPullRequest(env.store.Root(), "qm-demo", ref.Key); err != nil {
+		t.Fatal(err)
+	}
+	srv.PRRefresh = func(_ context.Context, keys []string) (map[string]prstatus.HostResult, error) {
+		if len(keys) != 0 {
+			t.Fatalf("empty scope keys=%v", keys)
+		}
+		return map[string]prstatus.HostResult{}, nil
+	}
+	empty := srv.HandleRequest(context.Background(), Request{Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo"}`)})
+	data, _ = json.Marshal(empty.Data)
+	if empty.OK == nil || !*empty.OK || !bytes.Contains(data, []byte(`"pull_requests":[]`)) {
+		t.Fatalf("empty refresh=%s error=%s", data, empty.Error)
+	}
+}
 
 func TestPullRequestsScopeAndRevision(t *testing.T) {
 	env := seedServeFixture(t)

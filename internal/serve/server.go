@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/dirsuggest"
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
@@ -61,6 +62,7 @@ type Server struct {
 	// ReasoningEfforts overrides harness discovery in tests and embedded use.
 	// Nil uses modelsuggest's process-wide cached resolver.
 	ReasoningEfforts func(context.Context, string, string) []string
+	PRRefresh        func(context.Context, []string) (map[string]prstatus.HostResult, error)
 }
 
 // HandleRequest serves daemon runtime requests after the transport gate.
@@ -87,6 +89,8 @@ func (s *Server) HandleRequest(ctx context.Context, req Request) Envelope {
 		data, err = s.workerFeed(req)
 	case topicPullRequests:
 		data, err = s.pullRequests(req)
+	case "pr.refresh":
+		data, err = s.refreshPullRequests(ctx, req)
 	default:
 		data, err = s.snapshot(ctx, req.Method)
 	}
