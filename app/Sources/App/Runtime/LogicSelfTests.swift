@@ -69,6 +69,7 @@ enum LogicSelfTests {
         ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
+        ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
@@ -1317,14 +1318,81 @@ enum LogicSelfTests {
         try expect(top.frame.height == 300 && bottom.frame.height == 540, "the split comes back as it was")
     }
 
+    /// A panel appearing or going away while the dock stays up is one short transition that ends on its own: the panel
+    /// starts unseen and slid out, everything lands on the final layout, and nothing keeps running. The first panel
+    /// showing, a hidden window and Reduce Motion skip it.
+    private static func testDockPanelsTransitionOnceAndSkipItWithReducedMotion() throws {
+        func makeColumn() -> (DockColumnView, DockShellView, DockShellView, HeadlessWindow) {
+            let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
+            let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
+            let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl))
+            let bottom = DockShellView(body: NSView())
+            let column = DockColumnView(top: top, bottom: bottom)
+            column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
+            column.reducesMotion = { false }
+            content.addSubview(column)
+            window.contentView = content
+            window.show()
+            return (column, top, bottom, window)
+        }
+        func settle(_ seconds: TimeInterval = DockPanelMotion.duration + 0.25) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+
+        let (column, top, bottom, window) = makeColumn()
+        defer { window.close() }
+        column.setPanels(DockPanels(bottom: true), animated: true)
+        try expect(!column.isTransitioning, "the dock's first panel showing is the split view's to animate, not the column's")
+        column.layoutSubtreeIfNeeded()
+        try expect(bottom.frame.height == 860 && bottom.alphaValue == 1, "the first panel lands at once, fully shown")
+
+        column.setPanels(DockPanels(top: true, bottom: true), animated: true)
+        try expect(column.isTransitioning, "a panel appearing while the dock stays up transitions")
+        try expect(!top.isHidden && top.alphaValue == 0, "the new panel starts unseen, got alpha \(top.alphaValue)")
+        try expect(top.frame.maxY == 870 && top.frame.height == 300, "and 10 above its slot, got \(top.frame)")
+        settle(DockPanelMotion.duration / 2)
+        try expect(column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1, "partway it's half in, got alpha \(top.alphaValue)")
+        settle()
+        try expect(!column.isTransitioning, "the transition ends on its own")
+        try expect(top.alphaValue == 1 && top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control ends at its slot, got \(top.frame)")
+        try expect(bottom.alphaValue == 1 && bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel ends shrunk under it, got \(bottom.frame)")
+
+        column.setPanels(DockPanels(bottom: true), animated: true)
+        try expect(column.isTransitioning && !top.isHidden, "a panel going away stays up while it fades")
+        settle()
+        try expect(!column.isTransitioning && top.isHidden, "then it's gone")
+        try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 860) && bottom.alphaValue == 1, "and the bottom panel fills the dock again, got \(bottom.frame)")
+
+        // A new change mid-transition settles the running one first.
+        column.setPanels(DockPanels(top: true, bottom: true), animated: true)
+        settle(DockPanelMotion.duration / 3)
+        column.setPanels(DockPanels(top: true), animated: true)
+        try expect(column.isTransitioning, "the interrupting change starts its own transition")
+        settle()
+        try expect(!column.isTransitioning && bottom.isHidden && top.frame == NSRect(x: 0, y: 0, width: 480, height: 860) && top.alphaValue == 1, "and the dock ends on its latest panels, got \(top.frame)")
+
+        let (still, stillTop, stillBottom, stillWindow) = makeColumn()
+        defer { stillWindow.close() }
+        still.reducesMotion = { true }
+        still.setPanels(DockPanels(bottom: true))
+        still.setPanels(DockPanels(top: true, bottom: true), animated: true)
+        try expect(!still.isTransitioning, "Reduce Motion skips the transition")
+        still.layoutSubtreeIfNeeded()
+        try expect(stillTop.alphaValue == 1 && stillTop.frame == NSRect(x: 0, y: 560, width: 480, height: 300) && stillBottom.frame.height == 540, "and the panels land at once, got \(stillTop.frame)")
+    }
+
     /// Focus goes to one dock panel at a time: its pane takes the first responder and only its frame lifts, and moving to the
     /// other panel hands both over.
     private static func testOnlyTheFocusedDockPanelHasTheKeys() throws {
         let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
         let pane = VersionControlDockPane(store: PullRequestStore())
+        let bottomPane = SwiftUIDockPane(
+            store: RuntimeStore(sourceLabel: "test"),
+            workerChatStore: WorkerChatStore(),
+            newQuestPresenter: NewQuestSheetPresenter(),
+            settingsPresenter: SettingsSheetPresenter()
+        )
         let top = DockShellView(body: pane, model: DockChromeModel(topBar: .versionControl))
-        let bottom = DockShellView(body: NSView())
+        let bottom = DockShellView(body: bottomPane)
         let column = DockColumnView(top: top, bottom: bottom)
         column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
         content.addSubview(column)
@@ -1341,7 +1409,7 @@ enum LogicSelfTests {
             dockPanels: { DockPanels(top: true, bottom: true) },
             footerShell: { nil },
             trackerHosting: { nil },
-            dockView: { nil },
+            dockView: { bottomPane },
             versionControlPane: { pane },
             terminalHost: { nil },
             modalHost: { nil },
@@ -1353,13 +1421,17 @@ enum LogicSelfTests {
         coordinator.focusDockPanel(.top)
         try expect(window.firstResponder === pane, "the top panel's pane should take the keys")
         try expect(top.isFocused && !bottom.isFocused, "only the top panel's frame should lift")
+        try expect(pane.hasFocusedLook && !bottomPane.isFocused, "Version Control draws its cursor, and the bottom panel's content its focused look, only for the panel with the keys")
         coordinator.focusDockPanel(.bottom)
         try expect(!top.isFocused && bottom.isFocused, "the bottom panel's frame lifts as the top's drops")
+        try expect(!pane.hasFocusedLook && bottomPane.isFocused, "the cursor hides with the top panel's keys and the bottom content's focused look comes on")
         coordinator.focusDockPanel(.top)
         coordinator.focus(.tracker)
         try expect(!top.isFocused && !bottom.isFocused, "no panel has the keys once focus leaves the dock")
+        try expect(!pane.hasFocusedLook && !bottomPane.isFocused, "nothing in the dock draws a focused look once focus leaves it")
         coordinator.focus(.dock)
         try expect(top.isFocused && !bottom.isFocused && window.firstResponder === pane, "coming back lands on the panel that had the keys")
+        try expect(pane.hasFocusedLook && !bottomPane.isFocused, "and its cursor shows again")
     }
 
     private static func testDockSelectionPublishesImmediately() throws {

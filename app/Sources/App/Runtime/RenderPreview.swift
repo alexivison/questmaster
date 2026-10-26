@@ -153,6 +153,7 @@ enum RenderPreview {
         render(QuestLogView(store: questLogStore(empty: true), filter: questLogFilter(token: false), onCommand: { _ in }), size: QuestLogView.size, to: "\(outputDir)/quest-log-empty.png")
         renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
         recordQuestLogAnimations(to: outputDir)
+        recordDockPanelAnimations(to: outputDir)
         // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.
         let scrolledPage = QuestLogPageScroll()
         scrolledPage.previewOffset = 160
@@ -358,7 +359,7 @@ enum RenderPreview {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 VersionControlRow(
                     row: row,
-                    look: row.look(highlighted: index == highlight, areaFocused: true),
+                    look: row.look(isCursor: index == highlight, areaFocused: true),
                     action: {}
                 )
             }
@@ -386,7 +387,7 @@ enum RenderPreview {
         let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
         let display = PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
         func item(highlighted: Bool) -> some View {
-            VersionControlRow(row: display, look: display.look(highlighted: highlighted, areaFocused: true), showsSeparator: false, action: {})
+            VersionControlRow(row: display, look: display.look(isCursor: highlighted, areaFocused: true), showsSeparator: false, action: {})
                 .frame(width: 639 + 2 * Space.section)
         }
         return ZStack(alignment: .topLeading) {
@@ -433,6 +434,11 @@ enum RenderPreview {
     /// `top` is false) over the artifact list or the worker chat (unless `bottom` is nil), `focus` giving one panel the keys.
     @MainActor
     private static func dockSplitView(bottom: DockSplitBottom?, top: Bool = true, focus: DockPanel?) -> NSView {
+        dockSplitCanvas(bottom: bottom, top: top, focus: focus).canvas
+    }
+
+    @MainActor
+    private static func dockSplitCanvas(bottom: DockSplitBottom?, top: Bool = true, focus: DockPanel?) -> (canvas: NSView, column: DockColumnView) {
         let topShell = DockShellView(
             body: NSHostingView(rootView: versionControlContent(.design, focused: focus == .top)),
             model: DockChromeModel(topBar: .versionControl)
@@ -459,7 +465,26 @@ enum RenderPreview {
         canvas.wantsLayer = true
         canvas.layer?.backgroundColor = AppPalette.window.cgColor
         canvas.addSubview(column)
-        return canvas
+        return (canvas, column)
+    }
+
+    /// A panel coming and going while the other grows or shrinks, as `DockColumnView` runs it, sampled frame by frame.
+    @MainActor
+    private static func recordDockPanelAnimations(to dir: String) {
+        let size = CGSize(width: 520, height: 900)
+        let whole = CGRect(origin: .zero, size: size)
+        let slow = ModalFade.slowdown
+        let duration = (DockPanelMotion.duration + 0.12) * slow
+        func record(_ name: String, from: DockPanels, to: DockPanels) {
+            let (canvas, column) = dockSplitCanvas(bottom: from.bottom ? .artifacts : nil, top: from.top, focus: nil)
+            column.setPanels(from)
+            recordAnimation(name, root: canvas, size: size, crop: whole, duration: duration, to: dir) {
+                column.setPanels(to, animated: true)
+            }
+        }
+        record("dock-panel-top-show-gif", from: DockPanels(bottom: true), to: DockPanels(top: true, bottom: true))
+        record("dock-panel-top-hide-gif", from: DockPanels(top: true, bottom: true), to: DockPanels(bottom: true))
+        record("dock-panel-bottom-hide-gif", from: DockPanels(top: true, bottom: true), to: DockPanels(top: true))
     }
 
 

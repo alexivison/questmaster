@@ -107,7 +107,7 @@ final class ShellFocusCoordinator {
     func applyNavigationState(animateDockVisibility: Bool = true) {
         splitView()?.trackerVisible = navigation.trackerVisible
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
-        dockColumn()?.setPanels(dockPanels())
+        dockColumn()?.setPanels(dockPanels(), animated: animateDockVisibility)
         updateRegionKeys()
         footerShell()?.update(
             navigation: navigation.state,

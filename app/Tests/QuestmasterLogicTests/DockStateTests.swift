@@ -12,6 +12,7 @@ struct DockStateTests {
         panelsChangeIndependently()
         panelsFollowTheSession()
         columnLayoutSplitsOrFills()
+        panelMotionIsShortAndSlidesFromTheEdge()
         noSessionHidesTheDockAndKeepsItsState()
         print("DockStateTests: all tests passed")
     }
@@ -142,6 +143,41 @@ struct DockStateTests {
         expect(none.top == nil && none.bottom == nil, "no panel, no frame")
         let short = DockColumnLayout.make(height: 310, panels: DockPanels(top: true, bottom: true))
         expect(short.top?.height == 290 && short.bottom == DockColumnLayout.Slot(offset: 310, height: 0), "a column too short for both gives the bottom panel nothing, never a negative height")
+    }
+
+    /// A panel appearing fades in as it slides 10 in from its edge (the top from above, the bottom from below), a panel going
+    /// away runs that back, and one that stays grows or shrinks to its new slot. The motion is short, eased and fixed.
+    private static func panelMotionIsShortAndSlidesFromTheEdge() {
+        expect(DockPanelMotion.duration >= 0.15 && DockPanelMotion.duration <= 0.2, "the motion takes 0.15 to 0.2 seconds, got \(DockPanelMotion.duration)")
+        expect(DockPanelMotion.slide == 10, "a panel slides 10 points")
+        expect(DockPanelMotion.eased(0) == 0 && DockPanelMotion.eased(1) == 1, "the easing runs from 0 to 1")
+        expect(DockPanelMotion.eased(0.5) > 0.5 && DockPanelMotion.eased(0.25) < DockPanelMotion.eased(0.5), "it eases out: quick at first, steadily rising")
+        expect(DockPanelMotion.eased(-1) == 0 && DockPanelMotion.eased(2) == 1, "progress outside 0...1 clamps")
+
+        let height = 860.0
+        let bottomOnly = DockColumnLayout.make(height: height, panels: DockPanels(bottom: true))
+        let split = DockColumnLayout.make(height: height, panels: DockPanels(top: true, bottom: true))
+
+        let showTopStart = DockColumnTransition.make(from: bottomOnly, to: split, progress: 0)
+        expect(showTopStart.top == DockPanelFrame(offset: -10, height: 300, alpha: 0), "Version Control starts 10 above its slot, unseen")
+        expect(showTopStart.bottom == DockPanelFrame(offset: 0, height: 860, alpha: 1), "the bottom panel starts at its full height")
+        let showTopEnd = DockColumnTransition.make(from: bottomOnly, to: split, progress: 1)
+        expect(showTopEnd.top == DockPanelFrame(offset: 0, height: 300, alpha: 1), "Version Control ends at its slot, fully shown")
+        expect(showTopEnd.bottom == DockPanelFrame(offset: 320, height: 540, alpha: 1), "the bottom panel ends shrunk under it")
+        let showTopMid = DockColumnTransition.make(from: bottomOnly, to: split, progress: 0.5)
+        expect(showTopMid.top == DockPanelFrame(offset: -5, height: 300, alpha: 0.5), "halfway it's half faded and 5 above")
+        expect(showTopMid.bottom == DockPanelFrame(offset: 160, height: 700, alpha: 1), "and the bottom panel is halfway to its slot")
+
+        let hideTopEnd = DockColumnTransition.make(from: split, to: bottomOnly, progress: 1)
+        expect(hideTopEnd.top == DockPanelFrame(offset: -10, height: 300, alpha: 0), "a going panel ends 10 back toward its edge, unseen")
+        expect(hideTopEnd.bottom == DockPanelFrame(offset: 0, height: 860, alpha: 1), "and the bottom panel grows to fill the dock")
+
+        let showBottomStart = DockColumnTransition.make(from: DockColumnLayout.make(height: height, panels: DockPanels(top: true)), to: split, progress: 0)
+        expect(showBottomStart.bottom == DockPanelFrame(offset: 330, height: 540, alpha: 0), "the bottom panel comes in from below")
+        expect(showBottomStart.top == DockPanelFrame(offset: 0, height: 860, alpha: 1), "while Version Control starts full height")
+
+        let none = DockColumnTransition.make(from: bottomOnly, to: bottomOnly, progress: 0.5)
+        expect(none.top == nil && none.bottom == DockPanelFrame(offset: 0, height: 860, alpha: 1), "a panel that stays as it was stays put, and an absent one has no frame")
     }
 
     /// With no session the dock hides, but its state stays, so it comes back as it was when a session attaches.

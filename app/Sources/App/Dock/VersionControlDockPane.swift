@@ -87,6 +87,11 @@ final class VersionControlDockPane: NSHostingView<VersionControlPaneRoot> {
         model.isFocused = focused
     }
 
+    /// Whether the list draws its cursor: only while this panel has the keys.
+    var hasFocusedLook: Bool {
+        model.isFocused
+    }
+
     func focus(in window: NSWindow?) {
         window?.makeFirstResponder(self)
     }

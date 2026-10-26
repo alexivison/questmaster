@@ -165,11 +165,13 @@ a cursor the pointer moved, and drops a key scroll still queued
 filled, so tabs have no hover look.
 
 A region has the keys while it's focused and no modal is drawn
-(`NavigationStore.hasKeys`); its focus looks follow that. When the user leaves
-a region, a selection that lasts (a tab row's) and a cursor whose design draws
-an unfocused state (the artifact list's) stay one step dimmer; a pure cursor
-with no lasting selection and no designed unfocused state (the tracker's)
-hides.
+(`NavigationStore.hasKeys`); its focus looks follow that. Inside the dock only
+the focused panel has them (`NavigationStore.hasKeys(_: DockPanel)`). When the
+user leaves a region or panel, a selection that lasts (a tab row's) and a
+cursor whose design draws an unfocused state (the artifact list's) stay one
+step dimmer; a pure cursor with no lasting selection and no designed unfocused
+state (the tracker's, Version Control's: `RowLook.cursor`) hides, and shows
+again where it was when the keys come back.
 
 | Element | State | Look |
 |---|---|---|
@@ -228,7 +230,10 @@ hides.
   `accent`, 14pt bold, on the top bar's baseline 25 down.
 - The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
   under it the artifacts or the worker chat. Each has its own title and close button, and either shows alone
-  (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them.
+  (it then fills the dock). `DockState` keeps their visibility app-wide; ⌥⌘K and ⌥⌘J move the keys between them. A panel
+  appearing or going away fades and slides 10pt while the other grows or shrinks, in 0.18s and only once
+  (`DockPanelMotion`; Reduce Motion skips it): never an animation that keeps running, as the terminal shares the main
+  thread.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`

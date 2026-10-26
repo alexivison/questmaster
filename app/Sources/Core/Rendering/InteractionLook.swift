@@ -90,6 +90,12 @@ public struct RowLook: Equatable, Sendable {
         selected ? .selected : .rest
     }
 
+    /// A pure cursor row, with no lasting selection and no designed unfocused state (the tracker's, Version Control's):
+    /// it shows only while its area has the keys, and its cursor shows again where it was when they come back.
+    public static func cursor(highlighted: Bool, areaFocused: Bool) -> RowLook {
+        PlateBand.showsCursor(highlighted: highlighted, areaFocused: areaFocused) ? .highlighted : .rest
+    }
+
     /// This look with the pointer over the row: an unfilled, unoutlined (resting) row gains the hover outline and keeps its
     /// own colours, a missing file's warning icon included; a highlighted, selected or already outlined one (a shell's
     /// cursor) keeps its look.

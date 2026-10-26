@@ -70,7 +70,7 @@ struct VersionControlList: View {
                 ForEach(rows, id: \.pullRequest.key) { row in
                     VersionControlRow(
                         row: row,
-                        look: row.look(highlighted: row.pullRequest.key == cursorKey, areaFocused: areaFocused),
+                        look: row.look(isCursor: row.pullRequest.key == cursorKey, areaFocused: areaFocused),
                         action: { onOpenRow(row.pullRequest.key) }
                     )
                     .id(row.pullRequest.key)

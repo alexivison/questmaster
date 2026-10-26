@@ -296,6 +296,12 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         return update
     }
 
+    /// Whether the bottom dock panel has the keys: its content (the artifact list's cursor and tabs) draws its focused
+    /// look only then.
+    var isFocused: Bool {
+        model.isFocused
+    }
+
     func setFocused(_ focused: Bool) {
         model.setFocused(focused)
     }

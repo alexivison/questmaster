@@ -203,10 +203,25 @@ final class DockShellView: NSView {
 /// The dock region: Version Control's panel over the bottom panel (artifacts or worker chat), each its own scooped
 /// `DockShellView`, laid out by `DockColumnLayout`. It's the pane `MainSplitView` sizes and shows or hides; what shows
 /// inside follows the dock state's panels.
+///
+/// While the dock stays on screen, a panel appearing or going away is a short one-shot transition (`DockPanelMotion`): it
+/// fades as it slides in from its edge or back out, and the other panel grows or shrinks to its new slot, frame by frame,
+/// so its chrome stays whole. The first panel showing and the last one hiding belong to `MainSplitView`, which fades and
+/// slides the whole column. Reduce Motion skips all of it.
 final class DockColumnView: NSView {
     let topShell: DockShellView
     let bottomShell: DockShellView
     private var panels = DockPanels()
+    private var transition: Transition?
+    /// Whether the system asks for less motion. A property so a test can set it.
+    var reducesMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    private struct Transition {
+        let from: DockColumnLayout
+        let to: DockColumnLayout
+        let began: CFTimeInterval
+        let timer: Timer
+    }
 
     init(top: DockShellView, bottom: DockShellView) {
         topShell = top
@@ -223,32 +238,102 @@ final class DockColumnView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setPanels(_ next: DockPanels) {
+    var isTransitioning: Bool {
+        transition != nil
+    }
+
+    func setPanels(_ next: DockPanels, animated: Bool = false) {
         guard panels != next else {
             return
         }
+        finishTransition()
+        let previous = panels
         panels = next
-        needsLayout = true
+        guard animated, window != nil, previous.isShown, next.isShown, !reducesMotion() else {
+            needsLayout = true
+            return
+        }
+        beginTransition(from: previous, to: next)
     }
 
     override func layout() {
         super.layout()
-        let layout = DockColumnLayout.make(height: Double(bounds.height), panels: panels)
-        place(topShell, in: layout.top)
-        place(bottomShell, in: layout.bottom)
-    }
-
-    /// A panel without a slot hides; the others sit at their offset down from the column's top edge.
-    private func place(_ shell: DockShellView, in slot: DockColumnLayout.Slot?) {
-        shell.isHidden = slot == nil
-        guard let slot else {
+        guard transition == nil else {
             return
         }
+        let layout = DockColumnLayout.make(height: Double(bounds.height), panels: panels)
+        place(topShell, DockPanelFrame(slot: layout.top))
+        place(bottomShell, DockPanelFrame(slot: layout.bottom))
+    }
+
+    private func beginTransition(from previous: DockPanels, to next: DockPanels) {
+        let height = Double(bounds.height)
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            self?.step()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        let running = Transition(
+            from: DockColumnLayout.make(height: height, panels: previous),
+            to: DockColumnLayout.make(height: height, panels: next),
+            began: CACurrentMediaTime(),
+            timer: timer
+        )
+        transition = running
+        apply(running, progress: 0)
+    }
+
+    private func step() {
+        guard let running = transition else {
+            return
+        }
+        let duration = DockPanelMotion.duration * ModalFade.slowdown
+        let progress = min(1, (CACurrentMediaTime() - running.began) / duration)
+        guard progress < 1 else {
+            finishTransition()
+            return
+        }
+        apply(running, progress: DockPanelMotion.eased(progress))
+    }
+
+    private func apply(_ running: Transition, progress: Double) {
+        let frames = DockColumnTransition.make(from: running.from, to: running.to, progress: progress)
+        place(topShell, frames.top)
+        place(bottomShell, frames.bottom)
+    }
+
+    /// Ends a running transition at its target: every panel at its slot, fully shown, the others hidden.
+    private func finishTransition() {
+        guard let running = transition else {
+            return
+        }
+        running.timer.invalidate()
+        transition = nil
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
+    /// A panel without a frame hides; the others sit at their offset down from the column's top edge.
+    private func place(_ shell: DockShellView, _ frame: DockPanelFrame?) {
+        shell.isHidden = frame == nil
+        guard let frame else {
+            return
+        }
+        shell.alphaValue = CGFloat(frame.alpha)
         shell.frame = NSRect(
             x: 0,
-            y: bounds.height - CGFloat(slot.offset) - CGFloat(slot.height),
+            y: bounds.height - CGFloat(frame.offset) - CGFloat(frame.height),
             width: bounds.width,
-            height: CGFloat(slot.height)
+            height: CGFloat(frame.height)
         )
+    }
+}
+
+private extension DockPanelFrame {
+    /// A panel at rest in its slot, fully shown; nil when it has none.
+    init?(slot: DockColumnLayout.Slot?) {
+        guard let slot else {
+            return nil
+        }
+        self.init(offset: slot.offset, height: slot.height, alpha: 1)
     }
 }
