@@ -57,6 +57,73 @@ func TestFetchBatchesReposAndHosts(t *testing.T) {
 	}
 }
 
+func TestResponseBodyKeepsBlankLinesInJSON(t *testing.T) {
+	t.Parallel()
+	for _, newline := range []string{"\n", "\r\n"} {
+		body := "{" + newline + newline + "  \"data\": {\"rateLimit\": {\"cost\": 1}}" + newline + "}"
+		got, _, _ := responseBody([]byte("HTTP/2.0 200 OK" + newline + "Retry-After: 30" + newline + newline + body))
+		if string(got) != body {
+			t.Fatalf("body = %q", got)
+		}
+	}
+	body := "{\r\n\r\n  \"data\": {}\r\n}"
+	got, _, _ := responseBody([]byte("HTTP/2.0 200 OK\n\n" + body))
+	if string(got) != body {
+		t.Fatalf("mixed newline body = %q", got)
+	}
+}
+
+func TestLaterBatchFailureKeepsFreshEarlierStatuses(t *testing.T) {
+	t.Parallel()
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(state.Manifest{SessionID: "qm-reader"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	prs := make([]state.PullRequest, 0, 51)
+	for n := 1; n <= 51; n++ {
+		ref := pr(t, fmt.Sprintf("o/r#%d", n))
+		if _, err := state.WatchPullRequest(store.Root(), "qm-reader", ref, now); err != nil {
+			t.Fatal(err)
+		}
+		prs = append(prs, ref)
+	}
+	if err := state.SavePullRequestStatuses(store.Root(), map[string]state.PullRequestStatus{prs[50].Key: {Title: "last good", FetchedAt: "2026-10-25T00:00:00Z"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	run := func(_ context.Context, _ string, query string) ([]byte, []byte, error) {
+		if strings.Contains(query, "number:51)") {
+			return nil, []byte("gh: network unavailable"), errors.New("exit 1")
+		}
+		data := map[string]any{"rateLimit": map[string]any{"cost": 1, "remaining": 400, "resetAt": "2026-10-26T01:00:00Z"}}
+		for i := 0; i < 50; i++ {
+			data[fmt.Sprintf("p%d", i)] = map[string]any{"pullRequest": map[string]any{"title": "fresh", "state": "OPEN"}}
+		}
+		body, _ := json.Marshal(map[string]any{"data": data})
+		return body, nil, nil
+	}
+	result := Fetch(context.Background(), prs, run, now)
+	if len(result.Statuses) != 50 || result.Hosts["github.com"].Error == "" {
+		t.Fatalf("statuses=%d host=%#v", len(result.Statuses), result.Hosts["github.com"])
+	}
+	if err := state.SavePullRequestStatuses(store.Root(), result.Statuses, map[string]bool{"github.com": true}); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := state.LoadPullRequestStatuses(store.Root())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statuses[prs[0].Key].Title != "fresh" || statuses[prs[0].Key].Stale {
+		t.Fatalf("first status=%#v", statuses[prs[0].Key])
+	}
+	if statuses[prs[50].Key].Title != "last good" || !statuses[prs[50].Key].Stale {
+		t.Fatalf("last status=%#v", statuses[prs[50].Key])
+	}
+}
+
 func TestFetchKeepsPartialDataAndClassifiesErrors(t *testing.T) {
 	t.Parallel()
 	prs := []state.PullRequest{pr(t, "o/r#1"), pr(t, "o/r#2"), pr(t, "o/r#3"), pr(t, "o/r#4")}
@@ -78,11 +145,11 @@ func TestStatusReviewAndCI(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ name, decision, reviews, rollup, wantReview, wantCI string }{
 		{"null", "null", `[]`, "null", "none", "none"},
-		{"approve", "null", `[{"author":{"login":"a"},"state":"APPROVED","submittedAt":"2026-01-01"}]`, `{"state":"SUCCESS"}`, "approved", "success"},
-		{"same reviewer", "null", `[{"author":{"login":"a"},"state":"CHANGES_REQUESTED","submittedAt":"2026-01-01"},{"author":{"login":"a"},"state":"APPROVED","submittedAt":"2026-01-02"}]`, `{"state":"FAILURE"}`, "approved", "failure"},
-		{"disagree", "null", `[{"author":{"login":"a"},"state":"APPROVED","submittedAt":"2026-01-01"},{"author":{"login":"b"},"state":"CHANGES_REQUESTED","submittedAt":"2026-01-02"}]`, `{"state":"ERROR"}`, "changes_requested", "failure"},
-		{"dismissed", "null", `[{"author":{"login":"a"},"state":"DISMISSED","submittedAt":"2026-01-01"}]`, `{"state":"EXPECTED"}`, "none", "pending"},
-		{"decision", `"REVIEW_REQUIRED"`, `[{"author":{"login":"a"},"state":"APPROVED","submittedAt":"2026-01-01"}]`, `{"state":"PENDING"}`, "review_required", "pending"},
+		{"approve", "null", `[{"state":"APPROVED"}]`, `{"state":"SUCCESS"}`, "approved", "success"},
+		{"same reviewer latest approval", "null", `[{"state":"APPROVED"}]`, `{"state":"FAILURE"}`, "approved", "failure"},
+		{"disagree", "null", `[{"state":"APPROVED"},{"state":"CHANGES_REQUESTED"}]`, `{"state":"ERROR"}`, "changes_requested", "failure"},
+		{"dismissed", "null", `[{"state":"DISMISSED"}]`, `{"state":"EXPECTED"}`, "none", "pending"},
+		{"decision", `"REVIEW_REQUIRED"`, `[{"state":"APPROVED"}]`, `{"state":"PENDING"}`, "review_required", "pending"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

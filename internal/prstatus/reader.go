@@ -139,11 +139,6 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 				break
 			}
 		}
-		if hostResult.Error != "" {
-			for _, pr := range group {
-				delete(result.Statuses, pr.Key)
-			}
-		}
 		result.Hosts[host] = hostResult
 	}
 	return result
@@ -154,7 +149,7 @@ func query(prs []state.PullRequest) string {
 	b.WriteString("query { rateLimit { cost remaining resetAt } ")
 	// shortcut: review pagination stops at 100 reviewers per PR; paginate if a PR reaches that count.
 	for i, pr := range prs {
-		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision latestOpinionatedReviews(last:100) { nodes { author { login } state submittedAt } } commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
+		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision latestOpinionatedReviews(last:100) { nodes { state } } commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
 	}
 	b.WriteByte('}')
 	return b.String()
@@ -213,11 +208,7 @@ type graphPR struct {
 	ReviewDecision *string `json:"reviewDecision"`
 	Reviews        struct {
 		Nodes []struct {
-			Author struct {
-				Login string `json:"login"`
-			} `json:"author"`
-			State       string `json:"state"`
-			SubmittedAt string `json:"submittedAt"`
+			State string `json:"state"`
 		} `json:"nodes"`
 	} `json:"latestOpinionatedReviews"`
 	Commits struct {
@@ -237,22 +228,12 @@ func (pr graphPR) status(now time.Time) state.PullRequestStatus {
 	if pr.ReviewDecision != nil {
 		review = reviewState(*pr.ReviewDecision)
 	} else {
-		latest := map[string]struct{ state, at string }{}
 		for _, item := range pr.Reviews.Nodes {
-			name := strings.ToLower(item.Author.Login)
-			if name == "" || item.State == "DISMISSED" {
-				continue
-			}
-			if item.SubmittedAt >= latest[name].at {
-				latest[name] = struct{ state, at string }{item.State, item.SubmittedAt}
-			}
-		}
-		for _, item := range latest {
-			if item.state == "CHANGES_REQUESTED" {
+			if item.State == "CHANGES_REQUESTED" {
 				review = "changes_requested"
 				break
 			}
-			if item.state == "APPROVED" {
+			if item.State == "APPROVED" {
 				review = "approved"
 			}
 		}
@@ -287,10 +268,10 @@ func reviewState(value string) string {
 func responseBody(stdout []byte) ([]byte, string, string) {
 	text := string(stdout)
 	separator := "\r\n\r\n"
-	index := strings.LastIndex(text, separator)
-	if index < 0 {
+	index := strings.Index(text, separator)
+	if lf := strings.Index(text, "\n\n"); lf >= 0 && (index < 0 || lf < index) {
 		separator = "\n\n"
-		index = strings.LastIndex(text, separator)
+		index = lf
 	}
 	if index < 0 {
 		return stdout, "", ""
