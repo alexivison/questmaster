@@ -2701,80 +2701,87 @@ enum LogicSelfTests {
     }
 
     /// The filter bar (the Quest Log's and the artifact dock's) places its text field by its first baseline, so the lost
-    /// point of field height moved nothing: at 1x and 2x its text rests, and is focused, on one baseline, which is the
-    /// designs' (21.5 down the bar, on its backing pixel) and, within a backing pixel, the chip's text's, and the slash
-    /// stays centred in the bar.
+    /// point of field height moved nothing: at 1x and 2x, with one chip and with none (the usual state), its text rests, and
+    /// is focused, on one baseline, which is the designs' (21.5 down the bar, on its backing pixel) and, within a backing
+    /// pixel, the chip's text's, and the slash stays centred in the bar.
     /// Run under `XDG_CONFIG_HOME=/nonexistent` too, where the font is the system mono and every metric differs: the
     /// claims here are relations, so they hold in either.
     private static func testFilterBarTextSitsOnOneBaselineRestingAndFocused() throws {
         let size = CGSize(width: 340, height: 60)
         let token = ArtifactFilterToken(kind: .project, value: "x", title: "HHH")
-        // The bar's "/" is 10 in; the chip's "HHH" follows its "@project " (the chip is 10 past the slash and its text 5 in);
-        // the field's text starts after the chip, whose first "x" takes the caret's place.
+        // The bar's "/" is 10 in; the chip's "HHH" follows its "@project " (the chip is 10 past the slash and its text 5 in).
+        // The field's text starts after the chip, or after the slash with none; its first "x" takes the caret's place at the
+        // start of an empty field, so the columns are the "H" after it.
         let slashColumns = 10..<17
         let chipColumns = 98..<118
-        let fieldColumns = 142..<146
         var failures: [String] = []
-        for scale in [CGFloat(1), CGFloat(2)] {
-            let tolerance = 0.5 + 0.001
-            func makeBar(query: String, focused: Bool) throws -> (view: NSView, window: HeadlessWindow) {
-                let view = NSHostingView(rootView: FilterBarHarness(query: query, tokens: [token]))
-                view.frame = NSRect(origin: .zero, size: size)
-                let window = HeadlessWindow(size: size, scale: scale)
-                window.contentView = view
-                window.show(key: true)
-                RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-                if focused {
-                    guard let field = findKeyField(in: view) else {
-                        throw TestFailure("no filter text field")
+        for (chips, fieldColumns) in [(1, 142..<146), (0, 38..<42)] {
+            for scale in [CGFloat(1), CGFloat(2)] {
+                let tolerance = 0.5 + 0.001
+                let name = "\(scale)x, \(chips) chip\(chips == 1 ? "" : "s")"
+                func makeBar(query: String, focused: Bool) throws -> (view: NSView, window: HeadlessWindow) {
+                    let view = NSHostingView(rootView: FilterBarHarness(query: query, tokens: chips == 1 ? [token] : []))
+                    view.frame = NSRect(origin: .zero, size: size)
+                    let window = HeadlessWindow(size: size, scale: scale)
+                    window.contentView = view
+                    window.show(key: true)
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                    if focused {
+                        guard let field = findKeyField(in: view) else {
+                            throw TestFailure("no filter text field")
+                        }
+                        field.focusEditorAtEnd()
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                        try expect(field.currentEditor() != nil, "the filter field should be editing")
                     }
-                    field.focusEditorAtEnd()
-                    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-                    try expect(field.currentEditor() != nil, "the filter field should be editing")
+                    return (view, window)
                 }
-                return (view, window)
-            }
-            func fieldBaseline(_ bar: (view: NSView, window: HeadlessWindow)) throws -> CGFloat? {
-                inkEdges(try snapshot(bar.view, size: size, scale: scale), scale: scale, columns: fieldColumns)?.bottom
-            }
-
-            let resting = try makeBar(query: "xHH", focused: false)
-            defer { resting.window.close() }
-            let bitmap = try snapshot(resting.view, size: size, scale: scale)
-            guard let restingBaseline = inkEdges(bitmap, scale: scale, columns: fieldColumns)?.bottom,
-                  let chip = inkEdges(bitmap, scale: scale, columns: chipColumns, rows: 12..<24, over: AppPalette.item),
-                  let slash = inkEdges(bitmap, scale: scale, columns: slashColumns) else {
-                throw TestFailure("the filter bar's text, chip and slash should show ink at \(scale)x")
-            }
-            let designBaseline = pixelEdge(FormFieldMetrics.baseline, scale: scale)
-            if restingBaseline != designBaseline {
-                failures.append("\(scale)x: the filter text's baseline \(restingBaseline) should be the designs' \(FormFieldMetrics.baseline) down the bar, on the backing pixel \(designBaseline)")
-            }
-            if abs(restingBaseline - chip.bottom) > tolerance {
-                failures.append("\(scale)x: the filter text's baseline \(restingBaseline) should be the chip text's \(chip.bottom)")
-            }
-            if abs((slash.top + slash.bottom) / 2 - FilterBarMetrics.height / 2) > tolerance {
-                failures.append("\(scale)x: the slash (\(slash)) should stay centred in the \(FilterBarMetrics.height) bar")
-            }
-
-            let restingPlaceholder = try makeBar(query: "", focused: false)
-            defer { restingPlaceholder.window.close() }
-            if try fieldBaseline(restingPlaceholder) != restingBaseline {
-                failures.append("\(scale)x: the resting placeholder should sit on the resting text's baseline \(restingBaseline), got \(String(describing: try fieldBaseline(restingPlaceholder)))")
-            }
-            let focusedPlaceholder = try makeBar(query: "", focused: true)
-            defer { focusedPlaceholder.window.close() }
-            if try fieldBaseline(focusedPlaceholder) != restingBaseline {
-                failures.append("\(scale)x: the focused placeholder should stay on \(restingBaseline), got \(String(describing: try fieldBaseline(focusedPlaceholder)))")
-            }
-            let focusedTyped = try makeBar(query: "xHH", focused: true)
-            defer { focusedTyped.window.close() }
-            if let editor = findKeyField(in: focusedTyped.view)?.currentEditor() as? NSTextView, let baseline = firstLineBaseline(of: editor, in: focusedTyped.view) {
-                if pixelEdge(baseline, scale: scale) != restingBaseline {
-                    failures.append("\(scale)x: the focused editor's baseline \(baseline) should stand on the resting \(restingBaseline)")
+                func fieldBaseline(_ bar: (view: NSView, window: HeadlessWindow)) throws -> CGFloat? {
+                    inkEdges(try snapshot(bar.view, size: size, scale: scale), scale: scale, columns: fieldColumns)?.bottom
                 }
-            } else {
-                failures.append("\(scale)x: the focused filter field should have a first line")
+
+                let resting = try makeBar(query: "xHH", focused: false)
+                defer { resting.window.close() }
+                let bitmap = try snapshot(resting.view, size: size, scale: scale)
+                guard let restingBaseline = inkEdges(bitmap, scale: scale, columns: fieldColumns)?.bottom,
+                      let slash = inkEdges(bitmap, scale: scale, columns: slashColumns) else {
+                    throw TestFailure("\(name): the filter bar's text and slash should show ink")
+                }
+                let designBaseline = pixelEdge(FormFieldMetrics.baseline, scale: scale)
+                if restingBaseline != designBaseline {
+                    failures.append("\(name): the filter text's baseline \(restingBaseline) should be the designs' \(FormFieldMetrics.baseline) down the bar, on the backing pixel \(designBaseline)")
+                }
+                if chips == 1 {
+                    guard let chip = inkEdges(bitmap, scale: scale, columns: chipColumns, rows: 12..<24, over: AppPalette.item) else {
+                        throw TestFailure("\(name): the chip's text should show ink")
+                    }
+                    if abs(restingBaseline - chip.bottom) > tolerance {
+                        failures.append("\(name): the filter text's baseline \(restingBaseline) should be the chip text's \(chip.bottom)")
+                    }
+                }
+                if abs((slash.top + slash.bottom) / 2 - FilterBarMetrics.height / 2) > tolerance {
+                    failures.append("\(name): the slash (\(slash)) should stay centred in the \(FilterBarMetrics.height) bar")
+                }
+
+                let restingPlaceholder = try makeBar(query: "", focused: false)
+                defer { restingPlaceholder.window.close() }
+                if try fieldBaseline(restingPlaceholder) != restingBaseline {
+                    failures.append("\(name): the resting placeholder should sit on the resting text's baseline \(restingBaseline), got \(String(describing: try fieldBaseline(restingPlaceholder)))")
+                }
+                let focusedPlaceholder = try makeBar(query: "", focused: true)
+                defer { focusedPlaceholder.window.close() }
+                if try fieldBaseline(focusedPlaceholder) != restingBaseline {
+                    failures.append("\(name): the focused placeholder should stay on \(restingBaseline), got \(String(describing: try fieldBaseline(focusedPlaceholder)))")
+                }
+                let focusedTyped = try makeBar(query: "xHH", focused: true)
+                defer { focusedTyped.window.close() }
+                if let editor = findKeyField(in: focusedTyped.view)?.currentEditor() as? NSTextView, let baseline = firstLineBaseline(of: editor, in: focusedTyped.view) {
+                    if pixelEdge(baseline, scale: scale) != restingBaseline {
+                        failures.append("\(name): the focused editor's baseline \(baseline) should stand on the resting \(restingBaseline)")
+                    }
+                } else {
+                    failures.append("\(name): the focused filter field should have a first line")
+                }
             }
         }
         try expect(failures.isEmpty, failures.joined(separator: "; "))
