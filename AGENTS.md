@@ -204,7 +204,9 @@ hides.
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
   `ScoopedLayerChrome` do). `raised` (black 35%, blur 4, 1.5 down): tracker plates and their discs, and every
   dropdown (`SuggestionDropdown`). `panel` (30%, blur 12, 4 down): the dock's panels and the toast. `modal` (45%,
-  blur 30, 10 down): every in-window modal, the Quest Log included. Panel, dock and toast borders are 2pt
+  blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside
+  its clip, is a `Recess` token in the same file (`portrait`: 3 deep, blur 1, black 20%, the sheets' portrait discs).
+  Panel, dock and toast borders are 2pt
   `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). The dock's frame lifts to
   `controlBorder` while the dock has keyboard focus and no modal is drawn
   (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is
@@ -253,8 +255,10 @@ agent's logo in a 20pt badge (logo 12) centred `Space.row` in from the disc's le
 A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, flush with the plates, stacked with no gap
 (the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
 in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
-edge), every shell always shows, and the plates scroll in the space above it, which shrinks to make room and ends
-`TrackerListMetrics.shellClearance` (`Space.group`) over the section.
+edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows) and scrolling inside itself past that;
+the plates scroll in their own list in the space above it, which shrinks to make room and ends
+`TrackerListMetrics.shellClearance` (`Space.group`) over the section. Each scroller sees only its own rows' cursor
+(`plateCursorID` / `shellCursorID`), and a cursor the pointer moved scrolls neither (`PointerCursor`).
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an

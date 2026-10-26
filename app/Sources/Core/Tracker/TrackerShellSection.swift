@@ -33,6 +33,20 @@ public enum TrackerShellSection {
         rows.first { $0.id == cursorID && !isShellRow($0) }?.id
     }
 
+    /// The cursor id the shell section's scroller gets: the mirror of `plateCursorID`, so each scroller sees only the rows it
+    /// holds.
+    public static func shellCursorID(_ cursorID: String?, in rows: [TrackerSession]) -> String? {
+        rows.first { $0.id == cursorID && isShellRow($0) }?.id
+    }
+
+    /// The shell the section scrolls into view when it appears or its rows change: the cursor's while the cursor is on a
+    /// shell (it follows the viewed session unless the user moved it), else the viewed shell. Nil when neither is a shell
+    /// of the section.
+    public static func revealID(cursorID: String?, viewedID: String?, in shells: [TrackerSession]) -> String? {
+        let shellIDs = Set(shells.map(\.id))
+        return [cursorID, viewedID].compactMap { $0 }.first { shellIDs.contains($0) }
+    }
+
     /// The repo's masters and workers, in its order.
     public static func plateSessions(in repo: TrackerRepo) -> [TrackerSession] {
         repo.sessions.filter { !isShellRow($0) }

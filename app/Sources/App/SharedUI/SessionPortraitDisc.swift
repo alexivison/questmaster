@@ -35,11 +35,6 @@ extension GraphicsContext {
     }
 }
 
-extension TrackerPlateShadow {
-    /// The portrait discs' inner shadow, as Class & Title.svg and Portrait.svg draw it: 3 deep, blurred by half a point.
-    static let sheetPortrait = TrackerPlateShadow(depth: 3, blur: 0.5, opacity: 0.2)
-}
-
 enum SessionPortraitMetrics {
     /// The sheets' portrait disc, as Class & Title.svg draws it: as tall as the row it starts, 5 taller than the title field.
     static let sheetDiameter = ControlHeight.bar
@@ -56,7 +51,7 @@ struct SessionPortraitDisc: View {
             let disc = Path(ellipseIn: frame)
             context.fill(disc, with: .color(AppPalette.panel.swiftUI))
             context.drawPortrait(portrait, in: disc)
-            context.fillInnerShadow(disc, .sheetPortrait)
+            context.fillInnerShadow(disc, Recess.portrait)
             let border = Token.Size.divider
             context.stroke(Path(ellipseIn: frame.insetBy(dx: border / 2, dy: border / 2)), with: .color(AppPalette.line.swiftUI), lineWidth: border)
         }

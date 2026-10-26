@@ -7,6 +7,7 @@ struct TrackerShellSectionTests {
         shellsLeaveTheirReposAndKeepTheirOrder()
         aRepoOfOnlyShellsHasNoPlateRows()
         thePlatesListScrollsOnlyToPlates()
+        theShellScrollerSeesOnlyShells()
         aShellRowTakesItsLookFromViewingAndTheCursor()
         theShellLooksFollowTheStateRules()
         aShellTitleTakesItsOwnDisplayColourOnly()
@@ -62,6 +63,27 @@ struct TrackerShellSectionTests {
         expect(TrackerShellSection.plateCursorID("t", in: rows) == nil, "nor is a tmux row")
         expect(TrackerShellSection.plateCursorID(nil, in: rows) == nil, "no cursor, no id")
         expect(TrackerShellSection.plateCursorID("gone", in: rows) == nil, "a cursor on no listed row, no id")
+    }
+
+    /// The shell section's scroller is the mirror: it sees the cursor only on its own rows, and reveals the cursor's shell,
+    /// else the viewed one, when it appears or its rows change.
+    private static func theShellScrollerSeesOnlyShells() {
+        let rows = [session("m", role: "master"), session("s", role: "shell"), session("t", role: "tmux"), session("o", role: "orphan")]
+        let shells = rows.filter(TrackerShellSection.isShellRow)
+        expect(TrackerShellSection.shellCursorID("s", in: rows) == "s" && TrackerShellSection.shellCursorID("o", in: rows) == "o", "the cursor on a shell goes to the shell scroller")
+        expect(TrackerShellSection.shellCursorID("m", in: rows) == nil, "the cursor on a plate is not sent to the shell scroller")
+        expect(TrackerShellSection.shellCursorID(nil, in: rows) == nil && TrackerShellSection.shellCursorID("gone", in: rows) == nil, "no cursor, or an unlisted one, no id")
+        for id in ["m", "s", "t", "o", "gone"] {
+            expect(
+                (TrackerShellSection.plateCursorID(id, in: rows) == nil) != (TrackerShellSection.shellCursorID(id, in: rows) == nil) || id == "gone",
+                "a listed cursor row \(id) belongs to exactly one scroller"
+            )
+        }
+        expect(TrackerShellSection.revealID(cursorID: "t", viewedID: "s", in: shells) == "t", "the cursor's shell is revealed first")
+        expect(TrackerShellSection.revealID(cursorID: "m", viewedID: "s", in: shells) == "s", "a cursor on a plate falls back to the viewed shell")
+        expect(TrackerShellSection.revealID(cursorID: nil, viewedID: "o", in: shells) == "o", "no cursor falls back to the viewed shell")
+        expect(TrackerShellSection.revealID(cursorID: "m", viewedID: "m", in: shells) == nil, "neither on a shell reveals nothing")
+        expect(TrackerShellSection.revealID(cursorID: "s", viewedID: nil, in: []) == nil, "no shells reveal nothing")
     }
 
     /// The viewed shell is the lasting selection, so it is the only bold row; the cursor fills another row without

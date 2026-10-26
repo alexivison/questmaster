@@ -51,7 +51,8 @@ enum RenderPreview {
         render(shellRowStatesView(), size: CGSize(width: 300, height: 400), to: "\(outputDir)/shell-rows.png")
         render(trackerWithShellsView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells.png")
         render(trackerWithShellsView(extraMasters: 9), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells-long.png")
-        render(trackerWithShellsView(extraMasters: 9, extraShells: 5), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells-crowded.png")
+        // 14 shells at the 600pt minimum window, the last one attached: the section stops at 175 and scrolls to it.
+        render(trackerWithShellsView(extraMasters: 9, extraShells: 11, viewedShell: "qm-shell-extra-10"), size: CGSize(width: 340, height: 600), to: "\(outputDir)/tracker-shells-crowded.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
@@ -934,9 +935,9 @@ enum RenderPreview {
 
     /// The tracker with masters, workers and the shell section pinned to the column's bottom: one shell attached (filled,
     /// bold), one with a colour, one plain. `extraMasters` lengthens the plates' list until it is cut at the section's
-    /// clearance; `extraShells` crowds the section: every shell shows and the list shrinks.
+    /// clearance; `extraShells` crowds the section until it stops at its max height and scrolls to `viewedShell`.
     @MainActor
-    private static func trackerWithShellsView(extraMasters: Int = 0, extraShells: Int = 0) -> some View {
+    private static func trackerWithShellsView(extraMasters: Int = 0, extraShells: Int = 0, viewedShell: String = "qm-shell-viewed") -> some View {
         func session(_ id: String, _ repo: String, role: String = "master", sessionClass: String = "", agent: String, parent: String = "", state: String = "idle") -> TrackerSession {
             TrackerSession(
                 id: id, title: role == "worker" ? "worker-title" : "Session Title", repoName: repo, displayColor: "indigo", sessionClass: sessionClass,
@@ -953,7 +954,7 @@ enum RenderPreview {
         ]
         let scry = [session("m3", "scry", sessionClass: "rogue", agent: "claude")]
             + (0..<3).map { session("m3-w\($0)", "scry", role: "worker", sessionClass: "rogue", agent: $0 == 1 ? "claude" : "codex", parent: "m3", state: "working") }
-        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "qm-shell-viewed", expandedMasterIDs: ["m2"])
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: viewedShell, expandedMasterIDs: ["m2"])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
             TrackerRepo(id: "ungrouped", name: "ungrouped", sessions: [shell("qm-shell-plain")]),
             TrackerRepo(id: "dotfiles", name: "dotfiles", color: "lime", sessions: dotfiles),

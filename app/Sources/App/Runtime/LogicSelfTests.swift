@@ -57,6 +57,7 @@ enum LogicSelfTests {
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
         ("testShellRowsKeepTheMocksGeometry", testShellRowsKeepTheMocksGeometry),
         ("testTheShellSectionIsPinnedToTheTrackersBottom", testTheShellSectionIsPinnedToTheTrackersBottom),
+        ("testTheShellSectionScrollsInsideItselfPastItsMaxHeight", testTheShellSectionScrollsInsideItselfPastItsMaxHeight),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
@@ -2099,21 +2100,24 @@ enum LogicSelfTests {
         try expect(titleInk.map { $0 >= titleLeft && $0 <= titleLeft + 3 } == true, "the title should start 10 past the disc, got x \(String(describing: titleInk))")
     }
 
-    /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
-    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and with
-    /// many shells every one shows and the plates' list shrinks to make room. The viewed shell's filled row marks the
-    /// section's bottom (the last shell) or its top (the first).
-    private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {
-        let height = 700
-        func fillRows(masters: Int, shells: Int, viewed: String) throws -> (rows: [Int], windowBandClear: Bool) {
+    /// A real tracker in a headless window at 1x, with `masters` plates and `shells` shells (`shell-0` ...), `viewed` the
+    /// attached session. The viewed shell's row is filled, which marks where the shell section is.
+    private final class TrackerFixture {
+        let store: RuntimeStore
+        let view: NSView
+        let window: HeadlessWindow
+        let size: CGSize
+
+        @MainActor
+        init(masters: Int, shells: Int, viewed: String, height: Int) {
             func session(_ id: String, role: String) -> TrackerSession {
                 TrackerSession(id: id, title: id, repoName: "Repo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
             }
             let plates = (0..<masters).map { session("master-\($0)", role: "master") }
             let shellRows = (0..<shells).map { session("shell-\($0)", role: "shell") }
-            let store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: viewed, expandedMasterIDs: [])
+            store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: viewed, expandedMasterIDs: [])
             store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: plates + shellRows)])))
-            let size = CGSize(width: 340, height: CGFloat(height))
+            size = CGSize(width: 340, height: CGFloat(height))
             let root = TrackerRootView(
                 store: store,
                 navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
@@ -2122,55 +2126,178 @@ enum LogicSelfTests {
             )
             .frame(width: size.width, height: size.height)
             .background(AppPalette.window.swiftUI)
-            let view = NSHostingView(rootView: root)
+            view = NSHostingView(rootView: root)
             view.frame = NSRect(origin: .zero, size: size)
-            let window = HeadlessWindow(size: size, scale: 1)
+            window = HeadlessWindow(size: size, scale: 1)
             window.contentView = view
             window.show()
-            defer { window.close() }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+            settle()
+        }
+
+        func settle(_ seconds: TimeInterval = 0.8) {
+            RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+        }
+
+        func close() {
+            window.close()
+        }
+
+        /// The tracker's pixels now.
+        func probe() throws -> PixelProbe {
             guard let bitmap = NSBitmapImageRep(
-                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
             ) else {
                 throw TestFailure("could not make a bitmap")
             }
             bitmap.size = size
             view.cacheDisplay(in: view.bounds, to: bitmap)
-            func isColor(_ x: Int, _ y: Int, _ color: NSColor) -> Bool {
-                guard let pixel = bitmap.colorAt(x: x, y: y), let expected = color.usingColorSpace(.deviceRGB) else {
-                    return false
-                }
-                return abs(pixel.redComponent - expected.redComponent) < 0.02
-                    && abs(pixel.greenComponent - expected.greenComponent) < 0.02
-                    && abs(pixel.blueComponent - expected.blueComponent) < 0.02
-            }
-            // Past a shell row's corner and left of its disc, below every plate's own fill column.
-            let column = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.cornerRadius) + 1
-            let rows = (0..<height).filter { isColor(column, $0, AppPalette.item) }
-            let sectionTop = height - Int(TrackerListMetrics.verticalPadding) - shells * Int(TrackerShellMetrics.rowHeight)
-            let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
-            // The band between the plates' area and the section: nothing of a plate in it, at several columns.
-            let bandClear = [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
-            return (rows, bandClear)
+            return PixelProbe(bitmap: bitmap, height: Int(size.height))
         }
+
+        /// The scroll view that is `height` tall: the shell section's (the plates' list is the one taller).
+        func scrollView(height: CGFloat) -> NSScrollView? {
+            func find(in view: NSView) -> NSScrollView? {
+                if let scrollView = view as? NSScrollView, abs(scrollView.frame.height - height) < 0.5 {
+                    return scrollView
+                }
+                return view.subviews.lazy.compactMap(find).first
+            }
+            return find(in: view)
+        }
+    }
+
+    private struct PixelProbe {
+        let bitmap: NSBitmapImageRep
+        let height: Int
+
+        func isColor(_ x: Int, _ y: Int, _ color: NSColor) -> Bool {
+            guard let pixel = bitmap.colorAt(x: x, y: y), let expected = color.usingColorSpace(.deviceRGB) else {
+                return false
+            }
+            return abs(pixel.redComponent - expected.redComponent) < 0.02
+                && abs(pixel.greenComponent - expected.greenComponent) < 0.02
+                && abs(pixel.blueComponent - expected.blueComponent) < 0.02
+        }
+
+        /// The rows of `color` down a column past a shell row's corner and left of its disc: the filled shell rows.
+        var filledShellRows: [Int] {
+            let column = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.cornerRadius) + 1
+            return (0..<height).filter { isColor(column, $0, AppPalette.item) }
+        }
+
+        /// Nothing of a plate in the band above the section, at several columns.
+        func clearBand(above sectionTop: Int) -> Bool {
+            let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
+            return [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
+        }
+    }
+
+    /// How far a scroll view has scrolled from the top of its content.
+    private static func offsetFromTop(_ scrollView: NSScrollView) -> CGFloat {
+        guard let document = scrollView.documentView else {
+            return 0
+        }
+        let visible = scrollView.documentVisibleRect
+        return document.isFlipped ? visible.minY : document.frame.height - visible.maxY
+    }
+
+    /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
+    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and with
+    /// many shells the section stops at its max height. The viewed shell's filled row marks the section's bottom (the
+    /// last shell) or its top (the first).
+    private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {
+        let height = 700
         let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
         let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        func probe(masters: Int, shells: Int, viewed: String) throws -> PixelProbe {
+            let fixture = TrackerFixture(masters: masters, shells: shells, viewed: viewed, height: height)
+            defer { fixture.close() }
+            return try fixture.probe()
+        }
+        func sectionTop(shells: Int) -> Int {
+            height - Int(TrackerListMetrics.verticalPadding) - min(shells * rowHeight, Int(TrackerShellMetrics.maxHeight))
+        }
 
-        let few = try fillRows(masters: 1, shells: 2, viewed: "shell-1")
-        try expect(few.rows.last == bottom, "with few plates the section should end at the column's bottom margin, got row \(String(describing: few.rows.last)) for \(bottom)")
-        try expect(few.rows.suffix(rowHeight).first == bottom - rowHeight + 1, "the viewed shell's row should be 35 high")
-        try expect(few.windowBandClear, "there should be empty space above the section")
+        let few = try probe(masters: 1, shells: 2, viewed: "shell-1")
+        try expect(few.filledShellRows.last == bottom, "with few plates the section should end at the column's bottom margin, got row \(String(describing: few.filledShellRows.last)) for \(bottom)")
+        try expect(few.filledShellRows.suffix(rowHeight).first == bottom - rowHeight + 1, "the viewed shell's row should be 35 high")
+        try expect(few.clearBand(above: sectionTop(shells: 2)), "there should be empty space above the section")
 
-        let many = try fillRows(masters: 14, shells: 2, viewed: "shell-1")
-        try expect(many.rows.last == bottom, "with many plates the section should stay at the column's bottom margin, got row \(String(describing: many.rows.last)) for \(bottom)")
-        try expect(many.windowBandClear, "the plates should be cut a clearance above the section, leaving its band empty")
+        let many = try probe(masters: 14, shells: 2, viewed: "shell-1")
+        try expect(many.filledShellRows.last == bottom, "with many plates the section should stay at the column's bottom margin, got row \(String(describing: many.filledShellRows.last)) for \(bottom)")
+        try expect(many.clearBand(above: sectionTop(shells: 2)), "the plates should be cut a clearance above the section, leaving its band empty")
 
-        // Every shell shows: eight rows, 35 each, and the plates' list shrinks to keep its clearance above them.
-        let crowded = try fillRows(masters: 14, shells: 8, viewed: "shell-0")
-        let crowdedTop = bottom + 1 - 8 * rowHeight
-        try expect(crowded.rows.contains(crowdedTop) && !crowded.rows.contains(crowdedTop - 1), "the first of eight shells should be the section's top, eight rows high, got rows \(crowded.rows.suffix(40))")
-        try expect(crowded.windowBandClear, "the crowded section keeps its clearance too")
+        // Past five rows the section stops at its max height, five rows, and the plates keep their clearance above it.
+        let crowded = try probe(masters: 14, shells: 8, viewed: "shell-0")
+        let crowdedTop = sectionTop(shells: 8)
+        try expect(crowdedTop == bottom + 1 - Int(TrackerShellMetrics.maxHeight), "eight shells should stand 175 high")
+        try expect(crowded.filledShellRows.contains(crowdedTop) && !crowded.filledShellRows.contains(crowdedTop - 1), "the first of eight shells should be the section's top, got rows \(crowded.filledShellRows.suffix(40))")
+        try expect(crowded.clearBand(above: crowdedTop), "the capped section keeps its clearance too")
+    }
+
+    /// Many shells at the minimum window height: the section is `maxHeight` tall and scrolls inside itself, its last shell
+    /// reachable; a viewed last shell is in view on the first render; the cursor following the viewed session scrolls the
+    /// section the least it takes, but not when the pointer moved the cursor there.
+    private static func testTheShellSectionScrollsInsideItselfPastItsMaxHeight() throws {
+        let height = 600
+        let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        let maxHeight = Int(TrackerShellMetrics.maxHeight)
+        let shells = 14
+        let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
+        let sectionTop = bottom + 1 - maxHeight
+        let contentHeight = CGFloat(shells * rowHeight)
+
+        // First render with the last shell viewed: it is in view, at the section's bottom, and the section is 175 tall (the
+        // row above its first visible one starts at its top, and the band above it is clear).
+        let last = TrackerFixture(masters: 14, shells: shells, viewed: "shell-13", height: height)
+        defer { last.close() }
+        let lastProbe = try last.probe()
+        try expect(lastProbe.filledShellRows.last == bottom && lastProbe.filledShellRows.suffix(rowHeight).first == bottom - rowHeight + 1,
+                   "a viewed last shell should be in view on the first render, got rows \(lastProbe.filledShellRows.suffix(40))")
+        let discColumn = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.discLead + TrackerShellMetrics.discDiameter / 2)
+        let discTop = sectionTop + Int((TrackerShellMetrics.rowHeight - TrackerShellMetrics.discDiameter) / 2)
+        try expect(lastProbe.isColor(discColumn, discTop, AppPalette.item), "the section should be 175 tall: its first visible row's disc should sit at \(discTop)")
+        try expect(lastProbe.clearBand(above: sectionTop), "the plates should stay above the section's clearance")
+        guard let lastScroll = last.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view: the section should scroll inside itself")
+        }
+        try expect(abs((lastScroll.documentView?.frame.height ?? 0) - contentHeight) < 0.5, "the section's content should be all \(shells) rows, \(contentHeight) tall, got \(String(describing: lastScroll.documentView?.frame.height))")
+        try expect(abs(offsetFromTop(lastScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the first render should have scrolled to the last row, got \(offsetFromTop(lastScroll))")
+
+        // The last shell is reachable by scrolling: from the top, the section scrolls down to it.
+        let first = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { first.close() }
+        guard let firstScroll = first.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view when the first shell is viewed")
+        }
+        try expect(offsetFromTop(firstScroll) == 0, "a viewed first shell needs no scroll, got \(offsetFromTop(firstScroll))")
+        let firstProbe = try first.probe()
+        try expect(firstProbe.filledShellRows.first(where: { $0 > sectionTop - 1 }) == sectionTop, "the viewed first shell should be the section's top row")
+        firstScroll.contentView.scroll(to: NSPoint(x: 0, y: (firstScroll.documentView?.isFlipped ?? true) ? contentHeight - TrackerShellMetrics.maxHeight : 0))
+        firstScroll.reflectScrolledClipView(firstScroll.contentView)
+        try expect(abs(offsetFromTop(firstScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the section should scroll down to its last row")
+
+        // The cursor follows the viewed session: onto the last shell, by the keys' way, the section scrolls the least it takes.
+        let moved = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { moved.close() }
+        moved.store.setCurrentTerminalSessionID("shell-13")
+        moved.settle()
+        guard let movedScroll = moved.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view after the viewed session moved")
+        }
+        try expect(abs(offsetFromTop(movedScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the cursor onto the last shell should scroll it into view, got \(offsetFromTop(movedScroll))")
+
+        // A cursor the pointer moved is already under it: no scroll.
+        let hovered = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { hovered.close() }
+        PointerHighlight.cursor.pointerMoved(to: "shell-13")
+        hovered.store.setCurrentTerminalSessionID("shell-13")
+        hovered.settle()
+        guard let hoveredScroll = hovered.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view after the pointer moved the cursor")
+        }
+        try expect(offsetFromTop(hoveredScroll) == 0, "a cursor the pointer moved should not scroll the section, got \(offsetFromTop(hoveredScroll))")
     }
 
     /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row

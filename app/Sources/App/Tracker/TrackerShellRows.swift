@@ -15,6 +15,9 @@ enum TrackerShellMetrics {
     static let cornerRadius = FormFieldMetrics.cornerRadius
     /// The terminal glyph's own box in the SVG's coordinates (15 x 11), centred in the disc.
     static let svgGlyphSize = CGSize(width: 15, height: 11)
+    /// The section is as tall as its rows up to this: five of them. Past it the section scrolls inside itself, so many
+    /// shells never push the section past the column's bottom (at the 600pt minimum window the plates still keep room).
+    static let maxHeight: CGFloat = 175
 }
 
 /// The terminal glyph of Shell Session.svg: the SVG's own paths (a rounded frame, then the prompt and its cursor), in
@@ -133,7 +136,13 @@ struct TrackerShellRow: View {
 }
 
 /// The shell section, pinned to the bottom of the tracker column under the plates' scrolling list: one row per shell,
-/// all always shown, stacked with no gap. The plates' list shrinks to make room.
+/// stacked with no gap. The section is as tall as its rows up to `TrackerShellMetrics.maxHeight`, and the plates' list
+/// shrinks to make room; past that it scrolls inside itself, apart from the plates' list.
+///
+/// Its scroller follows the plates' list's rules. When it appears and when its rows change it brings the cursor's shell,
+/// else the viewed one, into view. The cursor onto a shell by the keys (or by the viewed session changing) scrolls that
+/// row in with the least movement; a cursor the pointer moved is already under it, so it doesn't scroll (`PointerCursor`).
+/// It sees only shell ids (`TrackerShellSection.shellCursorID`), as the plates' list sees only plates'.
 struct TrackerShellRows: View {
     let shells: [TrackerRenderedShell]
     /// The tracker's cursor row.
@@ -149,7 +158,41 @@ struct TrackerShellRows: View {
     var onActivate: (TrackerSession) -> Void
     var onEditSession: (TrackerSession) -> Void
 
+    private var sessions: [TrackerSession] { shells.map(\.rendered.session) }
+
     var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                rows
+                    .background(ScrollerHider())
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: min(CGFloat(shells.count) * TrackerShellMetrics.rowHeight, TrackerShellMetrics.maxHeight))
+            .onAppear { reveal(with: proxy) }
+            .onChange(of: sessions.map(\.id)) { reveal(with: proxy) }
+            .onChange(of: selectedID) { _, id in
+                guard let id = TrackerShellSection.shellCursorID(id, in: sessions) else {
+                    return
+                }
+                switch PointerHighlight.cursor.scrollStep(to: id) {
+                case .scroll:
+                    proxy.scrollTo(id)
+                case .cancelQueued:
+                    break
+                }
+            }
+        }
+    }
+
+    /// Brings the cursor's shell, else the viewed one, into view with the least scroll; a row already in view stays.
+    private func reveal(with proxy: ScrollViewProxy) {
+        guard let id = TrackerShellSection.revealID(cursorID: selectedID, viewedID: viewedID, in: sessions) else {
+            return
+        }
+        proxy.scrollTo(id)
+    }
+
+    private var rows: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(shells, id: \.rendered.session.id) { shell in
                 let session = shell.rendered.session

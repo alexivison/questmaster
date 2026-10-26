@@ -161,6 +161,11 @@ extension GraphicsContext {
         }
     }
 
+    /// A `Recess` token's inner shadow, drawn as the SVG filters' are.
+    func fillInnerShadow(_ shape: Path, _ recess: Recess) {
+        fillInnerShadow(shape, TrackerPlateShadow(depth: recess.depth, blur: recess.sigma, color: recess.color.swiftUI))
+    }
+
     /// An SVG drop shadow with no offset: the shape's edge, `depth` points out, blurred. Drawn under the shape, which
     /// covers its inner half.
     func fillOuterShadow(_ shape: Path, _ shadow: TrackerPlateShadow) {
