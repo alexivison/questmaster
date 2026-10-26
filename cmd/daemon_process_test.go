@@ -63,7 +63,7 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		t.Fatal(err)
 	}
 	exited := make(chan error, 1)
-	done:=make(chan struct{})
+	done := make(chan struct{})
 	go func() { exited <- cmd.Wait(); close(done) }()
 	t.Cleanup(func() {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
@@ -92,6 +92,14 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 	}
 	if _, err := os.Stat(statusPath); err != nil {
 		t.Fatalf("job did not fetch: %v\n%s", err, output.String())
+	}
+	refreshed, err := h.command("pr", "--session", "qm-pr-job", "refresh", "owner/repo#1")
+	if err != nil {
+		t.Fatalf("CLI refresh through daemon: %v\n%s", err, output.String())
+	}
+	prs, ok := refreshed["pull_requests"].([]any)
+	if !ok || len(prs) != 1 || prs[0].(map[string]any)["status"].(map[string]any)["title"] != "PR" {
+		t.Fatalf("CLI refresh result: %v", refreshed)
 	}
 	time.Sleep(400 * time.Millisecond)
 	if status := h.must("daemon", "status"); status["running"] != true {

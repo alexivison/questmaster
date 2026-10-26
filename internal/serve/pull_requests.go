@@ -52,21 +52,38 @@ func (s *Server) refreshPullRequests(ctx context.Context, req Request) (any, err
 	var payload struct {
 		SessionID string   `json:"session_id"`
 		Keys      []string `json:"keys"`
+		Wait      *bool    `json:"wait"`
 	}
 	if err := json.Unmarshal(req.Data, &payload); err != nil {
 		return nil, fmt.Errorf("decode pr.refresh data: %w", err)
 	}
-	prsAny, err := s.pullRequests(Request{Data: req.Data})
-	if err != nil {
-		return nil, err
+	if s.Snapshotter == nil {
+		return nil, fmt.Errorf("snapshotter is required")
 	}
-	prs := prsAny.([]state.PullRequest)
+	store := s.Snapshotter.store
+	var prs []state.PullRequest
+	var err error
+	if payload.SessionID != "" {
+		var scoped any
+		scoped, err = s.pullRequests(Request{Data: req.Data})
+		if err != nil {
+			return nil, err
+		}
+		prs = scoped.([]state.PullRequest)
+	} else {
+		prs, err = state.LoadPullRequests(store.Root())
+		if err != nil {
+			return nil, err
+		}
+	}
 	if prs == nil {
 		prs = []state.PullRequest{}
 	}
 	allowed := map[string]bool{}
 	for _, pr := range prs {
-		allowed[pr.Key] = true
+		if len(pr.Watchers) > 0 {
+			allowed[pr.Key] = true
+		}
 	}
 	if len(payload.Keys) > 0 {
 		for _, key := range payload.Keys {
@@ -74,18 +91,19 @@ func (s *Server) refreshPullRequests(ctx context.Context, req Request) (any, err
 				return nil, fmt.Errorf("PR %s is not visible to session %s", key, payload.SessionID)
 			}
 		}
-	} else {
+	} else if payload.SessionID != "" {
 		for key := range allowed {
 			payload.Keys = append(payload.Keys, key)
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 28*time.Second)
 	defer cancel()
-	hosts, err := s.PRRefresh(ctx, payload.Keys)
+	wait := payload.Wait == nil || *payload.Wait
+	hosts, err := s.PRRefresh(ctx, payload.Keys, wait)
 	if err != nil {
 		return nil, err
 	}
-	statuses, err := state.LoadPullRequestStatuses(s.Snapshotter.store.Root())
+	statuses, err := state.LoadPullRequestStatuses(store.Root())
 	if err != nil {
 		return nil, err
 	}

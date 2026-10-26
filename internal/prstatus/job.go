@@ -29,13 +29,14 @@ type Job struct {
 	runStop  <-chan struct{}
 	next     map[string]time.Time
 	blocked  map[string]time.Time
+	last     map[string]HostResult
 	failures map[string]int
 	done     map[string]time.Time
 	seen     map[string]bool
 }
 
 func NewJob(root string, client *tmux.Client, run Runner) *Job {
-	return &Job{Root: root, Tmux: client, RunGH: run, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}}
+	return &Job{Root: root, Tmux: client, RunGH: run, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, last: map[string]HostResult{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}}
 }
 func (*Job) Name() string { return "pr-status" }
 
@@ -273,6 +274,7 @@ func (j *Job) step(ctx context.Context) error {
 				continue
 			}
 			item := result.Hosts[host]
+			j.last[host] = item
 			until, _ := time.Parse(time.RFC3339, item.BackoffUntil)
 			j.blocked[host] = time.Time{}
 			if item.Error != "" {
@@ -312,6 +314,16 @@ func (j *Job) step(ctx context.Context) error {
 	for host := range forced {
 		if !fetched[host] && len(byHost[host]) > 0 {
 			j.forced[host] = true
+			if now.Before(j.blocked[host]) {
+				item := j.last[host]
+				item.BackoffUntil = j.blocked[host].UTC().Format(time.RFC3339)
+				for _, reply := range waiters[host] {
+					if reply.ctx.Err() == nil {
+						reply.reply <- item
+					}
+				}
+				continue
+			}
 			for _, reply := range waiters[host] {
 				if reply.ctx.Err() == nil {
 					j.waiters[host] = append(j.waiters[host], reply)

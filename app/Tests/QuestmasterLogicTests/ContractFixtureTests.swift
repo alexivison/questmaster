@@ -103,6 +103,9 @@ struct ContractFixtureTests {
         let request = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_request.json")
         expect(request.method == "pr.refresh" && request.data.sessionID == "qm-demo", "pr.refresh request did not decode")
         expect(request.data.keys == ["github.com/owner/repo#42"], "pr.refresh keys did not decode")
+        let wake = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_wake_request.json")
+        expect(wake.method == "pr.refresh" && wake.data.sessionID == nil && wake.data.wait == false, "pr.refresh wake did not decode")
+        expect(wake.data.keys == ["github.com/owner/repo#42"], "pr.refresh wake key did not decode")
         let refresh = try decodeFixture(PRRefreshEnvelopeFixture.self, "pr_refresh_response_envelope.json")
         expect(refresh.data.pullRequests.first?.status?.title == "Ready to merge", "pr.refresh status did not decode")
         expect(refresh.data.hosts["github.com"]?.rateLimit?.remaining == 4999, "pr.refresh host result did not decode")
@@ -221,9 +224,10 @@ private struct PRRefreshEnvelopeFixture: Decodable {
 
 private struct PRRefreshRequestFixture: Decodable {
     struct Payload: Decodable {
-        var sessionID: String
-        var keys: [String]
-        enum CodingKeys: String, CodingKey { case sessionID = "session_id", keys }
+        var sessionID: String?
+        var keys: [String]?
+        var wait: Bool?
+        enum CodingKeys: String, CodingKey { case sessionID = "session_id", keys, wait }
     }
     var method: String
     var data: Payload

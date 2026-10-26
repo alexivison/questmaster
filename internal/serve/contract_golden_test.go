@@ -226,6 +226,7 @@ func serveContractFixtures() []contractFixture {
 			},
 		}},
 		{name: "pr_refresh_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","keys":["github.com/owner/repo#42"]}`), ProtocolVersion: ServeProtocolVersion}},
+		{name: "pr_refresh_wake_request.json", value: Request{ID: json.RawMessage(`"pr-wake-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"keys":["github.com/owner/repo#42"],"wait":false}`), ProtocolVersion: ServeProtocolVersion}},
 		{name: "pr_refresh_response_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
 			Type:            "response", ID: json.RawMessage(`"pr-refresh-request"`), OK: boolPtr(true), Topic: "pr.refresh",

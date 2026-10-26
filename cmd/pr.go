@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/daemon"
@@ -15,17 +15,19 @@ import (
 )
 
 var prEnsure = daemon.Ensure
-var prRefresh = daemon.Refresh
-var prWake = daemon.Wake
+var prRequest = daemon.RequestPRRefresh
 
 func prDaemonConfig(root string) daemon.Config {
-	if path := os.Getenv("QUESTMASTER_BIN"); path != "" {
-		return daemon.Config{Root: root, Executable: path}
+	if home, err := os.UserHomeDir(); err == nil {
+		link := filepath.Join(home, ".local", "bin", "questmaster")
+		if path, err := filepath.EvalSymlinks(link); err == nil {
+			return daemon.Config{Root: root, Executable: path}
+		} else if _, err := os.Lstat(link); !os.IsNotExist(err) {
+			return daemon.Config{Root: root, Executable: link}
+		}
 	}
-	if path, err := exec.LookPath("questmaster"); err == nil {
-		return daemon.Config{Root: root, Executable: path}
-	}
-	return daemon.Config{Root: root}
+	path, _ := os.Executable()
+	return daemon.Config{Root: root, Executable: path}
 }
 
 func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
@@ -62,7 +64,7 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 				return err
 			}
 			if added {
-				_ = prWake(config, []string{ref.Key})
+				_, _ = prRequest(c.Context(), config, []string{ref.Key}, false)
 			}
 			return writeJSON(c.OutOrStdout(), struct {
 				Key       string `json:"key"`
@@ -163,7 +165,7 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("PR refresh needs a running daemon: %w", err)
 			}
-			hosts, err := prRefresh(c.Context(), config, keys)
+			hosts, err := prRequest(c.Context(), config, keys, true)
 			if err != nil {
 				return err
 			}

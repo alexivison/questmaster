@@ -99,12 +99,17 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	}
 	for _, job := range config.Jobs {
 		if pr, ok := job.(*prstatus.Job); ok {
-			s.runtime.PRRefresh = func(ctx context.Context, keys []string) (map[string]prstatus.HostResult, error) {
+			s.runtime.PRRefresh = func(ctx context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
 				if !s.jobsOwner() {
 					return nil, fmt.Errorf("PR polling is unavailable on this daemon")
 				}
+				if !wait {
+					pr.Notify(keys)
+					return map[string]prstatus.HostResult{}, nil
+				}
 				return pr.Refresh(ctx, keys)
 			}
+			break
 		}
 	}
 	if config.ClockInterval > 0 {
@@ -400,35 +405,6 @@ func (s *server) dispatch(req serve.Request) (serve.Envelope, string) {
 	switch req.Method {
 	case "status", "stop":
 		return s.statusResponse(req, false), ""
-	case "pr.wake":
-		if !s.jobsOwner() {
-			return daemonError(req, "PR polling is unavailable on this daemon"), ""
-		}
-		var payload struct {
-			Keys []string `json:"keys"`
-			Wait bool     `json:"wait"`
-		}
-		if err := json.Unmarshal(req.Data, &payload); err != nil {
-			return daemonError(req, err.Error()), ""
-		}
-		for _, job := range s.config.Jobs {
-			if pr, ok := job.(*prstatus.Job); ok {
-				if !payload.Wait {
-					pr.Notify(payload.Keys)
-					ok := true
-					return serve.Envelope{Type: "response", ID: req.ID, OK: &ok, Topic: req.Method}, ""
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 28*time.Second)
-				defer cancel()
-				hosts, err := pr.Refresh(ctx, payload.Keys)
-				if err != nil {
-					return daemonError(req, err.Error()), ""
-				}
-				ok := true
-				return serve.Envelope{Type: "response", ID: req.ID, OK: &ok, Topic: req.Method, Data: hosts}, ""
-			}
-		}
-		return daemonError(req, "PR polling is unavailable on this daemon"), ""
 	default:
 		return s.runtime.HandleRequest(context.Background(), req), ""
 	}

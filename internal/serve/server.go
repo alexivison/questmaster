@@ -62,7 +62,7 @@ type Server struct {
 	// ReasoningEfforts overrides harness discovery in tests and embedded use.
 	// Nil uses modelsuggest's process-wide cached resolver.
 	ReasoningEfforts func(context.Context, string, string) []string
-	PRRefresh        func(context.Context, []string) (map[string]prstatus.HostResult, error)
+	PRRefresh        func(context.Context, []string, bool) (map[string]prstatus.HostResult, error)
 }
 
 // HandleRequest serves daemon runtime requests after the transport gate.

@@ -19,12 +19,13 @@ import (
 func TestPRCommands(t *testing.T) {
 	stubPRDaemon(t)
 	store := setupStore(t)
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("QUESTMASTER_BIN", filepath.Join(store.Root(), "canonical-qm"))
 	ensureCalls, wakeCalls := 0, 0
 	prEnsure = func(_ context.Context, config daemon.Config) (daemon.Record, error) {
 		ensureCalls++
-		if config.Executable != filepath.Join(store.Root(), "canonical-qm") {
-			t.Fatalf("daemon executable=%s", config.Executable)
+		if config.Root != store.Root() {
+			t.Fatalf("daemon root=%s", config.Root)
 		}
 		if ensureCalls == 1 {
 			prs, err := state.LoadPullRequests(store.Root())
@@ -34,8 +35,11 @@ func TestPRCommands(t *testing.T) {
 		}
 		return daemon.Record{}, fmt.Errorf("daemon unavailable")
 	}
-	prWake = func(_ daemon.Config, keys []string) error {
+	prRequest = func(_ context.Context, _ daemon.Config, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
 		wakeCalls++
+		if wait {
+			t.Fatal("watch waited for GitHub")
+		}
 		prs, err := state.LoadPullRequests(store.Root())
 		if err != nil || len(prs) == 0 {
 			t.Fatalf("wake before registry write: %v %v", prs, err)
@@ -43,7 +47,7 @@ func TestPRCommands(t *testing.T) {
 		if len(keys) != 1 || keys[0] != "github.com/owner/repo#7" && keys[0] != "github.com/other/repo#8" {
 			t.Fatalf("wake keys=%v", keys)
 		}
-		return nil
+		return map[string]prstatus.HostResult{}, nil
 	}
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
@@ -86,8 +90,48 @@ func TestPRCommands(t *testing.T) {
 	}
 }
 
+func TestPRDaemonConfigPrefersInstalledCanonicalOverDevShim(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	canonical := filepath.Join(home, "canonical-qm")
+	if err := os.WriteFile(canonical, []byte("binary"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, ".local", "bin", "questmaster")
+	if err := os.MkdirAll(filepath.Dir(link), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(canonical, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("QUESTMASTER_BIN", filepath.Join(home, "dev-shim"))
+	config := prDaemonConfig(t.TempDir())
+	resolved, err := filepath.EvalSymlinks(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Executable != resolved {
+		t.Fatalf("PR daemon executable=%s, want canonical %s", config.Executable, resolved)
+	}
+	id, err := daemon.Identity(config.Root, home, config.Executable)
+	if err != nil || id != "canonical" {
+		t.Fatalf("daemon identity=%s err=%v", id, err)
+	}
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	current, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := prDaemonConfig(t.TempDir()).Executable; got != current {
+		t.Fatalf("without installed link executable=%s, want current %s", got, current)
+	}
+}
+
 func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
 	stubPRDaemon(t)
+	t.Setenv("HOME", t.TempDir())
 	var refreshed [][]string
 	store := setupStore(t)
 	t.Setenv(state.StateRootEnv, store.Root())
@@ -100,7 +144,10 @@ func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
 	if got := runCmd(t, store, sessionsRunner(), "pr", "refresh"); !strings.Contains(got, `"pull_requests": []`) {
 		t.Fatalf("empty refresh = %s", got)
 	}
-	prRefresh = func(_ context.Context, config daemon.Config, keys []string) (map[string]prstatus.HostResult, error) {
+	prRequest = func(_ context.Context, config daemon.Config, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
+		if !wait {
+			return map[string]prstatus.HostResult{}, nil
+		}
 		refreshed = append(refreshed, append([]string(nil), keys...))
 		updates := map[string]state.PullRequestStatus{}
 		for _, key := range keys {
@@ -144,6 +191,7 @@ func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
 
 func TestPRRefreshFailsWithoutDaemon(t *testing.T) {
 	stubPRDaemon(t)
+	t.Setenv("HOME", t.TempDir())
 	store := setupStore(t)
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
@@ -162,13 +210,12 @@ func TestPRRefreshFailsWithoutDaemon(t *testing.T) {
 
 func stubPRDaemon(t *testing.T) {
 	t.Helper()
-	oldEnsure, oldWake, oldRefresh := prEnsure, prWake, prRefresh
+	oldEnsure, oldRequest := prEnsure, prRequest
 	prEnsure = func(context.Context, daemon.Config) (daemon.Record, error) { return daemon.Record{}, nil }
-	prWake = func(daemon.Config, []string) error { return nil }
-	prRefresh = func(context.Context, daemon.Config, []string) (map[string]prstatus.HostResult, error) {
+	prRequest = func(context.Context, daemon.Config, []string, bool) (map[string]prstatus.HostResult, error) {
 		return map[string]prstatus.HostResult{}, nil
 	}
-	t.Cleanup(func() { prEnsure, prWake, prRefresh = oldEnsure, oldWake, oldRefresh })
+	t.Cleanup(func() { prEnsure, prRequest = oldEnsure, oldRequest })
 }
 
 func TestPRSessionRequiresManifest(t *testing.T) {

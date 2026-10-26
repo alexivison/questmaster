@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -136,6 +137,29 @@ func TestJobCadenceLivenessAndMerged(t *testing.T) {
 	}
 	if j.HasWork() {
 		t.Fatal("merged PR counted")
+	}
+}
+
+func TestJobNoTmuxServerHasNoWork(t *testing.T) {
+	t.Parallel()
+	j, store, _, _ := jobFixture(t)
+	jobWatch(t, store, "qm-live", "owner/repo#1")
+	j.Tmux = tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) {
+		return "", &tmux.ExitError{Code: 1, Stderr: "no server running on /tmp/tmux-test/default"}
+	}))
+	if j.HasWork() {
+		t.Fatal("absent tmux server kept job alive")
+	}
+	j.RunGH = func(context.Context, string, string) ([]byte, []byte, error) {
+		t.Fatal("GitHub called with no live watchers")
+		return nil, nil, nil
+	}
+	if err := j.step(context.Background()); err != nil {
+		t.Fatalf("absent tmux server treated as job error: %v", err)
+	}
+	j.Tmux = tmux.NewClient(jobTmux(func(context.Context, ...string) (string, error) { return "", syscall.EAGAIN }))
+	if !j.HasWork() {
+		t.Fatal("temporary process-spawn failure dropped watched work")
 	}
 }
 func TestJobBackoffWakeAndDone(t *testing.T) {
@@ -311,5 +335,40 @@ func TestJobRefreshWaitsForFetch(t *testing.T) {
 	case <-stopped:
 	case <-time.After(time.Second):
 		t.Fatal("job did not stop")
+	}
+}
+
+func TestJobRefreshInsideBackoffReturnsCurrentHostState(t *testing.T) {
+	t.Parallel()
+	j, store, now, _ := jobFixture(t)
+	key := jobWatch(t, store, "qm-live", "owner/repo#1")
+	calls := 0
+	j.RunGH = func(context.Context, string, string) ([]byte, []byte, error) {
+		calls++
+		return []byte("HTTP/2 429\nretry-after: 90\n\n{\"message\":\"rate limit\"}"), []byte("rate limit"), errors.New("failed")
+	}
+	if err := j.step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan map[string]HostResult, 1)
+	go func() { hosts, _ := j.Refresh(ctx, []string{key}); result <- hosts }()
+	select {
+	case <-j.signal:
+	case <-time.After(time.Second):
+		t.Fatal("wake not queued")
+	}
+	if err := j.step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case hosts := <-result:
+		item := hosts["github.com"]
+		if calls != 1 || item.Error == "" || item.BackoffUntil != now.Add(90*time.Second).Format(time.RFC3339) {
+			t.Fatalf("calls=%d host=%#v", calls, item)
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("refresh waited inside backoff")
 	}
 }
