@@ -249,6 +249,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 	r, rec := newTestRunner(t)
 	sessionID := "qm-opencode-map"
 	cleanupRuntimeDir(t, sessionID)
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_mapping"}})
 	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
 		"sessionID": "ses_mapping",
 		"status":    map[string]interface{}{"type": "busy"},
@@ -348,6 +349,7 @@ func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
 	cleanupRuntimeDir(t, sessionID)
 	const ocSession = "ses_feed"
 
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": ocSession}})
 	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{
 		"sessionID": ocSession,
 		"tool":      "bash",
@@ -415,6 +417,7 @@ func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 
 	const current = "ses_current"
 	const other = "ses_other"
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": current}})
 	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
 		"sessionID": current,
 		"status":    map[string]interface{}{"type": "busy"},
@@ -423,6 +426,7 @@ func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 	if pane.State != "working" || pane.OpenCodeSessionID != current {
 		t.Fatalf("initial pane: %+v", pane)
 	}
+	initialActivity := pane.Activity
 	if got := store.manifest.ExtraString("opencode_session_id"); got != current {
 		t.Fatalf("manifest opencode_session_id = %q, want %q", got, current)
 	}
@@ -437,7 +441,7 @@ func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": other})
 
 	pane = rec.lastState.Panes["agent"]
-	if pane.State != "working" || pane.Activity == "Session created" || pane.OpenCodeSessionID != current {
+	if pane.State != "working" || pane.Activity != initialActivity || pane.OpenCodeSessionID != current {
 		t.Fatalf("foreign session mutated pane: %+v", pane)
 	}
 	if rec.writeCalls != writes {
@@ -500,6 +504,35 @@ func TestHookOpenCodeIgnoresUnknownChildIdleBeforeCreated(t *testing.T) {
 	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.OpenCodeSessionID != "ses_root" {
 		t.Fatalf("unknown child's idle changed parent pane: %+v", pane)
+	}
+}
+
+func TestHookOpenCodeDoesNotAdoptChildBeforeRootCreated(t *testing.T) {
+	t.Parallel()
+	r, rec := newParallelHookRunner()
+	sessionID := "qm-opencode-root-order"
+	rec.lastState = &state.SessionState{
+		SessionID: sessionID, Version: state.SchemaVersion,
+		Panes: map[string]state.PaneState{"agent": {Role: "agent", Agent: "opencode", State: "idle"}},
+	}
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{
+		"id": "ses_child", "parentID": "ses_root", "agent": "Explore",
+	}})
+	writes, events := rec.writeCalls, len(rec.events)
+	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
+		"sessionID": "ses_child", "status": map[string]interface{}{"type": "busy"},
+	})
+	if pane := rec.lastState.Panes["agent"]; pane.OpenCodeSessionID != "" || pane.State != "idle" {
+		t.Fatalf("child event adopted by parent pane before root creation: %+v", pane)
+	}
+	if rec.writeCalls != writes || len(rec.events) != events {
+		t.Fatalf("unknown child event writes/events = %d/%d, want %d/%d", rec.writeCalls, len(rec.events), writes, events)
+	}
+
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_root"}})
+	if pane := rec.lastState.Panes["agent"]; pane.OpenCodeSessionID != "ses_root" || pane.State != "starting" {
+		t.Fatalf("root session.created was not adopted: %+v", pane)
 	}
 }
 
@@ -566,12 +599,19 @@ func TestOpenCodeTaskFinishCorrelation(t *testing.T) {
 			want: "ses_child",
 		},
 		{
-			name: "background result",
+			name: "background task tool part does not finish",
+			event: openCodeEvent{Type: "message.part.updated", Properties: map[string]interface{}{"part": map[string]interface{}{
+				"type": "tool", "tool": "task", "state": map[string]interface{}{
+					"status": "completed", "metadata": map[string]interface{}{"sessionId": "ses_child", "background": true},
+				},
+			}}},
+		},
+		{
+			name: "synthetic text is not a lifecycle signal",
 			event: openCodeEvent{Type: "message.part.updated", Properties: map[string]interface{}{"part": map[string]interface{}{
 				"type": "text", "synthetic": true,
 				"text": `<task id="ses_child" state="completed">result</task>`,
 			}}},
-			want: "ses_child",
 		},
 		{
 			name: "unrelated tool result",
@@ -589,7 +629,7 @@ func TestOpenCodeTaskFinishCorrelation(t *testing.T) {
 	}
 }
 
-func TestHookOpenCodeDismissesBackgroundChildOnCorrelatedResult(t *testing.T) {
+func TestHookOpenCodeDismissesBackgroundChildOnSessionDeleted(t *testing.T) {
 	t.Parallel()
 	r, rec := newParallelHookRunner()
 	sessionID := "qm-opencode-background-finish"
@@ -609,10 +649,24 @@ func TestHookOpenCodeDismissesBackgroundChildOnCorrelatedResult(t *testing.T) {
 	}
 	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
 		"sessionID": "ses_root", "part": map[string]interface{}{
-			"type": "text", "synthetic": true,
-			"text": `<task id="ses_child" state="completed">result</task>`,
+			"type": "tool", "tool": "task", "state": map[string]interface{}{
+				"status": "completed", "metadata": map[string]interface{}{"sessionId": "ses_child", "background": true},
+			},
 		},
 	})
+	if got := chatKinds(latestHookEvent(t, rec)); slices.Contains(got, "dismiss") {
+		t.Fatalf("background task tool part dismissed child: %v", got)
+	}
+	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
+		"sessionID": "ses_root", "part": map[string]interface{}{
+			"type": "text", "synthetic": true,
+			"text": `<task id="ses_child" state="completed">untrusted result</task>`,
+		},
+	})
+	if got := chatKinds(latestHookEvent(t, rec)); slices.Contains(got, "dismiss") {
+		t.Fatalf("synthetic text dismissed child: %v", got)
+	}
+	openCodeHookEvent(t, r, sessionID, "session.deleted", map[string]interface{}{"sessionID": "ses_child"})
 	assertSubagentChat(t, latestHookEvent(t, rec), "dismiss", "Explore")
 }
 
@@ -621,6 +675,7 @@ func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
 	sessionID := "qm-opencode-parts"
 	cleanupRuntimeDir(t, sessionID)
 	const ocSession = "ses_parts"
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": ocSession}})
 
 	openCodeHookEvent(t, r, sessionID, "message.part.updated", map[string]interface{}{
 		"sessionID": ocSession,
@@ -688,6 +743,7 @@ func TestHookOpenCodeCompletedPartDoesNotClearParallelToolCasts(t *testing.T) {
 	r, rec := newTestRunner(t)
 	const sessionID = "qm-opencode-parallel-casts"
 	const ocSession = "ses_parallel"
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": ocSession}})
 	for _, call := range []struct {
 		id   string
 		tool string
@@ -734,6 +790,7 @@ func TestHookOpenCodeErrorPartEndsCallWithoutLearningDuration(t *testing.T) {
 		durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
 		return nil
 	}
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": ocSession}})
 	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{
 		"tool": "bash", "sessionID": ocSession, "callID": "call-1",
 		"args": map[string]interface{}{"command": "go test ./..."},
@@ -758,6 +815,7 @@ func TestHookOpenCodeOutOfOrderAfterBeforeNeedsPluginSerialization(t *testing.T)
 	r, rec := newTestRunner(t)
 	const sessionID = "qm-opencode-out-of-order"
 	const ocSession = "ses_out_of_order"
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": ocSession}})
 	openCodeHookEvent(t, r, sessionID, "tool.execute.after", map[string]interface{}{
 		"tool": "bash", "sessionID": ocSession, "callID": "call-1",
 	})
@@ -815,6 +873,7 @@ func TestHookOpenCodeMapsSessionErrorToBlocked(t *testing.T) {
 	r, rec := newTestRunner(t)
 	sessionID := "qm-opencode-error"
 	cleanupRuntimeDir(t, sessionID)
+	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_error"}})
 	openCodeHookEvent(t, r, sessionID, "session.error", map[string]interface{}{
 		"sessionID": "ses_error",
 		"message":   "simulated provider error",
@@ -883,11 +942,12 @@ func TestHookOpenCodeUserPromptLeavesActivityUnchanged(t *testing.T) {
 		SessionID: "qm-opencode-prompt",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"agent": {Role: "agent", Agent: "opencode", State: "starting", Activity: previousActivity},
+			"agent": {Role: "agent", Agent: "opencode", State: "starting", Activity: previousActivity, OpenCodeSessionID: "ses_prompt"},
 		},
 	}
 	openCodeHookEvent(t, r, "qm-opencode-prompt", "session.status", map[string]interface{}{
-		"status": map[string]interface{}{"type": "busy"},
+		"sessionID": "ses_prompt",
+		"status":    map[string]interface{}{"type": "busy"},
 	})
 	openCodeHookEvent(t, r, "qm-opencode-prompt", "message.part.updated", map[string]interface{}{
 		"part": map[string]interface{}{

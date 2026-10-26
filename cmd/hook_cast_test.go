@@ -191,16 +191,16 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
 				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
-					"tool": "bash", "callID": "oc-call", "args": map[string]interface{}{"command": "timeout 12 sleep 6"},
+					"sessionID": "ses_cast", "tool": "bash", "callID": "oc-call", "args": map[string]interface{}{"command": "timeout 12 sleep 6"},
 				}))
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{"tool": "bash", "callID": "oc-call"}))
+				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{"sessionID": "ses_cast", "tool": "bash", "callID": "oc-call"}))
 			},
 			clear: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "session.status", map[string]interface{}{"status": map[string]interface{}{"type": "idle"}}))
+				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "session.status", map[string]interface{}{"sessionID": "ses_cast", "status": map[string]interface{}{"type": "idle"}}))
 			},
 		},
 	}
@@ -209,6 +209,9 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
+			if tc.name == "opencode" {
+				openCodeHookEvent(t, r, "qm-cast-opencode", "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_cast"}})
+			}
 			var durations []toolDurationCall
 			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
@@ -361,17 +364,17 @@ func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
 				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
-					"tool": "bash", "callID": "call-1",
+					"sessionID": "ses_wait", "tool": "bash", "callID": "call-1",
 				}))
 			},
 			wait: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "permission.asked", map[string]interface{}{}))
+				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "permission.asked", map[string]interface{}{"sessionID": "ses_wait"}))
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
 				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{
-					"tool": "bash", "callID": "call-1",
+					"sessionID": "ses_wait", "tool": "bash", "callID": "call-1",
 				}))
 			},
 		},
@@ -380,6 +383,9 @@ func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
+			if tc.name == "opencode" {
+				openCodeHookEvent(t, r, "qm-cast-wait-opencode", "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_wait"}})
+			}
 			var durations []toolDurationCall
 			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})

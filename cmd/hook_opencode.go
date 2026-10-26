@@ -142,6 +142,9 @@ func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCo
 		}
 		return true
 	}
+	if rootID == "" {
+		return event.Type != "session.created" || id == "" || strings.TrimSpace(parentID) != ""
+	}
 
 	if id == "" || id == rootID {
 		return false
@@ -152,10 +155,6 @@ func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCo
 	if event.Type == "session.idle" || event.Type == "session.deleted" {
 		return true
 	}
-	if rootID == "" {
-		return false
-	}
-
 	// Child sessions and other non-root sessions must never reach the parent pane.
 	// A new root is identified only by session.created after the old root finished.
 	if event.Type == "session.created" && strings.TrimSpace(parentID) == "" &&
@@ -207,30 +206,12 @@ func openCodeTaskResultSessionID(event openCodeEvent) string {
 		toolState, _ := part["state"].(map[string]interface{})
 		status := openCodePropertyString(toolState, "status")
 		metadata, _ := toolState["metadata"].(map[string]interface{})
-		if status == "completed" || status == "error" {
+		background, _ := metadata["background"].(bool)
+		if !background && (status == "completed" || status == "error") {
 			return cleanSubagentID(openCodePropertyString(metadata, "sessionId"))
 		}
 	}
-	if partType, _ := part["type"].(string); partType == "text" {
-		if synthetic, _ := part["synthetic"].(bool); synthetic {
-			return openCodeBackgroundResultSessionID(openCodePropertyString(part, "text"))
-		}
-	}
 	return ""
-}
-
-func openCodeBackgroundResultSessionID(text string) string {
-	const prefix = `<task id="`
-	start := strings.Index(text, prefix)
-	if start < 0 {
-		return ""
-	}
-	rest := text[start+len(prefix):]
-	id, rest, found := strings.Cut(rest, `"`)
-	if !found || !(strings.HasPrefix(rest, ` state="completed"`) || strings.HasPrefix(rest, ` state="error"`)) {
-		return ""
-	}
-	return cleanSubagentID(id)
 }
 
 func cleanSubagentID(id string) string {
