@@ -14,7 +14,7 @@ const hookTimeoutMs = 1_000;
 const hookBatchLimit = 32;
 const hookBatchByteLimit = 48 * 1024;
 const hookBatchDelayMs = 150;
-const sidecarVersion = "phase2-v2";
+const sidecarVersion = "phase2-v3";
 const sessionPattern = /^qm-[A-Za-z0-9_-]+$/;
 
 type Request = { id: string; message: string };
@@ -342,6 +342,21 @@ export default function (pi: ExtensionAPI) {
 		if (flush || hookQueue.length >= hookBatchLimit || hookQueueBytes >= hookBatchByteLimit) await drainHookQueue();
 		else scheduleHookFlush();
 	}
+
+	const subagentEvents = (pi as unknown as {
+		events?: { on?: (name: string, listener: (event: unknown) => void) => void };
+	}).events;
+	const forwardSubagent = (action: string) => (event: unknown): void => {
+		if (!event || typeof event !== "object") return;
+		const fields = event as Record<string, unknown>;
+		const id = cleanString(fields.id, maxIDBytes);
+		const type = cleanString(fields.type, 80);
+		if (!id || !type) return;
+		void emitHook(action, { subagent_id: id, agent_type: type }, true);
+	};
+	subagentEvents?.on?.("subagents:started", forwardSubagent("subagent_start"));
+	subagentEvents?.on?.("subagents:completed", forwardSubagent("subagent_stop"));
+	subagentEvents?.on?.("subagents:failed", forwardSubagent("subagent_stop"));
 
 	function setBusy(next: boolean, nextPhase: string, nextSnippet?: string): void {
 		busy = next;

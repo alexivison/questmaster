@@ -24,6 +24,8 @@ func TestAddChatEntryUpdatesNarrationOnlyForChatKinds(t *testing.T) {
 		{kind: "status", want: "previous"},
 		{kind: "report", want: "previous"},
 		{kind: "instructions", want: "previous"},
+		{kind: "summon", want: "previous"},
+		{kind: "dismiss", want: "previous"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			t.Parallel()
@@ -42,6 +44,31 @@ func TestAddChatEntryCapsNarrationToOneTrackerLine(t *testing.T) {
 	addChatEntryAt(&state.StateEvent{Ts: time.Unix(1, 0)}, &pane, "say", strings.Repeat("a", 250)+"\nmore", time.Time{})
 	if utf8.RuneCountInString(pane.Narration) != 180 || !strings.HasSuffix(pane.Narration, "...") || strings.ContainsAny(pane.Narration, "\r\n") {
 		t.Fatalf("narration length/newline = %d/%t, want 180/false", utf8.RuneCountInString(pane.Narration), strings.ContainsAny(pane.Narration, "\r\n"))
+	}
+}
+
+func TestSubagentChatRequiresIDAndPublicType(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		id       string
+		familiar string
+	}{
+		{name: "missing id", familiar: "Explore"},
+		{name: "missing type", id: "child-1"},
+		{name: "internal type", id: "child-1", familiar: "internal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pane := state.PaneState{}
+			event := state.StateEvent{Ts: time.Unix(1, 0)}
+			if updateSubagentChat(&pane, &event, "subagent_start", tc.id, tc.familiar) {
+				t.Fatal("invalid subagent start was recorded")
+			}
+			if len(chatEntries(event)) != 0 || len(pane.ActiveSubagents) != 0 {
+				t.Fatalf("invalid start changed pane/feed: pane=%+v event=%+v", pane, event)
+			}
+		})
 	}
 }
 

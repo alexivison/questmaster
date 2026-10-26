@@ -550,8 +550,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			setActivity = truncatePromptLine(finalMessage)
 		}
 		lastKind = "Stop"
+	case "subagent_start":
+		lastKind = "SubagentStart"
 	case "subagent_stop":
-		// Future subagent chat must require a matching SubagentStart and non-empty, non-internal agent_type.
 		result := strings.TrimSpace(payload.LastAssistantMessage)
 		if result == "" {
 			result = strings.TrimSpace(payload.Result)
@@ -625,6 +626,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			LastChatAt                      time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus, pane.LastChatAt}
 		prevClaude := pane
+		prevActiveSubagents := maps.Clone(pane.ActiveSubagents)
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevNarration := pane.Narration
 		prevClaudeSubagentWakeState := pane.ClaudeSubagentWakeState
@@ -823,6 +825,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		pane.Seq = now.UnixNano()
 		pane.Agent = "claude"
 		pane.Role = role
+		if opts.action == "subagent_start" || opts.action == "subagent_stop" {
+			updateSubagentChat(&pane, &ev, opts.action, payload.AgentID, payload.AgentType)
+		}
 		if !isSubagent {
 			if opts.action == "done" && finalMessage != "" && pane.State == "done" && !suppressFinalMessage {
 				addChatEntry(&ev, &pane, "message", finalMessage)
@@ -836,7 +841,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 					promptID = pane.ClaudePromptID
 				}
 				addClaudeOpenChatAction(&pane, payload.ToolUseID, promptID, now)
-				addChatEntry(&ev, &pane, "action", payload.ToolName)
+				if !isSubagentSpawnTool("claude", payload.ToolName) {
+					addChatEntry(&ev, &pane, "action", payload.ToolName)
+				}
 			}
 			if opts.action != "tool_start" && pane.State != prev.State {
 				addVisibleStatus(&ev, &pane, pane.State)
@@ -862,6 +869,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			slices.Equal(prevClaudeSubagentWakeIDs, pane.ClaudeSubagentWakeIDs) &&
 			pane.LastChatAt.Equal(prev.LastChatAt) &&
 			pane.Narration == prevNarration &&
+			maps.Equal(pane.ActiveSubagents, prevActiveSubagents) &&
 			slices.Equal(pane.RunningTools, prevRunningTools) &&
 			!claudeDisplayStateChanged(prevClaude, pane) {
 			return false
@@ -1026,6 +1034,54 @@ func addChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text s
 		return
 	}
 	event.Fields["chat_entries"] = []interface{}{entry}
+}
+
+func updateSubagentChat(pane *state.PaneState, event *state.StateEvent, action, id, familiar string) bool {
+	id = strings.TrimSpace(id)
+	if id == "" || len([]rune(id)) > 256 {
+		return false
+	}
+	if pane.ActiveSubagents == nil {
+		pane.ActiveSubagents = make(map[string]string)
+	}
+	switch action {
+	case "subagent_start":
+		familiar = strings.TrimSpace(familiar)
+		if familiar == "" || strings.EqualFold(familiar, "internal") || strings.HasPrefix(strings.ToLower(familiar), "internal:") {
+			return false
+		}
+		if _, exists := pane.ActiveSubagents[id]; exists {
+			return false
+		}
+		pane.ActiveSubagents[id] = workerfeed.CapText(familiar)
+		addChatEntry(event, pane, "summon", familiar)
+		return true
+	case "subagent_stop":
+		familiar, exists := pane.ActiveSubagents[id]
+		if !exists {
+			return false
+		}
+		delete(pane.ActiveSubagents, id)
+		addChatEntry(event, pane, "dismiss", familiar)
+		return true
+	}
+	return false
+}
+
+func isSubagentSpawnTool(agent, name string) bool {
+	name = strings.TrimSpace(name)
+	switch agent {
+	case "claude":
+		return strings.EqualFold(name, "Agent") || strings.EqualFold(name, "Task")
+	case "codex":
+		return strings.EqualFold(name, "spawn_agent") || strings.EqualFold(name, "collaborationspawn_agent")
+	case "opencode":
+		return strings.EqualFold(name, "task")
+	case "pi":
+		return strings.EqualFold(name, "Agent")
+	default:
+		return false
+	}
 }
 
 func capNarration(text string) string {
@@ -1813,6 +1869,10 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			setActivity = truncatePromptLine(finalMessage)
 		}
 		lastKind = "Stop"
+	case "subagent_start":
+		lastKind = "SubagentStart"
+	case "subagent_stop":
+		lastKind = "SubagentStop"
 	default:
 		fmt.Fprintf(stderr, "questmaster hook codex: unknown action %q\n", opts.action)
 		return
@@ -1846,6 +1906,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			LastChatAt                      time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus, pane.CodexTranscriptPath, pane.CodexTranscriptOffset, pane.CodexTranscriptSkippingLine, pane.LastChatAt}
 		prevRunningTools := slices.Clone(pane.RunningTools)
+		prevActiveSubagents := maps.Clone(pane.ActiveSubagents)
 		prevNarration := pane.Narration
 		clearStaleQuestionActivity := opts.action == "tool_end" &&
 			isCodexRequestUserInputTool(pane.Tool) && strings.HasPrefix(pane.Activity, "Question: ")
@@ -1904,6 +1965,9 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		pane.Seq = now.UnixNano()
 		pane.Agent = "codex"
 		pane.Role = role
+		if opts.action == "subagent_start" || opts.action == "subagent_stop" {
+			updateSubagentChat(&pane, &ev, opts.action, payload.AgentID, payload.AgentType)
+		}
 		if payload.AgentID == "" {
 			if opts.action == "done" && finalMessage != "" && pane.State == "done" {
 				addChatEntry(&ev, &pane, "message", finalMessage)
@@ -1912,7 +1976,9 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 				if pane.State != prev.State {
 					addVisibleStatus(&ev, &pane, pane.State)
 				}
-				addChatEntry(&ev, &pane, "action", payload.ToolName)
+				if !isSubagentSpawnTool("codex", payload.ToolName) {
+					addChatEntry(&ev, &pane, "action", payload.ToolName)
+				}
 			}
 			if opts.action != "tool_start" && pane.State != prev.State {
 				addVisibleStatus(&ev, &pane, pane.State)
@@ -1931,6 +1997,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			pane.CodexTranscriptSkippingLine == prev.CodexTranscriptSkippingLine &&
 			pane.LastChatAt.Equal(prev.LastChatAt) &&
 			pane.Narration == prevNarration &&
+			maps.Equal(pane.ActiveSubagents, prevActiveSubagents) &&
 			slices.Equal(pane.RunningTools, prevRunningTools) {
 			return false
 		}
@@ -1953,7 +2020,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	if firstPrompt {
 		maybeDeriveTitle(opts.ctx, r, sessionID, payload.Prompt, stderr)
 	}
-	if threadID != "" {
+	if threadID != "" && opts.action != "subagent_start" && opts.action != "subagent_stop" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "codex_thread_id", "CODEX_THREAD_ID", threadID, "codex")
 	}
 }
@@ -2275,6 +2342,8 @@ type piPayload struct {
 	Context               interface{}             `json:"context"`
 	Turn                  interface{}             `json:"turn"`
 	Usage                 interface{}             `json:"usage"`
+	SubagentID            string                  `json:"subagent_id"`
+	AgentType             string                  `json:"agent_type"`
 	ToolName              string                  `json:"toolName"`
 	ToolNameSnake         string                  `json:"tool_name"`
 	Name                  string                  `json:"name"`
@@ -2455,6 +2524,10 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		setState = "working"
 		setTool = piToolName(payload)
 		setActivity = piToolActivity(payload)
+	case "subagent_start":
+		lastKind = "SubagentStart"
+	case "subagent_stop":
+		lastKind = "SubagentStop"
 	case "tool_execution_end":
 		setState = "working"
 		clearTool = true
@@ -2555,6 +2628,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 			LastChatAt                      time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.SessionFile, pane.PiSessionID, pane.LastChatStatus, pane.LastChatAt}
 		prevRunningTools := slices.Clone(pane.RunningTools)
+		prevActiveSubagents := maps.Clone(pane.ActiveSubagents)
 		prevNarration := pane.Narration
 		if opts.action == "session_start" || opts.action == "before_agent_start" || opts.action == "agent_start" ||
 			opts.action == "turn_end" || opts.action == "agent_end" || opts.action == "session_shutdown" {
@@ -2610,11 +2684,16 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		pane.Seq = now.UnixNano()
 		pane.Agent = agentName
 		pane.Role = role
+		if opts.action == "subagent_start" || opts.action == "subagent_stop" {
+			updateSubagentChat(&pane, ev, opts.action, payload.SubagentID, payload.AgentType)
+		}
 		if opts.action == "tool_execution_start" {
 			if !preserveBlockedQuestion && pane.State != prev.State {
 				addVisibleStatusAt(ev, &pane, pane.State, occurredAt)
 			}
-			addChatEntryAt(ev, &pane, "action", piToolName(payload), occurredAt)
+			if !isSubagentSpawnTool("pi", piToolName(payload)) {
+				addChatEntryAt(ev, &pane, "action", piToolName(payload), occurredAt)
+			}
 		}
 		if opts.action == "say" {
 			addChatEntryAt(ev, &pane, "say", piAssistantMessageText(payload), occurredAt)
@@ -2644,6 +2723,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 			pane.LastChatStatus == prev.LastChatStatus &&
 			pane.LastChatAt.Equal(prev.LastChatAt) &&
 			pane.Narration == prevNarration &&
+			maps.Equal(pane.ActiveSubagents, prevActiveSubagents) &&
 			slices.Equal(pane.RunningTools, prevRunningTools) {
 			return false
 		}

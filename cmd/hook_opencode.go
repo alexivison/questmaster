@@ -65,6 +65,9 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 		return
 	}
 	now := r.Now().UTC()
+	if handleOpenCodeSubagentEvent(r, sessionID, payload, now, stderr) {
+		return
+	}
 	patch := openCodePatchForEvent(payload)
 	patch.occurredAt = now
 	if !payload.CapturedAt.IsZero() {
@@ -113,6 +116,74 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	if accepted && patch.sessionID != "" {
 		captureOpenCodeSessionID(opts.ctx, r, stderr, sessionID, patch.sessionID)
 	}
+}
+
+func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCodeHookPayload, now time.Time, stderr io.Writer) bool {
+	event := payload.Event
+	info, _ := event.Properties["info"].(map[string]interface{})
+	id := openCodeSessionID(event)
+	parentID, _ := info["parentID"].(string)
+	familiar, _ := info["agent"].(string)
+	action := ""
+	switch event.Type {
+	case "session.created":
+		if strings.TrimSpace(parentID) == "" {
+			return false
+		}
+		id, _ = info["id"].(string)
+		id = state.SanitizeResumeID(strings.TrimSpace(id))
+		action = "subagent_start"
+	case "session.idle", "session.deleted":
+		if id == "" || r.LoadState == nil {
+			return false
+		}
+		ss, err := r.LoadState(sessionID)
+		if err != nil || ss == nil {
+			return false
+		}
+		pane := ss.Panes["agent"]
+		_, active := pane.ActiveSubagents[id]
+		if !active && (pane.OpenCodeSessionID == "" || pane.OpenCodeSessionID == id) {
+			return false
+		}
+		action = "subagent_stop"
+	default:
+		return false
+	}
+
+	ev := state.StateEvent{
+		Ts: now, Agent: "opencode", AgentID: id, AgentType: familiar,
+		Role: "agent", Action: event.Type, Kind: event.Type,
+		Fields: map[string]interface{}{"minimum_version": openCodeMinimumVersion},
+	}
+	if event.ID != "" {
+		ev.Fields["event_id"] = event.ID
+	}
+	if id != "" {
+		ev.Fields["subagent_id"] = id
+	}
+	_, updateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
+		pane, exists := ss.Panes["agent"]
+		if !exists {
+			return false
+		}
+		if action == "subagent_start" && pane.OpenCodeSessionID != strings.TrimSpace(parentID) {
+			return false
+		}
+		if action == "subagent_stop" && pane.OpenCodeSessionID == id {
+			return false
+		}
+		if !updateSubagentChat(&pane, &ev, action, id, familiar) {
+			return false
+		}
+		ss.SeenAt = now
+		ss.Panes["agent"] = pane
+		return true
+	})
+	if updateErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook opencode: update state: %v\n", updateErr)
+	}
+	return true
 }
 
 func decodeOpenCodePayload(data []byte) (openCodeHookPayload, bool) {
@@ -349,7 +420,9 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 				if pane.State != prev.State {
 					addVisibleStatus(ev, &pane, pane.State)
 				}
-				addChatEntry(ev, &pane, "action", patch.tool)
+				if !isSubagentSpawnTool("opencode", patch.tool) {
+					addChatEntry(ev, &pane, "action", patch.tool)
+				}
 			}
 			if patch.kind != "tool.execute.before" && pane.State != prev.State {
 				addVisibleStatus(ev, &pane, pane.State)

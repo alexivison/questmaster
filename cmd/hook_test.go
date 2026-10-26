@@ -162,6 +162,176 @@ func TestHookSubagentTaggingAndChatExclusion(t *testing.T) {
 	}
 }
 
+func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
+	t.Parallel()
+
+	type harness struct {
+		name         string
+		setup        func(*testing.T, *HookRunner, string)
+		start        func(*testing.T, *HookRunner, string)
+		finish       func(*testing.T, *HookRunner, string)
+		deleteFinish func(*testing.T, *HookRunner, string)
+		spawn        func(*testing.T, *HookRunner, string)
+	}
+	const sessionID = "qm-subagent-feed"
+	const subagentID = "child-1"
+	const familiar = "Explore"
+	harnesses := []harness{
+		{
+			name: "claude",
+			start: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "claude", "subagent_start", session, map[string]interface{}{"agent_id": subagentID, "agent_type": familiar})
+			},
+			finish: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "claude", "subagent_stop", session, map[string]interface{}{"agent_id": subagentID, "agent_type": familiar})
+			},
+			spawn: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "claude", "tool_start", session, map[string]interface{}{"tool_name": "Task"})
+			},
+		},
+		{
+			name: "codex",
+			start: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "codex", "subagent_start", session, map[string]interface{}{"agent_id": subagentID, "agent_type": familiar})
+			},
+			finish: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "codex", "subagent_stop", session, map[string]interface{}{"agent_id": subagentID, "agent_type": familiar})
+			},
+			spawn: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "codex", "tool_start", session, map[string]interface{}{"tool_name": "spawn_agent"})
+			},
+		},
+		{
+			name: "opencode",
+			setup: func(t *testing.T, r *HookRunner, session string) {
+				openCodeHookEvent(t, r, session, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_root"}})
+			},
+			start: func(t *testing.T, r *HookRunner, session string) {
+				openCodeHookEvent(t, r, session, "session.created", map[string]interface{}{"info": map[string]interface{}{
+					"id": "ses_child", "parentID": "ses_root", "agent": familiar,
+				}})
+			},
+			finish: func(t *testing.T, r *HookRunner, session string) {
+				openCodeHookEvent(t, r, session, "session.idle", map[string]interface{}{"sessionID": "ses_child"})
+			},
+			deleteFinish: func(t *testing.T, r *HookRunner, session string) {
+				openCodeHookEvent(t, r, session, "session.deleted", map[string]interface{}{"sessionID": "ses_child"})
+			},
+			spawn: func(t *testing.T, r *HookRunner, session string) {
+				openCodeHookEvent(t, r, session, "tool.execute.before", map[string]interface{}{"sessionID": "ses_root", "tool": "task"})
+			},
+		},
+		{
+			name: "pi",
+			start: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "pi", "subagent_start", session, map[string]interface{}{"subagent_id": subagentID, "agent_type": familiar})
+			},
+			finish: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "pi", "subagent_stop", session, map[string]interface{}{"subagent_id": subagentID})
+			},
+			spawn: func(t *testing.T, r *HookRunner, session string) {
+				runHookWithStdin(r, "pi", "tool_execution_start", session, map[string]interface{}{"tool_name": "Agent"})
+			},
+		},
+	}
+
+	for _, tc := range harnesses {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r, rec := newParallelHookRunner()
+			rec.lastState = &state.SessionState{
+				SessionID: sessionID,
+				Version:   state.SchemaVersion,
+				Panes:     map[string]state.PaneState{"agent": {Role: "agent", Agent: tc.name, State: "working"}},
+			}
+			if tc.setup != nil {
+				tc.setup(t, r, sessionID)
+			}
+			pane := rec.lastState.Panes["agent"]
+			pane.State = "working"
+			rec.lastState.Panes["agent"] = pane
+			rootSessionID := pane.OpenCodeSessionID
+
+			tc.start(t, r, sessionID)
+			assertSubagentChat(t, latestHookEvent(t, rec), "summon", familiar)
+			if got := rec.lastState.Panes["agent"].State; got != "working" {
+				t.Fatalf("start changed parent state to %q", got)
+			}
+			tc.start(t, r, sessionID)
+			if got := chatKinds(latestHookEvent(t, rec)); len(got) != 0 {
+				t.Fatalf("repeated start chat kinds = %v, want none", got)
+			}
+
+			tc.finish(t, r, sessionID)
+			assertSubagentChat(t, latestHookEvent(t, rec), "dismiss", familiar)
+			if got := rec.lastState.Panes["agent"].State; got != "working" {
+				t.Fatalf("finish changed parent state to %q", got)
+			}
+			if tc.name == "opencode" && rec.lastState.Panes["agent"].OpenCodeSessionID != rootSessionID {
+				t.Fatalf("child lifecycle changed root session id to %q", rec.lastState.Panes["agent"].OpenCodeSessionID)
+			}
+			tc.finish(t, r, sessionID)
+			if got := chatKinds(latestHookEvent(t, rec)); len(got) != 0 {
+				t.Fatalf("repeated finish chat kinds = %v, want none", got)
+			}
+			tc.start(t, r, sessionID)
+			assertSubagentChat(t, latestHookEvent(t, rec), "summon", familiar)
+			finishAgain := tc.finish
+			if tc.deleteFinish != nil {
+				finishAgain = tc.deleteFinish
+			}
+			finishAgain(t, r, sessionID)
+			assertSubagentChat(t, latestHookEvent(t, rec), "dismiss", familiar)
+
+			tc.spawn(t, r, sessionID)
+			if got := chatKinds(latestHookEvent(t, rec)); slices.Contains(got, "action") {
+				t.Fatalf("spawn tool produced action entry: %v", got)
+			}
+		})
+	}
+}
+
+func newParallelHookRunner() (*HookRunner, *recordedHookCalls) {
+	rec := &recordedHookCalls{}
+	r := &HookRunner{
+		Now:       func() time.Time { return time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC) },
+		LoadState: func(string) (*state.SessionState, error) { return rec.lastState, nil },
+		Update: func(sessionID string, mutate func(*state.SessionState) bool) error {
+			ss := rec.lastState
+			if ss == nil {
+				ss = &state.SessionState{SessionID: sessionID, Version: state.SchemaVersion, Panes: map[string]state.PaneState{}}
+			}
+			if mutate(ss) {
+				rec.lastState = ss
+				rec.writeCalls++
+			}
+			return nil
+		},
+		AppendEvent: func(_ string, event state.StateEvent) error {
+			rec.events = append(rec.events, event)
+			return nil
+		},
+	}
+	return r, rec
+}
+
+func assertSubagentChat(t *testing.T, event state.StateEvent, kind, familiar string) {
+	t.Helper()
+	entries := chatEntries(event)
+	if len(entries) != 1 || entries[0]["chat_kind"] != kind || entries[0]["chat_text"] != familiar {
+		t.Fatalf("subagent chat entries = %#v, want one %s entry for %q", entries, kind, familiar)
+	}
+}
+
+func latestHookEvent(t *testing.T, rec *recordedHookCalls) state.StateEvent {
+	t.Helper()
+	if len(rec.events) == 0 {
+		t.Fatal("hook action did not record an event")
+	}
+	return rec.events[len(rec.events)-1]
+}
+
 func TestHookClaudeMessageDisplay(t *testing.T) {
 	cases := []struct {
 		name   string
