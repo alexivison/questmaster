@@ -56,6 +56,10 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	if len(workerPRs) != 2 || len(workerPRs[0].Watchers) != 1 {
 		t.Fatalf("worker PRs = %#v", workerPRs)
 	}
+	// The tracker derives scope from rows, without consulting the master's worker list.
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) { m.Workers = nil }); err != nil {
+		t.Fatal(err)
+	}
 	initial, err := snapshotter.TrackerForChange(Change{})
 	if err != nil {
 		t.Fatal(err)

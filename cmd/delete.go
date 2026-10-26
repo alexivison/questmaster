@@ -15,7 +15,7 @@ func newDeleteCmd(store *state.Store, client *tmux.Client, repoRoot string) *cob
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]
 			svc := session.NewService(store, client, repoRoot)
-			dropped, err := svc.DeleteWithWatchCount(cmd.Context(), sessionID)
+			dropped, err := svc.Delete(cmd.Context(), sessionID)
 			if err != nil {
 				return err
 			}

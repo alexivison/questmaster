@@ -255,18 +255,18 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			m.SetExtra("parent_session", opts.MasterID)
 		}
 	}); err != nil {
-		_ = s.cleanupStartedSession(sessionID)
+		_, _ = s.cleanupStartedSession(sessionID)
 		return StartResult{}, fmt.Errorf("update manifest: %w", err)
 	}
 
 	if err := s.seedRepoDisplayColor(cwd, opts.DisplayColor); err != nil {
-		_ = s.cleanupStartedSession(sessionID)
+		_, _ = s.cleanupStartedSession(sessionID)
 		return StartResult{}, err
 	}
 
 	if opts.MasterID != "" {
 		if err := s.Store.AddWorker(opts.MasterID, sessionID); err != nil {
-			_ = s.cleanupStartedSession(sessionID)
+			_, _ = s.cleanupStartedSession(sessionID)
 			return StartResult{}, fmt.Errorf("register worker: %w", err)
 		}
 	}
@@ -329,7 +329,7 @@ func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string) 
 			errs = append(errs, fmt.Errorf("kill partial tmux session: %w", err))
 		}
 	}
-	if err := s.cleanupStartedSession(sessionID); err != nil {
+	if _, err := s.cleanupStartedSession(sessionID); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)

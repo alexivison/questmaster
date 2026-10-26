@@ -38,11 +38,21 @@ func (s *Server) pullRequests(req Request) (any, error) {
 }
 
 func scopedPullRequests(store *state.Store, sessionID string, prs []state.PullRequest) []state.PullRequest {
+	if len(prs) == 0 {
+		return nil
+	}
 	scope := map[string]bool{sessionID: true}
 	if manifest, err := store.Read(sessionID); err == nil && manifest.AgentSessionType() == "master" {
 		for _, id := range manifest.Workers {
 			scope[id] = true
 		}
+	}
+	return filterPullRequests(prs, scope)
+}
+
+func filterPullRequests(prs []state.PullRequest, scope map[string]bool) []state.PullRequest {
+	if len(prs) == 0 {
+		return nil
 	}
 	result := make([]state.PullRequest, 0)
 	for _, pr := range prs {

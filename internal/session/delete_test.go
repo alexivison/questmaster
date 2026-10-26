@@ -42,7 +42,7 @@ func TestDelete_PropagatesDeleteError(t *testing.T) {
 		Client: tmux.NewClient(runner),
 	}
 
-	err = svc.Delete(t.Context(), sessionID)
+	_, err = svc.Delete(t.Context(), sessionID)
 	if err == nil {
 		t.Error("expected error when manifest deletion fails, got nil")
 	}
@@ -81,7 +81,7 @@ func TestDeleteCleansWorkerSessionState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	dropped, err := svc.DeleteWithWatchCount(t.Context(), masterID)
+	dropped, err := svc.Delete(t.Context(), masterID)
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
