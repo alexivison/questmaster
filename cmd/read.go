@@ -15,7 +15,7 @@ func newReadCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "read <worker-id>",
-		Short: "Read output from a worker's primary pane",
+		Short: "Read output from a worker's agent pane",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc := message.NewService(store, client)

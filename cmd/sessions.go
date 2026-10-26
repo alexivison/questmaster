@@ -17,7 +17,7 @@ type sessionsJSONRow struct {
 	Title         string `json:"title"`
 	SessionType   string `json:"session_type"`
 	ParentSession string `json:"parent_session,omitempty"`
-	PrimaryTool   string `json:"primary_tool,omitempty"`
+	Agent         string `json:"agent,omitempty"`
 	Active        bool   `json:"active"`
 	LastChangeMS  int64  `json:"last_change_ms,omitempty"`
 	Cwd           string `json:"cwd,omitempty"`
@@ -31,7 +31,7 @@ func newSessionsCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 
 This command is intended for status bars, scripts, and dashboards. Activity
 is sourced from the per-session state.json that hooks write — a session is
-reported active=true when its primary pane state is "working", and
+reported active=true when its agent pane state is "working", and
 active=false otherwise. The session is always emitted regardless of the
 active flag, so consumers can render idle sessions too.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -51,14 +51,14 @@ func runSessions(w io.Writer, store *state.Store, client *tmux.Client) error {
 
 	rows := make([]sessionsJSONRow, 0, len(activeRows))
 	for _, row := range activeRows {
-		result := results[sessionactivity.PrimaryKey(row.ID)]
+		result := results[sessionactivity.AgentKey(row.ID)]
 		active := result.State == "working"
 		out := sessionsJSONRow{
 			SessionID:     row.ID,
 			Title:         row.Title,
 			SessionType:   row.SessionType,
 			ParentSession: row.ParentID,
-			PrimaryTool:   row.PrimaryAgent,
+			Agent:         row.Agent,
 			Active:        active,
 			Cwd:           row.Cwd,
 		}
@@ -88,7 +88,7 @@ func collectActiveSessions(snapshot tracker.TrackerSnapshot) (time.Time, []track
 		}
 		activeRows = append(activeRows, row)
 		observations = append(observations, sessionactivity.Observation{
-			Key:       sessionactivity.PrimaryKey(row.ID),
+			Key:       sessionactivity.AgentKey(row.ID),
 			SessionID: row.ID,
 			Enabled:   true,
 		})

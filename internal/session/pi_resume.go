@@ -56,7 +56,7 @@ func readPiResumeID(sessionID string) (string, bool) {
 	if err != nil || ss == nil || ss.Version != state.SchemaVersion {
 		return "", false
 	}
-	pane, ok := ss.Panes["primary"]
+	pane, ok := ss.Panes["agent"]
 	if !ok || (pane.Agent != "" && pane.Agent != "pi") {
 		return "", false
 	}

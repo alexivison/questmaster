@@ -41,7 +41,7 @@ struct DisplayClassificationTests {
         expect(SessionRoleKind(role: "worker") == .worker, "worker mismatch")
         expect(SessionRoleKind(role: "tmux") == .tmux, "tmux mismatch")
         expect(SessionRoleKind(role: "orphan") == .orphan, "orphan mismatch")
-        expect(SessionRoleKind(role: "primary") == .shell, "unrecognized role aliases should default to shell")
+        expect(SessionRoleKind(role: "agent") == .shell, "unrecognized role aliases should default to shell")
         expect(SessionRoleKind(role: "freeform") == .shell, "unknown role should default to shell")
     }
 

@@ -314,7 +314,7 @@ func TestListAllPanes(t *testing.T) {
 	t.Parallel()
 
 	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "qm-a\t1 0 primary\nqm-b\t0 1 tracker", nil
+		return "qm-a\t1 0 agent\nqm-b\t0 1 tracker", nil
 	})
 	c := NewClient(m)
 
@@ -351,6 +351,23 @@ func TestResolveRole_Success(t *testing.T) {
 	}
 	if target != "qm-s:0.1" {
 		t.Errorf("target: got %q, want %q", target, "qm-s:0.1")
+	}
+}
+
+func TestResolveRole_LegacyPrimaryMetadata(t *testing.T) {
+	t.Parallel()
+
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		return "0 0 primary", nil
+	})
+	c := NewClient(m)
+
+	target, err := c.ResolveRole(t.Context(), "qm-s", RoleAgent, -1)
+	if err != nil {
+		t.Fatalf("ResolveRole: %v", err)
+	}
+	if target != "qm-s:0.0" {
+		t.Fatalf("target = %q, want qm-s:0.0", target)
 	}
 }
 

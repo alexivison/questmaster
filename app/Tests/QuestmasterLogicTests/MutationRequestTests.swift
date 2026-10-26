@@ -33,7 +33,8 @@ struct MutationRequestTests {
             expect(data?["master"] == nil, "managed agent starts should use the server's master default")
             expect(data?["title"] as? String == "orchestrator", "title was not trimmed")
             expect(data?["cwd"] as? String == "/tmp/project", "cwd was not trimmed")
-            expect(data?["primary"] as? String == "claude", "agent was not encoded as primary")
+            expect(data?["agent"] as? String == "claude", "agent was not encoded")
+            expect(data?["primary"] == nil, "legacy primary field was encoded")
             expect(data?["color"] as? String == "violet", "color was not trimmed")
             expect(data?["prompt"] == nil, "blank prompt should be omitted")
         } catch {
@@ -53,7 +54,7 @@ struct MutationRequestTests {
             let object = request.jsonObject(id: "start-none") as NSDictionary
             let data = object["data"] as? NSDictionary
             expect(data?["cwd"] as? String == "/tmp/project", "cwd was not trimmed")
-            expect(data?["primary"] as? String == "codex", "agent was not encoded")
+            expect(data?["agent"] as? String == "codex", "agent was not encoded")
             expect(data?["color"] == nil, "no color should be omitted")
         } catch {
             fail("no-color start request threw \(error)")
