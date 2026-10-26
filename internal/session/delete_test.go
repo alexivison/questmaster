@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -74,8 +75,22 @@ func TestDeleteCleansWorkerSessionState(t *testing.T) {
 	}
 
 	svc := &Service{Store: store, Client: tmux.NewClient(noopKillRunner())}
-	if err := svc.Delete(t.Context(), masterID); err != nil {
+	ref, _ := state.ParsePullRequestRef("owner/repo#1")
+	for _, id := range []string{masterID, workerID} {
+		if _, err := state.WatchPullRequest(stateRoot, id, ref, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dropped, err := svc.DeleteWithWatchCount(t.Context(), masterID)
+	if err != nil {
 		t.Fatalf("Delete: %v", err)
+	}
+	if dropped != 2 {
+		t.Fatalf("dropped watches = %d, want 2", dropped)
+	}
+	prs, err := state.LoadPullRequests(stateRoot)
+	if err != nil || len(prs) != 0 {
+		t.Fatalf("watches remain: %#v, %v", prs, err)
 	}
 	for _, sessionID := range []string{masterID, workerID} {
 		if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {

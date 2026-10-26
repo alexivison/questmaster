@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -439,17 +440,22 @@ func TestDeleteCmd_JSON(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-del", "deleteme", t.TempDir(), "regular")
+	ref, _ := state.ParsePullRequestRef("owner/repo#1")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-del", ref, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 
 	out := runCmd(t, store, hasSessionRunner("qm-del"), "delete", "qm-del")
 
 	var got struct {
-		SessionID string `json:"session_id"`
-		Deleted   bool   `json:"deleted"`
+		SessionID      string `json:"session_id"`
+		Deleted        bool   `json:"deleted"`
+		DroppedWatches int    `json:"dropped_watches"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("delete output is not JSON: %v\n%s", err, out)
 	}
-	if got.SessionID != "qm-del" || !got.Deleted {
+	if got.SessionID != "qm-del" || !got.Deleted || got.DroppedWatches != 1 {
 		t.Fatalf("delete JSON mismatch: %#v", got)
 	}
 }

@@ -26,6 +26,7 @@
       "primary_agent": "codex",
       "session_type": "master",
       "worker_count": 1,
+      "pull_requests_rev": "abcdef1234567890",
       "artifacts": [
         {
           "kind": "html",

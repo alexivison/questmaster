@@ -110,25 +110,26 @@ type QuestSnapshot struct {
 
 // SessionSnapshot is one tracker row with live activity already applied.
 type SessionSnapshot struct {
-	ID             string             `json:"id"`
-	Title          string             `json:"title,omitempty"`
-	Status         string             `json:"status"`
-	State          string             `json:"state,omitempty"`
-	ElapsedMS      int64              `json:"elapsed_ms"`
-	ElapsedSince   *time.Time         `json:"elapsed_since,omitempty"`
-	LastChatAt     *time.Time         `json:"last_chat_at,omitempty"`
-	Narration      string             `json:"narration,omitempty"`
-	Cast           *CastSnapshot      `json:"cast,omitempty"`
-	LatestActivity string             `json:"latest_activity,omitempty"`
-	LastKind       string             `json:"last_kind,omitempty"`
-	WorktreePath   string             `json:"worktree_path,omitempty"`
-	PrimaryAgent   string             `json:"primary_agent,omitempty"`
-	SessionType    string             `json:"session_type,omitempty"`
-	ParentID       string             `json:"parent_id,omitempty"`
-	WorkerCount    int                `json:"worker_count"`
-	Artifacts      []ArtifactSnapshot `json:"artifacts,omitempty"`
-	Repo           RepoSnapshot       `json:"repo,omitempty"`
-	DisplayColor   string             `json:"display_color,omitempty"`
+	ID              string             `json:"id"`
+	Title           string             `json:"title,omitempty"`
+	Status          string             `json:"status"`
+	State           string             `json:"state,omitempty"`
+	ElapsedMS       int64              `json:"elapsed_ms"`
+	ElapsedSince    *time.Time         `json:"elapsed_since,omitempty"`
+	LastChatAt      *time.Time         `json:"last_chat_at,omitempty"`
+	Narration       string             `json:"narration,omitempty"`
+	Cast            *CastSnapshot      `json:"cast,omitempty"`
+	LatestActivity  string             `json:"latest_activity,omitempty"`
+	LastKind        string             `json:"last_kind,omitempty"`
+	WorktreePath    string             `json:"worktree_path,omitempty"`
+	PrimaryAgent    string             `json:"primary_agent,omitempty"`
+	SessionType     string             `json:"session_type,omitempty"`
+	ParentID        string             `json:"parent_id,omitempty"`
+	WorkerCount     int                `json:"worker_count"`
+	PullRequestsRev string             `json:"pull_requests_rev,omitempty"`
+	Artifacts       []ArtifactSnapshot `json:"artifacts,omitempty"`
+	Repo            RepoSnapshot       `json:"repo,omitempty"`
+	DisplayColor    string             `json:"display_color,omitempty"`
 }
 
 type CastSnapshot struct {
@@ -381,11 +382,12 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	}
 	artifacts := s.globalArtifacts()
 	quests := s.globalQuests()
+	prs, _ := state.LivePullRequests(s.store, nil)
 	s.observeTrackerRows(snap.Sessions, observedAt)
 	return s.cacheTracker(TrackerSnapshot{
 		ObservedAt: observedAt,
 		Current:    currentSessionSnapshot(current),
-		Sessions:   s.sessionSnapshots(snap.Sessions, observedAt, artifacts),
+		Sessions:   s.sessionSnapshots(snap.Sessions, observedAt, artifacts, prs),
 		Projects:   s.projectSnapshots(artifacts, quests),
 		Artifacts:  artifactSnapshots(artifacts),
 		Quests:     questSnapshots(quests),
@@ -497,7 +499,7 @@ func currentSessionSnapshot(current tracker.SessionInfo) *CurrentSession {
 	}
 }
 
-func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt time.Time, artifacts []state.Artifact) []SessionSnapshot {
+func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt time.Time, artifacts []state.Artifact, prs []state.PullRequest) []SessionSnapshot {
 	var typicalCache toolTypicalDurationCache
 	observations := make([]sessionactivity.Observation, 0, len(rows))
 	keys := make([]string, len(rows))
@@ -554,23 +556,24 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			elapsedSince = time.Time{}
 		}
 		out[i] = SessionSnapshot{
-			ID:             row.ID,
-			Title:          row.Title,
-			Status:         row.Status,
-			State:          stateName,
-			ElapsedMS:      elapsedMS(observedAt, elapsedSince),
-			ElapsedSince:   timePtr(elapsedSince),
-			LastChatAt:     timePtr(result.LastChatAt),
-			Narration:      result.Narration,
-			Cast:           castSnapshot(result, row.PrimaryAgent, typicals),
-			LatestActivity: snippet,
-			LastKind:       lastKind,
-			WorktreePath:   row.Cwd,
-			PrimaryAgent:   row.PrimaryAgent,
-			SessionType:    row.SessionType,
-			ParentID:       row.ParentID,
-			WorkerCount:    row.WorkerCount,
-			Artifacts:      artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, row.ID, "")),
+			ID:              row.ID,
+			Title:           row.Title,
+			Status:          row.Status,
+			State:           stateName,
+			ElapsedMS:       elapsedMS(observedAt, elapsedSince),
+			ElapsedSince:    timePtr(elapsedSince),
+			LastChatAt:      timePtr(result.LastChatAt),
+			Narration:       result.Narration,
+			Cast:            castSnapshot(result, row.PrimaryAgent, typicals),
+			LatestActivity:  snippet,
+			LastKind:        lastKind,
+			WorktreePath:    row.Cwd,
+			PrimaryAgent:    row.PrimaryAgent,
+			SessionType:     row.SessionType,
+			ParentID:        row.ParentID,
+			WorkerCount:     row.WorkerCount,
+			PullRequestsRev: pullRequestsRevision(scopedPullRequests(s.store, row.ID, prs)),
+			Artifacts:       artifactSnapshots(state.FilterArtifacts(artifacts, state.ArtifactScopeSession, row.ID, "")),
 			Repo: RepoSnapshot{
 				Identity: row.RepoIdentity,
 				Name:     row.RepoName,
