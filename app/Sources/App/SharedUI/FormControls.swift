@@ -29,6 +29,24 @@ enum FormFieldMetrics {
     static let suggestionTextInset = Space.item - Token.Size.divider
 }
 
+/// "| text" at a field's trailing end: a divider, then the text, as the model field's effort level and the title field's
+/// class are drawn. The segment is no focus stop; a view that makes it clickable adds the tap itself.
+struct FormFieldSegment: View {
+    let text: String
+    let color: NSColor
+
+    var body: some View {
+        HStack(spacing: FormFieldMetrics.segmentSpacing) {
+            Rectangle()
+                .fill(AppPalette.line.swiftUI)
+                .frame(width: Token.Size.divider, height: FormFieldMetrics.segmentDividerHeight)
+                .frame(maxHeight: .infinity)
+            BaselineText(text, font: AppFonts.questLogBody, color: color, baseline: FormFieldMetrics.baseline)
+        }
+        .padding(.trailing, FormFieldMetrics.segmentTrailing)
+    }
+}
+
 extension View {
     /// A text field's box, as the Quest Log filter draws it: window fill and a 1pt border in the field's state
     /// look. Colour only: no ornaments, glow or size change.
@@ -294,9 +312,10 @@ enum ModalFormMetrics {
     static let buttonHeight = ControlHeight.control
 
     /// A sheet sized to `fields` 35pt fields: the header, the fields 20 apart, the error band, the buttons
-    /// and the bottom band.
-    static func height(fields: Int) -> CGFloat {
+    /// and the bottom band. A `portraitRow` (the title row with its 40pt disc) is 5 taller than a field.
+    static func height(fields: Int, portraitRow: Bool = false) -> CGFloat {
         let fieldsHeight = CGFloat(fields) * FormFieldMetrics.height + CGFloat(max(0, fields - 1)) * fieldSpacing
-        return contentTop + fieldsHeight + bandHeight + buttonHeight + bandHeight
+        let portraitExtra = portraitRow ? SessionPortraitMetrics.sheetDiameter - FormFieldMetrics.height : 0
+        return contentTop + fieldsHeight + portraitExtra + bandHeight + buttonHeight + bandHeight
     }
 }

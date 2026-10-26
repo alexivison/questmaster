@@ -57,6 +57,14 @@ enum TrackerPlateDesign {
     static let workerLogoSide = workerDiscDiameter * logoShare
     static let collapsedLogoSide = collapsedCircleDiameter * logoShare
 
+    /// A portrait's agent badge, from `Portrait.svg`: a circle in the disc's fill with a 1pt `line` border, holding the
+    /// agent's logo at the same 0.6 (12 of its 20). The SVG centres it 6 in from the disc's left edge and 6 up from its
+    /// bottom on both discs; here it is centred `badgeInset` (5) in and up, so it sits on whole points, reaching 5 past
+    /// the disc's left edge and bottom.
+    static let badgeDiameter: CGFloat = 20
+    static let badgeInset = Space.row
+    static let badgeLogoSide = badgeDiameter * logoShare
+
     /// The collapsed workers' circles: 25 points across with 5 between, the first's left edge 40 points right of the
     /// master disc's, in a row right under the disc's.
     static let collapsedCircleDiameter: CGFloat = 25

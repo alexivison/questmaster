@@ -292,7 +292,7 @@ struct TrackerRootView: View {
             TrackerEditSessionSheet(
                 session: session,
                 dismiss: { editSession = nil },
-                save: { title, color in save(session, title: title, color: color) }
+                save: { title, color, portrait in save(session, title: title, color: color, portrait: portrait) }
             )
         }
         .inWindowSheet(item: $editRepo) { repo in
@@ -515,7 +515,8 @@ struct TrackerRootView: View {
             sessionID: session.id,
             title: session.title,
             color: session.displayColor,
-            allowsColor: SessionRoleKind(role: session.role) != .worker
+            allowsColor: SessionRoleKind(role: session.role) != .worker,
+            portrait: EditSessionPortrait(session: session)
         )
     }
 
@@ -546,7 +547,7 @@ struct TrackerRootView: View {
         return presentEditRepo(session)
     }
 
-    private func save(_ session: TrackerEditSession, title: String, color: String) -> Bool {
+    private func save(_ session: TrackerEditSession, title: String, color: String, portrait: EditSessionPortrait) -> Bool {
         var effects: [TrackerEffect] = []
         if title != session.title {
             guard let request = try? ServeMutationRequests.renameSession(sessionID: session.sessionID, title: title) else {
@@ -559,6 +560,13 @@ struct TrackerRootView: View {
                 return false
             }
             effects.append(.sendMutation(TrackerMutationDispatch(request: request, label: "recolor session \(session.sessionID)")))
+        }
+        do {
+            if let request = try portrait.reclassRequest(sessionID: session.sessionID, since: session.portrait) {
+                effects.append(.sendMutation(TrackerMutationDispatch(request: request, label: "reclass session \(session.sessionID)")))
+            }
+        } catch {
+            return false
         }
         return effects.isEmpty || dispatchEffects(effects)
     }
@@ -603,6 +611,8 @@ struct TrackerEditSession: Identifiable {
     let title: String
     let color: String
     let allowsColor: Bool
+    /// The class portrait the sheet opens with (a master's, a worker's familiar), or none for a shell.
+    var portrait = EditSessionPortrait.none
 
     var id: String { sessionID }
 }
@@ -807,6 +817,14 @@ enum TrackerNameplateRole: Equatable {
     var portraitOrigin: CGPoint {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
+    /// The agent badge's frame origin: its centre is `badgeInset` in from the disc's left edge and up from its bottom.
+    var badgeOrigin: CGPoint {
+        let radius = TrackerPlateDesign.badgeDiameter / 2
+        return CGPoint(
+            x: portraitOrigin.x + TrackerPlateDesign.badgeInset - radius,
+            y: portraitOrigin.y + portraitDiameter - TrackerPlateDesign.badgeInset - radius
+        )
+    }
 
     /// The text columns in canvas points, one per plate, past each disc (`TrackerPlateDesign.textX`): 55 on the
     /// master (its disc spans 0-50), 65 on the worker (20-60). Every line stops at the column's right
@@ -951,16 +969,20 @@ private struct TrackerPlateArt: View {
     }
 }
 
-/// The disc's fill over the plate, over its drop shadow and under its inner shadow, so it sits above the bar's pulse.
-/// The status ring and glow go over it.
+/// The disc's fill and its portrait over the plate, over its drop shadow and under its inner shadow, so it sits above
+/// the bar's pulse. The status ring and glow go over it.
 private struct TrackerPortraitDisc: View {
     let artwork: TrackerPlateArtwork
+    let portrait: SessionPortrait?
 
     var body: some View {
         Canvas { context, _ in
             context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.fillDropShadow(artwork.discEdge, .raised)
             context.fill(artwork.discEdge, with: .color(AppPalette.panel.swiftUI))
+            if let portrait {
+                context.drawPortrait(portrait, in: artwork.discEdge)
+            }
             context.fillInnerShadow(artwork.discEdge, .discInner)
         }
         .silhouetteFrame(artwork.size)
@@ -1010,6 +1032,8 @@ struct TrackerNameplateBackground<Text: View>: View {
     /// What the portrait's ring shows: a spinner while working, a still ring for the other active statuses.
     let ring: TrackerPortraitRing
     var finishColor: NSColor? = nil
+    /// The class portrait or familiar on the disc; nil leaves the disc to the agent's logo, drawn over it.
+    var portrait: SessionPortrait? = nil
     let text: Text
 
     var body: some View {
@@ -1020,7 +1044,7 @@ struct TrackerNameplateBackground<Text: View>: View {
                     .silhouetteFrame(artwork.size)
             }
             TrackerPlateArt(artwork: artwork)
-            TrackerPortraitDisc(artwork: artwork)
+            TrackerPortraitDisc(artwork: artwork, portrait: portrait)
             if let statusColor {
                 TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, ring: ring, finishColor: finishColor)
             }
@@ -1240,10 +1264,13 @@ private struct TrackerPlateText: View {
     }
 }
 
-/// The portrait's logo, and under a master that collapses them, its worker circles. Drawn over the plate's background.
+/// The agent's mark on the portrait, and under a master that collapses them, its worker circles. Drawn over the plate's
+/// background. A disc with a class portrait carries the agent's logo in a badge at its bottom-left; one without (a row
+/// with no known class) shows the logo on the disc itself.
 private struct TrackerSessionRowContent: View {
     let rendered: TrackerRenderedSession
     let role: TrackerNameplateRole
+    let portrait: SessionPortrait?
     let shortcutNumber: Int?
     let collapsedWorkers: [TrackerRenderedSession]
     let cast: TrackerSessionRow.CastRowState
@@ -1255,13 +1282,22 @@ private struct TrackerSessionRowContent: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            TrackerAgentMark(
-                agent: session.agent,
-                shortcutNumber: shortcutNumber,
-                diameter: role.portraitDiameter,
-                logoSide: role.logoSide
-            )
-            .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
+            if portrait == nil {
+                TrackerAgentMark(
+                    agent: session.agent,
+                    shortcutNumber: shortcutNumber,
+                    diameter: role.portraitDiameter,
+                    logoSide: role.logoSide
+                )
+                .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
+            } else {
+                if let shortcutNumber {
+                    TrackerShortcutNumber(number: shortcutNumber, diameter: role.portraitDiameter, side: role.logoSide)
+                        .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
+                }
+                TrackerAgentBadge(agent: session.agent)
+                    .offset(x: role.badgeOrigin.x, y: role.badgeOrigin.y)
+            }
             if let bar = cast.bar {
                 TrackerCastRow(cast: bar.cast, isFinishing: bar.isFinishing, role: role)
                     .opacity(cast.isBarVisible ? 1 : 0)
@@ -1306,6 +1342,7 @@ private struct TrackerSessionRow: View {
 
     private var session: TrackerSession { rendered.session }
     private var role: TrackerNameplateRole { TrackerNameplateRole(session) }
+    private var portrait: SessionPortrait? { SessionPortrait(session: session) }
     private var isSelected: Bool { selectedID == session.id }
     private var showsWorkersCollapseMenuItem: Bool { hasWorkers && role.isMaster }
 
@@ -1339,6 +1376,7 @@ private struct TrackerSessionRow: View {
                     // The plate's cast row shows its cast, so its ring only spins while it works.
                     ring: .ring(status: rendered.status.kind, cast: nil),
                     finishColor: rendered.status.finishColor,
+                    portrait: portrait,
                     text: TrackerPlateText(
                         rendered: rendered,
                         role: role,
@@ -1353,6 +1391,7 @@ private struct TrackerSessionRow: View {
                 TrackerSessionRowContent(
                     rendered: rendered,
                     role: role,
+                    portrait: portrait,
                     shortcutNumber: commandLongPressIsActive ? shortcutNumber : nil,
                     collapsedWorkers: collapsedWorkers,
                     cast: cast
@@ -1449,6 +1488,44 @@ private struct TrackerStoppedDimming: ViewModifier {
     }
 }
 
+/// The Command-held shortcut number, on a dimmed circle of `side` at the centre of a disc `diameter` across.
+private struct TrackerShortcutNumber: View {
+    let number: Int
+    let diameter: CGFloat
+    let side: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(AppPalette.window.withAlphaComponent(0.86).swiftUI)
+                .frame(width: side, height: side)
+            Text("\(number)")
+                .font(AppFonts.monoBold.swiftUI)
+                .foregroundStyle(AppPalette.bright.swiftUI)
+        }
+        .frame(width: diameter, height: diameter)
+    }
+}
+
+/// The agent's badge at a portrait's bottom-left, from `Portrait.svg`: the disc's fill, a 1pt `line` border and the
+/// agent's logo in the mark tint (Claude's and Pi's keep their own colours).
+private struct TrackerAgentBadge: View {
+    let agent: String
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(AppPalette.panel.swiftUI)
+            Circle()
+                .strokeBorder(AppPalette.line.swiftUI, lineWidth: Token.Size.divider)
+            if let image = TrackerAgentMark.image(for: agent, side: TrackerPlateDesign.badgeLogoSide, tint: AppPalette.agentMarkTint) {
+                Image(nsImage: image)
+            }
+        }
+        .frame(width: TrackerPlateDesign.badgeDiameter, height: TrackerPlateDesign.badgeDiameter)
+    }
+}
+
 /// Not private: the worker chat dock reuses `image(for:side:tint:)` for the same per-agent mark
 /// the tracker draws, rather than re-deriving it.
 struct TrackerAgentMark: View {
@@ -1470,12 +1547,7 @@ struct TrackerAgentMark: View {
                     .clipShape(Circle())
             }
             if let shortcutNumber {
-                Circle()
-                    .fill(AppPalette.window.withAlphaComponent(0.86).swiftUI)
-                    .frame(width: logoSide, height: logoSide)
-                Text("\(shortcutNumber)")
-                    .font(AppFonts.monoBold.swiftUI)
-                    .foregroundStyle(AppPalette.bright.swiftUI)
+                TrackerShortcutNumber(number: shortcutNumber, diameter: diameter, side: logoSide)
             }
         }
         .frame(width: diameter, height: diameter)

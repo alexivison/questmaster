@@ -2,15 +2,16 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Edit Session and Edit Repo (user-edit-modals.png): no labels; the session's title (or the repo's fixed
+/// Edit Session and Edit Repo (user-edit-modals.png): no labels; the session's title row (or the repo's fixed
 /// name) and the colour input, 20 apart, then Cancel and Save, under the shared header. The overview's
 /// fields and buttons put them at 460 wide (the old modals were 420), with 150-wide buttons (the overview's 152).
+/// A master's or worker's title row starts with its portrait, 5 taller than a field.
 private enum TrackerEditMetrics {
     static let width: CGFloat = 460
     static let buttonWidth: CGFloat = 150
 
-    static func size(fields: Int) -> CGSize {
-        CGSize(width: width, height: ModalFormMetrics.height(fields: fields))
+    static func size(fields: Int, portraitRow: Bool = false) -> CGSize {
+        CGSize(width: width, height: ModalFormMetrics.height(fields: fields, portraitRow: portraitRow))
     }
 }
 
@@ -41,10 +42,12 @@ private struct TrackerColorFocus {
 
 struct TrackerEditSessionSheet: View {
     let dismiss: () -> Void
-    let save: (String, String) -> Bool
+    /// Saves the title, the colour and the portrait's class.
+    let save: (String, String, EditSessionPortrait) -> Bool
     let allowsColor: Bool
 
     @State private var title: String
+    @State private var portrait: EditSessionPortrait
     @State private var color: ColorFieldModel
     @State private var focus: TrackerEditField
     @State private var titleNonce = 0
@@ -54,11 +57,12 @@ struct TrackerEditSessionSheet: View {
     private let initialColorIndex: Int
 
     /// `colorSearch`: opens with the colour input searching (the renders' open dropdown).
-    init(session: TrackerEditSession, initialFocus: TrackerEditField = .title, colorSearch: PickerFieldMode.SearchStart? = nil, dismiss: @escaping () -> Void, save: @escaping (String, String) -> Bool) {
+    init(session: TrackerEditSession, initialFocus: TrackerEditField = .title, colorSearch: PickerFieldMode.SearchStart? = nil, dismiss: @escaping () -> Void, save: @escaping (String, String, EditSessionPortrait) -> Bool) {
         self.dismiss = dismiss
         self.save = save
         allowsColor = session.allowsColor
         _title = State(initialValue: session.title)
+        _portrait = State(initialValue: session.portrait)
         var color = ColorFieldModel(selected: session.color)
         if let colorSearch {
             color.startSearch(colorSearch)
@@ -75,23 +79,13 @@ struct TrackerEditSessionSheet: View {
             errorMessage: errorMessage,
             primaryLabel: "Save",
             canSubmit: !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            size: TrackerEditMetrics.size(fields: allowsColor ? 2 : 1),
+            size: TrackerEditMetrics.size(fields: allowsColor ? 2 : 1, portraitRow: portrait.portrait != nil),
             buttonWidth: TrackerEditMetrics.buttonWidth,
             onCancel: dismiss,
             onPrimary: submit
         ) {
             VStack(spacing: ModalFormMetrics.fieldSpacing) {
-                FormTextField(
-                    text: $title,
-                    placeholder: "Title of the Session",
-                    focusNonce: titleNonce,
-                    focused: focus == .title,
-                    onFocusChanged: { editing in
-                        if editing {
-                            moveFocus(to: .title, byClick: true)
-                        }
-                    }
-                )
+                titleRow
                 if allowsColor {
                     TrackerColorInput(color: $color, colorFocus: $colorFocus, focused: focus == .color, onFocus: { moveFocus(to: .color, byClick: true) })
                 }
@@ -106,6 +100,32 @@ struct TrackerEditSessionSheet: View {
                 titleNonce += 1
             } else {
                 colorFocus.sinkNonce += 1
+            }
+        }
+    }
+
+    /// The title with the portrait before it: a master's class (its name at the field's end) cycles on ⌃e in the title and
+    /// on a click; a worker's familiar only shows. A row with neither (a shell) is the title alone.
+    private var titleRow: some View {
+        SessionTitleRow(
+            portrait: portrait.portrait,
+            portraitLabel: portrait.label.map { "Class \($0)" } ?? "Familiar",
+            onPortraitClick: portrait.isEditable ? { portrait.cycle() } : nil
+        ) {
+            FormTextField(
+                text: $title,
+                placeholder: "Title of the Session",
+                focusNonce: titleNonce,
+                focused: focus == .title,
+                onFocusChanged: { editing in
+                    if editing {
+                        moveFocus(to: .title, byClick: true)
+                    }
+                }
+            ) {
+                if let label = portrait.label {
+                    FormFieldSegment(text: label, color: AppPalette.textMeta)
+                }
             }
         }
     }
@@ -126,7 +146,7 @@ struct TrackerEditSessionSheet: View {
             initialColorIndex: initialColorIndex,
             initialColor: initialColor
         )
-        guard save(cleanTitle, resolvedColor) else {
+        guard save(cleanTitle, resolvedColor, portrait) else {
             errorMessage = "could not save session"
             return
         }
@@ -165,6 +185,10 @@ struct TrackerEditSessionSheet: View {
             return true
         }
         if focus == .color, TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
+            return true
+        }
+        if portrait.isEditable, SessionClassKey.cycles(keyCode: event.keyCode, command: flags.contains(.command), control: flags.contains(.control), option: flags.contains(.option), titleFocused: focus == .title) {
+            portrait.cycle()
             return true
         }
         if Keymap.NewSession.cancel.matches(event.keyCode) {

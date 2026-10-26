@@ -17,6 +17,7 @@ enum QuestmasterLogicTests {
         ServeRecoveryPolicyTests.run()
         DaemonConnectionTests.run()
         NewSessionLogicTests.run()
+        SessionClassLogicTests.run()
         ColorFieldTests.run()
         RoleDefaultsLogicTests.run()
         NewTerminalLogicTests.run()

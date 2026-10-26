@@ -241,7 +241,9 @@ Portraits sit on 5s too: the master's disc spans 0-50 and the worker's 20-60 in
 their rows, and plate text starts `Space.row` past the disc's round edge (55,
 65; the side diamonds don't count). The selected-session panel's text starts
 `Space.item` past its disc (80), clear of the Q's spike. Logos are 0.6 of their disc (30, 24, 15),
-canvases and icon, logo and mark sizes are lengths like any other.
+canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
+agent's logo in a 20pt badge (logo 12) centred `Space.row` in from the disc's left edge and up from its bottom
+(`TrackerPlateDesign.badgeInset`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an

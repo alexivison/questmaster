@@ -77,6 +77,8 @@ enum LogicSelfTests {
         ("testNewSessionResolvesReasoningEffortsPerAgentAndModel", testNewSessionResolvesReasoningEffortsPerAgentAndModel),
         ("testNewSessionKeepsDefaultReasoningEffortWhenResolveFails", testNewSessionKeepsDefaultReasoningEffortWhenResolveFails),
         ("testNewSessionEffortKeysCycleWhereAnECannotBeTyped", testNewSessionEffortKeysCycleWhereAnECannotBeTyped),
+        ("testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne", testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne),
+        ("testEveryPortraitIsBundledUnderItsOwnName", testEveryPortraitIsBundledUnderItsOwnName),
         ("testNewSessionTabTakesTheHighlightedModelThenMovesOn", testNewSessionTabTakesTheHighlightedModelThenMovesOn),
         ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
         ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
@@ -2051,6 +2053,27 @@ enum LogicSelfTests {
         try expect(fieldEdges.first == Int(ModalSheetHeader.height + Space.item), "the first field should start 10 under the header's band, got rows \(fieldEdges)")
         let secondTop = Int(ModalFormMetrics.contentTop + FormFieldMetrics.height + ModalFormMetrics.fieldSpacing)
         try expect(fieldEdges.contains(secondTop) && !fieldEdges.contains(secondTop - 1), "the second field should start 20 under the first, got rows \(fieldEdges)")
+
+        // The title row: a 40pt portrait disc, then the 35 high title field 10 right of it and top-aligned with it; the next
+        // field starts 20 under the disc.
+        let titleSize = CGSize(width: 460, height: ModalFormMetrics.height(fields: 2, portraitRow: true))
+        let titleForm = NSHostingView(rootView: ModalFormSheet(title: "Spacing", errorMessage: nil, primaryLabel: "Save", canSubmit: true, size: titleSize, onCancel: {}, onPrimary: {}) {
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                SessionTitleRow(portrait: .master(.paladin), portraitLabel: "Class Paladin") {
+                    FormTextField(text: .constant(""), placeholder: "Title", focusNonce: 0, focused: false)
+                }
+                FormTextField(text: .constant(""), placeholder: "Second", focusNonce: 0, focused: false)
+            }
+        }.background(AppPalette.panel.swiftUI))
+        let rowTop = Int(ModalFormMetrics.contentTop)
+        let discColumn = Int(ModalFormMetrics.inset + SessionPortraitMetrics.sheetDiameter / 2)
+        let discRows = try borderRows(titleForm, size: titleSize, x: discColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        try expect(discRows.first == rowTop && discRows.contains(rowTop + 39), "the portrait disc should be 40 high from the row's top, got rows \(discRows)")
+        let titleColumn = Int(ModalFormMetrics.inset + SessionPortraitMetrics.sheetDiameter + Space.item + Space.section)
+        let titleRows = try borderRows(titleForm, size: titleSize, x: titleColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        try expect(titleRows.first == rowTop && titleRows.contains(rowTop + Int(FormFieldMetrics.height) - 1), "the title field should be 35 high from the row's top, got rows \(titleRows)")
+        let nextTop = rowTop + Int(SessionPortraitMetrics.sheetDiameter + ModalFormMetrics.fieldSpacing)
+        try expect(titleRows.contains(nextTop) && !titleRows.contains(nextTop - 1), "the next field should start 20 under the disc, got rows \(titleRows)")
     }
 
     /// The elevation shadows (AGENTS.md, "Interaction states") reach past the clip that shapes their panel: a modal's
@@ -2137,7 +2160,9 @@ enum LogicSelfTests {
             try check("New Quest", NewQuestSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
         }
         let editSession = TrackerEditSession(sessionID: "qm-1", title: "gjpqy", color: "orange", allowsColor: true)
-        try check("Edit Session", TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _ in true }), size: CGSize(width: 460, height: ModalFormMetrics.height(fields: 2)))
+        try check("Edit Session", TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _, _ in true }), size: CGSize(width: 460, height: ModalFormMetrics.height(fields: 2)))
+        let masterSession = TrackerEditSession(sessionID: "qm-1", title: "gjpqy", color: "orange", allowsColor: true, portrait: .choosing(.cleric))
+        try check("Edit Session (master)", TrackerEditSessionSheet(session: masterSession, dismiss: {}, save: { _, _, _ in true }), size: CGSize(width: 460, height: ModalFormMetrics.height(fields: 2, portraitRow: true)))
     }
 
     /// A long quest's ink scrolls under a wheel over the page: the page's point hit-tests into its scroll view,
@@ -3076,6 +3101,63 @@ enum LogicSelfTests {
         try expect(!model.handle(try keyEvent("e", keyCode: 14)), "e on the agent tabs is not an effort key")
         try expect(!model.handle(try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)), "⌃e on the agent tabs is not an effort key")
         try expect(model.state.model.selectedReasoningEffort == "high", "nothing outside the model field cycles the effort")
+    }
+
+    /// ⌃e in the title field cycles the class, Random first; a click on the portrait does the same from any focus. Summon
+    /// sends `class` only once one is chosen, so Random leaves the pick to the backend.
+    private static func testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne() throws {
+        let client = StubMutationClient(result: .failure(StubMutationError()))
+        let model = NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                initialPath: "/tmp/project",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: .title,
+                mutationClient: client,
+                directoryClient: nil,
+                modelClient: nil,
+                effortClient: nil,
+                onSuccess: { _ in }
+            ),
+            dismiss: {}
+        )
+        let controlE = try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)
+        try expect(model.state.model.sessionClass == nil && model.state.model.classLabel == "Random", "the sheet opens on Random")
+
+        model.submit()
+        try waitForMainQueue("the first Summon to fail", until: { !model.state.model.submitting })
+        try expect(client.sentRequests.count == 1 && client.sentRequests[0].data["class"] == nil, "Random sends no class")
+
+        try expect(model.handle(controlE), "⌃e should be consumed in the title field")
+        try expect(model.state.model.sessionClass == .paladin, "the first ⌃e from Random chooses paladin")
+        model.cycleClass()
+        try expect(model.state.model.sessionClass == .wizard, "a click on the portrait cycles forward too")
+
+        model.state.model.focusedField = .agent
+        try expect(!model.handle(controlE), "⌃e on the agent tabs is not a class key")
+        try expect(model.state.model.sessionClass == .wizard, "nothing outside the title field cycles the class by key")
+
+        model.submit()
+        try waitForMainQueue("the second Summon to fail", until: { !model.state.model.submitting })
+        try expect(client.sentRequests.count == 2 && client.sentRequests[1].data["class"] == "wizard", "a chosen class is sent by its id")
+    }
+
+    /// The portraits' bundle names are flattened (`class-<id>`, `familiar-<id>`, `random`): each resolves to its own raster,
+    /// the class portraits and Random at 150px and the familiars at 120px (3x their 50 and 40pt discs), so a misnamed or
+    /// missing file shows here instead of as an empty disc.
+    private static func testEveryPortraitIsBundledUnderItsOwnName() throws {
+        func pixelWidth(_ portrait: SessionPortrait) throws -> Int {
+            guard let image = SessionPortraitImages.image(for: portrait),
+                  let representation = image.representations.first else {
+                throw TestFailure("no image bundled as \(portrait.resourceName)")
+            }
+            return representation.pixelsWide
+        }
+        for sessionClass in SessionClass.allCases {
+            try expect(try pixelWidth(.master(sessionClass)) == 150, "\(sessionClass.rawValue)'s class portrait should be 150px")
+            try expect(try pixelWidth(.familiar(sessionClass)) == 120, "\(sessionClass.rawValue)'s familiar should be 120px")
+        }
+        try expect(try pixelWidth(.master(nil)) == 150, "the Random silhouette should be 150px")
     }
 
     private static func testNewSessionTabTakesTheHighlightedModelThenMovesOn() throws {
