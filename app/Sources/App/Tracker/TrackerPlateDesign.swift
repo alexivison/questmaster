@@ -57,6 +57,13 @@ enum TrackerPlateDesign {
     static let workerLogoSide = workerDiscDiameter * logoShare
     static let collapsedLogoSide = collapsedCircleDiameter * logoShare
 
+    /// The attached session's dot (`TrackerAttachedDot`): a filled circle `Space.row` across in the project colour, its centre
+    /// `Space.item` left of the disc's left edge and level with the disc's centre, which is also the master's side diamonds'.
+    /// A master's dot reaches 12.5 left of its row, into the gutter the list's leading padding leaves (`Space.section`), past
+    /// the canvas the art is drawn in. The dot is no part of the plate's band or hit shape.
+    static let attachedDotDiameter = Space.row
+    static let attachedDotInset = Space.item
+
     /// A portrait's agent badge: a circle in the disc's fill with a 1pt `line` border, as big as a collapsed worker's circle
     /// (25) and holding the agent's logo at the same 0.6 (15). Its edge sits `badgeOverhang` (5) outside the disc on the
     /// left and the same below it, on the master's disc and the worker's alike, so its frame starts on whole points.
@@ -197,6 +204,9 @@ struct TrackerPlateArtwork {
     let ornaments: [(role: TrackerPlateShapes.Role, path: Path)]
     /// Where the disc's status ring and glow sit.
     let statusGeometry: TrackerPortraitStatusGeometry
+    /// The attached-session dot, in canvas points. It reaches left of the canvas, so it is drawn in its own layer rather than
+    /// the silhouette layers, which clip at the margin.
+    let attachedDot: Path
     /// The band a selection, a hover or a recolour hint fills, in the silhouette layer's coordinates (canvas plus the
     /// silhouette margin).
     let glow: CGPath
@@ -224,6 +234,12 @@ struct TrackerPlateArtwork {
         self.disc = Path(ellipseIn: CGRect(x: center.x - disc.radius, y: center.y - disc.radius, width: disc.radius * 2, height: disc.radius * 2))
         let edge = disc.radius + disc.stroke / 2
         self.discEdge = Path(ellipseIn: CGRect(x: center.x - edge, y: center.y - edge, width: edge * 2, height: edge * 2))
+        let dotRadius = TrackerPlateDesign.attachedDotDiameter / 2
+        let dotCenterX = center.x - edge - TrackerPlateDesign.attachedDotInset
+        self.attachedDot = Path(ellipseIn: CGRect(
+            x: dotCenterX - dotRadius, y: center.y - dotRadius,
+            width: TrackerPlateDesign.attachedDotDiameter, height: TrackerPlateDesign.attachedDotDiameter
+        ))
         self.discStroke = disc.stroke
         self.discRing = Path(self.disc.cgPath.copy(strokingWithWidth: disc.stroke, lineCap: .butt, lineJoin: .miter, miterLimit: 10))
         self.statusGeometry = TrackerPortraitStatusGeometry(center: center, pathRadius: disc.radius, stroke: disc.stroke)
