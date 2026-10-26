@@ -336,6 +336,7 @@ struct TrackerRootView: View {
                             TrackerRepoSection(
                                 repo: repo,
                                 selectedID: selectedID,
+                                attachedID: currentTerminalSessionID,
                                 areaFocused: areaFocused,
                                 shortcutNumbers: shortcutNumbers,
                                 commandLongPressIsActive: commandLongPressIsActive,
@@ -650,6 +651,7 @@ struct TrackerEditRepo: Identifiable {
 private struct TrackerRepoSection: View {
     let repo: TrackerRenderedRepo
     let selectedID: String?
+    let attachedID: String?
     let areaFocused: Bool
     let shortcutNumbers: [String: Int]
     let commandLongPressIsActive: Bool
@@ -702,6 +704,7 @@ private struct TrackerRepoSection: View {
                 role: role,
                 projectName: projectName,
                 selectedID: selectedID,
+                attachedID: attachedID,
                 areaFocused: areaFocused,
                 shortcutNumber: shortcutNumbers[rendered.session.id],
                 commandLongPressIsActive: commandLongPressIsActive,
@@ -1071,6 +1074,9 @@ struct TrackerNameplateBackground<Text: View>: View {
     var finishColor: NSColor? = nil
     /// The class portrait or familiar on the disc; nil leaves the disc to the agent's logo, drawn over it.
     var portrait: SessionPortrait? = nil
+    /// Whether the attached-session dot sits left of the disc: in the project colour, as the master's project name and side
+    /// diamonds are. It draws outside the plate's silhouette, so it never moves the band, the hit shape or the layout.
+    var showsAttachedDot = false
     let text: Text
 
     var body: some View {
@@ -1086,6 +1092,11 @@ struct TrackerNameplateBackground<Text: View>: View {
                 TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, ring: ring, finishColor: finishColor)
             }
             TrackerPortraitOutline(artwork: artwork, barColor: TrackerNameplateColor.barLightness(color))
+            if showsAttachedDot {
+                artwork.attachedDot
+                    .fill(TrackerNameplateColor.barLightness(color).swiftUI)
+                    .allowsHitTesting(false)
+            }
             text
         }
         .frame(width: artwork.size.width, height: artwork.size.height, alignment: .topLeading)
@@ -1354,6 +1365,8 @@ private struct TrackerSessionRow: View {
     let role: TrackerNameplateRole
     let projectName: String
     let selectedID: String?
+    /// The session open in the terminal, whose plate carries the dot (`TrackerAttachedDot`).
+    let attachedID: String?
     let areaFocused: Bool
     let shortcutNumber: Int?
     let commandLongPressIsActive: Bool
@@ -1382,6 +1395,9 @@ private struct TrackerSessionRow: View {
     private var portrait: SessionPortrait? { SessionPortrait(session: session) }
     private var isSelected: Bool { selectedID == session.id }
     private var showsWorkersCollapseMenuItem: Bool { hasWorkers && role.isMaster }
+    private var showsAttachedDot: Bool {
+        TrackerAttachedDot.isShown(onPlate: session.id, collapsedWorkerIDs: collapsedWorkers.map(\.session.id), attachedID: attachedID)
+    }
 
     var body: some View {
         ListRow(
@@ -1415,6 +1431,7 @@ private struct TrackerSessionRow: View {
                     ring: .ring(status: rendered.status.kind, cast: nil),
                     finishColor: rendered.status.finishColor,
                     portrait: portrait,
+                    showsAttachedDot: showsAttachedDot,
                     text: TrackerPlateText(
                         rendered: rendered,
                         role: role,

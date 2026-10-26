@@ -27,6 +27,7 @@ enum LogicSelfTests {
         ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
+        ("testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate", testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
         ("testPortraitStatusFollowsTheFilterValues", testPortraitStatusFollowsTheFilterValues),
         ("testPlateAndCircleStatusDrawsOnlyForActiveStatuses", testPlateAndCircleStatusDrawsOnlyForActiveStatuses),
@@ -469,6 +470,127 @@ enum LogicSelfTests {
         let row = TrackerWorkerSummaryRow(workers: states.enumerated().map { worker("w\($0.offset)", state: $0.element) })
         let circles = try host(row, "a collapsed row").subject.filter { $0.ringMode != TrackerPortraitRing.none }
         try expect(circles.count == 4, "a collapsed row should draw a ring for each active worker only, got \(circles.count)")
+    }
+
+    /// The attached session's dot: the plates' paths put it `Space.row` across, its centre `Space.item` left of the disc's
+    /// left edge and level with the disc's centre (the master's side diamonds'), in the gutter the list's padding leaves.
+    /// A real tracker, at 1x and 2x, draws it whole there, on the attached session's plate only: the master's, the
+    /// expanded worker's own, a collapsed worker's master's, and no plate's for a shell or nothing attached. Each dot is
+    /// found by its share of the project colour over the window colour, so its size and centre are measured, and a clipped
+    /// dot comes up short of its area.
+    private static func testTheAttachedDotSitsBesideTheDiscWholeAndOnTheRightPlate() throws {
+        func expectClose(_ value: CGFloat, _ expected: CGFloat, _ tolerance: CGFloat, _ name: String) throws {
+            try expect(abs(value - expected) <= tolerance, "\(name) should be \(expected), got \(value)")
+        }
+
+        // The paths: 5 across, 10 left of the disc, level with its centre, and the master's level with its side diamond.
+        let diameter = TrackerPlateDesign.attachedDotDiameter
+        try expectClose(diameter, 5, 0, "dot diameter")
+        try expectClose(TrackerPlateDesign.attachedDotInset, 10, 0, "dot distance from the disc's edge")
+        for (name, artwork) in [("master", TrackerPlateDesign.topLevel), ("worker", TrackerPlateDesign.worker)] {
+            let dot = artwork.attachedDot.boundingRect
+            let disc = artwork.discEdge.boundingRect
+            try expectClose(dot.width, diameter, 0.001, "\(name) dot width")
+            try expectClose(dot.height, diameter, 0.001, "\(name) dot height")
+            try expectClose(dot.midX, disc.minX - TrackerPlateDesign.attachedDotInset, 0.001, "\(name) dot centre x against the disc's left edge")
+            try expectClose(dot.midY, disc.midY, 0.001, "\(name) dot centre y against the disc's centre")
+            try expect(dot.maxX < disc.minX, "the \(name) dot should clear the disc")
+        }
+        let diamond = TrackerPlateDesign.topLevel.ornaments.first { $0.role == .project }?.path.boundingRect ?? .null
+        try expectClose(TrackerPlateDesign.topLevel.attachedDot.boundingRect.midY, diamond.midY, 0.001, "master dot centre y against its side diamond's")
+        // The master's dot reaches furthest left, 12.5 past its row, which the list's leading padding leaves room for.
+        try expect(TrackerListMetrics.sidePadding + TrackerPlateDesign.topLevel.attachedDot.boundingRect.minX >= 0, "the master's dot should sit inside the list's gutter")
+
+        // The pixels: a real tracker with an expanded master and its worker, a collapsed master and its worker, and a shell.
+        let size = CGSize(width: 340, height: 600)
+        func components(_ color: NSColor?) throws -> [CGFloat] {
+            guard let rgb = color?.usingColorSpace(.deviceRGB) else {
+                throw TestFailure("a colour should convert to RGB")
+            }
+            return [rgb.redComponent, rgb.greenComponent, rgb.blueComponent]
+        }
+        let indigo = AppPalette.displayColor("indigo").map(TrackerNameplateColor.barLightness)
+        let background = try components(AppPalette.window)
+        let toward = try zip(components(indigo), background).map { $0 - $1 }
+        let towardLength = toward.map { $0 * $0 }.reduce(0, +)
+
+        /// The dot's share of each pixel in a window `radius` around `centre` (list points), as its area in points and its
+        /// centroid.
+        func dot(in bitmap: NSBitmapImageRep, scale: CGFloat, around centre: CGPoint, radius: CGFloat) throws -> (area: CGFloat, centroid: CGPoint) {
+            var weight: CGFloat = 0
+            var sum = CGPoint.zero
+            let xs = Int((centre.x - radius) * scale)..<Int((centre.x + radius) * scale)
+            let ys = Int((centre.y - radius) * scale)..<Int((centre.y + radius) * scale)
+            for y in ys {
+                for x in xs {
+                    let pixel = try components(bitmap.colorAt(x: x, y: y))
+                    let share = zip(zip(pixel, background), toward).map { ($0.0 - $0.1) * $1 }.reduce(0, +) / towardLength
+                    let coverage = min(max(share, 0), 1)
+                    weight += coverage
+                    sum.x += coverage * (CGFloat(x) + 0.5) / scale
+                    sum.y += coverage * (CGFloat(y) + 0.5) / scale
+                }
+            }
+            return (weight / (scale * scale), weight == 0 ? .zero : CGPoint(x: sum.x / weight, y: sum.y / weight))
+        }
+
+        /// The row tops: the first plate sits `selectedPanelGap` under the panel, the next after a row and a gap.
+        let masterTop = SelectedSessionPanel.canvasSize.height + TrackerListMetrics.selectedPanelGap
+        let workerTop = masterTop + TrackerNameplateRole.master.canvasSize.height + TrackerListMetrics.spacing
+        let collapsedTop = workerTop + TrackerNameplateRole.worker.canvasSize.height + TrackerListMetrics.spacing
+        let gutter = TrackerListMetrics.sidePadding
+        let masterDot = { (top: CGFloat) in
+            CGPoint(x: gutter - TrackerPlateDesign.attachedDotInset, y: top + TrackerPlateDesign.topLevelPortraitCenter.y)
+        }
+        let workerDot = CGPoint(
+            x: gutter + TrackerPlateDesign.workerPortraitCenter.x - TrackerPlateDesign.workerDiscDiameter / 2 - TrackerPlateDesign.attachedDotInset,
+            y: workerTop + TrackerPlateDesign.workerPortraitCenter.y
+        )
+        let positions = ["expanded master": masterDot(masterTop), "expanded worker": workerDot, "collapsed master": masterDot(collapsedTop)]
+        let cases: [(attached: String?, shows: String?)] = [
+            ("m", "expanded master"), ("m-w", "expanded worker"), ("n", "collapsed master"), ("n-w", "collapsed master"),
+            ("sh", nil), ("gone", nil), (nil, nil),
+        ]
+        let expectedArea = CGFloat.pi * diameter * diameter / 4
+        for scale in [CGFloat(1), CGFloat(2)] {
+            for testCase in cases {
+                func session(_ id: String, role: String, parent: String = "") -> TrackerSession {
+                    TrackerSession(id: id, title: id, repoName: "Repo", displayColor: "indigo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle", parentID: parent)
+                }
+                let store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: testCase.attached, expandedMasterIDs: ["m"])
+                store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: [
+                    session("m", role: "master"), session("m-w", role: "worker", parent: "m"),
+                    session("n", role: "master"), session("n-w", role: "worker", parent: "n"), session("sh", role: "shell"),
+                ])])))
+                let view = NSHostingView(rootView: TrackerRootView(
+                    store: store,
+                    navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+                    newSessionPresenter: NewSessionSheetPresenter(),
+                    destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+                )
+                .frame(width: size.width, height: size.height)
+                .background(AppPalette.window.swiftUI))
+                view.frame = NSRect(origin: .zero, size: size)
+                let window = HeadlessWindow(size: size, scale: scale)
+                window.contentView = view
+                window.show()
+                defer { window.close() }
+                RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+                let bitmap = try snapshot(view, size: size, scale: scale)
+
+                for (name, centre) in positions {
+                    let found = try dot(in: bitmap, scale: scale, around: centre, radius: diameter / 2 + 3)
+                    let context = "\(name) with \(testCase.attached ?? "nothing") attached at \(Int(scale))x"
+                    guard testCase.shows == name else {
+                        try expect(found.area < 0.5, "the \(context) should have no dot, got an area of \(found.area)")
+                        continue
+                    }
+                    try expectClose(found.area, expectedArea, 1, "the \(context) dot's area, whole and unclipped")
+                    try expectClose(found.centroid.x, centre.x, 0.15, "the \(context) dot's centre x")
+                    try expectClose(found.centroid.y, centre.y, 0.15, "the \(context) dot's centre y")
+                }
+            }
+        }
     }
 
     private static func testTrackerPlatesKeepTheDesignsProportions() throws {
