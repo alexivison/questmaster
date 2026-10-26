@@ -55,7 +55,7 @@ enum LogicSelfTests {
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
-        ("testShellRowsKeepTheDesignsGeometry", testShellRowsKeepTheDesignsGeometry),
+        ("testShellRowsKeepTheMocksGeometry", testShellRowsKeepTheMocksGeometry),
         ("testTheShellSectionIsPinnedToTheTrackersBottom", testTheShellSectionIsPinnedToTheTrackersBottom),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
@@ -2034,14 +2034,10 @@ enum LogicSelfTests {
         try expect(reported.last == false && !field.hasFocus, "focus moving elsewhere should clear it, reported \(reported)")
     }
 
-    /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row
-    /// internals. The artifact rows' tiles sit on a 45pt pitch (a 40pt row and 5) and are 30 high; a form's first field
-    /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
-    /// in one pixel column.
-    /// Shell Session.svg on the 5pt rhythm, measured on the rendered section: rows 35 tall and 10 apart, inset 10 from the
-    /// 260 column on both sides, the 25pt disc 10 into the row and the title 10 past it. The viewed shell and the
-    /// cursor's shell fill their rows, one row apart; the third rests.
-    private static func testShellRowsKeepTheDesignsGeometry() throws {
+    /// The shell rows as the tracker mock lays them out, measured on the rendered section: 35 tall with no gap, each as
+    /// wide as the 260 column, the 25pt disc 10 into the row and the title 10 past it. The viewed shell and the cursor's
+    /// shell fill their rows, a resting row between them.
+    private static func testShellRowsKeepTheMocksGeometry() throws {
         let sessions = ["a", "b", "c"].map { TrackerSession(id: $0, title: "Shell \($0)", repoName: "", agent: "") }
         let shells = sessions.map { session in
             TrackerRenderedShell(
@@ -2049,9 +2045,9 @@ enum LogicSelfTests {
                 repoName: ""
             )
         }
-        let size = CGSize(width: TrackerPlateDesign.topLevelSize.width, height: 3 * TrackerShellMetrics.rowHeight + 2 * TrackerShellMetrics.rowSpacing)
+        let size = CGSize(width: TrackerPlateDesign.topLevelSize.width, height: 3 * TrackerShellMetrics.rowHeight)
         let section = TrackerShellRows(
-            shells: shells, selectedID: "b", viewedID: "a", areaFocused: true, shortcutNumbers: [:], commandLongPressIsActive: false,
+            shells: shells, selectedID: "c", viewedID: "a", areaFocused: true, shortcutNumbers: [:], commandLongPressIsActive: false,
             onSelect: { _ in }, onActivate: { _ in }, onEditSession: { _ in }
         )
         .frame(width: size.width, height: size.height, alignment: .topLeading)
@@ -2079,25 +2075,24 @@ enum LogicSelfTests {
                 && abs(pixel.greenComponent - expected.greenComponent) < 0.02
                 && abs(pixel.blueComponent - expected.blueComponent) < 0.02
         }
-        let inset = Int(TrackerShellMetrics.sideInset)
         let rowHeight = Int(TrackerShellMetrics.rowHeight)
-        let pitch = rowHeight + Int(TrackerShellMetrics.rowSpacing)
 
-        // Down a column past the row's corner and left of the disc: the two filled rows, 35 high, 45 apart.
-        let fillColumn = inset + Int(TrackerShellMetrics.cornerRadius) + 1
+        // Down a column past the row's corner and left of the disc: the viewed row and the cursor's, 35 high each, with the
+        // resting row between them, so the second starts 70 down: the pitch is the row's own height.
+        let fillColumn = Int(TrackerShellMetrics.cornerRadius) + 1
         let filledRows = (0..<Int(size.height)).filter { isColor(fillColumn, $0, AppPalette.item) }
-        try expect(filledRows == Array(0..<rowHeight) + Array(pitch..<(pitch + rowHeight)), "the filled rows should be 35 high and 45 apart, got rows \(filledRows)")
+        try expect(filledRows == Array(0..<rowHeight) + Array(2 * rowHeight..<(3 * rowHeight)), "the filled rows should be 35 high and 35 apart, got rows \(filledRows)")
 
-        // Across the viewed row's middle: the fill runs from the 10 inset to 10 short of the column's right edge.
+        // Across the viewed row's middle: the fill runs the column's whole width, flush with the plates.
         let middle = rowHeight / 2
         let filledColumns = (0..<Int(size.width)).filter { isColor($0, middle, AppPalette.item) }
-        try expect(filledColumns.first == inset, "a row should start 10 in from the column's edge, got x \(String(describing: filledColumns.first))")
-        try expect(filledColumns.last == Int(size.width) - inset - 1, "a row should end 10 short of the column's far edge, got x \(String(describing: filledColumns.last))")
+        try expect(filledColumns.first == 0, "a row should start at the column's edge, got x \(String(describing: filledColumns.first))")
+        try expect(filledColumns.last == Int(size.width) - 1, "a row should run to the column's far edge, got x \(String(describing: filledColumns.last))")
 
-        // The resting row: its disc's border starts 10 into the row, and its title 10 past the disc.
-        let restMiddle = 2 * pitch + middle
+        // The resting row, in the middle: its disc's border starts 10 into the row, and its title 10 past the disc.
+        let restMiddle = rowHeight + middle
         let inkColumns = (0..<Int(size.width)).filter { !isColor($0, restMiddle, AppPalette.window) }
-        let discLeft = inset + Int(TrackerShellMetrics.discLead)
+        let discLeft = Int(TrackerShellMetrics.discLead)
         try expect(inkColumns.first == discLeft, "the disc should start 10 into the row, got x \(String(describing: inkColumns.first))")
         let titleLeft = discLeft + Int(TrackerShellMetrics.discDiameter + Space.item)
         let titleInk = inkColumns.first { $0 > discLeft + Int(TrackerShellMetrics.discDiameter) }
@@ -2105,9 +2100,9 @@ enum LogicSelfTests {
     }
 
     /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
-    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and the
-    /// section itself never grows past five rows. The last shell is the viewed one, so its filled row marks the section's
-    /// bottom; the first shell's marks its top.
+    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and with
+    /// many shells every one shows and the plates' list shrinks to make room. The viewed shell's filled row marks the
+    /// section's bottom (the last shell) or its top (the first).
     private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {
         let height = 700
         func fillRows(masters: Int, shells: Int, viewed: String) throws -> (rows: [Int], windowBandClear: Bool) {
@@ -2151,9 +2146,9 @@ enum LogicSelfTests {
                     && abs(pixel.blueComponent - expected.blueComponent) < 0.02
             }
             // Past a shell row's corner and left of its disc, below every plate's own fill column.
-            let column = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.sideInset + TrackerShellMetrics.cornerRadius) + 1
+            let column = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.cornerRadius) + 1
             let rows = (0..<height).filter { isColor(column, $0, AppPalette.item) }
-            let sectionTop = height - Int(TrackerListMetrics.verticalPadding) - Int(TrackerShellMetrics.sectionHeight(rows: min(shells, TrackerShellMetrics.maxVisibleRows)))
+            let sectionTop = height - Int(TrackerListMetrics.verticalPadding) - shells * Int(TrackerShellMetrics.rowHeight)
             let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
             // The band between the plates' area and the section: nothing of a plate in it, at several columns.
             let bandClear = [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
@@ -2171,12 +2166,17 @@ enum LogicSelfTests {
         try expect(many.rows.last == bottom, "with many plates the section should stay at the column's bottom margin, got row \(String(describing: many.rows.last)) for \(bottom)")
         try expect(many.windowBandClear, "the plates should be cut a clearance above the section, leaving its band empty")
 
+        // Every shell shows: eight rows, 35 each, and the plates' list shrinks to keep its clearance above them.
         let crowded = try fillRows(masters: 14, shells: 8, viewed: "shell-0")
-        let cappedTop = bottom + 1 - Int(TrackerShellMetrics.sectionHeight(rows: TrackerShellMetrics.maxVisibleRows))
-        try expect(crowded.rows.contains(cappedTop) && !crowded.rows.contains(cappedTop - 1), "the first of eight shells should be the section's top, five rows high, got rows \(crowded.rows.suffix(40))")
-        try expect(crowded.windowBandClear, "the capped section keeps its clearance too")
+        let crowdedTop = bottom + 1 - 8 * rowHeight
+        try expect(crowded.rows.contains(crowdedTop) && !crowded.rows.contains(crowdedTop - 1), "the first of eight shells should be the section's top, eight rows high, got rows \(crowded.rows.suffix(40))")
+        try expect(crowded.windowBandClear, "the crowded section keeps its clearance too")
     }
 
+    /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row
+    /// internals. The artifact rows' tiles sit on a 45pt pitch (a 40pt row and 5) and are 30 high; a form's first field
+    /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
+    /// in one pixel column.
     private static func testRenderedSpacingStaysOnTheScale() throws {
         func borderRows(_ view: NSView, size: CGSize, x: Int) throws -> [Int] {
             view.frame = NSRect(origin: .zero, size: size)

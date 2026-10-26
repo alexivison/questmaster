@@ -2,14 +2,12 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The shell section's geometry, from Shell Session.svg (260 wide, the tracker column) on the 5pt rhythm: rows as tall
-/// as a field and `Space.item` apart, inset `Space.item` from the column's edges, with a 25pt icon disc 10 in and the
-/// title 10 past it. The SVG's own 11 inset and 46 pitch snap to 10 and 45. The rows carry no shadow.
+/// The shell section's geometry, from the tracker mock: rows as tall as a field, stacked with no gap, each as wide as the
+/// tracker column (flush with the plates), with a 25pt icon disc 10 in and the title 10 past it (Shell Session.svg's own
+/// row is inset and spaced; the mock wins). The rows carry no shadow.
 enum TrackerShellMetrics {
     static let rowHeight = ControlHeight.field
-    static let rowSpacing = Space.item
-    static let sideInset = Space.item
-    static let rowWidth = TrackerPlateDesign.topLevelSize.width - 2 * sideInset
+    static let rowWidth = TrackerPlateDesign.topLevelSize.width
     static let discDiameter = ControlHeight.compact
     static let discLead = Space.item
     static let titleLead = discLead + discDiameter + Space.item
@@ -17,16 +15,6 @@ enum TrackerShellMetrics {
     static let cornerRadius = FormFieldMetrics.cornerRadius
     /// The terminal glyph's own box in the SVG's coordinates (15 x 11), centred in the disc.
     static let svgGlyphSize = CGSize(width: 15, height: 11)
-    /// How many rows the pinned section shows before it scrolls: 215 of the column's height.
-    static let maxVisibleRows = 5
-
-    /// The height of `rows` rows with their gaps.
-    static func sectionHeight(rows: Int) -> CGFloat {
-        guard rows > 0 else {
-            return 0
-        }
-        return CGFloat(rows) * rowHeight + CGFloat(rows - 1) * rowSpacing
-    }
 }
 
 /// The terminal glyph of Shell Session.svg: the SVG's own paths (a rounded frame, then the prompt and its cursor), in
@@ -145,8 +133,7 @@ struct TrackerShellRow: View {
 }
 
 /// The shell section, pinned to the bottom of the tracker column under the plates' scrolling list: one row per shell,
-/// `Space.item` apart, inset from the column's edges. At most `maxVisibleRows` show; past that the section scrolls inside
-/// itself, so the section never grows to push the plates and the panel out of the column.
+/// all always shown, stacked with no gap. The plates' list shrinks to make room.
 struct TrackerShellRows: View {
     let shells: [TrackerRenderedShell]
     /// The tracker's cursor row.
@@ -163,26 +150,7 @@ struct TrackerShellRows: View {
     var onEditSession: (TrackerSession) -> Void
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                rows
-                    .background(ScrollerHider())
-            }
-            .scrollIndicators(.hidden)
-            .frame(height: TrackerShellMetrics.sectionHeight(rows: min(shells.count, TrackerShellMetrics.maxVisibleRows)))
-            // The cursor on a shell scrolls it into view, as little as it takes. A plate's id isn't here, so a cursor on a
-            // plate moves nothing in this section, and a cursor on a shell moves nothing in the plates' list.
-            .onChange(of: selectedID) { _, id in
-                guard let id else {
-                    return
-                }
-                proxy.scrollTo(id)
-            }
-        }
-    }
-
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: TrackerShellMetrics.rowSpacing) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(shells, id: \.rendered.session.id) { shell in
                 let session = shell.rendered.session
                 TrackerShellRow(
@@ -209,6 +177,5 @@ struct TrackerShellRows: View {
                 )
             }
         }
-        .padding(.leading, TrackerShellMetrics.sideInset)
     }
 }

@@ -250,10 +250,11 @@ their rows, and plate text starts `Space.row` past the disc's round edge (55,
 canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
 agent's logo in a 20pt badge (logo 12) centred `Space.row` in from the disc's left edge and up from its bottom
 (`TrackerPlateDesign.badgeInset`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
-A shell row is 35 high (`ControlHeight.field`), `Space.item` from the next, inset `Space.item` from the 260 column's
-edges, with a 25pt disc (`ControlHeight.compact`) 10 in and the title 10 past it. The shell section is pinned to the
-bottom of the tracker column (`verticalPadding` from its edge) and the plates scroll in the space above it, which ends
-`TrackerListMetrics.shellClearance` (`Space.group`) over it; it shows five rows at most and scrolls inside past that.
+A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, flush with the plates, stacked with no gap
+(the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
+in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
+edge), every shell always shows, and the plates scroll in the space above it, which shrinks to make room and ends
+`TrackerListMetrics.shellClearance` (`Space.group`) over the section.
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an

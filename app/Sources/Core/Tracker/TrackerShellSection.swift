@@ -26,6 +26,13 @@ public enum TrackerShellSection {
         }
     }
 
+    /// The cursor id the plates' scrolling list gets: the cursor's own while it is on a plate row, nil on a shell or on no
+    /// row. The list only scrolls to plates; a shell's id would make its scroll step consume the pointer's marker (see
+    /// `PointerCursor`) for a row it doesn't hold.
+    public static func plateCursorID(_ cursorID: String?, in rows: [TrackerSession]) -> String? {
+        rows.first { $0.id == cursorID && !isShellRow($0) }?.id
+    }
+
     /// The repo's masters and workers, in its order.
     public static func plateSessions(in repo: TrackerRepo) -> [TrackerSession] {
         repo.sessions.filter { !isShellRow($0) }

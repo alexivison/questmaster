@@ -320,16 +320,18 @@ struct TrackerRootView: View {
 
         let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
         let showsShells = !tracker.shells.isEmpty && !isBackendStartingMessage(snapshot.serviceStateMessage)
+        // The plates' list scrolls only to a plate: a cursor on a shell is not its row.
+        let plateCursorID = TrackerShellSection.plateCursorID(selectedID, in: rows)
         let list = Group {
             if isBackendStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
             } else {
                 if rows.isEmpty {
-                    SectionedList(selectedID: selectedID) {
+                    SectionedList(selectedID: plateCursorID) {
                         TrackerEmptyState(message: emptyMessage)
                     }
                 } else {
-                    SectionedList(selectedID: selectedID) {
+                    SectionedList(selectedID: plateCursorID) {
                         ForEach(Array(repos.enumerated()), id: \.offset) { index, repo in
                             TrackerRepoSection(
                                 repo: repo,
@@ -1707,7 +1709,6 @@ private struct TrackerSkeletonPlaceholder: View {
                 .fill(AppPalette.dim.swiftUI)
                 .opacity(pulseOpacity)
                 .frame(width: TrackerShellMetrics.rowWidth, height: TrackerShellMetrics.rowHeight)
-                .padding(.leading, TrackerShellMetrics.sideInset)
         }
         .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.vertical, TrackerListMetrics.verticalPadding)

@@ -908,7 +908,8 @@ enum RenderPreview {
             ("green, hovered", "green", false, false, true),
             ("green, filled", "green", true, false, false),
         ]
-        return VStack(alignment: .leading, spacing: TrackerShellMetrics.rowSpacing) {
+        // A state sheet: the rows sit `Space.item` apart so each state reads on its own. In the tracker they stack with no gap.
+        return VStack(alignment: .leading, spacing: Space.item) {
             ForEach(Array(states.enumerated()), id: \.offset) { _, state in
                 let session = TrackerSession(id: "qm-\(state.name)", title: "Shell", repoName: "", displayColor: state.color, agent: "")
                 TrackerShellRow(
@@ -925,15 +926,15 @@ enum RenderPreview {
                 )
             }
         }
-        .padding(.leading, Space.section + TrackerShellMetrics.sideInset)
+        .padding(.leading, Space.section)
         .padding(.top, Space.section)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.window.swiftUI)
     }
 
     /// The tracker with masters, workers and the shell section pinned to the column's bottom: one shell attached (filled,
-    /// bold), one with a colour, one plain. `extraMasters` lengthens the plates' list until it scrolls under the section's
-    /// clearance; `extraShells` crowds the section past its five rows.
+    /// bold), one with a colour, one plain. `extraMasters` lengthens the plates' list until it is cut at the section's
+    /// clearance; `extraShells` crowds the section: every shell shows and the list shrinks.
     @MainActor
     private static func trackerWithShellsView(extraMasters: Int = 0, extraShells: Int = 0) -> some View {
         func session(_ id: String, _ repo: String, role: String = "master", sessionClass: String = "", agent: String, parent: String = "", state: String = "idle") -> TrackerSession {

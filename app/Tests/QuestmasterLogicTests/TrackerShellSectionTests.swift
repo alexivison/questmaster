@@ -6,6 +6,7 @@ struct TrackerShellSectionTests {
         onlyPlainShellsTmuxAndOrphansAreShellRows()
         shellsLeaveTheirReposAndKeepTheirOrder()
         aRepoOfOnlyShellsHasNoPlateRows()
+        thePlatesListScrollsOnlyToPlates()
         aShellRowTakesItsLookFromViewingAndTheCursor()
         theShellLooksFollowTheStateRules()
         aShellTitleTakesItsOwnDisplayColourOnly()
@@ -49,6 +50,18 @@ struct TrackerShellSectionTests {
         expect(TrackerShellSection.plateSessions(in: repo).isEmpty, "a repo of only shells draws no plates")
         expect(TrackerShellSection.rows(in: [repo]).count == 2, "and both its shells are in the section")
         expect(TrackerShellSection.rows(in: []).isEmpty, "no repos, no shell rows")
+    }
+
+    /// A cursor on a shell is not for the plates' list: it gets no id, so it neither scrolls nor consumes the pointer's
+    /// marker for a row it doesn't hold.
+    private static func thePlatesListScrollsOnlyToPlates() {
+        let rows = [session("m", role: "master"), session("w", role: "worker", parent: "m"), session("s", role: "shell"), session("t", role: "tmux")]
+        expect(TrackerShellSection.plateCursorID("m", in: rows) == "m", "the cursor on a master goes to the plates' list")
+        expect(TrackerShellSection.plateCursorID("w", in: rows) == "w", "the cursor on a worker goes to the plates' list")
+        expect(TrackerShellSection.plateCursorID("s", in: rows) == nil, "the cursor on a shell is not sent to the plates' list")
+        expect(TrackerShellSection.plateCursorID("t", in: rows) == nil, "nor is a tmux row")
+        expect(TrackerShellSection.plateCursorID(nil, in: rows) == nil, "no cursor, no id")
+        expect(TrackerShellSection.plateCursorID("gone", in: rows) == nil, "a cursor on no listed row, no id")
     }
 
     /// The viewed shell is the lasting selection, so it is the only bold row; the cursor fills another row without
