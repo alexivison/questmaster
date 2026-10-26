@@ -9,6 +9,7 @@ struct DockStateTests {
         sessionSwitchLeavesTheDockStateUnchanged()
         sessionListFollowsTheSession()
         newArtifactOpensExceptOverTheWorkerChat()
+        versionControlSwapsInLikeTheWorkerChat()
         noSessionHidesTheDockAndKeepsItsState()
         print("DockStateTests: all tests passed")
     }
@@ -90,6 +91,21 @@ struct DockStateTests {
 
         var shownList = DockState(dockVisible: true, dockContent: .artifactList)
         expect(shownList.openNewArtifact("a") && shownList.dockContent == .artifactViewer, "a new artifact opens from the list")
+    }
+
+    /// The version control dock is a surface of its own: it drops the open artifact, and a new artifact never covers it.
+    private static func versionControlSwapsInLikeTheWorkerChat() {
+        var state = DockState.initial
+        state.showArtifact("a")
+        state.show(.versionControl)
+        expect(state.dockVisible && state.dockContent == .versionControl && state.selectedArtifactID == nil, "version control drops the open artifact")
+        let before = state
+        expect(!state.openNewArtifact("b"), "a new artifact should not open over version control")
+        expect(state == before, "version control stays as it was")
+        state.dockVisible = false
+        expect(state.openNewArtifact("b") && state.dockContent == .artifactViewer, "a hidden dock left on version control opens the new artifact")
+        expect(DockContent.artifactList.isArtifact && DockContent.artifactViewer.isArtifact, "the list and the viewer are artifact content")
+        expect(!DockContent.workerChat.isArtifact && !DockContent.versionControl.isArtifact, "the chat and version control are not")
     }
 
     /// With no session the dock hides, but its state stays, so it comes back as it was when a session attaches.

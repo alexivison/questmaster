@@ -88,6 +88,8 @@ public enum Keymap {
         public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "a", modifiers: [.command, .shift])
         public static let toggleQuestLog = CommandBinding(title: "Toggle Quest Log", keyEquivalent: "t", modifiers: [.command, .shift])
         public static let toggleWorkerChatDock = CommandBinding(title: "Toggle Worker Chat", keyEquivalent: "w", modifiers: [.command, .shift])
+        // R for pull Request. ⌘⇧V would shadow Ghostty's paste_from_selection; Ghostty binds no ⌘⇧R.
+        public static let toggleVersionControlDock = CommandBinding(title: "Toggle Version Control", keyEquivalent: "r", modifiers: [.command, .shift])
         // ">"/"<" match vim's window-resize convention (Ctrl-w >/Ctrl-w <). Bound via
         // their unshifted base keys ("."/",") with explicit .shift, per the layout-independence
         // note above.
@@ -170,6 +172,12 @@ public enum Keymap {
         public static let moveDownCharacters = CharacterBinding(keys: ["j"])
         public static let openRelated = CharacterBinding(keys: ["o"])
         public static let back = CharacterBinding(keys: ["h", "\u{1b}"])
+    }
+
+    /// The version control dock's keys, with the arrows, j/k and Return of `List`.
+    public enum VersionControl {
+        public static let copyURL = CharacterBinding(keys: ["y"])
+        public static let refresh = CharacterBinding(keys: ["r"])
     }
 
     public enum NewSession {

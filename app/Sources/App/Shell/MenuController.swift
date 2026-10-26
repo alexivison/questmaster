@@ -43,6 +43,7 @@ final class MenuController {
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleDock, action: actions.toggleDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleQuestLog, action: actions.toggleQuestLog, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleWorkerChatDock, action: actions.toggleWorkerChatDock, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.toggleVersionControlDock, action: actions.toggleVersionControlDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.widenDock, action: actions.widenDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.narrowDock, action: actions.narrowDock, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.toggleCaffeine, action: actions.toggleCaffeine, target: target))
@@ -139,6 +140,7 @@ struct MenuActions {
     let toggleDock: Selector
     let toggleQuestLog: Selector
     let toggleWorkerChatDock: Selector
+    let toggleVersionControlDock: Selector
     let widenDock: Selector
     let narrowDock: Selector
     let toggleCaffeine: Selector

@@ -66,6 +66,7 @@ enum LogicSelfTests {
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
+        ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
@@ -1231,6 +1232,69 @@ enum LogicSelfTests {
         )
         try expect(model.currentMode == .artifacts, "artifact dock content should render artifact mode")
         try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
+
+        let beforeVersionControl = publishCount
+        _ = model.apply(
+            DockState(dockContent: .versionControl),
+            snapshot: snapshot,
+            preferredArtifactSessionID: nil
+        )
+        try expect(model.currentMode == .versionControl, "version control dock content should render version control mode")
+        try expect(model.currentWidthMode == .compact, "version control should take the compact dock width")
+        try expect(publishCount > beforeVersionControl, "version control mode change should publish for DockRootView")
+    }
+
+    /// The version control dock's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
+    /// and r asks the daemon to refresh; a click picks and opens; modified keys and others pass through.
+    private static func testVersionControlDockKeysMoveOpenCopyAndRefresh() throws {
+        let store = PullRequestStore()
+        let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
+        guard let request = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true) else {
+            throw TestFailure("a visible dock with a revision should pull")
+        }
+        func pull(_ number: Int, updated: String) throws -> PullRequestRow {
+            let json = """
+            {"key": "github.com/owner/repo#\(number)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": \(number),
+             "watchers": [], "status": {"title": "T", "url": "https://github.com/owner/repo/pull/\(number)", "state": "open", "draft": false,
+             "additions": 1, "deletions": 1, "comments": 0, "updated_at": "\(updated)", "stale": false}}
+            """
+            return try JSONDecoder().decode(PullRequestRow.self, from: Data(json.utf8))
+        }
+        _ = store.apply(response: [try pull(1, updated: "2026-10-01T00:00:00Z"), try pull(2, updated: "2026-10-02T00:00:00Z")], for: request)
+
+        let model = DockPaneModel(pullRequestStore: store)
+        var effects: [PullRequestEffect] = []
+        model.onPullRequestEffect = { effects.append($0) }
+        let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        _ = model.apply(DockState(dockContent: .versionControl), snapshot: snapshot, preferredArtifactSessionID: nil)
+
+        try expect(store.cursorKey?.hasSuffix("#2") == true, "the newest row starts under the cursor")
+        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should be handled")
+        try expect(store.cursorKey?.hasSuffix("#1") == true, "j should move down")
+        try expect(model.handleKeyDown(try keyEvent("k", keyCode: 40), snapshot: snapshot), "k should be handled")
+        try expect(store.cursorKey?.hasSuffix("#2") == true, "k should move up")
+        try expect(model.handleKeyDown(try keyEvent("\u{F701}", keyCode: 125), snapshot: snapshot), "Down should be handled")
+        try expect(store.cursorKey?.hasSuffix("#1") == true, "Down should move down")
+        try expect(effects.isEmpty, "moving runs no effect")
+
+        let url = URL(string: "https://github.com/owner/repo/pull/1")!
+        try expect(model.handleKeyDown(try keyEvent("\r", keyCode: 36), snapshot: snapshot), "Return should be handled")
+        try expect(effects.last == .open(url), "Return should open the row's page")
+        try expect(model.handleKeyDown(try keyEvent("y", keyCode: 16), snapshot: snapshot), "y should be handled")
+        try expect(effects.last == .copy(url), "y should copy the row's URL")
+        try expect(model.handleKeyDown(try keyEvent("r", keyCode: 15), snapshot: snapshot), "r should be handled")
+        guard case .refresh(let refresh)? = effects.last else {
+            throw TestFailure("r should refresh, got \(String(describing: effects.last))")
+        }
+        try expect(refresh.sessionID == "qm-a", "r should refresh the selected session")
+
+        model.openPullRequest("github.com/owner/repo#2")
+        try expect(store.cursorKey?.hasSuffix("#2") == true && effects.last == .open(URL(string: "https://github.com/owner/repo/pull/2")!), "a click should pick the row and open it")
+
+        let count = effects.count
+        try expect(!model.handleKeyDown(try keyEvent("x", keyCode: 7), snapshot: snapshot), "an unrelated key should pass through")
+        try expect(!model.handleKeyDown(try keyEvent("y", keyCode: 16, modifierFlags: [.command]), snapshot: snapshot), "a command chord should pass through")
+        try expect(effects.count == count, "passed-through keys run no effect")
     }
 
     private static func testDockSelectionPublishesImmediately() throws {
@@ -1587,6 +1651,8 @@ enum LogicSelfTests {
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
         try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo"), "worker chat should open for every attached session")
         try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil), "worker chat should still require a current session")
+        try expect(DockContentRouting.canShow(.versionControl, sessionID: "qm-demo"), "version control should open for every attached session")
+        try expect(!DockContentRouting.canShow(.versionControl, sessionID: nil), "version control should require a current session")
     }
 
     private static func testArtifactDockCommandSwitchesFromWorkerChat() throws {
@@ -1605,6 +1671,10 @@ enum LogicSelfTests {
         try expect(
             DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .artifactViewer),
             "Cmd-3 should hide a visible artifact viewer"
+        )
+        try expect(
+            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .versionControl),
+            "Cmd-3 should switch a visible version control dock to artifacts"
         )
     }
 

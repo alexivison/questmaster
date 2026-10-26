@@ -22,6 +22,11 @@ enum AppPalette {
     // Ported from internal/palette/palette.go and TUI ANSI semantics.
     static let added = NSColor(hex: 0x7ee787)
     static let deleted = NSColor(hex: 0xff7b72)
+    /// Version Control (design.png): one green and one red, shared by the git state, the review and CI icons and the
+    /// diff counter, and the purple-blue of a merged pull request.
+    static let gitGreen = NSColor(hex: 0x70a358)
+    static let gitRed = NSColor(hex: 0xe1585e)
+    static let gitMerged = NSColor(hex: 0x6369cb)
     static let warn = StateColor.warn.color
     /// The one gold: titles (modal titles included), project headers and marks.
     static let accent = StateColor.accent.color

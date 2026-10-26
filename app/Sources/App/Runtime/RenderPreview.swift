@@ -80,6 +80,11 @@ enum RenderPreview {
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
+        render(actionBarSlotsView(dockContentMode: .versionControl), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-version-control-open.png")
+        renderView(dockBarView(.versionControl), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control.png")
+        renderView(dockBarView(.versionControlUnfocused), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control-unfocused.png")
+        renderView(dockBarView(.versionControlEmpty), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control-empty.png")
+        renderView(dockBarView(.versionControlNotice), size: CGSize(width: DockWidthPreference.compactWidth, height: 240), to: "\(outputDir)/dock-version-control-notice.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
@@ -186,7 +191,7 @@ enum RenderPreview {
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
         splitView.addArrangedSubview(TrackerShellView(body: tracker))
         splitView.addArrangedSubview(TerminalShellView(body: terminalBody, dragHandleHeight: 0))
-        splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
+        splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), pullRequestStore: PullRequestStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
         splitView.sendTerminalToBack()
         splitView.trackerVisible = true
         splitView.setDockVisible(true, animated: false)
@@ -279,7 +284,7 @@ enum RenderPreview {
         return DockShellView(body: body)
     }
 
-    enum DockBarFixture { case viewer, workerChat }
+    enum DockBarFixture { case viewer, workerChat, versionControl, versionControlUnfocused, versionControlEmpty, versionControlNotice }
 
     /// The dock's top bar over its content: an open artifact ("Quest log mock") in the viewer, or the worker chat feed.
     @MainActor
@@ -291,13 +296,66 @@ enum RenderPreview {
         case .workerChat:
             let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
             return DockShellView(body: NSHostingView(rootView: workerChatView()), model: model)
+        case .versionControl, .versionControlUnfocused, .versionControlEmpty, .versionControlNotice:
+            let model = DockChromeModel(topBar: .make(mode: .versionControl, artifactRoute: .list, artifactTitle: nil))
+            return DockShellView(body: NSHostingView(rootView: versionControlView(fixture)), model: model)
         }
+    }
+
+    /// A master with two workers, whose pull requests cover every state: open, draft, merged and closed, every review and
+    /// CI look, a stale row, an inaccessible one and one whose status hasn't loaded. The cursor sits on the second row.
+    @MainActor
+    private static func versionControlView(_ fixture: DockBarFixture) -> some View {
+        let revision = fixture == .versionControlEmpty ? "" : "1"
+        let sessions = [
+            TrackerSession(id: "m", title: "Ship version control", repoName: "Repo", agent: "claude", role: "master", pullRequestsRev: revision),
+            TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w2", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+        ]
+        let store = PullRequestStore()
+        if let request = store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true) {
+            func pull(_ number: Int, watchers: [String], status: [String: Any]?) -> PullRequestRow {
+                var object: [String: Any] = [
+                    "key": "github.com/owner/repo#\(number)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": number,
+                    "watchers": watchers.map { ["session_id": $0, "added_at": "2026-10-20T00:00:00Z"] },
+                ]
+                if let status { object["status"] = status }
+                return try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
+            }
+            func status(
+                _ title: String, state: String = "open", draft: Bool = false, review: String = "none", ci: String = "none",
+                additions: Int, deletions: Int, comments: Int, updated: Int, stale: Bool = false
+            ) -> [String: Any] {
+                [
+                    "title": title, "url": "https://github.com/owner/repo/pull/1", "state": state, "draft": draft, "review": review, "ci": ci,
+                    "additions": additions, "deletions": deletions, "comments": comments, "stale": stale,
+                    "updated_at": "2026-10-2\(updated)T00:00:00Z", "fetched_at": "2026-10-26T00:00:00Z",
+                ]
+            }
+            var rows = [
+                pull(97612, watchers: ["m", "w1", "w2"], status: status("fix(agent-f): Support independent Edition suggestion field decisions", review: "changes_requested", ci: "failure", additions: 1250, deletions: 540, comments: 20, updated: 9)),
+                pull(97613, watchers: ["w1"], status: status("fix(agent-f): Update dependency versions for stability", draft: true, review: "review_required", ci: "pending", additions: 980, deletions: 320, comments: 15, updated: 8)),
+                pull(97614, watchers: ["w2"], status: status("feat(agent-f): Introduce new logging features", review: "approved", ci: "success", additions: 760, deletions: 200, comments: 10, updated: 7)),
+                pull(97615, watchers: ["m"], status: status("chore: Bump toolchain", additions: 4, deletions: 2, comments: 0, updated: 6)),
+                pull(97616, watchers: ["w1"], status: status("fix(agent-f): Resolve memory leak issue", review: "approved", ci: "success", additions: 1400, deletions: 600, comments: 25, updated: 5, stale: true)),
+                pull(97610, watchers: ["w2"], status: status("refactor(agent-f): Refactor codebase for better readability", state: "closed", review: "changes_requested", additions: 500, deletions: 150, comments: 8, updated: 4)),
+                pull(97609, watchers: ["w1"], status: status("feat(agent-f): Add the pull request watch registry", state: "merged", review: "approved", ci: "success", additions: 320, deletions: 80, comments: 3, updated: 3)),
+                pull(97608, watchers: ["m"], status: ["inaccessible_reason": "forbidden", "draft": false, "additions": 0, "deletions": 0, "comments": 0, "stale": false]),
+                pull(97607, watchers: ["m"], status: nil),
+            ]
+            if fixture == .versionControlNotice { rows = Array(rows.prefix(2)) }
+            _ = store.apply(response: rows, for: request)
+        }
+        _ = store.handle(.move(1))
+        if fixture == .versionControlNotice { store.failRefresh() }
+        return VersionControlDockView(store: store, areaFocused: fixture != .versionControlUnfocused, onOpenRow: { _ in })
+            .background(AppPalette.panel.swiftUI)
     }
 
     /// The dock alone on the window colour, with or without keyboard focus, for its frame.
     @MainActor
     private static func dockFrameView(focused: Bool) -> NSView {
-        let dock = DockShellView(body: SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+        let dock = DockShellView(body: SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), pullRequestStore: PullRequestStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
         dock.setFocused(focused)
         dock.frame = NSRect(x: 20, y: 20, width: 344, height: 400)
         let container = NSView()
@@ -335,7 +393,7 @@ enum RenderPreview {
     private static func actionBarFooterView() -> some View {
         ActionBarFooterView(
             model: ActionBarFooterModel(),
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {}, onOpenVersionControl: {},
             onToggleCaffeine: {}, onOpenSettings: {}
         )
     }
@@ -470,7 +528,7 @@ enum RenderPreview {
         )
         return ActionBarFooterView(
             model: model,
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {},
+            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {}, onOpenVersionControl: {},
             onToggleCaffeine: {}, onOpenSettings: {}
         )
     }

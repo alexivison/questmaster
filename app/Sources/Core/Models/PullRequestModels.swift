@@ -90,10 +90,26 @@ public enum PullRequestRowLook: Equatable {
     case normal, stale, inaccessible
 }
 
+/// The git state icon: a draft is an open pull request marked as one. Unknown also covers an inaccessible row.
+public enum PullRequestGitState: Equatable {
+    case open, draft, merged, closed, unknown
+}
+
+/// The worker a master's row is tagged with: its title, and its agent for the logo.
+public struct PullRequestWatcherTag: Equatable {
+    public let title: String
+    public let agent: String
+
+    public init(title: String, agent: String) {
+        self.title = title
+        self.agent = agent
+    }
+}
+
 /// A row's text and semantic looks; the App target supplies icons and colours.
 public struct PullRequestDisplayRow: Equatable {
     public let pullRequest: PullRequestRow
-    public let watcherTags: [String]
+    public let watcherTags: [PullRequestWatcherTag]
 
     public var numberLabel: String { "#\(pullRequest.number)" }
     public var repoLabel: String {
@@ -104,15 +120,18 @@ public struct PullRequestDisplayRow: Equatable {
         let value = pullRequest.status?.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? pullRequest.key : value
     }
+    public var additionsLabel: String? {
+        accessibleStatus.map { "+" + Self.format($0.additions) }
+    }
+    public var deletionsLabel: String? {
+        accessibleStatus.map { "−" + Self.format($0.deletions) }
+    }
     public var changesLabel: String? {
-        guard let status = pullRequest.status, status.inaccessibleReason == nil else { return nil }
-        let additions = status.additions.formatted(.number.locale(Locale(identifier: "en_US")))
-        let deletions = status.deletions.formatted(.number.locale(Locale(identifier: "en_US")))
-        return "+\(additions) −\(deletions)"
+        guard let additions = additionsLabel, let deletions = deletionsLabel else { return nil }
+        return "\(additions) \(deletions)"
     }
     public var commentsLabel: String? {
-        guard let status = pullRequest.status, status.inaccessibleReason == nil else { return nil }
-        return status.comments.formatted(.number.locale(Locale(identifier: "en_US")))
+        accessibleStatus.map { Self.format($0.comments) }
     }
     public var inaccessibleLabel: String? {
         switch pullRequest.status?.inaccessibleReason {
@@ -122,6 +141,20 @@ public struct PullRequestDisplayRow: Equatable {
         case .unknown: return "Unavailable"
         case nil: return nil
         }
+    }
+    public var gitState: PullRequestGitState {
+        guard let status = accessibleStatus else { return .unknown }
+        switch status.state {
+        case .open: return status.draft ? .draft : .open
+        case .merged: return .merged
+        case .closed: return .closed
+        case .unknown, nil: return .unknown
+        }
+    }
+    /// The pull request's page: GitHub's own link, or the one its ref implies while no status has loaded.
+    public var url: URL? {
+        if let raw = pullRequest.status?.url, let url = Self.webURL(raw) { return url }
+        return Self.webURL("https://\(pullRequest.host)/\(pullRequest.owner)/\(pullRequest.repo)/pull/\(pullRequest.number)")
     }
     public var reviewLook: ReviewLook {
         switch pullRequest.status?.review {
@@ -144,13 +177,39 @@ public struct PullRequestDisplayRow: Equatable {
         return pullRequest.status?.stale == true ? .stale : .normal
     }
 
+    /// The row's look: the cursor's or the resting look, dimmed while stale and warned when inaccessible.
+    public func look(highlighted: Bool, areaFocused: Bool) -> RowLook {
+        let base = RowLook.pick(highlighted: highlighted, areaFocused: areaFocused)
+        switch rowLook {
+        case .normal: return base
+        case .stale: return base.dimmed
+        case .inaccessible: return base.dimmed.warned
+        }
+    }
+
+    private var accessibleStatus: PullRequestStatus? {
+        guard let status = pullRequest.status, status.inaccessibleReason == nil else { return nil }
+        return status
+    }
+
+    private static func format(_ count: Int) -> String {
+        count.formatted(.number.locale(Locale(identifier: "en_US")))
+    }
+
+    private static func webURL(_ raw: String) -> URL? {
+        guard let url = URL(string: raw), url.host != nil, ["http", "https"].contains(url.scheme?.lowercased()) else {
+            return nil
+        }
+        return url
+    }
+
     public static func make(
         from rows: [PullRequestRow], selectedSessionID: String?, sessions: [TrackerSession]
     ) -> [Self] {
         let selected = sessions.first { $0.id == selectedSessionID }
         let workers = Dictionary(sessions.filter { $0.parentID == selectedSessionID }.map { session in
             let title = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            return (session.id, title.isEmpty ? session.id : title)
+            return (session.id, PullRequestWatcherTag(title: title.isEmpty ? session.id : title, agent: session.agent))
         }, uniquingKeysWith: { _, latest in latest })
         return rows.map { row in
             let tags = selected?.role == "master"

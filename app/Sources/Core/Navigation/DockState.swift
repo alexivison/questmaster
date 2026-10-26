@@ -5,10 +5,16 @@ public enum DockContent: Equatable {
     case artifactList
     case artifactViewer
     case workerChat
+    case versionControl
+
+    /// The artifact list and viewer, as opposed to the dock's other surfaces.
+    public var isArtifact: Bool {
+        self == .artifactList || self == .artifactViewer
+    }
 }
 
 /// The dock's state, app-wide: switching sessions never opens, closes, swaps or resizes the dock. Only what it lists
-/// follows the session (the Session tab's artifacts, the worker chat's workers). The open artifact stays across
+/// follows the session (the Session tab's artifacts, the worker chat's workers, the version control dock's pull requests). The open artifact stays across
 /// sessions: the viewer may show another session's artifact, as the All tab lists them anyway. In memory only.
 public struct DockState: Equatable {
     public var dockVisible: Bool
@@ -44,7 +50,7 @@ public struct DockState: Equatable {
     public mutating func show(_ content: DockContent) {
         dockVisible = true
         dockContent = content
-        if content == .workerChat {
+        if !content.isArtifact {
             selectedArtifactID = nil
         }
     }
@@ -68,9 +74,9 @@ public struct DockState: Equatable {
     }
 
     /// A new artifact in the viewed session opens in the viewer, opening the dock if it's hidden, but never over the
-    /// worker chat while it shows. Returns whether it opened.
+    /// worker chat or the version control dock while one shows. Returns whether it opened.
     public mutating func openNewArtifact(_ artifactID: String) -> Bool {
-        guard !(dockVisible && dockContent == .workerChat) else {
+        guard !(dockVisible && !dockContent.isArtifact) else {
             return false
         }
         showArtifact(artifactID)
