@@ -193,6 +193,8 @@ func recordOpenCodeSubagentChat(r *HookRunner, sessionID string, now time.Time, 
 func openCodeTaskResultSessionID(event openCodeEvent) string {
 	if event.Type == "tool.execute.after" && strings.EqualFold(openCodePropertyString(event.Properties, "tool"), "task") {
 		metadata, _ := event.Properties["metadata"].(map[string]interface{})
+		// OpenCode background sub-agents get no Dismissed on normal completion: v1.19.3 reports it only as synthetic
+		// text, which isn't trusted. They dismiss on session.deleted or the 6h expiry (gap accepted 2026-10-27).
 		if background, _ := metadata["background"].(bool); background {
 			return ""
 		}

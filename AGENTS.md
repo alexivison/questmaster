@@ -240,7 +240,7 @@ again where it was when the keys come back.
   rows on `dropdownChrome(.raised)`: it stands in front of the dock, so it is
   lighter than it (`item` fill, `line` border, radius 4.5), and its rows take the
   raised looks (`RowLook.raisedPick`). A checked box's mark takes the row's text
-  colour. Ticking every box is an ordinary selection (the chip reads "Action: 4"
+  colour. Ticking every box is an ordinary selection (the chip reads "Action: 5"
   and only its x clears it), so a worker that spawns later stays hidden until it
   is ticked. The dropdown is as tall as its rows, up to its panel's height less
   the 5 under the bar and the 20 inset below, and scrolls past that with the

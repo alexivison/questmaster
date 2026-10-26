@@ -122,11 +122,11 @@ enum RenderPreview {
         renderView(workerLogDockView(menuOpen: false), size: headerFadeWrapped, to: "\(outputDir)/header-fade-wrapped.png")
         renderView(workerLogDockView(menuOpen: false), size: headerFadeWrapped, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-wrapped-top.png")
         // Fifteen workers in a 480 high dock: the dropdown stops 20 above the bottom and scrolls, the cursor on the last row.
-        renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 18), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll.png")
+        renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: WorkerLogAction.allCases.count + 14), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll.png")
         renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 0), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll-top.png")
-        render(workerLogPanelDesignView(), size: CGSize(width: 172, height: 330), to: "\(outputDir)/worker-log-filter-panel.png")
-        // The pointer over "Message" (row 2) while the cursor is on the first worker, on the dock's own fill.
-        render(workerLogPanelDesignView(hovering: 2).background(AppPalette.panel.swiftUI), size: CGSize(width: 172, height: 330), to: "\(outputDir)/worker-log-filter-hover.png")
+        render(workerLogPanelDesignView(), size: CGSize(width: 172, height: 360), to: "\(outputDir)/worker-log-filter-panel.png")
+        // The pointer over "Summon" (row 2) while the cursor is on the first worker, on the dock's own fill.
+        render(workerLogPanelDesignView(hovering: 2).background(AppPalette.panel.swiftUI), size: CGSize(width: 172, height: 360), to: "\(outputDir)/worker-log-filter-hover.png")
         render(workerLogChipsDesignView(), size: CGSize(width: 230, height: 152), to: "\(outputDir)/worker-log-filter-chips.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
@@ -482,7 +482,7 @@ enum RenderPreview {
         return canvas
     }
 
-    enum DockSplitBottom { case artifacts, workerChat, workerLog(menuOpen: Bool = true, workers: Int = 4, cursor: Int = 4) }
+    enum DockSplitBottom { case artifacts, workerChat, workerLog(menuOpen: Bool = true, workers: Int = 4, cursor: Int = WorkerLogAction.allCases.count) }
 
     /// The dock column as the shell lays it out, 20 in from a window-coloured canvas's edges: Version Control (unless
     /// `top` is false) over the artifact list or the worker chat (unless `bottom` is nil), `focus` giving one panel the keys.
@@ -745,8 +745,8 @@ enum RenderPreview {
         WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
     }
 
-    /// The worker log as `Worker Chat.png` draws it: four workers under one master, the Action filter on Status, Message
-    /// and Item, and every worker ticked (a selection like any other, so the Worker chip counts them: 2 and 2). With more
+    /// The worker log as `Worker Chat.png` draws it: four workers under one master, the Action filter on Status, Summon,
+    /// Message and Item, and every worker ticked (a selection like any other, so the Worker chip counts them: 2 and 2). With more
     /// `workers` the first four are ticked and the extra ones are named "Worker 06" on.
     @MainActor
     private static func workerLogStore(workers: Int = 4, filtered: Bool = true) -> WorkerChatStore {
@@ -766,6 +766,8 @@ enum RenderPreview {
             entry(20, 9, "w1", "status", "working"),
             entry(20, 12, "w1", "action", "Bash"),
             entry(21, 1, "w1", "say", "I see the problem. I will spin two sub-agents to debug the problem to see why the first round did not fix the issue."),
+            entry(21, 5, "w1", "summon", "Explore"),
+            entry(21, 8, "w1", "summon", "general-purpose"),
             entry(21, 30, "w2", "message", "Found a contradiction in the referenced files, I should confirm this with the master."),
             entry(22, 2, "w3", "status", "working"),
             entry(22, 20, "w3", "say", "I will check ABC-123 against the API contract and flag any breaking changes."),
@@ -774,20 +776,22 @@ enum RenderPreview {
             entry(24, 0, "w5", "say", "I will document the new behavior and update the migration notes for ABC-123."),
             entry(25, 0, "w3", "report", "The response format is unchanged."),
             entry(25, 30, "w2", "status", "done"),
+            entry(25, 50, "w1", "dismiss", "Explore"),
+            entry(25, 55, "w1", "dismiss", "general-purpose"),
             entry(26, 0, "w1", "status", "done"),
             entry(26, 30, "w4", "say", "The regression suite passes. Both the UI fix and the previous patch are covered."),
         ]
         _ = store.receive(WorkerFeedPayload(entries: entries), for: request)
-        // Rows: Cast, Status, Message, Item, then the workers.
+        // Rows: Cast, Status, Summon, Message, Item, then the workers.
         if filtered {
-            [1, 2, 3, 4, 5, 6, 7].forEach(store.toggleRow)
+            [1, 2, 3, 4, 5, 6, 7, 8].forEach(store.toggleRow)
         }
         return store
     }
 
     /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on row `cursor` (the first worker by default).
     @MainActor
-    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = 4, filtered: Bool = true) -> DockShellView {
+    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = WorkerLogAction.allCases.count, filtered: Bool = true) -> DockShellView {
         let store = workerLogStore(workers: workers, filtered: filtered)
         if menuOpen {
             store.toggleMenu()
@@ -836,7 +840,7 @@ enum RenderPreview {
         store.clearFilter(.action)
         store.clearFilter(.worker)
         store.toggleRow(at: 0)
-        store.toggleRow(at: 8)
+        store.toggleRow(at: WorkerLogAction.allCases.count + 4)
         let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
         return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
     }
@@ -847,9 +851,9 @@ enum RenderPreview {
     private static func workerLogPanelDesignView(hovering: Int? = nil) -> some View {
         let workers = (1...4).map { WorkerLogWorker(id: "w\($0)", name: "worker-name", agent: "codex") }
         var filter = WorkerLogFilter()
-        [WorkerLogAction.status, .message, .item].forEach { filter.toggle($0) }
+        [WorkerLogAction.status, .summon, .message, .item].forEach { filter.toggle($0) }
         workers.forEach { filter.toggle($0) }
-        return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: filter, cursor: 4, previewHoveredRow: hovering, onToggle: { _ in })
+        return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: filter, cursor: WorkerLogAction.allCases.count, previewHoveredRow: hovering, onToggle: { _ in })
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(AppPalette.window.swiftUI)
     }
