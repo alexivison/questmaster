@@ -70,20 +70,27 @@ final class MenuController {
         NSApp.mainMenu = mainMenu
     }
 
-    func installCommandKeyMonitor(focusRegionLeft: @escaping () -> Void, focusRegionRight: @escaping () -> Void) {
+    /// Runs the commands whose keys the Ghostty terminal would consume as a key equivalent before the menu sees them.
+    /// Their menu items stay for discoverability and the mouse; a key press the monitor handles never reaches the menu,
+    /// so it can't run twice. A held key (a repeat) is swallowed without running again.
+    func installCommandKeyMonitor(_ actions: CommandKeyActions) {
         guard commandKeyMonitor == nil else {
             return
         }
-        commandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if Self.matches(event, binding: Keymap.Command.focusRegionLeft) {
-                focusRegionLeft()
-                return nil
+        commandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: Self.commandKeyHandler(actions))
+    }
+
+    /// What the monitor does with a key press: nil when a chord of `actions` took it, the event itself otherwise.
+    static func commandKeyHandler(_ actions: CommandKeyActions) -> (NSEvent) -> NSEvent? {
+        let table = actions.table
+        return { event in
+            guard let match = table.first(where: { matches(event, binding: $0.binding) }) else {
+                return event
             }
-            if Self.matches(event, binding: Keymap.Command.focusRegionRight) {
-                focusRegionRight()
-                return nil
+            if !event.isARepeat {
+                match.action()
             }
-            return event
+            return nil
         }
     }
 
@@ -103,7 +110,8 @@ final class MenuController {
 
     private static func matches(_ event: NSEvent, binding: Keymap.CommandBinding) -> Bool {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Caps Lock doesn't change a chord, here or in the menu.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
         return key == binding.keyEquivalent.lowercased()
             && flags == modifierFlags(for: binding.modifiers)
     }
@@ -123,6 +131,26 @@ final class MenuController {
             }
         }
         return flags
+    }
+}
+
+/// What each command-key chord does while the terminal has the keys: the four commands that go through
+/// `MenuController.installCommandKeyMonitor`, one closure each so none can be left out.
+struct CommandKeyActions {
+    let focusRegionLeft: () -> Void
+    let focusRegionRight: () -> Void
+    let focusDockTop: () -> Void
+    let focusDockBottom: () -> Void
+    let toggleVersionControlDock: () -> Void
+
+    var table: [(binding: Keymap.CommandBinding, action: () -> Void)] {
+        [
+            (Keymap.Command.focusRegionLeft, focusRegionLeft),
+            (Keymap.Command.focusRegionRight, focusRegionRight),
+            (Keymap.Command.focusDockTop, focusDockTop),
+            (Keymap.Command.focusDockBottom, focusDockBottom),
+            (Keymap.Command.toggleVersionControlDock, toggleVersionControlDock),
+        ]
     }
 }
 

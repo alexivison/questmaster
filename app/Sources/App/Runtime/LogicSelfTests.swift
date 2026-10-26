@@ -70,6 +70,7 @@ enum LogicSelfTests {
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
+        ("testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents", testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
@@ -1316,6 +1317,115 @@ enum LogicSelfTests {
 
         _ = laidOut(DockPanels(top: true, bottom: true))
         try expect(top.frame.height == 300 && bottom.frame.height == 540, "the split comes back as it was")
+    }
+
+    /// The terminal consumes command-key chords as key equivalents before the menu sees them, so the chords that must work
+    /// from it (⌘⇧H/L, ⌥⌘K/J, ⇧⌘R) run from `MenuController`'s key monitor, which comes first. A stand-in for the terminal
+    /// consumes every key equivalent; an in-process key event for each chord must reach its action once, never the stand-in
+    /// (so the menu can't run it a second time), and a held key must not run it again.
+    private static func testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents() throws {
+        final class TerminalStandIn: NSView {
+            var keyEquivalents = 0
+            var keyDowns = 0
+            override var acceptsFirstResponder: Bool { true }
+            override func performKeyEquivalent(with event: NSEvent) -> Bool {
+                keyEquivalents += 1
+                return true
+            }
+            override func keyDown(with event: NSEvent) { keyDowns += 1 }
+        }
+        let window = HeadlessWindow(size: CGSize(width: 400, height: 300))
+        let terminal = TerminalStandIn(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = terminal
+        window.show(key: true)
+        defer { window.close() }
+        try expect(window.makeFirstResponder(terminal), "the stand-in terminal should take the keys")
+
+        func send(_ characters: String, _ plain: String, keyCode: UInt16, _ flags: NSEvent.ModifierFlags, isARepeat: Bool = false) throws {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: plain,
+                isARepeat: isARepeat, keyCode: keyCode
+            ) else {
+                throw TestFailure("could not create the \(plain) key event")
+            }
+            NSApp.sendEvent(event)
+        }
+        // keyCodes: K 40, J 38, H 4, L 37, R 15. Option turns the character (⌥K types ˚) but not the one ignoring modifiers.
+        let chords: [(name: String, characters: String, plain: String, keyCode: UInt16, flags: NSEvent.ModifierFlags)] = [
+            ("⌥⌘K", "˚", "k", 40, [.command, .option]),
+            ("⌥⌘J", "∆", "j", 38, [.command, .option]),
+            ("⇧⌘R", "R", "R", 15, [.command, .shift]),
+            ("⇧⌘H", "H", "H", 4, [.command, .shift]),
+            ("⇧⌘L", "L", "L", 37, [.command, .shift]),
+        ]
+
+        // The premise: the view hierarchy sees a key equivalent before the menu, and the terminal consumes it, so a menu item
+        // alone never runs from the terminal.
+        let first = chords[0]
+        guard let premise = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: first.flags, timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, characters: first.characters, charactersIgnoringModifiers: first.plain,
+            isARepeat: false, keyCode: first.keyCode
+        ) else {
+            throw TestFailure("could not create the premise event")
+        }
+        try expect(window.performKeyEquivalent(with: premise) && terminal.keyEquivalents == 1, "the terminal consumes the chord as a key equivalent, ahead of the menu")
+        terminal.keyEquivalents = 0
+
+        var ran: [String] = []
+        let actions = CommandKeyActions(
+            focusRegionLeft: { ran.append("⇧⌘H") },
+            focusRegionRight: { ran.append("⇧⌘L") },
+            focusDockTop: { ran.append("⌥⌘K") },
+            focusDockBottom: { ran.append("⌥⌘J") },
+            toggleVersionControlDock: { ran.append("⇧⌘R") }
+        )
+        let menu = MenuController()
+        menu.installCommandKeyMonitor(actions)
+        defer { menu.stop() }
+
+        // Through the real monitor: NSApp runs it ahead of any view, so each chord reaches its action exactly once.
+        for chord in chords {
+            try send(chord.characters, chord.plain, keyCode: chord.keyCode, chord.flags)
+        }
+        try expect(ran == chords.map(\.name), "each chord should run its own action once, in order, got \(ran)")
+        try expect(terminal.keyEquivalents == 0 && terminal.keyDowns == 0, "and none should reach the terminal, so the menu can't run it again")
+
+        // What the monitor hands back decides whether the terminal or the menu ever sees the press: nil for a chord it took,
+        // the event itself for anything else.
+        let handler = MenuController.commandKeyHandler(actions)
+        ran.removeAll()
+        for chord in chords {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: chord.flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: chord.characters, charactersIgnoringModifiers: chord.plain,
+                isARepeat: false, keyCode: chord.keyCode
+            ) else {
+                throw TestFailure("could not create the \(chord.name) event")
+            }
+            try expect(handler(event) == nil, "the monitor should swallow \(chord.name) once it has run it")
+        }
+        try expect(ran == chords.map(\.name), "and run it, got \(ran)")
+
+        ran.removeAll()
+        try send("˚", "k", keyCode: 40, [.command, .option], isARepeat: true)
+        try expect(ran.isEmpty, "a held chord is swallowed without running again")
+        try send("˚", "k", keyCode: 40, [.command, .option, .capsLock])
+        try expect(ran == ["⌥⌘K"], "Caps Lock doesn't change a chord, got \(ran)")
+
+        ran.removeAll()
+        for (characters, plain, keyCode, flags) in [("K", "K", UInt16(40), NSEvent.ModifierFlags([.command, .option, .shift])), ("k", "k", UInt16(40), []), ("r", "r", UInt16(15), [.command])] {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: plain,
+                isARepeat: false, keyCode: keyCode
+            ) else {
+                throw TestFailure("could not create the \(plain) event")
+            }
+            try expect(handler(event) === event, "a key that is no chord of the monitor's goes on to the terminal and the menu")
+        }
+        try expect(ran.isEmpty, "and runs nothing")
     }
 
     /// A panel appearing or going away while the dock stays up is one short transition that ends on its own: the panel

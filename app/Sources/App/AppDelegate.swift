@@ -187,10 +187,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 focusRegionRight: #selector(focusRegionRight)
             )
         )
-        menuController.installCommandKeyMonitor(
+        menuController.installCommandKeyMonitor(CommandKeyActions(
             focusRegionLeft: { [weak self] in self?.focusRegionLeft() },
-            focusRegionRight: { [weak self] in self?.focusRegionRight() }
-        )
+            focusRegionRight: { [weak self] in self?.focusRegionRight() },
+            focusDockTop: { [weak self] in self?.focusDockTopPanel() },
+            focusDockBottom: { [weak self] in self?.focusDockBottomPanel() },
+            toggleVersionControlDock: { [weak self] in self?.toggleVersionControlDock() }
+        ))
         let serveMutationClient = UnixSocketMutationClient(connection: daemonConnection)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
@@ -628,6 +631,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Shows or hides the top panel without touching the bottom one. Showing it takes the keys.
     @objc private func toggleVersionControlDock() {
+        // Also reached from MenuController's key monitor, which runs before menu validation.
+        guard InWindowModalStack.shared.isEmpty else {
+            return
+        }
         if dockCoordinator.state.topVisible {
             hideVersionControl()
             return
