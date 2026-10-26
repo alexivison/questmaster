@@ -86,8 +86,8 @@ enum RenderPreview {
         renderView(dockBarView(.versionControlEmpty), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control-empty.png")
         renderView(dockBarView(.versionControlNotice), size: CGSize(width: DockWidthPreference.compactWidth, height: 240), to: "\(outputDir)/dock-version-control-notice.png")
         // The design's own rows, in its order, at the Session Detail Dock's list width, for diffing against its SVG.
-        render(versionControlRowsView(highlight: 1), size: CGSize(width: 480, height: 240), to: "\(outputDir)/version-control-rows-design.png")
-        render(versionControlRowsView(highlight: nil), size: CGSize(width: 480, height: 240), to: "\(outputDir)/version-control-rows-design-rest.png")
+        render(versionControlRowsView(highlight: 1), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design.png")
+        render(versionControlRowsView(highlight: nil), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design-rest.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")

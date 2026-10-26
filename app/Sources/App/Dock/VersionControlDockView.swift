@@ -2,19 +2,16 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The version control rows' geometry, from `Session Detail Dock.svg` and `Pull Request Item.svg` with the design's 42pt
-/// pitch snapped to 40: 5 in from the row's edges, the title's baseline at 15, a line of 15pt icons from 20 to 35, and
-/// 5 under it, where the hairline sits.
+/// The version control rows' geometry, from `pr-item-v2.png`: 45 tall, 5 in from the row's edges, two 15pt lines 5 apart, and
+/// 5 under the second, where the hairline sits. Text is centred on its line, so its baseline is 11.8 below the line's top.
 enum VersionControlMetrics {
     static let inset = Space.section
-    static let rowHeight = ControlHeight.bar
+    static let rowHeight = ControlHeight.bar + Space.row
     static let rowInset = Space.row
-    static let titleLineHeight = Space.section
-    static let detailLineHeight = ControlHeight.chip
+    static let lineHeight = ControlHeight.chip
+    static let lineGap = Space.row
     static let cornerRadius = Token.Radius.segment
-    static let titleBaseline: CGFloat = 15
-    /// The detail line's text sits 11.6 under its icons' top edge in the design.
-    static let detailBaseline: CGFloat = 11.5
+    static let lineBaseline: CGFloat = 11.8
 }
 
 /// The pull requests the selected session watches, a master's with its workers', newest open first.
@@ -127,11 +124,12 @@ struct VersionControlRow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: Metrics.lineGap) {
                 titleLine
                 detailLine
             }
             .padding(.horizontal, Metrics.rowInset)
+            .padding(.top, Metrics.rowInset)
             .frame(height: Metrics.rowHeight, alignment: .top)
             .stateRow(look, cornerRadius: Metrics.cornerRadius)
             .overlay(alignment: .bottom) { separator }
@@ -144,34 +142,43 @@ struct VersionControlRow: View {
         .accessibilityHint("Open pull request")
     }
 
+    /// The git state, then `#number` and the title, which truncates.
     private var titleLine: some View {
-        HStack(alignment: .top, spacing: Space.item) {
-            text(row.numberLabel, color: look.text.color, baseline: Metrics.titleBaseline)
-                .fixedSize()
-            text(row.title, color: look.text.color, baseline: Metrics.titleBaseline)
-        }
-        .frame(height: Metrics.titleLineHeight, alignment: .top)
-    }
-
-    private var detailLine: some View {
         HStack(alignment: .top, spacing: Space.item) {
             if let git = row.gitState.icon {
                 slot(git)
+            } else {
+                emptySlot
             }
+            text(row.numberLabel, color: look.text.color)
+                .fixedSize()
+            text(row.title, color: look.text.color)
+        }
+        .frame(height: Metrics.lineHeight, alignment: .top)
+    }
+
+    /// The review ring under the git icon, then the `CI` label under the number, the diff counter and the comment count with
+    /// a divider between each, and the worker tag at the right edge. An inaccessible row's label sits under the number.
+    private var detailLine: some View {
+        HStack(alignment: .top, spacing: Space.item) {
             if let inaccessibleLabel = row.inaccessibleLabel {
-                text(inaccessibleLabel, color: look.icon.color, baseline: Metrics.detailBaseline)
+                emptySlot
+                text(inaccessibleLabel, color: look.icon.color)
             } else if let additions = row.additionsLabel, let deletions = row.deletionsLabel, let comments = row.commentsLabel {
                 slot(row.reviewLook.ring)
-                text("CI", color: tint(row.ciLook.color, dim: row.ciLook == .none), baseline: Metrics.detailBaseline)
+                text("CI", color: tint(row.ciLook.color, dim: row.ciLook == .none))
                     .fixedSize()
+                divider
                 HStack(alignment: .top, spacing: Space.row) {
-                    text(additions, color: tint(AppPalette.gitGreen), baseline: Metrics.detailBaseline)
-                    text(deletions, color: tint(AppPalette.gitRed), baseline: Metrics.detailBaseline)
+                    text(additions, color: tint(AppPalette.gitGreen))
+                    text(deletions, color: tint(AppPalette.gitRed))
                 }
                 .fixedSize()
+                .opacity(Token.Opacity.dimmed)
+                divider
                 HStack(alignment: .top, spacing: Space.row) {
-                    PullRequestIconView(icon: .bubble, color: AppPalette.line)
-                    text(comments, color: look.meta.color, baseline: Metrics.detailBaseline)
+                    PullRequestIconView(icon: .bubble, color: AppPalette.controlBorder)
+                    text(comments, color: AppPalette.controlBorder)
                 }
                 .fixedSize()
             }
@@ -180,7 +187,18 @@ struct VersionControlRow: View {
                 workerTag(tag)
             }
         }
-        .frame(height: Metrics.detailLineHeight, alignment: .top)
+        .frame(height: Metrics.lineHeight, alignment: .top)
+    }
+
+    /// A hairline as tall as the line, between the label and the counters.
+    private var divider: some View {
+        Rectangle()
+            .fill(AppPalette.lineSoftSubtle.swiftUI)
+            .frame(width: Token.Size.divider, height: Metrics.lineHeight)
+    }
+
+    private var emptySlot: some View {
+        Color.clear.frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
     }
 
     private func workerTag(_ tag: PullRequestWatcherTag) -> some View {
@@ -191,17 +209,17 @@ struct VersionControlRow: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
             }
-            text(tag.title, color: look.meta.color, baseline: Metrics.detailBaseline)
+            text(tag.title, color: look.meta.color)
             if row.extraWatcherCount > 0 {
-                text("+\(row.extraWatcherCount)", color: look.meta.color, baseline: Metrics.detailBaseline)
+                text("+\(row.extraWatcherCount)", color: look.meta.color)
                     .fixedSize()
             }
         }
         .help(tag.title)
     }
 
-    private func text(_ value: String, color: NSColor, baseline: CGFloat) -> some View {
-        BaselineText(value, font: AppFonts.artifactTitle, color: color, baseline: baseline)
+    private func text(_ value: String, color: NSColor) -> some View {
+        BaselineText(value, font: AppFonts.artifactTitle, color: color, baseline: Metrics.lineBaseline)
             .lineLimit(1)
             .truncationMode(.tail)
     }
