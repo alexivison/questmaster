@@ -45,11 +45,11 @@ func (j *ClassBackfillJob) HasWork() bool {
 
 func (j *ClassBackfillJob) Run(ctx context.Context) error {
 	for {
-		if err := ctx.Err(); err != nil {
-			return err
+		if ctx.Err() != nil {
+			return nil
 		}
-		j.hasWork.Store(true)
 		if err := j.runPass(ctx); err != nil {
+			j.hasWork.Store(true)
 			return err
 		}
 		j.hasWork.Store(false)
@@ -65,13 +65,24 @@ func (j *ClassBackfillJob) Run(ctx context.Context) error {
 }
 
 func (j *ClassBackfillJob) runPass(ctx context.Context) error {
-	liveSessions, activeClasses, err := liveMasterClasses(ctx, j.store, j.tmuxClient)
-	if err != nil {
-		return fmt.Errorf("list live sessions for class backfill: %w", err)
-	}
 	manifests, err := j.store.DiscoverSessions()
 	if err != nil {
 		return fmt.Errorf("discover sessions for class backfill: %w", err)
+	}
+	hasClasslessMaster := false
+	for _, manifest := range manifests {
+		if manifest.AgentSessionType() == "master" && manifest.DisplayClass() == "" {
+			hasClasslessMaster = true
+			break
+		}
+	}
+	if !hasClasslessMaster {
+		return nil
+	}
+	j.hasWork.Store(true)
+	liveSessions, activeClasses, err := liveMasterClasses(ctx, j.store, j.tmuxClient)
+	if err != nil {
+		return fmt.Errorf("list live sessions for class backfill: %w", err)
 	}
 
 	var writeErrors []error

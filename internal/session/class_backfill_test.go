@@ -16,13 +16,18 @@ import (
 )
 
 type classBackfillRunner struct {
-	sessions string
-	err      error
-	calls    int
+	sessions   string
+	err        error
+	failOnCall int
+	failErr    error
+	calls      int
 }
 
 func (r *classBackfillRunner) Run(_ context.Context, _ ...string) (string, error) {
 	r.calls++
+	if r.calls == r.failOnCall {
+		return "", r.failErr
+	}
 	return r.sessions, r.err
 }
 
@@ -202,6 +207,61 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 			t.Fatal("rescan did not backfill the later master")
 		case <-ticker.C:
 		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run after cancellation: %v", err)
+	}
+}
+
+func TestClassBackfillJobSkipsTmuxForEmptyRescans(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	createClassBackfillMaster(t, store, "qm-rescan", "")
+	runner := &classBackfillRunner{
+		sessions:   "qm-rescan",
+		failOnCall: 2,
+		failErr:    &tmux.ExitError{Code: 1, Stderr: "tmux unavailable"},
+	}
+	job := NewClassBackfillJob(store, tmux.NewClient(runner))
+	job.rescanInterval = 20 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- job.Run(ctx) }()
+	defer cancel()
+	deadline := time.NewTimer(time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for job.HasWork() {
+		select {
+		case err := <-done:
+			t.Fatalf("Run returned before cancellation: %v", err)
+		case <-deadline.C:
+			t.Fatal("initial backfill pass did not finish")
+		case <-ticker.C:
+		}
+	}
+	manifest, err := store.Read("qm-rescan")
+	if err != nil {
+		t.Fatalf("read backfilled master: %v", err)
+	}
+	if manifest.DisplayClass() == "" {
+		t.Fatal("initial pass did not backfill classless master")
+	}
+	time.Sleep(60 * time.Millisecond)
+	if job.HasWork() {
+		t.Fatal("HasWork() = true after empty rescan")
+	}
+	if runner.calls != 1 {
+		t.Fatalf("tmux list calls = %d, want only the initial classless pass", runner.calls)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("Run returned from successful empty rescans: %v", err)
+	default:
 	}
 	cancel()
 	if err := <-done; err != nil {
