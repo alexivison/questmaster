@@ -102,6 +102,8 @@ enum RenderPreview {
         }
         render(selectedSessionPanelView(), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel.png")
         render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
+        render(selectedSessionPanelView(portrait: .master(.cleric)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-class.png")
+        render(selectedSessionPanelView(portrait: .familiar(.wizard)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-familiar.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -1026,13 +1028,14 @@ enum RenderPreview {
     /// The selected-session panel with the strings and the bar colour `Selected Session.svg` shows, or with no text, to
     /// compare the plate alone against the SVG's raster.
     @MainActor
-    private static func selectedSessionPanelView(withText: Bool = true) -> some View {
+    private static func selectedSessionPanelView(withText: Bool = true, portrait: SessionPortrait? = nil) -> some View {
         SelectedSessionPanel(
             content: SelectedSessionPanelContent(
                 title: withText ? "Improve fuzzy search ranking" : "",
                 id: withText ? "qm-1789532989" : "",
                 projectName: withText ? "Questmaster" : "",
-                projectColor: NSColor(hex: 0x7A7AF0)
+                projectColor: NSColor(hex: 0x7A7AF0),
+                portrait: portrait
             ),
             onCopyID: { _ in }
         )

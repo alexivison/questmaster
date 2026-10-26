@@ -2,13 +2,15 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// What the selected-session panel shows: the attached session's title, id and project. With no
+/// What the selected-session panel shows: the attached session's title, id, project and class portrait. With no
 /// attached session, the panel reads "Terminal" with no id and a neutral bar.
 struct SelectedSessionPanelContent {
     let title: String
     let id: String
     let projectName: String
     let projectColor: NSColor
+    /// The attached master's class portrait or worker's familiar; nil (a shell, no class, nothing attached) keeps the Q.
+    var portrait: SessionPortrait? = nil
 
     static func make(currentTerminalSessionID: String?, tracker: TrackerRenderedTracker) -> SelectedSessionPanelContent {
         let id = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID) ?? ""
@@ -20,7 +22,8 @@ struct SelectedSessionPanelContent {
             title: title.isEmpty ? match.rendered.session.id : title,
             id: match.rendered.session.id,
             projectName: match.repoName.isEmpty ? "ungrouped" : match.repoName,
-            projectColor: TrackerNameplateColor.barLightness(match.rendered.groupColor)
+            projectColor: TrackerNameplateColor.barLightness(match.rendered.groupColor),
+            portrait: SessionPortrait(session: match.rendered.session)
         )
     }
 
@@ -33,8 +36,8 @@ struct SelectedSessionPanelContent {
     }
 }
 
-/// The attached session, pinned above the tracker list: the Questmaster Q as the portrait, the session id in the tab
-/// above the plate, the title on its strip, and the project on its bar. A click copies the id.
+/// The attached session, pinned above the tracker list: its class portrait (the Questmaster Q when it has none), the
+/// session id in the tab above the plate, the title on its strip, and the project on its bar. A click copies the id.
 struct SelectedSessionPanel: View {
     let content: SelectedSessionPanelContent
     let onCopyID: (String) -> Void
@@ -93,7 +96,7 @@ struct SelectedSessionPanel: View {
             Canvas { context, _ in
                 drawPortrait(&context)
             }
-            if let logo = Self.logo {
+            if content.portrait == nil, let logo = Self.logo {
                 Image(nsImage: logo)
                     .resizable()
                     .frame(width: Self.logoSize.width, height: Self.logoSize.height)
@@ -126,11 +129,14 @@ struct SelectedSessionPanel: View {
         context.fillInnerShadow(PanelDesign.projectBar, PanelDesign.barRimShadow(content.projectColor))
     }
 
-    /// The disc over its shadow, its inner shadow, then the ornaments over it, in the SVG's order. The logo draws over
-    /// all of them.
+    /// The disc over its shadow, the class portrait, its inner shadow, then the ornaments over it, in the SVG's order.
+    /// Without a portrait the logo draws over all of them.
     private func drawPortrait(_ context: inout GraphicsContext) {
         context.fillOuterShadow(PanelDesign.disc, PanelDesign.discOuterShadow)
         context.fill(PanelDesign.disc, with: .color(AppPalette.panel.swiftUI))
+        if let portrait = content.portrait {
+            context.drawPortrait(portrait, in: PanelDesign.disc, strength: PanelDesign.portraitStrength)
+        }
         context.fillInnerShadow(PanelDesign.disc, PanelDesign.discInnerShadow)
         for ornament in PanelDesign.ornaments {
             context.fill(ornament.path, with: .color(color(for: ornament.role)), style: FillStyle(eoFill: true))
@@ -162,6 +168,8 @@ private enum PanelDesign {
     static let frameDropShadowOpacity: CGFloat = 0.1
     static let frameDropShadowBlur: CGFloat = 0.5
     static let frameDropShadowDrop: CGFloat = 1
+    /// The SVG draws the class portrait at 80% over the disc's fill, a step brighter than the tracker's plates.
+    static let portraitStrength = 0.8
     /// The SVG's bar rim (141, 141, 255) lifts its bar (122, 122, 240) by 19 of 255 on each channel, up to white.
     private static let barRimLift: CGFloat = 19.0 / 255
 

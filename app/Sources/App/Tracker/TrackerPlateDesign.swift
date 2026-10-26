@@ -63,6 +63,8 @@ enum TrackerPlateDesign {
     static let badgeDiameter = collapsedCircleDiameter
     static let badgeOverhang = Space.row
     static let badgeLogoSide = badgeDiameter * logoShare
+    /// How strongly a class portrait or familiar shows over the disc's dark fill: dimmed so the plate's text leads.
+    static let portraitStrength = 0.7
 
     /// The collapsed workers' circles: 25 points across with 5 between, the first's left edge 40 points right of the
     /// master disc's, in a row right under the disc's.
