@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -69,6 +70,40 @@ func TestSubagentChatRequiresIDAndPublicType(t *testing.T) {
 				t.Fatalf("invalid start changed pane/feed: pane=%+v event=%+v", pane, event)
 			}
 		})
+	}
+}
+
+func TestUpdateSubagentChatPrunesAndCapsActiveChildren(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	old := base.Add(-activeSubagentMaxAge - time.Minute)
+	pane := state.PaneState{
+		ActiveSubagents:         map[string]string{"expired": "Explore"},
+		ActiveSubagentStartedAt: map[string]time.Time{"expired": old},
+	}
+	event := state.StateEvent{Ts: base}
+	if !updateSubagentChat(&pane, &event, "subagent_start", "current", "Codex") {
+		t.Fatal("fresh subagent start was not recorded after pruning")
+	}
+	if len(pane.ActiveSubagents) != 1 || pane.ActiveSubagents["current"] != "Codex" {
+		t.Fatalf("active subagents after pruning = %#v", pane.ActiveSubagents)
+	}
+
+	pane = state.PaneState{
+		ActiveSubagents:         make(map[string]string, maxActiveSubagents),
+		ActiveSubagentStartedAt: make(map[string]time.Time, maxActiveSubagents),
+	}
+	for i := 0; i < maxActiveSubagents; i++ {
+		id := fmt.Sprintf("child-%d", i)
+		pane.ActiveSubagents[id] = "Explore"
+		pane.ActiveSubagentStartedAt[id] = base
+	}
+	event = state.StateEvent{Ts: base}
+	if updateSubagentChat(&pane, &event, "subagent_start", "overflow", "Codex") {
+		t.Fatal("start beyond the active-child cap was recorded")
+	}
+	if len(pane.ActiveSubagents) != maxActiveSubagents || len(chatEntries(event)) != 0 {
+		t.Fatalf("cap state/feed = %d/%v, want %d/no entry", len(pane.ActiveSubagents), chatEntries(event), maxActiveSubagents)
 	}
 }
 

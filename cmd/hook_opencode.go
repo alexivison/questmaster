@@ -30,21 +30,23 @@ type openCodeEvent struct {
 }
 
 type openCodePatch struct {
-	state            string
-	activity         string
-	tool             string
-	commandKey       string
-	toolCallID       string
-	failedToolCallID string
-	clearTool        bool
-	kind             string
-	recent           []string
-	hasRecent        bool
-	sessionID        string
-	eventID          string
-	statusType       string
-	version          string
-	occurredAt       time.Time
+	state              string
+	activity           string
+	tool               string
+	commandKey         string
+	toolCallID         string
+	failedToolCallID   string
+	finishedSubagentID string
+	clearTool          bool
+	kind               string
+	recent             []string
+	hasRecent          bool
+	sessionID          string
+	eventID            string
+	statusType         string
+	version            string
+	occurredAt         time.Time
+	parentSessionID    string
 
 	// A part has no role. Keep it until message.updated confirms the matching
 	// assistant message, so user prompt text never enters the worker feed.
@@ -124,56 +126,60 @@ func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCo
 	id := openCodeSessionID(event)
 	parentID, _ := info["parentID"].(string)
 	familiar, _ := info["agent"].(string)
-	action := ""
-	switch event.Type {
-	case "session.created":
-		if strings.TrimSpace(parentID) == "" {
-			return false
+	var pane state.PaneState
+	if r.LoadState != nil {
+		if ss, err := r.LoadState(sessionID); err == nil && ss != nil {
+			pane = ss.Panes["agent"]
 		}
+	}
+	rootID := pane.OpenCodeSessionID
+
+	if event.Type == "session.created" && strings.TrimSpace(parentID) != "" {
 		id, _ = info["id"].(string)
 		id = state.SanitizeResumeID(strings.TrimSpace(id))
-		action = "subagent_start"
-	case "session.idle", "session.deleted":
-		if id == "" || r.LoadState == nil {
-			return false
+		if rootID != "" && strings.TrimSpace(parentID) == rootID {
+			recordOpenCodeSubagentChat(r, sessionID, now, rootID, id, familiar, "subagent_start", event.ID, stderr)
 		}
-		ss, err := r.LoadState(sessionID)
-		if err != nil || ss == nil {
-			return false
-		}
-		pane := ss.Panes["agent"]
-		_, active := pane.ActiveSubagents[id]
-		if !active && (pane.OpenCodeSessionID == "" || pane.OpenCodeSessionID == id) {
-			return false
-		}
-		action = "subagent_stop"
-	default:
+		return true
+	}
+
+	if id == "" || id == rootID {
+		return false
+	}
+	if event.Type == "session.deleted" {
+		recordOpenCodeSubagentChat(r, sessionID, now, rootID, id, "", "subagent_stop", event.ID, stderr)
+	}
+	if event.Type == "session.idle" || event.Type == "session.deleted" {
+		return true
+	}
+	if rootID == "" {
 		return false
 	}
 
+	// Child sessions and other non-root sessions must never reach the parent pane.
+	// A new root is identified only by session.created after the old root finished.
+	if event.Type == "session.created" && strings.TrimSpace(parentID) == "" &&
+		(rootID == "" || pane.State == "idle" || pane.State == "done") {
+		return false
+	}
+	return true
+}
+
+func recordOpenCodeSubagentChat(r *HookRunner, sessionID string, now time.Time, parentID, childID, familiar, action, eventID string, stderr io.Writer) {
 	ev := state.StateEvent{
-		Ts: now, Agent: "opencode", AgentID: id, AgentType: familiar,
-		Role: "agent", Action: event.Type, Kind: event.Type,
-		Fields: map[string]interface{}{"minimum_version": openCodeMinimumVersion},
+		Ts: now, Agent: "opencode", AgentID: childID, AgentType: familiar,
+		Role: "agent", Action: action, Kind: action,
+		Fields: map[string]interface{}{"minimum_version": openCodeMinimumVersion, "subagent_id": childID},
 	}
-	if event.ID != "" {
-		ev.Fields["event_id"] = event.ID
-	}
-	if id != "" {
-		ev.Fields["subagent_id"] = id
+	if eventID != "" {
+		ev.Fields["event_id"] = eventID
 	}
 	_, updateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
 		pane, exists := ss.Panes["agent"]
-		if !exists {
+		if !exists || pane.OpenCodeSessionID != parentID || parentID == "" {
 			return false
 		}
-		if action == "subagent_start" && pane.OpenCodeSessionID != strings.TrimSpace(parentID) {
-			return false
-		}
-		if action == "subagent_stop" && pane.OpenCodeSessionID == id {
-			return false
-		}
-		if !updateSubagentChat(&pane, &ev, action, id, familiar) {
+		if !updateSubagentChat(&pane, &ev, action, childID, familiar) {
 			return false
 		}
 		ss.SeenAt = now
@@ -183,7 +189,57 @@ func handleOpenCodeSubagentEvent(r *HookRunner, sessionID string, payload openCo
 	if updateErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook opencode: update state: %v\n", updateErr)
 	}
-	return true
+}
+
+func openCodeTaskResultSessionID(event openCodeEvent) string {
+	if event.Type == "tool.execute.after" && strings.EqualFold(openCodePropertyString(event.Properties, "tool"), "task") {
+		metadata, _ := event.Properties["metadata"].(map[string]interface{})
+		if background, _ := metadata["background"].(bool); background {
+			return ""
+		}
+		return cleanSubagentID(openCodePropertyString(metadata, "sessionId"))
+	}
+	if event.Type != "message.part.updated" {
+		return ""
+	}
+	part, _ := event.Properties["part"].(map[string]interface{})
+	if partType, _ := part["type"].(string); partType == "tool" && strings.EqualFold(openCodePropertyString(part, "tool"), "task") {
+		toolState, _ := part["state"].(map[string]interface{})
+		status := openCodePropertyString(toolState, "status")
+		metadata, _ := toolState["metadata"].(map[string]interface{})
+		if status == "completed" || status == "error" {
+			return cleanSubagentID(openCodePropertyString(metadata, "sessionId"))
+		}
+	}
+	if partType, _ := part["type"].(string); partType == "text" {
+		if synthetic, _ := part["synthetic"].(bool); synthetic {
+			return openCodeBackgroundResultSessionID(openCodePropertyString(part, "text"))
+		}
+	}
+	return ""
+}
+
+func openCodeBackgroundResultSessionID(text string) string {
+	const prefix = `<task id="`
+	start := strings.Index(text, prefix)
+	if start < 0 {
+		return ""
+	}
+	rest := text[start+len(prefix):]
+	id, rest, found := strings.Cut(rest, `"`)
+	if !found || !(strings.HasPrefix(rest, ` state="completed"`) || strings.HasPrefix(rest, ` state="error"`)) {
+		return ""
+	}
+	return cleanSubagentID(id)
+}
+
+func cleanSubagentID(id string) string {
+	return state.SanitizeResumeID(strings.TrimSpace(id))
+}
+
+func openCodePropertyString(values map[string]interface{}, key string) string {
+	value, _ := values[key].(string)
+	return value
 }
 
 func decodeOpenCodePayload(data []byte) (openCodeHookPayload, bool) {
@@ -210,10 +266,14 @@ func decodeOpenCodePayload(data []byte) (openCodeHookPayload, bool) {
 func openCodePatchForEvent(payload openCodeHookPayload) openCodePatch {
 	event := payload.Event
 	patch := openCodePatch{
-		kind:      event.Type,
-		sessionID: openCodeSessionID(event),
-		eventID:   strings.TrimSpace(event.ID),
-		version:   openCodeVersion(payload),
+		kind:               event.Type,
+		sessionID:          openCodeSessionID(event),
+		eventID:            strings.TrimSpace(event.ID),
+		version:            openCodeVersion(payload),
+		finishedSubagentID: openCodeTaskResultSessionID(event),
+	}
+	if info, _ := event.Properties["info"].(map[string]interface{}); info != nil {
+		patch.parentSessionID, _ = info["parentID"].(string)
 	}
 
 	switch event.Type {
@@ -299,9 +359,14 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		if !exists {
 			pane = state.PaneState{Role: role, Agent: "opencode"}
 		}
-		if patch.sessionID != "" && pane.OpenCodeSessionID != "" && pane.OpenCodeSessionID != patch.sessionID &&
-			!((pane.State == "idle" || pane.State == "done") && patch.state == "working") {
-			return false
+		if patch.sessionID != "" && pane.OpenCodeSessionID != "" && pane.OpenCodeSessionID != patch.sessionID {
+			newRootSession := patch.kind == "session.created" && patch.parentSessionID == "" &&
+				(pane.State == "idle" || pane.State == "done")
+			if !newRootSession {
+				return false
+			}
+			pane.ActiveSubagents = nil
+			pane.ActiveSubagentStartedAt = nil
 		}
 		accepted = true
 		prev := struct {
@@ -317,6 +382,9 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.Recent, pane.OpenCodeSessionID, pane.PendingPartMsgID, pane.PendingPartText, pane.PendingFinalMessage, pane.LastChatStatus, pane.LastChatAt}
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevNarration := pane.Narration
+		if patch.finishedSubagentID != "" && patch.sessionID == pane.OpenCodeSessionID {
+			updateSubagentChat(&pane, ev, "subagent_stop", patch.finishedSubagentID, "")
+		}
 
 		setState := patch.state
 		setActivity := patch.activity

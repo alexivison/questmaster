@@ -212,7 +212,10 @@ func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
 				}})
 			},
 			finish: func(t *testing.T, r *HookRunner, session string) {
-				openCodeHookEvent(t, r, session, "session.idle", map[string]interface{}{"sessionID": "ses_child"})
+				openCodeHookEvent(t, r, session, "tool.execute.after", map[string]interface{}{
+					"sessionID": "ses_root", "tool": "task",
+					"metadata": map[string]interface{}{"sessionId": "ses_child"},
+				})
 			},
 			deleteFinish: func(t *testing.T, r *HookRunner, session string) {
 				openCodeHookEvent(t, r, session, "session.deleted", map[string]interface{}{"sessionID": "ses_child"})
@@ -262,6 +265,12 @@ func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
 			if got := chatKinds(latestHookEvent(t, rec)); len(got) != 0 {
 				t.Fatalf("repeated start chat kinds = %v, want none", got)
 			}
+			if tc.name == "opencode" {
+				openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": "ses_child"})
+				if got := chatKinds(latestHookEvent(t, rec)); len(got) != 0 {
+					t.Fatalf("OpenCode child idle chat kinds = %v, want none", got)
+				}
+			}
 
 			tc.finish(t, r, sessionID)
 			assertSubagentChat(t, latestHookEvent(t, rec), "dismiss", familiar)
@@ -287,6 +296,42 @@ func TestHookSubagentFeedLifecycleForHarnesses(t *testing.T) {
 			tc.spawn(t, r, sessionID)
 			if got := chatKinds(latestHookEvent(t, rec)); slices.Contains(got, "action") {
 				t.Fatalf("spawn tool produced action entry: %v", got)
+			}
+		})
+	}
+}
+
+func TestHookClaudeSubagentEventsDoNotCaptureResumeID(t *testing.T) {
+	t.Parallel()
+	const sessionID = "qm-claude-subagent-resume"
+	r, _ := newParallelHookRunner()
+	store := newManifestStoreStub(sessionID, map[string]string{"claude_session_id": "root-session"})
+	store.manifest.Agents = []state.AgentManifest{{Name: "claude", Role: "agent", CLI: "claude", ResumeID: "root-session", Window: 1}}
+	r.Store = store
+	r.TmuxClient = &tmuxEnvStub{}
+
+	for _, action := range []string{"subagent_start", "subagent_stop"} {
+		runHookWithStdin(r, "claude", action, sessionID, map[string]interface{}{
+			"session_id": "child-session", "agent_id": "child-1", "agent_type": "Explore",
+		})
+	}
+	if got := store.manifest.ExtraString("claude_session_id"); got != "root-session" {
+		t.Fatalf("manifest claude session id = %q, want root-session", got)
+	}
+	if got := store.manifest.Agents[0].ResumeID; got != "root-session" {
+		t.Fatalf("agent resume id = %q, want root-session", got)
+	}
+}
+
+func TestHookCodexSpawnToolVariantsDoNotCreateActionChat(t *testing.T) {
+	t.Parallel()
+	for _, tool := range []string{"spawn_agent", "collaborationspawn_agent"} {
+		t.Run(tool, func(t *testing.T) {
+			t.Parallel()
+			r, rec := newParallelHookRunner()
+			runHookWithStdin(r, "codex", "tool_start", "qm-codex-spawn-variant", map[string]interface{}{"tool_name": tool})
+			if got := chatKinds(latestHookEvent(t, rec)); slices.Contains(got, "action") {
+				t.Fatalf("Codex %q emitted an action entry: %v", tool, got)
 			}
 		})
 	}
@@ -320,7 +365,7 @@ func assertSubagentChat(t *testing.T, event state.StateEvent, kind, familiar str
 	t.Helper()
 	entries := chatEntries(event)
 	if len(entries) != 1 || entries[0]["chat_kind"] != kind || entries[0]["chat_text"] != familiar {
-		t.Fatalf("subagent chat entries = %#v, want one %s entry for %q", entries, kind, familiar)
+		t.Fatalf("subagent chat entries = %#v, want one %s entry for %q; event=%+v", entries, kind, familiar, event)
 	}
 }
 

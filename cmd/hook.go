@@ -889,7 +889,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	}
 	if opts.action == "stopped" {
 		clearAdoptedAgentOnExit(opts.ctx, r, stderr, sessionID, "claude")
-	} else if payload.SessionID != "" {
+	} else if payload.SessionID != "" && opts.action != "subagent_start" && opts.action != "subagent_stop" {
 		captureResumeID(opts.ctx, r, stderr, sessionID, "claude_session_id", "CLAUDE_SESSION_ID", payload.SessionID, "claude")
 	}
 }
@@ -1044,6 +1044,14 @@ func updateSubagentChat(pane *state.PaneState, event *state.StateEvent, action, 
 	if pane.ActiveSubagents == nil {
 		pane.ActiveSubagents = make(map[string]string)
 	}
+	if pane.ActiveSubagentStartedAt == nil {
+		pane.ActiveSubagentStartedAt = make(map[string]time.Time)
+	}
+	now := event.Ts
+	if now.IsZero() {
+		now = time.Now()
+	}
+	pruneActiveSubagents(pane, now)
 	switch action {
 	case "subagent_start":
 		familiar = strings.TrimSpace(familiar)
@@ -1053,7 +1061,11 @@ func updateSubagentChat(pane *state.PaneState, event *state.StateEvent, action, 
 		if _, exists := pane.ActiveSubagents[id]; exists {
 			return false
 		}
+		if len(pane.ActiveSubagents) >= maxActiveSubagents {
+			return false
+		}
 		pane.ActiveSubagents[id] = workerfeed.CapText(familiar)
+		pane.ActiveSubagentStartedAt[id] = now
 		addChatEntry(event, pane, "summon", familiar)
 		return true
 	case "subagent_stop":
@@ -1062,10 +1074,49 @@ func updateSubagentChat(pane *state.PaneState, event *state.StateEvent, action, 
 			return false
 		}
 		delete(pane.ActiveSubagents, id)
+		delete(pane.ActiveSubagentStartedAt, id)
 		addChatEntry(event, pane, "dismiss", familiar)
 		return true
 	}
 	return false
+}
+
+const (
+	activeSubagentMaxAge = 6 * time.Hour
+	maxActiveSubagents   = 128
+)
+
+func pruneActiveSubagents(pane *state.PaneState, now time.Time) {
+	for id := range pane.ActiveSubagents {
+		startedAt := pane.ActiveSubagentStartedAt[id]
+		if startedAt.IsZero() {
+			pane.ActiveSubagentStartedAt[id] = now
+			continue
+		}
+		if now.Sub(startedAt) > activeSubagentMaxAge {
+			delete(pane.ActiveSubagents, id)
+			delete(pane.ActiveSubagentStartedAt, id)
+		}
+	}
+	for id := range pane.ActiveSubagentStartedAt {
+		if _, active := pane.ActiveSubagents[id]; !active {
+			delete(pane.ActiveSubagentStartedAt, id)
+		}
+	}
+	for len(pane.ActiveSubagents) > maxActiveSubagents {
+		oldestID := ""
+		var oldest time.Time
+		for id, startedAt := range pane.ActiveSubagentStartedAt {
+			if oldestID == "" || startedAt.Before(oldest) {
+				oldestID, oldest = id, startedAt
+			}
+		}
+		if oldestID == "" {
+			return
+		}
+		delete(pane.ActiveSubagents, oldestID)
+		delete(pane.ActiveSubagentStartedAt, oldestID)
+	}
 }
 
 func isSubagentSpawnTool(agent, name string) bool {

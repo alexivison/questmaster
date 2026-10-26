@@ -17,7 +17,7 @@ var openCodePluginSource string
 
 const (
 	openCodePluginFileName = "questmaster-opencode.js"
-	openCodeSidecarVersion = "phase2-v5"
+	openCodeSidecarVersion = "phase2-v6"
 )
 
 // OpenCodeInstaller manages Questmaster's OpenCode plugin bridge and role
