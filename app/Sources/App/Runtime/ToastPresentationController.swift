@@ -33,10 +33,11 @@ final class ToastPresentationController {
                 view.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
                 // The footer's top edge is the same as the terminal pane's own bottom edge — this
                 // follows the footer's height and the row-snap leftover automatically, instead of
-                // a window-bottom-relative constant that predates the footer.
-                view.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: -ShellMetrics.gap),
-                view.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Space.section),
-                view.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Space.section),
+                // a window-bottom-relative constant that predates the footer. The hosting view reaches
+                // `shadowMargin` past the card, so the card is what keeps the gap.
+                view.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: ToastBanner.shadowMargin - ShellMetrics.gap),
+                view.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Space.section - ToastBanner.shadowMargin),
+                view.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: ToastBanner.shadowMargin - Space.section),
             ])
             toastView = view
         }
@@ -97,6 +98,8 @@ private final class ToastHostingView: NSHostingView<ToastBanner> {
 
 struct ToastBanner: View {
     static let maxWidth: CGFloat = 360
+    /// Room the hosting view keeps around the card for its panel shadow, which the view's bounds would clip.
+    static let shadowMargin = Space.section + Space.row
     let message: String
 
     var body: some View {
@@ -113,6 +116,8 @@ struct ToastBanner: View {
             borderColor: AppPalette.lineSoftSubtle,
             lineWidth: ScoopedRectangle.borderWidth
         )
+        .elevation(.panel, of: RoundedRectangle(cornerRadius: Token.Radius.card))
+        .padding(Self.shadowMargin)
         .help(message)
     }
 }

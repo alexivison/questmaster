@@ -41,6 +41,8 @@ enum TrackerPlateDesign {
     static let silhouetteMargin = Space.row
     /// The visible width of a plate band past the plate's edge.
     static let glowBandWidth: CGFloat = 2
+    /// The bodies' right corners, as both SVGs round them.
+    static let bodyCornerRadius: CGFloat = 5
 
     /// Each portrait's centre in row points, and its outer diameter: the SVG's disc path radius plus half its stroke
     /// (23.5 + 1.5 on the master, 19 + 1 on the worker). The centre sits on whole points and the diameter is even,
@@ -131,11 +133,9 @@ struct TrackerPlateShadow {
         self.color = color
     }
 
-    /// The body's drop shadow, and the strips' and the bar's inner shadows.
-    static let body = TrackerPlateShadow(depth: 0.5, blur: 0.25, opacity: 0.1)
+    /// The strips' and the bar's inner shadows.
     static let strip = TrackerPlateShadow(depth: 0.5, blur: 0.25, opacity: 0.15)
-    /// The disc's drop shadow and its inner shadow.
-    static let discOuter = TrackerPlateShadow(depth: 1, blur: 0.5, opacity: 0.15)
+    /// The disc's inner shadow. The body's and the disc's drop shadows are `Elevation.raised`.
     static let discInner = TrackerPlateShadow(depth: 4, blur: 0.25, opacity: 0.15)
     /// The title's and the snippet's drop shadow: a point down, blurred by half a point.
     static let textDrop: CGFloat = 1
@@ -153,6 +153,14 @@ extension GraphicsContext {
                 blurred.stroke(shape, with: .color(shadow.color), lineWidth: 2 * shadow.depth)
             }
         }
+    }
+
+    /// The top-edge light along a plate body's straight top edge, up to the corner on its right. The disc covers the
+    /// left end.
+    func fillTopLight(_ body: Path) {
+        let bounds = body.boundingRect
+        let light = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width - TrackerPlateDesign.bodyCornerRadius, height: Token.Size.divider)
+        fill(Path(light), with: .color(AppPalette.topLight.swiftUI))
     }
 
     /// An SVG drop shadow with no offset: the shape's edge, `depth` points out, blurred. Drawn under the shape, which

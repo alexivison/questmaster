@@ -53,6 +53,7 @@ enum LogicSelfTests {
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
+        ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
@@ -2050,6 +2051,50 @@ enum LogicSelfTests {
         try expect(fieldEdges.first == Int(ModalSheetHeader.height + Space.item), "the first field should start 10 under the header's band, got rows \(fieldEdges)")
         let secondTop = Int(ModalFormMetrics.contentTop + FormFieldMetrics.height + ModalFormMetrics.fieldSpacing)
         try expect(fieldEdges.contains(secondTop) && !fieldEdges.contains(secondTop - 1), "the second field should start 20 under the first, got rows \(fieldEdges)")
+    }
+
+    /// The elevation shadows (AGENTS.md, "Interaction states") reach past the clip that shapes their panel: a modal's
+    /// from `scoopedPanel`, the dock's from `ScoopedLayerChrome`. A pixel 2pt under each panel's bottom edge, on the
+    /// window fill, must be darker than the same fill far from it, and only a shadow dropped downward is that dark
+    /// there.
+    private static func testChromeShadowsReachPastTheirClips() throws {
+        func darkness(_ view: NSView, size: CGSize, belowPanelAt probe: CGPoint) throws -> CGFloat {
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = size
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            guard let shadowed = bitmap.colorAt(x: Int(probe.x), y: Int(probe.y)), let bare = bitmap.colorAt(x: 2, y: 2), bare.redComponent > 0 else {
+                throw TestFailure("could not read the render")
+            }
+            return shadowed.redComponent / bare.redComponent
+        }
+
+        let margin = Space.group + Space.section
+        let panel = CGSize(width: 200, height: 120)
+        let canvas = CGSize(width: panel.width + 2 * margin, height: panel.height + 2 * margin)
+        let probe = CGPoint(x: canvas.width / 2, y: margin + panel.height + 2)
+        let modal = NSHostingView(rootView: Color.clear.frame(width: panel.width, height: panel.height).scoopedPanel().padding(margin).background(AppPalette.window.swiftUI))
+        let modalDarkness = try darkness(modal, size: canvas, belowPanelAt: probe)
+        try expect(modalDarkness < 0.92, "a modal's shadow should show under its panel, got \(modalDarkness) of the window fill")
+
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = AppPalette.window.cgColor
+        let dock = DockShellView(body: NSView())
+        dock.frame = NSRect(x: margin, y: margin, width: panel.width, height: panel.height)
+        container.addSubview(dock)
+        let dockDarkness = try darkness(container, size: canvas, belowPanelAt: probe)
+        try expect(dockDarkness < 0.92, "the dock's shadow should show under its panel, got \(dockDarkness) of the window fill")
     }
 
     /// No single-line text field is shorter than its font's full line (ascent + descent + leading): the live

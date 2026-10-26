@@ -8,6 +8,11 @@ struct ScoopedRectangle: Shape {
     /// Every panel's border: 2pt inside the shape, drawn as a twice-as-wide stroke clipped to it.
     static let borderWidth: CGFloat = 2
     static let borderStrokeWidth: CGFloat = 2 * borderWidth
+    /// The top-edge light every panel carries: a white hairline just inside the border, along the straight top edge
+    /// between the scoops, as a sheet's lit edge. Top is `minY`: a flipped view draws it the same.
+    static func topLightRect(in rect: CGRect) -> CGRect {
+        CGRect(x: rect.minX + radius, y: rect.minY + borderWidth, width: max(0, rect.width - 2 * radius), height: Token.Size.divider)
+    }
 
     func path(in rect: CGRect) -> Path {
         Path(Self.cgPath(in: rect))
@@ -34,26 +39,44 @@ struct ScoopedRectangle: Shape {
 }
 
 extension View {
-    /// Fills and borders the view with the shared scooped background and clips its content to the shape.
+    /// Fills and borders the view with the shared scooped background and clips its content to the shape. Every use is
+    /// a modal, so the panel casts the modal shadow, from behind the clip, which would cut it.
     func scoopedPanel(fill: NSColor = AppPalette.panel, border: NSColor = AppPalette.lineSoftSubtle) -> some View {
         background(ScoopedRectangle().fill(fill.swiftUI))
             .overlay(ScoopedRectangle().stroke(border.swiftUI, lineWidth: ScoopedRectangle.borderStrokeWidth).allowsHitTesting(false))
+            .overlay(ScoopedTopLight().fill(AppPalette.topLight.swiftUI).allowsHitTesting(false))
             .clipShape(ScoopedRectangle())
+            .elevation(.modal, of: ScoopedRectangle())
     }
 }
 
-/// The AppKit side of the same chrome: the view's layer is filled and masked to the shape, and a
-/// non-interactive border view on top draws the inner border. Create it after the content subviews so
-/// the border stays above them, and call `layout(bounds:)` from the view's `layout()`.
+private struct ScoopedTopLight: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path(ScoopedRectangle.topLightRect(in: rect))
+    }
+}
+
+/// The AppKit side of the same chrome, for a dock pane: `content` holds the pane's subviews, filled and masked to the
+/// shape, while `view`, its parent, stays unmasked so its layer's panel shadow reaches past the shape. A
+/// non-interactive border view on top of `view` draws the inner border and the top-edge light. Create it after the
+/// content subviews so the border stays above them, and call `layout(bounds:)` from the view's `layout()`.
 @MainActor
 final class ScoopedLayerChrome {
+    private let view: NSView
     private let maskLayer = CAShapeLayer()
     private let borderView: ScoopedBorderView
 
-    init(view: NSView, fill: NSColor = AppPalette.panel, border: NSColor = AppPalette.lineSoftSubtle) {
+    init(view: NSView, content: NSView, fill: NSColor = AppPalette.panel, border: NSColor = AppPalette.lineSoftSubtle) {
+        self.view = view
+        content.wantsLayer = true
+        content.layer?.backgroundColor = fill.cgColor
+        content.layer?.mask = maskLayer
         view.wantsLayer = true
-        view.layer?.backgroundColor = fill.cgColor
-        view.layer?.mask = maskLayer
+        let elevation = Elevation.panel
+        view.layer?.shadowColor = AppPalette.shadow.cgColor
+        view.layer?.shadowOpacity = Float(elevation.opacity)
+        view.layer?.shadowRadius = elevation.sigma
+        view.layer?.shadowOffset = CGSize(width: 0, height: -elevation.drop)
         borderView = ScoopedBorderView(color: border)
         borderView.autoresizingMask = [.width, .height]
         borderView.frame = view.bounds
@@ -65,10 +88,12 @@ final class ScoopedLayerChrome {
     }
 
     func layout(bounds: CGRect) {
+        let path = ScoopedRectangle.cgPath(in: bounds)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         maskLayer.frame = bounds
-        maskLayer.path = ScoopedRectangle.cgPath(in: bounds)
+        maskLayer.path = path
+        view.layer?.shadowPath = path
         CATransaction.commit()
         borderView.frame = bounds
     }
@@ -94,6 +119,8 @@ private final class ScoopedBorderView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override var isFlipped: Bool { true }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
@@ -114,5 +141,7 @@ private final class ScoopedBorderView: NSView {
         context.setStrokeColor(color.cgColor)
         context.setLineWidth(ScoopedRectangle.borderStrokeWidth)
         context.strokePath()
+        context.setFillColor(AppPalette.topLight.cgColor)
+        context.fill(ScoopedRectangle.topLightRect(in: bounds))
     }
 }
