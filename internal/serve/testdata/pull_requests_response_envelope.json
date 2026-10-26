@@ -16,7 +16,44 @@
           "session_id": "qm-demo",
           "added_at": "2026-06-19T04:20:00Z"
         }
-      ]
+      ],
+      "status": {
+        "title": "Ready to merge",
+        "url": "https://github.com/owner/repo/pull/42",
+        "state": "open",
+        "draft": false,
+        "head_sha": "abc123",
+        "updated_at": "2026-06-19T04:20:00Z",
+        "additions": 0,
+        "deletions": 0,
+        "comments": 0,
+        "review": "approved",
+        "ci": "success",
+        "fetched_at": "2026-06-19T04:20:00Z",
+        "stale": false
+      }
+    },
+    {
+      "key": "github.com/owner/repo#43",
+      "host": "github.com",
+      "owner": "Owner",
+      "repo": "Repo",
+      "number": 43,
+      "watchers": [
+        {
+          "session_id": "qm-demo",
+          "added_at": "2026-06-19T04:20:00Z"
+        }
+      ],
+      "status": {
+        "draft": false,
+        "additions": 0,
+        "deletions": 0,
+        "comments": 0,
+        "fetched_at": "2026-06-19T04:20:00Z",
+        "inaccessible_reason": "saml",
+        "stale": false
+      }
     }
   ]
 }

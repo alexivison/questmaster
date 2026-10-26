@@ -52,6 +52,52 @@ func TestPRCommands(t *testing.T) {
 	}
 }
 
+func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-pr")
+	for _, id := range []string{"qm-pr", "qm-other"} {
+		if err := store.Create(state.Manifest{SessionID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := runCmd(t, store, sessionsRunner(), "pr", "refresh"); !strings.Contains(got, `"pull_requests": []`) {
+		t.Fatalf("empty refresh = %s", got)
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"data\":{\"rateLimit\":{\"cost\":1,\"remaining\":100,\"resetAt\":\"2026-10-26T01:00:00Z\"},\"p0\":{\"pullRequest\":{\"title\":\"From fake gh\",\"state\":\"OPEN\"}},\"p1\":{\"pullRequest\":{\"title\":\"From fake gh\",\"state\":\"OPEN\"}}}}'\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	runCmd(t, store, sessionsRunner(), "pr", "watch", "o/r#1")
+	runCmd(t, store, sessionsRunner(), "pr", "watch", "o/r#2", "--session", "qm-other")
+	var result struct {
+		PullRequests []state.PullRequest `json:"pull_requests"`
+		Hosts        map[string]struct {
+			RateLimit struct {
+				Cost int `json:"cost"`
+			} `json:"rate_limit"`
+		} `json:"hosts"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "refresh")), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.PullRequests) != 1 || result.PullRequests[0].Status.Title != "From fake gh" || result.Hosts["github.com"].RateLimit.Cost != 1 {
+		t.Fatalf("refresh=%#v", result)
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "refresh", "--all")), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.PullRequests) != 2 {
+		t.Fatalf("all=%#v", result.PullRequests)
+	}
+	var listed []state.PullRequest
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "ls")), &listed); err != nil || len(listed) != 1 || listed[0].Status == nil {
+		t.Fatalf("ls=%#v err=%v", listed, err)
+	}
+}
+
 func TestPRSessionRequiresManifest(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)

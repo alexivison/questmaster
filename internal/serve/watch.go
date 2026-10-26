@@ -353,6 +353,11 @@ func (s *FileChangeSource) classify(path string) Change {
 			change.BroadTracker = true
 			return change
 		}
+		if base == filepath.Base(state.PullRequestStatusPath(s.stateRoot)) {
+			change := topicChange(topicTracker)
+			change.BroadTracker = true
+			return change
+		}
 		if base == filepath.Base(state.QuestsRegistryPath(s.stateRoot)) {
 			change := topicChange(topicTracker)
 			change.BroadTracker = true
