@@ -23,7 +23,7 @@ enum LogicSelfTests {
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
-        ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
+        ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
@@ -54,6 +54,7 @@ enum LogicSelfTests {
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
+        ("testShellRowsKeepTheDesignsGeometry", testShellRowsKeepTheDesignsGeometry),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
@@ -221,38 +222,30 @@ enum LogicSelfTests {
         try expect(afterStatus == "xxxxxxxxx", "connect-only should run status once and never Ensure")
     }
 
-    private static func testRevertedShellRowsUseFreshShellAccent() throws {
-        let fresh = TrackerSession(
-            id: "fresh-shell",
-            title: "Shell",
-            repoName: "",
-            agent: ""
-        )
-        let reverted = TrackerSession(
-            id: "reverted-shell",
-            title: "Shell",
-            repoIdentity: "/repo/.git",
-            repoName: "Repo",
-            repoPath: "/repo",
-            repoColor: "green",
-            displayColor: "magenta",
-            agent: "",
-            state: "done",
-            lifecycle: "active"
-        )
+    /// Shells leave the repo groups for a section under every plate, in snapshot order, and the order the cursor and the
+    /// Cmd+N numbers walk ends with them. A repo left with only shells draws nothing; the panel still names an attached
+    /// shell's repo.
+    private static func testShellRowsLeaveTheRepoGroupsForTheirOwnSection() throws {
+        let master = TrackerSession(id: "master", title: "Master", repoName: "Repo", agent: "codex", role: "master")
+        let worker = TrackerSession(id: "worker", title: "Worker", repoName: "Repo", agent: "codex", role: "worker", parentID: "master")
+        let first = TrackerSession(id: "shell-first", title: "Shell", repoName: "", agent: "")
+        let second = TrackerSession(id: "shell-second", title: "Shell", repoName: "Repo", repoColor: "green", displayColor: "magenta", agent: "")
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(repos: TrackerRepo.grouping([fresh, reverted]))
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "ungrouped", name: "ungrouped", sessions: [first]),
+            TrackerRepo(id: "repo", name: "Repo", color: "green", sessions: [master, second, worker]),
+        ])
 
-        let rows = TrackerRenderer.tracker(snapshot).flatMap { repo in
-            repo.groups.flatMap { group in
-                [group.root] + group.workers
-            }
-        }
-        let freshColor = try renderedColor(rows, id: "fresh-shell")
-        let revertedColor = try renderedColor(rows, id: "reverted-shell")
+        let tracker = TrackerRenderer.tracker(snapshot)
+        try expect(tracker.repos.map(\.repo.name) == ["Repo"], "a repo of only shells should draw no group, got \(tracker.repos.map(\.repo.name))")
+        let plateIDs = tracker.repos.flatMap { repo in repo.groups.flatMap { [$0.root.session.id] + $0.workers.map(\.session.id) } }
+        try expect(plateIDs == ["master", "worker"], "the repo should keep only its master and worker, got \(plateIDs)")
+        try expect(tracker.shells.map(\.rendered.session.id) == ["shell-first", "shell-second"], "the shells should keep the snapshot's order")
+        let rowIDs = TrackerRenderer.flatSessions(in: tracker).map(\.id)
+        try expect(rowIDs == ["master", "worker", "shell-first", "shell-second"], "the cursor and the numbers should walk the plates, then the shells, got \(rowIDs)")
 
-        try expect(freshColor.isEqual(AppPalette.muted), "fresh shell should use muted accent")
-        try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
+        let panel = SelectedSessionPanelContent.make(currentTerminalSessionID: "shell-second", tracker: tracker)
+        try expect(panel.id == "shell-second" && panel.projectName == "Repo", "the panel should name an attached shell's repo, got \(panel.id) / \(panel.projectName)")
     }
 
     /// The ring in Core Animation: a steady ring is still, a spinning one turns, a filling one sweeps to full and then
@@ -760,13 +753,13 @@ enum LogicSelfTests {
         let master = TrackerSession(id: "qm-attached", title: "Fix bug", repoName: "Preview", role: "master")
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "preview", name: "Preview", sessions: [master])])
-        let repos = TrackerRenderer.tracker(snapshot)
+        let tracker = TrackerRenderer.tracker(snapshot)
 
-        let attached = SelectedSessionPanelContent.make(currentTerminalSessionID: "qm-attached", repos: repos)
+        let attached = SelectedSessionPanelContent.make(currentTerminalSessionID: "qm-attached", tracker: tracker)
         guard attached.id == "qm-attached", attached.projectName == "Preview" else {
             throw TestFailure("the panel should name the attached session's project, got \(attached.id) / \(attached.projectName)")
         }
-        let shell = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, repos: repos)
+        let shell = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, tracker: tracker)
         guard shell.projectName.isEmpty else {
             throw TestFailure("a shell with no attached session should show no project")
         }
@@ -788,7 +781,7 @@ enum LogicSelfTests {
             }
             var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
             snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "preview", name: "Preview", sessions: sessions)])
-            guard let group = TrackerRenderer.tracker(snapshot).first?.groups.first else {
+            guard let group = TrackerRenderer.tracker(snapshot).repos.first?.groups.first else {
                 throw TestFailure("tracker renderer should keep the master group")
             }
             return TrackerWorkerSummary.circles(for: group.workers)
@@ -2019,6 +2012,72 @@ enum LogicSelfTests {
     /// internals. The artifact rows' tiles sit on a 45pt pitch (a 40pt row and 5) and are 30 high; a form's first field
     /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
     /// in one pixel column.
+    /// Shell Session.svg on the 5pt rhythm, measured on the rendered section: rows 35 tall and 10 apart, inset 10 from the
+    /// 260 column on both sides, the 25pt disc 10 into the row and the title 10 past it. The viewed shell and the
+    /// cursor's shell fill their rows, one row apart; the third rests.
+    private static func testShellRowsKeepTheDesignsGeometry() throws {
+        let sessions = ["a", "b", "c"].map { TrackerSession(id: $0, title: "Shell \($0)", repoName: "", agent: "") }
+        let shells = sessions.map { session in
+            TrackerRenderedShell(
+                rendered: TrackerRenderedSession(session: session, status: TrackerRenderer.status(for: session), groupColor: AppPalette.muted, recolorEditHint: nil),
+                repoName: ""
+            )
+        }
+        let size = CGSize(width: TrackerPlateDesign.topLevelSize.width, height: 3 * TrackerShellMetrics.rowHeight + 2 * TrackerShellMetrics.rowSpacing)
+        let section = TrackerShellRows(
+            shells: shells, selectedID: "b", viewedID: "a", areaFocused: true, shortcutNumbers: [:], commandLongPressIsActive: false,
+            onSelect: { _ in }, onActivate: { _ in }, onEditSession: { _ in }
+        )
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+        let view = NSHostingView(rootView: section)
+        view.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size, scale: 1)
+        window.contentView = view
+        window.show()
+        defer { window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else {
+            throw TestFailure("could not make a bitmap")
+        }
+        bitmap.size = size
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        func isColor(_ x: Int, _ y: Int, _ color: NSColor) -> Bool {
+            guard let pixel = bitmap.colorAt(x: x, y: y), let expected = color.usingColorSpace(.deviceRGB) else {
+                return false
+            }
+            return abs(pixel.redComponent - expected.redComponent) < 0.02
+                && abs(pixel.greenComponent - expected.greenComponent) < 0.02
+                && abs(pixel.blueComponent - expected.blueComponent) < 0.02
+        }
+        let inset = Int(TrackerShellMetrics.sideInset)
+        let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        let pitch = rowHeight + Int(TrackerShellMetrics.rowSpacing)
+
+        // Down a column past the row's corner and left of the disc: the two filled rows, 35 high, 45 apart.
+        let fillColumn = inset + Int(TrackerShellMetrics.cornerRadius) + 1
+        let filledRows = (0..<Int(size.height)).filter { isColor(fillColumn, $0, AppPalette.item) }
+        try expect(filledRows == Array(0..<rowHeight) + Array(pitch..<(pitch + rowHeight)), "the filled rows should be 35 high and 45 apart, got rows \(filledRows)")
+
+        // Across the viewed row's middle: the fill runs from the 10 inset to 10 short of the column's right edge.
+        let middle = rowHeight / 2
+        let filledColumns = (0..<Int(size.width)).filter { isColor($0, middle, AppPalette.item) }
+        try expect(filledColumns.first == inset, "a row should start 10 in from the column's edge, got x \(String(describing: filledColumns.first))")
+        try expect(filledColumns.last == Int(size.width) - inset - 1, "a row should end 10 short of the column's far edge, got x \(String(describing: filledColumns.last))")
+
+        // The resting row: its disc's border starts 10 into the row, and its title 10 past the disc.
+        let restMiddle = 2 * pitch + middle
+        let inkColumns = (0..<Int(size.width)).filter { !isColor($0, restMiddle, AppPalette.window) }
+        let discLeft = inset + Int(TrackerShellMetrics.discLead)
+        try expect(inkColumns.first == discLeft, "the disc should start 10 into the row, got x \(String(describing: inkColumns.first))")
+        let titleLeft = discLeft + Int(TrackerShellMetrics.discDiameter + Space.item)
+        let titleInk = inkColumns.first { $0 > discLeft + Int(TrackerShellMetrics.discDiameter) }
+        try expect(titleInk.map { $0 >= titleLeft && $0 <= titleLeft + 3 } == true, "the title should start 10 past the disc, got x \(String(describing: titleInk))")
+    }
+
     private static func testRenderedSpacingStaysOnTheScale() throws {
         func borderRows(_ view: NSView, size: CGSize, x: Int) throws -> [Int] {
             view.frame = NSRect(origin: .zero, size: size)
@@ -4335,13 +4394,6 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(observedLabel))
         return isBackendStartingMessage(snapshot.serviceStateMessage)
-    }
-
-    private static func renderedColor(_ rows: [TrackerRenderedSession], id: String) throws -> NSColor {
-        guard let row = rows.first(where: { $0.session.id == id }) else {
-            throw TestFailure("missing rendered row \(id)")
-        }
-        return row.groupColor
     }
 
     private static func keyEvent(_ characters: String, keyCode: UInt16) throws -> NSEvent {

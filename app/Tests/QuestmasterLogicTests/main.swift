@@ -4,6 +4,7 @@ enum QuestmasterLogicTests {
     static func main() throws {
         TrackerRendererTests.run()
         TrackerPlateVariantTests.run()
+        TrackerShellSectionTests.run()
         FooterBandTests.run()
         TrackerRecolorLogicTests.run()
         TrackerCommandStateTests.run()

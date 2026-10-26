@@ -1,7 +1,7 @@
 import Foundation
 
-/// Which nameplate a tracker row draws. Masters and shell sessions share the top-level plate
-/// (project bar, elapsed time); only a worker, which hangs under a master, draws the worker plate.
+/// Which nameplate a plate row draws: a master draws the top-level plate (project bar, elapsed time), a worker, which
+/// hangs under a master, the worker plate. Shell rows draw no plate (`TrackerShellSection`).
 public enum TrackerPlateVariant: Equatable {
     case topLevel
     case worker

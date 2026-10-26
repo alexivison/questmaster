@@ -188,9 +188,15 @@ hides.
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
+| Shell row (the tracker's shell section) | rest (`RowLook.shellRest`) | no fill, title and glyph `textMeta`, glyph disc `item` border |
+| | under the pointer | the hover look, on a resting row only |
+| | the viewed shell (`RowLook.selected`) / the cursor on another, while the tracker has the keys (`.highlighted`) | `item` fill, `textSelected`: **bold** for the viewed shell only |
 
 - Bold means selected and appears only in a lasting-selection list. Artifacts
   have no selected state: picking one opens it.
+- Shells are not plates: every shell, tmux and orphan row leaves its repo group for the shell section under all the
+  plates (`TrackerShellSection`, drawn by `TrackerShellRow`). A shell's own display colour tints its title in every
+  state; none leaves the state's text colour.
 - Dividers inside rows are `line` in every state.
 - Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
   titles, project headers and marks; never for selection or focus.
@@ -244,6 +250,9 @@ their rows, and plate text starts `Space.row` past the disc's round edge (55,
 canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
 agent's logo in a 20pt badge (logo 12) centred `Space.row` in from the disc's left edge and up from its bottom
 (`TrackerPlateDesign.badgeInset`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
+A shell row is 35 high (`ControlHeight.field`), `Space.item` from the next, inset `Space.item` from the 260 column's
+edges, with a 25pt disc (`ControlHeight.compact`) 10 in and the title 10 past it; the section starts 45 under the last
+plate's row (`TrackerListMetrics.shellSectionGap`: `Space.group` clear of the badge's overhang).
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an

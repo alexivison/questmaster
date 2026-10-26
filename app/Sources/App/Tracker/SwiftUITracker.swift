@@ -307,8 +307,9 @@ struct TrackerRootView: View {
     }
 
     private func trackerContent() -> some View {
-        let repos = TrackerRenderer.tracker(snapshot)
-        let rows = selectableRows(in: repos)
+        let tracker = TrackerRenderer.tracker(snapshot)
+        let repos = tracker.repos
+        let rows = selectableRows(in: tracker)
         let selectedID = commandState.renderedSelectedID(in: rows, currentTerminalSessionID: store.currentTerminalSessionID)
         // The cursor shows while the tracker has the keys (focused, no modal drawn); otherwise the pointer only shows
         // the hover band (`PlateBand`).
@@ -317,7 +318,7 @@ struct TrackerRootView: View {
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
 
-        let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, repos: repos)
+        let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
         let list = Group {
             if isBackendStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
@@ -343,7 +344,23 @@ struct TrackerRootView: View {
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
                             .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.spacing)
-                            .padding(.bottom, index == repos.count - 1 ? TrackerListMetrics.verticalPadding : 0)
+                            .padding(.bottom, index == repos.count - 1 && tracker.shells.isEmpty ? TrackerListMetrics.verticalPadding : 0)
+                        }
+                        if !tracker.shells.isEmpty {
+                            TrackerShellRows(
+                                shells: tracker.shells,
+                                selectedID: selectedID,
+                                viewedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID),
+                                areaFocused: areaFocused,
+                                shortcutNumbers: shortcutNumbers,
+                                commandLongPressIsActive: commandLongPressIsActive,
+                                onSelect: select(_:),
+                                onActivate: activate(_:),
+                                onEditSession: presentEditSession(_:)
+                            )
+                            .padding(.leading, TrackerListMetrics.sidePadding)
+                            .padding(.top, repos.isEmpty ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.shellSectionGap)
+                            .padding(.bottom, TrackerListMetrics.verticalPadding)
                         }
                     }
                 }
@@ -386,9 +403,9 @@ struct TrackerRootView: View {
         }
     }
 
-    private func selectableRows(in repos: [TrackerRenderedRepo]) -> [TrackerSession] {
+    private func selectableRows(in tracker: TrackerRenderedTracker) -> [TrackerSession] {
         TrackerSessionShortcuts.selectableSessions(
-            TrackerRenderer.flatSessions(in: repos),
+            TrackerRenderer.flatSessions(in: tracker),
             expandedMasterIDs: store.expandedMasterIDs
         )
     }
@@ -781,21 +798,18 @@ private struct TrackerCollapsedCircle<Content: View>: View {
     }
 }
 
-/// Which plate a session row draws. Masters and shell sessions share the top-level plate; only
-/// `worker` changes the geometry. `isMaster` still gates the collapse menu item and the worker circles.
+/// Which plate a session row draws: a master's, or a worker's under it. Shell rows draw no plate (`TrackerShellRow`).
+/// `isMaster` gates the collapse menu item and the worker circles.
 enum TrackerNameplateRole: Equatable {
-    case shell
     case master
     case worker
 
     init(_ session: TrackerSession) {
-        let sessionRole = SessionRoleKind(role: session.role)
-        if sessionRole == .master {
+        switch TrackerPlateVariant(role: SessionRoleKind(role: session.role)) {
+        case .topLevel:
             self = .master
-        } else if TrackerPlateVariant(role: sessionRole) == .worker {
+        case .worker:
             self = .worker
-        } else {
-            self = .shell
         }
     }
 
@@ -1484,7 +1498,7 @@ private struct TrackerSessionRow: View {
 
 /// Dims a stopped row after compositing it, so the plate and its contents fade as one. Other rows
 /// stay out of an offscreen group, which would re-composite the whole row on every ring and bar frame.
-private struct TrackerStoppedDimming: ViewModifier {
+struct TrackerStoppedDimming: ViewModifier {
     let isStopped: Bool
 
     func body(content: Content) -> some View {
@@ -1497,7 +1511,7 @@ private struct TrackerStoppedDimming: ViewModifier {
 }
 
 /// The Command-held shortcut number, on a dimmed circle of `side` at the centre of a disc `diameter` across.
-private struct TrackerShortcutNumber: View {
+struct TrackerShortcutNumber: View {
     let number: Int
     let diameter: CGFloat
     let side: CGFloat
@@ -1655,8 +1669,8 @@ private struct TrackerEmptyState: View {
     }
 }
 
-/// A dim outline of the tracker while the service starts: a master with two workers, then a
-/// shell session, each a plate-sized placeholder.
+/// A dim outline of the tracker while the service starts: a master with two workers, each a plate-sized placeholder,
+/// then a shell row's placeholder in the shell section.
 private struct TrackerSkeletonPlaceholder: View {
     private static let cornerRadius: CGFloat = 6
 
@@ -1674,7 +1688,12 @@ private struct TrackerSkeletonPlaceholder: View {
                 placeholder(role: .worker)
                 placeholder(role: .worker)
             }
-            placeholder(role: .shell)
+            RoundedRectangle(cornerRadius: TrackerShellMetrics.cornerRadius)
+                .fill(AppPalette.dim.swiftUI)
+                .opacity(pulseOpacity)
+                .frame(width: TrackerShellMetrics.rowWidth, height: TrackerShellMetrics.rowHeight)
+                .padding(.leading, TrackerShellMetrics.sideInset)
+                .padding(.top, TrackerListMetrics.shellSectionGap - TrackerListMetrics.spacing)
         }
         .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.vertical, TrackerListMetrics.verticalPadding)

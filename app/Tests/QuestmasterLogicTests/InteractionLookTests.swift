@@ -66,6 +66,8 @@ struct InteractionLookTests {
     private static func eachStateStepIsBrighterThanTheOneBelow() {
         expectBrighter([RowLook.rest, .highlightedUnfocused, .highlighted].map(levels), "pick rows")
         expectBrighter([RowLook.rest, .selected].map(levels), "lasting rows")
+        expectBrighter([RowLook.shellRest, .highlighted].map(levels), "shell rows under the cursor")
+        expectBrighter([RowLook.shellRest, .selected].map(levels), "shell rows, the viewed one")
         expectBrighter([OutlineLook.tabRest, .tabSelectedUnfocused, .tabSelected].map(levels), "tabs")
         expectBrighter([OutlineLook.fieldRest, .fieldFocused].map(levels), "fields")
         expectBrighter([OutlineLook.frameRest, .frameFocused].map(levels), "dock frames")
@@ -78,7 +80,7 @@ struct InteractionLookTests {
     /// Bold means selected, so only a lasting selection is bold. Gold marks the recolour band only; brass means a
     /// toggle is on and nothing else.
     private static func boldGoldAndBrassStayInTheirPlace() {
-        let rows = [RowLook.rest, .hovered, .highlighted, .highlightedUnfocused, .selected]
+        let rows = [RowLook.rest, .hovered, .highlighted, .highlightedUnfocused, .selected, .shellRest]
         expect(rows.filter(\.bold) == [.selected], "only the lasting selection should be bold")
         let rowColors = rows.flatMap { [$0.fill, $0.outline, $0.text, $0.meta, $0.icon, $0.iconBorder].compactMap { $0 } }
         let outlineColors = [OutlineLook.tabRest, .tabSelected, .tabSelectedUnfocused, .fieldRest, .fieldFocused, .frameRest, .frameFocused].flatMap { [$0.border, $0.label] }

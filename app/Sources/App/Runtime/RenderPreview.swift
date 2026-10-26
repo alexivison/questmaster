@@ -48,6 +48,8 @@ enum RenderPreview {
         render(newSessionView(.classChosen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-cleric.png")
         render(classPlatesView(), size: CGSize(width: 340, height: 360), to: "\(outputDir)/class-plates.png")
         render(classTrackerView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/class-tracker.png")
+        render(shellRowStatesView(), size: CGSize(width: 300, height: 400), to: "\(outputDir)/shell-rows.png")
+        render(trackerWithShellsView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
@@ -880,6 +882,80 @@ enum RenderPreview {
         ]
         let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["b"])
         store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "project", name: "project", color: "indigo", sessions: sessions)])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The shell row in each state, as Shell Session.svg shows its four (rest, under the pointer, filled, filled and under
+    /// the pointer), then the keyboard cursor on a shell that isn't the viewed one, and a shell with a display colour at
+    /// rest, under the pointer and filled: the colour tints the title in every state.
+    @MainActor
+    private static func shellRowStatesView() -> some View {
+        let states: [(name: String, color: String, viewed: Bool, cursor: Bool, hovered: Bool)] = [
+            ("rest", "", false, false, false),
+            ("hovered", "", false, false, true),
+            ("filled (viewed)", "", true, false, false),
+            ("filled, hovered", "", true, false, true),
+            ("cursor", "", false, true, false),
+            ("green, rest", "green", false, false, false),
+            ("green, hovered", "green", false, false, true),
+            ("green, filled", "green", true, false, false),
+        ]
+        return VStack(alignment: .leading, spacing: TrackerShellMetrics.rowSpacing) {
+            ForEach(Array(states.enumerated()), id: \.offset) { _, state in
+                let session = TrackerSession(id: "qm-\(state.name)", title: "Shell", repoName: "", displayColor: state.color, agent: "")
+                TrackerShellRow(
+                    rendered: TrackerRenderedSession(session: session, status: TrackerRenderer.status(for: session), groupColor: AppPalette.muted, recolorEditHint: nil),
+                    isViewed: state.viewed,
+                    isSelected: state.cursor,
+                    areaFocused: true,
+                    shortcutNumber: nil,
+                    commandLongPressIsActive: false,
+                    previewHovered: state.hovered,
+                    onHighlight: {},
+                    onActivate: {},
+                    onEdit: {}
+                )
+            }
+        }
+        .padding(.leading, Space.section + TrackerShellMetrics.sideInset)
+        .padding(.top, Space.section)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The tracker with masters, workers and the shell section at the bottom: one shell attached (filled, bold), one with a
+    /// colour, one plain.
+    @MainActor
+    private static func trackerWithShellsView() -> some View {
+        func session(_ id: String, _ repo: String, role: String = "master", sessionClass: String = "", agent: String, parent: String = "", state: String = "idle") -> TrackerSession {
+            TrackerSession(
+                id: id, title: role == "worker" ? "worker-title" : "Session Title", repoName: repo, displayColor: "indigo", sessionClass: sessionClass,
+                agent: agent, role: role, state: state, snippet: "Ranked exact matches and row...", parentID: parent, elapsedSeedMS: 80_000
+            )
+        }
+        func shell(_ id: String, color: String = "") -> TrackerSession {
+            TrackerSession(id: id, title: "Shell", repoName: "", displayColor: color, agent: "shell", role: "shell", state: "idle", snippet: "")
+        }
+        let dotfiles = [
+            session("m1", "dotfiles", sessionClass: "cleric", agent: "claude", state: "working"),
+            session("m2", "dotfiles", sessionClass: "paladin", agent: "codex"),
+            session("m2-w0", "dotfiles", role: "worker", sessionClass: "paladin", agent: "codex", parent: "m2", state: "working"),
+        ]
+        let scry = [session("m3", "scry", sessionClass: "rogue", agent: "claude")]
+            + (0..<3).map { session("m3-w\($0)", "scry", role: "worker", sessionClass: "rogue", agent: $0 == 1 ? "claude" : "codex", parent: "m3", state: "working") }
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "qm-shell-viewed", expandedMasterIDs: ["m2"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "ungrouped", name: "ungrouped", sessions: [shell("qm-shell-plain")]),
+            TrackerRepo(id: "dotfiles", name: "dotfiles", color: "lime", sessions: dotfiles),
+            TrackerRepo(id: "scry", name: "scry", color: "indigo", sessions: scry + [shell("qm-shell-viewed", color: "green")]),
+            TrackerRepo(id: "other", name: "other", sessions: [shell("qm-shell-blue", color: "blue")]),
+        ])))
         return TrackerRootView(
             store: store,
             navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
