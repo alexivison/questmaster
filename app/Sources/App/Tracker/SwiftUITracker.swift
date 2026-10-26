@@ -1018,7 +1018,7 @@ private struct TrackerPortraitDisc: View {
             context.fillDropShadow(artwork.discEdge, .raised)
             context.fill(artwork.discEdge, with: .color(AppPalette.panel.swiftUI))
             if let portrait {
-                context.drawPortrait(portrait, in: artwork.discEdge)
+                context.drawPortrait(portrait, in: artwork.discEdge, strength: TrackerPlateDesign.portraitStrength)
             }
             context.fillInnerShadow(artwork.discEdge, .discInner)
         }
