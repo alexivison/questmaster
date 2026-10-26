@@ -194,7 +194,11 @@ hides.
 - Dividers inside rows are `line` in every state.
 - Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
   titles, project headers and marks; never for selection or focus.
-- No shadows on dropdowns or panels. Panel, dock and toast borders are 2pt
+- Shadows come only from an elevation token (`Elevation` in `SharedUI/Theme.swift`), never numbers at the call site;
+  each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
+  `ScoopedLayerChrome` do). `raised` (black 35%, blur 4, 1.5 down): tracker plates and their discs, and every
+  dropdown (`SuggestionDropdown`). `panel` (30%, blur 12, 4 down): the dock's panels and the toast. `modal` (45%,
+  blur 30, 10 down): every in-window modal, the Quest Log included. Panel, dock and toast borders are 2pt
   `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). The dock's frame lifts to
   `controlBorder` while the dock has keyboard focus and no modal is drawn
   (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is

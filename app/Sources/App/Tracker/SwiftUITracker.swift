@@ -934,7 +934,7 @@ private struct TrackerPlateArt: View {
             if let tab = artwork.tab {
                 context.fill(tab, with: .color(AppPalette.panel.swiftUI))
             }
-            context.fillOuterShadow(artwork.body, .body)
+            context.fillDropShadow(artwork.body, .raised)
             context.fill(artwork.body, with: .color(AppPalette.line.swiftUI))
             context.fill(artwork.titleStrip, with: .color(AppPalette.item.swiftUI))
             context.fillInnerShadow(artwork.titleStrip, .strip)
@@ -959,7 +959,7 @@ private struct TrackerPortraitDisc: View {
     var body: some View {
         Canvas { context, _ in
             context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
-            context.fillOuterShadow(artwork.discEdge, .discOuter)
+            context.fillDropShadow(artwork.discEdge, .raised)
             context.fill(artwork.discEdge, with: .color(AppPalette.panel.swiftUI))
             context.fillInnerShadow(artwork.discEdge, .discInner)
         }

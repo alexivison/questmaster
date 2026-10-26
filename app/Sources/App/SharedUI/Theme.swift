@@ -184,6 +184,28 @@ enum AppPalette {
     }
 }
 
+/// How far a surface floats above what is under it, drawn as a drop shadow in `AppPalette.shadow`. A shadow comes from
+/// one of these levels, never from numbers at the call site. `blur` is the design tool's (twice the Gaussian's standard
+/// deviation); SwiftUI, Core Animation and Canvas take the deviation itself, so they get `sigma`.
+struct Elevation {
+    let opacity: CGFloat
+    let blur: CGFloat
+    /// Points down.
+    let drop: CGFloat
+
+    /// Tracker plates and dropdowns.
+    static let raised = Elevation(opacity: 0.35, blur: 4, drop: 1.5)
+    /// The dock's panels and the toast.
+    static let panel = Elevation(opacity: 0.3, blur: 12, drop: 4)
+    /// Every in-window modal, the Quest Log included.
+    static let modal = Elevation(opacity: 0.45, blur: 30, drop: 10)
+
+    var color: NSColor { AppPalette.shadow.withAlphaComponent(opacity) }
+    var sigma: CGFloat { blur / 2 }
+    /// How far the shadow reaches past its shape's edge: three deviations and the drop.
+    var bleed: CGFloat { 3 * sigma + drop }
+}
+
 enum AppFonts {
     // Every UI font is monospaced and follows the user's Ghostty font-family at Questmaster's own size, weight
     // and style. A family that lacks the requested weight or italic falls back to the system monospaced font

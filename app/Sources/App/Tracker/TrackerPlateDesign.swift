@@ -131,11 +131,9 @@ struct TrackerPlateShadow {
         self.color = color
     }
 
-    /// The body's drop shadow, and the strips' and the bar's inner shadows.
-    static let body = TrackerPlateShadow(depth: 0.5, blur: 0.25, opacity: 0.1)
+    /// The strips' and the bar's inner shadows.
     static let strip = TrackerPlateShadow(depth: 0.5, blur: 0.25, opacity: 0.15)
-    /// The disc's drop shadow and its inner shadow.
-    static let discOuter = TrackerPlateShadow(depth: 1, blur: 0.5, opacity: 0.15)
+    /// The disc's inner shadow. The body's and the disc's drop shadows are `Elevation.raised`.
     static let discInner = TrackerPlateShadow(depth: 4, blur: 0.25, opacity: 0.15)
     /// The title's and the snippet's drop shadow: a point down, blurred by half a point.
     static let textDrop: CGFloat = 1

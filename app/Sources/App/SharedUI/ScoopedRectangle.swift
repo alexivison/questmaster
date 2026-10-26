@@ -34,26 +34,37 @@ struct ScoopedRectangle: Shape {
 }
 
 extension View {
-    /// Fills and borders the view with the shared scooped background and clips its content to the shape.
+    /// Fills and borders the view with the shared scooped background and clips its content to the shape. Every use is
+    /// a modal, so the panel casts the modal shadow, from behind the clip, which would cut it.
     func scoopedPanel(fill: NSColor = AppPalette.panel, border: NSColor = AppPalette.lineSoftSubtle) -> some View {
         background(ScoopedRectangle().fill(fill.swiftUI))
             .overlay(ScoopedRectangle().stroke(border.swiftUI, lineWidth: ScoopedRectangle.borderStrokeWidth).allowsHitTesting(false))
             .clipShape(ScoopedRectangle())
+            .elevation(.modal, of: ScoopedRectangle())
     }
 }
 
-/// The AppKit side of the same chrome: the view's layer is filled and masked to the shape, and a
-/// non-interactive border view on top draws the inner border. Create it after the content subviews so
-/// the border stays above them, and call `layout(bounds:)` from the view's `layout()`.
+/// The AppKit side of the same chrome, for a dock pane: `content` holds the pane's subviews, filled and masked to the
+/// shape, while `view`, its parent, stays unmasked so its layer's panel shadow reaches past the shape. A
+/// non-interactive border view on top of `view` draws the inner border. Create it after the
+/// content subviews so the border stays above them, and call `layout(bounds:)` from the view's `layout()`.
 @MainActor
 final class ScoopedLayerChrome {
+    private let view: NSView
     private let maskLayer = CAShapeLayer()
     private let borderView: ScoopedBorderView
 
-    init(view: NSView, fill: NSColor = AppPalette.panel, border: NSColor = AppPalette.lineSoftSubtle) {
+    init(view: NSView, content: NSView, fill: NSColor = AppPalette.panel, border: NSColor = AppPalette.lineSoftSubtle) {
+        self.view = view
+        content.wantsLayer = true
+        content.layer?.backgroundColor = fill.cgColor
+        content.layer?.mask = maskLayer
         view.wantsLayer = true
-        view.layer?.backgroundColor = fill.cgColor
-        view.layer?.mask = maskLayer
+        let elevation = Elevation.panel
+        view.layer?.shadowColor = AppPalette.shadow.cgColor
+        view.layer?.shadowOpacity = Float(elevation.opacity)
+        view.layer?.shadowRadius = elevation.sigma
+        view.layer?.shadowOffset = CGSize(width: 0, height: -elevation.drop)
         borderView = ScoopedBorderView(color: border)
         borderView.autoresizingMask = [.width, .height]
         borderView.frame = view.bounds
@@ -65,10 +76,12 @@ final class ScoopedLayerChrome {
     }
 
     func layout(bounds: CGRect) {
+        let path = ScoopedRectangle.cgPath(in: bounds)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         maskLayer.frame = bounds
-        maskLayer.path = ScoopedRectangle.cgPath(in: bounds)
+        maskLayer.path = path
+        view.layer?.shadowPath = path
         CATransaction.commit()
         borderView.frame = bounds
     }
