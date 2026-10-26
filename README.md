@@ -65,7 +65,13 @@ questmaster status qm-1234567890
 questmaster workers qm-master123
 questmaster chat qm-master123 --text
 questmaster read qm-worker123 --lines 20
+questmaster pr watch owner/repo#42 --session qm-worker123
+questmaster pr ls --session qm-worker123
+questmaster pr ls --all
+questmaster pr unwatch owner/repo#42 --session qm-worker123
 ```
+
+`pr` accepts `owner/repo#number` or an HTTPS pull request URL on any host. Watches belong to sessions and disappear when their session is deleted or pruned. `pr watch`, `pr unwatch`, and `pr ls` emit JSON. `pr ls --all` lists every live watch.
 
 Subcommands are agent-first: most lifecycle, messaging, list, and status commands emit JSON for noninteractive success output. Utility commands such as `version`, `agent query`, `hooks`, and `artifact` use text; `questmaster read --text` prints raw pane text.
 

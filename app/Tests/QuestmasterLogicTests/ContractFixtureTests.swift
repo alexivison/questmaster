@@ -22,6 +22,7 @@ struct ContractFixtureTests {
         expect(session.repoColor == "green", "tracker repo color did not decode")
         expect(session.displayColor == "violet", "tracker display color did not decode")
         expect(session.workerCount == 1, "tracker worker count did not decode")
+        expect(session.pullRequestsRev == "abcdef1234567890", "tracker PR revision did not decode")
         expect(session.duration == "0:02:00", "tracker elapsed_ms did not decode")
         expect(session.artifacts.first?.label == "Plan", "tracker artifact did not decode")
         expect(session.narration == "It seems that something is still ...", "tracker narration did not decode")
@@ -85,6 +86,11 @@ struct ContractFixtureTests {
         expect(workerFeed.cursors["qm-worker"]?.fileID == "1:42", "worker_feed file identity did not decode")
         expect(workerFeed.hasMore["qm-worker"] == true, "worker_feed has_more did not decode")
         expect(workerFeed.errors?["qm-other"] == "permission denied", "worker_feed errors did not decode")
+
+        let pulls = try decodeFixture(PullRequestsEnvelopeFixture.self, "pull_requests_response_envelope.json")
+        expect(pulls.data.first?.key == "github.com/owner/repo#42", "pull_requests key did not decode")
+        expect(pulls.data.first?.owner == "Owner" && pulls.data.first?.repo == "Repo", "pull_requests display fields did not decode")
+        expect(pulls.data.first?.watchers.first?.sessionID == "qm-demo", "pull_requests watcher did not decode")
     }
 
     private static func decodeFixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {
@@ -180,6 +186,23 @@ private struct ReasoningEffortsFixture: Decodable {
 
 private struct WorkerFeedEnvelopeFixture: Decodable {
     var data: WorkerFeedPayload
+}
+
+private struct PullRequestsEnvelopeFixture: Decodable {
+    struct Row: Decodable {
+        struct Watcher: Decodable {
+            var sessionID: String
+            var addedAt: String
+            enum CodingKeys: String, CodingKey { case sessionID = "session_id", addedAt = "added_at" }
+        }
+        var key: String
+        var host: String
+        var owner: String
+        var repo: String
+        var number: Int
+        var watchers: [Watcher]
+    }
+    var data: [Row]
 }
 
 private struct ContractFixtureError: Error, CustomStringConvertible {

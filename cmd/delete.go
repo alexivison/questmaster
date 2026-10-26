@@ -15,13 +15,15 @@ func newDeleteCmd(store *state.Store, client *tmux.Client, repoRoot string) *cob
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionID := args[0]
 			svc := session.NewService(store, client, repoRoot)
-			if err := svc.Delete(cmd.Context(), sessionID); err != nil {
+			dropped, err := svc.Delete(cmd.Context(), sessionID)
+			if err != nil {
 				return err
 			}
 			return writeJSON(cmd.OutOrStdout(), struct {
-				SessionID string `json:"session_id"`
-				Deleted   bool   `json:"deleted"`
-			}{SessionID: sessionID, Deleted: true})
+				SessionID      string `json:"session_id"`
+				Deleted        bool   `json:"deleted"`
+				DroppedWatches int    `json:"dropped_watches"`
+			}{SessionID: sessionID, Deleted: true, DroppedWatches: dropped})
 		},
 	}
 }

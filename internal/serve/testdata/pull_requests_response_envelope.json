@@ -1,0 +1,22 @@
+{
+  "protocol_version": 2,
+  "type": "response",
+  "id": "pull-requests-request",
+  "ok": true,
+  "topic": "pull_requests",
+  "data": [
+    {
+      "key": "github.com/owner/repo#42",
+      "host": "github.com",
+      "owner": "Owner",
+      "repo": "Repo",
+      "number": 42,
+      "watchers": [
+        {
+          "session_id": "qm-demo",
+          "added_at": "2026-06-19T04:20:00Z"
+        }
+      ]
+    }
+  ]
+}

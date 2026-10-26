@@ -1484,7 +1484,7 @@ func TestDelete_RunningSession(t *testing.T) {
 	runner.sessions["qm-del"] = true
 	createTestManifest(t, svc.Store, "qm-del", "deleteme", t.TempDir(), "")
 
-	if err := svc.Delete(t.Context(), "qm-del"); err != nil {
+	if _, err := svc.Delete(t.Context(), "qm-del"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if runner.sessions["qm-del"] {
@@ -1522,7 +1522,7 @@ func TestDelete_MasterCascadesWorkers(t *testing.T) {
 	runner.sessions[masterID] = true
 	runner.sessions[runningWorkerID] = true
 
-	if err := svc.Delete(t.Context(), masterID); err != nil {
+	if _, err := svc.Delete(t.Context(), masterID); err != nil {
 		t.Fatalf("delete master: %v", err)
 	}
 
@@ -1540,7 +1540,7 @@ func TestDelete_InvalidName(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	if err := svc.Delete(t.Context(), "invalid"); err == nil {
+	if _, err := svc.Delete(t.Context(), "invalid"); err == nil {
 		t.Fatal("expected error for invalid session name")
 	}
 }
@@ -2109,7 +2109,7 @@ func TestDelete_DeregistersFromParent(t *testing.T) {
 
 	runner.sessions["qm-child"] = true
 
-	if err := svc.Delete(t.Context(), "qm-child"); err != nil {
+	if _, err := svc.Delete(t.Context(), "qm-child"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 
@@ -2896,7 +2896,7 @@ func TestDelete_NotRunning(t *testing.T) {
 	createTestManifest(t, svc.Store, "qm-stopped", "stopped", t.TempDir(), "")
 
 	// Should succeed (KillSession returns nil for absent sessions)
-	if err := svc.Delete(t.Context(), "qm-stopped"); err != nil {
+	if _, err := svc.Delete(t.Context(), "qm-stopped"); err != nil {
 		t.Fatalf("delete stopped: %v", err)
 	}
 
