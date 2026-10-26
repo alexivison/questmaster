@@ -122,7 +122,7 @@ type SessionSnapshot struct {
 	LatestActivity string             `json:"latest_activity,omitempty"`
 	LastKind       string             `json:"last_kind,omitempty"`
 	WorktreePath   string             `json:"worktree_path,omitempty"`
-	PrimaryAgent   string             `json:"primary_agent,omitempty"`
+	Agent          string             `json:"agent,omitempty"`
 	SessionType    string             `json:"session_type,omitempty"`
 	ParentID       string             `json:"parent_id,omitempty"`
 	WorkerCount    int                `json:"worker_count"`
@@ -450,7 +450,7 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 	}
 	row.LastChatAt = timePtr(result.LastChatAt)
 	row.Narration = result.Narration
-	row.Cast = castSnapshot(result, row.PrimaryAgent, typicals)
+	row.Cast = castSnapshot(result, row.Agent, typicals)
 	if result.State != "" {
 		row.State = result.State
 	}
@@ -502,7 +502,7 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 	observations := make([]sessionactivity.Observation, 0, len(rows))
 	keys := make([]string, len(rows))
 	for i := range rows {
-		key := sessionactivity.PrimaryKey(rows[i].ID)
+		key := sessionactivity.AgentKey(rows[i].ID)
 		keys[i] = key
 		observations = append(observations, sessionactivity.Observation{
 			Key:       key,
@@ -562,11 +562,11 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			ElapsedSince:   timePtr(elapsedSince),
 			LastChatAt:     timePtr(result.LastChatAt),
 			Narration:      result.Narration,
-			Cast:           castSnapshot(result, row.PrimaryAgent, typicals),
+			Cast:           castSnapshot(result, row.Agent, typicals),
 			LatestActivity: snippet,
 			LastKind:       lastKind,
 			WorktreePath:   row.Cwd,
-			PrimaryAgent:   row.PrimaryAgent,
+			Agent:          row.Agent,
 			SessionType:    row.SessionType,
 			ParentID:       row.ParentID,
 			WorkerCount:    row.WorkerCount,

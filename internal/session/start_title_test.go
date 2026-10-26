@@ -25,7 +25,7 @@ func newTitleTestService(t *testing.T) *Service {
 	}}
 	registry, err := agent.NewRegistry(&agent.Config{
 		Agents: map[string]agent.AgentConfig{"claude": {CLI: "/bin/sh"}},
-		Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: "claude", Window: -1}},
+		Roles:  agent.RolesConfig{Agent: &agent.RoleConfig{Agent: "claude", Window: -1}},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -6,7 +6,7 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
-func TestManifestToSessionRowKeepsRawPrimaryAgentName(t *testing.T) {
+func TestManifestToSessionRowKeepsRawAgentName(t *testing.T) {
 	t.Parallel()
 
 	row := ManifestToSessionRow("qm-raw-agent", state.Manifest{
@@ -14,16 +14,16 @@ func TestManifestToSessionRowKeepsRawPrimaryAgentName(t *testing.T) {
 		Title:     "Raw agent",
 		Agents: []state.AgentManifest{{
 			Name: "future-agent",
-			Role: "primary",
+			Role: "agent",
 		}},
 	}, true)
 
-	if row.PrimaryAgent != "future-agent" {
-		t.Fatalf("PrimaryAgent = %q, want raw manifest agent", row.PrimaryAgent)
+	if row.Agent != "future-agent" {
+		t.Fatalf("Agent = %q, want raw manifest agent", row.Agent)
 	}
 }
 
-func TestManifestToSessionRowKeepsOpenCodePrimaryAgentName(t *testing.T) {
+func TestManifestToSessionRowKeepsOpenCodeAgentName(t *testing.T) {
 	t.Parallel()
 
 	row := ManifestToSessionRow("qm-opencode-agent", state.Manifest{
@@ -31,11 +31,11 @@ func TestManifestToSessionRowKeepsOpenCodePrimaryAgentName(t *testing.T) {
 		Title:     "OpenCode",
 		Agents: []state.AgentManifest{{
 			Name: "opencode",
-			Role: "primary",
+			Role: "agent",
 		}},
 	}, true)
 
-	if row.PrimaryAgent != "opencode" {
-		t.Fatalf("PrimaryAgent = %q, want opencode", row.PrimaryAgent)
+	if row.Agent != "opencode" {
+		t.Fatalf("Agent = %q, want opencode", row.Agent)
 	}
 }

@@ -29,7 +29,7 @@
         "latest_activity": "Bash: go test ./...",
         "last_kind": "PreToolUse",
         "worktree_path": "/tmp/questmaster/worktrees/app-contract",
-        "primary_agent": "codex",
+        "agent": "codex",
         "session_type": "master",
         "worker_count": 1,
         "artifacts": [

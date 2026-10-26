@@ -81,7 +81,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 				if err != nil {
 					return err
 				}
-				resumeIDs, err = opts.agentFlags.ResolveResumeIDs(registry)
+				resumeIDs, err = opts.agentFlags.ResolveResumeIDs(registry, cmd.Flags().Changed("resume-agent"))
 				if err != nil {
 					return err
 				}
@@ -137,7 +137,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 	cmd.Flags().BoolVar(&opts.shell, "shell", false, "start a plain terminal session")
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)
-	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
+	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
 	addDeprecatedLayoutFlag(cmd)

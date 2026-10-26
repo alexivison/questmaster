@@ -56,7 +56,7 @@ func TestDeleteCleansWorkerSessionState(t *testing.T) {
 	}
 	masterID := "qm-master"
 	workerID := "qm-worker"
-	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: []string{workerID}}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{workerID}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
 	worker := state.Manifest{SessionID: workerID}

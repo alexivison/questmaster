@@ -32,8 +32,8 @@ func writeSessionStateFixture(t *testing.T, sessionID, paneState, activity, last
 		"version":    1,
 		"seen_at":    time.Now().UTC(),
 		"panes": map[string]any{
-			"primary": map[string]any{
-				"role":       "primary",
+			"agent": map[string]any{
+				"role":       "agent",
 				"agent":      "claude",
 				"state":      paneState,
 				"activity":   activity,
@@ -59,7 +59,7 @@ func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
 		SessionID: "qm-active",
 		Title:     "active session",
 		Cwd:       "/tmp/active",
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestSessionsJSON_ActiveWhenStateIsWorking(t *testing.T) {
 		case "list-sessions":
 			return "qm-active", nil
 		case "list-panes":
-			return "qm-active\t1 0 primary", nil
+			return "qm-active\t1 0 agent", nil
 		case "capture-pane":
 			t.Fatalf("Phase 2 tracker should not call capture-pane")
 		}
@@ -96,7 +96,7 @@ func TestSessionsJSON_InactiveWhenStateIsIdle(t *testing.T) {
 	store := setupStore(t)
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-quiet",
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestSessionsJSON_UsesPiHookStateWorkingSignal(t *testing.T) {
 	if err := store.Create(state.Manifest{
 		SessionID: sessionID,
 		Title:     "pi busy",
-		Agents:    []state.AgentManifest{{Name: "pi", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "pi", Role: "agent"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestSessionsJSON_UsesPiHookStateWorkingSignal(t *testing.T) {
 		case "list-sessions":
 			return sessionID, nil
 		case "list-panes":
-			return sessionID + "\t1 0 primary", nil
+			return sessionID + "\t1 0 agent", nil
 		case "capture-pane":
 			t.Fatalf("Phase 3 tracker should not call capture-pane")
 		}
@@ -160,7 +160,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			Title:       "root",
 			Cwd:         "/tmp/root",
 			CreatedAt:   "2026-04-21T00:00:01Z",
-			Agents:      []state.AgentManifest{{Name: "claude", Role: "primary"}},
+			Agents:      []state.AgentManifest{{Name: "claude", Role: "agent"}},
 			SessionType: "",
 		},
 		{
@@ -170,14 +170,14 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			CreatedAt:   "2026-04-21T00:00:03Z",
 			SessionType: "master",
 			Workers:     []string{"qm-worker"},
-			Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
+			Agents:      []state.AgentManifest{{Name: "codex", Role: "agent"}},
 		},
 		{
 			SessionID: "qm-worker",
 			Title:     "worker",
 			Cwd:       "/tmp/worker",
 			CreatedAt: "2026-04-21T00:00:02Z",
-			Agents:    []state.AgentManifest{{Name: "claude", Role: "primary"}},
+			Agents:    []state.AgentManifest{{Name: "claude", Role: "agent"}},
 			Extra: map[string]json.RawMessage{
 				"parent_session": json.RawMessage(`"qm-master"`),
 			},
@@ -187,7 +187,7 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			Title:     "orphan",
 			Cwd:       "/tmp/orphan",
 			CreatedAt: "2026-04-21T00:00:00Z",
-			Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+			Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 			Extra: map[string]json.RawMessage{
 				"parent_session": json.RawMessage(`"qm-gone"`),
 			},
@@ -204,10 +204,10 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 			return "qm-orphan\nqm-root\nqm-worker\nqm-master", nil
 		case "list-panes":
 			return strings.Join([]string{
-				"qm-master\t1 0 primary",
-				"qm-worker\t1 0 primary",
-				"qm-root\t1 0 primary",
-				"qm-orphan\t1 0 primary",
+				"qm-master\t1 0 agent",
+				"qm-worker\t1 0 agent",
+				"qm-root\t1 0 agent",
+				"qm-orphan\t1 0 agent",
 			}, "\n"), nil
 		case "capture-pane":
 			t.Fatalf("Phase 2 tracker should not call capture-pane")
@@ -226,8 +226,8 @@ func TestSessionsJSON_UsesTrackerOrder(t *testing.T) {
 		t.Fatalf("order: got %v, want %v", gotOrder, wantOrder)
 	}
 
-	if rows[0].PrimaryTool != "codex" {
-		t.Fatalf("master primary_tool: got %q, want %q", rows[0].PrimaryTool, "codex")
+	if rows[0].Agent != "codex" {
+		t.Fatalf("master agent: got %q, want %q", rows[0].Agent, "codex")
 	}
 	if rows[1].SessionType != "worker" {
 		t.Fatalf("worker session_type: got %q, want %q", rows[1].SessionType, "worker")

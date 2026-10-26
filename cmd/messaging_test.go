@@ -23,7 +23,7 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 		Title:     id,
 		Cwd:       "/tmp",
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1},
+			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", Window: 1},
 		},
 		Extra: map[string]json.RawMessage{
 			"parent_session": json.RawMessage(`"` + parentID + `"`),
@@ -37,7 +37,7 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 	}
 }
 
-// messagingRunner simulates live sessions with idle primary panes.
+// messagingRunner simulates live sessions with idle agent panes.
 func messagingRunner(live ...string) *mockRunner {
 	liveSet := make(map[string]bool)
 	for _, s := range live {
@@ -52,7 +52,7 @@ func messagingRunner(live ...string) *mockRunner {
 			return "", &tmux.ExitError{Code: 1}
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 primary", nil
+			return "1 0 agent", nil
 		}
 		if len(args) >= 1 && args[0] == "display-message" {
 			return "0", nil // pane idle
@@ -89,7 +89,7 @@ func (r *sendCaptureRunner) Run(_ context.Context, args ...string) (string, erro
 		return "", &tmux.ExitError{Code: 1}
 	}
 	if len(args) >= 1 && args[0] == "list-panes" {
-		return "1 0 primary", nil
+		return "1 0 agent", nil
 	}
 	if len(args) >= 1 && args[0] == "display-message" {
 		if len(args) > 0 && args[len(args)-1] == "#{session_name}" {

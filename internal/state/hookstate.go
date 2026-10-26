@@ -219,10 +219,27 @@ func decodeSessionState(data []byte) (*SessionState, error) {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("decode session state: %w", err)
 	}
-	if s.Panes == nil {
-		s.Panes = map[string]PaneState{}
-	}
+	normalizeSessionState(&s)
 	return &s, nil
+}
+
+func normalizeSessionState(ss *SessionState) {
+	if ss.Panes == nil {
+		ss.Panes = map[string]PaneState{}
+	}
+	if pane, ok := ss.Panes["primary"]; ok {
+		pane.Role = "agent"
+		if _, exists := ss.Panes["agent"]; !exists {
+			ss.Panes["agent"] = pane
+		}
+		delete(ss.Panes, "primary")
+	}
+	for key, pane := range ss.Panes {
+		if pane.Role == "primary" {
+			pane.Role = "agent"
+			ss.Panes[key] = pane
+		}
+	}
 }
 
 // SaveSessionState writes the state.json for a session atomically. The
@@ -301,7 +318,7 @@ func UpdateAndLogAt(root, id string, ev *StateEvent, mutate func(*SessionState) 
 	return UpdateAndLogWithEventsAt(root, id, ev, mutate, nil)
 }
 
-// UpdateAndLogWithEvents appends events produced from the primary event and
+// UpdateAndLogWithEvents appends events produced from the agent event and
 // applies their state mutation under one lock.
 func UpdateAndLogWithEvents(id string, ev *StateEvent, mutate func(*SessionState) bool, extraEvents func(*StateEvent) []*StateEvent) error {
 	return UpdateAndLogWithEventsAt(StateRoot(), id, ev, mutate, extraEvents)
@@ -979,7 +996,7 @@ func MarkSessionObserved(id string, now time.Time) (bool, error) {
 
 	changed := false
 	err := updateExistingSessionState(id, func(ss *SessionState) bool {
-		pane, ok := ss.Panes["primary"]
+		pane, ok := ss.Panes["agent"]
 		if !ok || pane.State != "done" {
 			return false
 		}
@@ -990,7 +1007,7 @@ func MarkSessionObserved(id string, now time.Time) (bool, error) {
 		ss.SeenAt = now
 		pane.State = "idle"
 		pane.WorkingSince = time.Time{}
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		changed = true
 		return true
 	})
@@ -1027,9 +1044,7 @@ func writeSessionStateLocked(root, id string, ss *SessionState) error {
 	if ss.Version == 0 {
 		ss.Version = SchemaVersion
 	}
-	if ss.Panes == nil {
-		ss.Panes = map[string]PaneState{}
-	}
+	normalizeSessionState(ss)
 	if err := ensureSessionStateDir(root, id); err != nil {
 		return err
 	}
@@ -1051,7 +1066,7 @@ func writeSessionStateLocked(root, id string, ss *SessionState) error {
 }
 
 // InitStartingState seeds state.json with State="starting" / Activity="started"
-// for each provided pane (roleName → agentName, e.g. {"primary": "codex"}).
+// for each provided pane (roleName → agentName, e.g. {"agent": "codex"}).
 // Skips any pane that already has a non-empty State so the agent's first
 // hook (which fires moments later) is never overwritten. This eliminates
 // the brief "unknown" the tracker would otherwise render between spawn and

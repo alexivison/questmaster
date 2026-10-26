@@ -60,7 +60,7 @@ func newBenchmarkStore(b *testing.B, count int) *Store {
   "cwd": "/tmp/qm-%03d",
   "window_name": "qm-%03d",
   "agents": [
-    {"name": "claude", "role": "primary", "cli": "/usr/local/bin/claude", "resume_id": "claude-%03d", "window": 1},
+    {"name": "claude", "role": "agent", "cli": "/usr/local/bin/claude", "resume_id": "claude-%03d", "window": 1},
     {"name": "codex", "role": "secondary", "cli": "/usr/local/bin/codex", "resume_id": "codex-%03d", "window": 0}
   ],
   "workers": ["qm-worker-%03d", "qm-worker-%03d"],

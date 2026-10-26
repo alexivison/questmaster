@@ -5,24 +5,19 @@ package cmd
 import (
 	"bytes"
 	"os"
+	"strings"
 	"testing"
 )
 
 func TestAgentQuery_DefaultConfig(t *testing.T) {
 	cwd := t.TempDir()
 
-	if got := runAgentQuery(t, cwd, "agent", "query", "roles"); got != "primary\n" {
-		t.Fatalf("roles = %q, want %q", got, "primary\n")
-	}
 	if got := runAgentQuery(t, cwd, "agent", "query", "names"); got != "claude\ncodex\nopencode\npi\n" {
 		t.Fatalf("names = %q, want %q", got, "claude\ncodex\nopencode\npi\n")
 	}
-	if got := runAgentQuery(t, cwd, "agent", "query", "primary-name"); got != "claude\n" {
-		t.Fatalf("primary-name = %q, want %q", got, "claude\n")
-	}
 }
 
-func TestAgentQuery_RepoRootOverride(t *testing.T) {
+func TestAgentQuery_NamesIgnoreRepoRoot(t *testing.T) {
 	repoRoot := t.TempDir()
 
 	otherDir := t.TempDir()
@@ -45,12 +40,23 @@ func TestAgentQuery_RepoRootOverride(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&bytes.Buffer{})
-	root.SetArgs([]string{"agent", "query", "primary-name"})
+	root.SetArgs([]string{"agent", "query", "names"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("Execute(agent query primary-name): %v", err)
+		t.Fatalf("Execute(agent query names): %v", err)
 	}
-	if got := out.String(); got != "claude\n" {
-		t.Fatalf("primary-name used PARTY_REPO_ROOT unexpectedly: got %q, want claude", got)
+	if got := out.String(); got != "claude\ncodex\nopencode\npi\n" {
+		t.Fatalf("names used PARTY_REPO_ROOT unexpectedly: got %q", got)
+	}
+}
+
+func TestAgentQuery_RemovesSingleValueQueries(t *testing.T) {
+	for _, query := range []string{"roles", "primary-name", "agent-name"} {
+		root := NewRootCmd()
+		root.SetErr(&bytes.Buffer{})
+		root.SetArgs([]string{"agent", "query", query})
+		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "unknown query") {
+			t.Errorf("agent query %q error = %v, want unknown query", query, err)
+		}
 	}
 }
 

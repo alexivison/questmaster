@@ -62,7 +62,7 @@ func createManifest(t *testing.T, store *state.Store, id, title, cwd, sessionTyp
 		Cwd:         cwd,
 		SessionType: sessionType,
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1},
+			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", Window: 1},
 		},
 	}
 	if err := store.Create(m); err != nil {
