@@ -847,15 +847,15 @@ enum TrackerNameplateRole: Equatable {
     var portraitOrigin: CGPoint {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
     }
-    /// The agent badge's frame origin: its centre is `badgeInset` in from the disc's left edge and up from its bottom.
+    /// The agent badge's frame origin: its left edge `badgeOverhang` outside the disc's, its bottom edge the same below the
+    /// disc's.
     var badgeOrigin: CGPoint {
-        let radius = TrackerPlateDesign.badgeDiameter / 2
-        return CGPoint(
-            x: portraitOrigin.x + TrackerPlateDesign.badgeInset - radius,
-            y: portraitOrigin.y + portraitDiameter - TrackerPlateDesign.badgeInset - radius
+        CGPoint(
+            x: portraitOrigin.x - TrackerPlateDesign.badgeOverhang,
+            y: portraitOrigin.y + portraitDiameter + TrackerPlateDesign.badgeOverhang - TrackerPlateDesign.badgeDiameter
         )
     }
-    /// The badge's circle in row points. It hangs 5 past the disc's left edge and bottom, past the row's frame on a
+    /// The badge's circle in row points. It hangs `badgeOverhang` past the disc's left edge and bottom, past the row's frame on a
     /// master's left and under both plates, so the row's hit and hover shape takes it in (`RowHitShape`). The plate's
     /// band doesn't follow it.
     var badgeHitShape: Path {

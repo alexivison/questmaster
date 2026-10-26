@@ -250,8 +250,8 @@ their rows, and plate text starts `Space.row` past the disc's round edge (55,
 65; the side diamonds don't count). The selected-session panel's text starts
 `Space.item` past its disc (80), clear of the Q's spike. Logos are 0.6 of their disc (30, 24, 15),
 canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
-agent's logo in a 20pt badge (logo 12) centred `Space.row` in from the disc's left edge and up from its bottom
-(`TrackerPlateDesign.badgeInset`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
+agent's logo in a 25pt badge (logo 15), as big as a collapsed worker's circle, whose edge hangs `Space.row` outside the
+disc on the left and below it (`TrackerPlateDesign.badgeOverhang`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
 A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, flush with the plates, stacked with no gap
 (the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
 in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its

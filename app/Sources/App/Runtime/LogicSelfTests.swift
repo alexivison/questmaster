@@ -581,7 +581,16 @@ enum LogicSelfTests {
         // The agent badge hangs 5 past its disc's left edge and bottom: on a master's row, left of the frame and below it,
         // on a worker's, below it. Every point of its rim is live, but the shape stays the circle: its square's corners are
         // not. The row sits off the origin, so the badge has to follow the row.
+        try expectClose(TrackerPlateDesign.badgeDiameter, TrackerPlateDesign.collapsedCircleDiameter, "the badge is as big as a collapsed worker's circle")
+        try expectClose(TrackerPlateDesign.badgeLogoSide, TrackerPlateDesign.collapsedLogoSide, "its logo is the circle's logo size")
         for role in [TrackerNameplateRole.master, .worker] {
+            try expectClose(role.portraitOrigin.x - role.badgeOrigin.x, TrackerPlateDesign.badgeOverhang, "\(role)'s badge hangs the overhang past the disc's left edge")
+            try expectClose(
+                role.badgeOrigin.y + TrackerPlateDesign.badgeDiameter - (role.portraitOrigin.y + role.portraitDiameter),
+                TrackerPlateDesign.badgeOverhang,
+                "\(role)'s badge hangs the overhang below the disc"
+            )
+            try expect(role.badgeOrigin.x == role.badgeOrigin.x.rounded() && role.badgeOrigin.y == role.badgeOrigin.y.rounded(), "\(role)'s badge frame sits on whole points")
             let row = CGRect(origin: CGPoint(x: 7, y: 3), size: role.canvasSize)
             let hit = RowHitShape(outset: role.hitOutset, overhang: role.badgeHitShape).path(in: row)
             let radius = TrackerPlateDesign.badgeDiameter / 2
