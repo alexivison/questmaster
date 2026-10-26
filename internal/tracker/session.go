@@ -44,6 +44,7 @@ type SessionRow struct {
 	ParentID     string
 	WorkerCount  int
 	DisplayColor string // effective (last-write-wins) gutter color
+	Class        string
 	Snippet      string
 
 	// Repo grouping. RepoIdentity is the canonical parent-repo key (shared by
@@ -124,6 +125,7 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			rows = append(rows, row)
 		}
 		inheritWorkerDisplayColors(rows)
+		InheritWorkerClasses(rows)
 
 		return TrackerSnapshot{
 			Sessions:   GroupRowsByRepo(OrderSessionRows(rows)),
@@ -136,6 +138,10 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 // ManifestToSessionRow converts manifest data plus liveness into a tracker row.
 func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 	sessionType := m.SessionRole()
+	class := ""
+	if sessionType == "master" {
+		class = m.DisplayClass()
+	}
 	status := "stopped"
 	if alive {
 		status = "active"
@@ -151,6 +157,7 @@ func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 		ParentID:     m.ExtraString("parent_session"),
 		WorkerCount:  len(m.Workers),
 		DisplayColor: m.DisplayColor(),
+		Class:        class,
 	}
 }
 
@@ -301,6 +308,21 @@ func inheritWorkerDisplayColors(rows []SessionRow) {
 			continue
 		}
 		rows[i].DisplayColor = parentColors[rows[i].ParentID]
+	}
+}
+
+// InheritWorkerClasses derives each worker's class from its master row.
+func InheritWorkerClasses(rows []SessionRow) {
+	parentClasses := make(map[string]string, len(rows))
+	for _, row := range rows {
+		if row.SessionType == "master" {
+			parentClasses[row.ID] = row.Class
+		}
+	}
+	for i := range rows {
+		if rows[i].SessionType == "worker" {
+			rows[i].Class = parentClasses[rows[i].ParentID]
+		}
 	}
 }
 

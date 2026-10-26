@@ -26,6 +26,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 		fromApp         bool
 		model           string
 		reasoningEffort string
+		class           string
 	}
 
 	cmd := &cobra.Command{
@@ -68,6 +69,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				Shell:           opts.shell,
 				MasterID:        opts.masterID,
 				DisplayColor:    opts.displayColor,
+				Class:           opts.class,
 				ResumeIDs:       resumeIDs,
 				Prompt:          userPrompt,
 				Detached:        true, // shell wrappers handle attach
@@ -119,6 +121,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.displayColor, "color", "", "session display color")
+	cmd.Flags().StringVar(&opts.class, "class", "", "master session display class")
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")

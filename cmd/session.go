@@ -19,8 +19,31 @@ func newSessionCmd(store *state.Store, client *tmux.Client, repoRoot string) *co
 	cmd.AddCommand(
 		newSessionNewCmd(store, client, repoRoot),
 		newSessionColorCmd(store),
+		newSessionReclassCmd(store),
 	)
 	return cmd
+}
+
+func newSessionReclassCmd(store *state.Store) *cobra.Command {
+	return &cobra.Command{
+		Use:   "reclass <session-id> <class>",
+		Short: "Change a master session's display class",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			class, err := state.ValidateSessionClass(args[1])
+			if err != nil {
+				return err
+			}
+			if err := store.SetSessionClass(args[0], class); err != nil {
+				return err
+			}
+			return writeJSON(cmd.OutOrStdout(), struct {
+				SessionID    string `json:"session_id"`
+				Class        string `json:"class"`
+				Reclassified bool   `json:"reclassified"`
+			}{SessionID: args[0], Class: class, Reclassified: true})
+		},
+	}
 }
 
 func newSessionColorCmd(store *state.Store) *cobra.Command {
@@ -55,6 +78,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 		promptFile string
 		attach     bool
 		title      string
+		class      string
 	}
 
 	cmd := &cobra.Command{
@@ -94,6 +118,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 				Cwd:       opts.cwd,
 				Shell:     opts.shell,
 				MasterID:  opts.masterID,
+				Class:     opts.class,
 				ResumeIDs: resumeIDs,
 				Prompt:    userPrompt,
 				Detached:  true,
@@ -136,6 +161,7 @@ func newSessionNewCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: current)")
 	cmd.Flags().BoolVar(&opts.shell, "shell", false, "start a plain terminal session")
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
+	cmd.Flags().StringVar(&opts.class, "class", "", "master session display class")
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")

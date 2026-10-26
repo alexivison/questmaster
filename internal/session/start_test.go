@@ -105,6 +105,113 @@ func setMissingAgentRegistry(t *testing.T, svc *Service) {
 	svc.Registry = registry
 }
 
+func TestStartAssignsOrPersistsSessionClass(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		class string
+		index int
+		want  string
+	}{
+		{name: "automatic", index: 6, want: "bard"},
+		{name: "explicit", class: " Wizard ", want: "wizard"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc, _ := setupService(t)
+			svc.RandClassIndex = func(n int) int {
+				if n != 7 {
+					t.Fatalf("random class choices = %d, want 7", n)
+				}
+				return tt.index
+			}
+			result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir(), Class: tt.class})
+			if err != nil {
+				t.Fatalf("Start(): %v", err)
+			}
+			manifest, err := svc.Store.Read(result.SessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := manifest.DisplayClass(); got != tt.want {
+				t.Fatalf("DisplayClass() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStartDefaultClassCountsOnlyLiveMasters(t *testing.T) {
+	t.Parallel()
+
+	svc, runner := setupService(t)
+	for id, class := range map[string]string{
+		"qm-live-paladin":  "paladin",
+		"qm-live-wizard":   "wizard",
+		"qm-stopped-rogue": "rogue",
+		"qm-live-shell":    "barbarian",
+		"qm-live-worker":   "druid",
+	} {
+		manifest := state.Manifest{SessionID: id, Display: &state.DisplayMetadata{Class: class}}
+		switch id {
+		case "qm-live-paladin", "qm-live-wizard", "qm-stopped-rogue":
+			manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "agent"}}
+		case "qm-live-worker":
+			manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "agent"}}
+			manifest.SetExtra("parent_session", "qm-live-paladin")
+		}
+		if err := svc.Store.Create(manifest); err != nil {
+			t.Fatal(err)
+		}
+		if id != "qm-stopped-rogue" {
+			runner.sessions[id] = true
+		}
+	}
+	svc.RandClassIndex = func(n int) int {
+		if n != 5 {
+			t.Fatalf("least-used classes = %d, want 5", n)
+		}
+		return 1
+	}
+
+	result, err := svc.Start(t.Context(), StartOpts{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	manifest, err := svc.Store.Read(result.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := manifest.DisplayClass(); got != "barbarian" {
+		t.Fatalf("assigned class = %q, want barbarian from unused classes", got)
+	}
+}
+
+func TestStartRejectsInvalidOrInapplicableSessionClass(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		opts    StartOpts
+		wantErr string
+	}{
+		{name: "invalid", opts: StartOpts{Class: "ranger"}, wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard"},
+		{name: "shell", opts: StartOpts{Shell: true, Class: "wizard"}, wantErr: "shell sessions"},
+		{name: "worker", opts: StartOpts{MasterID: "qm-master", Class: "wizard"}, wantErr: "workers inherit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc, _ := setupService(t)
+			tt.opts.Cwd = t.TempDir()
+			if _, err := svc.Start(t.Context(), tt.opts); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Start() error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func callIndex(runner *mockRunner, match func([]string) bool) int {
 	for i, call := range runner.calls {
 		if match(call.args) {

@@ -3,6 +3,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -95,6 +96,114 @@ func TestSnapshotterSurfacesTracker(t *testing.T) {
 	}
 	if row.WorktreePath != env.worktree {
 		t.Fatalf("worktree = %q, want %q", row.WorktreePath, env.worktree)
+	}
+}
+
+func TestSnapshotterBackfillsMasterClassesOnce(t *testing.T) {
+	env := seedServeFixture(t)
+	ids := []string{"qm-demo", "qm-backfill-a", "qm-backfill-b"}
+	for _, id := range ids[1:] {
+		if err := env.store.Create(state.Manifest{
+			SessionID: id,
+			Cwd:       env.worktree,
+			Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		}); err != nil {
+			t.Fatalf("create master %s: %v", id, err)
+		}
+	}
+	tmuxClient := tmux.NewClient(fakeTmuxRunner{sessions: strings.Join(ids, "\n")})
+	snapshotter := NewSnapshotter(env.store, tmuxClient, func() time.Time { return env.now })
+	snapshotter.randomIndex = func(int) int { return 0 }
+
+	first, err := snapshotter.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("first tracker snapshot: %v", err)
+	}
+	classes := make(map[string]bool, len(ids))
+	manifestBytes := make(map[string][]byte, len(ids))
+	for _, row := range first.Sessions {
+		if !slices.Contains(ids, row.ID) {
+			continue
+		}
+		classes[row.Class] = true
+		manifest, err := env.store.Read(row.ID)
+		if err != nil {
+			t.Fatalf("read manifest %s: %v", row.ID, err)
+		}
+		if manifest.DisplayClass() != row.Class || row.Class == "" {
+			t.Fatalf("row %s class = %q manifest class = %q", row.ID, row.Class, manifest.DisplayClass())
+		}
+		manifestBytes[row.ID], err = os.ReadFile(filepath.Join(env.store.Root(), row.ID+".json"))
+		if err != nil {
+			t.Fatalf("read manifest bytes %s: %v", row.ID, err)
+		}
+	}
+	if len(classes) != len(ids) {
+		t.Fatalf("backfilled classes = %v, want %d balanced classes", classes, len(ids))
+	}
+
+	second, err := snapshotter.TrackerForChange(Change{BroadTracker: true})
+	if err != nil {
+		t.Fatalf("second tracker snapshot: %v", err)
+	}
+	for _, row := range second.Sessions {
+		if _, ok := manifestBytes[row.ID]; !ok {
+			continue
+		}
+		if !classes[row.Class] {
+			t.Fatalf("row %s class changed from backfilled set: %q", row.ID, row.Class)
+		}
+		got, err := os.ReadFile(filepath.Join(env.store.Root(), row.ID+".json"))
+		if err != nil {
+			t.Fatalf("read manifest bytes %s: %v", row.ID, err)
+		}
+		if !bytes.Equal(got, manifestBytes[row.ID]) {
+			t.Fatalf("manifest %s changed on the second snapshot", row.ID)
+		}
+	}
+}
+
+func TestSnapshotterWorkersFollowMasterReclass(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := env.store.SetSessionClass("qm-demo", "wizard"); err != nil {
+		t.Fatalf("set master class: %v", err)
+	}
+	if err := env.store.Create(state.Manifest{
+		SessionID: "qm-worker",
+		Cwd:       env.worktree,
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Display:   &state.DisplayMetadata{Class: "barbarian"},
+		Extra:     map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-demo"`)},
+	}); err != nil {
+		t.Fatalf("create worker: %v", err)
+	}
+	snapshotter := NewSnapshotter(env.store, tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo\nqm-worker"}), func() time.Time { return env.now })
+	classFor := func(snapshot TrackerSnapshot) string {
+		for _, row := range snapshot.Sessions {
+			if row.ID == "qm-worker" {
+				return row.Class
+			}
+		}
+		return ""
+	}
+
+	first, err := snapshotter.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("first tracker snapshot: %v", err)
+	}
+	if got := classFor(first); got != "wizard" {
+		t.Fatalf("worker class = %q, want master's wizard class", got)
+	}
+
+	if err := env.store.SetSessionClass("qm-demo", "bard"); err != nil {
+		t.Fatalf("reclass master: %v", err)
+	}
+	second, err := snapshotter.TrackerForChange(Change{BroadTracker: true})
+	if err != nil {
+		t.Fatalf("second tracker snapshot: %v", err)
+	}
+	if got := classFor(second); got != "bard" {
+		t.Fatalf("worker class after master reclass = %q, want bard", got)
 	}
 }
 
@@ -1016,10 +1125,11 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 					"cwd":    "/tmp/project",
 					"agent":  "codex",
 					"color":  "violet",
+					"class":  "wizard",
 					"prompt": "start this",
 				},
 			},
-			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--agent", "codex", "--color", "violet", "--prompt-file", "-", "--", "session title"},
+			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--agent", "codex", "--color", "violet", "--class", "wizard", "--prompt-file", "-", "--", "session title"},
 			wantStdin: "start this",
 		},
 		{
@@ -1864,6 +1974,93 @@ func TestServerRecolorMutationMutatesStateAndPushesTracker(t *testing.T) {
 	cancel()
 	if err := <-errc; err != nil {
 		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
+	tests := []struct {
+		name     string
+		id       string
+		class    string
+		manifest state.Manifest
+		wantErr  string
+	}{
+		{
+			name:  "master",
+			id:    "qm-class-master",
+			class: " Wizard ",
+			manifest: state.Manifest{
+				SessionID: "qm-class-master",
+				Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+			},
+		},
+		{
+			name: "worker",
+			id:   "qm-class-worker",
+			manifest: state.Manifest{
+				SessionID: "qm-class-worker",
+				Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+				Extra:     map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)},
+			},
+			class:   "bard",
+			wantErr: "workers inherit their master's class",
+		},
+		{
+			name:     "shell",
+			id:       "qm-class-shell",
+			manifest: state.Manifest{SessionID: "qm-class-shell"},
+			class:    "bard",
+			wantErr:  "shell sessions have no class",
+		},
+		{
+			name: "invalid class",
+			id:   "qm-class-invalid",
+			manifest: state.Manifest{
+				SessionID: "qm-class-invalid",
+				Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+			},
+			class:   "ranger",
+			wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, err := state.NewStore(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Create(tt.manifest); err != nil {
+				t.Fatal(err)
+			}
+			handler, ok := mutationRegistry["reclass"]
+			if !ok {
+				t.Fatal("reclass mutation is not registered")
+			}
+			response, err := handler(&Server{Snapshotter: &Snapshotter{store: store}}, context.Background(), Request{}, mutationPayload{
+				SessionID: tt.id,
+				Class:     tt.class,
+			})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("reclass error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("reclass: %v", err)
+			}
+			result, ok := response.(map[string]any)
+			if !ok || result["session_id"] != tt.id || result["class"] != "wizard" || result["reclassified"] != true {
+				t.Fatalf("reclass response = %#v, want normalized class response", response)
+			}
+			manifest, err := store.Read(tt.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if manifest.DisplayClass() != "wizard" {
+				t.Fatalf("stored class = %q, want wizard", manifest.DisplayClass())
+			}
+		})
 	}
 }
 

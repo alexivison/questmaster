@@ -59,7 +59,8 @@
         "name": "questmaster",
         "color": "green"
       },
-      "display_color": "violet"
+      "display_color": "violet",
+      "class": "wizard"
     }
   ],
   "projects": [

@@ -245,6 +245,32 @@ func TestColorCommands_UpdateSessionAndRepo(t *testing.T) {
 	}
 }
 
+func TestSessionReclassCommand(t *testing.T) {
+	t.Parallel()
+
+	store := setupStore(t)
+	createManifest(t, store, "qm-class", "class-test", t.TempDir(), "master")
+	out := runCmd(t, store, sessionsRunner(), "session", "reclass", "qm-class", "Wizard")
+	var got struct {
+		SessionID    string `json:"session_id"`
+		Class        string `json:"class"`
+		Reclassified bool   `json:"reclassified"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("session reclass output is not JSON: %v\n%s", err, out)
+	}
+	if got.SessionID != "qm-class" || got.Class != "wizard" || !got.Reclassified {
+		t.Fatalf("session reclass response = %#v, want qm-class wizard", got)
+	}
+	manifest, err := store.Read("qm-class")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.DisplayClass() != "wizard" {
+		t.Fatalf("stored class = %q, want wizard", manifest.DisplayClass())
+	}
+}
+
 func TestList_ActiveSessions(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)

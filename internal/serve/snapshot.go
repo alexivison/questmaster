@@ -8,6 +8,7 @@ package serve
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -27,6 +28,7 @@ type Snapshotter struct {
 	tmuxClient   *tmux.Client
 	fetcher      tracker.SessionFetcher
 	now          func() time.Time
+	randomIndex  func(int) int
 	mu           sync.Mutex
 	trackerCache *TrackerSnapshot
 }
@@ -44,10 +46,11 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 		now = time.Now
 	}
 	return &Snapshotter{
-		store:      store,
-		tmuxClient: tmuxClient,
-		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store),
-		now:        now,
+		store:       store,
+		tmuxClient:  tmuxClient,
+		fetcher:     tracker.NewLiveSessionFetcher(tmuxClient, store),
+		now:         now,
+		randomIndex: rand.IntN,
 	}
 }
 
@@ -130,6 +133,7 @@ type SessionSnapshot struct {
 	Artifacts       []ArtifactSnapshot `json:"artifacts,omitempty"`
 	Repo            RepoSnapshot       `json:"repo,omitempty"`
 	DisplayColor    string             `json:"display_color,omitempty"`
+	Class           string             `json:"class,omitempty"`
 }
 
 type CastSnapshot struct {
@@ -376,6 +380,10 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	if err != nil {
 		return TrackerSnapshot{}, err
 	}
+	if err := s.backfillSessionClasses(snap.Sessions); err != nil {
+		return TrackerSnapshot{}, err
+	}
+	tracker.InheritWorkerClasses(snap.Sessions)
 	observedAt := snap.ObservedAt.UTC()
 	if observedAt.IsZero() {
 		observedAt = s.now().UTC()
@@ -395,6 +403,34 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 		Artifacts:  artifactSnapshots(artifacts),
 		Quests:     questSnapshots(quests),
 	}), nil
+}
+
+func (s *Snapshotter) backfillSessionClasses(rows []tracker.SessionRow) error {
+	activeClasses := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if row.SessionType == "master" && row.Status == "active" && row.Class != "" {
+			activeClasses = append(activeClasses, row.Class)
+		}
+	}
+	index := s.randomIndex
+	if index == nil {
+		index = rand.IntN
+	}
+	for i := range rows {
+		if rows[i].SessionType != "master" || rows[i].Class != "" {
+			continue
+		}
+		class := state.ChooseSessionClass(activeClasses, index)
+		stored, err := s.store.SetSessionClassIfMissing(rows[i].ID, class)
+		if err != nil {
+			return fmt.Errorf("backfill session class for %s: %w", rows[i].ID, err)
+		}
+		rows[i].Class = stored
+		if rows[i].Status == "active" {
+			activeClasses = append(activeClasses, stored)
+		}
+	}
+	return nil
 }
 
 func (s *Snapshotter) cacheTracker(snapshot TrackerSnapshot) TrackerSnapshot {
@@ -609,6 +645,7 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 				Color:    row.RepoColor,
 			},
 			DisplayColor: row.DisplayColor,
+			Class:        row.Class,
 		}
 		if row.Status != "active" {
 			out[i].Cast = nil
