@@ -7,48 +7,61 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"os"
+	"sync/atomic"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
 
+const classBackfillRescanInterval = 10 * time.Minute
+
 // ClassBackfillJob assigns display classes to existing master manifests.
 type ClassBackfillJob struct {
-	store       *state.Store
-	tmuxClient  *tmux.Client
-	randomIndex func(int) int
+	store          *state.Store
+	tmuxClient     *tmux.Client
+	randomIndex    func(int) int
+	rescanInterval time.Duration
+	hasWork        atomic.Bool
 }
 
 // NewClassBackfillJob creates the daemon job with production random selection.
 func NewClassBackfillJob(store *state.Store, tmuxClient *tmux.Client) *ClassBackfillJob {
-	return &ClassBackfillJob{store: store, tmuxClient: tmuxClient, randomIndex: rand.IntN}
+	job := &ClassBackfillJob{
+		store:          store,
+		tmuxClient:     tmuxClient,
+		randomIndex:    rand.IntN,
+		rescanInterval: classBackfillRescanInterval,
+	}
+	job.hasWork.Store(true)
+	return job
 }
 
 func (j *ClassBackfillJob) Name() string { return "session-class-backfill" }
 
 func (j *ClassBackfillJob) HasWork() bool {
-	if j.store == nil {
-		return true
-	}
-	manifests, err := j.store.DiscoverSessions()
-	if err != nil {
-		return true
-	}
-	for _, manifest := range manifests {
-		if manifest.AgentSessionType() == "master" && manifest.DisplayClass() == "" {
-			return true
-		}
-	}
-	return false
+	return j.hasWork.Load()
 }
 
 func (j *ClassBackfillJob) Run(ctx context.Context) error {
-	if err := j.runPass(ctx); err != nil {
-		return err
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		j.hasWork.Store(true)
+		if err := j.runPass(ctx); err != nil {
+			return err
+		}
+		j.hasWork.Store(false)
+
+		timer := time.NewTimer(j.rescanInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil
+		case <-timer.C:
+		}
 	}
-	<-ctx.Done()
-	return nil
 }
 
 func (j *ClassBackfillJob) runPass(ctx context.Context) error {
@@ -72,7 +85,6 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 		class := state.ChooseSessionClass(activeClasses, j.randomIndex)
 		stored, err := j.store.SetSessionClassIfMissing(manifest.SessionID, class)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "session class backfill: %s: %v\n", manifest.SessionID, err)
 			writeErrors = append(writeErrors, fmt.Errorf("%s: %w", manifest.SessionID, err))
 			continue
 		}
@@ -81,7 +93,7 @@ func (j *ClassBackfillJob) runPass(ctx context.Context) error {
 		}
 	}
 	if len(writeErrors) > 0 {
-		return fmt.Errorf("backfill session classes: %w", errors.Join(writeErrors...))
+		return fmt.Errorf("backfill session classes (%d write failures): %w", len(writeErrors), errors.Join(writeErrors...))
 	}
 	return nil
 }

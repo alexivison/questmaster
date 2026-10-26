@@ -146,6 +146,69 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 	}
 }
 
+func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	job := NewClassBackfillJob(store, tmux.NewClient(&classBackfillRunner{sessions: "qm-later"}))
+	job.randomIndex = func(int) int { return 0 }
+	job.rescanInterval = 200 * time.Millisecond
+	if !job.HasWork() {
+		t.Fatal("HasWork() = false before the first pass")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- job.Run(ctx) }()
+	deadline := time.NewTimer(3 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for job.HasWork() {
+		select {
+		case err := <-done:
+			t.Fatalf("Run returned before cancellation: %v", err)
+		case <-deadline.C:
+			t.Fatal("first backfill pass did not finish")
+		case <-ticker.C:
+		}
+	}
+	if err := store.Create(state.Manifest{
+		SessionID: "qm-later",
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create master after first pass: %v", err)
+	}
+	if job.HasWork() {
+		t.Fatal("HasWork() = true between successful passes")
+	}
+	time.Sleep(20 * time.Millisecond)
+	if job.HasWork() {
+		t.Fatal("HasWork() = true before the rescan interval")
+	}
+	for {
+		manifest, err := store.Read("qm-later")
+		if err != nil {
+			t.Fatalf("read later master: %v", err)
+		}
+		if manifest.DisplayClass() != "" {
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("Run returned before cancellation: %v", err)
+		case <-deadline.C:
+			t.Fatal("rescan did not backfill the later master")
+		case <-ticker.C:
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run after cancellation: %v", err)
+	}
+}
+
 func TestClassBackfillJobFailures(t *testing.T) {
 	tests := []struct {
 		name          string

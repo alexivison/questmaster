@@ -23,7 +23,10 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 	parent := &cobra.Command{Use: "daemon", Short: "Manage the on-demand backend", Args: cobra.NoArgs}
 	var buildFrom string
 	config := func() (daemon.Config, error) {
-		c := newDaemonConfig(store)
+		c, err := newDaemonConfig(store, tmux.NewExecClient())
+		if err != nil {
+			return daemon.Config{}, err
+		}
 		if buildFrom == "" {
 			return c, nil
 		}
@@ -35,7 +38,7 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 		if err != nil {
 			return c, err
 		}
-		c.Executable = filepath.Join(store.Root(), "daemon", "bin", id, "exe", "qm")
+		c.Executable = filepath.Join(c.Root, "daemon", "bin", id, "exe", "qm")
 		return c, nil
 	}
 	encode := func(cmd *cobra.Command, value any) error { return json.NewEncoder(cmd.OutOrStdout()).Encode(value) }
@@ -151,9 +154,13 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 	return parent
 }
 
-func newDaemonConfig(store *state.Store) daemon.Config {
-	return daemon.Config{
-		Root: store.Root(),
-		Jobs: []daemon.Job{session.NewClassBackfillJob(store, tmux.NewExecClient())},
+func newDaemonConfig(store *state.Store, tmuxClient *tmux.Client) (daemon.Config, error) {
+	root, err := filepath.Abs(store.Root())
+	if err != nil {
+		return daemon.Config{}, err
 	}
+	return daemon.Config{
+		Root: root,
+		Jobs: []daemon.Job{session.NewClassBackfillJob(state.OpenStore(root), tmuxClient)},
+	}, nil
 }
