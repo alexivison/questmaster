@@ -14,7 +14,6 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     init(
         store: RuntimeStore,
         workerChatStore: WorkerChatStore,
-        pullRequestStore: PullRequestStore,
         newQuestPresenter: NewQuestSheetPresenter,
         settingsPresenter: SettingsSheetPresenter
     ) {
@@ -22,12 +21,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         self.workerChatStore = workerChatStore
         self.newQuestPresenter = newQuestPresenter
         self.settingsPresenter = settingsPresenter
-        let model = DockPaneModel(pullRequestStore: pullRequestStore)
+        let model = DockPaneModel()
         self.model = model
         super.init(rootView: DockRootView(
             store: store,
             workerChatStore: workerChatStore,
-            pullRequestStore: pullRequestStore,
             model: model,
             newQuestPresenter: newQuestPresenter,
             settingsPresenter: settingsPresenter
@@ -253,11 +251,6 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onCopyArtifactPath = newValue }
     }
 
-    var onPullRequestEffect: ((PullRequestEffect) -> Void)? {
-        get { model.onPullRequestEffect }
-        set { model.onPullRequestEffect = newValue }
-    }
-
     var onFocusRequested: (() -> Void)? {
         get { model.onFocusRequested }
         set { model.onFocusRequested = newValue }
@@ -345,7 +338,6 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 struct DockRootView: View {
     let store: RuntimeStore
     let workerChatStore: WorkerChatStore
-    let pullRequestStore: PullRequestStore
     @ObservedObject var model: DockPaneModel
     @ObservedObject var newQuestPresenter: NewQuestSheetPresenter
     @ObservedObject var settingsPresenter: SettingsSheetPresenter
@@ -369,8 +361,6 @@ struct DockRootView: View {
                 )
             case .workerChat:
                 WorkerChatDockView(store: workerChatStore)
-            case .versionControl:
-                VersionControlDockView(store: pullRequestStore, areaFocused: model.isFocused, onOpenRow: model.openPullRequest(_:))
             }
         }
         .background(AppPalette.panel.swiftUI)

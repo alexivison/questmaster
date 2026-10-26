@@ -104,6 +104,9 @@ public enum Keymap {
         public static let copySessionID = CommandBinding(title: "Copy Session ID", keyEquivalent: "y")
         public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .shift])
         public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .shift])
+        // K up, J down, as in vim. ⇧⌘J shadows Ghostty's write_screen_file:paste, as ⇧⌘W/A/T shadow its own.
+        public static let focusDockTop = CommandBinding(title: "Focus Top Dock Panel", keyEquivalent: "k", modifiers: [.command, .shift])
+        public static let focusDockBottom = CommandBinding(title: "Focus Bottom Dock Panel", keyEquivalent: "j", modifiers: [.command, .shift])
         public static let copy = CommandBinding(title: "Copy", keyEquivalent: "c")
         public static let paste = CommandBinding(title: "Paste", keyEquivalent: "v")
         public static let selectAll = CommandBinding(title: "Select All", keyEquivalent: "a")

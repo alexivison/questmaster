@@ -109,6 +109,7 @@ struct KeymapTests {
         expect(Keymap.Command.toggleQuestLog.modifiers == [.command, .shift], "toggle quest log should be command-shift-t, freeing Cmd+4 for session select")
         expect(Keymap.Command.toggleWorkerChatDock.displayGlyph == "⇧⌘W", "toggle worker chat glyph was \(Keymap.Command.toggleWorkerChatDock.displayGlyph)")
         expect(Keymap.Command.toggleVersionControlDock.displayGlyph == "⇧⌘R", "toggle version control glyph was \(Keymap.Command.toggleVersionControlDock.displayGlyph), not command-shift-v, which Ghostty binds to paste_from_selection")
+        expect(Keymap.Command.focusDockTop.displayGlyph == "⇧⌘K" && Keymap.Command.focusDockBottom.displayGlyph == "⇧⌘J", "the dock panel focus chords are shift-command K (up) and J (down)")
         expect(Keymap.Command.toggleCaffeine.modifiers == [.command, .shift], "toggle caffeinate should be command-shift, matching the other dock toggle chords")
         expect(Keymap.Command.copySessionID.keyEquivalent == "y", "copy session id key was \(Keymap.Command.copySessionID.keyEquivalent)")
         expect(Keymap.Command.copySessionID.modifiers == [.command], "copy session id should be command")
@@ -205,6 +206,8 @@ struct KeymapTests {
             Keymap.Command.copySessionID,
             Keymap.Command.focusRegionLeft,
             Keymap.Command.focusRegionRight,
+            Keymap.Command.focusDockTop,
+            Keymap.Command.focusDockBottom,
             Keymap.Command.copy,
             Keymap.Command.paste,
             Keymap.Command.selectAll,

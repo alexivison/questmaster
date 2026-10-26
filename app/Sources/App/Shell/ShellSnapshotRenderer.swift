@@ -39,10 +39,12 @@ final class ShellSnapshotRenderer {
         let hasSession = viewedSessionID != nil
         var shouldAnimateDockVisibility = animateDockVisibility
         var shouldAnimateDockLayout = animateDockLayout
-        if navigation.dockVisible != dockCoordinator.state.isShown(hasSession: hasSession) {
+        var panels = dockCoordinator.state.panels(hasSession: hasSession)
+        if navigation.dockVisible != panels.isShown {
             shouldAnimateDockVisibility = true
         }
-        navigation.setDockVisible(dockCoordinator.state.isShown(hasSession: hasSession))
+        // The keys pass on from a panel that went away (and from a dock with nothing left to show).
+        var focusOutcome = navigation.settleDock(panels)
 
         let artifactUpdate = dockView()?.apply(
             dockCoordinator.state,
@@ -53,7 +55,11 @@ final class ShellSnapshotRenderer {
             if case .open(let artifact) = update.intent, openArtifactDockIfActive(artifact) {
                 shouldAnimateDockVisibility = true
                 shouldAnimateDockLayout = true
-                navigation.setDockVisible(dockCoordinator.state.isShown(hasSession: hasSession))
+                panels = dockCoordinator.state.panels(hasSession: hasSession)
+                let reopened = navigation.settleDock(panels)
+                if reopened != .unchanged {
+                    focusOutcome = reopened
+                }
                 _ = dockView()?.apply(
                     dockCoordinator.state,
                     snapshot: runtimeStore.snapshot,
@@ -67,8 +73,9 @@ final class ShellSnapshotRenderer {
             dockCoordinator.state.dockPreferredWidth,
             animated: shouldAnimateDockLayout
         )
+        // The column is as wide as the bottom panel wants it; Version Control alone takes its own width.
         splitView()?.setDockWidthMode(
-            dockView()?.currentWidthMode ?? .standard,
+            panels.bottom ? dockView()?.currentWidthMode ?? .standard : .versionControl,
             animated: shouldAnimateDockLayout
         )
 
@@ -76,10 +83,13 @@ final class ShellSnapshotRenderer {
             terminalShell()?.clearMessage()
         }
         focusCoordinator()?.applyNavigationState(animateDockVisibility: shouldAnimateDockVisibility)
+        if case .focused = focusOutcome {
+            focusCoordinator()?.focusCurrentRegion()
+        }
     }
 
-    /// A new artifact in the viewed session opens in the dock (never a session switch: `ArtifactDisplayState`), but
-    /// not over the worker chat (`DockState.openNewArtifact`).
+    /// A new artifact in the viewed session opens in the bottom panel (never a session switch: `ArtifactDisplayState`),
+    /// but not over the worker chat (`DockState.openNewArtifact`); Version Control stays as it was.
     private func openArtifactDockIfActive(_ artifact: ArtifactReference) -> Bool {
         guard appIsActive(), dockCoordinator.state.openNewArtifact(artifact.id) else {
             return false

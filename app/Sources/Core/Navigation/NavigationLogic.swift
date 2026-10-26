@@ -38,9 +38,17 @@ public enum NavigationOutcome: Equatable {
 public struct AppNavigationState: Equatable {
     public private(set) var focusedRegion: FocusRegion
     public private(set) var trackerVisible: Bool
+    /// The dock region shows while either of its panels does (`DockPanels.isShown`).
     public private(set) var dockVisible: Bool
+    /// The dock panel that has the keys while the dock is focused, and the one it comes back to.
+    public private(set) var focusedDockPanel: DockPanel
 
-    public init(focusedRegion: FocusRegion = .terminal, trackerVisible: Bool = true, dockVisible: Bool = false) {
+    public init(
+        focusedRegion: FocusRegion = .terminal,
+        trackerVisible: Bool = true,
+        dockVisible: Bool = false,
+        focusedDockPanel: DockPanel = .bottom
+    ) {
         if (focusedRegion == .tracker && !trackerVisible) || (focusedRegion == .dock && !dockVisible) {
             self.focusedRegion = .terminal
         } else {
@@ -48,6 +56,7 @@ public struct AppNavigationState: Equatable {
         }
         self.trackerVisible = trackerVisible
         self.dockVisible = dockVisible
+        self.focusedDockPanel = focusedDockPanel
     }
 
     @discardableResult
@@ -74,16 +83,13 @@ public struct AppNavigationState: Equatable {
         }
     }
 
+    /// Focuses one dock panel (showing the dock region if it was hidden); the caller has shown the panel.
     @discardableResult
-    public mutating func toggleDock() -> NavigationOutcome {
-        dockVisible.toggle()
-        if dockVisible {
-            focusedRegion = .dock
-            return .focused(.dock)
-        } else {
-            focusedRegion = .terminal
-            return .focused(.terminal)
-        }
+    public mutating func focusDockPanel(_ panel: DockPanel) -> NavigationOutcome {
+        dockVisible = true
+        focusedDockPanel = panel
+        focusedRegion = .dock
+        return .focused(.dock)
     }
 
     @discardableResult
@@ -92,19 +98,24 @@ public struct AppNavigationState: Equatable {
         return .unchanged
     }
 
-    /// Sets dock visibility while preserving focus, re-applying the focus invariant.
-    ///
-    /// Unlike `focus(.dock)`, showing the dock does NOT move focus to it. Hiding the dock while it
-    /// is focused strands focus, so focus falls back to `.terminal` (mirroring the constructor
-    /// invariant and `toggleDock()`). Setting visibility to its current value is a no-op for focus.
+    /// Fits the dock region to the panels that show, keeping focus where it is: the region shows while any panel does, and
+    /// focus never rests on a hidden panel. When the focused panel hides, the keys pass to the other one, or to the
+    /// terminal when none is left. Unlike `focusDockPanel`, showing a panel does not move focus to it.
     @discardableResult
-    public mutating func setDockVisible(_ visible: Bool) -> NavigationOutcome {
-        dockVisible = visible
-        if !visible && focusedRegion == .dock {
+    public mutating func settleDock(_ panels: DockPanels) -> NavigationOutcome {
+        dockVisible = panels.isShown
+        guard panels.isShown else {
+            guard focusedRegion == .dock else {
+                return .unchanged
+            }
             focusedRegion = .terminal
             return .focused(.terminal)
         }
-        return .unchanged
+        guard !panels.contains(focusedDockPanel) else {
+            return .unchanged
+        }
+        focusedDockPanel = panels.top ? .top : .bottom
+        return focusedRegion == .dock ? .focused(.dock) : .unchanged
     }
 
     @discardableResult

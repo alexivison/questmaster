@@ -36,6 +36,16 @@ public final class NavigationStore {
         focusedRegion == region && !isModalDrawn
     }
 
+    /// Whether one dock panel takes the keys: the dock has them and this panel is the focused one. Only that panel's
+    /// frame lifts.
+    public func hasKeys(_ panel: DockPanel) -> Bool {
+        hasKeys(.dock) && state.focusedDockPanel == panel
+    }
+
+    public var focusedDockPanel: DockPanel {
+        state.focusedDockPanel
+    }
+
     public var trackerVisible: Bool {
         state.trackerVisible
     }
@@ -55,8 +65,8 @@ public final class NavigationStore {
     }
 
     @discardableResult
-    public func toggleDock() -> NavigationOutcome {
-        mutate { $0.toggleDock() }
+    public func focusDockPanel(_ panel: DockPanel) -> NavigationOutcome {
+        mutate { $0.focusDockPanel(panel) }
     }
 
     @discardableResult
@@ -65,8 +75,8 @@ public final class NavigationStore {
     }
 
     @discardableResult
-    public func setDockVisible(_ visible: Bool) -> NavigationOutcome {
-        mutate { $0.setDockVisible(visible) }
+    public func settleDock(_ panels: DockPanels) -> NavigationOutcome {
+        mutate { $0.settleDock(panels) }
     }
 
     @discardableResult

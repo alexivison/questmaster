@@ -67,6 +67,8 @@ enum LogicSelfTests {
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
+        ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
+        ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
@@ -1130,9 +1132,9 @@ enum LogicSelfTests {
         try expect(state.focusedRegion == .terminal, "hidden tracker should not keep focus")
 
         state = AppNavigationState(focusedRegion: .tracker, dockVisible: true)
-        try expect(state.toggleDock() == .focused(.terminal), "hiding non-focused dock should focus terminal")
+        try expect(state.settleDock(DockPanels()) == .unchanged, "hiding a non-focused dock should leave focus alone")
         try expect(!state.dockVisible, "dock should hide")
-        try expect(state.focusedRegion == .terminal, "hiding non-focused dock should focus terminal")
+        try expect(state.focusedRegion == .tracker, "hiding a non-focused dock should keep the tracker focused")
     }
 
     private static func testDirectionalRegionFocusMapping() throws {
@@ -1232,19 +1234,9 @@ enum LogicSelfTests {
         )
         try expect(model.currentMode == .artifacts, "artifact dock content should render artifact mode")
         try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
-
-        let beforeVersionControl = publishCount
-        _ = model.apply(
-            DockState(dockContent: .versionControl),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
-        try expect(model.currentMode == .versionControl, "version control dock content should render version control mode")
-        try expect(model.currentWidthMode == .compact, "version control should take the compact dock width")
-        try expect(publishCount > beforeVersionControl, "version control mode change should publish for DockRootView")
     }
 
-    /// The version control dock's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
+    /// The Version Control panel's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
     /// and r asks the daemon to refresh; a click picks and opens; modified keys and others pass through.
     private static func testVersionControlDockKeysMoveOpenCopyAndRefresh() throws {
         let store = PullRequestStore()
@@ -1262,39 +1254,112 @@ enum LogicSelfTests {
         }
         _ = store.apply(response: [try pull(1, updated: "2026-10-01T00:00:00Z"), try pull(2, updated: "2026-10-02T00:00:00Z")], for: request)
 
-        let model = DockPaneModel(pullRequestStore: store)
+        let pane = VersionControlDockPane(store: store)
         var effects: [PullRequestEffect] = []
-        model.onPullRequestEffect = { effects.append($0) }
-        let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        _ = model.apply(DockState(dockContent: .versionControl), snapshot: snapshot, preferredArtifactSessionID: nil)
+        pane.onPullRequestEffect = { effects.append($0) }
 
         try expect(store.cursorKey?.hasSuffix("#2") == true, "the newest row starts under the cursor")
-        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("j", keyCode: 38)), "j should be handled")
         try expect(store.cursorKey?.hasSuffix("#1") == true, "j should move down")
-        try expect(model.handleKeyDown(try keyEvent("k", keyCode: 40), snapshot: snapshot), "k should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("k", keyCode: 40)), "k should be handled")
         try expect(store.cursorKey?.hasSuffix("#2") == true, "k should move up")
-        try expect(model.handleKeyDown(try keyEvent("\u{F701}", keyCode: 125), snapshot: snapshot), "Down should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("\u{F701}", keyCode: 125)), "Down should be handled")
         try expect(store.cursorKey?.hasSuffix("#1") == true, "Down should move down")
         try expect(effects.isEmpty, "moving runs no effect")
 
         let url = URL(string: "https://github.com/owner/repo/pull/1")!
-        try expect(model.handleKeyDown(try keyEvent("\r", keyCode: 36), snapshot: snapshot), "Return should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("\r", keyCode: 36)), "Return should be handled")
         try expect(effects.last == .open(url), "Return should open the row's page")
-        try expect(model.handleKeyDown(try keyEvent("y", keyCode: 16), snapshot: snapshot), "y should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("y", keyCode: 16)), "y should be handled")
         try expect(effects.last == .copy(url), "y should copy the row's URL")
-        try expect(model.handleKeyDown(try keyEvent("r", keyCode: 15), snapshot: snapshot), "r should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("r", keyCode: 15)), "r should be handled")
         guard case .refresh(let refresh)? = effects.last else {
             throw TestFailure("r should refresh, got \(String(describing: effects.last))")
         }
         try expect(refresh.sessionID == "qm-a", "r should refresh the selected session")
 
-        model.openPullRequest("github.com/owner/repo#2")
+        pane.openPullRequest("github.com/owner/repo#2")
         try expect(store.cursorKey?.hasSuffix("#2") == true && effects.last == .open(URL(string: "https://github.com/owner/repo/pull/2")!), "a click should pick the row and open it")
 
         let count = effects.count
-        try expect(!model.handleKeyDown(try keyEvent("x", keyCode: 7), snapshot: snapshot), "an unrelated key should pass through")
-        try expect(!model.handleKeyDown(try keyEvent("y", keyCode: 16, modifierFlags: [.command]), snapshot: snapshot), "a command chord should pass through")
+        try expect(!pane.handleKeyDown(try keyEvent("x", keyCode: 7)), "an unrelated key should pass through")
+        try expect(!pane.handleKeyDown(try keyEvent("y", keyCode: 16, modifierFlags: [.command])), "a command chord should pass through")
         try expect(effects.count == count, "passed-through keys run no effect")
+    }
+
+    /// The column puts Version Control on top at 300, the bottom panel under it, 20 apart; a panel alone fills the column and
+    /// a hidden one leaves the view hidden.
+    private static func testDockColumnLaysOutItsPanels() throws {
+        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl))
+        let bottom = DockShellView(body: NSView())
+        let column = DockColumnView(top: top, bottom: bottom)
+        column.frame = NSRect(x: 0, y: 0, width: 480, height: 860)
+        func laidOut(_ panels: DockPanels) -> DockColumnView {
+            column.setPanels(panels)
+            column.layoutSubtreeIfNeeded()
+            return column
+        }
+
+        _ = laidOut(DockPanels(top: true, bottom: true))
+        try expect(!top.isHidden && !bottom.isHidden, "both panels show in the split")
+        try expect(top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control sits at the column's top, 300 tall, got \(top.frame)")
+        try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel takes what's left under a 20 gap, got \(bottom.frame)")
+
+        _ = laidOut(DockPanels(top: true))
+        try expect(!top.isHidden && bottom.isHidden, "Version Control alone leaves the bottom panel hidden")
+        try expect(top.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "Version Control alone fills the dock, got \(top.frame)")
+
+        _ = laidOut(DockPanels(bottom: true))
+        try expect(top.isHidden && !bottom.isHidden, "the bottom panel alone leaves Version Control hidden")
+        try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "the bottom panel alone fills the dock, got \(bottom.frame)")
+
+        _ = laidOut(DockPanels(top: true, bottom: true))
+        try expect(top.frame.height == 300 && bottom.frame.height == 540, "the split comes back as it was")
+    }
+
+    /// Focus goes to one dock panel at a time: its pane takes the first responder and only its frame lifts, and moving to the
+    /// other panel hands both over.
+    private static func testOnlyTheFocusedDockPanelHasTheKeys() throws {
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
+        let pane = VersionControlDockPane(store: PullRequestStore())
+        let top = DockShellView(body: pane, model: DockChromeModel(topBar: .versionControl))
+        let bottom = DockShellView(body: NSView())
+        let column = DockColumnView(top: top, bottom: bottom)
+        column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
+        content.addSubview(column)
+        window.contentView = content
+        let navigation = NavigationStore()
+        let coordinator = ShellFocusCoordinator(
+            navigation: navigation,
+            window: { window },
+            splitView: { nil },
+            terminalShell: { nil },
+            topDockShell: { top },
+            bottomDockShell: { bottom },
+            dockColumn: { column },
+            dockPanels: { DockPanels(top: true, bottom: true) },
+            footerShell: { nil },
+            trackerHosting: { nil },
+            dockView: { nil },
+            versionControlPane: { pane },
+            terminalHost: { nil },
+            modalHost: { nil },
+            updateDockTabs: {}
+        )
+        window.show(key: true)
+        defer { window.close() }
+
+        coordinator.focusDockPanel(.top)
+        try expect(window.firstResponder === pane, "the top panel's pane should take the keys")
+        try expect(top.isFocused && !bottom.isFocused, "only the top panel's frame should lift")
+        coordinator.focusDockPanel(.bottom)
+        try expect(!top.isFocused && bottom.isFocused, "the bottom panel's frame lifts as the top's drops")
+        coordinator.focusDockPanel(.top)
+        coordinator.focus(.tracker)
+        try expect(!top.isFocused && !bottom.isFocused, "no panel has the keys once focus leaves the dock")
+        coordinator.focus(.dock)
+        try expect(top.isFocused && !bottom.isFocused && window.firstResponder === pane, "coming back lands on the panel that had the keys")
     }
 
     private static func testDockSelectionPublishesImmediately() throws {
@@ -1651,8 +1716,6 @@ enum LogicSelfTests {
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
         try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo"), "worker chat should open for every attached session")
         try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil), "worker chat should still require a current session")
-        try expect(DockContentRouting.canShow(.versionControl, sessionID: "qm-demo"), "version control should open for every attached session")
-        try expect(!DockContentRouting.canShow(.versionControl, sessionID: nil), "version control should require a current session")
     }
 
     private static func testArtifactDockCommandSwitchesFromWorkerChat() throws {
@@ -1671,10 +1734,6 @@ enum LogicSelfTests {
         try expect(
             DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .artifactViewer),
             "Cmd-3 should hide a visible artifact viewer"
-        )
-        try expect(
-            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .versionControl),
-            "Cmd-3 should switch a visible version control dock to artifacts"
         )
     }
 
@@ -1877,10 +1936,14 @@ enum LogicSelfTests {
                 window: { window },
                 splitView: { nil },
                 terminalShell: { nil },
-                dockShell: { nil },
+                topDockShell: { nil },
+                bottomDockShell: { nil },
+                dockColumn: { nil },
+                dockPanels: { DockPanels() },
                 footerShell: { nil },
                 trackerHosting: { tracker },
                 dockView: { nil },
+                versionControlPane: { nil },
                 terminalHost: { terminal },
                 modalHost: { host },
                 updateDockTabs: {}
@@ -1983,10 +2046,14 @@ enum LogicSelfTests {
             window: { window },
             splitView: { nil },
             terminalShell: { nil },
-            dockShell: { nil },
+            topDockShell: { nil },
+            bottomDockShell: { nil },
+            dockColumn: { nil },
+            dockPanels: { DockPanels() },
             footerShell: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
+            versionControlPane: { nil },
             terminalHost: { terminal },
             modalHost: { host },
             updateDockTabs: {}
@@ -2047,10 +2114,14 @@ enum LogicSelfTests {
             window: { window },
             splitView: { nil },
             terminalShell: { nil },
-            dockShell: { dock },
+            topDockShell: { nil },
+            bottomDockShell: { dock },
+            dockColumn: { nil },
+            dockPanels: { DockPanels(bottom: true) },
             footerShell: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
+            versionControlPane: { nil },
             terminalHost: { nil },
             modalHost: { host },
             updateDockTabs: {}
@@ -3165,13 +3236,13 @@ enum LogicSelfTests {
         }
         let model = DockPaneModel()
 
-        var state = DockState(dockVisible: false, dockContent: .workerChat)
+        var state = DockState(bottomVisible: false, dockContent: .workerChat)
         _ = model.apply(state, snapshot: snapshot([a1]), preferredArtifactSessionID: "qm-a")
         let hidden = model.apply(state, snapshot: snapshot([a2, a1]), preferredArtifactSessionID: "qm-a")
         try expect(hidden.intent == .open(a2), "a new artifact behind a hidden worker chat should report its open, got \(hidden.intent)")
         try expect(state.openNewArtifact(a2.id) && state.dockContent == .artifactViewer, "it should open the dock on the viewer")
 
-        state = DockState(dockVisible: true, dockContent: .workerChat)
+        state = DockState(bottomVisible: true, dockContent: .workerChat)
         let shown = model.apply(state, snapshot: snapshot([a3, a2, a1]), preferredArtifactSessionID: "qm-a")
         if case .open(let artifact) = shown.intent {
             try expect(!state.openNewArtifact(artifact.id), "a new artifact should not open over the worker chat")

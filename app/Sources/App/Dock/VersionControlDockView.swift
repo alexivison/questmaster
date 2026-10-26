@@ -17,21 +17,43 @@ enum VersionControlMetrics {
 /// The pull requests the selected session watches, a master's with its workers', newest open first.
 struct VersionControlDockView: View {
     let store: PullRequestStore
-    /// Whether the dock has keyboard focus: an unfocused dock shows its cursor one step dimmer.
+    /// Whether the panel has keyboard focus: an unfocused panel shows its cursor one step dimmer.
+    let areaFocused: Bool
+    let onOpenRow: (String) -> Void
+
+    var body: some View {
+        VersionControlList(
+            rows: store.displayRows,
+            cursorKey: store.cursorKey,
+            isUnwatched: store.isUnwatched,
+            readNotice: store.readNotice,
+            areaFocused: areaFocused,
+            onOpenRow: onOpenRow
+        )
+    }
+}
+
+/// The panel's content for the rows it is given: the list, scrolling inside the panel, ending 20 above its bottom edge,
+/// or the empty state, with a muted notice under either.
+struct VersionControlList: View {
+    let rows: [PullRequestDisplayRow]
+    let cursorKey: String?
+    let isUnwatched: Bool
+    let readNotice: String?
     let areaFocused: Bool
     let onOpenRow: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             content
-            readNotice
+            notice
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
     private var content: some View {
-        if store.isUnwatched {
+        if isUnwatched {
             EmptyStatePane(
                 title: "No pull requests watched.",
                 message: "Watch one from this session's terminal:",
@@ -44,25 +66,25 @@ struct VersionControlDockView: View {
                 detailSelectable: true
             )
         } else {
-            let rows = store.displayRows
-            SectionedList(selectedID: store.cursorKey, scrollOnAppear: true) {
+            SectionedList(selectedID: cursorKey, scrollOnAppear: true) {
                 ForEach(rows, id: \.pullRequest.key) { row in
                     VersionControlRow(
                         row: row,
-                        look: row.look(highlighted: row.pullRequest.key == store.cursorKey, areaFocused: areaFocused),
+                        look: row.look(highlighted: row.pullRequest.key == cursorKey, areaFocused: areaFocused),
                         action: { onOpenRow(row.pullRequest.key) }
                     )
                     .id(row.pullRequest.key)
                 }
             }
+            .padding(.bottom, VersionControlMetrics.inset)
             .accessibilityLabel("Pull request list")
         }
     }
 
     @ViewBuilder
-    private var readNotice: some View {
-        if let notice = store.readNotice {
-            Text(notice)
+    private var notice: some View {
+        if let readNotice {
+            Text(readNotice)
                 .font(AppFonts.monoSmall.swiftUI)
                 .foregroundStyle(AppPalette.textMeta.swiftUI)
                 .lineLimit(2)

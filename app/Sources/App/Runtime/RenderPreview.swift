@@ -80,14 +80,22 @@ enum RenderPreview {
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
         render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
         render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
-        render(actionBarSlotsView(dockContentMode: .versionControl), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-version-control-open.png")
-        renderView(dockBarView(.versionControl), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control.png")
-        renderView(dockBarView(.versionControlUnfocused), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control-unfocused.png")
-        renderView(dockBarView(.versionControlEmpty), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control-empty.png")
-        renderView(dockBarView(.versionControlNotice), size: CGSize(width: DockWidthPreference.compactWidth, height: 240), to: "\(outputDir)/dock-version-control-notice.png")
-        // The design's own rows, in its order, at the Session Detail Dock's list width, for diffing against its SVG.
+        render(actionBarSlotsView(dockPanels: DockPanels(top: true)), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-version-control-open.png")
+        // The Version Control panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
+        renderView(versionControlPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel.png")
+        renderView(versionControlPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel-empty.png")
+        renderView(versionControlPanelView(state: .notice), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel-notice.png")
         render(versionControlRowsView(highlight: 1), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design.png")
         render(versionControlRowsView(highlight: nil), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design-rest.png")
+        render(pullRequestItemView(), size: CGSize(width: 661, height: 116), to: "\(outputDir)/pull-request-item.png")
+        // The dock split: Version Control over the artifacts or the worker chat, each alone, and either panel with the keys.
+        let splitCanvas = CGSize(width: 520, height: 900)
+        renderView(dockSplitView(bottom: .artifacts, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-artifacts.png")
+        renderView(dockSplitView(bottom: .workerChat, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-worker-chat.png")
+        renderView(dockSplitView(bottom: nil, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-only-version-control.png")
+        renderView(dockSplitView(bottom: .artifacts, top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-bottom.png")
+        renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
+        renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
@@ -194,7 +202,12 @@ enum RenderPreview {
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
         splitView.addArrangedSubview(TrackerShellView(body: tracker))
         splitView.addArrangedSubview(TerminalShellView(body: terminalBody, dragHandleHeight: 0))
-        splitView.addArrangedSubview(DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), pullRequestStore: PullRequestStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())))
+        let dockColumn = DockColumnView(
+            top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl)),
+            bottom: DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+        )
+        dockColumn.setPanels(DockPanels(bottom: true))
+        splitView.addArrangedSubview(dockColumn)
         splitView.sendTerminalToBack()
         splitView.trackerVisible = true
         splitView.setDockVisible(true, animated: false)
@@ -287,7 +300,7 @@ enum RenderPreview {
         return DockShellView(body: body)
     }
 
-    enum DockBarFixture { case viewer, workerChat, versionControl, versionControlUnfocused, versionControlEmpty, versionControlNotice }
+    enum DockBarFixture { case viewer, workerChat }
 
     /// The dock's top bar over its content: an open artifact ("Quest log mock") in the viewer, or the worker chat feed.
     @MainActor
@@ -299,16 +312,14 @@ enum RenderPreview {
         case .workerChat:
             let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
             return DockShellView(body: NSHostingView(rootView: workerChatView()), model: model)
-        case .versionControl, .versionControlUnfocused, .versionControlEmpty, .versionControlNotice:
-            let model = DockChromeModel(topBar: .make(mode: .versionControl, artifactRoute: .list, artifactTitle: nil))
-            return DockShellView(body: NSHostingView(rootView: versionControlView(fixture)), model: model)
         }
     }
 
-    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws, `highlight` (an index) on
-    /// the cursor. The rows are views of their own, not the store's, because the store sorts by state and the design doesn't.
+    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws. The rows are views of
+    /// their own, not the store's, because the store sorts by state and the design doesn't. A master with four workers
+    /// watches them.
     @MainActor
-    private static func versionControlRowsView(highlight: Int?) -> some View {
+    private static func versionControlDesignRows() -> [PullRequestDisplayRow] {
         let sessions = [
             TrackerSession(id: "m", title: "Ship version control", repoName: "Repo", agent: "claude", role: "master"),
             TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
@@ -325,9 +336,9 @@ enum RenderPreview {
             (97615, "fix(agent-f): Resolve memory leak issue", "merged", false, "approved", "success", 1400, 600, 25, "w2"),
             (97616, "chore(agent-f): Refactor codebase for better readability", "closed", false, "changes_requested", "none", 500, 150, 8, "w4"),
         ]
-        let rows = specs.map { spec -> PullRequestDisplayRow in
+        return specs.map { spec -> PullRequestDisplayRow in
             let object: [String: Any] = [
-                "key": "github.com/owner/repo#\(spec.0)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": spec.0,
+                "key": "github.com/owner/repo#\(spec.0)-\(spec.2)-\(spec.3)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": spec.0,
                 "watchers": (spec.9.map { [["session_id": $0, "added_at": "2026-10-20T00:00:00Z"]] }) ?? [],
                 "status": [
                     "title": spec.1, "url": "https://github.com/owner/repo/pull/\(spec.0)", "state": spec.2, "draft": spec.3,
@@ -337,6 +348,12 @@ enum RenderPreview {
             let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
             return PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
         }
+    }
+
+    /// The design's rows at the panel's list width (480), `highlight` (an index) on the cursor, for diffing against the SVG.
+    @MainActor
+    private static func versionControlRowsView(highlight: Int?) -> some View {
+        let rows = versionControlDesignRows()
         return VStack(spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 VersionControlRow(
@@ -350,60 +367,106 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    /// A master with two workers, whose pull requests cover every state: open, draft, merged and closed, every review and
-    /// CI look, a stale row, an inaccessible one and one whose status hasn't loaded. The cursor sits on the second row.
+    /// `Pull Request Item.svg`'s two rows, 639 wide at its offsets (x 11, y 11 and 63): a master's own PR at rest and the
+    /// same PR with the cursor, which keeps its CI label and bubble.
     @MainActor
-    private static func versionControlView(_ fixture: DockBarFixture) -> some View {
-        let revision = fixture == .versionControlEmpty ? "" : "1"
+    private static func pullRequestItemView() -> some View {
         let sessions = [
-            TrackerSession(id: "m", title: "Ship version control", repoName: "Repo", agent: "claude", role: "master", pullRequestsRev: revision),
-            TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
-            TrackerSession(id: "w2", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+            TrackerSession(id: "w", title: "worker-name", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
         ]
-        let store = PullRequestStore()
-        if let request = store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true) {
-            func pull(_ number: Int, watchers: [String], status: [String: Any]?) -> PullRequestRow {
-                var object: [String: Any] = [
-                    "key": "github.com/owner/repo#\(number)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": number,
-                    "watchers": watchers.map { ["session_id": $0, "added_at": "2026-10-20T00:00:00Z"] },
-                ]
-                if let status { object["status"] = status }
-                return try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
-            }
-            func status(
-                _ title: String, state: String = "open", draft: Bool = false, review: String = "none", ci: String = "none",
-                additions: Int, deletions: Int, comments: Int, updated: Int, stale: Bool = false
-            ) -> [String: Any] {
-                [
-                    "title": title, "url": "https://github.com/owner/repo/pull/1", "state": state, "draft": draft, "review": review, "ci": ci,
-                    "additions": additions, "deletions": deletions, "comments": comments, "stale": stale,
-                    "updated_at": "2026-10-2\(updated)T00:00:00Z", "fetched_at": "2026-10-26T00:00:00Z",
-                ]
-            }
-            var rows = [
-                pull(97612, watchers: ["m", "w1", "w2"], status: status("fix(agent-f): Support independent Edition suggestion field decisions", review: "changes_requested", ci: "failure", additions: 1250, deletions: 540, comments: 20, updated: 9)),
-                pull(97613, watchers: ["w1"], status: status("fix(agent-f): Update dependency versions for stability", draft: true, review: "review_required", ci: "pending", additions: 980, deletions: 320, comments: 15, updated: 8)),
-                pull(97614, watchers: ["w2"], status: status("feat(agent-f): Introduce new logging features", review: "approved", ci: "success", additions: 760, deletions: 200, comments: 10, updated: 7)),
-                pull(97615, watchers: ["m"], status: status("chore: Bump toolchain", additions: 4, deletions: 2, comments: 0, updated: 6)),
-                pull(97616, watchers: ["w1"], status: status("fix(agent-f): Resolve memory leak issue", review: "approved", ci: "success", additions: 1400, deletions: 600, comments: 25, updated: 5, stale: true)),
-                pull(97610, watchers: ["w2"], status: status("refactor(agent-f): Refactor codebase for better readability", state: "closed", review: "changes_requested", additions: 500, deletions: 150, comments: 8, updated: 4)),
-                pull(97609, watchers: ["w1"], status: status("feat(agent-f): Add the pull request watch registry", state: "merged", review: "approved", ci: "success", additions: 320, deletions: 80, comments: 3, updated: 3)),
-                pull(97608, watchers: ["m"], status: ["inaccessible_reason": "forbidden", "draft": false, "additions": 0, "deletions": 0, "comments": 0, "stale": false]),
-                pull(97607, watchers: ["m"], status: nil),
-            ]
-            if fixture == .versionControlNotice { rows = Array(rows.prefix(2)) }
-            _ = store.apply(response: rows, for: request)
+        let object: [String: Any] = [
+            "key": "github.com/owner/repo#97612", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": 97612,
+            "watchers": [["session_id": "w", "added_at": "2026-10-20T00:00:00Z"]],
+            "status": [
+                "title": "fix(agent-f): Support independent Edition suggestion field decisions - #97612", "url": "https://github.com/owner/repo/pull/97612",
+                "state": "open", "draft": false, "review": "approved", "ci": "none", "additions": 1250, "deletions": 540, "comments": 20, "stale": false,
+            ] as [String: Any],
+        ]
+        let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
+        let display = PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
+        func item(highlighted: Bool) -> some View {
+            VersionControlRow(row: display, look: display.look(highlighted: highlighted, areaFocused: true), showsSeparator: false, action: {})
+                .frame(width: 639 + 2 * Space.section)
         }
-        _ = store.handle(.move(1))
-        if fixture == .versionControlNotice { store.failRefresh() }
-        return VersionControlDockView(store: store, areaFocused: fixture != .versionControlUnfocused, onOpenRow: { _ in })
-            .background(AppPalette.panel.swiftUI)
+        return ZStack(alignment: .topLeading) {
+            item(highlighted: false).offset(x: 11 - Space.section, y: 11)
+            item(highlighted: true).offset(x: 11 - Space.section, y: 63)
+        }
+        .frame(width: 661, height: 116, alignment: .topLeading)
+        .background(AppPalette.panel.swiftUI)
     }
+
+    enum VersionControlPanelState { case design, empty, notice }
+
+    /// The panel's content over the dock's panel fill: the design's rows with the second on the cursor, the empty state, or a
+    /// notice under the first rows.
+    @MainActor
+    private static func versionControlContent(_ state: VersionControlPanelState, focused: Bool = true) -> some View {
+        let rows = versionControlDesignRows()
+        return VersionControlList(
+            rows: state == .empty ? [] : rows,
+            cursorKey: rows[1].pullRequest.key,
+            isUnwatched: state == .empty,
+            readNotice: state == .notice ? "Couldn't refresh pull requests" : nil,
+            areaFocused: focused,
+            onOpenRow: { _ in }
+        )
+        .background(AppPalette.panel.swiftUI)
+    }
+
+    /// The Version Control panel on its own, 480 x 300 at the Session Detail Dock's offset in its 482 x 305 canvas.
+    @MainActor
+    private static func versionControlPanelView(state: VersionControlPanelState = .design) -> NSView {
+        let panel = DockShellView(body: NSHostingView(rootView: versionControlContent(state)), model: DockChromeModel(topBar: .versionControl))
+        panel.frame = NSRect(x: 1, y: 5, width: 480, height: 300)
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 482, height: 305))
+        canvas.wantsLayer = true
+        canvas.layer?.backgroundColor = AppPalette.window.cgColor
+        canvas.addSubview(panel)
+        return canvas
+    }
+
+    enum DockSplitBottom { case artifacts, workerChat }
+
+    /// The dock column as the shell lays it out, 20 in from a window-coloured canvas's edges: Version Control (unless
+    /// `top` is false) over the artifact list or the worker chat (unless `bottom` is nil), `focus` giving one panel the keys.
+    @MainActor
+    private static func dockSplitView(bottom: DockSplitBottom?, top: Bool = true, focus: DockPanel?) -> NSView {
+        let topShell = DockShellView(
+            body: NSHostingView(rootView: versionControlContent(.design, focused: focus == .top)),
+            model: DockChromeModel(topBar: .versionControl)
+        )
+        let bottomShell: DockShellView
+        switch bottom {
+        case .workerChat:
+            bottomShell = DockShellView(
+                body: NSHostingView(rootView: workerChatView()),
+                model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+            )
+        case .artifacts, nil:
+            bottomShell = DockShellView(
+                body: NSHostingView(rootView: artifactListView(focused: focus == .bottom)),
+                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil))
+            )
+        }
+        topShell.setFocused(focus == .top)
+        bottomShell.setFocused(focus == .bottom)
+        let column = DockColumnView(top: topShell, bottom: bottomShell)
+        column.setPanels(DockPanels(top: top, bottom: bottom != nil))
+        column.frame = NSRect(x: 20, y: 20, width: 480, height: 860)
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 900))
+        canvas.wantsLayer = true
+        canvas.layer?.backgroundColor = AppPalette.window.cgColor
+        canvas.addSubview(column)
+        return canvas
+    }
+
 
     /// The dock alone on the window colour, with or without keyboard focus, for its frame.
     @MainActor
     private static func dockFrameView(focused: Bool) -> NSView {
-        let dock = DockShellView(body: SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), pullRequestStore: PullRequestStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
+        let dock = DockShellView(body: SwiftUIDockPane(store: trackerPreviewStore(), workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
         dock.setFocused(focused)
         dock.frame = NSRect(x: 20, y: 20, width: 344, height: 400)
         let container = NSView()
@@ -432,6 +495,7 @@ enum RenderPreview {
         let footer = ActionBarShellView()
         footer.update(
             navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockVisible),
+            dockPanels: DockPanels(bottom: dockVisible),
             dockContentMode: .artifacts
         )
         return ShellRootContainerView(splitView: splitView, footer: footer)
@@ -568,11 +632,15 @@ enum RenderPreview {
 
     /// The slot bar with Caffeine active and the Artifacts dock open (Artifacts slot active too).
     @MainActor
-    private static func actionBarSlotsView(dockContentMode: DockContentMode = .artifacts) -> some View {
+    private static func actionBarSlotsView(
+        dockContentMode: DockContentMode = .artifacts,
+        dockPanels: DockPanels = DockPanels(bottom: true)
+    ) -> some View {
         let model = ActionBarFooterModel(
             navigation: AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true),
             caffeineActive: true,
-            dockContentMode: dockContentMode
+            dockContentMode: dockContentMode,
+            dockPanels: dockPanels
         )
         return ActionBarFooterView(
             model: model,

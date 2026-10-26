@@ -4,6 +4,8 @@ public enum RightDockWidthMode: Equatable {
     case standard
     case compact
     case workerChat
+    /// Version Control alone: the width its design draws.
+    case versionControl
 }
 
 public struct ShellSplitLayoutMetrics: Equatable {
@@ -268,6 +270,8 @@ public enum ShellSplitLayoutPlanner {
             return DockWidthPreference.compactWidth
         case .workerChat:
             return DockWidthPreference.workerChatWidth
+        case .versionControl:
+            return DockWidthPreference.versionControlWidth
         }
     }
 

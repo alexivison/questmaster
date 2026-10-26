@@ -184,7 +184,7 @@ hides.
 | | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
 | Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
-| Dock frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
+| Dock panel frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
@@ -214,8 +214,8 @@ hides.
   blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside
   its clip, is a `Recess` token in the same file (`portrait`: 3 deep, blur 1, black 20%, the sheets' portrait discs).
   Panel, dock and toast borders are 2pt
-  `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). The dock's frame lifts to
-  `controlBorder` while the dock has keyboard focus and no modal is drawn
+  `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). A dock panel's frame lifts to
+  `controlBorder` while it has keyboard focus and no modal is drawn, and only the focused panel's does
   (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is
   0.8 opacity; disabled is window fill with `item` border and label (the shared
   button styles).
@@ -225,7 +225,10 @@ hides.
   `SuggestionDropdown` for every dropdown and suggestion list, `FilterChip` for
   filter chips, the `AngledButton` styles for buttons.
 - Dock titles (Artifacts, Worker Chat, Version Control, an open artifact) are title case in
-  `accent`, 14pt bold, on the top bar's baseline 35 down.
+  `accent`, 14pt bold, on the top bar's baseline 25 down.
+- The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
+  under it the artifacts or the worker chat. Each has its own title and close button, and either shows alone
+  (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`

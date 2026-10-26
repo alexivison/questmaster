@@ -53,6 +53,8 @@ final class MenuController {
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionLeft, action: actions.focusRegionLeft, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionRight, action: actions.focusRegionRight, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.focusDockTop, action: actions.focusDockTop, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.focusDockBottom, action: actions.focusDockBottom, target: target))
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 
@@ -141,6 +143,8 @@ struct MenuActions {
     let toggleQuestLog: Selector
     let toggleWorkerChatDock: Selector
     let toggleVersionControlDock: Selector
+    let focusDockTop: Selector
+    let focusDockBottom: Selector
     let widenDock: Selector
     let narrowDock: Selector
     let toggleCaffeine: Selector

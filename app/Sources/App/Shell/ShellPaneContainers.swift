@@ -199,3 +199,56 @@ final class DockShellView: NSView {
         model.topBar = next
     }
 }
+
+/// The dock region: Version Control's panel over the bottom panel (artifacts or worker chat), each its own scooped
+/// `DockShellView`, laid out by `DockColumnLayout`. It's the pane `MainSplitView` sizes and shows or hides; what shows
+/// inside follows the dock state's panels.
+final class DockColumnView: NSView {
+    let topShell: DockShellView
+    let bottomShell: DockShellView
+    private var panels = DockPanels()
+
+    init(top: DockShellView, bottom: DockShellView) {
+        topShell = top
+        bottomShell = bottom
+        super.init(frame: .zero)
+        addSubview(top)
+        addSubview(bottom)
+        top.isHidden = true
+        bottom.isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setPanels(_ next: DockPanels) {
+        guard panels != next else {
+            return
+        }
+        panels = next
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let layout = DockColumnLayout.make(height: Double(bounds.height), panels: panels)
+        place(topShell, in: layout.top)
+        place(bottomShell, in: layout.bottom)
+    }
+
+    /// A panel without a slot hides; the others sit at their offset down from the column's top edge.
+    private func place(_ shell: DockShellView, in slot: DockColumnLayout.Slot?) {
+        shell.isHidden = slot == nil
+        guard let slot else {
+            return
+        }
+        shell.frame = NSRect(
+            x: 0,
+            y: bounds.height - CGFloat(slot.offset) - CGFloat(slot.height),
+            width: bounds.width,
+            height: CGFloat(slot.height)
+        )
+    }
+}

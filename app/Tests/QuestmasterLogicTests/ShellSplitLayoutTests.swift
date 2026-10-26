@@ -16,6 +16,7 @@ struct ShellSplitLayoutTests {
         hiddenTrackerKeepsTerminalAtWindowEdge()
         compactDockUsesCompactWidth()
         workerChatDockUsesWorkerChatWidth()
+        versionControlAloneUsesItsOwnWidth()
         workerChatDockKeepsTheMinimumTerminalWidth()
         dockResizeClampsFromDragDelta()
         zeroWidthDoesNotProduceLayout()
@@ -97,6 +98,19 @@ struct ShellSplitLayoutTests {
         expect(layout.dockWidth == DockWidthPreference.workerChatWidth, "worker chat dock width mismatch")
         expect(layout.dockFrame.width == DockWidthPreference.workerChatWidth, "worker chat dock frame width mismatch")
         expect(layout.terminalFrame.width == 722, "worker chat terminal width mismatch")
+    }
+
+    private static func versionControlAloneUsesItsOwnWidth() {
+        let layout = requireLayout(
+            size: ShellSplitSize(width: 1520, height: 900),
+            trackerVisible: true,
+            dockVisible: true,
+            preferredDockWidth: 900,
+            dockWidthMode: .versionControl
+        )
+
+        expect(layout.dockWidth == DockWidthPreference.versionControlWidth, "Version Control alone should take its design width")
+        expect(layout.dockFrame.width == 480, "the Session Detail Dock artboard is 480 wide")
     }
 
     private static func workerChatDockKeepsTheMinimumTerminalWidth() {

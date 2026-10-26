@@ -89,9 +89,12 @@ final class ActionBarShellView: NSView {
         }
     }
 
-    func update(navigation: AppNavigationState, dockContentMode: DockContentMode) {
+    func update(navigation: AppNavigationState, dockPanels: DockPanels, dockContentMode: DockContentMode) {
         if model.navigation != navigation {
             model.navigation = navigation
+        }
+        if model.dockPanels != dockPanels {
+            model.dockPanels = dockPanels
         }
         model.dockContentMode = dockContentMode
     }
