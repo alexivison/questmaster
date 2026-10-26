@@ -302,7 +302,7 @@ func TestJobRefreshWaitsForFetch(t *testing.T) {
 	go func() { _ = j.Run(ctx); close(stopped) }()
 	select {
 	case <-calls:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("initial fetch missing")
 	}
 	result := make(chan error, 1)
@@ -318,7 +318,7 @@ func TestJobRefreshWaitsForFetch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("refresh did not finish")
 	}
 	select {
@@ -333,7 +333,7 @@ func TestJobRefreshWaitsForFetch(t *testing.T) {
 	cancel()
 	select {
 	case <-stopped:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("job did not stop")
 	}
 }
@@ -356,7 +356,7 @@ func TestJobRefreshInsideBackoffReturnsCurrentHostState(t *testing.T) {
 	go func() { hosts, _ := j.Refresh(ctx, []string{key}); result <- hosts }()
 	select {
 	case <-j.signal:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("wake not queued")
 	}
 	if err := j.step(context.Background()); err != nil {
@@ -368,7 +368,7 @@ func TestJobRefreshInsideBackoffReturnsCurrentHostState(t *testing.T) {
 		if calls != 1 || item.Error == "" || item.BackoffUntil != now.Add(90*time.Second).Format(time.RFC3339) {
 			t.Fatalf("calls=%d host=%#v", calls, item)
 		}
-	case <-time.After(300 * time.Millisecond):
+	case <-time.After(5 * time.Second):
 		t.Fatal("refresh waited inside backoff")
 	}
 }

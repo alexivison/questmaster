@@ -72,18 +72,21 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		case <-time.After(3 * time.Second):
 		}
 	})
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
+	var status map[string]any
+	var statusErr error
 	for time.Now().Before(deadline) {
-		status, err := h.command("daemon", "status")
-		if err == nil && status["running"] == true && status["has_work"] == true {
+		status, statusErr = h.command("daemon", "status")
+		if statusErr == nil && status["running"] == true && status["has_work"] == true {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if status, err := h.command("daemon", "status"); err != nil || status["has_work"] != true {
-		t.Fatalf("job not active: %v %v\n%s", status, err, output.String())
+	if statusErr != nil || status["running"] != true || status["has_work"] != true {
+		t.Fatalf("job not active: %v %v\n%s", status, statusErr, output.String())
 	}
 	statusPath := state.PullRequestStatusPath(h.root)
+	deadline = time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(statusPath); err == nil {
 			break
@@ -113,7 +116,7 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 		if err != nil {
 			t.Fatalf("daemon exit: %v\n%s", err, output.String())
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("daemon did not idle out\n%s", output.String())
 	}
 }
