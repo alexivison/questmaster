@@ -8,12 +8,14 @@ struct PullRequestStoreTests {
         oneInFlightQueuesOneFollowUp()
         oldSelectionResponseIsDropped()
         failureKeepsRowsAndShowsNotice()
+        unchangedSyncKeepsDisplayRowsBuffer()
+        emptyRevisionSkipsPullAndClearsRows()
         print("PullRequestStoreTests: all tests passed")
     }
 
     private static func requestBuilder() {
         let store = PullRequestStore()
-        let request = store.sync(selectedSessionID: "master", sessions: [session("master")], isVisible: true)!
+        let request = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "1")], isVisible: true)!
         let object = request.jsonObject(id: "pull-1")
         expect(object["id"] as? String == "pull-1", "request id")
         expect(object["method"] as? String == "pull_requests", "request method")
@@ -55,7 +57,7 @@ struct PullRequestStoreTests {
 
     private static func oldSelectionResponseIsDropped() {
         let store = PullRequestStore()
-        let sessions = [session("master"), session("worker", role: "worker")]
+        let sessions = [session("master", rev: "1"), session("worker", role: "worker", rev: "1")]
         let old = store.sync(selectedSessionID: "master", sessions: sessions, isVisible: true)!
         expect(store.sync(selectedSessionID: "worker", sessions: sessions, isVisible: true) == nil, "new selection waits for in-flight pull")
         let next = store.apply(response: [PullRequestModelsTests.row(1)], for: old)!
@@ -76,6 +78,27 @@ struct PullRequestStoreTests {
         let retry = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "3")], isVisible: true)!
         _ = store.apply(response: [], for: retry)
         expect(store.readNotice == nil, "successful pull clears notice")
+    }
+
+    private static func unchangedSyncKeepsDisplayRowsBuffer() {
+        let store = PullRequestStore()
+        let selected = session("master", rev: "1")
+        let request = store.sync(selectedSessionID: "master", sessions: [selected], isVisible: true)!
+        _ = store.apply(response: [PullRequestModelsTests.row(1)], for: request)
+        let original = store.displayRows
+        let originalBuffer = original.withUnsafeBufferPointer(\.baseAddress)
+        expect(store.sync(selectedSessionID: "master", sessions: [selected], isVisible: true) == nil, "unchanged sync should not pull")
+        expect(store.displayRows.withUnsafeBufferPointer(\.baseAddress) == originalBuffer, "unchanged sync should keep the display row buffer")
+    }
+
+    private static func emptyRevisionSkipsPullAndClearsRows() {
+        let store = PullRequestStore()
+        expect(store.sync(selectedSessionID: "master", sessions: [session("master")], isVisible: true) == nil, "empty revision should not pull")
+        let request = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "1")], isVisible: true)!
+        _ = store.apply(response: [PullRequestModelsTests.row(1)], for: request)
+        expect(store.rows.count == 1, "nonempty revision should load a row")
+        expect(store.sync(selectedSessionID: "master", sessions: [session("master")], isVisible: true) == nil, "unwatching last PR should not pull")
+        expect(store.rows.isEmpty && store.displayRows.isEmpty, "unwatching last PR should clear rows")
     }
 
     private static func session(_ id: String, role: String = "master", rev: String = "") -> TrackerSession {

@@ -35,19 +35,25 @@ public final class PullRequestStore {
         let nextID = selected?.id
         if nextID != self.selectedSessionID {
             self.selectedSessionID = nextID
-            rows = []
-            readNotice = nil
+            if !rows.isEmpty { rows = [] }
+            if readNotice != nil { readNotice = nil }
             generation += 1
             pullWanted = nextID != nil
         }
-        if selected?.pullRequestsRev != revision {
-            revision = selected?.pullRequestsRev ?? ""
+        let nextRevision = selected?.pullRequestsRev ?? ""
+        if nextRevision != revision {
+            revision = nextRevision
             pullWanted = nextID != nil
         }
-        if isVisible && !self.isVisible && nextID != nil { pullWanted = true }
+        if revision.isEmpty {
+            if !rows.isEmpty { rows = [] }
+            if readNotice != nil { readNotice = nil }
+            pullWanted = false
+        }
+        if isVisible && !self.isVisible && nextID != nil && !revision.isEmpty { pullWanted = true }
         self.isVisible = isVisible
         self.sessions = sessions
-        displayRows = PullRequestDisplayRow.make(from: rows, selectedSessionID: nextID, sessions: sessions)
+        updateDisplayRows()
         return nextRequest()
     }
 
@@ -56,9 +62,9 @@ public final class PullRequestStore {
         guard inFlight == request else { return nil }
         inFlight = nil
         if request.generation == generation && request.revision == revision {
-            rows = response
-            displayRows = PullRequestDisplayRow.make(from: response, selectedSessionID: selectedSessionID, sessions: sessions)
-            readNotice = nil
+            if rows != response { rows = response }
+            updateDisplayRows()
+            if readNotice != nil { readNotice = nil }
         }
         return nextRequest()
     }
@@ -68,16 +74,21 @@ public final class PullRequestStore {
         guard inFlight == request else { return nil }
         inFlight = nil
         if request.generation == generation && request.revision == revision {
-            readNotice = "Couldn't load pull requests"
+            if readNotice != "Couldn't load pull requests" { readNotice = "Couldn't load pull requests" }
         }
         return nextRequest()
     }
 
     private func nextRequest() -> PullRequestsRequest? {
-        guard let selectedSessionID, isVisible, pullWanted, inFlight == nil else { return nil }
+        guard let selectedSessionID, !revision.isEmpty, isVisible, pullWanted, inFlight == nil else { return nil }
         pullWanted = false
         let request = PullRequestsRequest(sessionID: selectedSessionID, revision: revision, generation: generation)
         inFlight = request
         return request
+    }
+
+    private func updateDisplayRows() {
+        let next = PullRequestDisplayRow.make(from: rows, selectedSessionID: selectedSessionID, sessions: sessions)
+        if displayRows != next { displayRows = next }
     }
 }
