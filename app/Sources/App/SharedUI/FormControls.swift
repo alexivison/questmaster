@@ -118,6 +118,7 @@ struct SuggestionDropdown: View {
             RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
                 .strokeBorder(AppPalette.controlBorder.swiftUI, lineWidth: Token.Size.divider)
         )
+        .elevation(.raised, of: RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
         .accessibilityLabel("Suggestions")
     }
 }

@@ -135,7 +135,7 @@ enum RenderPreview {
         renderView(dockBarView(.workerChat), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 200), to: "\(outputDir)/dock-worker-chat.png")
         renderView(dockFrameView(focused: true), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-focused.png")
         renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
-        render(ToastBanner(message: "Copied qm-1783901769").padding(20).background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
+        render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         print("RenderPreview: done")
         exit(0)

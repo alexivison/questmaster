@@ -147,13 +147,22 @@ final class DockShellView: NSView {
             onRefreshArtifact: { [weak self] in self?.onRefreshArtifact?() },
             onHideDock: { [weak self] in self?.onHideDock?() }
         ))
+        let content = NSView()
+        content.translatesAutoresizingMaskIntoConstraints = false
         layoutTopBarAndBody(
-            in: self,
+            in: content,
             topBar: topBar,
             body: body,
             topBarHeight: ShellMetrics.dockTopBarHeight
         )
-        chrome = ScoopedLayerChrome(view: self)
+        addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: topAnchor),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        chrome = ScoopedLayerChrome(view: self, content: content)
     }
 
     @available(*, unavailable)

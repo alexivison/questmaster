@@ -126,29 +126,40 @@ private struct InWindowSheetModifier<Item: Identifiable, Sheet: View>: ViewModif
 }
 
 /// One modal over the window: a hit-testable scrim, so clicks never reach the panes underneath, and the
-/// modal centred and scaled down to fit a window shorter or narrower than it.
+/// modal centred and scaled down to fit a window shorter or narrower than it. It fades in as it comes, the scrim
+/// alone and the modal with a scale up from `enterScale`; both run back when `closing`, which also stops clicks.
 struct ModalLayer<Content: View>: View {
+    let closing: Bool
     @ViewBuilder var content: Content
     @State private var contentSize: CGSize = .zero
+    /// False for the first frame, so the entrance animates from the hidden state.
+    @State private var entered = false
 
     private static var margin: CGFloat { ShellMetrics.gap }
-    private static var scrimOpacity: Double { 0.5 }
+    private static var scrimOpacity: Double { 0.35 }
+    private static var enterScale: CGFloat { 0.97 }
+
+    private var isShown: Bool { entered && !closing }
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                AppPalette.shadow.swiftUI.opacity(Self.scrimOpacity)
+                AppPalette.shadow.swiftUI.opacity(isShown ? Self.scrimOpacity : 0)
                     .contentShape(Rectangle())
                     .onTapGesture {}
                 content
                     .fixedSize()
                     .background(GeometryReader { Color.clear.preference(key: ModalSizeKey.self, value: $0.size) })
-                    .scaleEffect(fit(in: proxy.size))
+                    .scaleEffect(fit(in: proxy.size) * (isShown ? 1 : Self.enterScale))
+                    .opacity(isShown ? 1 : 0)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .onPreferenceChange(ModalSizeKey.self) { contentSize = $0 }
         .ignoresSafeArea()
+        .allowsHitTesting(!closing)
+        .animation(.easeOut(duration: closing ? ModalFade.fadeOut : ModalFade.fadeIn), value: isShown)
+        .onAppear { entered = true }
     }
 
     private func fit(in size: CGSize) -> CGFloat {
@@ -167,8 +178,8 @@ private struct ModalSizeKey: PreferenceKey {
     }
 }
 
-/// How modals come and go: backdrop and modal fade together, no scale. A closing modal stays mounted and
-/// stops taking clicks until its fade-out ends, so a second click can't act twice.
+/// How long modals take to come and go (`ModalLayer` draws it: the backdrop fades, the modal fades and scales). A
+/// closing modal stays mounted and stops taking clicks until its fade-out ends, so a second click can't act twice.
 enum ModalFade {
     static let fadeIn = 0.18 * slowdown
     static let fadeOut = 0.14 * slowdown
@@ -184,24 +195,13 @@ enum ModalFade {
     }()
 }
 
-extension View {
-    /// Fades in on insertion; fades out while `closing`, ignoring clicks.
-    func modalFade(closing: Bool) -> some View {
-        opacity(closing ? 0 : 1)
-            .allowsHitTesting(!closing)
-            .animation(.easeOut(duration: closing ? ModalFade.fadeOut : ModalFade.fadeIn), value: closing)
-            .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: ModalFade.fadeIn)), removal: .identity))
-    }
-}
-
 struct InWindowModalStackView: View {
     @ObservedObject var stack: InWindowModalStack
 
     var body: some View {
         ZStack {
             ForEach(stack.entries) { entry in
-                ModalLayer { entry.view }
-                    .modalFade(closing: entry.closing)
+                ModalLayer(closing: entry.closing) { entry.view }
                     .environment(\.inWindowModalStack, stack)
                     .environment(\.inWindowModalEntryID, entry.id)
             }
