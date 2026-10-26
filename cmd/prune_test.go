@@ -129,6 +129,9 @@ func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read backfilled manifest: %v", err)
 	}
+	if _, err := state.ValidateSessionClass(after.DisplayClass()); err != nil {
+		t.Fatalf("backfilled class = %q, want a valid non-empty class: %v", after.DisplayClass(), err)
+	}
 	if after.UpdatedAt != manifest.UpdatedAt {
 		t.Fatalf("updated_at = %q, want preserved %q", after.UpdatedAt, manifest.UpdatedAt)
 	}

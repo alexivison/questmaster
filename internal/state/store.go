@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 // Sentinel errors for manifest operations.
@@ -185,10 +186,10 @@ func (s *Store) readManifest(path string) (Manifest, error) {
 // writeManifest atomically writes a manifest to disk.
 // Mirrors bash semantics: initializes created_at on first write, bumps updated_at always.
 func (s *Store) writeManifest(path string, m Manifest) error {
-	return s.writeManifestWithTimestamps(path, m, true)
+	return s.writeManifestWithTimestamps(path, m, true, nil)
 }
 
-func (s *Store) writeManifestWithTimestamps(path string, m Manifest, updateTimestamps bool) error {
+func (s *Store) writeManifestWithTimestamps(path string, m Manifest, updateTimestamps bool, preserveModTime *time.Time) error {
 	if updateTimestamps {
 		now := NowUTC()
 		if m.CreatedAt == "" {
@@ -206,6 +207,12 @@ func (s *Store) writeManifestWithTimestamps(path string, m Manifest, updateTimes
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("write temp manifest: %w", err)
+	}
+	if preserveModTime != nil {
+		if err := os.Chtimes(tmp, *preserveModTime, *preserveModTime); err != nil {
+			os.Remove(tmp)
+			return fmt.Errorf("preserve temp manifest mtime: %w", err)
+		}
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp)

@@ -118,13 +118,11 @@ func (s *Store) updateSessionClass(sessionID, class string, onlyIfMissing bool) 
 		}
 		m.Display.Class = class
 		stored = class
-		if err := s.writeManifestWithTimestamps(path, m, !onlyIfMissing); err != nil {
-			return err
-		}
+		var preserveModTime *time.Time
 		if onlyIfMissing {
-			return os.Chtimes(path, oldModTime, oldModTime)
+			preserveModTime = &oldModTime
 		}
-		return nil
+		return s.writeManifestWithTimestamps(path, m, !onlyIfMissing, preserveModTime)
 	})
 	return stored, err
 }

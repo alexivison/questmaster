@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -201,7 +200,9 @@ func TestSnapshotterKeepsTrackerWhenClassBackfillFails(t *testing.T) {
 
 func TestSnapshotterSkipsClassBackfillWhenTmuxLivenessIsUnknown(t *testing.T) {
 	env := seedServeFixture(t)
-	tmuxClient := tmux.NewClient(fakeTmuxRunner{err: errors.New("tmux unavailable")})
+	tmuxClient := tmux.NewClient(fakeTmuxRunner{err: &tmux.ExitError{
+		Code: 1, Stderr: "error connecting to /tmp/tmux-1000/default: Permission denied",
+	}})
 	snapshotter := NewSnapshotter(env.store, tmuxClient, func() time.Time { return env.now })
 	snapshotter.randomIndex = func(int) int { return 0 }
 

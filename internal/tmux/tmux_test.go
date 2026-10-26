@@ -106,9 +106,8 @@ func TestListSessions_Empty(t *testing.T) {
 func TestListSessions_NoServer(t *testing.T) {
 	t.Parallel()
 
-	// tmux ran but exited non-zero (no server) → treat as empty
 	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "", &ExitError{Code: 1}
+		return "", &ExitError{Code: 1, Stderr: "no server running on /tmp/tmux-1000/default"}
 	})
 	c := NewClient(m)
 
@@ -118,6 +117,29 @@ func TestListSessions_NoServer(t *testing.T) {
 	}
 	if sessions != nil {
 		t.Fatalf("sessions: got %v, want nil", sessions)
+	}
+}
+
+func TestListSessions_ConnectionError(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+		calls++
+		return "", &ExitError{Code: 1, Stderr: "error connecting to /tmp/tmux-1000/default: Permission denied"}
+	})
+	c := NewClient(m)
+	c.CacheListSessions(time.Second)
+
+	for range 2 {
+		_, err := c.ListSessions(t.Context())
+		var exitErr *ExitError
+		if err == nil || !errors.As(err, &exitErr) || !exitErr.IsConnectionError() {
+			t.Fatalf("ListSessions() error = %v, want connection ExitError", err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("tmux calls = %d, want one call with cached error", calls)
 	}
 }
 
