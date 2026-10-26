@@ -35,6 +35,15 @@ public enum NavigationOutcome: Equatable {
     case unchanged
 }
 
+/// What a press of a dock panel's focus chord (⇧⌘K, ⇧⌘J) does: see `NavigationStore.dockPanelKeyRoute`.
+public enum DockPanelKeyRoute: Equatable {
+    /// Not the dock's key: it goes on, untouched, to whatever has the keys.
+    case passThrough
+    /// The dock's key, but the panel already has the keys: nothing to do.
+    case alreadyFocused
+    case focus
+}
+
 public struct AppNavigationState: Equatable {
     public private(set) var focusedRegion: FocusRegion
     public private(set) var trackerVisible: Bool

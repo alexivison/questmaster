@@ -188,11 +188,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         menuController.installCommandKeyMonitor(CommandKeyActions(
-            focusRegionLeft: { [weak self] in self?.focusRegionLeft() },
-            focusRegionRight: { [weak self] in self?.focusRegionRight() },
-            focusDockTop: { [weak self] in self?.focusDockTopPanel() },
-            focusDockBottom: { [weak self] in self?.focusDockBottomPanel() },
-            toggleVersionControlDock: { [weak self] in self?.toggleVersionControlDock() }
+            focusRegionLeft: .anywhere { [weak self] in self?.focusRegionLeft() },
+            focusRegionRight: .anywhere { [weak self] in self?.focusRegionRight() },
+            focusDockTop: dockPanelKeyAction(.top),
+            focusDockBottom: dockPanelKeyAction(.bottom),
+            toggleVersionControlDock: .anywhere { [weak self] in self?.toggleVersionControlDock() }
         ))
         let serveMutationClient = UnixSocketMutationClient(connection: daemonConnection)
         mutationClient = serveMutationClient
@@ -657,13 +657,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         focusDockPanel(.bottom)
     }
 
-    /// The keys go to a panel that shows; a hidden one has nothing to take them.
+    private func dockPanelKeyRoute(_ panel: DockPanel) -> DockPanelKeyRoute {
+        navigation.dockPanelKeyRoute(panel, panels: dockPanels)
+    }
+
+    /// The key monitor's entry for a panel's chord: Core decides whether the press is the dock's; if not, it goes on.
+    private func dockPanelKeyAction(_ panel: DockPanel) -> CommandKeyAction {
+        CommandKeyAction(
+            handles: { [weak self] in (self?.dockPanelKeyRoute(panel) ?? .passThrough) != .passThrough },
+            run: { [weak self] in self?.focusDockPanel(panel) }
+        )
+    }
+
+    /// Moves the keys to `panel`, when the press is the dock's (`NavigationStore.dockPanelKeyRoute`).
     private func focusDockPanel(_ panel: DockPanel) {
-        guard InWindowModalStack.shared.isEmpty else {
-            return
-        }
-        guard dockPanels.contains(panel) else {
-            NSSound.beep()
+        guard dockPanelKeyRoute(panel) == .focus else {
             return
         }
         focusCoordinator.focusDockPanel(panel)
@@ -1073,6 +1081,13 @@ extension AppDelegate: NSMenuItemValidation {
         guard let action = menuItem.action else {
             return true
         }
+        // The panel focus keys are the dock's alone, as in the key monitor: a disabled item's shortcut does nothing.
+        if action == #selector(focusDockTopPanel) {
+            return dockPanelKeyRoute(.top) != .passThrough
+        }
+        if action == #selector(focusDockBottomPanel) {
+            return dockPanelKeyRoute(.bottom) != .passThrough
+        }
         if Self.shellNavigationActions.contains(action) {
             return InWindowModalStack.shared.isEmpty
         }
@@ -1087,7 +1102,7 @@ extension AppDelegate: NSMenuItemValidation {
     private static let shellNavigationActions: Set<Selector> = [
         #selector(focusTerminal), #selector(focusRegionLeft), #selector(focusRegionRight),
         #selector(selectTrackerSession(_:)), #selector(toggleTracker), #selector(toggleDock), #selector(toggleWorkerChatDock),
-        #selector(toggleVersionControlDock), #selector(focusDockTopPanel), #selector(focusDockBottomPanel),
+        #selector(toggleVersionControlDock),
     ]
 }
 

@@ -46,6 +46,17 @@ public final class NavigationStore {
         state.focusedDockPanel
     }
 
+    /// What the chord that focuses `panel` does. The chords move the keys between the dock's two panels, so they are
+    /// the dock's own: handled only while the dock has the keys (`hasKeys`) and both panels show. Anywhere else (the
+    /// terminal, the tracker, under a modal, a dock with one panel) they are not handled and go on to whoever has the
+    /// focus, Ghostty's own ⇧⌘J binding included.
+    public func dockPanelKeyRoute(_ panel: DockPanel, panels: DockPanels) -> DockPanelKeyRoute {
+        guard hasKeys(.dock), panels.top, panels.bottom else {
+            return .passThrough
+        }
+        return state.focusedDockPanel == panel ? .alreadyFocused : .focus
+    }
+
     public var trackerVisible: Bool {
         state.trackerVisible
     }

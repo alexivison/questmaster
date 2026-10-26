@@ -80,15 +80,16 @@ final class MenuController {
         commandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: Self.commandKeyHandler(actions))
     }
 
-    /// What the monitor does with a key press: nil when a chord of `actions` took it, the event itself otherwise.
+    /// What the monitor does with a key press: nil when a chord of `actions` took it, the event itself otherwise. A chord
+    /// that doesn't handle the press right now (`CommandKeyAction.handles`) is returned like any other key.
     static func commandKeyHandler(_ actions: CommandKeyActions) -> (NSEvent) -> NSEvent? {
         let table = actions.table
         return { event in
-            guard let match = table.first(where: { matches(event, binding: $0.binding) }) else {
+            guard let match = table.first(where: { matches(event, binding: $0.binding) }), match.action.handles() else {
                 return event
             }
             if !event.isARepeat {
-                match.action()
+                match.action.run()
             }
             return nil
         }
@@ -134,16 +135,28 @@ final class MenuController {
     }
 }
 
-/// What each command-key chord does while the terminal has the keys: the four commands that go through
-/// `MenuController.installCommandKeyMonitor`, one closure each so none can be left out.
-struct CommandKeyActions {
-    let focusRegionLeft: () -> Void
-    let focusRegionRight: () -> Void
-    let focusDockTop: () -> Void
-    let focusDockBottom: () -> Void
-    let toggleVersionControlDock: () -> Void
+/// One chord of the key monitor. `handles` is its scope, asked on every press (a held key too) and decided in Core: a
+/// chord that doesn't handle the press lets the event go on, untouched, to the focused responder.
+struct CommandKeyAction {
+    let handles: () -> Bool
+    let run: () -> Void
 
-    var table: [(binding: Keymap.CommandBinding, action: () -> Void)] {
+    /// A chord that works from every region.
+    static func anywhere(_ run: @escaping () -> Void) -> CommandKeyAction {
+        CommandKeyAction(handles: { true }, run: run)
+    }
+}
+
+/// What each command-key chord does while the terminal has the keys: the commands that go through
+/// `MenuController.installCommandKeyMonitor`, one entry each so none can be left out.
+struct CommandKeyActions {
+    let focusRegionLeft: CommandKeyAction
+    let focusRegionRight: CommandKeyAction
+    let focusDockTop: CommandKeyAction
+    let focusDockBottom: CommandKeyAction
+    let toggleVersionControlDock: CommandKeyAction
+
+    var table: [(binding: Keymap.CommandBinding, action: CommandKeyAction)] {
         [
             (Keymap.Command.focusRegionLeft, focusRegionLeft),
             (Keymap.Command.focusRegionRight, focusRegionRight),

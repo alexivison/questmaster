@@ -104,8 +104,9 @@ public enum Keymap {
         public static let copySessionID = CommandBinding(title: "Copy Session ID", keyEquivalent: "y")
         public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .shift])
         public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .shift])
-        // K up, J down, as in vim, beside ⇧⌘H/L: all of Questmaster's navigation is ⇧⌘. ⇧⌘J shadows Ghostty's default
-        // write_screen_file:paste; MenuController's key monitor takes it before the terminal can.
+        // K up, J down, as in vim, beside ⇧⌘H/L: all of Questmaster's navigation is ⇧⌘. They act only while the dock has the
+        // keys and both panels show (NavigationStore.dockPanelKeyRoute); anywhere else the key monitor lets them through, so
+        // Ghostty's own ⇧⌘J (write_screen_file:paste) is shadowed only inside the two-panel dock.
         public static let focusDockTop = CommandBinding(title: "Focus Top Dock Panel", keyEquivalent: "k", modifiers: [.command, .shift])
         public static let focusDockBottom = CommandBinding(title: "Focus Bottom Dock Panel", keyEquivalent: "j", modifiers: [.command, .shift])
         public static let copy = CommandBinding(title: "Copy", keyEquivalent: "c")

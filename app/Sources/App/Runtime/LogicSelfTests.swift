@@ -1320,10 +1320,11 @@ enum LogicSelfTests {
     }
 
     /// The terminal consumes command-key chords as key equivalents before the menu sees them, so the chords that must work
-    /// from it (⇧⌘H/L, ⇧⌘K/J, ⇧⌘R) run from `MenuController`'s key monitor, which comes first. ⇧⌘J is also Ghostty's own
-    /// write_screen_file:paste, which the monitor deliberately shadows. A stand-in for the terminal
-    /// consumes every key equivalent; an in-process key event for each chord must reach its action once, never the stand-in
-    /// (so the menu can't run it a second time), and a held key must not run it again.
+    /// from it (⇧⌘H/L, ⇧⌘R) run from `MenuController`'s key monitor, which comes first; ⇧⌘K/J do too, but only in the
+    /// dock's scope (⇧⌘J is also Ghostty's own write_screen_file:paste, shadowed only there), and the monitor returns them
+    /// untouched elsewhere. A stand-in for the terminal consumes every key equivalent; an in-process key event for each
+    /// chord must reach its action once, never the stand-in (so the menu can't run it a second time), and a held key must
+    /// not run it again.
     private static func testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents() throws {
         final class TerminalStandIn: NSView {
             var keyEquivalents = 0
@@ -1375,12 +1376,14 @@ enum LogicSelfTests {
         terminal.keyEquivalents = 0
 
         var ran: [String] = []
+        // The dock's chords are in scope only while it has the keys (`NavigationStore.dockPanelKeyRoute`).
+        var dockHasKeys = true
         let actions = CommandKeyActions(
-            focusRegionLeft: { ran.append("⇧⌘H") },
-            focusRegionRight: { ran.append("⇧⌘L") },
-            focusDockTop: { ran.append("⇧⌘K") },
-            focusDockBottom: { ran.append("⇧⌘J") },
-            toggleVersionControlDock: { ran.append("⇧⌘R") }
+            focusRegionLeft: .anywhere { ran.append("⇧⌘H") },
+            focusRegionRight: .anywhere { ran.append("⇧⌘L") },
+            focusDockTop: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘K") }),
+            focusDockBottom: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘J") }),
+            toggleVersionControlDock: .anywhere { ran.append("⇧⌘R") }
         )
         let menu = MenuController()
         menu.installCommandKeyMonitor(actions)
@@ -1414,6 +1417,31 @@ enum LogicSelfTests {
         try expect(ran.isEmpty, "a held chord is swallowed without running again")
         try send("K", "K", keyCode: 40, [.command, .shift, .capsLock])
         try expect(ran == ["⇧⌘K"], "Caps Lock doesn't change a chord, got \(ran)")
+
+        // Out of the dock's scope (the terminal or tracker focused, a modal up, a dock with one panel) the dock's chords
+        // are returned untouched, so the terminal still gets ⇧⌘K and Ghostty's own ⇧⌘J; the global chords stay the monitor's.
+        ran.removeAll()
+        dockHasKeys = false
+        for chord in chords {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: chord.flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: chord.characters, charactersIgnoringModifiers: chord.plain,
+                isARepeat: false, keyCode: chord.keyCode
+            ) else {
+                throw TestFailure("could not create the \(chord.name) event")
+            }
+            let result = handler(event)
+            if chord.name == "⇧⌘K" || chord.name == "⇧⌘J" {
+                try expect(result === event, "\(chord.name) outside the dock goes on to the terminal, not taken")
+            } else {
+                try expect(result == nil, "\(chord.name) works from every region")
+            }
+        }
+        try expect(ran == ["⇧⌘R", "⇧⌘H", "⇧⌘L"], "only the global chords ran outside the dock, got \(ran)")
+        ran.removeAll()
+        try send("K", "K", keyCode: 40, [.command, .shift], isARepeat: true)
+        try expect(ran.isEmpty, "a held dock chord outside the dock runs nothing either")
+        dockHasKeys = true
 
         ran.removeAll()
         for (characters, plain, keyCode, flags) in [("˚", "k", UInt16(40), NSEvent.ModifierFlags([.command, .option])), ("K", "K", UInt16(40), NSEvent.ModifierFlags([.command, .option, .shift])), ("k", "k", UInt16(40), []), ("r", "r", UInt16(15), [.command])] {
