@@ -188,12 +188,17 @@ hides.
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
+| | attached: the session open in the terminal (`TrackerAttachedDot`) | a 5pt dot (`Space.row`) in the project colour (`TrackerNameplateColor.barLightness`, the project name's and side diamonds'), its centre `Space.item` left of the disc's left edge and level with the disc's centre; no shadow, no band, hit shape, layout or number change |
 | Shell row (the tracker's shell section) | rest (`RowLook.shellRest`) | no fill, title and glyph `textMeta`, glyph disc `item` rim (a filled row's disc takes the look's own rim) |
 | | under the pointer | the hover look (1pt `line` outline), on a resting row only |
 | | keyboard cursor, while the tracker has the keys (`RowLook.shellCursor`) | 1pt `controlBorder` outline inside the row, no fill, text and glyph as at rest, regular weight |
 | | the viewed shell (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
 | | the cursor on the viewed shell (`RowLook.shellSelectedCursor`) | the fill and bold, plus the `controlBorder` outline |
 
+- The attached dot follows the attached session, never the cursor or the pointer. A master's or an expanded worker's own
+  plate carries it; a worker shown only as a collapsed circle puts it on its master's plate; a shell carries none (its
+  filled, bold row marks it), and neither does nothing attached. It sits in the list's leading gutter (a master's reaches
+  12.5 left of its row), drawn outside the plate's silhouette layers, which clip at their margin.
 - Bold means selected and appears only in a lasting-selection list. Artifacts
   have no selected state: picking one opens it.
 - Shells are not plates: every shell, tmux and orphan row leaves its repo group for the shell section pinned under all

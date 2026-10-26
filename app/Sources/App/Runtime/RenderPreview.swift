@@ -52,6 +52,11 @@ enum RenderPreview {
         render(shellRowStatesView(gapless: true), size: CGSize(width: 300, height: 290), to: "\(outputDir)/shell-rows-stack.png")
         render(trackerWithShellsView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells.png")
         render(trackerWithShellsView(extraMasters: 9), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells-long.png")
+        // The attached-session dot on a master, on an expanded worker, and on the master of a collapsed worker, each with the shell section.
+        render(trackerWithShellsView(viewedShell: "m2"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-attached-dot.png")
+        render(trackerWithShellsView(viewedShell: "m2-w0"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-attached-dot-worker.png")
+        render(trackerWithShellsView(viewedShell: "m3-w1"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-attached-dot-collapsed.png")
+        render(attachedDotMockView(), size: CGSize(width: 340, height: 380), to: "\(outputDir)/attached-dot-mock.png")
         // 14 shells at the 600pt minimum window, the last one attached: the section stops at 175 and scrolls to it.
         render(trackerWithShellsView(extraMasters: 9, extraShells: 11, viewedShell: "qm-shell-extra-10"), size: CGSize(width: 340, height: 600), to: "\(outputDir)/tracker-shells-crowded.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
@@ -94,7 +99,7 @@ enum RenderPreview {
             size: CGSize(width: 950, height: 900),
             to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
         )
-        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long", "overflow-design-idle"] {
+        for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "collapsed-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long", "overflow-design-idle"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
         for fixture in ["master", "list", "shimmer"] {
@@ -976,6 +981,30 @@ enum RenderPreview {
             TrackerRepo(id: "other", name: "other", sessions: [shell("qm-shell-blue", color: "blue")] + (0..<extraShells).map { shell("qm-shell-extra-\($0)") }),
             TrackerRepo(id: "more", name: "more", color: "orange", sessions: (0..<extraMasters).map { session("more-\($0)", "more", sessionClass: "bard", agent: "claude") }),
         ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The master in the user's attached-dot mock (2026-10-26): `scry` in indigo, a bard working on "Trace events" at 02m46s, nine
+    /// collapsed workers, attached. Rendered at a large scale, it sits beside the mock.
+    @MainActor
+    private static func attachedDotMockView() -> some View {
+        func session(_ id: String, role: String, agent: String, parent: String = "") -> TrackerSession {
+            TrackerSession(
+                id: id, title: role == "worker" ? "worker-title" : "Trace events", repoName: "scry", displayColor: "indigo", sessionClass: "bard",
+                agent: agent, role: role, state: "working", snippet: "Following event dispatch c...", parentID: parent, elapsedSeedMS: 166_000
+            )
+        }
+        let agents = ["codex", "codex", "codex", "claude", "claude", "codex", "claude", "codex", "codex"]
+        let sessions = [session("qm-1", role: "master", agent: "codex")]
+            + agents.enumerated().map { session("qm-1-w\($0.offset)", role: "worker", agent: $0.element, parent: "qm-1") }
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "qm-1", expandedMasterIDs: [])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "scry", name: "scry", color: "indigo", sessions: sessions)])))
         return TrackerRootView(
             store: store,
             navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
