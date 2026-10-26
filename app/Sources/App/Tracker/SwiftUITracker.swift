@@ -292,7 +292,7 @@ struct TrackerRootView: View {
             TrackerEditSessionSheet(
                 session: session,
                 dismiss: { editSession = nil },
-                save: { title, color in save(session, title: title, color: color) }
+                save: { title, color, portrait in save(session, title: title, color: color, portrait: portrait) }
             )
         }
         .inWindowSheet(item: $editRepo) { repo in
@@ -307,8 +307,9 @@ struct TrackerRootView: View {
     }
 
     private func trackerContent() -> some View {
-        let repos = TrackerRenderer.tracker(snapshot)
-        let rows = selectableRows(in: repos)
+        let tracker = TrackerRenderer.tracker(snapshot)
+        let repos = tracker.repos
+        let rows = selectableRows(in: tracker)
         let selectedID = commandState.renderedSelectedID(in: rows, currentTerminalSessionID: store.currentTerminalSessionID)
         // The cursor shows while the tracker has the keys (focused, no modal drawn); otherwise the pointer only shows
         // the hover band (`PlateBand`).
@@ -317,17 +318,20 @@ struct TrackerRootView: View {
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
 
-        let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, repos: repos)
+        let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
+        let showsShells = !tracker.shells.isEmpty && !isBackendStartingMessage(snapshot.serviceStateMessage)
+        // The plates' list scrolls only to a plate: a cursor on a shell is not its row.
+        let plateCursorID = TrackerShellSection.plateCursorID(selectedID, in: rows)
         let list = Group {
             if isBackendStartingMessage(snapshot.serviceStateMessage) {
                 TrackerSkeletonPlaceholder()
             } else {
                 if rows.isEmpty {
-                    SectionedList(selectedID: selectedID) {
+                    SectionedList(selectedID: plateCursorID) {
                         TrackerEmptyState(message: emptyMessage)
                     }
                 } else {
-                    SectionedList(selectedID: selectedID) {
+                    SectionedList(selectedID: plateCursorID) {
                         ForEach(Array(repos.enumerated()), id: \.offset) { index, repo in
                             TrackerRepoSection(
                                 repo: repo,
@@ -343,18 +347,36 @@ struct TrackerRootView: View {
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
                             .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.spacing)
-                            .padding(.bottom, index == repos.count - 1 ? TrackerListMetrics.verticalPadding : 0)
+                            .padding(.bottom, index == repos.count - 1 && !showsShells ? TrackerListMetrics.verticalPadding : 0)
                         }
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // The plates scroll in the space above the shell section, which ends `shellClearance` above it.
+        .padding(.bottom, showsShells ? TrackerListMetrics.shellClearance : 0)
         return VStack(alignment: .leading, spacing: 0) {
             SelectedSessionPanel(content: panelContent, onCopyID: copySessionID)
                 .padding(.leading, TrackerListMetrics.sidePadding)
                 .padding(.top, TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight))
             list
+            // The shell section is pinned to the column's bottom, at the tracker's bottom margin, whatever the plates do.
+            if showsShells {
+                TrackerShellRows(
+                    shells: tracker.shells,
+                    selectedID: selectedID,
+                    viewedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID),
+                    areaFocused: areaFocused,
+                    shortcutNumbers: shortcutNumbers,
+                    commandLongPressIsActive: commandLongPressIsActive,
+                    onSelect: select(_:),
+                    onActivate: activate(_:),
+                    onEditSession: presentEditSession(_:)
+                )
+                .padding(.leading, TrackerListMetrics.sidePadding)
+                .padding(.bottom, TrackerListMetrics.verticalPadding)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -386,9 +408,9 @@ struct TrackerRootView: View {
         }
     }
 
-    private func selectableRows(in repos: [TrackerRenderedRepo]) -> [TrackerSession] {
+    private func selectableRows(in tracker: TrackerRenderedTracker) -> [TrackerSession] {
         TrackerSessionShortcuts.selectableSessions(
-            TrackerRenderer.flatSessions(in: repos),
+            TrackerRenderer.flatSessions(in: tracker),
             expandedMasterIDs: store.expandedMasterIDs
         )
     }
@@ -515,7 +537,8 @@ struct TrackerRootView: View {
             sessionID: session.id,
             title: session.title,
             color: session.displayColor,
-            allowsColor: SessionRoleKind(role: session.role) != .worker
+            allowsColor: SessionRoleKind(role: session.role) != .worker,
+            portrait: EditSessionPortrait(session: session)
         )
     }
 
@@ -546,7 +569,7 @@ struct TrackerRootView: View {
         return presentEditRepo(session)
     }
 
-    private func save(_ session: TrackerEditSession, title: String, color: String) -> Bool {
+    private func save(_ session: TrackerEditSession, title: String, color: String, portrait: EditSessionPortrait) -> Bool {
         var effects: [TrackerEffect] = []
         if title != session.title {
             guard let request = try? ServeMutationRequests.renameSession(sessionID: session.sessionID, title: title) else {
@@ -559,6 +582,13 @@ struct TrackerRootView: View {
                 return false
             }
             effects.append(.sendMutation(TrackerMutationDispatch(request: request, label: "recolor session \(session.sessionID)")))
+        }
+        do {
+            if let request = try portrait.reclassRequest(sessionID: session.sessionID, since: session.portrait) {
+                effects.append(.sendMutation(TrackerMutationDispatch(request: request, label: "reclass session \(session.sessionID)")))
+            }
+        } catch {
+            return false
         }
         return effects.isEmpty || dispatchEffects(effects)
     }
@@ -603,6 +633,8 @@ struct TrackerEditSession: Identifiable {
     let title: String
     let color: String
     let allowsColor: Bool
+    /// The class portrait the sheet opens with (a master's, a worker's familiar), or none for a shell.
+    var portrait = EditSessionPortrait.none
 
     var id: String { sessionID }
 }
@@ -635,44 +667,52 @@ private struct TrackerRepoSection: View {
                 let isCollapsed = !expandedMasterIDs.contains(group.root.session.id)
                 let gapAbove = index == 0 ? 0 : TrackerListMetrics.spacing
                 VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
-                    TrackerSessionRow(
-                        rendered: group.root,
-                        projectName: projectName,
-                        selectedID: selectedID,
-                        areaFocused: areaFocused,
-                        shortcutNumber: shortcutNumbers[group.root.session.id],
-                        commandLongPressIsActive: commandLongPressIsActive,
+                    plateRow(
+                        group.root,
                         hasWorkers: !group.workers.isEmpty,
                         isWorkersCollapsed: isCollapsed,
                         collapsedWorkers: isCollapsed ? group.workers : [],
-                        onSelect: onSelect,
-                        onActivate: onActivate,
-                        onEditSession: onEditSession,
                         onToggleWorkersCollapsed: onToggleWorkersCollapsed
                     )
                     if !isCollapsed {
                         ForEach(group.workers, id: \.session.id) { worker in
-                            TrackerSessionRow(
-                                rendered: worker,
-                                projectName: projectName,
-                                selectedID: selectedID,
-                                areaFocused: areaFocused,
-                                shortcutNumber: shortcutNumbers[worker.session.id],
-                                commandLongPressIsActive: commandLongPressIsActive,
-                                hasWorkers: false,
-                                isWorkersCollapsed: false,
-                                onSelect: onSelect,
-                                onActivate: onActivate,
-                                onEditSession: onEditSession,
-                                onToggleWorkersCollapsed: { _ in }
-                            )
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .zIndex(-1)
+                            plateRow(worker, hasWorkers: false, isWorkersCollapsed: false, collapsedWorkers: [], onToggleWorkersCollapsed: { _ in })
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                                .zIndex(-1)
                         }
                     }
                 }
                 .padding(.top, gapAbove)
             }
+        }
+    }
+
+    /// A master's or worker's plate. A row with no plate (a shell) draws nothing: the shell section has it.
+    @ViewBuilder
+    private func plateRow(
+        _ rendered: TrackerRenderedSession,
+        hasWorkers: Bool,
+        isWorkersCollapsed: Bool,
+        collapsedWorkers: [TrackerRenderedSession],
+        onToggleWorkersCollapsed: @escaping (String) -> Void
+    ) -> some View {
+        if let role = TrackerNameplateRole(rendered.session) {
+            TrackerSessionRow(
+                rendered: rendered,
+                role: role,
+                projectName: projectName,
+                selectedID: selectedID,
+                areaFocused: areaFocused,
+                shortcutNumber: shortcutNumbers[rendered.session.id],
+                commandLongPressIsActive: commandLongPressIsActive,
+                hasWorkers: hasWorkers,
+                isWorkersCollapsed: isWorkersCollapsed,
+                collapsedWorkers: collapsedWorkers,
+                onSelect: onSelect,
+                onActivate: onActivate,
+                onEditSession: onEditSession,
+                onToggleWorkersCollapsed: onToggleWorkersCollapsed
+            )
         }
     }
 }
@@ -771,21 +811,21 @@ private struct TrackerCollapsedCircle<Content: View>: View {
     }
 }
 
-/// Which plate a session row draws. Masters and shell sessions share the top-level plate; only
-/// `worker` changes the geometry. `isMaster` still gates the collapse menu item and the worker circles.
+/// Which plate a session row draws: a master's, or a worker's under it. Shell rows draw no plate (`TrackerShellRow`).
+/// `isMaster` gates the collapse menu item and the worker circles.
 enum TrackerNameplateRole: Equatable {
-    case shell
     case master
     case worker
 
-    init(_ session: TrackerSession) {
-        let sessionRole = SessionRoleKind(role: session.role)
-        if sessionRole == .master {
+    /// Nil for a row with no plate: the shell section's rows are `TrackerShellRow`s.
+    init?(_ session: TrackerSession) {
+        switch TrackerPlateVariant(role: SessionRoleKind(role: session.role)) {
+        case .topLevel:
             self = .master
-        } else if TrackerPlateVariant(role: sessionRole) == .worker {
+        case .worker:
             self = .worker
-        } else {
-            self = .shell
+        case nil:
+            return nil
         }
     }
 
@@ -806,6 +846,21 @@ enum TrackerNameplateRole: Equatable {
     var logoSide: CGFloat { isWorker ? TrackerPlateDesign.workerLogoSide : TrackerPlateDesign.topLevelLogoSide }
     var portraitOrigin: CGPoint {
         CGPoint(x: portraitCenter.x - portraitDiameter / 2, y: portraitCenter.y - portraitDiameter / 2)
+    }
+    /// The agent badge's frame origin: its left edge `badgeOverhang` outside the disc's, its bottom edge the same below the
+    /// disc's.
+    var badgeOrigin: CGPoint {
+        CGPoint(
+            x: portraitOrigin.x - TrackerPlateDesign.badgeOverhang,
+            y: portraitOrigin.y + portraitDiameter + TrackerPlateDesign.badgeOverhang - TrackerPlateDesign.badgeDiameter
+        )
+    }
+    /// The badge's circle in row points. It hangs `badgeOverhang` past the disc's left edge and bottom, past the row's frame on a
+    /// master's left and under both plates, so the row's hit and hover shape takes it in (`RowHitShape`). The plate's
+    /// band doesn't follow it.
+    var badgeHitShape: Path {
+        let side = TrackerPlateDesign.badgeDiameter
+        return Path(ellipseIn: CGRect(origin: badgeOrigin, size: CGSize(width: side, height: side)))
     }
 
     /// The text columns in canvas points, one per plate, past each disc (`TrackerPlateDesign.textX`): 55 on the
@@ -951,16 +1006,20 @@ private struct TrackerPlateArt: View {
     }
 }
 
-/// The disc's fill over the plate, over its drop shadow and under its inner shadow, so it sits above the bar's pulse.
-/// The status ring and glow go over it.
+/// The disc's fill and its portrait over the plate, over its drop shadow and under its inner shadow, so it sits above
+/// the bar's pulse. The status ring and glow go over it.
 private struct TrackerPortraitDisc: View {
     let artwork: TrackerPlateArtwork
+    let portrait: SessionPortrait?
 
     var body: some View {
         Canvas { context, _ in
             context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.fillDropShadow(artwork.discEdge, .raised)
             context.fill(artwork.discEdge, with: .color(AppPalette.panel.swiftUI))
+            if let portrait {
+                context.drawPortrait(portrait, in: artwork.discEdge)
+            }
             context.fillInnerShadow(artwork.discEdge, .discInner)
         }
         .silhouetteFrame(artwork.size)
@@ -1010,6 +1069,8 @@ struct TrackerNameplateBackground<Text: View>: View {
     /// What the portrait's ring shows: a spinner while working, a still ring for the other active statuses.
     let ring: TrackerPortraitRing
     var finishColor: NSColor? = nil
+    /// The class portrait or familiar on the disc; nil leaves the disc to the agent's logo, drawn over it.
+    var portrait: SessionPortrait? = nil
     let text: Text
 
     var body: some View {
@@ -1020,7 +1081,7 @@ struct TrackerNameplateBackground<Text: View>: View {
                     .silhouetteFrame(artwork.size)
             }
             TrackerPlateArt(artwork: artwork)
-            TrackerPortraitDisc(artwork: artwork)
+            TrackerPortraitDisc(artwork: artwork, portrait: portrait)
             if let statusColor {
                 TrackerPortraitStatus(geometry: artwork.statusGeometry, color: statusColor, ring: ring, finishColor: finishColor)
             }
@@ -1240,10 +1301,13 @@ private struct TrackerPlateText: View {
     }
 }
 
-/// The portrait's logo, and under a master that collapses them, its worker circles. Drawn over the plate's background.
+/// The agent's mark on the portrait, and under a master that collapses them, its worker circles. Drawn over the plate's
+/// background. A disc with a class portrait carries the agent's logo in a badge at its bottom-left; one without (a row
+/// with no known class) shows the logo on the disc itself.
 private struct TrackerSessionRowContent: View {
     let rendered: TrackerRenderedSession
     let role: TrackerNameplateRole
+    let portrait: SessionPortrait?
     let shortcutNumber: Int?
     let collapsedWorkers: [TrackerRenderedSession]
     let cast: TrackerSessionRow.CastRowState
@@ -1255,13 +1319,22 @@ private struct TrackerSessionRowContent: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            TrackerAgentMark(
-                agent: session.agent,
-                shortcutNumber: shortcutNumber,
-                diameter: role.portraitDiameter,
-                logoSide: role.logoSide
-            )
-            .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
+            if portrait == nil {
+                TrackerAgentMark(
+                    agent: session.agent,
+                    shortcutNumber: shortcutNumber,
+                    diameter: role.portraitDiameter,
+                    logoSide: role.logoSide
+                )
+                .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
+            } else {
+                if let shortcutNumber {
+                    TrackerShortcutNumber(number: shortcutNumber, diameter: role.portraitDiameter, side: role.logoSide)
+                        .offset(x: role.portraitOrigin.x, y: role.portraitOrigin.y)
+                }
+                TrackerAgentBadge(agent: session.agent)
+                    .offset(x: role.badgeOrigin.x, y: role.badgeOrigin.y)
+            }
             if let bar = cast.bar {
                 TrackerCastRow(cast: bar.cast, isFinishing: bar.isFinishing, role: role)
                     .opacity(cast.isBarVisible ? 1 : 0)
@@ -1278,6 +1351,7 @@ private struct TrackerSessionRowContent: View {
 
 private struct TrackerSessionRow: View {
     let rendered: TrackerRenderedSession
+    let role: TrackerNameplateRole
     let projectName: String
     let selectedID: String?
     let areaFocused: Bool
@@ -1305,7 +1379,7 @@ private struct TrackerSessionRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var session: TrackerSession { rendered.session }
-    private var role: TrackerNameplateRole { TrackerNameplateRole(session) }
+    private var portrait: SessionPortrait? { SessionPortrait(session: session) }
     private var isSelected: Bool { selectedID == session.id }
     private var showsWorkersCollapseMenuItem: Bool { hasWorkers && role.isMaster }
 
@@ -1314,6 +1388,7 @@ private struct TrackerSessionRow: View {
             selected: isSelected,
             leadingInset: 0,
             hitOutset: role.hitOutset,
+            hitOverhang: portrait == nil ? Path() : role.badgeHitShape,
             onTap: {
                 onSelect(session.id)
                 onActivate(session)
@@ -1339,6 +1414,7 @@ private struct TrackerSessionRow: View {
                     // The plate's cast row shows its cast, so its ring only spins while it works.
                     ring: .ring(status: rendered.status.kind, cast: nil),
                     finishColor: rendered.status.finishColor,
+                    portrait: portrait,
                     text: TrackerPlateText(
                         rendered: rendered,
                         role: role,
@@ -1353,6 +1429,7 @@ private struct TrackerSessionRow: View {
                 TrackerSessionRowContent(
                     rendered: rendered,
                     role: role,
+                    portrait: portrait,
                     shortcutNumber: commandLongPressIsActive ? shortcutNumber : nil,
                     collapsedWorkers: collapsedWorkers,
                     cast: cast
@@ -1437,7 +1514,7 @@ private struct TrackerSessionRow: View {
 
 /// Dims a stopped row after compositing it, so the plate and its contents fade as one. Other rows
 /// stay out of an offscreen group, which would re-composite the whole row on every ring and bar frame.
-private struct TrackerStoppedDimming: ViewModifier {
+struct TrackerStoppedDimming: ViewModifier {
     let isStopped: Bool
 
     func body(content: Content) -> some View {
@@ -1446,6 +1523,44 @@ private struct TrackerStoppedDimming: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// The Command-held shortcut number, on a dimmed circle of `side` at the centre of a disc `diameter` across.
+struct TrackerShortcutNumber: View {
+    let number: Int
+    let diameter: CGFloat
+    let side: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(AppPalette.window.withAlphaComponent(0.86).swiftUI)
+                .frame(width: side, height: side)
+            Text("\(number)")
+                .font(AppFonts.monoBold.swiftUI)
+                .foregroundStyle(AppPalette.bright.swiftUI)
+        }
+        .frame(width: diameter, height: diameter)
+    }
+}
+
+/// The agent's badge at a portrait's bottom-left, from `Portrait.svg`: the disc's fill, a 1pt `line` border and the
+/// agent's logo in the mark tint (Claude's and Pi's keep their own colours).
+private struct TrackerAgentBadge: View {
+    let agent: String
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(AppPalette.panel.swiftUI)
+            Circle()
+                .strokeBorder(AppPalette.line.swiftUI, lineWidth: Token.Size.divider)
+            if let image = TrackerAgentMark.image(for: agent, side: TrackerPlateDesign.badgeLogoSide, tint: AppPalette.agentMarkTint) {
+                Image(nsImage: image)
+            }
+        }
+        .frame(width: TrackerPlateDesign.badgeDiameter, height: TrackerPlateDesign.badgeDiameter)
     }
 }
 
@@ -1470,12 +1585,7 @@ struct TrackerAgentMark: View {
                     .clipShape(Circle())
             }
             if let shortcutNumber {
-                Circle()
-                    .fill(AppPalette.window.withAlphaComponent(0.86).swiftUI)
-                    .frame(width: logoSide, height: logoSide)
-                Text("\(shortcutNumber)")
-                    .font(AppFonts.monoBold.swiftUI)
-                    .foregroundStyle(AppPalette.bright.swiftUI)
+                TrackerShortcutNumber(number: shortcutNumber, diameter: diameter, side: logoSide)
             }
         }
         .frame(width: diameter, height: diameter)
@@ -1575,8 +1685,8 @@ private struct TrackerEmptyState: View {
     }
 }
 
-/// A dim outline of the tracker while the service starts: a master with two workers, then a
-/// shell session, each a plate-sized placeholder.
+/// A dim outline of the tracker while the service starts: a master with two workers, each a plate-sized placeholder,
+/// and a shell row's placeholder at the column's bottom, where the shell section is pinned.
 private struct TrackerSkeletonPlaceholder: View {
     private static let cornerRadius: CGFloat = 6
 
@@ -1594,7 +1704,11 @@ private struct TrackerSkeletonPlaceholder: View {
                 placeholder(role: .worker)
                 placeholder(role: .worker)
             }
-            placeholder(role: .shell)
+            Spacer(minLength: TrackerListMetrics.shellClearance)
+            RoundedRectangle(cornerRadius: TrackerShellMetrics.cornerRadius)
+                .fill(AppPalette.dim.swiftUI)
+                .opacity(pulseOpacity)
+                .frame(width: TrackerShellMetrics.rowWidth, height: TrackerShellMetrics.rowHeight)
         }
         .padding(.leading, TrackerListMetrics.sidePadding)
         .padding(.vertical, TrackerListMetrics.verticalPadding)

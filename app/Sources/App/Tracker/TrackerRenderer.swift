@@ -34,32 +34,66 @@ struct TrackerRenderedRepo {
     let groups: [TrackerRenderGroup]
 }
 
+/// A row of the shell section, with the repo it was listed under (the selected-session panel names it).
+struct TrackerRenderedShell {
+    let rendered: TrackerRenderedSession
+    let repoName: String
+}
+
+/// The tracker's rows: the masters and workers by repo, drawn as plates, then the shell section under all of them.
+struct TrackerRenderedTracker {
+    let repos: [TrackerRenderedRepo]
+    let shells: [TrackerRenderedShell]
+}
+
 enum TrackerRenderer {
     private static let leadingDateRegex = try! NSRegularExpression(pattern: #"^\d{4}-\d{2}-\d{2}"#)
 
-    static func tracker(_ snapshot: RuntimeSnapshot, recolorPreview: TrackerInlineRecolorState? = nil) -> [TrackerRenderedRepo] {
-        snapshot.tracker.repos.enumerated().map { repoIndex, repo in
+    static func tracker(_ snapshot: RuntimeSnapshot, recolorPreview: TrackerInlineRecolorState? = nil) -> TrackerRenderedTracker {
+        let snapshotRepos = snapshot.tracker.repos
+        // A repo's colour follows its place in the snapshot, so a repo left with only shells still counts in it.
+        let repos = snapshotRepos.enumerated().compactMap { repoIndex, repo -> TrackerRenderedRepo? in
             let repoColor = color(for: repo, repoIndex: repoIndex, recolorPreview: recolorPreview)
-            return TrackerRenderedRepo(
-                repo: repo,
-                color: repoColor,
-                groups: renderGroups(
-                    repo.sessions,
-                    repoColor: repoColor,
-                    repoIndex: repoIndex,
-                    repoIsUngrouped: isUngrouped(repo),
-                    recolorPreview: recolorPreview
-                )
+            let groups = renderGroups(
+                TrackerShellSection.plateSessions(in: repo),
+                repoColor: repoColor,
+                repoIndex: repoIndex,
+                repoIsUngrouped: isUngrouped(repo),
+                recolorPreview: recolorPreview
+            )
+            return groups.isEmpty ? nil : TrackerRenderedRepo(repo: repo, color: repoColor, groups: groups)
+        }
+        let shells = TrackerShellSection.rows(in: snapshotRepos).map { row in
+            TrackerRenderedShell(
+                rendered: TrackerRenderedSession(
+                    session: row.session,
+                    status: status(for: row.session),
+                    // The panel's bar colour when the shell is attached: its own colour, else the shell grey. A shell
+                    // never takes its repo's colour, as before the shell section.
+                    groupColor: shellTint(for: row.session) ?? AppPalette.muted,
+                    recolorEditHint: nil
+                ),
+                repoName: row.repoName
             )
         }
+        return TrackerRenderedTracker(repos: repos, shells: shells)
     }
 
-    static func flatSessions(in repos: [TrackerRenderedRepo]) -> [TrackerSession] {
-        repos.flatMap { repo in
+    /// The colour a shell's own display colour gives its row's title (every state) and, attached, the panel's bar; nil
+    /// for a shell with none.
+    static func shellTint(for session: TrackerSession) -> NSColor? {
+        ShellRowStyle.tintName(displayColor: session.displayColor).flatMap(AppPalette.displayColor)
+    }
+
+    /// Every row in the order the cursor and the Cmd+N numbers walk: each plate group's master and workers, repo by
+    /// repo, then the shell section.
+    static func flatSessions(in tracker: TrackerRenderedTracker) -> [TrackerSession] {
+        let plates = tracker.repos.flatMap { repo in
             repo.groups.flatMap { group in
                 [group.root.session] + group.workers.map(\.session)
             }
         }
+        return plates + tracker.shells.map(\.rendered.session)
     }
 
     static func status(for session: TrackerSession) -> TrackerStatusStyle {
@@ -174,9 +208,6 @@ enum TrackerRenderer {
     ) -> NSColor {
         if let color = previewColor(for: session, recolorPreview: recolorPreview) {
             return color
-        }
-        if AgentKind(name: session.agent) == .shell {
-            return AppPalette.muted
         }
         if let color = AppPalette.displayColor(session.displayColor) {
             return color

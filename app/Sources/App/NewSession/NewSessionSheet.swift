@@ -71,6 +71,7 @@ struct NewSessionSheetView: View {
             onSelectModel: { model.selectModel(at: $0) },
             onSelectAgent: { model.selectAgent($0) },
             onCycleEffort: { model.clickEffort() },
+            onCycleClass: { model.cycleClass() },
             onCreate: { model.submit() },
             onCancel: { model.close() }
         )
@@ -168,6 +169,10 @@ final class NewSessionSheetModel: ObservableObject {
         let field = state.model.focusedField
 
         if field == .model, !state.model.submitting, handleModelFieldKey(event) {
+            return true
+        }
+        if SessionClassKey.cycles(keyCode: event.keyCode, command: flags.contains(.command), control: control, option: option, titleFocused: field == .title) {
+            cycleClass()
             return true
         }
         if Keymap.NewSession.cancel.matches(event.keyCode) {
@@ -374,6 +379,11 @@ final class NewSessionSheetModel: ObservableObject {
         }
     }
 
+    /// ⌃e in the title field and a click on the portrait cycle the class, wherever focus is on a click.
+    func cycleClass() {
+        state.model.cycleSessionClass()
+    }
+
     /// A click on the effort segment cycles it, wherever focus is; the segment is no stop of its own.
     func clickEffort() {
         guard !state.model.submitting else {
@@ -487,7 +497,8 @@ final class NewSessionSheetModel: ObservableObject {
                 color: payload.color,
                 prompt: payload.prompt,
                 model: payload.model,
-                reasoningEffort: payload.reasoningEffort
+                reasoningEffort: payload.reasoningEffort,
+                sessionClass: payload.sessionClass
             )
             mutationClient.send(request) { [weak self] result in
                 DispatchQueue.main.async {

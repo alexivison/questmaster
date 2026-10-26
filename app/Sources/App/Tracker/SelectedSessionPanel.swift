@@ -10,24 +10,26 @@ struct SelectedSessionPanelContent {
     let projectName: String
     let projectColor: NSColor
 
-    static func make(currentTerminalSessionID: String?, repos: [TrackerRenderedRepo]) -> SelectedSessionPanelContent {
+    static func make(currentTerminalSessionID: String?, tracker: TrackerRenderedTracker) -> SelectedSessionPanelContent {
         let id = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID) ?? ""
-        guard let match = matchingRow(id: id, repos: repos) else {
+        guard let match = matchingRow(id: id, tracker: tracker) else {
             return SelectedSessionPanelContent(title: "Terminal", id: id, projectName: "", projectColor: AppPalette.muted)
         }
         let title = match.rendered.session.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let repoName = match.repo.repo.name
         return SelectedSessionPanelContent(
             title: title.isEmpty ? match.rendered.session.id : title,
             id: match.rendered.session.id,
-            projectName: repoName.isEmpty ? "ungrouped" : repoName,
+            projectName: match.repoName.isEmpty ? "ungrouped" : match.repoName,
             projectColor: TrackerNameplateColor.barLightness(match.rendered.groupColor)
         )
     }
 
-    private static func matchingRow(id: String, repos: [TrackerRenderedRepo]) -> (repo: TrackerRenderedRepo, rendered: TrackerRenderedSession)? {
-        let rows = repos.flatMap { repo in repo.groups.flatMap { [$0.root] + $0.workers }.map { (repo: repo, rendered: $0) } }
-        return rows.first { $0.rendered.session.id == id }
+    private static func matchingRow(id: String, tracker: TrackerRenderedTracker) -> (repoName: String, rendered: TrackerRenderedSession)? {
+        let plates = tracker.repos.flatMap { repo in
+            repo.groups.flatMap { [$0.root] + $0.workers }.map { (repoName: repo.repo.name, rendered: $0) }
+        }
+        let shells = tracker.shells.map { (repoName: $0.repoName, rendered: $0.rendered) }
+        return (plates + shells).first { $0.rendered.session.id == id }
     }
 }
 

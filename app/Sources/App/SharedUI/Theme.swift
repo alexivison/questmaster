@@ -206,6 +206,22 @@ struct Elevation {
     var bleed: CGFloat { 3 * sigma + drop }
 }
 
+/// An inner shadow: the one shadow that belongs inside its shape's clip. It darkens the shape's own edge, `depth` points
+/// deep (the design tool's inner-shadow spread), black at `opacity`, blurred like an `Elevation` (`blur` is the design
+/// tool's, twice the Gaussian's deviation, and `sigma` what Core Graphics, Core Animation and Canvas take). Drawn over what
+/// it shades (`GraphicsContext.fillInnerShadow`), never at the call site with numbers of its own.
+struct Recess {
+    let opacity: CGFloat
+    let blur: CGFloat
+    let depth: CGFloat
+
+    /// The portrait discs of the sheets (Class & Title.svg): the edge 3 deep, softly, a fifth black.
+    static let portrait = Recess(opacity: 0.2, blur: 1, depth: 3)
+
+    var color: NSColor { AppPalette.shadow.withAlphaComponent(opacity) }
+    var sigma: CGFloat { blur / 2 }
+}
+
 enum AppFonts {
     // Every UI font is monospaced and follows the user's Ghostty font-family at Questmaster's own size, weight
     // and style. A family that lacks the requested weight or italic falls back to the system monospaced font

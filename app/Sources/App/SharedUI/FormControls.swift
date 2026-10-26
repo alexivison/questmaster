@@ -12,9 +12,10 @@ enum FormFieldMetrics {
     static let baseline: CGFloat = 21.5
     /// NSTextField draws its text 1 in from its frame, and its first baseline sits `editorBaseline` down
     /// a frame as tall as the font's line (KeyTextField); the field is placed so the text lands on
-    /// `textInset` and `baseline`.
+    /// `textInset` and `baseline`. The baseline is the font's ascent rounded up: 13 for the 12pt JetBrains Mono,
+    /// 12 for the system mono it falls back to, so the text lands on `baseline` in either.
     static let editorLead: CGFloat = 1
-    static let editorBaseline: CGFloat = 13
+    static var editorBaseline: CGFloat { AppFonts.questLogBody.ascender.rounded(.up) }
     static let suggestionsGap = Space.row
     static let suggestionRowHeight = ControlHeight.control
     static let suggestionRowSpacing = Space.row
@@ -27,6 +28,24 @@ enum FormFieldMetrics {
     /// The dropdown rows' text starts 10 in from the dropdown's outer edge, under its field's text: the inset less
     /// the dropdown's 1pt border.
     static let suggestionTextInset = Space.item - Token.Size.divider
+}
+
+/// "| text" at a field's trailing end: a divider, then the text, as the model field's effort level and the title field's
+/// class are drawn. The segment is no focus stop; a view that makes it clickable adds the tap itself.
+struct FormFieldSegment: View {
+    let text: String
+    let color: NSColor
+
+    var body: some View {
+        HStack(spacing: FormFieldMetrics.segmentSpacing) {
+            Rectangle()
+                .fill(AppPalette.line.swiftUI)
+                .frame(width: Token.Size.divider, height: FormFieldMetrics.segmentDividerHeight)
+                .frame(maxHeight: .infinity)
+            BaselineText(text, font: AppFonts.questLogBody, color: color, baseline: FormFieldMetrics.baseline)
+        }
+        .padding(.trailing, FormFieldMetrics.segmentTrailing)
+    }
 }
 
 extension View {
@@ -294,9 +313,10 @@ enum ModalFormMetrics {
     static let buttonHeight = ControlHeight.control
 
     /// A sheet sized to `fields` 35pt fields: the header, the fields 20 apart, the error band, the buttons
-    /// and the bottom band.
-    static func height(fields: Int) -> CGFloat {
+    /// and the bottom band. A `portraitRow` (the title row with its 40pt disc) is 5 taller than a field.
+    static func height(fields: Int, portraitRow: Bool = false) -> CGFloat {
         let fieldsHeight = CGFloat(fields) * FormFieldMetrics.height + CGFloat(max(0, fields - 1)) * fieldSpacing
-        return contentTop + fieldsHeight + bandHeight + buttonHeight + bandHeight
+        let portraitExtra = portraitRow ? SessionPortraitMetrics.sheetDiameter - FormFieldMetrics.height : 0
+        return contentTop + fieldsHeight + portraitExtra + bandHeight + buttonHeight + bandHeight
     }
 }

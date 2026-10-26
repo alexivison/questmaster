@@ -46,8 +46,9 @@ final class NewSessionViewState: ObservableObject {
     }
 }
 
-/// new-session.svg: the path (with its directory dropdown), the title, the agent tabs, the model field
-/// with the effort segment at its end (and its model dropdown), and the prompt filling the rest, 20 apart.
+/// new-session.svg: the path (with its directory dropdown), the title row (the class portrait and the title, with the
+/// class at its end), the agent tabs, the model field with the effort segment at its end (and its model dropdown), and
+/// the prompt filling the rest, 20 apart.
 struct NewSessionRootView: View {
     @ObservedObject var state: NewSessionViewState
 
@@ -59,6 +60,7 @@ struct NewSessionRootView: View {
     var onSelectModel: (Int) -> Void
     var onSelectAgent: (String) -> Void
     var onCycleEffort: () -> Void
+    var onCycleClass: () -> Void
     var onCreate: () -> Void
     var onCancel: () -> Void
 
@@ -74,7 +76,7 @@ struct NewSessionRootView: View {
             VStack(spacing: ModalFormMetrics.fieldSpacing) {
                 pathField
                     .zIndex(2)
-                textField(.title, placeholder: "Title (optional)...", text: Binding(get: { state.model.title }, set: { state.model.title = $0 }))
+                titleRow
                 agentTabs
                 modelField
                     .zIndex(1)
@@ -97,6 +99,26 @@ struct NewSessionRootView: View {
             highlightedIndex: state.paths.highlightedIndex,
             onSelect: { onSelectPath(state.paths.items[$0]) }
         ) : nil)
+    }
+
+    /// The class portrait, then the title with "| Random" or the class's name at its end. ⌃e in the title and a click on
+    /// the portrait cycle it.
+    private var titleRow: some View {
+        SessionTitleRow(
+            portrait: .master(state.model.sessionClass),
+            portraitLabel: "Class \(state.model.classLabel)",
+            onPortraitClick: onCycleClass
+        ) {
+            FormTextField(
+                text: Binding(get: { state.model.title }, set: { state.model.title = $0 }),
+                placeholder: "Title (optional)...",
+                focusNonce: state.focusNonces[.title, default: 0],
+                focused: state.model.focusedField == .title,
+                onFocusChanged: { focusedByClick(.title, $0) }
+            ) {
+                FormFieldSegment(text: state.model.classLabel, color: AppPalette.textMeta)
+            }
+        }
     }
 
     private var agentTabs: some View {
@@ -146,22 +168,15 @@ struct NewSessionRootView: View {
     private var effortSegment: some View {
         let model = state.model
         let color = model.hasEffortLevels ? AppPalette.textMeta : AppPalette.inert
-        return HStack(spacing: FormFieldMetrics.segmentSpacing) {
-            Rectangle()
-                .fill(AppPalette.line.swiftUI)
-                .frame(width: Token.Size.divider, height: FormFieldMetrics.segmentDividerHeight)
-                .frame(maxHeight: .infinity)
-            BaselineText(model.effortLabel, font: AppFonts.questLogBody, color: color, baseline: FormFieldMetrics.baseline)
-        }
-        .padding(.trailing, FormFieldMetrics.segmentTrailing)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard model.hasEffortLevels else {
-                return
+        return FormFieldSegment(text: model.effortLabel, color: color)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard model.hasEffortLevels else {
+                    return
+                }
+                onCycleEffort()
             }
-            onCycleEffort()
-        }
-        .accessibilityLabel("Reasoning effort \(model.effortLabel)")
+            .accessibilityLabel("Reasoning effort \(model.effortLabel)")
     }
 
     private var promptBox: some View {

@@ -52,6 +52,14 @@ public enum ServeMutationRequests {
         ])
     }
 
+    /// A master's class. Workers show their master's, so the backend refuses them.
+    public static func reclass(sessionID: String, to sessionClass: SessionClass) throws -> ServeMutationRequest {
+        ServeMutationRequest(method: "reclass", data: [
+            "session_id": try required("session_id", sessionID),
+            "class": sessionClass.rawValue,
+        ])
+    }
+
     public static func recolorSession(sessionID: String, color: String) throws -> ServeMutationRequest {
         ServeMutationRequest(
             method: "recolor",
@@ -103,12 +111,17 @@ public enum ServeMutationRequests {
         color: String,
         prompt: String?,
         model: String = "",
-        reasoningEffort: String = ""
+        reasoningEffort: String = "",
+        sessionClass: SessionClass? = nil
     ) throws -> ServeMutationRequest {
         var data: [String: String] = [
             "cwd": try required("cwd", cwd),
             "agent": try required("agent", agent),
         ]
+        // No class leaves the pick to the backend (Random).
+        if let sessionClass {
+            data["class"] = sessionClass.rawValue
+        }
         // An omitted model leaves the harness's role default in place; a value
         // is sent verbatim, listed by the models topic or not.
         if let model = cleanOptional(model) {

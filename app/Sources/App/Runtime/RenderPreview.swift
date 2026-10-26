@@ -30,10 +30,30 @@ enum RenderPreview {
         render(colorInputView(previewing: true), size: CGSize(width: 504, height: 151), to: "\(outputDir)/color-input-preview.png")
         let editSession = TrackerEditSession(sessionID: "qm-1", title: "Small Fixes", color: "orange", allowsColor: true)
         let editRepo = TrackerEditRepo(identity: "/Users/aleksi.tuominen/Code/questmaster/.git", name: "questmaster", color: "orange")
-        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session.png")
-        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .editCurrent, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-open.png")
-        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .seed("red"), dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-red.png")
-        render(editSheetCanvas(TrackerEditSessionSheet(session: TrackerEditSession(sessionID: "qm-1", title: "", color: "", allowsColor: true), initialFocus: .color, dismiss: {}, save: { _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-none.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .editCurrent, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-open.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editSession, initialFocus: .color, colorSearch: .seed("red"), dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-red.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: TrackerEditSession(sessionID: "qm-1", title: "", color: "", allowsColor: true), initialFocus: .color, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-none.png")
+        let editMaster = TrackerEditSession(sessionID: "qm-1", title: "Title of the Session", color: "orange", allowsColor: true, portrait: .choosing(.cleric))
+        let editWorker = TrackerEditSession(sessionID: "qm-1-w", title: "Review schema", color: "orange", allowsColor: false, portrait: .familiar(.cleric))
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editMaster, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-master.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editWorker, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-worker.png")
+        // A master the backfill hasn't reached: no class yet, so the Random silhouette; the first cycle picks paladin.
+        let editUnassigned = TrackerEditSession(sessionID: "qm-3", title: "Title of the Session", color: "orange", allowsColor: true, portrait: .choosing(nil))
+        var editUnassignedCycled = editUnassigned
+        editUnassignedCycled.portrait.cycle()
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editUnassigned, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-master-unassigned.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editUnassignedCycled, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-master-unassigned-cycled.png")
+        render(newSessionView(.classRandom), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-random.png")
+        render(newSessionView(.classChosen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-cleric.png")
+        render(classPlatesView(), size: CGSize(width: 340, height: 360), to: "\(outputDir)/class-plates.png")
+        render(classTrackerView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/class-tracker.png")
+        render(shellRowStatesView(), size: CGSize(width: 300, height: 500), to: "\(outputDir)/shell-rows.png")
+        render(shellRowStatesView(gapless: true), size: CGSize(width: 300, height: 290), to: "\(outputDir)/shell-rows-stack.png")
+        render(trackerWithShellsView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells.png")
+        render(trackerWithShellsView(extraMasters: 9), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells-long.png")
+        // 14 shells at the 600pt minimum window, the last one attached: the section stops at 175 and scrolls to it.
+        render(trackerWithShellsView(extraMasters: 9, extraShells: 11, viewedShell: "qm-shell-extra-10"), size: CGSize(width: 340, height: 600), to: "\(outputDir)/tracker-shells-crowded.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo.png")
         render(editSheetCanvas(TrackerEditRepoSheet(repo: editRepo, colorSearch: .seed("o"), dismiss: {}, save: { _ in true })), size: editCanvas, to: "\(outputDir)/edit-repo-open.png")
         render(confirmationView(), size: CGSize(width: 420, height: 300), autoHeight: true, to: "\(outputDir)/confirmation.png")
@@ -848,6 +868,161 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// A master with nine collapsed workers (seven circles and "+2") and a master with one expanded worker, as the
+    /// Portrait.svg mock shows them: class portraits and familiars with the agent's badge at the corner.
+    @MainActor
+    private static func classPlatesView() -> some View {
+        func session(_ id: String, role: String, title: String, sessionClass: String, parent: String = "", state: String = "working") -> TrackerSession {
+            TrackerSession(
+                id: id, title: title, repoName: "project", displayColor: "indigo", sessionClass: sessionClass, agent: "codex", role: role,
+                state: state, snippet: "Ranked exact matches and row...", parentID: parent, elapsedSeedMS: 80_000,
+                cast: id == "a" ? TrackerCast(tool: "Bash", startedAt: Date().addingTimeInterval(-2.5), typicalMS: 6000) : nil
+            )
+        }
+        let collapsed = (0..<9).map { session("a-w\($0)", role: "worker", title: "worker-title", sessionClass: "paladin", parent: "a", state: "idle") }
+        let sessions = [session("a", role: "master", title: "Session Title", sessionClass: "paladin")] + collapsed + [
+            session("b", role: "master", title: "Session Title", sessionClass: "wizard", state: "idle"),
+            session("b-w", role: "worker", title: "worker-title", sessionClass: "wizard", parent: "b"),
+        ]
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["b"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "project", name: "project", color: "indigo", sessions: sessions)])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The shell row in each state: rest, under the pointer, the keyboard cursor (an outline), the attached shell (filled and
+    /// bold) and the cursor on the attached shell (both), then the same in a display colour, which tints the title in every
+    /// state. `gapless` stacks a short run of them as the tracker does (no gap), an attached row above a cursor row among
+    /// them, to show the outlined row stays apart from the filled one; the sheet itself puts `Space.item` between rows.
+    @MainActor
+    private static func shellRowStatesView(gapless: Bool = false) -> some View {
+        let states: [(name: String, color: String, viewed: Bool, cursor: Bool, hovered: Bool)]
+        if gapless {
+            states = [
+                ("attached", "", true, false, false), ("cursor", "", false, true, false), ("rest", "", false, false, false),
+                ("hovered", "", false, false, true), ("rest again", "", false, false, false),
+                ("green attached", "green", true, false, false), ("green cursor", "green", false, true, false),
+            ]
+        } else {
+            states = [
+                ("rest", "", false, false, false),
+                ("hovered", "", false, false, true),
+                ("cursor", "", false, true, false),
+                ("attached", "", true, false, false),
+                ("attached, cursor", "", true, true, false),
+                ("green, rest", "green", false, false, false),
+                ("green, hovered", "green", false, false, true),
+                ("green, cursor", "green", false, true, false),
+                ("green, attached", "green", true, false, false),
+                ("green, attached, cursor", "green", true, true, false),
+            ]
+        }
+        return VStack(alignment: .leading, spacing: gapless ? 0 : Space.item) {
+            ForEach(Array(states.enumerated()), id: \.offset) { _, state in
+                let session = TrackerSession(id: "qm-\(state.name)", title: "Shell", repoName: "", displayColor: state.color, agent: "")
+                TrackerShellRow(
+                    rendered: TrackerRenderedSession(session: session, status: TrackerRenderer.status(for: session), groupColor: AppPalette.muted, recolorEditHint: nil),
+                    isViewed: state.viewed,
+                    isSelected: state.cursor,
+                    areaFocused: true,
+                    shortcutNumber: nil,
+                    commandLongPressIsActive: false,
+                    previewHovered: state.hovered,
+                    onHighlight: {},
+                    onActivate: {},
+                    onEdit: {}
+                )
+            }
+        }
+        .padding(.leading, Space.section)
+        .padding(.top, Space.section)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// The tracker with masters, workers and the shell section pinned to the column's bottom: one shell attached (filled,
+    /// bold), one with a colour, one plain. `extraMasters` lengthens the plates' list until it is cut at the section's
+    /// clearance; `extraShells` crowds the section until it stops at its max height and scrolls to `viewedShell`.
+    @MainActor
+    private static func trackerWithShellsView(extraMasters: Int = 0, extraShells: Int = 0, viewedShell: String = "qm-shell-viewed") -> some View {
+        func session(_ id: String, _ repo: String, role: String = "master", sessionClass: String = "", agent: String, parent: String = "", state: String = "idle") -> TrackerSession {
+            TrackerSession(
+                id: id, title: role == "worker" ? "worker-title" : "Session Title", repoName: repo, displayColor: "indigo", sessionClass: sessionClass,
+                agent: agent, role: role, state: state, snippet: "Ranked exact matches and row...", parentID: parent, elapsedSeedMS: 80_000
+            )
+        }
+        func shell(_ id: String, color: String = "") -> TrackerSession {
+            TrackerSession(id: id, title: "Shell", repoName: "", displayColor: color, agent: "shell", role: "shell", state: "idle", snippet: "")
+        }
+        let dotfiles = [
+            session("m1", "dotfiles", sessionClass: "cleric", agent: "claude", state: "working"),
+            session("m2", "dotfiles", sessionClass: "paladin", agent: "codex"),
+            session("m2-w0", "dotfiles", role: "worker", sessionClass: "paladin", agent: "codex", parent: "m2", state: "working"),
+        ]
+        let scry = [session("m3", "scry", sessionClass: "rogue", agent: "claude")]
+            + (0..<3).map { session("m3-w\($0)", "scry", role: "worker", sessionClass: "rogue", agent: $0 == 1 ? "claude" : "codex", parent: "m3", state: "working") }
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: viewedShell, expandedMasterIDs: ["m2"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "ungrouped", name: "ungrouped", sessions: [shell("qm-shell-plain")]),
+            TrackerRepo(id: "dotfiles", name: "dotfiles", color: "lime", sessions: dotfiles),
+            TrackerRepo(id: "scry", name: "scry", color: "indigo", sessions: scry + [shell("qm-shell-viewed", color: "green")]),
+            TrackerRepo(id: "other", name: "other", sessions: [shell("qm-shell-blue", color: "blue")] + (0..<extraShells).map { shell("qm-shell-extra-\($0)") }),
+            TrackerRepo(id: "more", name: "more", color: "orange", sessions: (0..<extraMasters).map { session("more-\($0)", "more", sessionClass: "bard", agent: "claude") }),
+        ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
+    /// Every class on a master, with each agent's badge, expanded workers (their master's familiar), a collapsed row, a
+    /// shell, and a master with no class, which keeps today's agent-logo disc.
+    @MainActor
+    private static func classTrackerView() -> some View {
+        func session(_ id: String, _ repo: String, role: String = "master", sessionClass: String, agent: String, parent: String = "", state: String = "idle") -> TrackerSession {
+            TrackerSession(
+                id: id, title: role == "worker" ? "worker-title" : "Session Title", repoName: repo, displayColor: "indigo", sessionClass: sessionClass,
+                agent: agent, role: role, state: state, snippet: "Ranked exact matches and row...", parentID: parent, elapsedSeedMS: 80_000
+            )
+        }
+        let dotfiles = [
+            session("m1", "dotfiles", sessionClass: "cleric", agent: "claude", state: "working"),
+            session("m2", "dotfiles", sessionClass: "paladin", agent: "codex"),
+            session("m2-w0", "dotfiles", role: "worker", sessionClass: "paladin", agent: "codex", parent: "m2", state: "working"),
+            session("m2-w1", "dotfiles", role: "worker", sessionClass: "paladin", agent: "claude", parent: "m2"),
+            session("m3", "dotfiles", sessionClass: "rogue", agent: "claude"),
+        ] + (0..<3).map { session("m3-w\($0)", "dotfiles", role: "worker", sessionClass: "rogue", agent: $0 == 1 ? "claude" : "codex", parent: "m3", state: "working") }
+        let questmaster = [
+            session("m4", "questmaster", sessionClass: "druid", agent: "pi", state: "working"),
+            session("m5", "questmaster", sessionClass: "barbarian", agent: "opencode"),
+            session("m6", "questmaster", sessionClass: "wizard", agent: "codex", state: "blocked"),
+            session("m7", "questmaster", sessionClass: "bard", agent: "claude"),
+            session("m8", "questmaster", sessionClass: "", agent: "codex"),
+        ]
+        let shell = [TrackerSession(id: "s1", title: "zsh", repoName: "scry", displayColor: "blue", agent: "shell", role: "shell", state: "idle", snippet: "")]
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "none", expandedMasterIDs: ["m2"])
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "dotfiles", name: "dotfiles", color: "lime", sessions: dotfiles),
+            TrackerRepo(id: "questmaster", name: "questmaster", color: "orange", sessions: questmaster),
+            TrackerRepo(id: "scry", name: "scry", color: "indigo", sessions: shell),
+        ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
     /// The selected-session panel with the strings and the bar colour `Selected Session.svg` shows, or with no text, to
     /// compare the plate alone against the SVG's raster.
     @MainActor
@@ -1180,6 +1355,9 @@ enum RenderPreview {
         case openCodeResting
         case openCode
         case noEffort
+        /// The title focused, the class on Random (the default) or chosen (cleric: six ⌃e from Random).
+        case classRandom
+        case classChosen
     }
 
     @MainActor
@@ -1235,6 +1413,17 @@ enum RenderPreview {
             model.setModelOptions([SessionModelOption(id: "local-model", label: "local-model")], defaultModel: "local-model")
             model.setEffortOptions([])
             model.focusedField = .model
+        case .classRandom, .classChosen:
+            model.path = "/Users/aleksi.tuominen/Code"
+            model.title = "PR Reviews"
+            model.setModelOptions(claudeModels, defaultModel: "claude-opus-5.5")
+            model.setEffortOptions(levels, defaultLevel: "xhigh")
+            model.focusedField = .title
+            if preview == .classChosen {
+                for _ in 0..<6 {
+                    model.cycleSessionClass()
+                }
+            }
         }
         state.model = model
         return newSessionRoot(state)
@@ -1278,6 +1467,7 @@ enum RenderPreview {
             onSelectModel: { _ in },
             onSelectAgent: { _ in },
             onCycleEffort: {},
+            onCycleClass: {},
             onCreate: {},
             onCancel: {}
         )

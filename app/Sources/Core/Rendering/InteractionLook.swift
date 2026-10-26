@@ -41,7 +41,8 @@ public enum StateColor: UInt32, CaseIterable, Sendable {
 public struct RowLook: Equatable, Sendable {
     /// No fill shows the list's own background.
     public let fill: StateColor?
-    /// A 1pt outline inside the row's shape; only the hover look draws one.
+    /// A 1pt outline inside the row's shape. The hover look draws one (`line`), and so do a shell row's cursor looks
+    /// (`controlBorder`: `shellCursor`, and `shellSelectedCursor` over its fill); no other look does.
     public let outline: StateColor?
     public let text: StateColor
     public let meta: StateColor
@@ -81,10 +82,11 @@ public struct RowLook: Equatable, Sendable {
         selected ? .selected : .rest
     }
 
-    /// This look with the pointer over the row: an unfilled (resting) row gains the hover outline and keeps its own
-    /// colours, a missing file's warning icon included; a highlighted or selected one keeps its look.
+    /// This look with the pointer over the row: an unfilled, unoutlined (resting) row gains the hover outline and keeps its
+    /// own colours, a missing file's warning icon included; a highlighted, selected or already outlined one (a shell's
+    /// cursor) keeps its look.
     public func underPointer(_ pointerOver: Bool) -> RowLook {
-        guard pointerOver, fill == nil else {
+        guard pointerOver, fill == nil, outline == nil else {
             return self
         }
         return RowLook(fill: nil, outline: RowLook.hovered.outline, text: text, meta: meta, icon: icon, iconBorder: iconBorder, bold: bold)
