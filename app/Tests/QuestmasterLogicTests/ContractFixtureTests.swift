@@ -87,12 +87,17 @@ struct ContractFixtureTests {
         expect(workerFeed.hasMore["qm-worker"] == true, "worker_feed has_more did not decode")
         expect(workerFeed.errors?["qm-other"] == "permission denied", "worker_feed errors did not decode")
 
-        let pulls = try decodeFixture(PullRequestsEnvelopeFixture.self, "pull_requests_response_envelope.json")
+        let pulls = try decodeFixture(PullRequestsResponse.self, "pull_requests_response_envelope.json")
         expect(pulls.data.first?.key == "github.com/owner/repo#42", "pull_requests key did not decode")
-        expect(pulls.data.first?.owner == "Owner" && pulls.data.first?.repo == "Repo", "pull_requests display fields did not decode")
-        expect(pulls.data.first?.watchers.first?.sessionID == "qm-demo", "pull_requests watcher did not decode")
-        expect(pulls.data.first?.status?.review == "approved" && pulls.data.first?.status?.ci == "success", "pull_requests status did not decode")
-        expect(pulls.data.last?.status?.inaccessibleReason == "saml", "pull_requests inaccessible reason did not decode")
+        expect(pulls.data.first?.host == "github.com" && pulls.data.first?.owner == "Owner" && pulls.data.first?.repo == "Repo" && pulls.data.first?.number == 42, "pull_requests display fields did not decode")
+        expect(pulls.data.first?.watchers.first?.sessionID == "qm-demo" && pulls.data.first?.watchers.first?.addedAt == "2026-06-19T04:20:00Z", "pull_requests watcher did not decode")
+        let status = pulls.data.first?.status
+        expect(status?.title == "Ready to merge" && status?.url == "https://github.com/owner/repo/pull/42", "pull_requests title/url did not decode")
+        expect(status?.state == .open && status?.draft == false && status?.headSHA == "abc123", "pull_requests state/draft/head did not decode")
+        expect(status?.updatedAt == "2026-06-19T04:20:00Z" && status?.fetchedAt == "2026-06-19T04:20:00Z", "pull_requests timestamps did not decode")
+        expect(status?.additions == 0 && status?.deletions == 0 && status?.comments == 0, "pull_requests counters did not decode")
+        expect(status?.review == .approved && status?.ci == .success && status?.stale == false, "pull_requests looks did not decode")
+        expect(pulls.data.last?.status?.inaccessibleReason == .saml && pulls.data.last?.status?.state == nil, "pull_requests inaccessible status did not decode")
     }
 
     private static func decodeFixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {
@@ -188,44 +193,6 @@ private struct ReasoningEffortsFixture: Decodable {
 
 private struct WorkerFeedEnvelopeFixture: Decodable {
     var data: WorkerFeedPayload
-}
-
-private struct PullRequestsEnvelopeFixture: Decodable {
-    struct Row: Decodable {
-        struct Status: Decodable {
-            var title: String?
-            var url: String?
-            var state: String?
-            var draft: Bool
-            var headSHA: String?
-            var updatedAt: String?
-            var additions: Int
-            var deletions: Int
-            var comments: Int
-            var review: String?
-            var ci: String?
-            var fetchedAt: String
-            var inaccessibleReason: String?
-            var stale: Bool
-            enum CodingKeys: String, CodingKey {
-                case title, url, state, draft, additions, deletions, comments, review, ci, stale
-                case headSHA = "head_sha", updatedAt = "updated_at", fetchedAt = "fetched_at", inaccessibleReason = "inaccessible_reason"
-            }
-        }
-        struct Watcher: Decodable {
-            var sessionID: String
-            var addedAt: String
-            enum CodingKeys: String, CodingKey { case sessionID = "session_id", addedAt = "added_at" }
-        }
-        var key: String
-        var host: String
-        var owner: String
-        var repo: String
-        var number: Int
-        var watchers: [Watcher]
-        var status: Status?
-    }
-    var data: [Row]
 }
 
 private struct ContractFixtureError: Error, CustomStringConvertible {

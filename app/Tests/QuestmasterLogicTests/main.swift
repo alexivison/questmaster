@@ -25,6 +25,8 @@ enum QuestmasterLogicTests {
         TrackerSessionShortcutsTests.run()
         RuntimeDecoderTests.run()
         ContractFixtureTests.run()
+        PullRequestModelsTests.run()
+        PullRequestStoreTests.run()
         RuntimeStoreTests.run()
         NavigationStoreTests.run()
         DockStateTests.run()
