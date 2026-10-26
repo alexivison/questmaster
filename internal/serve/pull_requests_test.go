@@ -78,6 +78,16 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	if stable.Sessions[trackerSessionIndex(stable.Sessions, "qm-demo")].PullRequestsRev != initial.Sessions[masterIndex].PullRequestsRev {
 		t.Fatal("unchanged set changed rev")
 	}
+	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref1.Key: {Title: "Updated", State: "open", FetchedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	withStatus, err := snapshotter.TrackerForChange(Change{Topics: []string{topicTracker}, BroadTracker: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withStatus.Sessions[masterIndex].PullRequestsRev == initial.Sessions[masterIndex].PullRequestsRev || request("qm-demo")[0].Status.Title != "Updated" {
+		t.Fatal("status did not reach response and tracker revision")
+	}
 	if _, err := state.UnwatchPullRequest(env.store.Root(), "qm-worker", ref2.Key); err != nil {
 		t.Fatal(err)
 	}
@@ -143,5 +153,54 @@ func TestPullRequestsRegistryRewritePushesTracker(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("registry rewrite did not publish")
+	}
+}
+
+func TestPullRequestStatusRewritePushesTracker(t *testing.T) {
+	env := seedServeFixture(t)
+	ref, _ := state.ParsePullRequestRef("owner/repo#1")
+	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	source, err := NewFileChangeSource(ctx, snap, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	changes, unsubscribe := source.Subscribe(ctx)
+	defer unsubscribe()
+	srv := &Server{Snapshotter: snap}
+	baseline, err := snap.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRev := baseline.Sessions[trackerSessionIndex(baseline.Sessions, "qm-demo")].PullRequestsRev
+	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref.Key: {Title: "New status", FetchedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case change := <-changes:
+		if !change.BroadTracker || !change.Affects(topicTracker) {
+			t.Fatalf("change=%#v", change)
+		}
+		var output bytes.Buffer
+		baselineBytes, _ := json.Marshal(baseline)
+		if err := srv.pushChanged(ctx, json.NewEncoder(&output), []string{topicTracker}, map[string][]byte{topicTracker: baselineBytes}, change); err != nil {
+			t.Fatal(err)
+		}
+		var pushed struct {
+			Data TrackerSnapshot `json:"data"`
+		}
+		if err := json.Unmarshal(output.Bytes(), &pushed); err != nil {
+			t.Fatalf("no tracker push: %v", err)
+		}
+		if pushed.Data.Sessions[trackerSessionIndex(pushed.Data.Sessions, "qm-demo")].PullRequestsRev == oldRev {
+			t.Fatal("status push kept old revision")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("status rewrite did not publish")
 	}
 }

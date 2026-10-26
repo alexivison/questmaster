@@ -34,6 +34,11 @@ func (s *Server) pullRequests(req Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	statuses, err := state.LoadPullRequestStatuses(store.Root())
+	if err != nil {
+		return nil, err
+	}
+	state.AttachPullRequestStatuses(prs, statuses)
 	return scopedPullRequests(store, payload.SessionID, prs), nil
 }
 

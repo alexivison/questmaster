@@ -384,6 +384,8 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	quests := s.globalQuests()
 	// ponytail: a corrupt PR registry omits revisions but leaves the tracker usable; add an error state if the dock needs recovery controls.
 	prs, _ := state.LivePullRequests(s.store, nil)
+	statuses, _ := state.LoadPullRequestStatuses(s.store.Root())
+	state.AttachPullRequestStatuses(prs, statuses)
 	s.observeTrackerRows(snap.Sessions, observedAt)
 	return s.cacheTracker(TrackerSnapshot{
 		ObservedAt: observedAt,

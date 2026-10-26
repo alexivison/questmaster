@@ -29,6 +29,24 @@ type PullRequest struct {
 	Repo     string               `json:"repo"`
 	Number   int                  `json:"number"`
 	Watchers []PullRequestWatcher `json:"watchers"`
+	Status   *PullRequestStatus   `json:"status,omitempty"`
+}
+
+type PullRequestStatus struct {
+	Title              string `json:"title,omitempty"`
+	URL                string `json:"url,omitempty"`
+	State              string `json:"state,omitempty"`
+	Draft              bool   `json:"draft"`
+	HeadSHA            string `json:"head_sha,omitempty"`
+	UpdatedAt          string `json:"updated_at,omitempty"`
+	Additions          int    `json:"additions"`
+	Deletions          int    `json:"deletions"`
+	Comments           int    `json:"comments"`
+	Review             string `json:"review,omitempty"`
+	CI                 string `json:"ci,omitempty"`
+	FetchedAt          string `json:"fetched_at,omitempty"`
+	InaccessibleReason string `json:"inaccessible_reason,omitempty"`
+	Stale              bool   `json:"stale"`
 }
 
 // ParsePullRequestRef accepts a GitHub-style URL on any host or owner/repo#number.

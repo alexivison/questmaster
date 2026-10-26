@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
@@ -86,10 +87,70 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			statuses, err := state.LoadPullRequestStatuses(store.Root())
+			if err != nil {
+				return err
+			}
+			state.AttachPullRequestStatuses(prs, statuses)
 			return writeJSON(c.OutOrStdout(), prs)
 		},
 	}
 	ls.Flags().BoolVar(&all, "all", false, "list all watched pull requests")
 	cmd.AddCommand(ls)
+	var refreshAll bool
+	refresh := &cobra.Command{
+		Use: "refresh [ref]", Short: "Refresh watched pull-request statuses", Args: cobra.MaximumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			var scope map[string]bool
+			if !refreshAll || sessionFlag != "" {
+				id, err := resolve(c.Context())
+				if err != nil {
+					return err
+				}
+				if !refreshAll {
+					scope = map[string]bool{id: true}
+				}
+			}
+			prs, err := state.LivePullRequests(store, scope)
+			if err != nil {
+				return err
+			}
+			if len(args) > 0 {
+				ref, err := state.ParsePullRequestRef(args[0])
+				if err != nil {
+					return err
+				}
+				filtered := prs[:0]
+				for _, pr := range prs {
+					if pr.Key == ref.Key {
+						filtered = append(filtered, pr)
+					}
+				}
+				prs = filtered
+			}
+			result := prstatus.Result{Hosts: map[string]prstatus.HostResult{}}
+			if len(prs) > 0 {
+				result = prstatus.Fetch(c.Context(), prs, prstatus.GH, time.Now())
+				failed := map[string]bool{}
+				for host, hostResult := range result.Hosts {
+					failed[host] = hostResult.Error != ""
+				}
+				if err := state.SavePullRequestStatuses(store.Root(), result.Statuses, failed); err != nil {
+					return err
+				}
+			}
+			statuses, err := state.LoadPullRequestStatuses(store.Root())
+			if err != nil {
+				return err
+			}
+			state.AttachPullRequestStatuses(prs, statuses)
+			return writeJSON(c.OutOrStdout(), struct {
+				PullRequests []state.PullRequest            `json:"pull_requests"`
+				Hosts        map[string]prstatus.HostResult `json:"hosts"`
+			}{prs, result.Hosts})
+		},
+	}
+	refresh.Flags().BoolVar(&refreshAll, "all", false, "refresh all watched pull requests")
+	cmd.AddCommand(refresh)
 	return cmd
 }

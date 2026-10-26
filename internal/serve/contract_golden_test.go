@@ -218,7 +218,10 @@ func serveContractFixtures() []contractFixture {
 			ID:              json.RawMessage(`"pull-requests-request"`),
 			OK:              boolPtr(true),
 			Topic:           topicPullRequests,
-			Data:            []state.PullRequest{{Key: "github.com/owner/repo#42", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 42, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}}},
+			Data: []state.PullRequest{
+				{Key: "github.com/owner/repo#42", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 42, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}, Status: &state.PullRequestStatus{Title: "Ready to merge", URL: "https://github.com/owner/repo/pull/42", State: "open", HeadSHA: "abc123", UpdatedAt: observedAt.Format(time.RFC3339), Review: "approved", CI: "success", FetchedAt: observedAt.Format(time.RFC3339)}},
+				{Key: "github.com/owner/repo#43", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 43, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}, Status: &state.PullRequestStatus{InaccessibleReason: "saml", FetchedAt: observedAt.Format(time.RFC3339)}},
+			},
 		}},
 		{name: "tracker_event_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
