@@ -304,7 +304,9 @@ the artifact rows' 45pt pitch and a form's fields 10 under the header band and
 
 - **Go:** stdlib `testing` only (no testify), table-driven, `t.Parallel()`,
   `t.Helper()` on helpers. State uses a `t.TempDir()` store; tmux is mocked via a
-  `Runner` func. Goldens live in `testdata/` dirs.
+  `Runner` func. Goldens live in `testdata/` dirs. Tests that resolve the state
+  root must set `QUESTMASTER_STATE_ROOT` to a temporary directory; the resolver
+  rejects the live root in test binaries.
 - **Swift:** Core-only, via a custom runner in
   `app/Tests/QuestmasterLogicTests/main.swift` (no XCTest). Add a pure-Core suite
   by appending `XxxTests.run()` there. The runner also spawns

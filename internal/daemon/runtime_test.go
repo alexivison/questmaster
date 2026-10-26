@@ -127,6 +127,12 @@ func TestIdleCheckRejectsArrivingClientWithoutResuming(t *testing.T) {
 	}
 	listener := s.listener
 	defer func() { listener.Close(); os.Remove(socket) }()
+	// A child between fork and exec still holds a copy despite close-on-exec.
+	inherited, _, err := duplicateListener(listener.(*net.UnixListener))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inherited.Close()
 	s.accept()
 	done := make(chan error, 1)
 	go func() { done <- s.shutdown(true) }()
@@ -153,10 +159,93 @@ func TestIdleCheckRejectsArrivingClientWithoutResuming(t *testing.T) {
 	if s.listener != nil {
 		t.Fatal("rejected client prevented idle exit")
 	}
+	if _, err := os.Lstat(socket); !os.IsNotExist(err) {
+		t.Fatalf("idle exit left a socket path: %v", err)
+	}
 	if conn, err := net.Dial("unix", socket); err == nil {
 		conn.Close()
 		t.Fatal("idle exit left the listener accepting connections")
 	}
+}
+
+func shutdownTestServer(t *testing.T) *server {
+	t.Helper()
+	root := t.TempDir()
+	socket, err := SocketPath(root, "canonical")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	s := &server{config: Config{PollInterval: time.Millisecond}, socket: socket}
+	if err := s.listen(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if s.listener != nil {
+			s.listener.Close()
+		}
+		os.Remove(socket)
+	})
+	return s
+}
+
+func TestShutdownUnlinksSocketBeforeReleasingLock(t *testing.T) {
+	t.Parallel()
+	s := shutdownTestServer(t)
+	lock, err := os.CreateTemp(t.TempDir(), "lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	s.lock = lock
+	if err := s.shutdown(false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(s.socket); !os.IsNotExist(err) {
+		t.Fatalf("shutdown left socket path: %v", err)
+	}
+	contender, err := os.Open(lock.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer contender.Close()
+	if err := syscall.Flock(int(contender.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EWOULDBLOCK {
+		t.Fatalf("lifetime lock released before shutdown completed: %v", err)
+	}
+}
+
+func TestShutdownLeavesReplacedSocket(t *testing.T) {
+	t.Parallel()
+	s := shutdownTestServer(t)
+	if err := os.Remove(s.socket); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := net.Listen("unix", s.socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer foreign.Close()
+	foreignInfo, err := os.Lstat(s.socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.shutdown(false); err != nil {
+		t.Fatal(err)
+	}
+	current, err := os.Lstat(s.socket)
+	if err != nil || !os.SameFile(current, foreignInfo) {
+		t.Fatalf("shutdown removed replacement socket: %v", err)
+	}
+	conn, err := net.Dial("unix", s.socket)
+	if err != nil {
+		t.Fatalf("replacement stopped accepting: %v", err)
+	}
+	conn.Close()
 }
 
 func TestUpgradeQuiesceRejectsClientWithoutCountingIt(t *testing.T) {
@@ -228,6 +317,15 @@ func TestIdleExitRechecksClientsAndWork(t *testing.T) {
 			}
 			if (s.listener != nil) != tc.resume {
 				t.Fatalf("resume = %t, want %t", s.listener != nil, tc.resume)
+			}
+			if tc.name == "work" {
+				if _, err := os.Lstat(socket); err != nil {
+					t.Fatalf("resume removed socket: %v", err)
+				}
+			} else if !tc.resume {
+				if _, err := os.Lstat(socket); !os.IsNotExist(err) {
+					t.Fatalf("exit left socket path: %v", err)
+				}
 			}
 		})
 	}
