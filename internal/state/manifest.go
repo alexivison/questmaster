@@ -115,6 +115,9 @@ func (m *Manifest) UnmarshalJSON(data []byte) error {
 	// patterns. A malformed value is blanked out rather than rejected so
 	// the session remains usable; only the activity indicator goes dark.
 	for i := range m.Agents {
+		if m.Agents[i].Role == "primary" {
+			m.Agents[i].Role = "agent"
+		}
 		m.Agents[i].ResumeID = SanitizeResumeID(m.Agents[i].ResumeID)
 	}
 	for _, key := range []string{"claude_session_id", "codex_thread_id", "pi_session_id", "opencode_session_id"} {

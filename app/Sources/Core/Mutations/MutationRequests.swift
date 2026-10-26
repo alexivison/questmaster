@@ -107,7 +107,7 @@ public enum ServeMutationRequests {
     ) throws -> ServeMutationRequest {
         var data: [String: String] = [
             "cwd": try required("cwd", cwd),
-            "primary": try required("agent", agent),
+            "agent": try required("agent", agent),
         ]
         // An omitted model leaves the harness's role default in place; a value
         // is sent verbatim, listed by the models topic or not.

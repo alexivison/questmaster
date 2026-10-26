@@ -43,10 +43,10 @@ func NewRegistry(cfg *Config) (*Registry, error) {
 		r.agents[name] = constructor(agentCfg)
 	}
 
-	if cfg.Roles.Primary == nil || cfg.Roles.Primary.Agent == "" {
-		return nil, fmt.Errorf("primary role is not configured")
+	if cfg.Roles.Agent == nil || cfg.Roles.Agent.Agent == "" {
+		return nil, fmt.Errorf("agent role is not configured")
 	}
-	if err := r.bindRole(RolePrimary, cfg.Roles.Primary); err != nil {
+	if err := r.bindRole(RoleAgent, cfg.Roles.Agent); err != nil {
 		return nil, err
 	}
 
@@ -86,10 +86,10 @@ func (r *Registry) ForRole(role Role) (*RoleBinding, error) {
 	return binding, nil
 }
 
-// Bindings returns configured role bindings in primary-first order.
+// Bindings returns configured role bindings in agent-first order.
 func (r *Registry) Bindings() []*RoleBinding {
 	out := make([]*RoleBinding, 0, 1)
-	for _, role := range []Role{RolePrimary} {
+	for _, role := range []Role{RoleAgent} {
 		if binding, ok := r.bindings[role]; ok {
 			out = append(out, binding)
 		}

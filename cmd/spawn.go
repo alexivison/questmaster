@@ -62,7 +62,7 @@ it is a master session. A worker title is required and may contain at most
 			if err != nil {
 				return err
 			}
-			resumeIDs, err := opts.agentFlags.ResolveResumeIDs(registry)
+			resumeIDs, err := opts.agentFlags.ResolveResumeIDs(registry, cmd.Flags().Changed("resume-agent"))
 			if err != nil {
 				return err
 			}
@@ -103,10 +103,10 @@ it is a master session. A worker title is required and may contain at most
 	cmd.Flags().StringVar(&opts.cwd, "cwd", "", "working directory (default: master's cwd)")
 	opts.agentFlags.AddFlags(cmd)
 	addDeprecatedLayoutFlag(cmd)
-	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's primary agent")
+	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the worker's agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().StringVar(&opts.model, "model", "", "override the worker model")
-	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override worker reasoning effort (valid levels depend on the primary harness; OpenCode requires 1.17.15+)")
+	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override worker reasoning effort (valid levels depend on the agent harness; OpenCode requires 1.17.15+)")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
 
 	return cmd

@@ -565,7 +565,7 @@ func createMasterAndWorkers(t *testing.T, root, masterID string, workers ...stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: workers}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: workers}); err != nil {
 		t.Fatal(err)
 	}
 	for _, workerID := range workers {

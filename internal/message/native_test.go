@@ -170,7 +170,7 @@ func TestPiReceiptIsUnconfirmedAndNeverRetried(t *testing.T) {
 	store := setupStore(t)
 	id := filepath.Base(runtime)
 	createManifest(t, store, id, "pi", "worker")
-	setPrimaryAgent(t, store, id, "pi")
+	setAgent(t, store, id, "pi")
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
 	got := make(chan string, 1)

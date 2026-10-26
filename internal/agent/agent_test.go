@@ -29,13 +29,13 @@ func TestNewRegistry_DefaultConfig(t *testing.T) {
 	if len(bindings) != 1 {
 		t.Fatalf("Bindings len: got %d, want 1", len(bindings))
 	}
-	if bindings[0].Role != RolePrimary || bindings[0].Agent.Name() != "claude" {
-		t.Fatalf("primary binding: got %s/%s", bindings[0].Role, bindings[0].Agent.Name())
+	if bindings[0].Role != RoleAgent || bindings[0].Agent.Name() != "claude" {
+		t.Fatalf("agent binding: got %s/%s", bindings[0].Role, bindings[0].Agent.Name())
 	}
 }
 
-func TestNewRegistry_CodexPrimaryFromOverride(t *testing.T) {
-	cfg, err := LoadConfig(&ConfigOverrides{Primary: "codex"})
+func TestNewRegistry_CodexAgentFromOverride(t *testing.T) {
+	cfg, err := LoadConfig(&ConfigOverrides{Agent: "codex"})
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
@@ -44,22 +44,22 @@ func TestNewRegistry_CodexPrimaryFromOverride(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 
-	primary, err := registry.ForRole(RolePrimary)
+	agent, err := registry.ForRole(RoleAgent)
 	if err != nil {
-		t.Fatalf("ForRole(primary): %v", err)
+		t.Fatalf("ForRole(agent): %v", err)
 	}
-	if primary.Agent.Name() != "codex" {
-		t.Fatalf("primary agent: got %q, want codex", primary.Agent.Name())
+	if agent.Agent.Name() != "codex" {
+		t.Fatalf("agent: got %q, want codex", agent.Agent.Name())
 	}
 }
 
 func TestLoadConfig_Overrides(t *testing.T) {
-	cfg, err := LoadConfig(&ConfigOverrides{Primary: "codex"})
+	cfg, err := LoadConfig(&ConfigOverrides{Agent: "codex"})
 	if err != nil {
-		t.Fatalf("LoadConfig primary override: %v", err)
+		t.Fatalf("LoadConfig agent override: %v", err)
 	}
-	if got := cfg.Roles.Primary.Agent; got != "codex" {
-		t.Fatalf("primary override: got %q, want codex", got)
+	if got := cfg.Roles.Agent.Agent; got != "codex" {
+		t.Fatalf("agent override: got %q, want codex", got)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestLoadConfig_DefaultConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir ignored config dir: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte("[roles.primary]\nagent = \"codex\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("[roles.agent]\nagent = \"codex\"\n"), 0o644); err != nil {
 		t.Fatalf("write ignored config: %v", err)
 	}
 
@@ -104,12 +104,12 @@ func TestRegistryGetAndForRole(t *testing.T) {
 		t.Fatal("Get(unknown): expected error")
 	}
 
-	primary, err := registry.ForRole(RolePrimary)
+	agent, err := registry.ForRole(RoleAgent)
 	if err != nil {
-		t.Fatalf("ForRole(primary): %v", err)
+		t.Fatalf("ForRole(agent): %v", err)
 	}
-	if primary.Agent.Name() != "claude" {
-		t.Fatalf("ForRole(primary): got %q, want claude", primary.Agent.Name())
+	if agent.Agent.Name() != "claude" {
+		t.Fatalf("ForRole(agent): got %q, want claude", agent.Agent.Name())
 	}
 }
 

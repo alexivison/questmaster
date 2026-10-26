@@ -30,8 +30,8 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 		SessionID: id,
 		Version:   SchemaVersion,
 		Panes: map[string]PaneState{
-			"primary": {
-				Role:      "primary",
+			"agent": {
+				Role:      "agent",
 				Agent:     "claude",
 				State:     "working",
 				Activity:  "Edit foo.go",
@@ -55,8 +55,95 @@ func TestSaveLoadRoundtrip(t *testing.T) {
 	if got.SessionID != id || got.Version != SchemaVersion {
 		t.Errorf("header mismatch: %+v", got)
 	}
-	if got.Panes["primary"].State != "working" || got.Panes["primary"].Activity != "Edit foo.go" {
-		t.Errorf("primary pane mismatch: %+v", got.Panes["primary"])
+	if got.Panes["agent"].State != "working" || got.Panes["agent"].Activity != "Edit foo.go" {
+		t.Errorf("agent pane mismatch: %+v", got.Panes["agent"])
+	}
+}
+
+func TestLoadSessionState_MigratesLegacyAgentPane(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-legacy-state"
+	path := SessionStatePath(root, id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(`{"session_id":"qm-legacy-state","version":1,"panes":{"primary":{"role":"primary","agent":"codex","state":"working"}}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := LoadSessionStateAt(root, id)
+	if err != nil {
+		t.Fatalf("LoadSessionStateAt: %v", err)
+	}
+	if pane, ok := got.Panes["agent"]; !ok || pane.Role != "agent" || pane.Agent != "codex" {
+		t.Fatalf("migrated panes = %+v", got.Panes)
+	}
+	if _, ok := got.Panes["primary"]; ok {
+		t.Fatalf("legacy pane key remains: %+v", got.Panes)
+	}
+
+	if err := UpdateSessionState(id, func(ss *SessionState) bool {
+		ss.Panes["agent"] = PaneState{Role: "agent", Agent: "codex", State: "idle"}
+		return true
+	}); err != nil {
+		t.Fatalf("UpdateSessionState: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), `"primary"`) || !strings.Contains(string(data), `"agent"`) {
+		t.Fatalf("rewritten state = %s", data)
+	}
+}
+
+func TestLoadSessionState_MixedPaneKeysKeepsNewestPane(t *testing.T) {
+	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		agentEvent time.Time
+		oldEvent   time.Time
+		wantAgent  string
+	}{
+		{name: "legacy pane newer", agentEvent: base, oldEvent: base.Add(time.Minute), wantAgent: "claude"},
+		{name: "canonical pane newer", agentEvent: base.Add(time.Minute), oldEvent: base, wantAgent: "codex"},
+		{name: "tie keeps canonical pane", agentEvent: base, oldEvent: base, wantAgent: "codex"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			id := "qm-mixed-state"
+			path := SessionStatePath(root, id)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			data, err := json.Marshal(SessionState{
+				SessionID: id,
+				Version:   SchemaVersion,
+				Panes: map[string]PaneState{
+					"agent":   {Role: "agent", Agent: "codex", State: "idle", LastEvent: tc.agentEvent},
+					"primary": {Role: "primary", Agent: "claude", State: "working", LastEvent: tc.oldEvent},
+				},
+			})
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			got, err := LoadSessionStateAt(root, id)
+			if err != nil {
+				t.Fatalf("LoadSessionStateAt: %v", err)
+			}
+			pane := got.Panes["agent"]
+			if pane.Agent != tc.wantAgent || pane.Role != "agent" {
+				t.Fatalf("agent pane = %+v, want agent %q with agent role", pane, tc.wantAgent)
+			}
+			if _, ok := got.Panes["primary"]; ok {
+				t.Fatalf("legacy pane key remains: %+v", got.Panes)
+			}
+		})
 	}
 }
 
@@ -104,7 +191,7 @@ func TestUpdateLostUpdatePrevention(t *testing.T) {
 		SessionID: id,
 		Version:   SchemaVersion,
 		Panes: map[string]PaneState{
-			"primary": {Role: "primary", State: "done", LastEvent: time.Now().UTC()},
+			"agent": {Role: "agent", State: "done", LastEvent: time.Now().UTC()},
 		},
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -123,14 +210,14 @@ func TestUpdateLostUpdatePrevention(t *testing.T) {
 		err := UpdateSessionState(id, func(ss *SessionState) bool {
 			close(mutateEntered)
 			<-releaseMutate
-			p := ss.Panes["primary"]
+			p := ss.Panes["agent"]
 			if p.State != "done" {
 				// Refuse: hook already moved us past done. This is the
 				// invariant the locked re-read protects.
 				return false
 			}
 			p.State = "idle"
-			ss.Panes["primary"] = p
+			ss.Panes["agent"] = p
 			return true
 		})
 		if err != nil {
@@ -158,10 +245,10 @@ func TestUpdateLostUpdatePrevention(t *testing.T) {
 	// which is what the production hook path will use for partial
 	// updates.
 	if err := UpdateSessionState(id, func(ss *SessionState) bool {
-		p := ss.Panes["primary"]
+		p := ss.Panes["agent"]
 		p.State = "working"
 		p.LastEvent = time.Now().UTC()
-		ss.Panes["primary"] = p
+		ss.Panes["agent"] = p
 		return true
 	}); err != nil {
 		t.Fatalf("hook update: %v", err)
@@ -174,8 +261,8 @@ func TestUpdateLostUpdatePrevention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if got.Panes["primary"].State != "working" {
-		t.Errorf("final state: want working, got %q", got.Panes["primary"].State)
+	if got.Panes["agent"].State != "working" {
+		t.Errorf("final state: want working, got %q", got.Panes["agent"].State)
 	}
 }
 
@@ -187,7 +274,7 @@ func TestUpdateMutateFalseSkipsWrite(t *testing.T) {
 	if err := SaveSessionState(id, &SessionState{
 		SessionID: id,
 		Version:   SchemaVersion,
-		Panes:     map[string]PaneState{"primary": {Role: "primary", State: "working"}},
+		Panes:     map[string]PaneState{"agent": {Role: "agent", State: "working"}},
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -218,7 +305,7 @@ func TestUpdateAndLogBatchWritesEventsAndAppliesMutationOnce(t *testing.T) {
 	mutateCalls := 0
 	err := UpdateAndLogBatch(id, events, func(ss *SessionState) bool {
 		mutateCalls++
-		ss.Panes["primary"] = PaneState{Role: "primary", Agent: "pi", State: "working", Tool: "bash"}
+		ss.Panes["agent"] = PaneState{Role: "agent", Agent: "pi", State: "working", Tool: "bash"}
 		return true
 	})
 	if err != nil {
@@ -248,7 +335,7 @@ func TestUpdateAndLogBatchWritesEventsAndAppliesMutationOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
-	if pane := ss.Panes["primary"]; pane.State != "working" || pane.Tool != "bash" {
+	if pane := ss.Panes["agent"]; pane.State != "working" || pane.Tool != "bash" {
 		t.Fatalf("saved pane = %+v", pane)
 	}
 }
@@ -261,7 +348,7 @@ func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
 	firstDone := make(chan error, 1)
 	go func() {
 		firstDone <- UpdateAndLogWithEventsAt(root, id, &StateEvent{Action: "commentary"}, func(ss *SessionState) bool {
-			ss.Panes["primary"] = PaneState{Role: "primary", LastChatAt: time.Unix(1, 0)}
+			ss.Panes["agent"] = PaneState{Role: "agent", LastChatAt: time.Unix(1, 0)}
 			return true
 		}, func(*StateEvent) []*StateEvent {
 			close(insideExpansion)
@@ -276,9 +363,9 @@ func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
 	go func() {
 		close(stopStarted)
 		stopDone <- UpdateAndLogAt(root, id, &StateEvent{Action: "stop"}, func(ss *SessionState) bool {
-			pane := ss.Panes["primary"]
+			pane := ss.Panes["agent"]
 			pane.State = "done"
-			ss.Panes["primary"] = pane
+			ss.Panes["agent"] = pane
 			return true
 		})
 	}()
@@ -322,7 +409,7 @@ func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
 		t.Fatalf("event order = %v, want commentary, overflow, stop", actions)
 	}
 	ss, err := LoadSessionStateAt(root, id)
-	if err != nil || ss.Panes["primary"].State != "done" || ss.Panes["primary"].LastChatAt.IsZero() {
+	if err != nil || ss.Panes["agent"].State != "done" || ss.Panes["agent"].LastChatAt.IsZero() {
 		t.Fatalf("final state = %#v, err = %v", ss, err)
 	}
 }
@@ -330,7 +417,7 @@ func TestUpdateAndLogWithEventsKeepsExpansionAtomic(t *testing.T) {
 func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
 	root := setStateRoot(t)
 	id := "qm-batch-partial"
-	if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"primary": {Role: "primary", State: "idle"}}}); err != nil {
+	if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"agent": {Role: "agent", State: "idle"}}}); err != nil {
 		t.Fatalf("save initial state: %v", err)
 	}
 	if err := AppendStateEventAt(root, id, StateEvent{Action: "before"}); err != nil {
@@ -348,7 +435,7 @@ func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
 	var writtenBatch []byte
 	var firstRecordEnd int
 	err = updateAndLogBatchAt(root, id, []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}, func(ss *SessionState) bool {
-		ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+		ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 		return true
 	}, func(w io.Writer, data []byte) (int, error) {
 		firstRecordEnd = bytes.IndexByte(data, '\n') + 1
@@ -375,7 +462,7 @@ func TestUpdateAndLogBatchPartialWriteKeepsCompleteRecords(t *testing.T) {
 func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.T) {
 	root := setStateRoot(t)
 	id := "qm-batch-reader"
-	if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"primary": {Role: "primary", State: "idle"}}}); err != nil {
+	if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"agent": {Role: "agent", State: "idle"}}}); err != nil {
 		t.Fatalf("save initial state: %v", err)
 	}
 	statePath := SessionStatePath(root, id)
@@ -387,7 +474,7 @@ func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.
 	var readerErr error
 	events := []*StateEvent{{Action: "agent_start"}, {Action: "tool_execution_start"}}
 	err := updateAndLogBatchAt(root, id, events, func(ss *SessionState) bool {
-		ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+		ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 		return true
 	}, func(w io.Writer, data []byte) (int, error) {
 		written, writeErr := w.Write(data)
@@ -424,7 +511,7 @@ func TestUpdateAndLogBatchConcurrentReaderCursorSurvivesStateFailure(t *testing.
 		t.Fatalf("remove state write blocker: %v", err)
 	}
 	if err := UpdateAndLogBatch(id, []*StateEvent{{Action: "later"}}, func(ss *SessionState) bool {
-		ss.Panes["primary"] = PaneState{Role: "primary", State: "done"}
+		ss.Panes["agent"] = PaneState{Role: "agent", State: "done"}
 		return true
 	}); err != nil {
 		t.Fatalf("append after visible cursor: %v", err)
@@ -450,7 +537,7 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 	logPathFor := func(root string) string { return SessionStateLogPath(root, id) }
 	seed := func(t *testing.T, root string) ([]byte, []byte) {
 		t.Helper()
-		if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"primary": {Role: "primary", State: "idle"}}}); err != nil {
+		if err := SaveSessionState(id, &SessionState{SessionID: id, Version: SchemaVersion, Panes: map[string]PaneState{"agent": {Role: "agent", State: "idle"}}}); err != nil {
 			t.Fatalf("save initial state: %v", err)
 		}
 		current := []byte(strings.Repeat("x", StateJSONLMaxSize-1))
@@ -479,7 +566,7 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 			t.Fatalf("make state write fail: %v", err)
 		}
 		err := UpdateAndLogBatch(id, []*StateEvent{event}, func(ss *SessionState) bool {
-			ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+			ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 			return true
 		})
 		if err == nil || !strings.Contains(err.Error(), "write tmp state") {
@@ -503,7 +590,7 @@ func TestUpdateAndLogBatchRotationFailureAndSuccess(t *testing.T) {
 		root := setStateRoot(t)
 		current, _ := seed(t, root)
 		if err := UpdateAndLogBatch(id, []*StateEvent{event}, func(ss *SessionState) bool {
-			ss.Panes["primary"] = PaneState{Role: "primary", State: "working"}
+			ss.Panes["agent"] = PaneState{Role: "agent", State: "working"}
 			return true
 		}); err != nil {
 			t.Fatalf("update and log batch: %v", err)
@@ -528,7 +615,7 @@ func TestUpdateSessionStatePreservesArtifacts(t *testing.T) {
 	if err := SaveSessionState(id, &SessionState{
 		SessionID: id,
 		Version:   SchemaVersion,
-		Panes:     map[string]PaneState{"primary": {Role: "primary", State: "idle"}},
+		Panes:     map[string]PaneState{"agent": {Role: "agent", State: "idle"}},
 		Artifacts: []Artifact{{
 			Kind:    "html",
 			Path:    "/tmp/plan.html",
@@ -540,10 +627,10 @@ func TestUpdateSessionStatePreservesArtifacts(t *testing.T) {
 	}
 
 	if err := UpdateSessionState(id, func(ss *SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.State = "working"
 		pane.Activity = "Bash: go test ./..."
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("update: %v", err)
@@ -603,7 +690,7 @@ func TestArtifactRefsSurviveStateRewriteWithoutArtifacts(t *testing.T) {
 	if err := SaveSessionState(id, &SessionState{
 		SessionID: id,
 		Version:   SchemaVersion,
-		Panes:     map[string]PaneState{"primary": {Role: "primary", State: "working"}},
+		Panes:     map[string]PaneState{"agent": {Role: "agent", State: "working"}},
 	}); err != nil {
 		t.Fatalf("old hook rewrite: %v", err)
 	}
@@ -906,8 +993,8 @@ func TestMarkSessionObservedFoldsStaleDoneToIdle(t *testing.T) {
 		SessionID: id,
 		Version:   SchemaVersion,
 		Panes: map[string]PaneState{
-			"primary": {
-				Role:         "primary",
+			"agent": {
+				Role:         "agent",
 				State:        "done",
 				LastEvent:    now.Add(-DoneToIdleGrace - time.Second),
 				WorkingSince: now.Add(-time.Minute),
@@ -928,7 +1015,7 @@ func TestMarkSessionObservedFoldsStaleDoneToIdle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	pane := got.Panes["primary"]
+	pane := got.Panes["agent"]
 	if pane.State != "idle" {
 		t.Fatalf("state = %q, want idle", pane.State)
 	}
@@ -948,8 +1035,8 @@ func TestMarkSessionObservedLeavesFreshDoneUnwritten(t *testing.T) {
 		SessionID: id,
 		Version:   SchemaVersion,
 		Panes: map[string]PaneState{
-			"primary": {
-				Role:      "primary",
+			"agent": {
+				Role:      "agent",
 				State:     "done",
 				LastEvent: now.Add(-time.Second),
 			},
@@ -1018,8 +1105,8 @@ func TestConcurrentWritesSerialize(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < writesPer; i++ {
 				err := UpdateSessionState(id, func(ss *SessionState) bool {
-					ss.Panes["primary"] = PaneState{
-						Role:      "primary",
+					ss.Panes["agent"] = PaneState{
+						Role:      "agent",
 						State:     "working",
 						Activity:  "writer",
 						Seq:       int64(g*1000 + i),
@@ -1041,7 +1128,7 @@ func TestConcurrentWritesSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if ss == nil || ss.Panes["primary"].State != "working" {
+	if ss == nil || ss.Panes["agent"].State != "working" {
 		t.Errorf("final state malformed: %+v", ss)
 	}
 }

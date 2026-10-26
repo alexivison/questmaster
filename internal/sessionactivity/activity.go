@@ -33,10 +33,9 @@ type Result struct {
 	RunningTool  *state.RunningTool
 }
 
-// PrimaryKey namespaces a session's primary-pane activity key. Kept for
-// callers that index results by the same legacy key shape.
-func PrimaryKey(sessionID string) string {
-	return sessionID + "\x00primary"
+// AgentKey namespaces a session's agent-pane activity key.
+func AgentKey(sessionID string) string {
+	return sessionID + "\x00agent"
 }
 
 // Evaluate resolves authoritative state for each observation by reading
@@ -85,13 +84,13 @@ func loadResult(sessionID string) Result {
 	return FromState(ss)
 }
 
-// FromState resolves the primary-pane activity from an already-loaded
+// FromState resolves the agent-pane activity from an already-loaded
 // SessionState, applying the same normalization as the per-session read.
 func FromState(ss *state.SessionState) Result {
 	if ss == nil {
 		return Result{State: "unknown"}
 	}
-	p, ok := ss.Panes["primary"]
+	p, ok := ss.Panes["agent"]
 	if !ok {
 		return Result{State: "unknown"}
 	}

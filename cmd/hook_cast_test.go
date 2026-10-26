@@ -153,7 +153,7 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 				return nil
 			}
 			tc.start(t, r, base)
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if pane.Tool != tc.tool || len(pane.RunningTools) != 1 {
 				t.Fatalf("start pane = %+v, want %q running", pane, tc.tool)
 			}
@@ -168,7 +168,7 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			}
 
 			tc.end(t, r, base.Add(4*time.Second))
-			pane = rec.lastState.Panes["primary"]
+			pane = rec.lastState.Panes["agent"]
 			if pane.Tool != "" || len(pane.RunningTools) != 0 {
 				t.Fatalf("end pane = %+v, want no running tool", pane)
 			}
@@ -179,7 +179,7 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 
 			tc.start(t, r, base)
 			tc.clear(t, r, base.Add(time.Second))
-			pane = rec.lastState.Panes["primary"]
+			pane = rec.lastState.Panes["agent"]
 			if pane.Tool != "" || len(pane.RunningTools) != 0 {
 				t.Fatalf("stale clearing left cast = %+v", pane)
 			}
@@ -202,7 +202,7 @@ func TestHookCastExcludesClaudeAndCodexSubagents(t *testing.T) {
 			runHookWithStdin(r, agent, "tool_start", "qm-subagent", map[string]interface{}{
 				"agent_id": "child-1", "tool_name": "Bash", "tool_use_id": "call-1",
 			})
-			if pane := rec.lastState.Panes["primary"]; len(pane.RunningTools) != 0 {
+			if pane := rec.lastState.Panes["agent"]; len(pane.RunningTools) != 0 {
 				t.Fatalf("subagent cast was tracked: %+v", pane.RunningTools)
 			}
 		})
@@ -225,7 +225,7 @@ func TestHookCastLearnsToolNameFromMatchedStart(t *testing.T) {
 	runHookWithStdin(r, "claude", "tool_end", "qm-cast-no-end-name", map[string]interface{}{
 		"tool_use_id": "call-1",
 	})
-	if pane := rec.lastState.Panes["primary"]; len(pane.RunningTools) != 0 {
+	if pane := rec.lastState.Panes["agent"]; len(pane.RunningTools) != 0 {
 		t.Fatalf("tool end left cast: %+v", pane.RunningTools)
 	}
 	if recorded != (toolDurationCall{agent: "claude", tool: "Bash", command: "go test", duration: 3 * time.Second}) {
@@ -325,7 +325,7 @@ func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
 			}
 			tc.start(t, r, base)
 			tc.wait(t, r, base.Add(time.Second))
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if pane.State != "blocked" || len(pane.RunningTools) != 1 || !pane.RunningTools[0].WaitedForInput {
 				t.Fatalf("waiting state = %+v, want blocked with tool marked as user wait", pane)
 			}
@@ -391,7 +391,7 @@ func TestHookCastSkipsAskUserToolDurationsInHarnessOrder(t *testing.T) {
 				r.Now = func() time.Time { return base.Add(event.after) }
 				runHookWithStdin(r, tc.agent, event.action, tc.session, event.data)
 				if event.action == "tool_start" || event.action == "tool_execution_start" {
-					pane := rec.lastState.Panes["primary"]
+					pane := rec.lastState.Panes["agent"]
 					if pane.State != "blocked" || len(pane.RunningTools) != 1 || !pane.RunningTools[0].WaitedForInput {
 						t.Fatalf("tool start pane = %+v, want blocked tool marked as user wait", pane)
 					}

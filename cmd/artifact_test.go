@@ -62,7 +62,7 @@ func TestArtifactAddListRemove(t *testing.T) {
 	if err := state.SaveSessionState("qm-artifacts", &state.SessionState{
 		SessionID: "qm-artifacts",
 		Version:   state.SchemaVersion,
-		Panes:     map[string]state.PaneState{"primary": {Role: "primary", State: "working"}},
+		Panes:     map[string]state.PaneState{"agent": {Role: "agent", State: "working"}},
 	}); err != nil {
 		t.Fatalf("simulate old hook rewrite: %v", err)
 	}

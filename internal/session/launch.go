@@ -45,8 +45,8 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		}
 	}
 
-	if provider, ok := lc.agents[agent.RolePrimary]; ok {
-		if _, hasCmd := lc.agentCmds[agent.RolePrimary]; hasCmd {
+	if provider, ok := lc.agents[agent.RoleAgent]; ok {
+		if _, hasCmd := lc.agentCmds[agent.RoleAgent]; hasCmd {
 			if err := provider.PreLaunchSetup(ctx, s.Client, lc.sessionID); err != nil {
 				return err
 			}
@@ -77,8 +77,8 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return s.setCleanupHook(ctx, lc.sessionID)
 	}
 
-	if lc.agentCmds[agent.RolePrimary] == "" {
-		return fmt.Errorf("primary agent command not configured")
+	if lc.agentCmds[agent.RoleAgent] == "" {
+		return fmt.Errorf("agent command not configured")
 	}
 	if err := s.persistResumeIDs(lc.runtimeDir, lc.agentResume); err != nil {
 		return err

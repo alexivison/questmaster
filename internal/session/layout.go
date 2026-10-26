@@ -15,12 +15,12 @@ func setPaneOption(target, key, value string) []string {
 }
 
 // setRemainOnExit marks a pane to stay open after its command exits, so the
-// primary pane survives an agent crash and can be respawned by Continue.
+// agent pane survives an agent crash and can be respawned by Continue.
 func (s *Service) setRemainOnExit(ctx context.Context, target string) error {
 	return s.Client.SetPaneOption(ctx, target, tmux.PaneRemainOnExit, "on")
 }
 
-// launchAppWorkspace sets up the session layout: a single primary pane.
+// launchAppWorkspace sets up the session layout: a single agent pane.
 func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd string, isMaster, isWorker bool, cmds map[agent.Role]string) error {
 	label := "session"
 	if isMaster {
@@ -28,29 +28,29 @@ func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd string, i
 	} else if isWorker {
 		label = "worker"
 	}
-	primaryCmd := cmds[agent.RolePrimary]
-	if primaryCmd == "" {
-		return fmt.Errorf("%s primary pane: primary agent command not configured", label)
+	agentCmd := cmds[agent.RoleAgent]
+	if agentCmd == "" {
+		return fmt.Errorf("%s agent pane: command not configured", label)
 	}
 
 	workspaceWindow := tmux.WindowTarget(session, tmux.WindowWorkspace)
-	primaryPane := tmux.PaneTarget(session, tmux.WindowWorkspace, 0)
+	agentPane := tmux.PaneTarget(session, tmux.WindowWorkspace, 0)
 
-	if err := s.setRemainOnExit(ctx, primaryPane); err != nil {
+	if err := s.setRemainOnExit(ctx, agentPane); err != nil {
 		return err
 	}
 
 	if _, err := s.Client.RunBatch(ctx,
-		setPaneOption(primaryPane, tmux.PaneRoleOption, tmux.RolePrimary),
+		setPaneOption(agentPane, tmux.PaneRoleOption, tmux.RoleAgent),
 		[]string{"set-option", "-w", "-t", workspaceWindow, tmux.PaneBorderStatusOption, tmux.PaneBorderStatusTop},
 		[]string{"select-window", "-t", workspaceWindow},
-		[]string{"select-pane", "-t", primaryPane},
+		[]string{"select-pane", "-t", agentPane},
 	); err != nil {
 		return fmt.Errorf("%s workspace options batch: %w", label, err)
 	}
 
-	if err := s.Client.RespawnPane(ctx, primaryPane, cwd, primaryCmd); err != nil {
-		return fmt.Errorf("%s primary pane: %w", label, err)
+	if err := s.Client.RespawnPane(ctx, agentPane, cwd, agentCmd); err != nil {
+		return fmt.Errorf("%s agent pane: %w", label, err)
 	}
 
 	return nil

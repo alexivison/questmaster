@@ -131,7 +131,7 @@ func TestSnapshotterTrackerSessionChangeProjectsArtifacts(t *testing.T) {
 	if err := state.SaveSessionState("qm-demo", &state.SessionState{
 		SessionID: "qm-demo",
 		Version:   state.SchemaVersion,
-		Panes:     map[string]state.PaneState{"primary": {Role: "primary", State: "working"}},
+		Panes:     map[string]state.PaneState{"agent": {Role: "agent", State: "working"}},
 	}); err != nil {
 		t.Fatalf("old hook rewrite: %v", err)
 	}
@@ -323,9 +323,9 @@ func TestSnapshotterSessionChangeRefreshesArtifactsFromRegistry(t *testing.T) {
 		t.Fatalf("upsert artifact: %v", err)
 	}
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.Activity = "UserPromptSubmit"
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("message state update: %v", err)
@@ -464,11 +464,11 @@ func TestSnapshotterTrackerIncrementalSessionChangeReusesCachedSnapshot(t *testi
 		return tracker.TrackerSnapshot{
 			ObservedAt: env.now,
 			Sessions: []tracker.SessionRow{{
-				ID:           "qm-demo",
-				Title:        "Serve runtime JSON",
-				Status:       "active",
-				SessionType:  "master",
-				PrimaryAgent: "codex",
+				ID:          "qm-demo",
+				Title:       "Serve runtime JSON",
+				Status:      "active",
+				SessionType: "master",
+				Agent:       "codex",
 			}},
 		}, nil
 	}
@@ -503,8 +503,8 @@ func TestSnapshotterManifestChangeRefreshesAgentAndRepo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initial Tracker: %v", err)
 	}
-	if initial.Sessions[0].PrimaryAgent != "" {
-		t.Fatalf("initial primary_agent = %q, want empty shell row", initial.Sessions[0].PrimaryAgent)
+	if initial.Sessions[0].Agent != "" {
+		t.Fatalf("initial agent = %q, want empty shell row", initial.Sessions[0].Agent)
 	}
 
 	repoRoot := filepath.Join(t.TempDir(), "adopted")
@@ -513,7 +513,7 @@ func TestSnapshotterManifestChangeRefreshesAgentAndRepo(t *testing.T) {
 	}
 	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
 		m.Cwd = repoRoot
-		m.Agents = []state.AgentManifest{{Name: "claude", Role: "primary", CLI: "claude"}}
+		m.Agents = []state.AgentManifest{{Name: "claude", Role: "agent", CLI: "claude"}}
 	}); err != nil {
 		t.Fatalf("adopt manifest: %v", err)
 	}
@@ -528,8 +528,8 @@ func TestSnapshotterManifestChangeRefreshesAgentAndRepo(t *testing.T) {
 		t.Fatalf("manifest-change Tracker: %v", err)
 	}
 	row := got.Sessions[0]
-	if row.PrimaryAgent != "claude" {
-		t.Fatalf("primary_agent = %q, want claude", row.PrimaryAgent)
+	if row.Agent != "claude" {
+		t.Fatalf("agent = %q, want claude", row.Agent)
 	}
 	if row.WorktreePath != repoRoot || row.Repo.Name != "adopted" || row.Repo.Identity == "" {
 		t.Fatalf("row repo/worktree = %#v, want adopted repo at %s", row, repoRoot)
@@ -583,7 +583,7 @@ func TestSnapshotterTrackerBroadRepoColorChangeCoalescedWithSessionRefreshes(t *
 				Status:       "active",
 				State:        "working",
 				SessionType:  "master",
-				PrimaryAgent: "codex",
+				Agent:        "codex",
 				RepoColor:    color,
 				DisplayColor: color,
 			}},
@@ -619,13 +619,13 @@ func TestSnapshotterClockReconcilesDoneToIdle(t *testing.T) {
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
 
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.State = "done"
 		pane.Activity = "Finished"
 		pane.LastKind = "Stop"
 		pane.LastEvent = now.Add(-state.DoneToIdleGrace + time.Second)
 		pane.WorkingSince = time.Time{}
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("write done state: %v", err)
@@ -648,12 +648,12 @@ func TestSnapshotterClockLoadsTypicalWhenDoneRowFindsRunningTool(t *testing.T) {
 	env := seedServeFixture(t)
 	now := env.now
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.State = "done"
 		pane.Activity = "Finished"
 		pane.LastKind = "Stop"
 		pane.LastEvent = now.Add(-time.Second)
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("seed done state: %v", err)
@@ -666,7 +666,7 @@ func TestSnapshotterClockLoadsTypicalWhenDoneRowFindsRunningTool(t *testing.T) {
 	snap := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return now })
 	snap.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
 		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{
-			ID: "qm-demo", Status: "active", State: "done", PrimaryAgent: "codex",
+			ID: "qm-demo", Status: "active", State: "done", Agent: "codex",
 		}}}, nil
 	}
 	if _, err := snap.TrackerForChange(Change{}); err != nil {
@@ -674,18 +674,18 @@ func TestSnapshotterClockLoadsTypicalWhenDoneRowFindsRunningTool(t *testing.T) {
 	}
 	startedAt := now
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.State = "working"
 		pane.LastEvent = startedAt
 		pane.RunningTools = []state.RunningTool{{CallID: "call-1", Tool: "Bash", Command: "go test", StartedAt: startedAt}}
 		pane.Tool = "Bash"
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("seed running tool: %v", err)
 	}
 	stored, err := state.LoadSessionStateAt(env.store.Root(), "qm-demo")
-	if err != nil || stored.Panes["primary"].State != "working" {
+	if err != nil || stored.Panes["agent"].State != "working" {
 		t.Fatalf("stored running state = %+v, err %v", stored, err)
 	}
 	now = now.Add(time.Second)
@@ -876,7 +876,7 @@ func TestFileChangeSourceBurstFlushesAtMaxWait(t *testing.T) {
 		SessionID:   sessionID,
 		Title:       "Burst debounce",
 		SessionType: "master",
-		Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:      []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -999,11 +999,11 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 					"master_id": "qm-master",
 					"title":     "worker title",
 					"cwd":       "/tmp/worker",
-					"primary":   "codex",
+					"agent":     "codex",
 					"prompt":    "work this",
 				},
 			},
-			wantArgs:  []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--prompt-file", "-", "--", "qm-master", "worker title"},
+			wantArgs:  []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--agent", "codex", "--prompt-file", "-", "--", "qm-master", "worker title"},
 			wantStdin: "work this",
 		},
 		{
@@ -1012,14 +1012,14 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"id":     "start",
 				"method": "start",
 				"data": map[string]any{
-					"title":   "session title",
-					"cwd":     "/tmp/project",
-					"primary": "codex",
-					"color":   "violet",
-					"prompt":  "start this",
+					"title":  "session title",
+					"cwd":    "/tmp/project",
+					"agent":  "codex",
+					"color":  "violet",
+					"prompt": "start this",
 				},
 			},
-			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "codex", "--color", "violet", "--prompt-file", "-", "--", "session title"},
+			wantArgs:  []string{"start", "--from-app", "--cwd", "/tmp/project", "--agent", "codex", "--color", "violet", "--prompt-file", "-", "--", "session title"},
 			wantStdin: "start this",
 		},
 		{
@@ -1043,12 +1043,12 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"id":     "start-model",
 				"method": "start",
 				"data": map[string]any{
-					"cwd":     "/tmp/project",
-					"primary": "claude",
-					"model":   "claude-opus-9-unreleased",
+					"cwd":   "/tmp/project",
+					"agent": "claude",
+					"model": "claude-opus-9-unreleased",
 				},
 			},
-			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "claude", "--model", "claude-opus-9-unreleased"},
+			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--agent", "claude", "--model", "claude-opus-9-unreleased"},
 		},
 		{
 			name: "start shell ignores a model",
@@ -1071,11 +1071,11 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"data": map[string]any{
 					"master_id": "qm-master",
 					"cwd":       "/tmp/worker",
-					"primary":   "codex",
+					"agent":     "codex",
 					"model":     "gpt-5.6-sol",
 				},
 			},
-			wantArgs: []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--model", "gpt-5.6-sol", "--", "qm-master"},
+			wantArgs: []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--agent", "codex", "--model", "gpt-5.6-sol", "--", "qm-master"},
 		},
 		{
 			name: "start with reasoning effort override",
@@ -1084,11 +1084,11 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"method": "start",
 				"data": map[string]any{
 					"cwd":              "/tmp/project",
-					"primary":          "claude",
+					"agent":            "claude",
 					"reasoning_effort": "max",
 				},
 			},
-			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--primary", "claude", "--reasoning-effort", "max"},
+			wantArgs: []string{"start", "--from-app", "--cwd", "/tmp/project", "--agent", "claude", "--reasoning-effort", "max"},
 		},
 		{
 			name: "start shell ignores a reasoning effort",
@@ -1111,11 +1111,11 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 				"data": map[string]any{
 					"master_id":        "qm-master",
 					"cwd":              "/tmp/worker",
-					"primary":          "codex",
+					"agent":            "codex",
 					"reasoning_effort": "high",
 				},
 			},
-			wantArgs: []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--primary", "codex", "--reasoning-effort", "high", "--", "qm-master"},
+			wantArgs: []string{"spawn", "--from-app", "--cwd", "/tmp/worker", "--agent", "codex", "--reasoning-effort", "high", "--", "qm-master"},
 		},
 	}
 	for _, tc := range tests {
@@ -1138,6 +1138,25 @@ func TestServerSessionMutationEndpointsReexecQM(t *testing.T) {
 	cancel()
 	if err := <-errc; err != nil {
 		t.Fatalf("server returned error: %v", err)
+	}
+}
+
+func TestSessionMutationsRejectLegacyAgentField(t *testing.T) {
+	for _, method := range []string{"start", "spawn"} {
+		t.Run(method, func(t *testing.T) {
+			runner := &recordingMutationRunner{}
+			srv := &Server{MutationRunner: runner}
+			_, err := srv.mutate(context.Background(), Request{
+				Method: method,
+				Data:   json.RawMessage(`{"primary":"codex"}`),
+			})
+			if err == nil || !strings.Contains(err.Error(), `unsupported field "primary"`) {
+				t.Fatalf("mutate error = %v, want unsupported field error", err)
+			}
+			if commands := runner.Commands(); len(commands) != 0 {
+				t.Fatalf("commands = %#v, want none", commands)
+			}
+		})
 	}
 }
 
@@ -1426,7 +1445,7 @@ func TestServerModelsTopicServesSuggestionsForOneAgent(t *testing.T) {
 	if err := env.store.Create(state.Manifest{
 		SessionID: "qm-recent-claude",
 		Cwd:       t.TempDir(),
-		Agents:    []state.AgentManifest{{Name: "claude", Role: "primary", Model: "claude-opus-9-unreleased"}},
+		Agents:    []state.AgentManifest{{Name: "claude", Role: "agent", Model: "claude-opus-9-unreleased"}},
 	}); err != nil {
 		t.Fatalf("seed recent model: %v", err)
 	}
@@ -2218,7 +2237,7 @@ func seedServeFixture(t *testing.T) serveFixture {
 		Title:       "Serve runtime JSON",
 		Cwd:         worktree,
 		SessionType: "master",
-		Agents:      []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:      []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}
 	if err := store.Create(m); err != nil {
 		t.Fatalf("create manifest: %v", err)
@@ -2229,8 +2248,8 @@ func seedServeFixture(t *testing.T) serveFixture {
 		SessionID: "qm-demo",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {
-				Role:         "primary",
+			"agent": {
+				Role:         "agent",
 				Agent:        "codex",
 				State:        "working",
 				Activity:     "Bash: go test ./...",
@@ -2259,9 +2278,9 @@ func TestSnapshotterTrackerSessionChangeIncludesLastChatAt(t *testing.T) {
 	}
 	chatAt := env.now.Add(-time.Second)
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.LastChatAt = chatAt
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("update chat timestamp: %v", err)
@@ -2279,11 +2298,11 @@ func TestSnapshotterTrackerIncludesNarrationCastAndTypicalDuration(t *testing.T)
 	env := seedServeFixture(t)
 	startedAt := env.now.Add(-time.Second)
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.Narration = "It seems that something is still running."
 		pane.RunningTools = []state.RunningTool{{CallID: "call-1", Tool: "Bash", Command: "go test", StartedAt: startedAt}}
 		pane.Tool = "Bash"
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("update cast state: %v", err)
@@ -2311,7 +2330,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 	env := seedServeFixture(t)
 	lastChatAt := env.now.Add(-time.Minute)
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.State = "working"
 		pane.Activity = "stale state activity"
 		pane.LastKind = "PreToolUse"
@@ -2320,7 +2339,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 		pane.LastChatAt = lastChatAt
 		pane.Narration = "latest narration"
 		pane.RunningTools = []state.RunningTool{{Tool: "Bash", StartedAt: env.now.Add(-time.Minute)}}
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("seed stopped session state: %v", err)
@@ -2347,7 +2366,7 @@ func TestStoppedTrackerRowsCopyOnlyNarrationFromSessionState(t *testing.T) {
 
 	incremental := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
 	incremental.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
-		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{ID: "qm-demo", Status: "active", PrimaryAgent: "codex"}}}, nil
+		return tracker.TrackerSnapshot{ObservedAt: env.now, Sessions: []tracker.SessionRow{{ID: "qm-demo", Status: "active", Agent: "codex"}}}, nil
 	}
 	if _, err := incremental.TrackerForChange(Change{}); err != nil {
 		t.Fatalf("initial active snapshot: %v", err)
@@ -2447,8 +2466,8 @@ func writeWatchTestSessionState(root, sessionID, activity string) error {
 		Version:   state.SchemaVersion,
 		SeenAt:    now,
 		Panes: map[string]state.PaneState{
-			"primary": {
-				Role:      "primary",
+			"agent": {
+				Role:      "agent",
 				Agent:     "codex",
 				State:     "blocked",
 				Activity:  activity,
@@ -2623,13 +2642,13 @@ func dialServe(t *testing.T, socketPath string) (net.Conn, *json.Encoder, *json.
 func updateSessionActivity(t *testing.T, now time.Time) {
 	t.Helper()
 	if err := state.UpdateSessionState("qm-demo", func(ss *state.SessionState) bool {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		pane.State = "blocked"
 		pane.Activity = "Question: approve?"
 		pane.LastKind = "Notification"
 		pane.LastEvent = now.Add(-time.Minute)
 		pane.WorkingSince = time.Time{}
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	}); err != nil {
 		t.Fatalf("update session activity: %v", err)

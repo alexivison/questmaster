@@ -59,7 +59,7 @@ func createManifest(t *testing.T, store *state.Store, id, title, sessionType str
 		Cwd:         "/tmp",
 		SessionType: sessionType,
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: primaryRole, CLI: "/usr/bin/claude", Window: 1},
+			{Name: "claude", Role: agentRole, CLI: "/usr/bin/claude", Window: 1},
 		},
 	}
 	if err := store.Create(m); err != nil {
@@ -74,12 +74,12 @@ func createPlainManifest(t *testing.T, store *state.Store, id, title string) {
 	}
 }
 
-func setPrimaryAgent(t *testing.T, store *state.Store, id, name string) {
+func setAgent(t *testing.T, store *state.Store, id, name string) {
 	t.Helper()
 	if err := store.Update(id, func(m *state.Manifest) {
-		m.Agents = []state.AgentManifest{{Name: name, Role: "primary", CLI: "/usr/bin/" + name, Window: 1}}
+		m.Agents = []state.AgentManifest{{Name: name, Role: "agent", CLI: "/usr/bin/" + name, Window: 1}}
 	}); err != nil {
-		t.Fatalf("set primary agent for %s: %v", id, err)
+		t.Fatalf("set agent for %s: %v", id, err)
 	}
 }
 
@@ -106,8 +106,8 @@ func writePiActivityState(t *testing.T, sessionID string, fixture piActivityFixt
 		Version:   state.SchemaVersion,
 		SeenAt:    fixture.LastEvent,
 		Panes: map[string]state.PaneState{
-			primaryRole: {
-				Role:        primaryRole,
+			agentRole: {
+				Role:        agentRole,
 				Agent:       "pi",
 				State:       fixture.State,
 				Activity:    fixture.Activity,
@@ -137,8 +137,8 @@ func writeOpenCodePaneState(t *testing.T, sessionID, paneState string, recent []
 		Version:   state.SchemaVersion,
 		SeenAt:    now,
 		Panes: map[string]state.PaneState{
-			primaryRole: {
-				Role:              primaryRole,
+			agentRole: {
+				Role:              agentRole,
 				Agent:             "opencode",
 				State:             paneState,
 				Activity:          activity,
@@ -153,7 +153,7 @@ func writeOpenCodePaneState(t *testing.T, sessionID, paneState string, recent []
 	}
 }
 
-func writePrimaryPaneState(t *testing.T, sessionID, paneState string) {
+func writeAgentPaneState(t *testing.T, sessionID, paneState string) {
 	t.Helper()
 	now := time.Now().UTC()
 	removePiActivityState(t, sessionID)
@@ -162,8 +162,8 @@ func writePrimaryPaneState(t *testing.T, sessionID, paneState string) {
 		Version:   state.SchemaVersion,
 		SeenAt:    now,
 		Panes: map[string]state.PaneState{
-			primaryRole: {
-				Role:      primaryRole,
+			agentRole: {
+				Role:      agentRole,
 				Agent:     "codex",
 				State:     paneState,
 				Activity:  paneState,
@@ -200,7 +200,7 @@ func createWorkerManifest(t *testing.T, store *state.Store, id, parentID string)
 		SessionID: id,
 		Cwd:       "/tmp",
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: primaryRole, CLI: "/usr/bin/claude", Window: 1},
+			{Name: "claude", Role: agentRole, CLI: "/usr/bin/claude", Window: 1},
 		},
 		Extra: map[string]json.RawMessage{
 			"parent_session": json.RawMessage(`"` + parentID + `"`),
@@ -262,7 +262,7 @@ func idleAndSendRunner(sent *[]string) *mockRunner {
 			return "", nil // session exists
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 primary", nil
+			return "1 0 agent", nil
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -473,7 +473,7 @@ func TestRelayFrom_LogsInstructionsFromParentMaster(t *testing.T) {
 			if err != nil || ss == nil {
 				t.Fatalf("load worker state = %v, %v", ss, err)
 			}
-			if got := ss.Panes[primaryRole].LastChatAt; !got.Equal(page.Entries[0].Timestamp) {
+			if got := ss.Panes[agentRole].LastChatAt; !got.Equal(page.Entries[0].Timestamp) {
 				t.Fatalf("LastChatAt = %s, want entry timestamp %s", got, page.Entries[0].Timestamp)
 			}
 		})
@@ -521,7 +521,7 @@ func TestRelay_OpenCodeRequiresIdleHookState(t *testing.T) {
 	store := setupStore(t)
 	sessionID := "qm-opencode-relay-busy"
 	createManifest(t, store, sessionID, "opencode worker", "worker")
-	setPrimaryAgent(t, store, sessionID, "opencode")
+	setAgent(t, store, sessionID, "opencode")
 	writeOpenCodePaneState(t, sessionID, "working", nil, "Tool: bash")
 
 	var sent []string
@@ -540,7 +540,7 @@ func TestRelay_OpenCodeAllowsIdleHookState(t *testing.T) {
 	store := setupStore(t)
 	sessionID := "qm-opencode-relay-idle"
 	createManifest(t, store, sessionID, "opencode worker", "worker")
-	setPrimaryAgent(t, store, sessionID, "opencode")
+	setAgent(t, store, sessionID, "opencode")
 	writeOpenCodePaneState(t, sessionID, "idle", nil, "")
 
 	var sent []string
@@ -558,7 +558,7 @@ func TestRelay_OpenCodeAllowsFreshDoneHookState(t *testing.T) {
 	store := setupStore(t)
 	sessionID := "qm-opencode-relay-done"
 	createManifest(t, store, sessionID, "opencode worker", "worker")
-	setPrimaryAgent(t, store, sessionID, "opencode")
+	setAgent(t, store, sessionID, "opencode")
 	writeOpenCodePaneState(t, sessionID, "done", nil, "")
 
 	var sent []string
@@ -682,14 +682,14 @@ func TestRelay_NoPaneFound(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 codex", nil // no primary or claude role
+			return "1 0 codex", nil // no agent or claude role
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
 	svc := newService(store, runner)
 	err := svc.Relay(t.Context(), "qm-w1", "hello")
 	if err == nil {
-		t.Fatal("expected error when no primary pane found")
+		t.Fatal("expected error when no agent pane found")
 	}
 }
 
@@ -875,7 +875,7 @@ func TestBroadcastFrom_SkipsDeadWorkers(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 primary", nil
+			return "1 0 agent", nil
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -929,7 +929,7 @@ func TestBroadcastFrom_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 		case len(args) >= 1 && args[0] == "has-session":
 			return "", nil // worker is alive
 		case len(args) >= 1 && args[0] == "list-panes":
-			return "1 0 primary", nil // primary pane resolves
+			return "1 0 agent", nil // agent pane resolves
 		case len(args) >= 1 && args[0] == "display-message":
 			return "0", nil // pane idle
 		case len(args) >= 1 && args[0] == "send-keys":
@@ -952,7 +952,7 @@ func TestBroadcastFrom_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 	}
 }
 
-// Regression: a live worker whose primary pane cannot be resolved must surface an
+// Regression: a live worker whose agent pane cannot be resolved must surface an
 // error. Previously ResolveRole failures were silently `continue`d.
 func TestBroadcastFrom_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
 	t.Parallel()
@@ -965,7 +965,7 @@ func TestBroadcastFrom_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
 		case len(args) >= 1 && args[0] == "has-session":
 			return "", nil // worker is alive
 		case len(args) >= 1 && args[0] == "list-panes":
-			return "1 0 shell", nil // no primary pane → ResolveRole fails
+			return "1 0 shell", nil // no agent pane → ResolveRole fails
 		}
 		return "", &tmux.ExitError{Code: 1}
 	}}
@@ -976,7 +976,7 @@ func TestBroadcastFrom_LiveWorkerResolveFailureIsSurfaced(t *testing.T) {
 		t.Fatalf("expected 0 delivered when pane resolution fails, got %d", result.Delivered)
 	}
 	if err == nil {
-		t.Fatal("broadcast to a live worker whose primary pane cannot be resolved must surface an error")
+		t.Fatal("broadcast to a live worker whose agent pane cannot be resolved must surface an error")
 	}
 }
 
@@ -994,7 +994,7 @@ func TestRead_Success(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 primary", nil
+			return "1 0 agent", nil
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			return "⏺ Bash(npx openspec new 2>&1)\n⎿ Error: Exit code 1\n   npm error could not determine executable\n\nsome noise\n⏺ Edited file.go\n⎿ Done\n❯ done", nil
@@ -1016,14 +1016,14 @@ func TestRead_CodexWorkerUsesWizardFilter(t *testing.T) {
 	t.Parallel()
 	store := setupStore(t)
 	createManifest(t, store, "qm-w1", "worker1", "")
-	setPrimaryAgent(t, store, "qm-w1", "codex")
+	setAgent(t, store, "qm-w1", "codex")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 primary", nil
+			return "1 0 agent", nil
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			return "• I shall inspect the file.\n⏺ Ran rg foo\n⎿ found it\n", nil
@@ -1080,7 +1080,7 @@ func TestRead_PiUsesActivitySidecarWithoutCapture(t *testing.T) {
 	store := setupStore(t)
 	sessionID := "qm-pi-read-sidecar"
 	createManifest(t, store, sessionID, "pi worker", "")
-	setPrimaryAgent(t, store, sessionID, "pi")
+	setAgent(t, store, sessionID, "pi")
 	writePiActivityState(t, sessionID, piActivityFixture{
 		State:     "working",
 		LastEvent: time.Now().Add(-time.Hour), // stale is still usable for read output
@@ -1113,7 +1113,7 @@ func TestRead_OpenCodeUsesHookActivityWithoutCapture(t *testing.T) {
 	store := setupStore(t)
 	sessionID := "qm-opencode-read-hook"
 	createManifest(t, store, sessionID, "opencode worker", "")
-	setPrimaryAgent(t, store, sessionID, "opencode")
+	setAgent(t, store, sessionID, "opencode")
 	writeOpenCodeActivityState(t, sessionID, []string{"alpha", "beta", "gamma"}, "fallback")
 
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
@@ -1140,7 +1140,7 @@ func TestRead_PiFallsBackToRawCaptureWhenSidecarMissing(t *testing.T) {
 	store := setupStore(t)
 	sessionID := "qm-pi-read-raw"
 	createManifest(t, store, sessionID, "pi worker", "")
-	setPrimaryAgent(t, store, sessionID, "pi")
+	setAgent(t, store, sessionID, "pi")
 	removePiActivitySidecar(t, sessionID)
 
 	var captureArgs []string
@@ -1149,7 +1149,7 @@ func TestRead_PiFallsBackToRawCaptureWhenSidecarMissing(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 primary", nil
+			return "1 0 agent", nil
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			captureArgs = args
@@ -1206,14 +1206,14 @@ func TestRead_NonPiFilteringUnchanged(t *testing.T) {
 			store := setupStore(t)
 			sessionID := "qm-read-filter-" + tc.name
 			createManifest(t, store, sessionID, tc.name+" worker", "")
-			setPrimaryAgent(t, store, sessionID, tc.agent)
+			setAgent(t, store, sessionID, tc.agent)
 
 			runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 				if len(args) >= 1 && args[0] == "has-session" {
 					return "", nil
 				}
 				if len(args) >= 1 && args[0] == "list-panes" {
-					return "1 0 primary", nil
+					return "1 0 agent", nil
 				}
 				if len(args) >= 1 && args[0] == "capture-pane" {
 					return tc.raw, nil
@@ -1243,7 +1243,7 @@ func TestRead_CustomLineCount(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "list-panes" {
-			return "1 0 primary", nil
+			return "1 0 agent", nil
 		}
 		if len(args) >= 1 && args[0] == "capture-pane" {
 			captureArgs = args
@@ -1344,7 +1344,7 @@ func TestReport_LogsCappedFeedEntry(t *testing.T) {
 			if err != nil || ss == nil {
 				t.Fatalf("load report state = %v, %v", ss, err)
 			}
-			if got := ss.Panes["primary"].LastChatAt; !got.Equal(event.Ts) {
+			if got := ss.Panes["agent"].LastChatAt; !got.Equal(event.Ts) {
 				t.Fatalf("report LastChatAt = %s, want event timestamp %s", got, event.Ts)
 			}
 		})
@@ -1604,9 +1604,9 @@ func TestWorkers_UsesHookDerivedPaneState(t *testing.T) {
 	createWorkerManifest(t, store, "qm-status-hookless", "qm-status-master")
 	createWorkerManifest(t, store, "qm-status-dead", "qm-status-master")
 
-	writePrimaryPaneState(t, "qm-status-working", "working")
-	writePrimaryPaneState(t, "qm-status-idle", "idle")
-	writePrimaryPaneState(t, "qm-status-dead", "working")
+	writeAgentPaneState(t, "qm-status-working", "working")
+	writeAgentPaneState(t, "qm-status-idle", "idle")
+	writeAgentPaneState(t, "qm-status-dead", "working")
 
 	live := map[string]bool{
 		"qm-status-working":  true,

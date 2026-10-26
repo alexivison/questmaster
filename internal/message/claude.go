@@ -48,7 +48,7 @@ type claudeMessageFrame struct {
 }
 
 func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.Manifest, target, message string) error {
-	switch primaryAgentName(m) {
+	switch manifestAgentName(m) {
 	case "claude":
 		if restricted, err := claudeInboundRestricted(m.Cwd); err != nil {
 			return fmt.Errorf("%w: %v", errNativeUnavailable, err)

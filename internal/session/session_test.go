@@ -283,7 +283,7 @@ func setupService(t *testing.T) (*Service, *mockRunner) {
 			"codex":  {CLI: "/bin/sh"},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "claude", Window: -1},
+			Agent: &agent.RoleConfig{Agent: "claude", Window: -1},
 		},
 	})
 	if err != nil {
@@ -294,9 +294,9 @@ func setupService(t *testing.T) (*Service, *mockRunner) {
 	return svc, runner
 }
 
-func launchCmds(primary string) map[agent.Role]string {
+func launchCmds(command string) map[agent.Role]string {
 	return map[agent.Role]string{
-		agent.RolePrimary: primary,
+		agent.RoleAgent: command,
 	}
 }
 
@@ -320,7 +320,7 @@ func createTestManifest(t *testing.T, store *state.Store, id, title, cwd, sessio
 		SessionType: sessionType,
 		AgentPath:   "/usr/bin",
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1},
+			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", Window: 1},
 		},
 	}
 	if err := store.Create(m); err != nil {
@@ -363,8 +363,8 @@ func writePiResumeState(t *testing.T, store *state.Store, sessionID, resumeID st
 		Version:   state.SchemaVersion,
 		SeenAt:    lastEvent,
 		Panes: map[string]state.PaneState{
-			"primary": {
-				Role:        "primary",
+			"agent": {
+				Role:        "agent",
 				Agent:       "pi",
 				State:       "idle",
 				LastEvent:   lastEvent,
@@ -599,8 +599,8 @@ func TestStart_RecordsExplicitModelButNotRoleDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if got := manifestAgentModel(m.Agents, "primary"); got != "claude-opus-9-unreleased" {
-		t.Fatalf("primary agent model = %q, want the explicit override recorded verbatim", got)
+	if got := manifestAgentModel(m.Agents, "agent"); got != "claude-opus-9-unreleased" {
+		t.Fatalf("agent model = %q, want the explicit override recorded verbatim", got)
 	}
 
 	svc.Now = func() int64 { return 1234567896 }
@@ -612,8 +612,8 @@ func TestStart_RecordsExplicitModelButNotRoleDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if got := manifestAgentModel(m.Agents, "primary"); got != "" {
-		t.Fatalf("primary agent model = %q, want empty for a role-default launch", got)
+	if got := manifestAgentModel(m.Agents, "agent"); got != "" {
+		t.Fatalf("agent model = %q, want empty for a role-default launch", got)
 	}
 }
 
@@ -641,8 +641,8 @@ func TestStart_AppliesPersistedRoleDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if got := manifestAgentModel(m.Agents, "primary"); got != "claude-opus-9-unreleased" {
-		t.Fatalf("primary agent model = %q, want the persisted role default recorded", got)
+	if got := manifestAgentModel(m.Agents, "agent"); got != "claude-opus-9-unreleased" {
+		t.Fatalf("agent model = %q, want the persisted role default recorded", got)
 	}
 
 	launch := launchContaining(runner.calls, "use the persisted default")
@@ -676,8 +676,8 @@ func TestStart_RoleDefaultsKeepMasterWorkerBucketsAndIgnoreRemovedRole(t *testin
 	if err != nil {
 		t.Fatalf("read master manifest: %v", err)
 	}
-	if got := manifestAgentModel(m.Agents, "primary"); got != "" {
-		t.Fatalf("master primary model = %q, want the old role default ignored", got)
+	if got := manifestAgentModel(m.Agents, "agent"); got != "" {
+		t.Fatalf("master agent model = %q, want the old role default ignored", got)
 	}
 
 	worker, err := svc.Start(t.Context(), StartOpts{Title: "worker-role", Cwd: t.TempDir(), MasterID: "qm-master"})
@@ -688,8 +688,8 @@ func TestStart_RoleDefaultsKeepMasterWorkerBucketsAndIgnoreRemovedRole(t *testin
 	if err != nil {
 		t.Fatalf("read worker manifest: %v", err)
 	}
-	if got := manifestAgentModel(m.Agents, "primary"); got != "worker-only-model" {
-		t.Fatalf("worker primary model = %q, want its own persisted default", got)
+	if got := manifestAgentModel(m.Agents, "agent"); got != "worker-only-model" {
+		t.Fatalf("worker agent model = %q, want its own persisted default", got)
 	}
 }
 
@@ -715,8 +715,8 @@ func TestStart_ExplicitModelOverridesPersistedRoleDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if got := manifestAgentModel(m.Agents, "primary"); got != "opus" {
-		t.Fatalf("primary agent model = %q, want the explicit override, not the persisted default", got)
+	if got := manifestAgentModel(m.Agents, "agent"); got != "opus" {
+		t.Fatalf("agent model = %q, want the explicit override, not the persisted default", got)
 	}
 
 	launch := launchContaining(runner.calls, "explicit wins")
@@ -737,7 +737,7 @@ func TestStart_CodexReasoningEffortValidatesAgainstPersistedModel(t *testing.T) 
 
 	registry, err := agent.NewRegistry(&agent.Config{
 		Agents: map[string]agent.AgentConfig{"codex": {CLI: "/bin/sh"}},
-		Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: "codex", Window: 0}},
+		Roles:  agent.RolesConfig{Agent: &agent.RoleConfig{Agent: "codex", Window: 0}},
 	})
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
@@ -778,7 +778,7 @@ func TestStartSkipsHelpOnlyEffortValidation(t *testing.T) {
 			svc, _ := setupService(t)
 			registry, err := agent.NewRegistry(&agent.Config{
 				Agents: map[string]agent.AgentConfig{agentName: {CLI: "/bin/sh"}},
-				Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: agentName, Window: 0}},
+				Roles:  agent.RolesConfig{Agent: &agent.RoleConfig{Agent: agentName, Window: 0}},
 			})
 			if err != nil {
 				t.Fatalf("NewRegistry: %v", err)
@@ -809,7 +809,7 @@ func TestStartSkipsDefaultModelEffortValidationWhenModelIsEmpty(t *testing.T) {
 	svc, runner := setupService(t)
 	registry, err := agent.NewRegistry(&agent.Config{
 		Agents: map[string]agent.AgentConfig{"codex": {CLI: "/bin/sh"}},
-		Roles:  agent.RolesConfig{Primary: &agent.RoleConfig{Agent: "codex", Window: 0}},
+		Roles:  agent.RolesConfig{Agent: &agent.RoleConfig{Agent: "codex", Window: 0}},
 	})
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
@@ -898,7 +898,7 @@ func TestStart_Master(t *testing.T) {
 		t.Fatal("top-level agent result did not mark master")
 	}
 
-	assertPrimaryOnlyLayout(t, runner, result.SessionID)
+	assertAgentOnlyLayout(t, runner, result.SessionID)
 }
 
 func TestStart_Worker(t *testing.T) {
@@ -949,10 +949,10 @@ func TestStart_DoesNotLaunchTrackerPane(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	assertPrimaryOnlyLayout(t, runner, result.SessionID)
+	assertAgentOnlyLayout(t, runner, result.SessionID)
 }
 
-func TestStart_FromAppFlagUsesPrimaryOnlyLayout(t *testing.T) {
+func TestStart_FromAppFlagUsesAgentOnlyLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 4343 }
@@ -966,16 +966,16 @@ func TestStart_FromAppFlagUsesPrimaryOnlyLayout(t *testing.T) {
 		t.Fatalf("start from app: %v", err)
 	}
 
-	assertPrimaryOnlyLayout(t, runner, result.SessionID)
-	primaryLaunched := false
+	assertAgentOnlyLayout(t, runner, result.SessionID)
+	agentLaunched := false
 	for _, call := range runner.calls {
 		if len(call.args) > 0 && call.args[0] == "respawn-pane" && flagVal(call.args, "-t") == result.SessionID+":0.0" {
-			primaryLaunched = true
+			agentLaunched = true
 			break
 		}
 	}
-	if !primaryLaunched {
-		t.Fatalf("expected primary agent to launch in pane 0.0, calls=%v", runner.calls)
+	if !agentLaunched {
+		t.Fatalf("expected agent to launch in pane 0.0, calls=%v", runner.calls)
 	}
 }
 
@@ -1018,7 +1018,7 @@ func TestStart_TitledSessionDoesNotSetTmuxWindowName(t *testing.T) {
 	t.Fatalf("new-session call not found: %+v", runner.calls)
 }
 
-func TestSpawn_FromAppFlagUsesPrimaryOnlyLayout(t *testing.T) {
+func TestSpawn_FromAppFlagUsesAgentOnlyLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 4444 }
@@ -1033,13 +1033,13 @@ func TestSpawn_FromAppFlagUsesPrimaryOnlyLayout(t *testing.T) {
 		t.Fatalf("spawn from app: %v", err)
 	}
 
-	assertPrimaryOnlyLayout(t, runner, result.SessionID)
+	assertAgentOnlyLayout(t, runner, result.SessionID)
 }
 
-func assertPrimaryOnlyLayout(t *testing.T, runner *mockRunner, sessionID string) {
+func assertAgentOnlyLayout(t *testing.T, runner *mockRunner, sessionID string) {
 	t.Helper()
-	if runner.paneRoles[sessionID+":0.0"] != "primary" {
-		t.Fatalf("expected primary in pane 0.0, got %q", runner.paneRoles[sessionID+":0.0"])
+	if runner.paneRoles[sessionID+":0.0"] != "agent" {
+		t.Fatalf("expected agent in pane 0.0, got %q", runner.paneRoles[sessionID+":0.0"])
 	}
 	if got := runner.paneRoles[sessionID+":0.1"]; got != "" {
 		t.Fatalf("unexpected role in pane 0.1: %q", got)
@@ -1142,7 +1142,7 @@ func TestContinue_PreservesRecordedModel(t *testing.T) {
 		SessionType: "",
 		AgentPath:   "/usr/bin",
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", Window: 1, Model: "claude-opus-9-unreleased"},
+			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", Window: 1, Model: "claude-opus-9-unreleased"},
 		},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
@@ -1156,8 +1156,8 @@ func TestContinue_PreservesRecordedModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if got := manifestAgentModel(m.Agents, "primary"); got != "claude-opus-9-unreleased" {
-		t.Fatalf("primary agent model after continue = %q, want the originally recorded model preserved", got)
+	if got := manifestAgentModel(m.Agents, "agent"); got != "claude-opus-9-unreleased" {
+		t.Fatalf("agent model after continue = %q, want the originally recorded model preserved", got)
 	}
 }
 
@@ -1177,7 +1177,7 @@ func TestContinue_RelaunchesWithRecordedModelAndReasoningEffort(t *testing.T) {
 		SessionType: "",
 		AgentPath:   "/usr/bin",
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", ResumeID: "claude-resume", Window: 1, Model: "claude-opus-9-unreleased", ReasoningEffort: "high"},
+			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", ResumeID: "claude-resume", Window: 1, Model: "claude-opus-9-unreleased", ReasoningEffort: "high"},
 		},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
@@ -1288,7 +1288,7 @@ func TestContinue_StoppedMaster(t *testing.T) {
 	if !runner.sessions["qm-master"] {
 		t.Fatal("master session not recreated")
 	}
-	assertPrimaryOnlyLayout(t, runner, "qm-master")
+	assertAgentOnlyLayout(t, runner, "qm-master")
 }
 
 func TestContinue_MissingManifest(t *testing.T) {
@@ -1728,7 +1728,7 @@ func TestSpawn_DoesNotInheritMissingMasterDisplayColor(t *testing.T) {
 
 // TestSpawn_SeedsStartingStateForCodex verifies that spawning a codex
 // worker pre-populates state.json with State="starting" and
-// Activity="started" for the primary pane, so the tracker never renders
+// Activity="started" for the agent pane, so the tracker never renders
 // "unknown" in the gap between spawn and the SessionStart hook.
 func TestSpawn_SeedsStartingStateForCodex(t *testing.T) {
 	svc, _ := setupService(t)
@@ -1741,7 +1741,7 @@ func TestSpawn_SeedsStartingStateForCodex(t *testing.T) {
 	if err := svc.Store.Update("qm-master", func(m *state.Manifest) {
 		m.Agents = []state.AgentManifest{{
 			Name:   "codex",
-			Role:   "primary",
+			Role:   "agent",
 			CLI:    "/bin/sh",
 			Window: 0,
 		}}
@@ -1762,18 +1762,18 @@ func TestSpawn_SeedsStartingStateForCodex(t *testing.T) {
 	if ss == nil {
 		t.Fatal("expected seeded state.json, got nil")
 	}
-	pane, ok := ss.Panes["primary"]
+	pane, ok := ss.Panes["agent"]
 	if !ok {
-		t.Fatalf("expected primary pane in seeded state, got %+v", ss.Panes)
+		t.Fatalf("expected agent pane in seeded state, got %+v", ss.Panes)
 	}
 	if pane.State != "starting" {
-		t.Errorf("primary State = %q, want \"starting\"", pane.State)
+		t.Errorf("agent State = %q, want \"starting\"", pane.State)
 	}
 	if pane.Activity != "started" {
-		t.Errorf("primary Activity = %q, want \"started\"", pane.Activity)
+		t.Errorf("agent Activity = %q, want \"started\"", pane.Activity)
 	}
 	if pane.Agent != "codex" {
-		t.Errorf("primary Agent = %q, want \"codex\"", pane.Agent)
+		t.Errorf("agent Agent = %q, want \"codex\"", pane.Agent)
 	}
 }
 
@@ -1903,8 +1903,8 @@ func launchContaining(calls []callRecord, needle string) string {
 	return ""
 }
 
-// Spawn with no flags must inherit the master's primary agent.
-func TestSpawn_FromMasterInheritsPrimaryAgent(t *testing.T) {
+// Spawn with no flags must inherit the master's agent.
+func TestSpawn_FromMasterInheritsAgent(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 	counter := int64(6000)
@@ -1915,7 +1915,7 @@ func TestSpawn_FromMasterInheritsPrimaryAgent(t *testing.T) {
 	if err := svc.Store.Update("qm-master", func(m *state.Manifest) {
 		m.Agents = []state.AgentManifest{{
 			Name:   "codex",
-			Role:   "primary",
+			Role:   "agent",
 			CLI:    "/bin/sh",
 			Window: 0,
 		}}
@@ -1936,12 +1936,12 @@ func TestSpawn_FromMasterInheritsPrimaryAgent(t *testing.T) {
 	if len(wm.Agents) != 1 {
 		t.Fatalf("expected single-agent worker, got %+v", wm.Agents)
 	}
-	if wm.Agents[0].Role != "primary" || wm.Agents[0].Name != "codex" {
-		t.Fatalf("expected codex primary worker, got %+v", wm.Agents[0])
+	if wm.Agents[0].Role != "agent" || wm.Agents[0].Name != "codex" {
+		t.Fatalf("expected codex agent worker, got %+v", wm.Agents[0])
 	}
 }
 
-func TestSpawn_PrimaryOverride(t *testing.T) {
+func TestSpawn_AgentOverride(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 	counter := int64(6100)
@@ -1954,13 +1954,13 @@ func TestSpawn_PrimaryOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read master: %v", err)
 	}
-	registry, err := WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{Primary: "codex"})
+	registry, err := WorkerSpawnRegistryWithBase(master, svc.Registry, &agent.ConfigOverrides{Agent: "codex"})
 	if err != nil {
 		t.Fatalf("WorkerSpawnRegistry: %v", err)
 	}
 
 	result, err := svc.Spawn(t.Context(), "qm-master", SpawnOpts{
-		Title:    "primary-only",
+		Title:    "agent-only",
 		Registry: registry,
 	})
 	if err != nil {
@@ -1973,8 +1973,8 @@ func TestSpawn_PrimaryOverride(t *testing.T) {
 	if len(wm.Agents) != 1 {
 		t.Fatalf("expected single-agent worker, got %+v", wm.Agents)
 	}
-	if wm.Agents[0].Role != "primary" || wm.Agents[0].Name != "codex" {
-		t.Fatalf("expected codex primary, got %+v", wm.Agents[0])
+	if wm.Agents[0].Role != "agent" || wm.Agents[0].Name != "codex" {
+		t.Fatalf("expected codex agent, got %+v", wm.Agents[0])
 	}
 }
 
@@ -1982,7 +1982,7 @@ func TestSpawn_FromNonMaster(t *testing.T) {
 	t.Parallel()
 	svc, _ := setupService(t)
 
-	worker := state.Manifest{SessionID: "qm-worker", Title: "regular", Cwd: t.TempDir(), Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}}
+	worker := state.Manifest{SessionID: "qm-worker", Title: "regular", Cwd: t.TempDir(), Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}}
 	worker.SetExtra("parent_session", "qm-parent")
 	if err := svc.Store.Create(worker); err != nil {
 		t.Fatal(err)
@@ -2124,10 +2124,10 @@ func TestDelete_DeregistersFromParent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Start with primary-only layout
+// Start with agent-only layout
 // ---------------------------------------------------------------------------
 
-func TestStart_MasterLayoutUsesPrimaryOnlyPane(t *testing.T) {
+func TestStart_MasterLayoutUsesAgentOnlyPane(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 7777 }
@@ -2145,7 +2145,7 @@ func TestStart_MasterLayoutUsesPrimaryOnlyPane(t *testing.T) {
 		t.Fatal("session not created")
 	}
 
-	assertPrimaryOnlyLayout(t, runner, result.SessionID)
+	assertAgentOnlyLayout(t, runner, result.SessionID)
 	if got := runner.paneRoles[result.SessionID+":1.0"]; got != "" {
 		t.Errorf("unexpected extra window role in 1.0: %q", got)
 	}
@@ -2234,7 +2234,7 @@ func TestPersistResumeIDs(t *testing.T) {
 
 	dir := t.TempDir()
 	resume := map[agent.Role]resumeInfo{
-		agent.RolePrimary: {
+		agent.RoleAgent: {
 			provider: agent.NewClaude(agent.AgentConfig{}),
 			resumeID: "claude-id",
 		},
@@ -2252,7 +2252,7 @@ func TestPersistResumeIDs(t *testing.T) {
 	}
 
 	if _, err := os.Stat(dir + "/codex-thread-id"); !os.IsNotExist(err) {
-		t.Error("codex-thread-id should not exist without a codex primary")
+		t.Error("codex-thread-id should not exist without a codex agent")
 	}
 }
 
@@ -2301,8 +2301,8 @@ func TestStart_WithResumeAndPrompt(t *testing.T) {
 	if len(m.Agents) != 1 {
 		t.Fatalf("expected 1 manifest agent, got %+v", m.Agents)
 	}
-	if got := manifestAgentResumeID(m.Agents, "primary"); got != "claude-sess-1" {
-		t.Errorf("primary resume_id: got %q", got)
+	if got := manifestAgentResumeID(m.Agents, "agent"); got != "claude-sess-1" {
+		t.Errorf("agent resume_id: got %q", got)
 	}
 	if got := m.ExtraString("claude_session_id"); got != "claude-sess-1" {
 		t.Errorf("claude_session_id: got %q", got)
@@ -2312,7 +2312,7 @@ func TestStart_WithResumeAndPrompt(t *testing.T) {
 	}
 }
 
-func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
+func TestStart_OpenCodeAgentPersistsResumeMetadata(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 8890 }
@@ -2326,7 +2326,7 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 			"opencode": {CLI: opencodeCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "opencode", Window: 0},
 		},
 	})
 	if err != nil {
@@ -2336,7 +2336,7 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 
 	resumeID := "ses_0123456789abcdef"
 	result, err := svc.Start(t.Context(), StartOpts{
-		Title:     "opencode-primary",
+		Title:     "opencode-agent",
 		Cwd:       t.TempDir(),
 		ResumeIDs: map[string]string{"opencode": resumeID},
 		Prompt:    "inspect state",
@@ -2350,8 +2350,8 @@ func TestStart_OpenCodePrimaryPersistsResumeMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if got := manifestAgentResumeID(m.Agents, "primary"); got != resumeID {
-		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	if got := manifestAgentResumeID(m.Agents, "agent"); got != resumeID {
+		t.Fatalf("agent resume_id: got %q, want %q", got, resumeID)
 	}
 	if got := m.ExtraString("opencode_session_id"); got != resumeID {
 		t.Fatalf("opencode_session_id: got %q, want %q", got, resumeID)
@@ -2411,7 +2411,7 @@ func TestStart_OpenCodeReasoningEffortRejectsOldVersion(t *testing.T) {
 			"opencode": {CLI: opencodeCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "opencode", Window: 0},
 		},
 	})
 	if err != nil {
@@ -2440,7 +2440,7 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 			"opencode": {CLI: opencodeCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "opencode", Window: 0},
 		},
 	})
 	if err != nil {
@@ -2480,7 +2480,7 @@ func TestStart_OpenCodeReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	}
 }
 
-func TestStart_CodexPrimaryRegistry(t *testing.T) {
+func TestStart_CodexAgentRegistry(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 7777 }
@@ -2499,7 +2499,7 @@ func TestStart_CodexPrimaryRegistry(t *testing.T) {
 			"codex":  {CLI: codexCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "codex", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "codex", Window: 0},
 		},
 	})
 	if err != nil {
@@ -2508,7 +2508,7 @@ func TestStart_CodexPrimaryRegistry(t *testing.T) {
 	svc.Registry = registry
 
 	result, err := svc.Start(t.Context(), StartOpts{
-		Title: "codex-primary",
+		Title: "codex-agent",
 		Cwd:   t.TempDir(),
 	})
 	if err != nil {
@@ -2522,23 +2522,23 @@ func TestStart_CodexPrimaryRegistry(t *testing.T) {
 	if len(m.Agents) != 1 {
 		t.Fatalf("expected 1 agent, got %+v", m.Agents)
 	}
-	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" {
-		t.Fatalf("primary agent: got %+v", m.Agents[0])
+	if m.Agents[0].Role != "agent" || m.Agents[0].Name != "codex" {
+		t.Fatalf("agent: got %+v", m.Agents[0])
 	}
 
-	foundPrimaryCmd := false
+	foundAgentCmd := false
 	for _, call := range runner.calls {
 		if len(call.args) >= 1 && call.args[0] == "respawn-pane" && strings.Contains(call.args[len(call.args)-1], codexCLI) {
-			foundPrimaryCmd = true
+			foundAgentCmd = true
 			break
 		}
 	}
-	if !foundPrimaryCmd {
-		t.Fatal("expected primary pane to launch Codex command")
+	if !foundAgentCmd {
+		t.Fatal("expected agent pane to launch Codex command")
 	}
 }
 
-func TestStart_CodexPrimaryMasterUsesDeveloperInstructions(t *testing.T) {
+func TestStart_CodexAgentMasterUsesDeveloperInstructions(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 7788 }
@@ -2553,7 +2553,7 @@ func TestStart_CodexPrimaryMasterUsesDeveloperInstructions(t *testing.T) {
 			"codex": {CLI: codexCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "codex", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "codex", Window: 0},
 		},
 	})
 	if err != nil {
@@ -2587,11 +2587,11 @@ func TestStart_CodexPrimaryMasterUsesDeveloperInstructions(t *testing.T) {
 		}
 	}
 	if !foundMasterCmd {
-		t.Fatal("expected master primary pane to launch Codex command")
+		t.Fatal("expected master agent pane to launch Codex command")
 	}
 }
 
-func TestStart_PromptGoesOnlyToPrimary(t *testing.T) {
+func TestStart_PromptGoesOnlyToAgent(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 8899 }
@@ -2697,7 +2697,7 @@ func TestStart_WorkerSystemBriefAppendedAfterWorkerPrompt(t *testing.T) {
 	}
 }
 
-func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
+func TestStart_WorkerPromptStaysFirstTurn_CodexAgent(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 9902 }
@@ -2712,7 +2712,7 @@ func TestStart_WorkerPromptStaysFirstTurn_CodexPrimary(t *testing.T) {
 			"codex": {CLI: codexCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "codex", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "codex", Window: 0},
 		},
 	})
 	if err != nil {
@@ -2766,7 +2766,7 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 			"codex": {CLI: "/bin/sh"},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "codex", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "codex", Window: 0},
 		},
 	})
 	if err != nil {
@@ -2842,7 +2842,7 @@ func TestStart_CodexReasoningEffortUsesEffectiveModel(t *testing.T) {
 	}
 }
 
-func TestStart_PrimaryOnlyRegistry(t *testing.T) {
+func TestStart_AgentOnlyRegistry(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	svc.Now = func() int64 { return 6666 }
@@ -2856,7 +2856,7 @@ func TestStart_PrimaryOnlyRegistry(t *testing.T) {
 			"claude": {CLI: claudeCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "claude", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "claude", Window: 0},
 		},
 	})
 	if err != nil {
@@ -2879,10 +2879,10 @@ func TestStart_PrimaryOnlyRegistry(t *testing.T) {
 	if len(m.Agents) != 1 {
 		t.Fatalf("expected 1 agent, got %+v", m.Agents)
 	}
-	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "claude" {
-		t.Fatalf("primary agent: got %+v", m.Agents[0])
+	if m.Agents[0].Role != "agent" || m.Agents[0].Name != "claude" {
+		t.Fatalf("agent: got %+v", m.Agents[0])
 	}
-	assertPrimaryOnlyLayout(t, runner, result.SessionID)
+	assertAgentOnlyLayout(t, runner, result.SessionID)
 }
 
 // ---------------------------------------------------------------------------
@@ -2933,7 +2933,7 @@ func TestContinue_PersistsPiResumeFromActivityAndUsesSessionFlag(t *testing.T) {
 		Cwd:       cwd,
 		AgentPath: "/usr/bin",
 		Agents: []state.AgentManifest{
-			{Name: "pi", Role: "primary", CLI: "/usr/bin/pi", Window: 1},
+			{Name: "pi", Role: "agent", CLI: "/usr/bin/pi", Window: 1},
 		},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
@@ -2955,8 +2955,8 @@ func TestContinue_PersistsPiResumeFromActivityAndUsesSessionFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if got := manifestAgentResumeID(m.Agents, "primary"); got != resumeID {
-		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	if got := manifestAgentResumeID(m.Agents, "agent"); got != resumeID {
+		t.Fatalf("agent resume_id: got %q, want %q", got, resumeID)
 	}
 	if got := m.ExtraString("pi_session_id"); got != resumeID {
 		t.Fatalf("pi_session_id: got %q, want %q", got, resumeID)
@@ -2973,7 +2973,7 @@ func TestContinue_UsesAgentManifestResumeIDs(t *testing.T) {
 		Title:     "agent-manifest",
 		Cwd:       cwd,
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/usr/bin/claude", ResumeID: "claude-resume", Window: 1},
+			{Name: "claude", Role: "agent", CLI: "/usr/bin/claude", ResumeID: "claude-resume", Window: 1},
 		},
 		AgentPath: "/usr/bin",
 	}); err != nil {
@@ -3009,7 +3009,7 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 			"opencode": {CLI: opencodeCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "opencode", Window: 0},
+			Agent: &agent.RoleConfig{Agent: "opencode", Window: 0},
 		},
 	})
 	if err != nil {
@@ -3024,7 +3024,7 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 		Cwd:       cwd,
 		AgentPath: filepath.Dir(opencodeCLI),
 		Agents: []state.AgentManifest{
-			{Name: "opencode", Role: "primary", CLI: opencodeCLI, Window: 1},
+			{Name: "opencode", Role: "agent", CLI: opencodeCLI, Window: 1},
 		},
 	}
 	m.SetExtra("opencode_session_id", resumeID)
@@ -3072,8 +3072,8 @@ func TestContinue_OpenCodeUsesExtraResumeIDAndAgentFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read updated manifest: %v", err)
 	}
-	if got := manifestAgentResumeID(updated.Agents, "primary"); got != resumeID {
-		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	if got := manifestAgentResumeID(updated.Agents, "agent"); got != resumeID {
+		t.Fatalf("agent resume_id: got %q, want %q", got, resumeID)
 	}
 	if got := updated.ExtraString("opencode_session_id"); got != resumeID {
 		t.Fatalf("opencode_session_id: got %q, want %q", got, resumeID)
@@ -3099,7 +3099,7 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 			"codex":  {CLI: codexCLI},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "claude", Window: -1},
+			Agent: &agent.RoleConfig{Agent: "claude", Window: -1},
 		},
 	})
 	if err != nil {
@@ -3112,7 +3112,7 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 		Title:     "manifest-source",
 		Cwd:       cwd,
 		Agents: []state.AgentManifest{
-			{Name: "codex", Role: "primary", CLI: codexCLI, ResumeID: "codex-primary", Window: 1},
+			{Name: "codex", Role: "agent", CLI: codexCLI, ResumeID: "codex-agent", Window: 1},
 		},
 		AgentPath: "/usr/bin",
 	}); err != nil {
@@ -3130,11 +3130,11 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 	if len(m.Agents) != 1 {
 		t.Fatalf("expected 1 agent, got %+v", m.Agents)
 	}
-	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" || m.Agents[0].CLI != codexCLI {
-		t.Fatalf("primary manifest agent: got %+v", m.Agents[0])
+	if m.Agents[0].Role != "agent" || m.Agents[0].Name != "codex" || m.Agents[0].CLI != codexCLI {
+		t.Fatalf("agent manifest agent: got %+v", m.Agents[0])
 	}
 
-	var sawCodexPrimary bool
+	var sawCodexAgent bool
 	for _, call := range runner.calls {
 		if len(call.args) < 2 {
 			continue
@@ -3144,11 +3144,11 @@ func TestContinue_UsesManifestAgentsNotCurrentRegistry(t *testing.T) {
 		}
 		cmd := call.args[len(call.args)-1]
 		if strings.Contains(cmd, codexCLI) && strings.Contains(cmd, "--dangerously-bypass-approvals-and-sandbox") {
-			sawCodexPrimary = true
+			sawCodexAgent = true
 		}
 	}
-	if !sawCodexPrimary {
-		t.Fatal("expected Codex primary launch command from manifest agent")
+	if !sawCodexAgent {
+		t.Fatal("expected Codex agent launch command from manifest agent")
 	}
 }
 
@@ -3164,8 +3164,8 @@ func TestNowUTC(t *testing.T) {
 	}
 }
 
-// Test Continue stopped master with primary-only layout
-func TestContinue_StoppedMasterPrimaryOnlyLayout(t *testing.T) {
+// Test Continue stopped master with agent-only layout
+func TestContinue_StoppedMasterAgentOnlyLayout(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -3182,7 +3182,7 @@ func TestContinue_StoppedMasterPrimaryOnlyLayout(t *testing.T) {
 	if !runner.sessions["qm-msb"] {
 		t.Fatal("session not recreated")
 	}
-	assertPrimaryOnlyLayout(t, runner, "qm-msb")
+	assertAgentOnlyLayout(t, runner, "qm-msb")
 }
 
 // Test Start creates unique IDs on collision
@@ -3259,21 +3259,21 @@ func TestLaunchWorkspace_Success(t *testing.T) {
 	if err := svc.launchAppWorkspace(t.Context(), "qm-lw", "/tmp", false, false, launchCmds("echo claude")); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
-	assertPrimaryOnlyLayout(t, runner, "qm-lw")
+	assertAgentOnlyLayout(t, runner, "qm-lw")
 }
 
-func TestLaunchWorkspace_PrimaryStartsAfterRoleAssignment(t *testing.T) {
+func TestLaunchWorkspace_AgentStartsAfterRoleAssignment(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 	runner.sessions["qm-lw3"] = true
 
-	primaryCmd := "echo claude"
-	if err := svc.launchAppWorkspace(t.Context(), "qm-lw3", "/tmp", false, false, launchCmds(primaryCmd)); err != nil {
+	agentCmd := "echo claude"
+	if err := svc.launchAppWorkspace(t.Context(), "qm-lw3", "/tmp", false, false, launchCmds(agentCmd)); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 
 	roleOptionIdx := -1
-	primaryRespawnIdx := -1
+	agentRespawnIdx := -1
 
 	for i, call := range runner.calls {
 		if len(call.args) == 0 {
@@ -3286,22 +3286,22 @@ func TestLaunchWorkspace_PrimaryStartsAfterRoleAssignment(t *testing.T) {
 			}
 		case "respawn-pane":
 			if flagVal(call.args, "-t") == "qm-lw3:0.0" {
-				primaryRespawnIdx = i
-				if !strings.Contains(strings.Join(call.args, " "), primaryCmd) {
-					t.Fatalf("expected primary command launched via respawn-pane: %v", call.args)
+				agentRespawnIdx = i
+				if !strings.Contains(strings.Join(call.args, " "), agentCmd) {
+					t.Fatalf("expected agent command launched via respawn-pane: %v", call.args)
 				}
 			}
 		}
 	}
 
 	if roleOptionIdx == -1 {
-		t.Fatalf("expected primary role assignment, calls=%v", runner.calls)
+		t.Fatalf("expected agent role assignment, calls=%v", runner.calls)
 	}
-	if primaryRespawnIdx == -1 {
-		t.Fatalf("expected respawn-pane launch for primary pane, calls=%v", runner.calls)
+	if agentRespawnIdx == -1 {
+		t.Fatalf("expected respawn-pane launch for agent pane, calls=%v", runner.calls)
 	}
-	if primaryRespawnIdx <= roleOptionIdx {
-		t.Fatalf("primary launched before role assignment completed: role=%d respawn=%d calls=%v", roleOptionIdx, primaryRespawnIdx, runner.calls)
+	if agentRespawnIdx <= roleOptionIdx {
+		t.Fatalf("agent launched before role assignment completed: role=%d respawn=%d calls=%v", roleOptionIdx, agentRespawnIdx, runner.calls)
 	}
 }
 
@@ -3316,7 +3316,7 @@ func TestSetResumeEnv(t *testing.T) {
 	runner.sessions["qm-env"] = true
 
 	resume := map[agent.Role]resumeInfo{
-		agent.RolePrimary: {
+		agent.RoleAgent: {
 			provider: agent.NewClaude(agent.AgentConfig{}),
 			resumeID: "claude-1",
 		},
@@ -3531,7 +3531,7 @@ func TestLaunchWorkspace_ErrorOnRespawn(t *testing.T) {
 	}
 }
 
-func TestLaunchWorkspace_ErrorOnPrimaryRespawn(t *testing.T) {
+func TestLaunchWorkspace_ErrorOnAgentRespawn(t *testing.T) {
 	t.Parallel()
 	svc, runner := setupService(t)
 
@@ -3546,10 +3546,10 @@ func TestLaunchWorkspace_ErrorOnPrimaryRespawn(t *testing.T) {
 
 	err := svc.launchAppWorkspace(t.Context(), "qm-wresp", "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
-		t.Fatal("expected error from launch workspace primary respawn")
+		t.Fatal("expected error from launch workspace agent respawn")
 	}
-	if !strings.Contains(err.Error(), "session primary pane") {
-		t.Fatalf("expected primary pane context in error, got %v", err)
+	if !strings.Contains(err.Error(), "session agent pane") {
+		t.Fatalf("expected agent pane context in error, got %v", err)
 	}
 }
 
@@ -3564,7 +3564,7 @@ func TestOrderedManifestAgents_RejectsLegacyOnlyManifest(t *testing.T) {
 	// keys into Extra, never populated the canonical Agents array. Pass 2
 	// removed the UnmarshalJSON migration that used to synthesize Agents
 	// entries from these fields, so continuing such a session must fail
-	// loudly rather than silently launching with no primary.
+	// loudly rather than silently launching with no agent.
 	raw := `{"session_id":"qm-legacy","claude_bin":"/usr/bin/claude","codex_bin":"/usr/bin/codex","claude_session_id":"abc","codex_thread_id":"xyz"}`
 
 	var m state.Manifest
@@ -3577,9 +3577,9 @@ func TestOrderedManifestAgents_RejectsLegacyOnlyManifest(t *testing.T) {
 
 	_, err := orderedManifestAgents(m)
 	if err == nil {
-		t.Fatal("expected error for manifest missing a primary agent, got nil")
+		t.Fatal("expected error for manifest missing an agent, got nil")
 	}
-	if !strings.Contains(err.Error(), "missing a primary agent") {
+	if !strings.Contains(err.Error(), "missing an agent") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

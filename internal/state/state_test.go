@@ -27,7 +27,7 @@ func TestManifest_JSONRoundTrip(t *testing.T) {
 		Cwd:        "/tmp/work",
 		WindowName: "main",
 		Agents: []AgentManifest{
-			{Name: "claude", Role: "primary", CLI: "/usr/local/bin/claude", ResumeID: "claude-1", Window: 1},
+			{Name: "claude", Role: "agent", CLI: "/usr/local/bin/claude", ResumeID: "claude-1", Window: 1},
 		},
 		AgentPath: "/home/user/.claude",
 	}
@@ -82,7 +82,7 @@ func TestManifest_JSONFieldNames(t *testing.T) {
 func TestManifestSessionRoleDerivesRoleFromAgentsAndParent(t *testing.T) {
 	t.Parallel()
 
-	agent := []AgentManifest{{Name: "codex", Role: "primary"}}
+	agent := []AgentManifest{{Name: "codex", Role: "agent"}}
 	tests := []struct {
 		name string
 		m    Manifest
@@ -844,7 +844,7 @@ func TestManifest_SanitizesMaliciousResumeIDs(t *testing.T) {
 	raw := []byte(`{
 		"session_id": "qm-test",
 		"agents": [
-			{"name": "claude", "role": "primary", "resume_id": "../../../etc/passwd"},
+			{"name": "claude", "role": "agent", "resume_id": "../../../etc/passwd"},
 			{"name": "codex", "role": "secondary", "resume_id": "thr-*"}
 		],
 		"claude_session_id": "sess/../etc",

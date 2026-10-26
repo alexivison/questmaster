@@ -220,8 +220,8 @@ func TestQueryBackfillsAPersistedDefaultPastTheRankingLimit(t *testing.T) {
 	t.Parallel()
 
 	store := seedStore(t, []state.AgentManifest{
-		{Name: "claude", Role: "primary", Model: "claude-opus-5"},
-		{Name: "claude", Role: "primary", Model: "claude-sonnet-5"},
+		{Name: "claude", Role: "agent", Model: "claude-opus-5"},
+		{Name: "claude", Role: "agent", Model: "claude-sonnet-5"},
 	})
 	if err := state.NewRoleDefaultsStore(store.Root()).Set("claude", "master", state.RoleDefault{Model: "claude-opus-9-unreleased"}); err != nil {
 		t.Fatalf("seed role default: %v", err)
@@ -243,7 +243,7 @@ func TestQueryLeadsWithRecentlyLaunchedModels(t *testing.T) {
 	t.Parallel()
 
 	store := seedStore(t, []state.AgentManifest{
-		{Name: "claude", Role: "primary", Model: "claude-opus-9-unreleased"},
+		{Name: "claude", Role: "agent", Model: "claude-opus-9-unreleased"},
 	})
 	got := Query(context.Background(), Options{
 		Agent:   "claude",
@@ -270,7 +270,7 @@ func TestQueryDedupsAcrossRecentsAndCatalog(t *testing.T) {
 	t.Parallel()
 
 	store := seedStore(t, []state.AgentManifest{
-		{Name: "claude", Role: "primary", Model: "claude-opus-5"},
+		{Name: "claude", Role: "agent", Model: "claude-opus-5"},
 	})
 	got := Query(context.Background(), Options{
 		Agent:   "claude",
@@ -367,10 +367,10 @@ func TestRecentModelsAreScopedPerAgentAndDeduped(t *testing.T) {
 	t.Parallel()
 
 	store := seedStore(t, []state.AgentManifest{
-		{Name: "claude", Role: "primary", Model: "claude-opus-5"},
-		{Name: "codex", Role: "primary", Model: "gpt-5.6-sol"},
-		{Name: "claude", Role: "primary", Model: "claude-opus-5"},
-		{Name: "claude", Role: "primary"},
+		{Name: "claude", Role: "agent", Model: "claude-opus-5"},
+		{Name: "codex", Role: "agent", Model: "gpt-5.6-sol"},
+		{Name: "claude", Role: "agent", Model: "claude-opus-5"},
+		{Name: "claude", Role: "agent"},
 	})
 
 	got := RecentModels(store, "claude", 5)
@@ -397,8 +397,8 @@ func TestRoleNamesRoundTrip(t *testing.T) {
 	if _, err := ParseRole("standalone"); err == nil {
 		t.Error("ParseRole(standalone) succeeded, want role validation error")
 	}
-	if _, err := ParseRole("primary"); err == nil {
-		t.Error("ParseRole(primary) succeeded, want role validation error")
+	if _, err := ParseRole("agent"); err == nil {
+		t.Error("ParseRole(agent) succeeded, want role validation error")
 	}
 	if got, err := ParseRole(""); err != nil || got != agent.RoleMaster {
 		t.Errorf("ParseRole(empty) = %v, want master", got)

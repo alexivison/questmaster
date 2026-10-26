@@ -38,7 +38,7 @@ type SessionRow struct {
 	ID           string
 	Title        string
 	Cwd          string
-	PrimaryAgent string
+	Agent        string
 	Status       string // "active" or "stopped"
 	SessionType  string // "master", "worker", or "shell"
 	ParentID     string
@@ -115,9 +115,9 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 			row := ManifestToSessionRow(manifest.SessionID, manifest, alive)
 			row.IsCurrent = manifest.SessionID == current.ID
 
-			primaryAgent := resolveManifestAgent(manifest, agent.RolePrimary)
-			if primaryAgent != nil {
-				row.PrimaryAgent = primaryAgent.Name()
+			resolvedAgent := resolveManifestAgent(manifest, agent.RoleAgent)
+			if resolvedAgent != nil {
+				row.Agent = resolvedAgent.Name()
 			}
 
 			resolveRepoColor(&row, manifest, repoCache, repoColorMap)
@@ -145,7 +145,7 @@ func ManifestToSessionRow(id string, m state.Manifest, alive bool) SessionRow {
 		ID:           id,
 		Title:        m.Title,
 		Cwd:          m.Cwd,
-		PrimaryAgent: manifestAgentName(m, agent.RolePrimary),
+		Agent:        manifestAgentName(m, agent.RoleAgent),
 		Status:       status,
 		SessionType:  sessionType,
 		ParentID:     m.ExtraString("parent_session"),

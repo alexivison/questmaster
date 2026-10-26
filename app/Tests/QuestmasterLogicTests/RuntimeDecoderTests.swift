@@ -43,7 +43,7 @@ struct RuntimeDecoderTests {
 
     private static func trackerSessionDecodesCanonicalKeysAndDurations() {
         let raw = """
-        {"id":"s-canonical","title":"Canonical row","repo":{"identity":"repo-id","name":"Repo Name","path":"/repo","color":"repo-blue"},"display_color":"session-pink","worktree_path":"/worktree","primary_agent":"codex","session_type":"worker","status":"stopped","latest_activity":"Waiting","last_kind":"waiting_for_user","parent_id":"parent-1","worker_count":3,"elapsed_ms":125000,"elapsed_since":"2026-06-19T04:20:00Z","last_chat_at":"2026-06-19T04:21:00Z","is_current":true}
+        {"id":"s-canonical","title":"Canonical row","repo":{"identity":"repo-id","name":"Repo Name","path":"/repo","color":"repo-blue"},"display_color":"session-pink","worktree_path":"/worktree","agent":"codex","session_type":"worker","status":"stopped","latest_activity":"Waiting","last_kind":"waiting_for_user","parent_id":"parent-1","worker_count":3,"elapsed_ms":125000,"elapsed_since":"2026-06-19T04:20:00Z","last_chat_at":"2026-06-19T04:21:00Z","is_current":true}
         """
 
         do {
@@ -56,7 +56,7 @@ struct RuntimeDecoderTests {
             expect(session.repoColor == "repo-blue", "repo color did not decode")
             expect(session.displayColor == "session-pink", "display_color did not decode")
             expect(session.worktreePath == "/worktree", "worktree_path did not decode")
-            expect(session.agent == "codex", "primary_agent did not decode")
+            expect(session.agent == "codex", "agent did not decode")
             expect(session.role == "worker", "a managed agent with a parent should decode as worker")
             expect(session.lifecycle == "stopped", "status did not decode")
             expect(session.state == "stopped", "stopped lifecycle should default state to stopped")
@@ -78,16 +78,16 @@ struct RuntimeDecoderTests {
 
     private static func trackerSessionRoleComesFromAgentAndParent() {
         let oldRoot = """
-        {"id":"old-root","primary_agent":"codex","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
+        {"id":"old-root","agent":"codex","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
         """
         let oldWorker = """
-        {"id":"old-worker","primary_agent":"codex","session_type":"master","parent_id":"old-root","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
+        {"id":"old-worker","agent":"codex","session_type":"master","parent_id":"old-root","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
         """
         let parentWithoutAgent = """
         {"id":"old-worker-no-agent","parent_id":"old-root","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
         """
         let shell = """
-        {"id":"shell","primary_agent":"shell","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
+        {"id":"shell","agent":"shell","status":"active","worker_count":0,"elapsed_ms":0,"is_current":false}
         """
 
         do {

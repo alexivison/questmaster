@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -78,7 +79,7 @@ func TestManifest_MarshalJSON_ExtraCanFillOmittedKnownField(t *testing.T) {
 func TestManifest_UnmarshalJSON_KnownAndUnknownFieldsRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	input := `{"session_id":"qm-rt","cwd":"/tmp/rt","enabled":true,"count":7,"label":"wizard","metadata":{"nested":{"ok":true},"workers":[1,2]},"agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"resume-1","window":1}]}`
+	input := `{"session_id":"qm-rt","cwd":"/tmp/rt","enabled":true,"count":7,"label":"wizard","metadata":{"nested":{"ok":true},"workers":[1,2]},"agents":[{"name":"claude","role":"agent","cli":"/usr/local/bin/claude","resume_id":"resume-1","window":1}]}`
 
 	var got Manifest
 	if err := json.Unmarshal([]byte(input), &got); err != nil {
@@ -104,6 +105,25 @@ func TestManifest_UnmarshalJSON_KnownAndUnknownFieldsRoundTrip(t *testing.T) {
 	}
 
 	assertJSONEqual(t, []byte(input), data)
+}
+
+func TestManifest_UnmarshalJSON_MigratesLegacyAgentRole(t *testing.T) {
+	t.Parallel()
+
+	var got Manifest
+	if err := json.Unmarshal([]byte(`{"session_id":"qm-legacy","agents":[{"name":"codex","role":"primary"}]}`), &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if got.Agents[0].Role != "agent" {
+		t.Fatalf("role = %q, want agent", got.Agents[0].Role)
+	}
+	data, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if strings.Contains(string(data), `"primary"`) || !strings.Contains(string(data), `"role":"agent"`) {
+		t.Fatalf("migrated manifest = %s", data)
+	}
 }
 
 func TestManifest_UnmarshalJSON_EmptyExtraRemainsEmpty(t *testing.T) {
@@ -207,7 +227,7 @@ func TestManifest_UnmarshalJSON_LargeExtraRoundTrip(t *testing.T) {
 func TestManifest_UnmarshalJSON_SanitizesResumeIDsOnce(t *testing.T) {
 	t.Parallel()
 
-	input := `{"session_id":"qm-sanitize","agents":[{"name":"claude","role":"primary","cli":"/usr/local/bin/claude","resume_id":"bad/path","window":1}],"claude_session_id":"sess-*","codex_thread_id":"valid-thread-1","pi_session_id":"../pi","opencode_session_id":"ses_0fe71403bffelkVzqKPjzrKxTZ"}`
+	input := `{"session_id":"qm-sanitize","agents":[{"name":"claude","role":"agent","cli":"/usr/local/bin/claude","resume_id":"bad/path","window":1}],"claude_session_id":"sess-*","codex_thread_id":"valid-thread-1","pi_session_id":"../pi","opencode_session_id":"ses_0fe71403bffelkVzqKPjzrKxTZ"}`
 
 	var got Manifest
 	if err := json.Unmarshal([]byte(input), &got); err != nil {

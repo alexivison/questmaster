@@ -44,8 +44,8 @@ func TestEvaluateReadsStateJSON(t *testing.T) {
 	root := setStateRoot(t)
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 	writeFixtureState(t, root, "qm-abc", map[string]map[string]any{
-		"primary": {
-			"role":       "primary",
+		"agent": {
+			"role":       "agent",
 			"agent":      "claude",
 			"state":      "working",
 			"activity":   "Edit foo.go",
@@ -55,12 +55,12 @@ func TestEvaluateReadsStateJSON(t *testing.T) {
 	}, now)
 
 	results := Evaluate([]Observation{{
-		Key:       PrimaryKey("qm-abc"),
+		Key:       AgentKey("qm-abc"),
 		SessionID: "qm-abc",
 		Enabled:   true,
 	}})
 
-	got := results[PrimaryKey("qm-abc")]
+	got := results[AgentKey("qm-abc")]
 	if got.State != "working" {
 		t.Fatalf("state = %q, want working", got.State)
 	}
@@ -87,7 +87,7 @@ func TestFromStateCarriesNarrationAndOnlyLiveCast(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result := FromState(&state.SessionState{Panes: map[string]state.PaneState{
-				"primary": {
+				"agent": {
 					Agent: "codex", State: tc.state, Narration: "Latest answer",
 					RunningTools: []state.RunningTool{{CallID: "call-1", Tool: "Bash", StartedAt: startedAt}},
 				},
@@ -109,12 +109,12 @@ func TestEvaluateMissingStateJSONReturnsUnknown(t *testing.T) {
 	setStateRoot(t)
 
 	results := Evaluate([]Observation{{
-		Key:       PrimaryKey("qm-no-state"),
+		Key:       AgentKey("qm-no-state"),
 		SessionID: "qm-no-state",
 		Enabled:   true,
 	}})
 
-	got := results[PrimaryKey("qm-no-state")]
+	got := results[AgentKey("qm-no-state")]
 	if got.State != "unknown" {
 		t.Fatalf("state = %q, want unknown", got.State)
 	}
@@ -130,8 +130,8 @@ func TestEvaluateOldWorkingPreservesState(t *testing.T) {
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 	lastEvent := now.Add(-90 * time.Second)
 	writeFixtureState(t, root, "qm-old-working", map[string]map[string]any{
-		"primary": {
-			"role":       "primary",
+		"agent": {
+			"role":       "agent",
 			"agent":      "codex",
 			"state":      "working",
 			"activity":   "Bash: long test",
@@ -141,12 +141,12 @@ func TestEvaluateOldWorkingPreservesState(t *testing.T) {
 	}, now)
 
 	results := Evaluate([]Observation{{
-		Key:       PrimaryKey("qm-old-working"),
+		Key:       AgentKey("qm-old-working"),
 		SessionID: "qm-old-working",
 		Enabled:   true,
 	}})
 
-	got := results[PrimaryKey("qm-old-working")]
+	got := results[AgentKey("qm-old-working")]
 	if got.State != "working" {
 		t.Fatalf("old working pane → state = %q, want working", got.State)
 	}
@@ -162,8 +162,8 @@ func TestEvaluateOldIdleStaysIdle(t *testing.T) {
 	root := setStateRoot(t)
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 	writeFixtureState(t, root, "qm-idle", map[string]map[string]any{
-		"primary": {
-			"role":          "primary",
+		"agent": {
+			"role":          "agent",
 			"agent":         "claude",
 			"state":         "idle",
 			"last_event":    now.Add(-10 * time.Minute),
@@ -172,10 +172,10 @@ func TestEvaluateOldIdleStaysIdle(t *testing.T) {
 	}, now)
 
 	got := Evaluate([]Observation{{
-		Key:       PrimaryKey("qm-idle"),
+		Key:       AgentKey("qm-idle"),
 		SessionID: "qm-idle",
 		Enabled:   true,
-	}})[PrimaryKey("qm-idle")]
+	}})[AgentKey("qm-idle")]
 
 	if got.State != "idle" {
 		t.Fatalf("idle pane should keep state; got %q", got.State)
@@ -189,10 +189,10 @@ func TestEvaluateDisabledReturnsStopped(t *testing.T) {
 	setStateRoot(t)
 
 	got := Evaluate([]Observation{{
-		Key:       PrimaryKey("qm-disabled"),
+		Key:       AgentKey("qm-disabled"),
 		SessionID: "qm-disabled",
 		Enabled:   false,
-	}})[PrimaryKey("qm-disabled")]
+	}})[AgentKey("qm-disabled")]
 
 	if got.State != "stopped" {
 		t.Fatalf("disabled observation → state = %q, want stopped", got.State)
@@ -248,8 +248,8 @@ func TestEvaluateRoundTripsWorkingSince(t *testing.T) {
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 	workingSince := now.Add(-30 * time.Second)
 	writeFixtureState(t, root, "qm-ws", map[string]map[string]any{
-		"primary": {
-			"role":          "primary",
+		"agent": {
+			"role":          "agent",
 			"agent":         "claude",
 			"state":         "working",
 			"activity":      "Edit foo.go",
@@ -260,10 +260,10 @@ func TestEvaluateRoundTripsWorkingSince(t *testing.T) {
 	}, now)
 
 	got := Evaluate([]Observation{{
-		Key:       PrimaryKey("qm-ws"),
+		Key:       AgentKey("qm-ws"),
 		SessionID: "qm-ws",
 		Enabled:   true,
-	}})[PrimaryKey("qm-ws")]
+	}})[AgentKey("qm-ws")]
 
 	if !got.WorkingSince.Equal(workingSince) {
 		t.Fatalf("WorkingSince = %v, want %v", got.WorkingSince, workingSince)
@@ -279,8 +279,8 @@ func TestEvaluateNormalizesLegacyStartingActivity(t *testing.T) {
 	root := setStateRoot(t)
 	now := time.Date(2026, time.May, 20, 12, 0, 0, 0, time.UTC)
 	writeFixtureState(t, root, "qm-legacy-start", map[string]map[string]any{
-		"primary": {
-			"role":       "primary",
+		"agent": {
+			"role":       "agent",
 			"agent":      "claude",
 			"state":      "starting",
 			"activity":   "starting…",
@@ -290,10 +290,10 @@ func TestEvaluateNormalizesLegacyStartingActivity(t *testing.T) {
 	}, now)
 
 	got := Evaluate([]Observation{{
-		Key:       PrimaryKey("qm-legacy-start"),
+		Key:       AgentKey("qm-legacy-start"),
 		SessionID: "qm-legacy-start",
 		Enabled:   true,
-	}})[PrimaryKey("qm-legacy-start")]
+	}})[AgentKey("qm-legacy-start")]
 
 	if got.State != "starting" {
 		t.Fatalf("state = %q, want starting", got.State)

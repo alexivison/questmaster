@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	// WindowWorkspace is the single tmux window that hosts the primary pane
+	// WindowWorkspace is the single tmux window that hosts the agent pane
 	// (and any additional panes, e.g. an adopted shell) for every session type.
 	WindowWorkspace = 0
 
@@ -29,8 +29,8 @@ const (
 	PaneBorderStatusTop = "top"
 
 	// Pane role values stored under PaneRoleOption.
-	RolePrimary = "primary"
-	RoleShell   = "shell"
+	RoleAgent = "agent"
+	RoleShell = "shell"
 )
 
 // WindowTarget returns the tmux target string "session:window".

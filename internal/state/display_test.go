@@ -218,7 +218,7 @@ func TestStoreSetDisplayColorIgnoresWorkers(t *testing.T) {
 	}
 	worker := Manifest{
 		SessionID: "qm-worker",
-		Agents:    []AgentManifest{{Name: "claude", Role: "primary"}},
+		Agents:    []AgentManifest{{Name: "claude", Role: "agent"}},
 		Display:   &DisplayMetadata{Color: "cyan"},
 	}
 	worker.SetExtra("parent_session", "qm-master")

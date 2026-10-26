@@ -463,7 +463,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		Agent:     "claude",
 		AgentID:   payload.AgentID,
 		AgentType: payload.AgentType,
-		Role:      "primary",
+		Role:      "agent",
 		Action:    opts.action,
 	}
 
@@ -494,7 +494,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		setActivity = "started"
 		lastKind = "SessionStart"
 	case "working":
-		// UserPromptSubmit marks the primary pane as working at turn start.
+		// UserPromptSubmit marks the agent pane as working at turn start.
 		setState = "working"
 		if isTaskNotification(payload.Prompt) {
 			setActivity = "Background agent resumed"
@@ -610,7 +610,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 	suppressFinalMessage := false
 	var completed *completedTool
 	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
-		role := "primary"
+		role := "agent"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
 		if !exists {
@@ -1433,7 +1433,7 @@ func loadCodexRollout(r *HookRunner, sessionID, transcriptPath string) (codexRol
 		return rollout, err
 	}
 	if ss != nil {
-		pane := ss.Panes["primary"]
+		pane := ss.Panes["agent"]
 		rollout.previousPath = pane.CodexTranscriptPath
 		rollout.previousOffset = pane.CodexTranscriptOffset
 		rollout.previousSkipping = pane.CodexTranscriptSkippingLine
@@ -1594,13 +1594,13 @@ func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time
 			return false
 		}
 
-		ev := state.StateEvent{Ts: now, Agent: "codex", Role: "primary", Action: "rollout"}
+		ev := state.StateEvent{Ts: now, Agent: "codex", Role: "agent", Action: "rollout"}
 		conflict := false
 		committed := false
 		_, err = r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
-			pane, ok := ss.Panes["primary"]
+			pane, ok := ss.Panes["agent"]
 			if !ok {
-				pane = state.PaneState{Role: "primary", Agent: "codex"}
+				pane = state.PaneState{Role: "agent", Agent: "codex"}
 			}
 			if pane.CodexTranscriptPath != rollout.previousPath || pane.CodexTranscriptOffset != rollout.previousOffset || pane.CodexTranscriptSkippingLine != rollout.previousSkipping {
 				conflict = true
@@ -1613,7 +1613,7 @@ func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time
 				addChatEntryAt(&ev, &pane, "say", item.text, item.timestamp)
 			}
 			ss.SeenAt = now
-			ss.Panes["primary"] = pane
+			ss.Panes["agent"] = pane
 			committed = true
 			return true
 		})
@@ -1629,12 +1629,12 @@ func retryCodexRollout(r *HookRunner, sessionID, transcriptPath string, now time
 }
 
 func catchUpCodexRolloutUnderLock(r *HookRunner, sessionID, transcriptPath string, now time.Time, stderr io.Writer) {
-	ev := state.StateEvent{Ts: now, Agent: "codex", Role: "primary", Action: "rollout"}
+	ev := state.StateEvent{Ts: now, Agent: "codex", Role: "agent", Action: "rollout"}
 	var readErr error
 	_, updateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
-		pane, ok := ss.Panes["primary"]
+		pane, ok := ss.Panes["agent"]
 		if !ok {
-			pane = state.PaneState{Role: "primary", Agent: "codex"}
+			pane = state.PaneState{Role: "agent", Agent: "codex"}
 		}
 		offset := pane.CodexTranscriptOffset
 		skipping := pane.CodexTranscriptSkippingLine
@@ -1657,7 +1657,7 @@ func catchUpCodexRolloutUnderLock(r *HookRunner, sessionID, transcriptPath strin
 			addChatEntryAt(&ev, &pane, "say", item.text, item.timestamp)
 		}
 		ss.SeenAt = now
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		return true
 	})
 	if readErr != nil {
@@ -1688,7 +1688,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		Agent:     "codex",
 		AgentID:   payload.AgentID,
 		AgentType: payload.AgentType,
-		Role:      "primary",
+		Role:      "agent",
 		Action:    opts.action,
 	}
 
@@ -1755,7 +1755,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 	}
 	var completed *completedTool
 	appendErr, mutateErr := r.updateAndLog(sessionID, &ev, func(ss *state.SessionState) bool {
-		role := "primary"
+		role := "agent"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
 		if !exists {
@@ -1941,7 +1941,7 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 				skipTmuxEnv = true
 			}
 			if adopt || succession || !persisted {
-				tagPrimary := false
+				tagAgent := false
 				nextCwd := ""
 				if adopt || succession {
 					nextCwd, _ = os.Getwd()
@@ -1949,21 +1949,21 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 				if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 					if len(m.Agents) == 0 {
 						m.Agents = []state.AgentManifest{{
-							Name: agent, Role: "primary", CLI: agent,
+							Name: agent, Role: "agent", CLI: agent,
 							ResumeID: value, Window: tmux.WindowWorkspace,
 						}}
 						if nextCwd != "" {
 							m.Cwd = nextCwd
 						}
 						m.SetExtra(adoptedPaneManifestKey, tmuxPane)
-						tagPrimary = tmuxPane != ""
+						tagAgent = tmuxPane != ""
 					} else if succession && !manifestTracksAgent(*m, agent) {
 						lockedPane, ok := manifestAdoptedPane(*m)
 						if !ok || tmuxPane == "" || lockedPane != tmuxPane {
 							return
 						}
 						m.Agents = []state.AgentManifest{{
-							Name: agent, Role: "primary", CLI: agent,
+							Name: agent, Role: "agent", CLI: agent,
 							ResumeID: value, Window: tmux.WindowWorkspace,
 						}}
 						if nextCwd != "" {
@@ -1971,7 +1971,7 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 						}
 						m.SetExtra(adoptedPaneManifestKey, tmuxPane)
 						m.SetExtra(titleProvisionalExtraKey, "1")
-						tagPrimary = true
+						tagAgent = true
 					}
 					if !manifestTracksAgent(*m, agent) {
 						return
@@ -1985,8 +1985,8 @@ func captureResumeID(ctx context.Context, r *HookRunner, stderr io.Writer, sessi
 				}); err != nil {
 					fmt.Fprintf(stderr, "questmaster hook %s: update manifest: %v\n", agent, err)
 				}
-				if tagPrimary && r.TmuxClient != nil {
-					if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RolePrimary); err != nil {
+				if tagAgent && r.TmuxClient != nil {
+					if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RoleAgent); err != nil {
 						fmt.Fprintf(stderr, "questmaster hook %s: tag adopted pane: %v\n", agent, err)
 					}
 				}
@@ -2436,7 +2436,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 	ev := &state.StateEvent{
 		Ts:       now,
 		Agent:    agentName,
-		Role:     "primary",
+		Role:     "agent",
 		Action:   opts.action,
 		State:    setState,
 		Activity: setActivity,
@@ -2465,7 +2465,7 @@ func preparePiLike(r *HookRunner, sessionID string, opts hookOptions, stderr io.
 		ev.Fields = fields
 	}
 	mutate := func(ss *state.SessionState) bool {
-		role := "primary"
+		role := "agent"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
 		if !exists {

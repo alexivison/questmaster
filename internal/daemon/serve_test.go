@@ -41,7 +41,7 @@ func TestDaemonSocketSharesServeRequestsAndSubscriptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-demo", Title: "first", Cwd: root, SessionType: "master", Agents: []state.AgentManifest{{Name: "codex", Role: "primary"}}}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-demo", Title: "first", Cwd: root, SessionType: "master", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	artifactPath := filepath.Join(root, "report.html")

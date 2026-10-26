@@ -55,7 +55,7 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 				if err != nil {
 					return err
 				}
-				resumeIDs, err = opts.agentFlags.ResolveResumeIDs(registry)
+				resumeIDs, err = opts.agentFlags.ResolveResumeIDs(registry, cmd.Flags().Changed("resume-agent"))
 				if err != nil {
 					return err
 				}
@@ -119,12 +119,12 @@ func newStartCmd(store *state.Store, client *tmux.Client, repoRoot string) *cobr
 	cmd.Flags().StringVar(&opts.masterID, "master-id", "", "parent master session ID (for worker spawn)")
 	opts.agentFlags.AddFlags(cmd)
 	cmd.Flags().StringVar(&opts.displayColor, "color", "", "session display color")
-	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the primary agent")
+	cmd.Flags().StringVar(&opts.prompt, "prompt", "", "initial prompt for the agent")
 	cmd.Flags().StringVar(&opts.promptFile, "prompt-file", "", "read initial prompt from a file, or '-' for stdin")
 	cmd.Flags().BoolVar(&opts.attach, "attach", false, "attach to session after creation")
 	cmd.Flags().BoolVar(&opts.fromApp, "from-app", false, "deprecated compatibility no-op")
-	cmd.Flags().StringVar(&opts.model, "model", "", "override the primary agent model")
-	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override the primary agent reasoning effort (valid levels depend on the primary harness; OpenCode requires 1.17.15+)")
+	cmd.Flags().StringVar(&opts.model, "model", "", "override the agent model")
+	cmd.Flags().StringVar(&opts.reasoningEffort, "reasoning-effort", "", "override agent reasoning effort (valid levels depend on the agent harness; OpenCode requires 1.17.15+)")
 	// Keep attach opt-in so scripts can create detached sessions by default.
 	addDeprecatedLayoutFlag(cmd)
 

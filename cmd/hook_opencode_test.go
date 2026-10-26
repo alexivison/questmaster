@@ -23,7 +23,7 @@ func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
 
 	r, rec := newTestRunner(t)
 	store := newManifestStoreStub(sessionID, nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: 1}}
+	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", Window: 1}}
 	tmuxStub := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxStub
@@ -34,7 +34,7 @@ func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
 		t.Fatalf("stderr: %q", stderr)
 	}
 
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	wantSessionID := "ses_0fe71403bffelkVzqKPjzrKxTZ"
 	if pane.State != "starting" || pane.Activity != "Session created" || pane.OpenCodeSessionID != wantSessionID {
 		t.Fatalf("pane after session.created: %+v", pane)
@@ -83,7 +83,7 @@ func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing
 		t.Fatalf("agents = %+v, want one adopted agent", store.manifest.Agents)
 	}
 	agent := store.manifest.Agents[0]
-	if agent.Name != "opencode" || agent.Role != "primary" || agent.CLI != "opencode" ||
+	if agent.Name != "opencode" || agent.Role != "agent" || agent.CLI != "opencode" ||
 		agent.ResumeID != "ses_adopt" || agent.Window != tmux.WindowWorkspace {
 		t.Fatalf("adopted agent = %+v", agent)
 	}
@@ -96,7 +96,7 @@ func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing
 	if store.manifest.Cwd != adoptedCwd {
 		t.Fatalf("adopted cwd = %q, want %q", store.manifest.Cwd, adoptedCwd)
 	}
-	if len(tmuxStub.paneOptionCalls) != 1 || tmuxStub.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%9", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
+	if len(tmuxStub.paneOptionCalls) != 1 || tmuxStub.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%9", key: tmux.PaneRoleOption, value: tmux.RoleAgent}) {
 		t.Fatalf("pane option calls: %+v", tmuxStub.paneOptionCalls)
 	}
 	if len(tmuxStub.calls) != 1 || tmuxStub.calls[0] != (tmuxEnvCall{session: sessionID, key: "OPENCODE_SESSION_ID", value: "ses_adopt"}) {
@@ -134,7 +134,7 @@ func TestHookOpenCodeLeavesPersistedAgentManifestUntouched(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%9")
 	store := newManifestStoreStub(sessionID, map[string]string{"opencode_session_id": "ses_existing"})
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "opencode", Role: "primary", CLI: "opencode", ResumeID: "ses_existing", Window: tmux.WindowWorkspace,
+		Name: "opencode", Role: "agent", CLI: "opencode", ResumeID: "ses_existing", Window: tmux.WindowWorkspace,
 	}}
 	tmuxStub := &tmuxEnvStub{}
 	r.Store = store
@@ -168,7 +168,7 @@ func TestHookOpenCodeLeavesDifferentAgentManifestUntouched(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%9")
 	store := newManifestStoreStub(sessionID, nil)
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+		Name: "codex", Role: "agent", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxStub := &tmuxEnvStub{}
 	r.Store = store
@@ -206,7 +206,7 @@ func TestHookOpenCodeSamePaneSuccession(t *testing.T) {
 	})
 	store.manifest.Cwd = "/old"
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+		Name: "codex", Role: "agent", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
 	}}
 	newCwd := t.TempDir()
 	t.Chdir(newCwd)
@@ -221,7 +221,7 @@ func TestHookOpenCodeSamePaneSuccession(t *testing.T) {
 		t.Fatalf("agents = %+v, want one successor", store.manifest.Agents)
 	}
 	agent := store.manifest.Agents[0]
-	if agent.Name != "opencode" || agent.Role != "primary" || agent.CLI != "opencode" ||
+	if agent.Name != "opencode" || agent.Role != "agent" || agent.CLI != "opencode" ||
 		agent.ResumeID != "ses_opencode" || agent.Window != tmux.WindowWorkspace {
 		t.Fatalf("successor agent = %+v", agent)
 	}
@@ -253,7 +253,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 		"sessionID": "ses_mapping",
 		"status":    map[string]interface{}{"type": "busy"},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Fatalf("busy state = %q, want working", pane.State)
 	}
@@ -262,7 +262,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 		"sessionID": "ses_mapping",
 		"tool":      "bash",
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.Tool != "bash" || pane.Activity != "Tool: bash" {
 		t.Fatalf("tool before pane: %+v", pane)
 	}
@@ -271,7 +271,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 		"sessionID":  "ses_mapping",
 		"permission": map[string]interface{}{"id": "perm_bash", "tool": "bash"},
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "blocked" || pane.Activity != "Permission: perm_bash" {
 		t.Fatalf("permission pane: %+v", pane)
 	}
@@ -279,7 +279,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{
 		"sessionID": "ses_mapping",
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "blocked" {
 		t.Fatalf("idle must not clear permission block: %+v", pane)
 	}
@@ -288,7 +288,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 		"sessionID":  "ses_mapping",
 		"permission": map[string]interface{}{"id": "perm_bash", "action": "allow"},
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.Activity != "Permission replied" {
 		t.Fatalf("permission replied pane: %+v", pane)
 	}
@@ -297,7 +297,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 		"sessionID": "ses_mapping",
 		"tool":      "bash",
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.Tool != "" || pane.Activity != "Tool done: bash" {
 		t.Fatalf("tool after pane: %+v", pane)
 	}
@@ -310,7 +310,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 			"messageID": "msg_assistant",
 		},
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.Activity == "first line" {
 		t.Fatalf("part text must not surface before message.updated confirms the role: %+v", pane)
 	}
@@ -319,7 +319,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 		"sessionID": "ses_mapping",
 		"info":      map[string]interface{}{"id": "msg_assistant", "role": "assistant"},
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.Activity != "first line" || len(pane.Recent) != 2 || pane.Recent[1] != "second line" {
 		t.Fatalf("assistant part pane after message.updated: %+v", pane)
 	}
@@ -327,7 +327,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{
 		"sessionID": "ses_mapping",
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "done" || pane.Tool != "" || pane.LastKind != "session.idle" {
 		t.Fatalf("final done pane: %+v", pane)
 	}
@@ -336,7 +336,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 		"sessionID": "ses_mapping",
 		"status":    map[string]interface{}{"type": "idle"},
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "done" || pane.LastKind != "session.idle" {
 		t.Fatalf("idle status must not demote fresh done pane: %+v", pane)
 	}
@@ -384,7 +384,7 @@ func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
 		"sessionID": ocSession,
 		"info":      map[string]interface{}{"id": "msg_final", "role": "assistant"},
 	})
-	if got := rec.lastState.Panes["primary"].PendingFinalMessage; got != finalText {
+	if got := rec.lastState.Panes["agent"].PendingFinalMessage; got != finalText {
 		t.Fatalf("pending OpenCode final message = %q", got)
 	}
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": ocSession})
@@ -392,7 +392,7 @@ func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
 	if chatTextFor(finalEvent, "message") != finalText || !slices.Contains(chatKinds(finalEvent), "status") {
 		t.Fatalf("OpenCode final feed event = %+v", finalEvent)
 	}
-	if rec.lastState.Panes["primary"].PendingFinalMessage != "" {
+	if rec.lastState.Panes["agent"].PendingFinalMessage != "" {
 		t.Fatal("OpenCode final message was not cleared after done")
 	}
 
@@ -402,8 +402,8 @@ func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
 	})
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": ocSession})
 	permissionIdle := rec.events[len(rec.events)-1]
-	if len(chatEntries(permissionIdle)) != 0 || rec.lastState.Panes["primary"].State != "blocked" {
-		t.Fatalf("idle during permission emitted chat or cleared block: event=%+v pane=%+v", permissionIdle, rec.lastState.Panes["primary"])
+	if len(chatEntries(permissionIdle)) != 0 || rec.lastState.Panes["agent"].State != "blocked" {
+		t.Fatalf("idle during permission emitted chat or cleared block: event=%+v pane=%+v", permissionIdle, rec.lastState.Panes["agent"])
 	}
 }
 
@@ -412,7 +412,7 @@ func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 	sessionID := "qm-opencode-one-session"
 	cleanupRuntimeDir(t, sessionID)
 	store := newManifestStoreStub(sessionID, nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "primary", CLI: "opencode", Window: 1}}
+	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", Window: 1}}
 	tmuxStub := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxStub
@@ -423,7 +423,7 @@ func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 		"sessionID": current,
 		"status":    map[string]interface{}{"type": "busy"},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.OpenCodeSessionID != current {
 		t.Fatalf("initial pane: %+v", pane)
 	}
@@ -440,7 +440,7 @@ func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 	})
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{"sessionID": other})
 
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.Activity == "Session created" || pane.OpenCodeSessionID != current {
 		t.Fatalf("foreign session mutated pane: %+v", pane)
 	}
@@ -469,7 +469,7 @@ func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
 			"messageID": "msg_assistant",
 		},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.Activity != "Thinking: Let me search for that." {
 		t.Fatalf("reasoning pane: %+v", pane)
 	}
@@ -485,7 +485,7 @@ func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
 			},
 		},
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.Tool != "websearch" || pane.Activity != "Web: interesting facts about Finland" {
 		t.Fatalf("websearch pane: %+v", pane)
 	}
@@ -501,7 +501,7 @@ func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
 			},
 		},
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.Tool != "bash" || pane.Activity != "Bash: rg status_view ~/.config/opencode" {
 		t.Fatalf("bash running pane: %+v", pane)
 	}
@@ -517,7 +517,7 @@ func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
 			},
 		},
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.Tool != "" || pane.Activity != "Done: Bash: rg status_view ~/.config/opencode" {
 		t.Fatalf("bash completed pane: %+v", pane)
 	}
@@ -539,7 +539,7 @@ func TestHookOpenCodeCompletedPartDoesNotClearParallelToolCasts(t *testing.T) {
 			"args": map[string]interface{}{"command": "go test ./..."},
 		})
 	}
-	if got := len(rec.lastState.Panes["primary"].RunningTools); got != 2 {
+	if got := len(rec.lastState.Panes["agent"].RunningTools); got != 2 {
 		t.Fatalf("running tools before part update = %d, want 2", got)
 	}
 
@@ -550,7 +550,7 @@ func TestHookOpenCodeCompletedPartDoesNotClearParallelToolCasts(t *testing.T) {
 			"state": map[string]interface{}{"status": "completed", "input": map[string]interface{}{"command": "go test ./..."}},
 		},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if len(pane.RunningTools) != 2 || pane.Tool != "read" {
 		t.Fatalf("completed part cleared parallel casts or lost fallback: %+v", pane)
 	}
@@ -558,7 +558,7 @@ func TestHookOpenCodeCompletedPartDoesNotClearParallelToolCasts(t *testing.T) {
 	openCodeHookEvent(t, r, sessionID, "tool.execute.after", map[string]interface{}{
 		"tool": "bash", "sessionID": ocSession, "callID": "call-1",
 	})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if len(pane.RunningTools) != 1 || pane.RunningTools[0].CallID != "call-2" || pane.Tool != "read" {
 		t.Fatalf("tool after did not preserve the parallel cast: %+v", pane)
 	}
@@ -584,7 +584,7 @@ func TestHookOpenCodeErrorPartEndsCallWithoutLearningDuration(t *testing.T) {
 			"state": map[string]interface{}{"status": "error", "input": map[string]interface{}{"command": "go test ./..."}},
 		},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.Tool != "" || len(pane.RunningTools) != 0 || !strings.HasPrefix(pane.Activity, "Failed: ") {
 		t.Fatalf("failed tool part pane = %+v, want call ended without stale cast", pane)
 	}
@@ -603,7 +603,7 @@ func TestHookOpenCodeOutOfOrderAfterBeforeNeedsPluginSerialization(t *testing.T)
 	openCodeHookEvent(t, r, sessionID, "tool.execute.before", map[string]interface{}{
 		"tool": "bash", "sessionID": ocSession, "callID": "call-1",
 	})
-	if pane := rec.lastState.Panes["primary"]; len(pane.RunningTools) != 1 || pane.Tool != "bash" {
+	if pane := rec.lastState.Panes["agent"]; len(pane.RunningTools) != 1 || pane.Tool != "bash" {
 		t.Fatalf("out-of-order events = %+v, want a stale cast (plugin queue prevents this live)", pane)
 	}
 }
@@ -617,7 +617,7 @@ func TestHookOpenCodeDoneUsesSharedDoneToIdleGrace(t *testing.T) {
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{
 		"sessionID": "ses_done_grace",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "done" {
 		t.Fatalf("session.idle state = %q, want done", pane.State)
 	}
@@ -644,8 +644,8 @@ func TestHookOpenCodeDoneUsesSharedDoneToIdleGrace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load state: %v", err)
 	}
-	if got.Panes["primary"].State != "idle" {
-		t.Fatalf("state after grace = %q, want idle", got.Panes["primary"].State)
+	if got.Panes["agent"].State != "idle" {
+		t.Fatalf("state after grace = %q, want idle", got.Panes["agent"].State)
 	}
 }
 
@@ -657,7 +657,7 @@ func TestHookOpenCodeMapsSessionErrorToBlocked(t *testing.T) {
 		"sessionID": "ses_error",
 		"message":   "simulated provider error",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "blocked" || pane.Activity != "Error: simulated provider error" {
 		t.Fatalf("error pane: %+v", pane)
 	}
@@ -685,7 +685,7 @@ func TestHookOpenCodeToolAfterDoesNotRegressIdleState(t *testing.T) {
 		"sessionID": "ses_ooo",
 		"tool":      "bash",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "done" {
 		t.Fatalf("out-of-order tool.after state = %q, want done (pane=%+v)", pane.State, pane)
 	}
@@ -720,7 +720,7 @@ func TestHookOpenCodeUserPromptLeavesActivityUnchanged(t *testing.T) {
 		SessionID: "qm-opencode-prompt",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "opencode", State: "starting", Activity: previousActivity},
+			"agent": {Role: "agent", Agent: "opencode", State: "starting", Activity: previousActivity},
 		},
 	}
 	openCodeHookEvent(t, r, "qm-opencode-prompt", "session.status", map[string]interface{}{
@@ -734,7 +734,7 @@ func TestHookOpenCodeUserPromptLeavesActivityUnchanged(t *testing.T) {
 	openCodeHookEvent(t, r, "qm-opencode-prompt", "message.updated", map[string]interface{}{
 		"info": map[string]interface{}{"id": "user-message", "role": "user"},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Fatalf("state = %q, want working", pane.State)
 	}
@@ -757,12 +757,12 @@ func TestHookOpenCodeFixtureIgnoresUserPromptRecordsAssistantText(t *testing.T) 
 			continue
 		}
 		// At no point may the user's relayed prompt become the worker's activity.
-		if got := rec.lastState.Panes["primary"].Activity; strings.HasPrefix(got, userPromptPrefix) {
+		if got := rec.lastState.Panes["agent"].Activity; strings.HasPrefix(got, userPromptPrefix) {
 			t.Fatalf("user prompt surfaced as activity: %q", got)
 		}
 	}
 
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.Activity != "QM_SPIKE_OK" {
 		t.Fatalf("final activity = %q, want assistant text QM_SPIKE_OK", pane.Activity)
 	}

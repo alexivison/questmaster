@@ -33,10 +33,10 @@ type StartOpts struct {
 	SystemBrief string
 	Detached    bool
 	FromApp     bool
-	// Model overrides the primary agent's model. Empty leaves the role
+	// Model overrides the agent's model. Empty leaves the role
 	// default in place.
 	Model string
-	// ReasoningEffort overrides the primary agent's reasoning effort. Empty
+	// ReasoningEffort overrides the agent's reasoning effort. Empty
 	// leaves the role default in place.
 	ReasoningEffort string
 }
@@ -102,7 +102,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 
 		bindings = registry.Bindings()
 		if len(bindings) == 0 {
-			return StartResult{}, fmt.Errorf("resolve session roles: primary role is not configured")
+			return StartResult{}, fmt.Errorf("resolve session roles: agent role is not configured")
 		}
 
 		resolvedModel := opts.Model
@@ -114,7 +114,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			if !ok {
 				return StartResult{}, agentBinaryNotFoundError(binding.Agent)
 			}
-			if binding.Role == agent.RolePrimary {
+			if binding.Role == agent.RoleAgent {
 				if resolvedModel == "" || resolvedReasoningEffort == "" {
 					if def, ok, _ := state.NewRoleDefaultsStore(s.Store.Root()).Get(binding.Agent.Name(), agent.RoleDefaultsKey(agentRole)); ok {
 						if resolvedModel == "" {
@@ -133,7 +133,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 					return StartResult{}, err
 				}
 			}
-			if binding.Role == agent.RolePrimary && binding.Agent.Name() == "opencode" && opts.ReasoningEffort != "" {
+			if binding.Role == agent.RoleAgent && binding.Agent.Name() == "opencode" && opts.ReasoningEffort != "" {
 				if err := agent.ValidateOpenCodeReasoningVersion(cli); err != nil {
 					return StartResult{}, err
 				}
@@ -155,7 +155,7 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 			brief := ""
 			model := ""
 			reasoningEffort := ""
-			if binding.Role == agent.RolePrimary {
+			if binding.Role == agent.RoleAgent {
 				prompt = opts.Prompt
 				brief = workerParentBrief(opts.MasterID, opts.SystemBrief)
 				model = resolvedModel
@@ -405,7 +405,7 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest) (
 
 // persistResumeIDs writes resume IDs to the runtime directory.
 func (s *Service) persistResumeIDs(rtDir string, resume map[agent.Role]resumeInfo) error {
-	info, ok := resume[agent.RolePrimary]
+	info, ok := resume[agent.RoleAgent]
 	if !ok || info.resumeID == "" || info.provider == nil {
 		return nil
 	}
@@ -418,7 +418,7 @@ func (s *Service) persistResumeIDs(rtDir string, resume map[agent.Role]resumeInf
 
 // setResumeEnv sets resume ID env vars in the tmux session.
 func (s *Service) setResumeEnv(ctx context.Context, sessionID string, resume map[agent.Role]resumeInfo) error {
-	info, ok := resume[agent.RolePrimary]
+	info, ok := resume[agent.RoleAgent]
 	if !ok || info.resumeID == "" || info.provider == nil {
 		return nil
 	}
@@ -486,7 +486,7 @@ fi
 # Best-effort: persist Pi's real session UUID before removing the runtime dir.
 activity="$HSR/$W/state.json"
 if [ -n "$HSR" ] && [ -f "$activity" ] && [ -f "$SR/$W.json" ] && command -v jq >/dev/null 2>&1; then
-  sf=$(jq -r 'select(.version == 1) | (.panes.primary.pi_session_id // .panes.primary.session_file // empty)' "$activity" 2>/dev/null || true)
+  sf=$(jq -r 'select(.version == 1) | (.panes.agent.pi_session_id // .panes.agent.session_file // .panes.primary.pi_session_id // .panes.primary.session_file // empty)' "$activity" 2>/dev/null || true)
   base=${sf##*/}
   pi_session_id=
   case "$base" in

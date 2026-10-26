@@ -74,7 +74,7 @@ func handleOpenCode(r *HookRunner, sessionID string, opts hookOptions, stderr io
 	ev := state.StateEvent{
 		Ts:       now,
 		Agent:    "opencode",
-		Role:     "primary",
+		Role:     "agent",
 		Action:   patch.kind,
 		State:    patch.state,
 		Activity: patch.activity,
@@ -222,7 +222,7 @@ func updateOpenCodePane(r *HookRunner, sessionID string, now time.Time, patch op
 		if !patch.mutatesState() {
 			return false
 		}
-		role := "primary"
+		role := "agent"
 		ss.SeenAt = now
 		pane, exists := ss.Panes[role]
 		if !exists {

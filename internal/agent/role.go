@@ -4,7 +4,7 @@ package agent
 type Role string
 
 const (
-	RolePrimary Role = "primary"
+	RoleAgent Role = "agent"
 )
 
 // RoleBinding maps a role to an agent.

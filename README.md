@@ -13,7 +13,7 @@ Questmaster.app is the intended human client. The CLI is an agent-first and auto
 - macOS or Linux.
 - A Go 1.25.x-capable toolchain. The module declares `go 1.25.7`; older Go versions may only work when toolchain auto-download is enabled.
 - `tmux` on `PATH` (`brew install tmux`, `apt install tmux`, or your distro package manager).
-- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.11 or newer, or [`pi`](https://pi.dev/docs/latest/quickstart). A plain `questmaster start` uses `claude` by default, so install `claude` first or pass `--primary` when starting/spawning with another primary.
+- Install and authenticate at least one agent CLI: [`claude`](https://docs.anthropic.com/en/docs/claude-code/setup), [`codex`](https://developers.openai.com/codex/cli), [`opencode`](https://opencode.ai/) 1.17.11 or newer, or [`pi`](https://pi.dev/docs/latest/quickstart). A plain `questmaster start` uses `claude` by default, so install `claude` first or pass `--agent` when starting/spawning with another agent.
 - For non-standard install paths, set `CLAUDE_BIN`, `CODEX_BIN`, `OPENCODE_BIN`, or `PI_BIN`. Otherwise questmaster checks the current `PATH` plus `QUESTMASTER_PATH_PREFIX`, `~/.local/bin`, and `/opt/homebrew/bin`, then the user's interactive login-shell `PATH`, then built-in fallback paths like `/opt/homebrew/bin/codex`.
 
 ## Install
@@ -23,7 +23,7 @@ go install github.com/alexivison/questmaster@latest
 questmaster version
 ```
 
-`go install` creates the primary `questmaster` binary only. If you want the optional short alias, create it yourself after installation:
+`go install` creates the `questmaster` binary only. If you want the optional short alias, create it yourself after installation:
 
 ```sh
 mkdir -p ~/.local/bin
@@ -50,7 +50,7 @@ These commands are intended for scripts, agents, and backend debugging. For norm
 
 ```sh
 questmaster start "fix-login-flow"
-questmaster start --primary codex "release-triage"
+questmaster start --agent codex "release-triage"
 questmaster spawn qm-master123 "smoke-test-worker" --prompt "Investigate the failing smoke test"
 questmaster send qm-worker123 "Try a smaller test case."
 questmaster send master "done: fixed parser edge case; regression test passes"
@@ -72,6 +72,14 @@ questmaster pr unwatch owner/repo#42 --session qm-worker123
 ```
 
 `pr` accepts `owner/repo#number` or an HTTPS pull request URL on any host. Watches belong to sessions and disappear when their session is deleted or pruned. `pr watch`, `pr unwatch`, and `pr ls` emit JSON. `pr ls --all` lists every live watch.
+
+Session roles use `agent` for the session's main agent. The CLI accepts
+`--agent`; `--primary` has been removed. Existing manifests with role
+`primary` and `state.json` files with a `panes.primary` entry are normalized
+when read, and the next write stores `agent`. Existing live tmux panes tagged
+`@party_role=primary` remain addressable by send/read. Newly created or
+respawned panes are tagged `agent`. Historical `state.jsonl` entries are left
+as written.
 
 Subcommands are agent-first: most lifecycle, messaging, list, and status commands emit JSON for noninteractive success output. Utility commands such as `version`, `agent query`, `hooks`, and `artifact` use text; `questmaster read --text` prints raw pane text.
 

@@ -106,7 +106,7 @@ func CapText(text string) string {
 	return text
 }
 
-// RecordChatEntryAt appends a feed entry and advances the primary pane's chat timestamp.
+// RecordChatEntryAt appends a feed entry and advances the agent pane's chat timestamp.
 func RecordChatEntryAt(root, sessionID, kind, text string, at time.Time) error {
 	if !validChatKind(kind) {
 		return fmt.Errorf("invalid chat kind %q", kind)
@@ -123,12 +123,12 @@ func RecordChatEntryAt(root, sessionID, kind, text string, at time.Time) error {
 		if chatText == "" {
 			return false
 		}
-		pane, ok := ss.Panes["primary"]
+		pane, ok := ss.Panes["agent"]
 		if !ok {
-			pane = state.PaneState{Role: "primary"}
+			pane = state.PaneState{Role: "agent"}
 		}
 		pane.LastChatAt = event.Ts
-		ss.Panes["primary"] = pane
+		ss.Panes["agent"] = pane
 		ss.SeenAt = event.Ts
 		return true
 	})

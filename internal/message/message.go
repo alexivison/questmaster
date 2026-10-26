@@ -23,7 +23,7 @@ import (
 // LargeMessageThreshold is the character count above which messages use file indirection.
 const LargeMessageThreshold = 200
 
-const primaryRole = "primary"
+const agentRole = "agent"
 
 // Service provides messaging operations between questmaster sessions.
 type Service struct {
@@ -44,7 +44,7 @@ type WorkerInfo struct {
 	Title     string `json:"title"`
 }
 
-// Relay sends an unattributed external message to a session's primary pane.
+// Relay sends an unattributed external message to a session's agent pane.
 func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 	if err := s.validateRelayTarget(workerID); err != nil {
 		return err
@@ -56,16 +56,16 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 		return err
 	}
 
-	target, err := s.client.ResolveRole(ctx, workerID, primaryRole, tmux.WindowWorkspace)
+	target, err := s.client.ResolveRole(ctx, workerID, agentRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
+		return fmt.Errorf("resolve agent pane in %q: %w", workerID, err)
 	}
 
 	const prefix = "[FROM:external] "
 	return s.deliver(ctx, workerID, target, prefix+message, peerPointer, prefix)
 }
 
-// RelayFrom sends a message to a worker's primary pane with sender provenance.
+// RelayFrom sends a message to a worker's agent pane with sender provenance.
 func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message string) error {
 	if !state.IsValidSessionID(senderID) {
 		return fmt.Errorf("invalid sender id: %q", senderID)
@@ -85,9 +85,9 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 		return err
 	}
 
-	target, err := s.client.ResolveRole(ctx, targetID, primaryRole, tmux.WindowWorkspace)
+	target, err := s.client.ResolveRole(ctx, targetID, agentRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve primary pane in %q: %w", targetID, err)
+		return fmt.Errorf("resolve agent pane in %q: %w", targetID, err)
 	}
 
 	prefix := recipientPrefix(senderID, sender, recipient)
@@ -147,7 +147,7 @@ func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
 	if err := rejectPlainSession(m, sessionID); err != nil {
 		return err
 	}
-	if primaryAgentName(m) != "opencode" {
+	if manifestAgentName(m) != "opencode" {
 		return nil
 	}
 	ss, err := state.LoadSessionState(sessionID)
@@ -187,7 +187,7 @@ func (s *Service) BroadcastFrom(ctx context.Context, senderID, masterID, message
 
 // broadcastTo delivers a logical message to every live worker,
 // aggregating per-worker failures. Dead workers (no tmux session) are a
-// legitimate state and skipped silently. Live workers whose primary pane cannot
+// legitimate state and skipped silently. Live workers whose agent pane cannot
 // be resolved, whose send fails, or whose liveness check hits a transport error
 // are surfaced via the returned error so a zero- or partial-delivery broadcast is
 // never silent — matching the error-returning behavior of Relay.
@@ -212,9 +212,9 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 			errs = append(errs, fmt.Errorf("read recipient manifest %s: %w", wid, err))
 			continue
 		}
-		target, err := s.client.ResolveRole(ctx, wid, primaryRole, tmux.WindowWorkspace)
+		target, err := s.client.ResolveRole(ctx, wid, agentRole, tmux.WindowWorkspace)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("resolve primary pane in %q: %w", wid, err))
+			errs = append(errs, fmt.Errorf("resolve agent pane in %q: %w", wid, err))
 			continue
 		}
 		prefix := recipientPrefix(senderID, sender, recipient)
@@ -232,7 +232,7 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 	return result, errors.Join(errs...)
 }
 
-// Read captures output from a worker's primary pane.
+// Read captures output from a worker's agent pane.
 func (s *Service) Read(ctx context.Context, workerID string, lines int) (string, error) {
 	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
 		return "", err
@@ -251,30 +251,30 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 		return strings.Join(cleanRawPaneLines(raw, lines), "\n"), nil
 	}
 
-	primary := primaryAgentName(m)
-	if isHookActivityAgent(primary) && lines > 0 {
-		if output, ok := readHookActivityOutput(workerID, lines, primary); ok {
+	agent := manifestAgentName(m)
+	if isHookActivityAgent(agent) && lines > 0 {
+		if output, ok := readHookActivityOutput(workerID, lines, agent); ok {
 			return output, nil
 		}
 	}
 
-	target, err := s.client.ResolveRole(ctx, workerID, primaryRole, tmux.WindowWorkspace)
+	target, err := s.client.ResolveRole(ctx, workerID, agentRole, tmux.WindowWorkspace)
 	if err != nil {
-		return "", fmt.Errorf("resolve primary pane in %q: %w", workerID, err)
+		return "", fmt.Errorf("resolve agent pane in %q: %w", workerID, err)
 	}
 
 	raw, err := s.client.Capture(ctx, target, lines)
 	if err != nil {
 		return "", err
 	}
-	if isPiLikeAgent(primary) {
+	if isPiLikeAgent(agent) {
 		return formatPiRawPaneOutput(raw, lines), nil
 	}
-	filtered := filterPrimaryPaneLines(m, raw, lines)
+	filtered := filterAgentPaneLines(m, raw, lines)
 	return strings.Join(filtered, "\n"), nil
 }
 
-// Report sends a report-back message from a worker to its master's primary pane.
+// Report sends a report-back message from a worker to its master's agent pane.
 func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 	m, err := s.store.Read(sessionID)
 	if err != nil {
@@ -300,9 +300,9 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		return err
 	}
 
-	target, err := s.client.ResolveRole(ctx, parent, primaryRole, tmux.WindowWorkspace)
+	target, err := s.client.ResolveRole(ctx, parent, agentRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve primary pane in master %q: %w", parent, err)
+		return fmt.Errorf("resolve agent pane in master %q: %w", parent, err)
 	}
 
 	prefix := senderPrefix(sessionID)
@@ -457,7 +457,7 @@ func readHookActivityOutput(sessionID string, lines int, agent string) (string, 
 	if err != nil || ss == nil || ss.Version != state.SchemaVersion {
 		return "", false
 	}
-	pane, ok := ss.Panes[primaryRole]
+	pane, ok := ss.Panes[agentRole]
 	if !ok || (pane.Agent != "" && !sameHookActivityAgent(pane.Agent, agent)) {
 		return "", false
 	}
@@ -499,8 +499,8 @@ func tailLines(lines []string, max int) []string {
 	return lines
 }
 
-func filterPrimaryPaneLines(m state.Manifest, raw string, lines int) []string {
-	if agent.UsesCodexFilter(primaryAgentName(m)) {
+func filterAgentPaneLines(m state.Manifest, raw string, lines int) []string {
+	if agent.UsesCodexFilter(manifestAgentName(m)) {
 		return tmux.FilterCodexLines(raw, lines)
 	}
 	return tmux.FilterAgentLines(raw, lines)
@@ -524,9 +524,9 @@ func sameHookActivityAgent(paneAgent, manifestAgent string) bool {
 	return isPiLikeAgent(paneAgent) && isPiLikeAgent(manifestAgent)
 }
 
-func primaryAgentName(m state.Manifest) string {
+func manifestAgentName(m state.Manifest) string {
 	for _, spec := range m.Agents {
-		if spec.Role == primaryRole && spec.Name != "" {
+		if spec.Role == agentRole && spec.Name != "" {
 			return spec.Name
 		}
 	}

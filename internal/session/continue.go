@@ -108,7 +108,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 
 			launchAgents[role] = provider
 			brief := ""
-			if role == agent.RolePrimary && agentRole == agent.RoleWorker {
+			if role == agent.RoleAgent && agentRole == agent.RoleWorker {
 				brief = workerParentBrief(m.ExtraString("parent_session"), "")
 			}
 			agentCmds[role] = provider.BuildCmd(agent.CmdOpts{
@@ -269,17 +269,17 @@ func orderedManifestAgents(m state.Manifest) ([]state.AgentManifest, error) {
 	for _, spec := range m.Agents {
 		role := agent.Role(spec.Role)
 		switch role {
-		case agent.RolePrimary:
+		case agent.RoleAgent:
 			indexed[role] = spec
 		default:
 			continue
 		}
 	}
 
-	if _, ok := indexed[agent.RolePrimary]; !ok {
-		return nil, fmt.Errorf("manifest is missing a primary agent")
+	if _, ok := indexed[agent.RoleAgent]; !ok {
+		return nil, fmt.Errorf("manifest is missing an agent")
 	}
 
-	ordered := []state.AgentManifest{indexed[agent.RolePrimary]}
+	ordered := []state.AgentManifest{indexed[agent.RoleAgent]}
 	return ordered, nil
 }

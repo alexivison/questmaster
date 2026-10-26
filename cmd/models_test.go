@@ -69,7 +69,7 @@ func TestModelsCmdTextAndRecents(t *testing.T) {
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-recent",
 		Cwd:       t.TempDir(),
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary", Model: "gpt-9-unreleased"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent", Model: "gpt-9-unreleased"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestModelsCmdRejectsInvalidRole(t *testing.T) {
 	store := setupStore(t)
 	runner := idleRunner()
 
-	for _, role := range []string{"wrker", "standalone", "primary"} {
+	for _, role := range []string{"wrker", "standalone", "agent"} {
 		if _, err := runCmdErr(t, store, runner, "models", "claude", "--role", role); err == nil {
 			t.Fatalf("expected an error for invalid --role %q", role)
 		}

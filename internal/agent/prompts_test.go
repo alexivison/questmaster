@@ -27,7 +27,7 @@ func TestMasterPromptHarnessGuideAssembledFromDescriptions(t *testing.T) {
 		t.Errorf("stub should be omitted from the harness guide:\n%s", got)
 	}
 	// The shared role framing must still be present.
-	if !strings.Contains(got, "being a master does not mean every task needs a worker") || !strings.Contains(got, "Set --primary only when another harness is a clear fit") {
+	if !strings.Contains(got, "being a master does not mean every task needs a worker") || !strings.Contains(got, "Set --agent only when another harness is a clear fit") {
 		t.Errorf("master prompt lost its shared role framing")
 	}
 	if strings.Contains(got, "promote") {

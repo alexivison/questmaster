@@ -308,7 +308,7 @@ func TestHookClaudeMessageDisplay(t *testing.T) {
 			}
 			var lastChatAt time.Time
 			if rec.lastState != nil {
-				lastChatAt = rec.lastState.Panes["primary"].LastChatAt
+				lastChatAt = rec.lastState.Panes["agent"].LastChatAt
 			}
 			if len(tc.wantSay)+len(tc.wantMessage) == 0 {
 				if !lastChatAt.IsZero() {
@@ -532,7 +532,7 @@ func TestHookClaudeSayIgnoresActionFromDifferentTurn(t *testing.T) {
 	runHookWithStdin(r, "claude", "tool_start", "qm-chat", map[string]interface{}{"prompt_id": "old-turn", "tool_use_id": "old-read", "tool_name": "Read"})
 	now = now.Add(time.Millisecond)
 	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt_id": "new-turn"})
-	if got := rec.lastState.Panes["primary"].ClaudeOpenChatActions; len(got) != 0 {
+	if got := rec.lastState.Panes["agent"].ClaudeOpenChatActions; len(got) != 0 {
 		t.Fatalf("UserPromptSubmit left open actions: %#v", got)
 	}
 	now = now.Add(time.Millisecond)
@@ -561,7 +561,7 @@ func TestHookClaudeStopClearsOpenActions(t *testing.T) {
 	})
 	now = now.Add(time.Millisecond)
 	runHookWithStdin(r, "claude", "done", "qm-chat", map[string]interface{}{"prompt_id": "stop-turn"})
-	if got := rec.lastState.Panes["primary"].ClaudeOpenChatActions; len(got) != 0 {
+	if got := rec.lastState.Panes["agent"].ClaudeOpenChatActions; len(got) != 0 {
 		t.Fatalf("Stop left open actions: %#v", got)
 	}
 }
@@ -577,8 +577,8 @@ func newClaudeChatFeedRunner(t *testing.T, store *state.Store, start time.Time, 
 	}
 	seed := state.StateEvent{Ts: start, Agent: "claude", Action: "test_seed"}
 	if err := state.UpdateAndLogAt(root, "qm-w1", &seed, func(ss *state.SessionState) bool {
-		ss.Panes["primary"] = state.PaneState{
-			Role: "primary", Agent: "claude", State: "working", LastChatStatus: "working", ClaudePromptID: promptID,
+		ss.Panes["agent"] = state.PaneState{
+			Role: "agent", Agent: "claude", State: "working", LastChatStatus: "working", ClaudePromptID: promptID,
 		}
 		return true
 	}); err != nil {
@@ -650,7 +650,7 @@ func TestHookCodexLargeChatEventsStayWithinReaderWindow(t *testing.T) {
 		t.Fatalf("chat entries = %d, want 300", entries)
 	}
 	ss, err := state.LoadSessionStateAt(root, "qm-chat")
-	if err != nil || ss == nil || ss.Panes["primary"].LastChatAt.IsZero() {
+	if err != nil || ss == nil || ss.Panes["agent"].LastChatAt.IsZero() {
 		t.Fatalf("LastChatAt not committed with split lines: state=%#v err=%v", ss, err)
 	}
 	t.Logf("split 300 chat entries across %d lines; max line %d bytes", len(lines), maxLineBytes)
@@ -667,7 +667,7 @@ func TestHookClaudeClearsAbandonedDisplayAtLifecycleBoundary(t *testing.T) {
 				payload["last_assistant_message"] = "complete final"
 			}
 			runHookWithStdin(r, "claude", action, "qm-chat", payload)
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if pane.ClaudeDisplayMessageID != "" || len(pane.ClaudeDisplayChunks) != 0 {
 				t.Fatalf("pending display remained after %s: %+v", action, pane)
 			}
@@ -681,7 +681,7 @@ func TestHookClaudeDoesNotAccumulateLateDisplayAfterStop(t *testing.T) {
 	runHookWithStdin(r, "claude", "say", "qm-chat", map[string]interface{}{
 		"message_id": "late", "prompt_id": "p1", "transcript_path": "/tmp/t.jsonl", "index": 0, "delta": "partial",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.ClaudeDisplayMessageID != "" || len(pane.ClaudeDisplayChunks) != 0 {
 		t.Fatalf("late display remained in pane state: %+v", pane)
 	}
@@ -851,7 +851,7 @@ func TestHookCodexRolloutPathChangeAndSubagentExclusion(t *testing.T) {
 	appendCodexRollout(t, child, codexCommentaryLine("child text"))
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
-		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: first, CodexTranscriptOffset: 10_000},
+		"agent": {Role: "agent", Agent: "codex", CodexTranscriptPath: first, CodexTranscriptOffset: 10_000},
 	}}
 	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": second})
 	var narration []string
@@ -863,14 +863,14 @@ func TestHookCodexRolloutPathChangeAndSubagentExclusion(t *testing.T) {
 	if !slices.Equal(narration, []string{"new parent rollout", "another narration"}) {
 		t.Fatalf("path-change narration = %q", narration)
 	}
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.CodexTranscriptPath != second {
 		t.Fatalf("stored path = %q, want %q", pane.CodexTranscriptPath, second)
 	}
 	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"agent_id": "task-1", "transcript_path": child})
 	last := rec.events[len(rec.events)-1]
-	if len(chatEntries(last)) != 0 || rec.lastState.Panes["primary"].CodexTranscriptPath != second {
-		t.Fatalf("subagent rollout changed feed or offset: event=%+v pane=%+v", last, rec.lastState.Panes["primary"])
+	if len(chatEntries(last)) != 0 || rec.lastState.Panes["agent"].CodexTranscriptPath != second {
+		t.Fatalf("subagent rollout changed feed or offset: event=%+v pane=%+v", last, rec.lastState.Panes["agent"])
 	}
 }
 
@@ -881,16 +881,16 @@ func TestHookCodexRetriesWhenRolloutOffsetChangesDuringRead(t *testing.T) {
 	appendCodexRollout(t, path, first)
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
-		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: path},
+		"agent": {Role: "agent", Agent: "codex", CodexTranscriptPath: path},
 	}}
 	firstCommit := true
 	r.Update = func(sessionID string, mutate func(*state.SessionState) bool) error {
 		rec.updateCalls++
 		if firstCommit {
 			firstCommit = false
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			pane.CodexTranscriptOffset = int64(len(first) + 1)
-			rec.lastState.Panes["primary"] = pane
+			rec.lastState.Panes["agent"] = pane
 			appendCodexRollout(t, path, second)
 		}
 		if mutate(rec.lastState) {
@@ -911,7 +911,7 @@ func TestHookCodexRetriesWhenRolloutOffsetChangesDuringRead(t *testing.T) {
 	if !slices.Equal(narration, []string{"appended during overlap"}) {
 		t.Fatalf("overlapping hook narration = %q", narration)
 	}
-	if got := rec.lastState.Panes["primary"].CodexTranscriptOffset; got != int64(len(first+"\n"+second+"\n")) {
+	if got := rec.lastState.Panes["agent"].CodexTranscriptOffset; got != int64(len(first+"\n"+second+"\n")) {
 		t.Fatalf("stored offset = %d, want %d", got, len(first+"\n"+second+"\n"))
 	}
 }
@@ -922,7 +922,7 @@ func TestHookCodexStopCatchesUpAfterRepeatedRolloutConflicts(t *testing.T) {
 	appendCodexRollout(t, path, rolloutLine("seed"))
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{SessionID: "qm-codex", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
-		"primary": {Role: "primary", Agent: "codex", CodexTranscriptPath: path},
+		"agent": {Role: "agent", Agent: "codex", CodexTranscriptPath: path},
 	}}
 	conflicts := []string{"after stop", "after retry 1", "after retry 2", "after retry 3"}
 	updateCalls := 0
@@ -933,9 +933,9 @@ func TestHookCodexStopCatchesUpAfterRepeatedRolloutConflicts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			pane.CodexTranscriptOffset = info.Size()
-			rec.lastState.Panes["primary"] = pane
+			rec.lastState.Panes["agent"] = pane
 			appendCodexRollout(t, path, rolloutLine(conflicts[updateCalls-1]))
 		}
 		if mutate(rec.lastState) {
@@ -966,7 +966,7 @@ func TestHookCodexStopCatchesUpAfterRepeatedRolloutConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := rec.lastState.Panes["primary"].CodexTranscriptOffset; got != info.Size() {
+	if got := rec.lastState.Panes["agent"].CodexTranscriptOffset; got != info.Size() {
 		t.Fatalf("stored offset = %d, want end of rollout %d", got, info.Size())
 	}
 }
@@ -975,15 +975,15 @@ func TestHookCodexMissingAndRotatedRollout(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
-	if rec.lastState.Panes["primary"].CodexTranscriptPath != path {
-		t.Fatalf("missing rollout path = %q", rec.lastState.Panes["primary"].CodexTranscriptPath)
+	if rec.lastState.Panes["agent"].CodexTranscriptPath != path {
+		t.Fatalf("missing rollout path = %q", rec.lastState.Panes["agent"].CodexTranscriptPath)
 	}
 	appendCodexRollout(t, path, codexCommentaryLine("first"))
 	runHookWithStdin(r, "codex", "tool_end", "qm-codex", map[string]interface{}{"transcript_path": path})
 	if got := chatTextFor(rec.events[len(rec.events)-1], "say"); got != "first" {
 		t.Fatalf("first rollout narration = %q", got)
 	}
-	oldOffset := rec.lastState.Panes["primary"].CodexTranscriptOffset
+	oldOffset := rec.lastState.Panes["agent"].CodexTranscriptOffset
 	short := codexCommentaryLine("new") + "\n"
 	if err := os.WriteFile(path, []byte(short), 0o600); err != nil {
 		t.Fatal(err)
@@ -1056,7 +1056,7 @@ func TestHookClaudeTaskNotificationDoesNotExposePrompt(t *testing.T) {
 	r, rec := newTestRunner(t)
 	prompt := "<task-notification>private task details</task-notification>"
 	runHookWithStdin(r, "claude", "working", "qm-chat", map[string]interface{}{"prompt": prompt})
-	if got := rec.lastState.Panes["primary"].Activity; got != "Background agent resumed" {
+	if got := rec.lastState.Panes["agent"].Activity; got != "Background agent resumed" {
 		t.Fatalf("notification activity = %q", got)
 	}
 	if strings.Contains(rec.events[0].Activity, prompt) || strings.Contains(rec.events[0].Activity, "private task details") {
@@ -1067,7 +1067,7 @@ func TestHookClaudeTaskNotificationDoesNotExposePrompt(t *testing.T) {
 func TestHookChatStatusDedupesAcrossStarting(t *testing.T) {
 	r, rec := newTestRunner(t)
 	rec.lastState = &state.SessionState{SessionID: "qm-chat", Version: state.SchemaVersion, Panes: map[string]state.PaneState{
-		"primary": {Role: "primary", Agent: "claude", State: "starting", LastChatStatus: "working"},
+		"agent": {Role: "agent", Agent: "claude", State: "starting", LastChatStatus: "working"},
 	}}
 	for _, action := range []string{"working", "blocked", "blocked", "done"} {
 		runHookWithStdin(r, "claude", action, "qm-chat", map[string]interface{}{"last_assistant_message": "finished"})
@@ -1305,7 +1305,7 @@ func TestHookStartingSnippetIsStarted(t *testing.T) {
 			if stderr != "" {
 				t.Fatalf("stderr: %q", stderr)
 			}
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if pane.State != "starting" {
 				t.Fatalf("state = %q, want starting", pane.State)
 			}
@@ -1325,7 +1325,7 @@ func TestHookClaudeStartingSetsState(t *testing.T) {
 	if rec.updateCalls != 1 || rec.writeCalls != 1 {
 		t.Errorf("want one update+write, got %d/%d", rec.updateCalls, rec.writeCalls)
 	}
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "starting" || pane.Activity != "started" || pane.LastKind != "SessionStart" {
 		t.Errorf("starting pane: %+v", pane)
 	}
@@ -1335,7 +1335,7 @@ func TestHookClaudeStrayStartingDoesNotRegressWorkingPane(t *testing.T) {
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "claude", "starting", "qm-abc", nil)
 	runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{"prompt": "do the thing"})
-	if got := rec.lastState.Panes["primary"].State; got != "working" {
+	if got := rec.lastState.Panes["agent"].State; got != "working" {
 		t.Fatalf("setup: pane state = %q, want working", got)
 	}
 
@@ -1343,7 +1343,7 @@ func TestHookClaudeStrayStartingDoesNotRegressWorkingPane(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr: %q", stderr)
 	}
-	if got := rec.lastState.Panes["primary"].State; got != "working" {
+	if got := rec.lastState.Panes["agent"].State; got != "working" {
 		t.Errorf("stray SessionStart regressed pane state to %q, want working", got)
 	}
 }
@@ -1354,7 +1354,7 @@ func TestHookClaudeStartingAllowedAfterStopped(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "stopped", LastKind: "SessionEnd"},
+			"agent": {Role: "agent", Agent: "claude", State: "stopped", LastKind: "SessionEnd"},
 		},
 	}
 
@@ -1362,7 +1362,7 @@ func TestHookClaudeStartingAllowedAfterStopped(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr: %q", stderr)
 	}
-	if got := rec.lastState.Panes["primary"].State; got != "starting" {
+	if got := rec.lastState.Panes["agent"].State; got != "starting" {
 		t.Errorf("genuine resume: pane state = %q, want starting", got)
 	}
 }
@@ -1373,13 +1373,13 @@ func TestHookClaudeUserPromptSubmit(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "starting", Activity: "started"},
+			"agent": {Role: "agent", Agent: "claude", State: "starting", Activity: "started"},
 		},
 	}
 	runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{
 		"prompt": "What's the time?\nSecond line ignored",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Errorf("want state=working, got %q", pane.State)
 	}
@@ -1397,11 +1397,11 @@ func TestHookCodexUserPromptSubmitLeavesActivityUnchanged(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "codex", State: "idle", Activity: "previous activity"},
+			"agent": {Role: "agent", Agent: "codex", State: "idle", Activity: "previous activity"},
 		},
 	}
 	runHookWithStdin(r, "codex", "working", "qm-abc", map[string]interface{}{"prompt": "keep this prompt private"})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Fatalf("state = %q, want working", pane.State)
 	}
@@ -1419,24 +1419,24 @@ func TestHookPiBeforeAgentStartLeavesActivityUnchanged(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "pi", State: "starting", Activity: "started"},
+			"agent": {Role: "agent", Agent: "pi", State: "starting", Activity: "started"},
 		},
 	}
 	runHookWithStdin(r, "pi", "session_start", "qm-abc", map[string]interface{}{"prompt": "session prompt"})
-	if got := rec.lastState.Panes["primary"].Activity; got != "started" {
+	if got := rec.lastState.Panes["agent"].Activity; got != "started" {
 		t.Fatalf("session_start activity = %q, want started", got)
 	}
 	runHookWithStdin(r, "pi", "before_agent_start", "qm-abc", map[string]interface{}{"prompt": "keep this prompt private"})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.Activity != "started" {
 		t.Fatalf("before_agent_start activity = %q, want previous value %q", pane.Activity, "started")
 	}
 	runHookWithStdin(r, "pi", "before_agent_start", "qm-abc", map[string]interface{}{"text": "private fallback prompt"})
-	if got := rec.lastState.Panes["primary"].Activity; got != "started" {
+	if got := rec.lastState.Panes["agent"].Activity; got != "started" {
 		t.Fatalf("before_agent_start fallback activity = %q, want previous value %q", got, "started")
 	}
 	runHookWithStdin(r, "pi", "agent_start", "qm-abc", nil)
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.Activity != "started" {
 		t.Fatalf("agent_start pane = %+v, want working with previous activity", pane)
 	}
@@ -1448,7 +1448,7 @@ func TestHookClaudePreToolUseEdit(t *testing.T) {
 		"tool_name":  "Edit",
 		"tool_input": map[string]interface{}{"file_path": "/long/path/to/foo.go"},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Errorf("state: %q", pane.State)
 	}
@@ -1469,7 +1469,7 @@ func TestHookClaudePreToolUseBashStripsEnvAssignments(t *testing.T) {
 		"tool_name":  "Bash",
 		"tool_input": map[string]interface{}{"command": "OPENAI_API_KEY=sk-xxx do-thing arg1 arg2"},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if strings.Contains(pane.Activity, "sk-xxx") {
 		t.Errorf("leaked env value into Activity: %q", pane.Activity)
 	}
@@ -1485,8 +1485,8 @@ func TestHookClaudeToolStartWritesChatTimestamp(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {
-				Role:         "primary",
+			"agent": {
+				Role:         "agent",
 				Agent:        "claude",
 				State:        "working",
 				Activity:     "Edit: foo.go",
@@ -1511,7 +1511,7 @@ func TestHookClaudeToolStartWritesChatTimestamp(t *testing.T) {
 	if rec.writeCalls != 1 {
 		t.Fatalf("writeCalls = %d, want 1 for LastChatAt", rec.writeCalls)
 	}
-	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+	if got := rec.lastState.Panes["agent"].LastChatAt; !got.Equal(r.Now()) {
 		t.Fatalf("LastChatAt = %s, want %s", got, r.Now())
 	}
 	if len(rec.events) != 1 {
@@ -1526,11 +1526,11 @@ func TestHookClaudePostToolUseDoesNotClobberActivity(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse"},
+			"agent": {Role: "agent", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse"},
 		},
 	}
 	runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "Edit"})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.Activity != "Edit: foo.go" {
 		t.Errorf("PostToolUse clobbered activity: %q", pane.Activity)
 	}
@@ -1550,8 +1550,8 @@ func TestHookClaudeToolFailureClosesToolAndPreventsBackdating(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {
-				Role: "primary", Agent: "claude", State: "working", Activity: "Read: file.go", Tool: "Read",
+			"agent": {
+				Role: "agent", Agent: "claude", State: "working", Activity: "Read: file.go", Tool: "Read",
 				ClaudePromptID: "failure-turn",
 				ClaudeOpenChatActions: []state.ClaudeOpenChatAction{{
 					ToolUseID: "read-failed", PromptID: "failure-turn", StartedAt: base,
@@ -1568,7 +1568,7 @@ func TestHookClaudeToolFailureClosesToolAndPreventsBackdating(t *testing.T) {
 	if entries := chatEntries(rec.events[len(rec.events)-1]); len(entries) != 0 {
 		t.Fatalf("failed tool end added chat entries: %#v", entries)
 	}
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.Tool != "" {
 		t.Fatalf("tool = %q, want cleared", pane.Tool)
 	}
@@ -1606,12 +1606,12 @@ func TestHookClaudePostToolUseClearsStaleNotificationActivity(t *testing.T) {
 	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Permission needed: edit /repo/foo.go",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if !strings.HasPrefix(pane.Activity, "Notification: ") {
 		t.Fatalf("precondition: Notification did not overwrite Activity, got %q", pane.Activity)
 	}
 	runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "Edit"})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.Activity != "" {
 		t.Errorf("PostToolUse left stale Notification snippet: %q", pane.Activity)
 	}
@@ -1629,7 +1629,7 @@ func TestHookClaudeStopReadsTranscriptTail(t *testing.T) {
 	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{
 		"transcript_path": "/tmp/whatever.jsonl",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "done" {
 		t.Errorf("state: %q", pane.State)
 	}
@@ -1655,7 +1655,7 @@ func TestHookClaudeStopPrefersLastAssistantMessage(t *testing.T) {
 		"transcript_path":        "/tmp/whatever.jsonl",
 		"last_assistant_message": "Why do Finns make great secret agents?",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "done" {
 		t.Errorf("state: %q", pane.State)
 	}
@@ -1672,7 +1672,7 @@ func TestHookClaudeStopFallsBackToTranscriptTail(t *testing.T) {
 	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{
 		"transcript_path": "/tmp/whatever.jsonl",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.Activity != "from transcript" {
 		t.Errorf("activity: %q, want 'from transcript'", pane.Activity)
 	}
@@ -1685,7 +1685,7 @@ func TestHookClaudeStopWithMissingTranscriptStillSucceeds(t *testing.T) {
 	r, rec := newTestRunner(t)
 	// LoadTranscriptTail in newTestRunner returns rec.transcriptTail (nil by default).
 	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{"transcript_path": "/nope.jsonl"})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "done" {
 		t.Errorf("state: %q", pane.State)
 	}
@@ -1700,7 +1700,7 @@ func TestHookClaudeSubagentSuppressesParentState(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", LastKind: "PreToolUse"},
+			"agent": {Role: "agent", Agent: "claude", State: "working", Activity: "Edit: foo.go", LastKind: "PreToolUse"},
 		},
 	}
 	// Subagent Stop must not flip parent to done.
@@ -1708,7 +1708,7 @@ func TestHookClaudeSubagentSuppressesParentState(t *testing.T) {
 		"agent_id":        "task-42",
 		"transcript_path": "/tmp/whatever.jsonl",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Errorf("subagent should not flip parent State: got %q", pane.State)
 	}
@@ -1723,7 +1723,7 @@ func TestHookClaudeSubagentToolEventDoesNotFlipAlreadyWorkingParentState(t *test
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "old", LastKind: "PreToolUse"},
+			"agent": {Role: "agent", Agent: "claude", State: "working", Activity: "old", LastKind: "PreToolUse"},
 		},
 	}
 	runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
@@ -1731,7 +1731,7 @@ func TestHookClaudeSubagentToolEventDoesNotFlipAlreadyWorkingParentState(t *test
 		"tool_name":  "Read",
 		"tool_input": map[string]interface{}{"file_path": "/x/y.go"},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Errorf("subagent tool_start on an already-working parent should not touch State: got %q", pane.State)
 	}
@@ -1751,7 +1751,7 @@ func TestHookClaudeSubagentToolEventRecoversParentStateFromIdle(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "idle", Activity: "old", LastKind: "Stop"},
+			"agent": {Role: "agent", Agent: "claude", State: "idle", Activity: "old", LastKind: "Stop"},
 		},
 	}
 	runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
@@ -1759,7 +1759,7 @@ func TestHookClaudeSubagentToolEventRecoversParentStateFromIdle(t *testing.T) {
 		"tool_name":  "Read",
 		"tool_input": map[string]interface{}{"file_path": "/x/y.go"},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Errorf("subagent tool_start should recover parent State from idle to working: got %q", pane.State)
 	}
@@ -1774,7 +1774,7 @@ func TestHookClaudeSubagentStopDoesNotChangePane(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse"},
+			"agent": {Role: "agent", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse"},
 		},
 	}
 	runHookWithStdin(r, "claude", "subagent_stop", "qm-abc", map[string]interface{}{
@@ -1782,7 +1782,7 @@ func TestHookClaudeSubagentStopDoesNotChangePane(t *testing.T) {
 		"agent_type": "general-purpose",
 		"result":     "Reviewed 12 files.\nDetails follow…",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Errorf("subagent_stop should never change State, got %q", pane.State)
 	}
@@ -1817,7 +1817,7 @@ func TestHookClaudeAskUserQuestionShowsQuestionSnippet(t *testing.T) {
 			},
 		},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "blocked" {
 		t.Errorf("state: %q, want blocked", pane.State)
 	}
@@ -1835,13 +1835,13 @@ func TestHookClaudeAskUserQuestionNotificationPreservesQuestionActivity(t *testi
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "blocked", Activity: "Question: What is your favorite color?", Tool: "AskUserQuestion", LastKind: "PreToolUse"},
+			"agent": {Role: "agent", Agent: "claude", State: "blocked", Activity: "Question: What is your favorite color?", Tool: "AskUserQuestion", LastKind: "PreToolUse"},
 		},
 	}
 	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Claude needs your permission",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.Activity != "Question: What is your favorite color?" {
 		t.Errorf("Notification clobbered Question activity: %q", pane.Activity)
 	}
@@ -1855,7 +1855,7 @@ func TestHookClaudeBlocked(t *testing.T) {
 	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Permission needed: edit /etc/hosts",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "blocked" {
 		t.Errorf("state: %q", pane.State)
 	}
@@ -1907,7 +1907,7 @@ func TestStopReadsAssistantBeyond4KB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	pane := ss.Panes["primary"]
+	pane := ss.Panes["agent"]
 	if pane.State != "done" {
 		t.Errorf("state: %q", pane.State)
 	}
@@ -1926,13 +1926,13 @@ func TestNotificationIdleDoesNotFlipState(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "claude", State: "done", Activity: "All done.", LastKind: "Stop"},
+			"agent": {Role: "agent", Agent: "claude", State: "done", Activity: "All done.", LastKind: "Stop"},
 		},
 	}
 	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Claude is waiting for your input",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "done" {
 		t.Errorf("idle-waiting Notification should not flip State, got %q", pane.State)
 	}
@@ -1951,7 +1951,7 @@ func TestNotificationGenuineFlipsBlocked(t *testing.T) {
 	runHookWithStdin(r, "claude", "blocked", "qm-abc", map[string]interface{}{
 		"message": "Permission required for X",
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "blocked" {
 		t.Errorf("genuine Notification should flip blocked, got %q", pane.State)
 	}
@@ -2022,7 +2022,7 @@ func TestHookClaudeSessionIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	t.Setenv("CLAUDE_SESSION_ID", "claude-session-1")
 	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
+		Name: "claude", Role: "agent", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2105,7 +2105,7 @@ func TestHookClaudeManifestWriteFailureStillCompletes(t *testing.T) {
 	if len(rec.events) != 1 {
 		t.Fatalf("event log writes: got %d, want 1", len(rec.events))
 	}
-	if rec.lastState == nil || rec.lastState.Panes["primary"].State != "starting" {
+	if rec.lastState == nil || rec.lastState.Panes["agent"].State != "starting" {
 		t.Fatalf("state update did not complete: %+v", rec.lastState)
 	}
 }
@@ -2126,7 +2126,7 @@ func TestHookClaudeTmuxEnvFailureStillCompletes(t *testing.T) {
 	if len(rec.events) != 1 {
 		t.Fatalf("event log writes: got %d, want 1", len(rec.events))
 	}
-	if rec.lastState == nil || rec.lastState.Panes["primary"].State != "starting" {
+	if rec.lastState == nil || rec.lastState.Panes["agent"].State != "starting" {
 		t.Fatalf("state update did not complete: %+v", rec.lastState)
 	}
 }
@@ -2234,7 +2234,7 @@ func TestHookClaudeSessionStartAdoptsAgentlessManifestAndTagsPane(t *testing.T) 
 		t.Fatalf("agents = %+v, want one adopted agent", store.manifest.Agents)
 	}
 	agent := store.manifest.Agents[0]
-	if agent.Name != "claude" || agent.Role != "primary" || agent.CLI != "claude" ||
+	if agent.Name != "claude" || agent.Role != "agent" || agent.CLI != "claude" ||
 		agent.ResumeID != "claude-session-1" || agent.Window != tmux.WindowWorkspace {
 		t.Fatalf("adopted agent = %+v", agent)
 	}
@@ -2247,7 +2247,7 @@ func TestHookClaudeSessionStartAdoptsAgentlessManifestAndTagsPane(t *testing.T) 
 	if got := store.manifest.ExtraString("adopted_pane"); got != "%7" {
 		t.Fatalf("adopted_pane: got %q, want %%7", got)
 	}
-	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
+	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleAgent}) {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
 	}
 	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CLAUDE_SESSION_ID", value: "claude-session-1"}) {
@@ -2288,7 +2288,7 @@ func TestHookClaudeLeavesPersistedAgentManifestUntouched(t *testing.T) {
 	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "claude-session-1"})
 	store.manifest.Cwd = "/old"
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
+		Name: "claude", Role: "agent", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2325,7 +2325,7 @@ func TestHookClaudeExistingAgentDoesNotRehomeCwd(t *testing.T) {
 	store := newManifestStoreStub("qm-abc", map[string]string{"claude_session_id": "old-session"})
 	store.manifest.Cwd = "/old"
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "old-session", Window: tmux.WindowWorkspace,
+		Name: "claude", Role: "agent", CLI: "claude", ResumeID: "old-session", Window: tmux.WindowWorkspace,
 	}}
 	adoptedCwd := t.TempDir()
 	t.Chdir(adoptedCwd)
@@ -2352,7 +2352,7 @@ func TestHookClaudeLeavesDifferentAgentManifestUntouched(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%7")
 	store := newManifestStoreStub("qm-abc", nil)
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+		Name: "codex", Role: "agent", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2393,7 +2393,7 @@ func TestHookAdoptedSessionSamePaneSuccession(t *testing.T) {
 	})
 	store.manifest.Cwd = "/old"
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+		Name: "codex", Role: "agent", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
 	}}
 	newCwd := t.TempDir()
 	t.Chdir(newCwd)
@@ -2412,7 +2412,7 @@ func TestHookAdoptedSessionSamePaneSuccession(t *testing.T) {
 		t.Fatalf("agents = %+v, want one successor", store.manifest.Agents)
 	}
 	agent := store.manifest.Agents[0]
-	if agent.Name != "claude" || agent.Role != "primary" || agent.CLI != "claude" ||
+	if agent.Name != "claude" || agent.Role != "agent" || agent.CLI != "claude" ||
 		agent.ResumeID != "claude-session-1" || agent.Window != tmux.WindowWorkspace {
 		t.Fatalf("successor agent = %+v", agent)
 	}
@@ -2443,7 +2443,7 @@ func TestHookAdoptedSessionDifferentPaneDoesNotSucceed(t *testing.T) {
 	store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7"})
 	store.manifest.Cwd = "/old"
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+		Name: "codex", Role: "agent", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2481,7 +2481,7 @@ func TestHookSpawnedSessionSamePaneForeignAgentDoesNotSucceed(t *testing.T) {
 	store := newManifestStoreStub("qm-abc", nil)
 	store.manifest.Cwd = "/old"
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+		Name: "codex", Role: "agent", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2518,7 +2518,7 @@ func TestHookAdoptedSessionSuccessorSecondEventSkipsManifestWork(t *testing.T) {
 	t.Setenv("TMUX_PANE", "%7")
 	store := newManifestStoreStub("qm-abc", map[string]string{"adopted_pane": "%7"})
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+		Name: "codex", Role: "agent", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2547,7 +2547,7 @@ func TestHookClaudeSessionEndPreservesLockedTitle(t *testing.T) {
 	store.manifest.Title = "Old title"
 	store.manifest.WindowName = "party (Old title)"
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
+		Name: "claude", Role: "agent", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2595,7 +2595,7 @@ func TestHookClaudeSessionEndDoesNotClearSpawnedAgent(t *testing.T) {
 	store.manifest.Title = "Old title"
 	store.manifest.WindowName = "party (Old title)"
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "claude", Role: "primary", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
+		Name: "claude", Role: "agent", CLI: "claude", ResumeID: "claude-session-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2630,7 +2630,7 @@ func TestHookPiStyleSessionShutdownClearsAdoptedAgent(t *testing.T) {
 			store.manifest.Title = "Old title"
 			store.manifest.WindowName = "party (Old title)"
 			store.manifest.Agents = []state.AgentManifest{{
-				Name: agentName, Role: "primary", CLI: agentName, ResumeID: agentName + "-session-1", Window: tmux.WindowWorkspace,
+				Name: agentName, Role: "agent", CLI: agentName, ResumeID: agentName + "-session-1", Window: tmux.WindowWorkspace,
 			}}
 			tmuxEnv := &tmuxEnvStub{}
 			r.Store = store
@@ -2711,14 +2711,14 @@ func TestHookCodexAdoptsAgentlessManifestFromThreadID(t *testing.T) {
 		t.Fatalf("agents = %+v, want one adopted agent", store.manifest.Agents)
 	}
 	agent := store.manifest.Agents[0]
-	if agent.Name != "codex" || agent.Role != "primary" || agent.CLI != "codex" ||
+	if agent.Name != "codex" || agent.Role != "agent" || agent.CLI != "codex" ||
 		agent.ResumeID != resumeID || agent.Window != tmux.WindowWorkspace {
 		t.Fatalf("adopted agent = %+v", agent)
 	}
 	if got := store.manifest.ExtraString("codex_thread_id"); got != resumeID {
 		t.Fatalf("codex_thread_id: got %q, want %q", got, resumeID)
 	}
-	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%8", key: tmux.PaneRoleOption, value: tmux.RolePrimary}) {
+	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%8", key: tmux.PaneRoleOption, value: tmux.RoleAgent}) {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
 	}
 }
@@ -2727,7 +2727,7 @@ func TestHookCodexCapturesThreadIDFromPayloadSessionID(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("CODEX_THREAD_ID", "")
 	store := newManifestStoreStub("qm-abc", nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "primary"}}
+	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "agent"}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
@@ -2742,8 +2742,8 @@ func TestHookCodexCapturesThreadIDFromPayloadSessionID(t *testing.T) {
 	if got := store.manifest.ExtraString("codex_thread_id"); got != resumeID {
 		t.Fatalf("codex_thread_id: got %q, want %q", got, resumeID)
 	}
-	if got := manifestResumeID(store.manifest.Agents, "primary"); got != resumeID {
-		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	if got := manifestResumeID(store.manifest.Agents, "agent"); got != resumeID {
+		t.Fatalf("agent resume_id: got %q, want %q", got, resumeID)
 	}
 	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CODEX_THREAD_ID", value: resumeID}) {
 		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
@@ -2754,7 +2754,7 @@ func TestHookCodexCapturesThreadIDFromTranscriptPathWhenEnvUnset(t *testing.T) {
 	r, _ := newTestRunner(t)
 	t.Setenv("CODEX_THREAD_ID", "")
 	store := newManifestStoreStub("qm-abc", nil)
-	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "primary"}}
+	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "agent"}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxEnv
@@ -2770,8 +2770,8 @@ func TestHookCodexCapturesThreadIDFromTranscriptPathWhenEnvUnset(t *testing.T) {
 	if got := store.manifest.ExtraString("codex_thread_id"); got != resumeID {
 		t.Fatalf("codex_thread_id: got %q, want %q", got, resumeID)
 	}
-	if got := manifestResumeID(store.manifest.Agents, "primary"); got != resumeID {
-		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	if got := manifestResumeID(store.manifest.Agents, "agent"); got != resumeID {
+		t.Fatalf("agent resume_id: got %q, want %q", got, resumeID)
 	}
 	if len(tmuxEnv.calls) != 1 || tmuxEnv.calls[0] != (tmuxEnvCall{session: "qm-abc", key: "CODEX_THREAD_ID", value: resumeID}) {
 		t.Fatalf("tmux env calls: %+v", tmuxEnv.calls)
@@ -2783,7 +2783,7 @@ func TestHookCodexThreadIDMatchesExistingSkipsManifestWrite(t *testing.T) {
 	t.Setenv("CODEX_THREAD_ID", "codex-thread-1")
 	store := newManifestStoreStub("qm-abc", map[string]string{"codex_thread_id": "codex-thread-1"})
 	store.manifest.Agents = []state.AgentManifest{{
-		Name: "codex", Role: "primary", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
+		Name: "codex", Role: "agent", CLI: "codex", ResumeID: "codex-thread-1", Window: tmux.WindowWorkspace,
 	}}
 	tmuxEnv := &tmuxEnvStub{}
 	r.Store = store
@@ -2903,7 +2903,7 @@ func TestHookCodexEndToEnd(t *testing.T) {
 		if stderr != "" {
 			t.Fatalf("%s stderr: %q", step.name, stderr)
 		}
-		pane := rec.lastState.Panes["primary"]
+		pane := rec.lastState.Panes["agent"]
 		if pane.State != step.wantState {
 			t.Errorf("%s state: want %q got %q", step.name, step.wantState, pane.State)
 		}
@@ -2931,7 +2931,7 @@ func TestHookCodexStrayStartingDoesNotRegressWorkingPane(t *testing.T) {
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "codex", "starting", "qm-abc", nil)
 	runHookWithStdin(r, "codex", "working", "qm-abc", map[string]interface{}{"prompt": "do the thing"})
-	if got := rec.lastState.Panes["primary"].State; got != "working" {
+	if got := rec.lastState.Panes["agent"].State; got != "working" {
 		t.Fatalf("setup: pane state = %q, want working", got)
 	}
 
@@ -2941,7 +2941,7 @@ func TestHookCodexStrayStartingDoesNotRegressWorkingPane(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr: %q", stderr)
 	}
-	if got := rec.lastState.Panes["primary"].State; got != "working" {
+	if got := rec.lastState.Panes["agent"].State; got != "working" {
 		t.Errorf("stray SessionStart regressed pane state to %q, want working", got)
 	}
 }
@@ -2952,7 +2952,7 @@ func TestHookCodexStartingAllowedAfterDone(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "codex", State: "done", LastKind: "Stop"},
+			"agent": {Role: "agent", Agent: "codex", State: "done", LastKind: "Stop"},
 		},
 	}
 
@@ -2962,7 +2962,7 @@ func TestHookCodexStartingAllowedAfterDone(t *testing.T) {
 	if stderr != "" {
 		t.Errorf("stderr: %q", stderr)
 	}
-	if got := rec.lastState.Panes["primary"].State; got != "starting" {
+	if got := rec.lastState.Panes["agent"].State; got != "starting" {
 		t.Errorf("genuine resume: pane state = %q, want starting", got)
 	}
 }
@@ -3007,7 +3007,7 @@ func TestHookCodexPermissionRequestBlocked(t *testing.T) {
 			if stderr != "" {
 				t.Fatalf("stderr: %q", stderr)
 			}
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if pane.State != "blocked" {
 				t.Errorf("state: %q", pane.State)
 			}
@@ -3038,7 +3038,7 @@ func TestHookCodexRequestUserInputBlocksWithQuestion(t *testing.T) {
 		},
 	})
 
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "blocked" {
 		t.Fatalf("state: want %q, got %+v", "blocked", pane)
 	}
@@ -3064,8 +3064,8 @@ func TestHookCodexRequestUserInputToolEndClearsQuestion(t *testing.T) {
 		SessionID: "qm-abc",
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {
-				Role:     "primary",
+			"agent": {
+				Role:     "agent",
 				Agent:    "codex",
 				State:    "blocked",
 				Activity: "Question: Pick a deployment target",
@@ -3077,7 +3077,7 @@ func TestHookCodexRequestUserInputToolEndClearsQuestion(t *testing.T) {
 
 	runHookWithStdin(r, "codex", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "functions.request_user_input"})
 
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "working" {
 		t.Fatalf("state: want %q, got %+v", "working", pane)
 	}
@@ -3178,7 +3178,7 @@ func TestHookPiMessageActivityUsesStreamingText(t *testing.T) {
 		t.Run(tt.action, func(t *testing.T) {
 			r, rec := newTestRunner(t)
 			runHookWithStdin(r, "pi", tt.action, "qm-abc", tt.payload)
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if pane.Activity != tt.want {
 				t.Fatalf("activity: want %q, got %q", tt.want, pane.Activity)
 			}
@@ -3194,11 +3194,11 @@ func TestHookPiMessageActivityFallsBackWhenTextMissing(t *testing.T) {
 				SessionID: "qm-abc",
 				Version:   state.SchemaVersion,
 				Panes: map[string]state.PaneState{
-					"primary": {Role: "primary", Agent: "pi", State: "working", Activity: "previous activity"},
+					"agent": {Role: "agent", Agent: "pi", State: "working", Activity: "previous activity"},
 				},
 			}
 			runHookWithStdin(r, "pi", action, "qm-abc", nil)
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if pane.Activity != "previous activity" {
 				t.Fatalf("activity: want previous value %q, got %q", "previous activity", pane.Activity)
 			}
@@ -3214,14 +3214,14 @@ func TestHookPiPromptOnlyFallbackDoesNotUpdateActivityOrSay(t *testing.T) {
 				SessionID: "qm-abc",
 				Version:   state.SchemaVersion,
 				Panes: map[string]state.PaneState{
-					"primary": {Role: "primary", Agent: "pi", State: "working", Activity: "previous activity"},
+					"agent": {Role: "agent", Agent: "pi", State: "working", Activity: "previous activity"},
 				},
 			}
 			runHookWithStdin(r, "pi", action, "qm-abc", map[string]interface{}{
 				"prompt": "private prompt", "text": "private prompt", "snippet": "You: private prompt",
 				"recent": []string{"private prompt"},
 			})
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if pane.Activity != "previous activity" {
 				t.Fatalf("activity = %q, want previous value %q", pane.Activity, "previous activity")
 			}
@@ -3238,7 +3238,7 @@ func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 		"prompt": "Pick a deployment target\nignored",
 		"tool":   map[string]interface{}{"name": "ask_user", "summary": "Fallback question"},
 	})
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.State != "blocked" {
 		t.Fatalf("state: want %q, got %+v", "blocked", pane)
 	}
@@ -3256,7 +3256,7 @@ func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 	}
 
 	runHookWithStdin(r, "pi", "tool_execution_start", "qm-abc", map[string]interface{}{"toolName": "ask_user"})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "blocked" || pane.Activity != "Question: Pick a deployment target" || pane.LastKind != "waiting_for_user" {
 		t.Fatalf("tool heartbeat should preserve blocked question, got %+v", pane)
 	}
@@ -3265,7 +3265,7 @@ func TestHookPiWaitingForUserBlocksWithQuestion(t *testing.T) {
 	}
 
 	runHookWithStdin(r, "pi", "tool_execution_end", "qm-abc", map[string]interface{}{"toolName": "ask_user"})
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	if pane.State != "working" || pane.Activity != "" || pane.Tool != "" || pane.LastKind != "tool_execution_end" {
 		t.Fatalf("tool end should clear blocked question, got %+v", pane)
 	}
@@ -3335,7 +3335,7 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 		if stderr != "" {
 			t.Fatalf("%s stderr: %q", step.action, stderr)
 		}
-		pane := rec.lastState.Panes["primary"]
+		pane := rec.lastState.Panes["agent"]
 		if pane.State != step.wantState {
 			t.Fatalf("%s state: want %q, got %+v", step.action, step.wantState, pane)
 		}
@@ -3345,7 +3345,7 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 		if pane.Tool != step.wantTool {
 			t.Fatalf("%s tool: want %q, got %q", step.action, step.wantTool, pane.Tool)
 		}
-		if pane.Agent != "pi" || pane.Role != "primary" {
+		if pane.Agent != "pi" || pane.Role != "agent" {
 			t.Fatalf("%s pane identity: %+v", step.action, pane)
 		}
 		if pane.LastKind != step.action {
@@ -3353,7 +3353,7 @@ func TestHookPiEventsEndToEnd(t *testing.T) {
 		}
 	}
 
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	if pane.SessionFile != "2026-05-20T12-00-00-000Z_123e4567-e89b-12d3-a456-426614174000.jsonl" {
 		t.Errorf("session_file not carried through: %q", pane.SessionFile)
 	}
@@ -3375,13 +3375,13 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	r, rec := newTestRunner(t)
 	runHookWithStdin(r, "pi", "session_start", "qm-chat", nil)
 	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
-	if got := rec.lastState.Panes["primary"].State; got != "working" {
+	if got := rec.lastState.Panes["agent"].State; got != "working" {
 		t.Fatalf("agent_start state = %q, want working", got)
 	}
 
-	pane := rec.lastState.Panes["primary"]
+	pane := rec.lastState.Panes["agent"]
 	pane.LastChatAt = time.Time{}
-	rec.lastState.Panes["primary"] = pane
+	rec.lastState.Panes["agent"] = pane
 	runHookWithStdin(r, "pi", "say", "qm-chat", map[string]interface{}{
 		"message": map[string]interface{}{"role": "assistant", "content": "Checking the config\nbefore editing"},
 		"recent":  []string{"Checking the config", "before editing"},
@@ -3398,13 +3398,13 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	if say.Fields["turn"] == nil || say.Fields["usage"] == nil {
 		t.Fatalf("turn/usage metadata missing from event fields: %#v", say.Fields)
 	}
-	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+	if got := rec.lastState.Panes["agent"].LastChatAt; !got.Equal(r.Now()) {
 		t.Fatalf("say LastChatAt = %s, want %s", got, r.Now())
 	}
 
-	pane = rec.lastState.Panes["primary"]
+	pane = rec.lastState.Panes["agent"]
 	pane.LastChatAt = time.Time{}
-	rec.lastState.Panes["primary"] = pane
+	rec.lastState.Panes["agent"] = pane
 	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
 		"tool": map[string]interface{}{"name": "bash", "summary": "bash: go test ./..."},
 	})
@@ -3412,12 +3412,12 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	if !slices.Contains(chatKinds(tool), "action") || chatTextFor(tool, "action") != "bash" {
 		t.Fatalf("tool chat entries = %#v", chatEntries(tool))
 	}
-	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+	if got := rec.lastState.Panes["agent"].LastChatAt; !got.Equal(r.Now()) {
 		t.Fatalf("action LastChatAt = %s, want %s", got, r.Now())
 	}
 	runHookWithStdin(r, "pi", "tool_execution_end", "qm-chat", nil)
-	if rec.lastState.Panes["primary"].Tool != "" || len(chatEntries(rec.events[len(rec.events)-1])) != 0 {
-		t.Fatalf("tool end did not clear tool without a chat entry: pane=%+v event=%+v", rec.lastState.Panes["primary"], rec.events[len(rec.events)-1])
+	if rec.lastState.Panes["agent"].Tool != "" || len(chatEntries(rec.events[len(rec.events)-1])) != 0 {
+		t.Fatalf("tool end did not clear tool without a chat entry: pane=%+v event=%+v", rec.lastState.Panes["agent"], rec.events[len(rec.events)-1])
 	}
 
 	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
@@ -3429,24 +3429,24 @@ func TestHookPiDiscreteChatEventsAndMetadata(t *testing.T) {
 	if got := chatTextFor(final, "message"); got != "All tests passed.\nReady to merge." {
 		t.Fatalf("final message = %q", got)
 	}
-	if got := rec.lastState.Panes["primary"].Activity; got != "Ready to merge." {
+	if got := rec.lastState.Panes["agent"].Activity; got != "Ready to merge." {
 		t.Fatalf("final activity snippet = %q", got)
 	}
-	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+	if got := rec.lastState.Panes["agent"].LastChatAt; !got.Equal(r.Now()) {
 		t.Fatalf("message LastChatAt = %s, want %s", got, r.Now())
 	}
-	if !slices.Contains(chatKinds(final), "status") || rec.lastState.Panes["primary"].State != "done" {
-		t.Fatalf("final event/state = %#v/%q", chatEntries(final), rec.lastState.Panes["primary"].State)
+	if !slices.Contains(chatKinds(final), "status") || rec.lastState.Panes["agent"].State != "done" {
+		t.Fatalf("final event/state = %#v/%q", chatEntries(final), rec.lastState.Panes["agent"].State)
 	}
 
 	runHookWithStdin(r, "pi", "waiting_for_user", "qm-chat", map[string]interface{}{"prompt": "Choose a target"})
 	blocked := rec.events[len(rec.events)-1]
-	if rec.lastState.Panes["primary"].State != "blocked" || chatTextFor(blocked, "status") != "blocked" {
-		t.Fatalf("blocked event/state = %#v/%q", chatEntries(blocked), rec.lastState.Panes["primary"].State)
+	if rec.lastState.Panes["agent"].State != "blocked" || chatTextFor(blocked, "status") != "blocked" {
+		t.Fatalf("blocked event/state = %#v/%q", chatEntries(blocked), rec.lastState.Panes["agent"].State)
 	}
 	runHookWithStdin(r, "pi", "session_shutdown", "qm-chat", nil)
-	if rec.lastState.Panes["primary"].State != "stopped" {
-		t.Fatalf("shutdown state = %q, want stopped", rec.lastState.Panes["primary"].State)
+	if rec.lastState.Panes["agent"].State != "stopped" {
+		t.Fatalf("shutdown state = %q, want stopped", rec.lastState.Panes["agent"].State)
 	}
 }
 
@@ -3481,10 +3481,10 @@ func TestHookPiBatchPreservesEventOrderAndChatEntries(t *testing.T) {
 	if got := chatTextFor(rec.events[6], "message"); got != "Finished." {
 		t.Fatalf("message entry = %q", got)
 	}
-	if got := rec.lastState.Panes["primary"].State; got != "done" {
+	if got := rec.lastState.Panes["agent"].State; got != "done" {
 		t.Fatalf("final pane state = %q", got)
 	}
-	if got := rec.lastState.Panes["primary"].LastChatAt; !got.Equal(r.Now()) {
+	if got := rec.lastState.Panes["agent"].LastChatAt; !got.Equal(r.Now()) {
 		t.Fatalf("batch LastChatAt = %s, want %s", got, r.Now())
 	}
 }
@@ -3497,7 +3497,7 @@ func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new state store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-pi-master", Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: []string{"qm-pi-worker"}}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-pi-master", Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{"qm-pi-worker"}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
 	workerManifest := state.Manifest{SessionID: "qm-pi-worker", Title: "Pi worker"}
@@ -3541,7 +3541,7 @@ func TestHookPiBatchProductionPathFeedsWorkerChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load worker state: %v", err)
 	}
-	if pane := ss.Panes["primary"]; pane.State != "done" || pane.LastChatAt.IsZero() {
+	if pane := ss.Panes["agent"]; pane.State != "done" || pane.LastChatAt.IsZero() {
 		t.Fatalf("saved worker pane = %+v", pane)
 	}
 
@@ -3574,7 +3574,7 @@ func TestHookPiBatchedEntriesKeepOccurrenceOrderBeforeReport(t *testing.T) {
 	base := time.Date(2026, 10, 8, 1, 0, 0, 0, time.UTC)
 	sayAt, actionAt, reportAt, processedAt := base, base.Add(100*time.Millisecond), base.Add(200*time.Millisecond), base.Add(time.Second)
 	if err := state.UpdateAndLogAt(root, "qm-pi-worker", &state.StateEvent{Ts: base.Add(-time.Second), Action: "seed"}, func(ss *state.SessionState) bool {
-		ss.Panes["primary"] = state.PaneState{Role: "primary", Agent: "pi", State: "working", LastChatStatus: "working"}
+		ss.Panes["agent"] = state.PaneState{Role: "agent", Agent: "pi", State: "working", LastChatStatus: "working"}
 		return true
 	}); err != nil {
 		t.Fatalf("seed worker state: %v", err)
@@ -3630,7 +3630,7 @@ func TestHookPiBatchStateWriteFailureKeepsFeedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new state store: %v", err)
 	}
-	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "primary"}}, Workers: []string{sessionID}}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{sessionID}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}
 	workerManifest := state.Manifest{SessionID: sessionID, Title: "Pi worker"}
@@ -3642,7 +3642,7 @@ func TestHookPiBatchStateWriteFailureKeepsFeedRecords(t *testing.T) {
 		SessionID: sessionID,
 		Version:   state.SchemaVersion,
 		Panes: map[string]state.PaneState{
-			"primary": {Role: "primary", Agent: "pi", State: "idle", LastKind: "agent_end"},
+			"agent": {Role: "agent", Agent: "pi", State: "idle", LastKind: "agent_end"},
 		},
 	}
 	if err := state.SaveSessionState(sessionID, initial); err != nil {
@@ -3747,7 +3747,7 @@ func TestHookPiAgentEndDoesNotUseActivityFallbackForChat(t *testing.T) {
 	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
 		"tool": map[string]interface{}{"name": "bash", "summary": "bash: echo done"},
 	})
-	previousActivity := rec.lastState.Panes["primary"].Activity
+	previousActivity := rec.lastState.Panes["agent"].Activity
 	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
 		"prompt":  "You are a smoke-test worker",
 		"text":    "You are a smoke-test worker",
@@ -3761,10 +3761,10 @@ func TestHookPiAgentEndDoesNotUseActivityFallbackForChat(t *testing.T) {
 	if !slices.Contains(chatKinds(final), "status") || chatTextFor(final, "status") != "done" {
 		t.Fatalf("empty turn entries = %#v, want only done status", chatEntries(final))
 	}
-	if got := rec.lastState.Panes["primary"].State; got != "done" {
+	if got := rec.lastState.Panes["agent"].State; got != "done" {
 		t.Fatalf("empty turn state = %q, want done", got)
 	}
-	if got := rec.lastState.Panes["primary"].Activity; got != previousActivity {
+	if got := rec.lastState.Panes["agent"].Activity; got != previousActivity {
 		t.Fatalf("empty turn activity = %q, want previous %q", got, previousActivity)
 	}
 }
@@ -3787,7 +3787,7 @@ func TestHookPiAgentEndReplaysAuthErrorTurnWithoutPromptEcho(t *testing.T) {
 		"errorMessage": errorMessage,
 	})
 	final := rec.events[len(rec.events)-1]
-	if got := rec.lastState.Panes["primary"].State; got != "blocked" {
+	if got := rec.lastState.Panes["agent"].State; got != "blocked" {
 		t.Fatalf("error turn state = %q, want blocked", got)
 	}
 	if got := chatTextFor(final, "status"); got != "blocked" {
@@ -3800,7 +3800,7 @@ func TestHookPiAgentEndReplaysAuthErrorTurnWithoutPromptEcho(t *testing.T) {
 	if strings.Contains(chatTextFor(final, "message"), prompt) {
 		t.Fatalf("error turn echoed prompt in chat entry: %#v", chatEntries(final))
 	}
-	if got := rec.lastState.Panes["primary"].Activity; !strings.HasPrefix(got, "Error: Your authentication token has expired.") || len([]rune(got)) > 180 {
+	if got := rec.lastState.Panes["agent"].Activity; !strings.HasPrefix(got, "Error: Your authentication token has expired.") || len([]rune(got)) > 180 {
 		t.Fatalf("error turn activity = %q, want a capped Error line", got)
 	}
 }
@@ -3810,7 +3810,7 @@ func TestHookPiAgentEndAbortDoesNotReportError(t *testing.T) {
 	runHookWithStdin(r, "pi", "tool_execution_start", "qm-chat", map[string]interface{}{
 		"tool": map[string]interface{}{"name": "bash", "summary": "bash: echo done"},
 	})
-	previousActivity := rec.lastState.Panes["primary"].Activity
+	previousActivity := rec.lastState.Panes["agent"].Activity
 	runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
 	runHookWithStdin(r, "pi", "agent_end", "qm-chat", map[string]interface{}{
 		"prompt":       "You are a smoke-test worker",
@@ -3822,13 +3822,13 @@ func TestHookPiAgentEndAbortDoesNotReportError(t *testing.T) {
 	})
 
 	final := rec.events[len(rec.events)-1]
-	if got := rec.lastState.Panes["primary"].State; got != "done" || chatTextFor(final, "status") != "done" {
+	if got := rec.lastState.Panes["agent"].State; got != "done" || chatTextFor(final, "status") != "done" {
 		t.Fatalf("aborted turn state/status = %q/%q, want done/done", got, chatTextFor(final, "status"))
 	}
 	if got := chatTextFor(final, "message"); got != "" {
 		t.Fatalf("aborted turn message = %q, want no message", got)
 	}
-	if got := rec.lastState.Panes["primary"].Activity; got != previousActivity {
+	if got := rec.lastState.Panes["agent"].Activity; got != previousActivity {
 		t.Fatalf("aborted turn activity = %q, want previous %q", got, previousActivity)
 	}
 }
@@ -3875,7 +3875,7 @@ func TestHookPiAgentEndErrorCanBeInferredFromEitherField(t *testing.T) {
 		runHookWithStdin(r, "pi", "agent_start", "qm-chat", nil)
 		runHookWithStdin(r, "pi", "agent_end", "qm-chat", payload)
 		final := rec.events[len(rec.events)-1]
-		if got := rec.lastState.Panes["primary"].State; got != "blocked" || chatTextFor(final, "status") != "blocked" {
+		if got := rec.lastState.Panes["agent"].State; got != "blocked" || chatTextFor(final, "status") != "blocked" {
 			t.Fatalf("error payload %#v state/status = %q/%q, want blocked/blocked", payload, got, chatTextFor(final, "status"))
 		}
 		if got := chatTextFor(final, "message"); !strings.HasPrefix(got, "Error: ") {
@@ -3947,8 +3947,8 @@ func TestHookEndToEndOnDisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if ss.Panes["primary"].State != "done" {
-		t.Errorf("final state: %+v", ss.Panes["primary"])
+	if ss.Panes["agent"].State != "done" {
+		t.Errorf("final state: %+v", ss.Panes["agent"])
 	}
 	if _, err := os.Stat(filepath.Join(root, "qm-disk", "state.jsonl")); err != nil {
 		t.Errorf("state.jsonl missing: %v", err)
@@ -3971,7 +3971,7 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 	t.Run("first transition stamps WorkingSince", func(t *testing.T) {
 		r, rec := newTestRunner(t)
 		runHookWithStdin(r, "claude", "working", "qm-abc", map[string]interface{}{"prompt": "go"})
-		pane := rec.lastState.Panes["primary"]
+		pane := rec.lastState.Panes["agent"]
 		if pane.State != "working" {
 			t.Fatalf("state = %q, want working", pane.State)
 		}
@@ -3990,12 +3990,12 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 			SessionID: "qm-abc",
 			Version:   state.SchemaVersion,
 			Panes: map[string]state.PaneState{
-				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse", WorkingSince: prior},
+				"agent": {Role: "agent", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse", WorkingSince: prior},
 			},
 		}
 		// PostToolUse (working → working) is the everyday case.
 		runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "Edit"})
-		pane := rec.lastState.Panes["primary"]
+		pane := rec.lastState.Panes["agent"]
 		if pane.State != "working" {
 			t.Fatalf("state = %q, want working", pane.State)
 		}
@@ -4011,12 +4011,12 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 			SessionID: "qm-abc",
 			Version:   state.SchemaVersion,
 			Panes: map[string]state.PaneState{
-				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse", LastEvent: prior},
+				"agent": {Role: "agent", Agent: "claude", State: "working", Activity: "Edit: foo.go", Tool: "Edit", LastKind: "PreToolUse", LastEvent: prior},
 			},
 		}
 		// Older state files can already be working with no working_since.
 		runHookWithStdin(r, "claude", "tool_end", "qm-abc", map[string]interface{}{"tool_name": "Edit"})
-		pane := rec.lastState.Panes["primary"]
+		pane := rec.lastState.Panes["agent"]
 		if pane.State != "working" {
 			t.Fatalf("state = %q, want working", pane.State)
 		}
@@ -4032,7 +4032,7 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 			SessionID: "qm-abc",
 			Version:   state.SchemaVersion,
 			Panes: map[string]state.PaneState{
-				"primary": {Role: "primary", Agent: "claude", State: "working", Activity: "Thinking", LastKind: "UserPromptSubmit", LastEvent: prior},
+				"agent": {Role: "agent", Agent: "claude", State: "working", Activity: "Thinking", LastKind: "UserPromptSubmit", LastEvent: prior},
 			},
 		}
 		runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
@@ -4040,7 +4040,7 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 			"tool_name":  "Read",
 			"tool_input": map[string]interface{}{"file_path": "/tmp/foo.go"},
 		})
-		pane := rec.lastState.Panes["primary"]
+		pane := rec.lastState.Panes["agent"]
 		if pane.State != "working" {
 			t.Fatalf("state = %q, want working", pane.State)
 		}
@@ -4060,13 +4060,13 @@ func TestHookClaudeWorkingSinceLifecycle(t *testing.T) {
 			SessionID: "qm-abc",
 			Version:   state.SchemaVersion,
 			Panes: map[string]state.PaneState{
-				"primary": {Role: "primary", Agent: "claude", State: "working", LastKind: "PreToolUse", WorkingSince: prior},
+				"agent": {Role: "agent", Agent: "claude", State: "working", LastKind: "PreToolUse", WorkingSince: prior},
 			},
 		}
 		runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{
 			"transcript_path": filepath.Join(t.TempDir(), "transcript.jsonl"),
 		})
-		pane := rec.lastState.Panes["primary"]
+		pane := rec.lastState.Panes["agent"]
 		if pane.State != "done" {
 			t.Fatalf("state = %q, want done", pane.State)
 		}
@@ -4098,7 +4098,7 @@ func TestHookWorkingSinceOnlyBackfillWritesState(t *testing.T) {
 				SessionID: "qm-abc",
 				Version:   state.SchemaVersion,
 				Panes: map[string]state.PaneState{
-					"primary": {Role: "primary", Agent: tc.agent, State: "working", LastKind: tc.lastKind, LastEvent: fixedNow},
+					"agent": {Role: "agent", Agent: tc.agent, State: "working", LastKind: tc.lastKind, LastEvent: fixedNow},
 				},
 			}
 
@@ -4106,7 +4106,7 @@ func TestHookWorkingSinceOnlyBackfillWritesState(t *testing.T) {
 			if rec.writeCalls != 1 {
 				t.Fatalf("writeCalls = %d, want 1 for WorkingSince-only renderer-visible change", rec.writeCalls)
 			}
-			pane := rec.lastState.Panes["primary"]
+			pane := rec.lastState.Panes["agent"]
 			if !pane.WorkingSince.Equal(fixedNow) {
 				t.Fatalf("WorkingSince = %v, want %v", pane.WorkingSince, fixedNow)
 			}

@@ -20,7 +20,7 @@ func TestStartShellSession(t *testing.T) {
 	t.Parallel()
 
 	svc, runner := setupService(t)
-	setMissingPrimaryRegistry(t, svc)
+	setMissingAgentRegistry(t, svc)
 	svc.Now = func() int64 { return 501 }
 
 	result, err := svc.Start(t.Context(), StartOpts{
@@ -88,7 +88,7 @@ func TestStartShellSessionRejectsAgentOnlyOptions(t *testing.T) {
 	}
 }
 
-func setMissingPrimaryRegistry(t *testing.T, svc *Service) {
+func setMissingAgentRegistry(t *testing.T, svc *Service) {
 	t.Helper()
 	missing := filepath.Join(t.TempDir(), "missing-claude")
 	registry, err := agent.NewRegistry(&agent.Config{
@@ -96,7 +96,7 @@ func setMissingPrimaryRegistry(t *testing.T, svc *Service) {
 			"claude": {CLI: missing},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "claude", Window: -1},
+			Agent: &agent.RoleConfig{Agent: "claude", Window: -1},
 		},
 	})
 	if err != nil {
@@ -144,7 +144,7 @@ func TestStart_RetriesOnIDCollision(t *testing.T) {
 			"codex":  {CLI: "/bin/sh"},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "claude", Window: -1},
+			Agent: &agent.RoleConfig{Agent: "claude", Window: -1},
 		},
 	})
 	if err != nil {
@@ -334,7 +334,7 @@ func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 			"pi": {CLI: "pi"},
 		},
 		Roles: agent.RolesConfig{
-			Primary: &agent.RoleConfig{Agent: "pi", Window: -1},
+			Agent: &agent.RoleConfig{Agent: "pi", Window: -1},
 		},
 	})
 	if err != nil {
@@ -372,10 +372,10 @@ func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 	}
 	launch := findLaunchArgContaining(runner, piPath)
 	if launch == "" {
-		t.Fatalf("primary launch command did not include resolved pi path %q", piPath)
+		t.Fatalf("agent launch command did not include resolved pi path %q", piPath)
 	}
 	if !strings.Contains(launch, "export PATH=") || !strings.Contains(launch, binDir) {
-		t.Fatalf("primary launch command did not export login-derived PATH: %q", launch)
+		t.Fatalf("agent launch command did not export login-derived PATH: %q", launch)
 	}
 }
 
@@ -437,7 +437,7 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	if err := store.Create(state.Manifest{
 		SessionID: sessionID,
 		Agents: []state.AgentManifest{
-			{Name: "pi", Role: "primary", CLI: "/usr/bin/pi", Window: 1},
+			{Name: "pi", Role: "agent", CLI: "/usr/bin/pi", Window: 1},
 		},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
@@ -456,8 +456,8 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
-	if got := manifestAgentResumeID(m.Agents, "primary"); got != resumeID {
-		t.Fatalf("primary resume_id: got %q, want %q", got, resumeID)
+	if got := manifestAgentResumeID(m.Agents, "agent"); got != resumeID {
+		t.Fatalf("agent resume_id: got %q, want %q", got, resumeID)
 	}
 	if got := m.ExtraString("pi_session_id"); got != resumeID {
 		t.Fatalf("pi_session_id: got %q, want %q", got, resumeID)

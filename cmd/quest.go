@@ -194,7 +194,7 @@ func newQuestStartCmd(store *state.Store, client *tmux.Client, repoRoot string) 
 			if err != nil {
 				return err
 			}
-			resumeIDs, err := agentFlags.ResolveResumeIDs(registry)
+			resumeIDs, err := agentFlags.ResolveResumeIDs(registry, cmd.Flags().Changed("resume-agent"))
 			if err != nil {
 				return err
 			}

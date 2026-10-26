@@ -254,7 +254,6 @@ public struct TrackerSession: Decodable, Equatable {
         case display_color
         case worktree_path
         case agent
-        case primary_agent
         case session_type
         case state
         case status
@@ -283,9 +282,7 @@ public struct TrackerSession: Decodable, Equatable {
         repoColor = repoRef?.color ?? decodedDisplayColor ?? ""
         displayColor = decodedDisplayColor ?? ""
         worktreePath = try container.decodeIfPresent(String.self, forKey: .worktree_path) ?? ""
-        agent = try container.decodeIfPresent(String.self, forKey: .agent)
-            ?? container.decodeIfPresent(String.self, forKey: .primary_agent)
-            ?? ""
+        agent = try container.decodeIfPresent(String.self, forKey: .agent) ?? ""
         let sessionType = try container.decodeIfPresent(String.self, forKey: .session_type) ?? ""
         parentID = try container.decodeIfPresent(String.self, forKey: .parent_id) ?? ""
 		if !parentID.isEmpty {
