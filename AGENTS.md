@@ -198,9 +198,7 @@ hides.
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
   `ScoopedLayerChrome` do). `raised` (black 35%, blur 4, 1.5 down): tracker plates and their discs, and every
   dropdown (`SuggestionDropdown`). `panel` (30%, blur 12, 4 down): the dock's panels and the toast. `modal` (45%,
-  blur 30, 10 down): every in-window modal, the Quest Log included. A panel, modal or plate body also carries a
-  top-edge light: a 1pt hairline of `AppPalette.topLight` (white at 7%) just inside its border along the straight top
-  edge. Panel, dock and toast borders are 2pt
+  blur 30, 10 down): every in-window modal, the Quest Log included. Panel, dock and toast borders are 2pt
   `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). The dock's frame lifts to
   `controlBorder` while the dock has keyboard focus and no modal is drawn
   (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is

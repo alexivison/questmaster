@@ -52,8 +52,6 @@ enum AppPalette {
     static let shadow = NSColor.black
     /// The white highlights and blends lift toward (the item card's bezel, the cast bar's light edge), always partial.
     static let light = NSColor.white
-    /// The hairline of light along a panel's or a plate's top edge: `light` at a partial opacity.
-    static let topLight = light.withAlphaComponent(0.07)
     /// The opaque colour of a mask layer or view: only its alpha counts.
     static let mask = NSColor.black
 

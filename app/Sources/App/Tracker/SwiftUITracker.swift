@@ -936,7 +936,6 @@ private struct TrackerPlateArt: View {
             }
             context.fillDropShadow(artwork.body, .raised)
             context.fill(artwork.body, with: .color(AppPalette.line.swiftUI))
-            context.fillTopLight(artwork.body)
             context.fill(artwork.titleStrip, with: .color(AppPalette.item.swiftUI))
             context.fillInnerShadow(artwork.titleStrip, .strip)
             if let bar = artwork.bar {
