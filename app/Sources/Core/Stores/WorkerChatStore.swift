@@ -121,7 +121,7 @@ public final class WorkerChatStore {
         menu.setCursor(index, rowCount: rows.count)
         switch rows[index] {
         case .action(let action): filter.toggle(action)
-        case .worker(let worker): filter.toggle(worker, among: workers)
+        case .worker(let worker): filter.toggle(worker)
         }
         refilter()
     }

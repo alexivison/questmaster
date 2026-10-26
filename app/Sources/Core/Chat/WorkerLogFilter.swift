@@ -116,7 +116,8 @@ public enum WorkerLogMenuRow: Equatable, Identifiable, Sendable {
 
 /// What the Worker Log shows for one master. A section with nothing selected lets everything through; a selection narrows
 /// the log to what it names, so a worker that appears later stays hidden until it is selected or the section is cleared.
-/// Within a section a line needs to match one selection, and across the two sections both.
+/// That holds when every box is ticked too: it is an ordinary selection, and only its chip's x clears it. Within a
+/// section a line needs to match one selection, and across the two sections both.
 public struct WorkerLogFilter: Equatable, Sendable {
     public private(set) var actions: Set<WorkerLogAction> = []
     public private(set) var workerIDs: Set<String> = []
@@ -140,17 +141,12 @@ public struct WorkerLogFilter: Equatable, Sendable {
         }
     }
 
-    /// Selecting every box of a section is the same as selecting none, so a full section is stored cleared.
     public mutating func toggle(_ action: WorkerLogAction) {
         actions.formSymmetricDifference([action])
-        if actions.count == WorkerLogAction.allCases.count {
-            actions = []
-        }
     }
 
-    public mutating func toggle(_ worker: WorkerLogWorker, among workers: [WorkerLogWorker]) {
+    public mutating func toggle(_ worker: WorkerLogWorker) {
         workerIDs.formSymmetricDifference([worker.id])
-        reconcile(with: workers)
     }
 
     public mutating func clear(_ section: WorkerLogSection) {
@@ -160,12 +156,9 @@ public struct WorkerLogFilter: Equatable, Sendable {
         }
     }
 
-    /// Forgets selected workers that are gone, and clears the section when the rest are all the workers there are.
+    /// Forgets selected workers that are gone. If none are left, the section is cleared.
     public mutating func reconcile(with workers: [WorkerLogWorker]) {
         workerIDs.formIntersection(workers.map(\.id))
-        if workerIDs.count == workers.count {
-            workerIDs = []
-        }
     }
 
     /// One chip per section with a selection: the Action chip first.

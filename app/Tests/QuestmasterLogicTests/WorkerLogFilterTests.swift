@@ -15,8 +15,9 @@ struct WorkerLogFilterTests {
         feedKindsMapToTheActionBoxes()
         actionsAreORedWithinTheSection()
         actionAndWorkerAreANDedAcrossSections()
-        checkingEveryBoxStoresTheSectionCleared()
+        tickingEveryBoxIsAnOrdinarySelection()
         newWorkerStaysHiddenUntilSelectedOrCleared()
+        newWorkerStaysHiddenUnderAnAllTickedSelection()
         goneWorkersLeaveTheSelection()
         filtersAreKeptPerMaster()
         chipsShowOneNameManyCountsAndPerAgentCounts()
@@ -71,19 +72,29 @@ struct WorkerLogFilterTests {
         expect(store.lines.count == 1, "Worker One has one status line, got \(store.lines.count)")
         store.toggleRow(at: workerRow(1))
         expect(store.lines.count == 2, "adding Worker Two should add its status line, got \(store.lines.count)")
+        expect(store.filter.workerIDs == ["w1", "w2"], "both workers ticked is the selection of those two")
     }
 
-    private static func checkingEveryBoxStoresTheSectionCleared() {
+    /// Ticking every box is no clear: the ticks stay, the chip counts them, and only its x ends the selection.
+    private static func tickingEveryBoxIsAnOrdinarySelection() {
         let (store, _) = openStore(entries: sampleEntries, workers: 3)
         WorkerLogAction.allCases.indices.forEach(store.toggleRow)
-        expect(store.filter.actions.isEmpty && !store.filter.isActive, "checking every Action box should store the section cleared")
-        expect(store.lines.count == 5, "a cleared section shows everything, got \(store.lines.count)")
+        expect(store.filter.actions == Set(WorkerLogAction.allCases) && store.filter.isActive, "every Action box ticked should keep all four ticks, got \(store.filter.actions)")
+        expect(store.chips == [WorkerLogChip(section: .action, value: .text("4"))], "and show the count chip, got \(store.chips)")
+        expect(store.lines.count == 5, "all four Actions still show every line, got \(store.lines.count)")
 
-        store.toggleRow(at: workerRow(0))
-        store.toggleRow(at: workerRow(1))
-        expect(store.filter.workerIDs == ["w1", "w2"], "two of three workers should stay a selection")
-        store.toggleRow(at: workerRow(2))
-        expect(store.filter.workerIDs.isEmpty, "checking the last worker should clear the section, got \(store.filter.workerIDs)")
+        (0..<3).forEach { store.toggleRow(at: workerRow($0)) }
+        expect(store.filter.workerIDs == ["w1", "w2", "w3"], "every worker ticked should keep all three ticks, got \(store.filter.workerIDs)")
+        let counts = [WorkerLogChip.AgentCount(agent: "codex", count: 2), WorkerLogChip.AgentCount(agent: "claude", count: 1)]
+        expect(store.chips.last == WorkerLogChip(section: .worker, value: .agentCounts(counts)), "and show a count per agent, got \(store.chips)")
+        expect(store.lines.count == 5, "every worker ticked still shows every line, got \(store.lines.count)")
+
+        store.toggleRow(at: row(.cast))
+        expect(store.filter.actions.count == 3, "a tick can still come off")
+        store.clearFilter(.action)
+        expect(store.chips.map(\.section) == [.worker], "the Action chip's x clears the ticked section")
+        store.clearFilter(.worker)
+        expect(!store.filter.isActive && store.chips.isEmpty, "and the Worker chip's x the other")
     }
 
     /// The selected set is stored, not an excluded one, so a worker that spawns later isn't in it.
@@ -103,13 +114,30 @@ struct WorkerLogFilterTests {
         expect(store.lines.count == 2, "clearing the section shows everyone, got \(store.lines.count)")
     }
 
-    /// A removed worker leaves the selection; what remains, when it is every worker there is, is cleared.
+    /// Ticking every worker is a selection of those workers, so one that spawns later stays hidden as well.
+    private static func newWorkerStaysHiddenUnderAnAllTickedSelection() {
+        let (store, request) = openStore(entries: [], workers: 2)
+        store.toggleRow(at: workerRow(0))
+        store.toggleRow(at: workerRow(1))
+        expect(store.filter.workerIDs == ["w1", "w2"], "both workers should stay ticked")
+
+        _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 3), isVisible: true)
+        _ = store.receive(WorkerFeedPayload(entries: [entry(0, "w1", "say", "from one"), entry(1, "w2", "say", "from two"), entry(2, "w3", "say", "from three")]), for: request)
+        expect(store.lines.map(\.workerID) == ["w1", "w2"], "the new worker should stay hidden under the all-ticked selection, got \(store.lines.map(\.workerID))")
+        store.toggleRow(at: workerRow(2))
+        expect(store.lines.map(\.workerID) == ["w1", "w2", "w3"], "ticking it shows it, got \(store.lines.map(\.workerID))")
+    }
+
+    /// A removed worker leaves the selection, and what is left stays a selection; none left clears the section.
     private static func goneWorkersLeaveTheSelection() {
         let (store, _) = openStore(entries: [], workers: 3)
         store.toggleRow(at: workerRow(0))
         store.toggleRow(at: workerRow(1))
         _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 2), isVisible: true)
-        expect(store.filter.workerIDs.isEmpty, "the remaining selected workers are all of them, so the section clears, got \(store.filter.workerIDs)")
+        expect(store.filter.workerIDs == ["w1", "w2"], "a worker that was never ticked going away leaves the selection as it is, got \(store.filter.workerIDs)")
+        _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 3).filter { $0.id != "w1" }, isVisible: true)
+        expect(store.filter.workerIDs == ["w2"], "a ticked worker going away leaves the rest ticked, got \(store.filter.workerIDs)")
+        expect(store.chips.map(\.section) == [.worker], "and the chip remains")
 
         let (other, _) = openStore(entries: [], workers: 3)
         other.toggleRow(at: workerRow(0))
@@ -162,14 +190,14 @@ struct WorkerLogFilterTests {
         filter.toggle(.item)
         expect(filter.chips(workers: workers) == [WorkerLogChip(section: .action, value: .text("3"))], "several actions show their count")
 
-        filter.toggle(workers[1], among: workers)
+        filter.toggle(workers[1])
         expect(
             filter.chips(workers: workers).last == WorkerLogChip(section: .worker, value: .worker(name: "Beta", agent: "codex")),
             "one worker shows its logo and name"
         )
-        filter.toggle(workers[0], among: workers)
-        filter.toggle(workers[2], among: workers)
-        filter.toggle(workers[3], among: workers)
+        filter.toggle(workers[0])
+        filter.toggle(workers[2])
+        filter.toggle(workers[3])
         let counts = [WorkerLogChip.AgentCount(agent: "claude", count: 2), WorkerLogChip.AgentCount(agent: "codex", count: 2)]
         expect(
             filter.chips(workers: workers) == [WorkerLogChip(section: .action, value: .text("3")), WorkerLogChip(section: .worker, value: .agentCounts(counts))],

@@ -727,10 +727,11 @@ enum RenderPreview {
         WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
     }
 
-    /// The worker log as `Worker Chat.png` draws it: five workers under one master, the Action filter on Status, Message
-    /// and Item, and four of the five workers selected. With more `workers` the extra ones are named "Worker 06" on.
+    /// The worker log as `Worker Chat.png` draws it: four workers under one master, the Action filter on Status, Message
+    /// and Item, and every worker ticked (a selection like any other, so the Worker chip counts them: 2 and 2). With more
+    /// `workers` the first four are ticked and the extra ones are named "Worker 06" on.
     @MainActor
-    private static func workerLogStore(workers: Int = 5) -> WorkerChatStore {
+    private static func workerLogStore(workers: Int = 4) -> WorkerChatStore {
         let store = WorkerChatStore()
         let named = [("Fix UI Bug", "claude"), ("Implement-ABC-123", "codex"), ("Review API", "codex"), ("Add Tests", "claude"), ("Update Docs", "codex")]
         let tracker = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
@@ -766,7 +767,7 @@ enum RenderPreview {
 
     /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on row `cursor` (the first worker by default).
     @MainActor
-    private static func workerLogDockView(menuOpen: Bool, workers: Int = 5, cursor: Int = 4) -> NSView {
+    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = 4) -> NSView {
         let store = workerLogStore(workers: workers)
         if menuOpen {
             store.toggleMenu()
@@ -796,9 +797,7 @@ enum RenderPreview {
         let workers = (1...4).map { WorkerLogWorker(id: "w\($0)", name: "worker-name", agent: "codex") }
         var filter = WorkerLogFilter()
         [WorkerLogAction.status, .message, .item].forEach { filter.toggle($0) }
-        // One more worker than the dropdown lists, so the four selected don't make up the whole section.
-        let extra = WorkerLogWorker(id: "w5", name: "other", agent: "codex")
-        workers.forEach { filter.toggle($0, among: workers + [extra]) }
+        workers.forEach { filter.toggle($0) }
         return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: filter, cursor: 4, previewHoveredRow: hovering, onToggle: { _ in })
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(AppPalette.window.swiftUI)
