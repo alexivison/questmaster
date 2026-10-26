@@ -825,6 +825,13 @@ enum TrackerNameplateRole: Equatable {
             y: portraitOrigin.y + portraitDiameter - TrackerPlateDesign.badgeInset - radius
         )
     }
+    /// The badge's circle in row points. It hangs 5 past the disc's left edge and bottom, past the row's frame on a
+    /// master's left and under both plates, so the row's hit and hover shape takes it in (`RowHitShape`). The plate's
+    /// band doesn't follow it.
+    var badgeHitShape: Path {
+        let side = TrackerPlateDesign.badgeDiameter
+        return Path(ellipseIn: CGRect(origin: badgeOrigin, size: CGSize(width: side, height: side)))
+    }
 
     /// The text columns in canvas points, one per plate, past each disc (`TrackerPlateDesign.textX`): 55 on the
     /// master (its disc spans 0-50), 65 on the worker (20-60). Every line stops at the column's right
@@ -1351,6 +1358,7 @@ private struct TrackerSessionRow: View {
             selected: isSelected,
             leadingInset: 0,
             hitOutset: role.hitOutset,
+            hitOverhang: portrait == nil ? Path() : role.badgeHitShape,
             onTap: {
                 onSelect(session.id)
                 onActivate(session)

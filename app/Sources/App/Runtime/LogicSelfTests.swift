@@ -551,12 +551,31 @@ enum LogicSelfTests {
         // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents, above
         // the row and below it, past the crown's tip. The worker's has no artwork past its frame.
         let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
-        let masterHit = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.hitOutset).path(in: masterRow).boundingRect
+        let masterHit = RowHitShape(outset: TrackerNameplateRole.master.hitOutset).path(in: masterRow).boundingRect
         try expect(masterHit.minY <= -TrackerPlateDesign.svgDiscInset, "master hit shape top should reach the canvas's top, got \(masterHit.minY)")
         let crownBottom = ornamentBox.maxY - TrackerPlateDesign.svgDiscInset
         try expect(masterHit.maxY >= crownBottom, "master hit shape bottom should reach the crown's tip at \(crownBottom), got \(masterHit.maxY)")
         try expectClose(masterHit.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
         try expect(TrackerNameplateRole.worker.hitOutset == 0, "the worker's row has no artwork past its frame")
+
+        // The agent badge hangs 5 past its disc's left edge and bottom: on a master's row, left of the frame and below it,
+        // on a worker's, below it. Every point of its rim is live, but the shape stays the circle: its square's corners are
+        // not. The row sits off the origin, so the badge has to follow the row.
+        for role in [TrackerNameplateRole.master, .worker] {
+            let row = CGRect(origin: CGPoint(x: 7, y: 3), size: role.canvasSize)
+            let hit = RowHitShape(outset: role.hitOutset, overhang: role.badgeHitShape).path(in: row)
+            let radius = TrackerPlateDesign.badgeDiameter / 2
+            let centre = CGPoint(x: row.minX + role.badgeOrigin.x + radius, y: row.minY + role.badgeOrigin.y + radius)
+            try expect(centre.y + radius > row.maxY + role.hitOutset, "\(role)'s badge should hang past the row's own hit shape")
+            for step in 0..<16 {
+                let angle = CGFloat(step) * .pi / 8
+                let rim = CGPoint(x: centre.x + (radius - 0.5) * cos(angle), y: centre.y + (radius - 0.5) * sin(angle))
+                try expect(hit.contains(rim), "\(role)'s hit shape should take in the badge's rim at \(rim)")
+            }
+            let squareCorner = CGPoint(x: centre.x - radius + 0.5, y: centre.y + radius - 0.5)
+            try expect(!hit.contains(squareCorner), "\(role)'s hit shape should not take in the badge square's corner at \(squareCorner)")
+        }
+        try expect(TrackerNameplateRole.master.badgeOrigin.x < 0, "a master's badge hangs left of its row")
     }
 
     private static func testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting() throws {

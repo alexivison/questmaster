@@ -104,12 +104,13 @@ struct TrackerEditSessionSheet: View {
         }
     }
 
-    /// The title with the portrait before it: a master's class (its name at the field's end) cycles on ⌃e in the title and
-    /// on a click; a worker's familiar only shows. A row with neither (a shell) is the title alone.
+    /// The title with the portrait before it: a master's class (its name at the field's end, or "Random" while it has
+    /// none) cycles on ⌃e in the title and on a click; a worker's familiar only shows. A row with neither (a shell) is the
+    /// title alone.
     private var titleRow: some View {
         SessionTitleRow(
             portrait: portrait.portrait,
-            portraitLabel: portrait.label.map { "Class \($0)" } ?? "Familiar",
+            portraitLabel: portrait.accessibilityLabel ?? "",
             onPortraitClick: portrait.isEditable ? { portrait.cycle() } : nil
         ) {
             FormTextField(

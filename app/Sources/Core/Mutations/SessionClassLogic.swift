@@ -80,20 +80,23 @@ public enum SessionClassKey {
     }
 }
 
-/// The portrait row of an Edit Session sheet: a master's class, which cycles; a worker's familiar, which only shows;
-/// or nothing, for a shell and a row without a known class.
+/// The portrait row of an Edit Session sheet: a master's class, which cycles (nil while the master has none yet, shown as
+/// Random); a worker's familiar, which only shows; or nothing, for a shell, a tmux or orphan row, and a worker whose
+/// master's class is unknown. Whether a row is a master comes from its role, never from its class, so a master the
+/// backfill hasn't reached can still be given one.
 public enum EditSessionPortrait: Equatable {
-    case choosing(SessionClass)
+    case choosing(SessionClass?)
     case familiar(SessionClass)
     case none
 
     public init(session: TrackerSession) {
-        switch SessionPortrait(session: session) {
-        case .master(let sessionClass?)?:
+        let sessionClass = SessionClass(id: session.sessionClass)
+        switch SessionRoleKind(role: session.role) {
+        case .master:
             self = .choosing(sessionClass)
-        case .familiar(let sessionClass)?:
-            self = .familiar(sessionClass)
-        case .master(nil)?, nil:
+        case .worker:
+            self = sessionClass.map(EditSessionPortrait.familiar) ?? .none
+        case .shell, .tmux, .orphan:
             self = .none
         }
     }
@@ -109,29 +112,43 @@ public enum EditSessionPortrait: Equatable {
         }
     }
 
-    /// The title field's trailing segment: the class's name. A familiar is read-only and shows none.
+    /// The title field's trailing segment: the class's name, or "Random" for a master with none yet. A familiar is
+    /// read-only and shows none.
     public var label: String? {
         guard case .choosing(let sessionClass) = self else {
             return nil
         }
-        return sessionClass.displayName
+        return sessionClass?.displayName ?? SessionClass.randomLabel
+    }
+
+    /// What the portrait is called to assistive technology; nil without a portrait.
+    public var accessibilityLabel: String? {
+        switch self {
+        case .choosing:
+            return label.map { "Class \($0)" }
+        case .familiar(let sessionClass):
+            return "\(sessionClass.displayName) familiar"
+        case .none:
+            return nil
+        }
     }
 
     public var isEditable: Bool {
         label != nil
     }
 
-    /// ⌃e and a click on the portrait: the next class, wrapping. Nothing for a familiar or no portrait.
+    /// ⌃e and a click on the portrait: the next class, wrapping. An edit has no Random to return to, so a master with
+    /// none yet starts at the first class. Nothing for a familiar or no portrait.
     public mutating func cycle() {
         guard case .choosing(let sessionClass) = self else {
             return
         }
-        self = .choosing(sessionClass.next)
+        self = .choosing(sessionClass?.next ?? SessionClass.allCases[0])
     }
 
-    /// What saving sends for the class: a reclass, only when it changed from `initial`.
+    /// What saving sends for the class: a reclass, only when the class changed from `initial`.
     public func reclassRequest(sessionID: String, since initial: EditSessionPortrait) throws -> ServeMutationRequest? {
-        guard case .choosing(let sessionClass) = self, self != initial else {
+        guard case .choosing(let sessionClass?) = self, self != initial else {
             return nil
         }
         return try ServeMutationRequests.reclass(sessionID: sessionID, to: sessionClass)

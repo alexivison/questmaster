@@ -17,6 +17,8 @@ struct SessionClassLogicTests {
         editPortraitIsEditableForMastersOnly()
         editPortraitCyclesTheMastersClassAndLeavesTheRestAlone()
         editSavesAReclassOnlyWhenTheClassChanged()
+        anUnassignedMasterIsEditableAndStartsAtThePaladin()
+        editPortraitNamesItselfForAssistiveTechnology()
         startRequestEncodesAClassOnlyWhenChosen()
         reclassRequestEncodesTheSessionAndClass()
         print("SessionClassLogicTests: all tests passed")
@@ -138,7 +140,12 @@ struct SessionClassLogicTests {
         expect(worker == .familiar(.cleric) && !worker.isEditable, "a worker's familiar is read-only")
         expect(worker.label == nil && worker.portrait == .familiar(.cleric), "a worker shows its familiar and no subtext")
         expect(portrait(role: "shell") == .none && portrait(role: "shell").portrait == nil, "a shell has no portrait row")
-        expect(portrait(role: "master", sessionClass: "") == .none, "a master without a class has no portrait row")
+        for role in ["shell", "tmux", "orphan"] {
+            for sessionClass in ["", "cleric"] {
+                expect(portrait(role: role, sessionClass: sessionClass) == .none, "a \(role) row has no portrait row, whatever its class is: \(sessionClass)")
+            }
+        }
+        expect(portrait(role: "worker", sessionClass: "") == .none, "a worker whose master's class is unknown has no familiar to show")
     }
 
     private static func editPortraitCyclesTheMastersClassAndLeavesTheRestAlone() {
@@ -177,6 +184,39 @@ struct SessionClassLogicTests {
         } catch {
             fail("reclassRequest threw \(error)")
         }
+    }
+
+    /// A master the backfill hasn't reached has no class, but it is still a master: its row is decided by its role.
+    private static func anUnassignedMasterIsEditableAndStartsAtThePaladin() {
+        for sessionClass in ["", "ranger"] {
+            let session = TrackerSession(id: "qm-1", title: "t", repoName: "r", sessionClass: sessionClass, role: "master")
+            var portrait = EditSessionPortrait(session: session)
+            let initial = portrait
+            expect(portrait == .choosing(nil) && portrait.isEditable, "a master with class \"\(sessionClass)\" is editable")
+            expect(portrait.portrait == .master(nil) && portrait.label == "Random", "it shows the Random silhouette and the \"Random\" segment")
+            expect(portrait.portrait?.resourceName == "random", "the silhouette is the Random image")
+            do {
+                let unchanged = try portrait.reclassRequest(sessionID: "qm-1", since: initial)
+                expect(unchanged == nil, "an unchanged save sends no reclass")
+                portrait.cycle()
+                expect(portrait == .choosing(.paladin) && portrait.label == "Paladin", "the first cycle picks paladin, not Random")
+                let request = try portrait.reclassRequest(sessionID: "qm-1", since: initial)
+                expect(request?.method == "reclass" && request?.data["session_id"] == "qm-1" && request?.data["class"] == "paladin", "a save after a cycle sends the reclass: \(String(describing: request))")
+                for _ in 0..<SessionClass.allCases.count {
+                    portrait.cycle()
+                }
+                expect(portrait == .choosing(.paladin), "after bard it wraps to paladin: an edit has no Random to return to")
+            } catch {
+                fail("reclassRequest threw \(error)")
+            }
+        }
+    }
+
+    private static func editPortraitNamesItselfForAssistiveTechnology() {
+        expect(EditSessionPortrait.choosing(.cleric).accessibilityLabel == "Class Cleric", "a master's portrait names its class")
+        expect(EditSessionPortrait.choosing(nil).accessibilityLabel == "Class Random", "an unassigned master's portrait says Random")
+        expect(EditSessionPortrait.familiar(.druid).accessibilityLabel == "Druid familiar", "a worker's portrait names its familiar")
+        expect(EditSessionPortrait.none.accessibilityLabel == nil, "no portrait, no label")
     }
 
     private static func startRequestEncodesAClassOnlyWhenChosen() {

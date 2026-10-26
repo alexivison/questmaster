@@ -67,6 +67,9 @@ struct SessionPortraitDisc: View {
 /// The title row of New Session and Edit Session, as Class & Title.svg draws it: the portrait disc, 10 before the title
 /// field, which is 35 high and top-aligned with the disc. A click on an editable portrait cycles the class; a
 /// read-only one (a worker's familiar) ignores it. With no portrait the row is the field alone.
+///
+/// An editable portrait is one accessibility button, whose default action cycles, as a `PillTab` is; a read-only one
+/// is an image with no action.
 struct SessionTitleRow<Field: View>: View {
     let portrait: SessionPortrait?
     let portraitLabel: String
@@ -77,12 +80,26 @@ struct SessionTitleRow<Field: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: Space.item) {
             if let portrait {
-                SessionPortraitDisc(portrait: portrait)
-                    .contentShape(Circle())
-                    .onTapGesture { onPortraitClick?() }
-                    .accessibilityLabel(portraitLabel)
+                portraitView(portrait)
             }
             field()
+        }
+    }
+
+    @ViewBuilder
+    private func portraitView(_ portrait: SessionPortrait) -> some View {
+        let disc = SessionPortraitDisc(portrait: portrait)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(portraitLabel)
+        if let onPortraitClick {
+            disc
+                .contentShape(Circle())
+                .onTapGesture(perform: onPortraitClick)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(.default, onPortraitClick)
+        } else {
+            disc
+                .accessibilityAddTraits(.isImage)
         }
     }
 }

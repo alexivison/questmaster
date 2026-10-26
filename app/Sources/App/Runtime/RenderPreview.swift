@@ -38,6 +38,12 @@ enum RenderPreview {
         let editWorker = TrackerEditSession(sessionID: "qm-1-w", title: "Review schema", color: "orange", allowsColor: false, portrait: .familiar(.cleric))
         render(editSheetCanvas(TrackerEditSessionSheet(session: editMaster, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-master.png")
         render(editSheetCanvas(TrackerEditSessionSheet(session: editWorker, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-worker.png")
+        // A master the backfill hasn't reached: no class yet, so the Random silhouette; the first cycle picks paladin.
+        let editUnassigned = TrackerEditSession(sessionID: "qm-3", title: "Title of the Session", color: "orange", allowsColor: true, portrait: .choosing(nil))
+        var editUnassignedCycled = editUnassigned
+        editUnassignedCycled.portrait.cycle()
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editUnassigned, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-master-unassigned.png")
+        render(editSheetCanvas(TrackerEditSessionSheet(session: editUnassignedCycled, dismiss: {}, save: { _, _, _ in true })), size: editCanvas, to: "\(outputDir)/edit-session-master-unassigned-cycled.png")
         render(newSessionView(.classRandom), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-random.png")
         render(newSessionView(.classChosen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-cleric.png")
         render(classPlatesView(), size: CGSize(width: 340, height: 360), to: "\(outputDir)/class-plates.png")
