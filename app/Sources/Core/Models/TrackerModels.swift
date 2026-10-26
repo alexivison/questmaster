@@ -184,6 +184,7 @@ public struct TrackerSession: Decodable, Equatable {
     public var lastKind: String
     public var parentID: String
     public var workerCount: Int
+    public var pullRequestsRev: String
     public var duration: String
     public var elapsedSince: Date?
     public var lastChatAt: Date?
@@ -211,6 +212,7 @@ public struct TrackerSession: Decodable, Equatable {
         lastKind: String = "",
         parentID: String = "",
         workerCount: Int = 0,
+        pullRequestsRev: String = "",
         duration: String = "",
         elapsedSince: Date? = nil,
         lastChatAt: Date? = nil,
@@ -235,6 +237,7 @@ public struct TrackerSession: Decodable, Equatable {
         self.lastKind = lastKind
         self.parentID = parentID
         self.workerCount = workerCount
+        self.pullRequestsRev = pullRequestsRev
         self.duration = duration
         self.elapsedSince = elapsedSince
         self.lastChatAt = lastChatAt
@@ -259,6 +262,7 @@ public struct TrackerSession: Decodable, Equatable {
         case last_kind
         case parent_id
         case worker_count
+        case pull_requests_rev
         case elapsed_ms
         case elapsed_since
         case last_chat_at
@@ -302,6 +306,7 @@ public struct TrackerSession: Decodable, Equatable {
         snippet = try container.decodeIfPresent(String.self, forKey: .latest_activity) ?? ""
         lastKind = try container.decodeIfPresent(String.self, forKey: .last_kind) ?? ""
         workerCount = try container.decode(Int.self, forKey: .worker_count)
+        pullRequestsRev = try container.decodeIfPresent(String.self, forKey: .pull_requests_rev) ?? ""
         elapsedSeedMS = try container.decode(Int.self, forKey: .elapsed_ms)
         elapsedSince = TrackerSession.parseInstant(
             try container.decodeIfPresent(String.self, forKey: .elapsed_since)

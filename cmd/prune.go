@@ -17,10 +17,11 @@ import (
 const defaultPruneDays = 7
 
 type pruneResult struct {
-	Days   int      `json:"days"`
-	DryRun bool     `json:"dry_run"`
-	Pruned int      `json:"pruned"`
-	Paths  []string `json:"paths,omitempty"`
+	Days           int      `json:"days"`
+	DryRun         bool     `json:"dry_run"`
+	Pruned         int      `json:"pruned"`
+	DroppedWatches int      `json:"dropped_watches"`
+	Paths          []string `json:"paths,omitempty"`
 }
 
 func newPruneCmd(store *state.Store, client *tmux.Client) *cobra.Command {
@@ -69,6 +70,7 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 	}
 
 	cutoff := time.Now().Add(-time.Duration(maxDays) * 24 * time.Hour)
+	wouldDelete := map[string]bool{}
 
 	for _, e := range entries {
 		name := e.Name()
@@ -120,6 +122,7 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 
 		path := filepath.Join(root, name)
 		if dryRun {
+			wouldDelete[sessionID] = true
 			result.Paths = append(result.Paths, path)
 			result.Pruned++
 			continue
@@ -138,6 +141,16 @@ func pruneManifests(ctx context.Context, store *state.Store, client *tmux.Client
 		}
 		result.Paths = append(result.Paths, path)
 		result.Pruned++
+	}
+	result.DroppedWatches, err = state.DropPullRequestWatches(root, func(id string) bool {
+		if wouldDelete[id] {
+			return true
+		}
+		_, err := store.Read(id)
+		return err != nil
+	}, dryRun)
+	if err != nil {
+		return result, err
 	}
 	if filepath.Clean(store.Root()) == filepath.Clean(state.StateRoot()) {
 		home, err := os.UserHomeDir()

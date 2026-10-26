@@ -13,6 +13,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/dirsuggest"
 	"github.com/alexivison/questmaster/internal/modelsuggest"
+	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
@@ -126,13 +127,14 @@ func serveContractFixtures() []contractFixture {
 				StartedAt: castStartedAt,
 				TypicalMS: 6000,
 			},
-			LatestActivity: "Bash: go test ./...",
-			LastKind:       "PreToolUse",
-			WorktreePath:   "/tmp/questmaster/worktrees/app-contract",
-			PrimaryAgent:   "codex",
-			SessionType:    "master",
-			WorkerCount:    1,
-			Artifacts:      []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact},
+			LatestActivity:  "Bash: go test ./...",
+			LastKind:        "PreToolUse",
+			WorktreePath:    "/tmp/questmaster/worktrees/app-contract",
+			PrimaryAgent:    "codex",
+			SessionType:     "master",
+			WorkerCount:     1,
+			PullRequestsRev: "abcdef1234567890",
+			Artifacts:       []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact},
 			Repo: RepoSnapshot{
 				Identity: "/tmp/questmaster/.git",
 				Name:     "questmaster",
@@ -209,6 +211,14 @@ func serveContractFixtures() []contractFixture {
 			OK:              boolPtr(true),
 			Topic:           topicWorkerFeed,
 			Data:            workerFeed,
+		}},
+		{name: "pull_requests_response_envelope.json", value: Envelope{
+			ProtocolVersion: ServeProtocolVersion,
+			Type:            "response",
+			ID:              json.RawMessage(`"pull-requests-request"`),
+			OK:              boolPtr(true),
+			Topic:           topicPullRequests,
+			Data:            []state.PullRequest{{Key: "github.com/owner/repo#42", Host: "github.com", Owner: "Owner", Repo: "Repo", Number: 42, Watchers: []state.PullRequestWatcher{{SessionID: "qm-demo", AddedAt: observedAt.Format(time.RFC3339)}}}},
 		}},
 		{name: "tracker_event_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,

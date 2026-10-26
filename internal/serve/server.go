@@ -22,6 +22,7 @@ const (
 	topicModels           = "models"
 	topicReasoningEfforts = "reasoning_efforts"
 	topicWorkerFeed       = "worker_feed"
+	topicPullRequests     = "pull_requests"
 )
 
 // Request is one JSON line sent by a client.
@@ -84,6 +85,8 @@ func (s *Server) HandleRequest(ctx context.Context, req Request) Envelope {
 		data, err = s.reasoningEfforts(ctx, req)
 	case topicWorkerFeed:
 		data, err = s.workerFeed(req)
+	case topicPullRequests:
+		data, err = s.pullRequests(req)
 	default:
 		data, err = s.snapshot(ctx, req.Method)
 	}

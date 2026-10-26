@@ -99,7 +99,7 @@ Invariants that aren't obvious from the code:
 ## The Go↔Swift contract
 
 `internal/serve/testdata/*.json` are the single source of truth for the runtime wire
-shapes (tracker, dir_suggest and models payloads + response/event envelopes). Both the
+shapes (tracker, pull_requests, dir_suggest and models payloads + response/event envelopes). Both the
 Go runtime golden test and the Swift app's contract-fixture test decode the same
 files. Bump `ServeProtocolVersion` for any payload change an old decoder cannot read.
 If you change a serve payload shape, **regenerate the goldens and update
