@@ -1278,7 +1278,27 @@ func TestStateRootResolution(t *testing.T) {
 		t.Errorf("StateRoot should prefer QUESTMASTER_STATE_ROOT: %q", got)
 	}
 	t.Setenv("QUESTMASTER_STATE_ROOT", "")
-	if got, want := StateRoot(), filepath.Join("/tmp/home", ".questmaster-state"); got != want {
+	if got, want := defaultStateRoot("/tmp/home"), filepath.Join("/tmp/home", ".questmaster-state"); got != want {
 		t.Errorf("StateRoot fallback: want %q got %q", want, got)
 	}
+}
+
+func TestStateRootRejectsDefaultDuringTests(t *testing.T) {
+	t.Setenv("QUESTMASTER_STATE_ROOT", "")
+	defer func() {
+		if recover() == nil {
+			t.Error("StateRoot returned the default root in a test binary")
+		}
+	}()
+	_ = StateRoot()
+}
+
+func TestStateRootRejectsLiveRootDuringTests(t *testing.T) {
+	t.Setenv("QUESTMASTER_STATE_ROOT", filepath.Join(os.Getenv("HOME"), ".questmaster-state"))
+	defer func() {
+		if recover() == nil {
+			t.Error("StateRoot returned the live state root in a test binary")
+		}
+	}()
+	_ = StateRoot()
 }

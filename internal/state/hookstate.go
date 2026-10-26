@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"testing"
 	"sync"
 	"syscall"
 	"time"
@@ -28,6 +29,8 @@ const SchemaVersion = 1
 // file exceeds this size, the writer rotates it to state.jsonl.1 and
 // starts a fresh log. One historical file is kept.
 const StateJSONLMaxSize = 1 << 20 // 1 MiB
+
+var processDefaultStateRoot = defaultStateRoot(os.Getenv("HOME"))
 
 // DoneToIdleGrace is how long a completed agent turn stays visibly "done"
 // before an observing tracker can fold it back to idle.
@@ -134,11 +137,22 @@ type PaneState struct {
 // $QUESTMASTER_STATE_ROOT, then falls back to ~/.questmaster-state.
 // Returns the empty string when neither an override nor $HOME is set
 // (caller treats that as a no-op condition).
+// Test binaries must use an isolated root, including when the live root is inherited.
 func StateRoot() string {
 	if root := os.Getenv(StateRootEnv); root != "" {
+		if testing.Testing() && filepath.Clean(root) == processDefaultStateRoot {
+			panic("QUESTMASTER_STATE_ROOT must not use the live state root in tests")
+		}
 		return root
 	}
-	if home := os.Getenv("HOME"); home != "" {
+	if testing.Testing() {
+		panic("QUESTMASTER_STATE_ROOT must be set in tests")
+	}
+	return defaultStateRoot(os.Getenv("HOME"))
+}
+
+func defaultStateRoot(home string) string {
+	if home != "" {
 		return filepath.Join(home, ".questmaster-state")
 	}
 	return ""

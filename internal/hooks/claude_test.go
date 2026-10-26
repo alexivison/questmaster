@@ -654,5 +654,5 @@ func setSyntheticManagerEnv(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
 	t.Setenv("PI_HOME", filepath.Join(home, ".pi"))
-	t.Setenv("QUESTMASTER_STATE_ROOT", "")
+	t.Setenv("QUESTMASTER_STATE_ROOT", filepath.Join(home, ".questmaster-state"))
 }

@@ -27,6 +27,7 @@ type server struct {
 	id, socket, dir string
 	lock, jobsLock  *os.File
 	listener        net.Listener
+	socketInfo      os.FileInfo
 	mu              sync.Mutex
 	record          Record
 	lastActivity    time.Time
@@ -141,13 +142,10 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	}
 	defer s.lock.Close()
 	defer func() {
-		if s.listener != nil {
-			_ = s.listener.Close()
-		}
+		_ = s.closeListener()
 		if s.jobsLock != nil {
 			_ = s.jobsLock.Close()
 		}
-		_ = os.Remove(s.socket)
 		_ = os.Remove(s.recordPath())
 	}()
 	if err := rotateLog(filepath.Join(dir, id+".log")); err != nil {
@@ -258,12 +256,19 @@ func (s *server) listen() error {
 		return err
 	}
 	if u, ok := ln.(*net.UnixListener); ok {
+		// Reexec hands this listener to a new image at the same socket path.
 		u.SetUnlinkOnClose(false)
 	}
 	if err := os.Chmod(s.socket, 0o600); err != nil {
 		ln.Close()
 		return err
 	}
+	info, err := os.Lstat(s.socket)
+	if err != nil {
+		ln.Close()
+		return err
+	}
+	s.socketInfo = info
 	s.listener = ln
 	return nil
 }
@@ -432,13 +437,40 @@ func (s *server) subscribeSource() (serve.ChangeSource, func(), error) {
 func (s *server) activity() time.Time { s.mu.Lock(); defer s.mu.Unlock(); return s.lastActivity }
 func (s *server) clients() int        { s.mu.Lock(); defer s.mu.Unlock(); return s.record.Clients }
 
+func (s *server) closeListener() error {
+	var closeErr error
+	if s.listener != nil {
+		closeErr = s.listener.Close()
+		s.listener = nil
+	}
+	if s.socketInfo == nil {
+		return closeErr
+	}
+	info, err := os.Lstat(s.socket)
+	if os.IsNotExist(err) {
+		return closeErr
+	}
+	if err != nil {
+		return errors.Join(closeErr, err)
+	}
+	if !os.SameFile(info, s.socketInfo) {
+		return closeErr
+	}
+	// A forked child may briefly keep the listener alive before exec closes its inherited fd.
+	if err := os.Remove(s.socket); err != nil && !os.IsNotExist(err) {
+		return errors.Join(closeErr, err)
+	}
+	return closeErr
+}
+
 func (s *server) shutdown(idle bool) error {
 	s.mu.Lock()
 	s.record.Accepting = false
 	s.mu.Unlock()
-	if !idle && s.listener != nil {
-		_ = s.listener.Close()
-		s.listener = nil
+	if !idle {
+		if err := s.closeListener(); err != nil {
+			return err
+		}
 	}
 	drained := s.quiesceJobs()
 	deadline := time.Now().Add(30 * time.Second)
@@ -462,9 +494,8 @@ func (s *server) shutdown(idle bool) error {
 		s.startJobs()
 		return nil
 	}
-	if s.listener != nil {
-		_ = s.listener.Close()
-		s.listener = nil
+	if err := s.closeListener(); err != nil {
+		return err
 	}
 	s.stopJobs()
 	fmt.Fprintln(os.Stderr, "daemon stopping")

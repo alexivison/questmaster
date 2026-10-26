@@ -47,6 +47,7 @@ func TestExecFailureRestoresDescriptorsAndServing(t *testing.T) {
 	if err := syscall.Flock(int(jobs.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		t.Fatal(err)
 	}
+	var execSawSocket bool
 	s := &server{
 		config: Config{
 			Root:            root,
@@ -54,6 +55,8 @@ func TestExecFailureRestoresDescriptorsAndServing(t *testing.T) {
 			ReadIdleTimeout: time.Hour,
 			WriteTimeout:    time.Second,
 			Exec: func(string, []string, []string) error {
+				_, err := os.Lstat(socket)
+				execSawSocket = err == nil
 				return errors.New("forced exec failure")
 			},
 		},
@@ -77,6 +80,9 @@ func TestExecFailureRestoresDescriptorsAndServing(t *testing.T) {
 	s.accept()
 	if err := s.reexec("/unused"); err == nil {
 		t.Fatal("forced exec failure was hidden")
+	}
+	if !execSawSocket {
+		t.Fatal("reexec removed its inherited socket path")
 	}
 	if !s.record.Accepting || !s.nextUpgradeTry.After(time.Now()) {
 		t.Fatalf("daemon did not resume with backoff: %+v", s.record)

@@ -109,7 +109,7 @@ func interactiveLoginShellPath() string {
 		return ""
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Shell managers such as fnm often install shims from interactive startup

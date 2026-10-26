@@ -88,6 +88,10 @@ func (s *server) adopt(h handoff) (err error) {
 	if err := verifyHandoffListener(listenerFile, s.socket); err != nil {
 		return fmt.Errorf("listener: %w", err)
 	}
+	socketInfo, err := listenerFile.Stat()
+	if err != nil {
+		return fmt.Errorf("listener stat: %w", err)
+	}
 	listener, err := net.FileListener(listenerFile)
 	if err != nil {
 		return err
@@ -97,8 +101,9 @@ func (s *server) adopt(h handoff) (err error) {
 		listener.Close()
 		return errors.New("inherited listener is not unix")
 	}
+	// Future reexecs hand this listener over at the same socket path.
 	unixListener.SetUnlinkOnClose(false)
-	s.lock, s.jobsLock, s.listener = lock, jobs, unixListener
+	s.lock, s.jobsLock, s.listener, s.socketInfo = lock, jobs, unixListener, socketInfo
 	s.record.Generation = h.Generation + 1
 	return nil
 }

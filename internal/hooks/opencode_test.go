@@ -2,17 +2,77 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	qmagent "github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
 )
+
+func runOpenCodeHookStub() int {
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return 1
+	}
+	var payload struct {
+		Event struct {
+			Type string `json:"type"`
+		} `json:"event"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return 1
+	}
+	root, event := os.Getenv("QM_CAPTURE"), payload.Event.Type
+	log := func(name string) {
+		f, err := os.OpenFile(filepath.Join(root, "order.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err == nil {
+			fmt.Fprintf(f, "%s:%d\n", name, time.Now().UnixMilli())
+			f.Close()
+		}
+	}
+	if event == "tool.execute.before" {
+		if err := os.WriteFile(filepath.Join(root, "before-started"), nil, 0o600); err != nil {
+			return 1
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			if _, err := os.Stat(filepath.Join(root, "before-release")); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				return 1
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	var signals chan os.Signal
+	if event == "test.timeout" {
+		signals = make(chan os.Signal, 1)
+		signal.Notify(signals, syscall.SIGTERM)
+	}
+	log(event)
+	if event == "test.timeout" {
+		<-signals
+		log("test.timeout.sigterm")
+		for {
+			time.Sleep(time.Second)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, event+".json"), data, 0o600); err != nil {
+		return 1
+	}
+	return 0
+}
 
 func newTestOpenCodeInstaller(t *testing.T) *OpenCodeInstaller {
 	t.Helper()
@@ -176,42 +236,36 @@ func TestOpenCodePluginForwardsToolExecutionHooks(t *testing.T) {
 	if err := os.WriteFile(pluginPath, []byte(plugin), 0o600); err != nil {
 		t.Fatalf("write plugin: %v", err)
 	}
-	stubPath := filepath.Join(dir, "questmaster.mjs")
-	stub := `#!/usr/bin/env node
-import { appendFileSync, writeFileSync } from "node:fs";
-let input = "";
-for await (const chunk of process.stdin) input += chunk;
-const payload = JSON.parse(input);
-if (payload.event.type === "tool.execute.before") await new Promise((resolve) => setTimeout(resolve, 250));
-appendFileSync(process.env.QM_CAPTURE + "/order.log", payload.event.type + ":" + Date.now() + "\n");
-if (payload.event.type === "test.timeout") {
-  process.on("SIGTERM", () => appendFileSync(process.env.QM_CAPTURE + "/order.log", "test.timeout.sigterm:" + Date.now() + "\n"));
-  setInterval(() => {}, 1000);
-}
-writeFileSync(process.env.QM_CAPTURE + "/" + payload.event.type + ".json", input);
-`
-	if err := os.WriteFile(stubPath, []byte(stub), 0o700); err != nil {
-		t.Fatalf("write qm stub: %v", err)
+	stubPath, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
 	}
 	captureDir := filepath.Join(dir, "capture")
 	if err := os.Mkdir(captureDir, 0o700); err != nil {
 		t.Fatalf("create capture dir: %v", err)
 	}
 	script := `import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 const { QuestmasterOpenCode } = await import(pathToFileURL(process.env.QM_PLUGIN));
 const hooks = await QuestmasterOpenCode();
 const input = { tool: "bash", sessionID: "ses-1", callID: "call-1" };
 const args = { command: "go test ./..." };
-await hooks["tool.execute.before"](input, { args });
-assert.ok(!existsSync(process.env.QM_CAPTURE + "/tool.execute.before.json"), "before hook awaited the emission queue");
+let beforeReturned = false;
+const beforeCall = hooks["tool.execute.before"](input, { args }).then(() => { beforeReturned = true; });
+const untilBefore = Date.now() + 10000;
+while (!existsSync(process.env.QM_CAPTURE + "/before-started") && Date.now() < untilBefore) await new Promise((resolve) => setTimeout(resolve, 10));
+assert.ok(existsSync(process.env.QM_CAPTURE + "/before-started"), "before hook child did not start");
+const wasAsync = beforeReturned;
+writeFileSync(process.env.QM_CAPTURE + "/before-release", "");
+await beforeCall;
+assert.ok(wasAsync, "before hook awaited the emission queue");
 await hooks["tool.execute.after"]({ ...input, args }, { title: "bash", output: "", metadata: {} });
 const failedPart = { type: "message.part.updated", properties: { part: { id: "prt-1", callID: "call-1", type: "tool", state: { status: "error" } } } };
 await hooks.event({ event: failedPart });
 const wait = async (name) => {
   const path = process.env.QM_CAPTURE + "/" + name + ".json";
-  const until = Date.now() + 3000;
+  const until = Date.now() + 10000;
   while (!existsSync(path) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(existsSync(path), name + " hook was not emitted");
   return JSON.parse(readFileSync(path, "utf8"));
@@ -224,7 +278,7 @@ assert.deepEqual(after.event.properties, input);
 assert.deepEqual(failed.event, failedPart);
 await hooks.event({ event: { type: "test.timeout" } });
 await hooks.event({ event: { type: "test.after-timeout" } });
-const untilTimeout = Date.now() + 3000;
+const untilTimeout = Date.now() + 10000;
 let lines = [];
 while (Date.now() < untilTimeout) {
   lines = readFileSync(process.env.QM_CAPTURE + "/order.log", "utf8").trim().split("\n");
@@ -238,10 +292,11 @@ assert.ok(at("test.after-timeout") - at("test.timeout.sigterm") >= 70, "queue ad
 assert.deepEqual(lines.slice(0, 3).map((line) => line.split(":")[0]), ["tool.execute.before", "tool.execute.after", "message.part.updated"]);
 assert.ok(lines.indexOf(lines.find((line) => line.startsWith("test.timeout:"))) < lines.indexOf(lines.find((line) => line.startsWith("test.after-timeout:"))), "next event overtook the timed-out child");
 `
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, node, "--input-type=module", "-e", script)
 	cmd.Env = append(os.Environ(),
+		"QM_OPENCODE_HOOK_STUB=1",
 		"QUESTMASTER_SESSION=qm-plugin-test",
 		"QUESTMASTER_BIN="+stubPath,
 		"QM_CAPTURE="+captureDir,

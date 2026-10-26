@@ -9,6 +9,7 @@ jobs:
   go:
     name: Go (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -36,7 +37,7 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -timeout 10m ./...
 
   native-app:
     name: Native App
