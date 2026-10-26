@@ -8,8 +8,6 @@ package serve
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -23,19 +21,14 @@ import (
 	"github.com/alexivison/questmaster/internal/tracker"
 )
 
-const classBackfillRetryDelay = 30 * time.Second
-
 // Snapshotter builds the read-only data surfaces served to clients.
 type Snapshotter struct {
-	store                   *state.Store
-	tmuxClient              *tmux.Client
-	fetcher                 tracker.SessionFetcher
-	now                     func() time.Time
-	randomIndex             func(int) int
-	mu                      sync.Mutex
-	trackerCache            *TrackerSnapshot
-	classBackfillIncomplete bool
-	classBackfillRetryAt    time.Time
+	store        *state.Store
+	tmuxClient   *tmux.Client
+	fetcher      tracker.SessionFetcher
+	now          func() time.Time
+	mu           sync.Mutex
+	trackerCache *TrackerSnapshot
 }
 
 // NewSnapshotter creates a snapshot reader from existing qm services.
@@ -51,11 +44,10 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 		now = time.Now
 	}
 	return &Snapshotter{
-		store:       store,
-		tmuxClient:  tmuxClient,
-		fetcher:     tracker.NewLiveSessionFetcher(tmuxClient, store),
-		now:         now,
-		randomIndex: rand.IntN,
+		store:      store,
+		tmuxClient: tmuxClient,
+		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store),
+		now:        now,
 	}
 }
 
@@ -271,23 +263,18 @@ func (s *Snapshotter) TrackerForChange(change Change) (TrackerSnapshot, error) {
 }
 
 func (s *Snapshotter) clockTracker() (TrackerSnapshot, error) {
-	now := s.now().UTC()
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
 	s.mu.Lock()
 	cached := s.trackerCache
-	retryBackfill := s.classBackfillIncomplete && !now.Before(s.classBackfillRetryAt)
-	if retryBackfill {
-		s.classBackfillRetryAt = now.Add(classBackfillRetryDelay)
-	}
 	s.mu.Unlock()
-	if cached == nil || retryBackfill {
+	if cached == nil {
 		return s.fullTracker()
 	}
 
 	next := cloneTrackerSnapshot(*cached)
-	observedAt := now
+	observedAt := s.now().UTC()
+	if observedAt.IsZero() {
+		observedAt = time.Now().UTC()
+	}
 	changed := false
 	var typicalCache toolTypicalDurationCache
 	for i := range next.Sessions {
@@ -390,11 +377,6 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	if err != nil {
 		return TrackerSnapshot{}, err
 	}
-	backfillIncomplete := !snap.LivenessKnown
-	if snap.LivenessKnown {
-		backfillIncomplete = s.backfillSessionClasses(snap.Sessions)
-	}
-	s.recordClassBackfillStatus(backfillIncomplete, s.now())
 	tracker.InheritWorkerClasses(snap.Sessions)
 	observedAt := snap.ObservedAt.UTC()
 	if observedAt.IsZero() {
@@ -415,54 +397,6 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 		Artifacts:  artifactSnapshots(artifacts),
 		Quests:     questSnapshots(quests),
 	}), nil
-}
-
-func (s *Snapshotter) backfillSessionClasses(rows []tracker.SessionRow) bool {
-	incomplete := false
-	activeClasses := make([]string, 0, len(rows))
-	for _, row := range rows {
-		if row.SessionType == "master" && row.Status == "active" && row.Class != "" {
-			activeClasses = append(activeClasses, row.Class)
-		}
-	}
-	index := s.randomIndex
-	if index == nil {
-		index = rand.IntN
-	}
-	for i := range rows {
-		if rows[i].SessionType != "master" || rows[i].Class != "" {
-			continue
-		}
-		class := state.ChooseSessionClass(activeClasses, index)
-		stored, err := s.store.SetSessionClassIfMissing(rows[i].ID, class)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "questmaster: warning: backfill session class for %s: %v\n", rows[i].ID, err)
-			incomplete = true
-			continue
-		}
-		rows[i].Class = stored
-		if rows[i].Status == "active" {
-			activeClasses = append(activeClasses, stored)
-		}
-	}
-	return incomplete
-}
-
-func (s *Snapshotter) recordClassBackfillStatus(incomplete bool, now time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !incomplete {
-		s.classBackfillIncomplete = false
-		s.classBackfillRetryAt = time.Time{}
-		return
-	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	if !s.classBackfillIncomplete || !now.Before(s.classBackfillRetryAt) {
-		s.classBackfillRetryAt = now.Add(classBackfillRetryDelay)
-	}
-	s.classBackfillIncomplete = true
 }
 
 func (s *Snapshotter) cacheTracker(snapshot TrackerSnapshot) TrackerSnapshot {

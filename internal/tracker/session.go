@@ -63,10 +63,9 @@ type SessionRow struct {
 
 // TrackerSnapshot is the full rendered data set for one refresh tick.
 type TrackerSnapshot struct {
-	Sessions      []SessionRow
-	Current       CurrentSessionDetail
-	ObservedAt    time.Time
-	LivenessKnown bool
+	Sessions   []SessionRow
+	Current    CurrentSessionDetail
+	ObservedAt time.Time
 }
 
 // CurrentSessionDetail carries the current session metadata needed by the
@@ -80,8 +79,7 @@ type CurrentSessionDetail struct {
 type SessionFetcher func(current SessionInfo) (TrackerSnapshot, error)
 
 type sessionIndex struct {
-	liveSessions  map[string]struct{}
-	livenessKnown bool
+	liveSessions map[string]struct{}
 }
 
 // NewLiveSessionFetcher creates a SessionFetcher backed by shared services.
@@ -130,10 +128,9 @@ func NewLiveSessionFetcher(tmuxClient *tmux.Client, store *state.Store) SessionF
 		InheritWorkerClasses(rows)
 
 		return TrackerSnapshot{
-			Sessions:      GroupRowsByRepo(OrderSessionRows(rows)),
-			Current:       buildCurrentSessionDetail(current, manifestByID),
-			ObservedAt:    observedAt,
-			LivenessKnown: index.livenessKnown,
+			Sessions:   GroupRowsByRepo(OrderSessionRows(rows)),
+			Current:    buildCurrentSessionDetail(current, manifestByID),
+			ObservedAt: observedAt,
 		}, nil
 	}
 }
@@ -341,7 +338,6 @@ func buildSessionIndex(ctx context.Context, tmuxClient *tmux.Client) sessionInde
 	if err != nil {
 		return index
 	}
-	index.livenessKnown = true
 	for _, sessionID := range liveSessions {
 		index.liveSessions[sessionID] = struct{}{}
 	}

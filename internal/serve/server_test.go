@@ -3,7 +3,6 @@
 package serve
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,24 +26,10 @@ import (
 
 type fakeTmuxRunner struct {
 	sessions string
-	err      error
 }
 
 func (r fakeTmuxRunner) Run(context.Context, ...string) (string, error) {
-	return r.sessions, r.err
-}
-
-type mutableTmuxRunner struct {
-	sessions string
-	err      error
-	calls    int
-}
-
-func (r *mutableTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
-	if len(args) > 0 && args[0] == "list-sessions" {
-		r.calls++
-	}
-	return r.sessions, r.err
+	return r.sessions, nil
 }
 
 type countingTmuxRunner struct {
@@ -110,232 +95,6 @@ func TestSnapshotterSurfacesTracker(t *testing.T) {
 	}
 	if row.WorktreePath != env.worktree {
 		t.Fatalf("worktree = %q, want %q", row.WorktreePath, env.worktree)
-	}
-}
-
-func TestSnapshotterBackfillsMasterClassesOnce(t *testing.T) {
-	env := seedServeFixture(t)
-	ids := []string{"qm-demo", "qm-backfill-a", "qm-backfill-b"}
-	for _, id := range ids[1:] {
-		if err := env.store.Create(state.Manifest{
-			SessionID: id,
-			Cwd:       env.worktree,
-			Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
-		}); err != nil {
-			t.Fatalf("create master %s: %v", id, err)
-		}
-	}
-	tmuxClient := tmux.NewClient(fakeTmuxRunner{sessions: strings.Join(ids, "\n")})
-	snapshotter := NewSnapshotter(env.store, tmuxClient, func() time.Time { return env.now })
-	snapshotter.randomIndex = func(int) int { return 0 }
-
-	first, err := snapshotter.TrackerForChange(Change{})
-	if err != nil {
-		t.Fatalf("first tracker snapshot: %v", err)
-	}
-	classes := make(map[string]bool, len(ids))
-	manifestBytes := make(map[string][]byte, len(ids))
-	for _, row := range first.Sessions {
-		if !slices.Contains(ids, row.ID) {
-			continue
-		}
-		classes[row.Class] = true
-		manifest, err := env.store.Read(row.ID)
-		if err != nil {
-			t.Fatalf("read manifest %s: %v", row.ID, err)
-		}
-		if manifest.DisplayClass() != row.Class || row.Class == "" {
-			t.Fatalf("row %s class = %q manifest class = %q", row.ID, row.Class, manifest.DisplayClass())
-		}
-		manifestBytes[row.ID], err = os.ReadFile(filepath.Join(env.store.Root(), row.ID+".json"))
-		if err != nil {
-			t.Fatalf("read manifest bytes %s: %v", row.ID, err)
-		}
-	}
-	if len(classes) != len(ids) {
-		t.Fatalf("backfilled classes = %v, want %d balanced classes", classes, len(ids))
-	}
-
-	second, err := snapshotter.TrackerForChange(Change{BroadTracker: true})
-	if err != nil {
-		t.Fatalf("second tracker snapshot: %v", err)
-	}
-	for _, row := range second.Sessions {
-		if _, ok := manifestBytes[row.ID]; !ok {
-			continue
-		}
-		if !classes[row.Class] {
-			t.Fatalf("row %s class changed from backfilled set: %q", row.ID, row.Class)
-		}
-		got, err := os.ReadFile(filepath.Join(env.store.Root(), row.ID+".json"))
-		if err != nil {
-			t.Fatalf("read manifest bytes %s: %v", row.ID, err)
-		}
-		if !bytes.Equal(got, manifestBytes[row.ID]) {
-			t.Fatalf("manifest %s changed on the second snapshot", row.ID)
-		}
-	}
-}
-
-func TestSnapshotterKeepsTrackerWhenClassBackfillFails(t *testing.T) {
-	env := seedServeFixture(t)
-	manifestPath := filepath.Join(env.store.Root(), "qm-demo.json")
-	if err := os.Mkdir(manifestPath+".tmp", 0o700); err != nil {
-		t.Fatalf("block manifest temp path: %v", err)
-	}
-	defer os.RemoveAll(manifestPath + ".tmp")
-	snapshotter := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
-	snapshotter.randomIndex = func(int) int { return 0 }
-	snapshotter.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
-		return tracker.TrackerSnapshot{
-			LivenessKnown: true,
-			Sessions: []tracker.SessionRow{{
-				ID: "qm-demo", SessionType: "master", Status: "stopped",
-			}},
-		}, nil
-	}
-
-	got, err := snapshotter.TrackerForChange(Change{})
-	if err != nil {
-		t.Fatalf("tracker snapshot after failed backfill: %v", err)
-	}
-	if len(got.Sessions) != 1 || got.Sessions[0].Class != "" {
-		t.Fatalf("tracker sessions = %#v, want one unclassified row", got.Sessions)
-	}
-	manifest, err := env.store.Read("qm-demo")
-	if err != nil {
-		t.Fatalf("read manifest after failed write: %v", err)
-	}
-	if manifest.DisplayClass() != "" {
-		t.Fatalf("persisted class = %q after failed write, want none", manifest.DisplayClass())
-	}
-}
-
-func TestSnapshotterSkipsClassBackfillWhenTmuxLivenessIsUnknown(t *testing.T) {
-	env := seedServeFixture(t)
-	tmuxClient := tmux.NewClient(fakeTmuxRunner{err: &tmux.ExitError{
-		Code: 1, Stderr: "error connecting to /tmp/tmux-1000/default: Permission denied",
-	}})
-	snapshotter := NewSnapshotter(env.store, tmuxClient, func() time.Time { return env.now })
-	snapshotter.randomIndex = func(int) int { return 0 }
-
-	got, err := snapshotter.TrackerForChange(Change{})
-	if err != nil {
-		t.Fatalf("tracker snapshot with unknown liveness: %v", err)
-	}
-	if len(got.Sessions) != 1 || got.Sessions[0].Class != "" {
-		t.Fatalf("tracker sessions = %#v, want one unclassified row", got.Sessions)
-	}
-	manifest, err := env.store.Read("qm-demo")
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
-	if manifest.DisplayClass() != "" {
-		t.Fatalf("persisted class = %q, want none while liveness is unknown", manifest.DisplayClass())
-	}
-}
-
-func TestSnapshotterRetriesIncompleteClassBackfillOnClock(t *testing.T) {
-	tests := []struct {
-		name              string
-		livenessError     bool
-		failManifestWrite bool
-	}{
-		{name: "liveness recovers", livenessError: true},
-		{name: "manifest write recovers", failManifestWrite: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := seedServeFixture(t)
-			manifestPath := filepath.Join(env.store.Root(), "qm-demo.json")
-			if tt.failManifestWrite {
-				if err := os.Mkdir(manifestPath+".tmp", 0o700); err != nil {
-					t.Fatalf("block manifest temp path: %v", err)
-				}
-				defer os.RemoveAll(manifestPath + ".tmp")
-			}
-
-			runner := &mutableTmuxRunner{sessions: "qm-demo"}
-			if tt.livenessError {
-				runner.err = &tmux.ExitError{
-					Code: 1, Stderr: "error connecting to /tmp/tmux-1000/default: Permission denied",
-				}
-			}
-			client := tmux.NewClient(runner)
-			now := env.now
-			snapshotter := NewSnapshotter(env.store, client, func() time.Time { return now })
-			snapshotter.randomIndex = func(int) int { return 0 }
-
-			initial, err := snapshotter.TrackerForChange(Change{})
-			if err != nil {
-				t.Fatalf("initial tracker snapshot: %v", err)
-			}
-			if len(initial.Sessions) != 1 || initial.Sessions[0].Class != "" {
-				t.Fatalf("initial tracker sessions = %#v, want one classless master", initial.Sessions)
-			}
-			assertManifestClassless := func() {
-				t.Helper()
-				manifest, err := env.store.Read("qm-demo")
-				if err != nil {
-					t.Fatalf("read manifest: %v", err)
-				}
-				if manifest.DisplayClass() != "" {
-					t.Fatalf("persisted class = %q, want none", manifest.DisplayClass())
-				}
-			}
-			assertManifestClassless()
-
-			if tt.livenessError {
-				runner.err = nil
-			}
-			if tt.failManifestWrite {
-				if err := os.Remove(manifestPath + ".tmp"); err != nil {
-					t.Fatalf("unblock manifest temp path: %v", err)
-				}
-			}
-			client.ClearListSessionsCache()
-			callsBeforeRetry := runner.calls
-			now = env.now.Add(classBackfillRetryDelay - time.Second)
-			beforeRetry, err := snapshotter.TrackerForChange(Change{Clock: true})
-			if err != nil {
-				t.Fatalf("clock tracker before retry time: %v", err)
-			}
-			if len(beforeRetry.Sessions) != 1 || beforeRetry.Sessions[0].Class != "" {
-				t.Fatalf("pre-retry tracker sessions = %#v, want one classless master", beforeRetry.Sessions)
-			}
-			assertManifestClassless()
-			if runner.calls != callsBeforeRetry {
-				t.Fatalf("tmux list calls before retry = %d, want unchanged %d", runner.calls, callsBeforeRetry)
-			}
-
-			now = env.now.Add(classBackfillRetryDelay + time.Second)
-			afterRetry, err := snapshotter.TrackerForChange(Change{Clock: true})
-			if err != nil {
-				t.Fatalf("clock tracker after retry time: %v", err)
-			}
-			if len(afterRetry.Sessions) != 1 {
-				t.Fatalf("retry tracker sessions = %#v, want one master", afterRetry.Sessions)
-			}
-			if _, err := state.ValidateSessionClass(afterRetry.Sessions[0].Class); err != nil {
-				t.Fatalf("retry tracker class = %q, want valid class: %v", afterRetry.Sessions[0].Class, err)
-			}
-			manifest, err := env.store.Read("qm-demo")
-			if err != nil {
-				t.Fatalf("read retried manifest: %v", err)
-			}
-			if manifest.DisplayClass() != afterRetry.Sessions[0].Class {
-				t.Fatalf("persisted class = %q, tracker class = %q", manifest.DisplayClass(), afterRetry.Sessions[0].Class)
-			}
-			snapshotter.mu.Lock()
-			backfillIncomplete := snapshotter.classBackfillIncomplete
-			snapshotter.mu.Unlock()
-			if backfillIncomplete {
-				t.Fatal("complete class backfill left retry pending")
-			}
-			if runner.calls != callsBeforeRetry+1 {
-				t.Fatalf("tmux list calls after retry = %d, want %d", runner.calls, callsBeforeRetry+1)
-			}
-		})
 	}
 }
 
@@ -1054,6 +813,45 @@ func TestFileChangeSourceClassifiesArtifactsJSONAsSessionChange(t *testing.T) {
 	change = source.classify(state.QuestsRegistryPath(env.store.Root()))
 	if !reflect.DeepEqual(change.Topics, []string{topicTracker}) || !change.BroadTracker || len(change.SessionIDs) != 0 {
 		t.Fatalf("root quests change = %#v, want broad tracker change", change)
+	}
+}
+
+func TestManifestClassWriteBroadRefreshReadsPersistedClass(t *testing.T) {
+	env := seedServeFixture(t)
+	snapshotter := NewSnapshotter(env.store, tmux.NewClient(fakeTmuxRunner{sessions: "qm-demo"}), func() time.Time { return env.now })
+	first, err := snapshotter.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("initial tracker snapshot: %v", err)
+	}
+	if len(first.Sessions) != 1 || first.Sessions[0].Class != "" {
+		t.Fatalf("initial master row = %#v, want no class before job runs", first.Sessions)
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatalf("create watcher: %v", err)
+	}
+	defer watcher.Close() //nolint:errcheck
+	source := &FileChangeSource{
+		snapshotter: snapshotter,
+		watcher:     watcher,
+		stateRoot:   env.store.Root(),
+		watched:     map[string]struct{}{},
+	}
+	if _, err := env.store.SetSessionClassIfMissing("qm-demo", "wizard"); err != nil {
+		t.Fatalf("backfill manifest class: %v", err)
+	}
+	change := source.classify(filepath.Join(env.store.Root(), "qm-demo.json"))
+	if !change.BroadTracker || !change.Lifecycle {
+		t.Fatalf("manifest event = %#v, want broad lifecycle rebuild", change)
+	}
+
+	updated, err := snapshotter.TrackerForChange(change)
+	if err != nil {
+		t.Fatalf("tracker snapshot after manifest event: %v", err)
+	}
+	if len(updated.Sessions) != 1 || updated.Sessions[0].Class != "wizard" {
+		t.Fatalf("updated master rows = %#v, want persisted wizard class", updated.Sessions)
 	}
 }
 

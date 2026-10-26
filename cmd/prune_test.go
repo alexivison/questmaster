@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/serve"
+	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -121,9 +121,28 @@ func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
 	}
 
 	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
-	snapshotter := serve.NewSnapshotter(store, client, time.Now)
-	if _, err := snapshotter.TrackerForChange(serve.Change{}); err != nil {
-		t.Fatalf("tracker snapshot: %v", err)
+	job := session.NewClassBackfillJob(store, client)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- job.Run(ctx) }()
+	deadline := time.NewTimer(3 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for job.HasWork() {
+		select {
+		case err := <-done:
+			cancel()
+			t.Fatalf("backfill job returned before completing: %v", err)
+		case <-deadline.C:
+			cancel()
+			t.Fatal("backfill job did not finish")
+		case <-ticker.C:
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("backfill job: %v", err)
 	}
 	after, err := store.Read("qm-old")
 	if err != nil {

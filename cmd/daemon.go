@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/daemon"
+	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +23,7 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 	parent := &cobra.Command{Use: "daemon", Short: "Manage the on-demand backend", Args: cobra.NoArgs}
 	var buildFrom string
 	config := func() (daemon.Config, error) {
-		c := daemon.Config{Root: store.Root()}
+		c := newDaemonConfig(store)
 		if buildFrom == "" {
 			return c, nil
 		}
@@ -147,4 +149,11 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 		return report(cmd, record, err)
 	}})
 	return parent
+}
+
+func newDaemonConfig(store *state.Store) daemon.Config {
+	return daemon.Config{
+		Root: store.Root(),
+		Jobs: []daemon.Job{session.NewClassBackfillJob(store, tmux.NewExecClient())},
+	}
 }

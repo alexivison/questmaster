@@ -382,22 +382,9 @@ func (s *Service) startDisplayMetadata(opts StartOpts) *state.DisplayMetadata {
 }
 
 func (s *Service) activeMasterClasses(ctx context.Context) ([]string, error) {
-	liveSessions, err := s.Client.ListSessions(ctx)
+	_, classes, err := liveMasterClasses(ctx, s.Store, s.Client)
 	if err != nil {
 		return nil, fmt.Errorf("list live sessions for class assignment: %w", err)
-	}
-	classes := make([]string, 0, len(liveSessions))
-	for _, sessionID := range liveSessions {
-		if !state.IsValidSessionID(sessionID) {
-			continue
-		}
-		manifest, err := s.Store.Read(sessionID)
-		if err != nil || manifest.AgentSessionType() != "master" {
-			continue
-		}
-		if class := manifest.DisplayClass(); class != "" {
-			classes = append(classes, class)
-		}
 	}
 	return classes, nil
 }
