@@ -188,9 +188,17 @@ hides.
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
+| Shell row (the tracker's shell section) | rest (`RowLook.shellRest`) | no fill, title and glyph `textMeta`, glyph disc `item` rim (a filled row's disc takes the look's own rim) |
+| | under the pointer | the hover look (1pt `line` outline), on a resting row only |
+| | keyboard cursor, while the tracker has the keys (`RowLook.shellCursor`) | 1pt `controlBorder` outline inside the row, no fill, text and glyph as at rest, regular weight |
+| | the viewed shell (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
+| | the cursor on the viewed shell (`RowLook.shellSelectedCursor`) | the fill and bold, plus the `controlBorder` outline |
 
 - Bold means selected and appears only in a lasting-selection list. Artifacts
   have no selected state: picking one opens it.
+- Shells are not plates: every shell, tmux and orphan row leaves its repo group for the shell section pinned under all
+  the plates (`TrackerShellSection`, drawn by `TrackerShellRow`). A shell's own display colour tints its title in every
+  state; none leaves the state's text colour.
 - Dividers inside rows are `line` in every state.
 - Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
   titles, project headers and marks; never for selection or focus.
@@ -198,7 +206,9 @@ hides.
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
   `ScoopedLayerChrome` do). `raised` (black 35%, blur 4, 1.5 down): tracker plates and their discs, and every
   dropdown (`SuggestionDropdown`). `panel` (30%, blur 12, 4 down): the dock's panels and the toast. `modal` (45%,
-  blur 30, 10 down): every in-window modal, the Quest Log included. Panel, dock and toast borders are 2pt
+  blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside
+  its clip, is a `Recess` token in the same file (`portrait`: 3 deep, blur 1, black 20%, the sheets' portrait discs).
+  Panel, dock and toast borders are 2pt
   `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). The dock's frame lifts to
   `controlBorder` while the dock has keyboard focus and no modal is drawn
   (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is
@@ -241,7 +251,16 @@ Portraits sit on 5s too: the master's disc spans 0-50 and the worker's 20-60 in
 their rows, and plate text starts `Space.row` past the disc's round edge (55,
 65; the side diamonds don't count). The selected-session panel's text starts
 `Space.item` past its disc (80), clear of the Q's spike. Logos are 0.6 of their disc (30, 24, 15),
-canvases and icon, logo and mark sizes are lengths like any other.
+canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
+agent's logo in a 25pt badge (logo 15), as big as a collapsed worker's circle, whose edge hangs `Space.row` outside the
+disc on the left and below it (`TrackerPlateDesign.badgeOverhang`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
+A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, flush with the plates, stacked with no gap
+(the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
+in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
+edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows) and scrolling inside itself past that;
+the plates scroll in their own list in the space above it, which shrinks to make room and ends
+`TrackerListMetrics.shellClearance` (`Space.group`) over the section. Each scroller sees only its own rows' cursor
+(`plateCursorID` / `shellCursorID`), and a cursor the pointer moved scrolls neither (`PointerCursor`).
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an

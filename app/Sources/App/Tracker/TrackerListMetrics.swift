@@ -14,6 +14,11 @@ enum TrackerListMetrics {
     /// The master's crown pieces reach 2pt above it, so they start 38pt below the panel.
     static let selectedPanelGap = Space.group
     static let verticalPadding = Space.section
+    /// The shell section is pinned to the bottom of the tracker column, at `verticalPadding` from its edge, and the
+    /// plates' list scrolls in the space above it. That space ends this far above the section, so the plates, however
+    /// many, never come closer than `Space.group` to it (the badge's overhang past the last disc included: the list's own
+    /// bottom padding holds it). With no shells the list has the column's full height.
+    static let shellClearance = Space.group
     /// Every gap in the list (2026-10-21): between project groups, between sessions, from a master to its workers and
     /// between workers, and after a session's workers. Each runs from the visible bottom of the item above (its disc, its
     /// collapsed workers' circles, or its open cast row) to the top of the next disc, and each row is exactly that tall,

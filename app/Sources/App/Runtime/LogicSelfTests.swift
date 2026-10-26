@@ -23,7 +23,8 @@ enum LogicSelfTests {
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
-        ("testRevertedShellRowsUseFreshShellAccent", testRevertedShellRowsUseFreshShellAccent),
+        ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
+        ("testAnAttachedShellsPanelBarFollowsItsOwnColour", testAnAttachedShellsPanelBarFollowsItsOwnColour),
         ("testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest", testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest),
         ("testTrackerPlatesKeepTheDesignsProportions", testTrackerPlatesKeepTheDesignsProportions),
         ("testTrackerBandPrecedence", testTrackerBandPrecedence),
@@ -51,9 +52,15 @@ enum LogicSelfTests {
         ("testQuestLogOpensScrolledToTheKeptSelection", testQuestLogOpensScrolledToTheKeptSelection),
         ("testQuestLogOpensWithoutRedrawingTheParchment", testQuestLogOpensWithoutRedrawingTheParchment),
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
+        ("testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges", testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges),
+        ("testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass", testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass),
+        ("testFilterBarTextSitsOnOneBaselineRestingAndFocused", testFilterBarTextSitsOnOneBaselineRestingAndFocused),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
+        ("testShellRowsKeepTheMocksGeometry", testShellRowsKeepTheMocksGeometry),
+        ("testTheShellSectionIsPinnedToTheTrackersBottom", testTheShellSectionIsPinnedToTheTrackersBottom),
+        ("testTheShellSectionScrollsInsideItselfPastItsMaxHeight", testTheShellSectionScrollsInsideItselfPastItsMaxHeight),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
@@ -77,6 +84,8 @@ enum LogicSelfTests {
         ("testNewSessionResolvesReasoningEffortsPerAgentAndModel", testNewSessionResolvesReasoningEffortsPerAgentAndModel),
         ("testNewSessionKeepsDefaultReasoningEffortWhenResolveFails", testNewSessionKeepsDefaultReasoningEffortWhenResolveFails),
         ("testNewSessionEffortKeysCycleWhereAnECannotBeTyped", testNewSessionEffortKeysCycleWhereAnECannotBeTyped),
+        ("testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne", testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne),
+        ("testEveryPortraitIsBundledUnderItsOwnName", testEveryPortraitIsBundledUnderItsOwnName),
         ("testNewSessionTabTakesTheHighlightedModelThenMovesOn", testNewSessionTabTakesTheHighlightedModelThenMovesOn),
         ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
         ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
@@ -219,38 +228,54 @@ enum LogicSelfTests {
         try expect(afterStatus == "xxxxxxxxx", "connect-only should run status once and never Ensure")
     }
 
-    private static func testRevertedShellRowsUseFreshShellAccent() throws {
-        let fresh = TrackerSession(
-            id: "fresh-shell",
-            title: "Shell",
-            repoName: "",
-            agent: ""
-        )
-        let reverted = TrackerSession(
-            id: "reverted-shell",
-            title: "Shell",
-            repoIdentity: "/repo/.git",
-            repoName: "Repo",
-            repoPath: "/repo",
-            repoColor: "green",
-            displayColor: "magenta",
-            agent: "",
-            state: "done",
-            lifecycle: "active"
-        )
+    /// Shells leave the repo groups for a section under every plate, in snapshot order, and the order the cursor and the
+    /// Cmd+N numbers walk ends with them. A repo left with only shells draws nothing; the panel still names an attached
+    /// shell's repo.
+    private static func testShellRowsLeaveTheRepoGroupsForTheirOwnSection() throws {
+        let master = TrackerSession(id: "master", title: "Master", repoName: "Repo", agent: "codex", role: "master")
+        let worker = TrackerSession(id: "worker", title: "Worker", repoName: "Repo", agent: "codex", role: "worker", parentID: "master")
+        let first = TrackerSession(id: "shell-first", title: "Shell", repoName: "", agent: "")
+        let second = TrackerSession(id: "shell-second", title: "Shell", repoName: "Repo", repoColor: "green", displayColor: "magenta", agent: "")
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        snapshot.tracker = TrackerSnapshot(repos: TrackerRepo.grouping([fresh, reverted]))
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "ungrouped", name: "ungrouped", sessions: [first]),
+            TrackerRepo(id: "repo", name: "Repo", color: "green", sessions: [master, second, worker]),
+        ])
 
-        let rows = TrackerRenderer.tracker(snapshot).flatMap { repo in
-            repo.groups.flatMap { group in
-                [group.root] + group.workers
-            }
+        let tracker = TrackerRenderer.tracker(snapshot)
+        try expect(tracker.repos.map(\.repo.name) == ["Repo"], "a repo of only shells should draw no group, got \(tracker.repos.map(\.repo.name))")
+        let plateIDs = tracker.repos.flatMap { repo in repo.groups.flatMap { [$0.root.session.id] + $0.workers.map(\.session.id) } }
+        try expect(plateIDs == ["master", "worker"], "the repo should keep only its master and worker, got \(plateIDs)")
+        try expect(tracker.shells.map(\.rendered.session.id) == ["shell-first", "shell-second"], "the shells should keep the snapshot's order")
+        let rowIDs = TrackerRenderer.flatSessions(in: tracker).map(\.id)
+        try expect(rowIDs == ["master", "worker", "shell-first", "shell-second"], "the cursor and the numbers should walk the plates, then the shells, got \(rowIDs)")
+
+        let panel = SelectedSessionPanelContent.make(currentTerminalSessionID: "shell-second", tracker: tracker)
+        try expect(panel.id == "shell-second" && panel.projectName == "Repo", "the panel should name an attached shell's repo, got \(panel.id) / \(panel.projectName)")
+    }
+
+    /// An attached shell's panel bar is its own display colour when it has one; without, the shell grey, never its repo's
+    /// colour (a shell keeps the accent it always had).
+    private static func testAnAttachedShellsPanelBarFollowsItsOwnColour() throws {
+        let own = TrackerSession(id: "shell-own", title: "Shell", repoName: "Repo", repoColor: "green", displayColor: "magenta", agent: "")
+        let inheriting = TrackerSession(id: "shell-inheriting", title: "Shell", repoName: "Repo", repoColor: "green", agent: "")
+        let none = TrackerSession(id: "shell-none", title: "Shell", repoName: "Repo", repoColor: "green", displayColor: "none", agent: "")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "green", sessions: [own, inheriting, none])])
+        let tracker = TrackerRenderer.tracker(snapshot)
+
+        func barColor(attached id: String) -> NSColor {
+            SelectedSessionPanelContent.make(currentTerminalSessionID: id, tracker: tracker).projectColor
         }
-        let freshColor = try renderedColor(rows, id: "fresh-shell")
-        let revertedColor = try renderedColor(rows, id: "reverted-shell")
-
-        try expect(freshColor.isEqual(AppPalette.muted), "fresh shell should use muted accent")
-        try expect(revertedColor.isEqual(freshColor), "reverted shell should keep fresh shell accent")
+        guard let magenta = AppPalette.displayColor("magenta") else {
+            throw TestFailure("magenta should be a display colour")
+        }
+        try expect(barColor(attached: "shell-own").isEqual(TrackerNameplateColor.barLightness(magenta)), "an attached shell with its own colour should show it on the panel's bar")
+        let grey = TrackerNameplateColor.barLightness(AppPalette.muted)
+        try expect(barColor(attached: "shell-inheriting").isEqual(grey), "an attached shell with no colour should show the shell grey, not its repo's green")
+        try expect(barColor(attached: "shell-none").isEqual(grey), "the none colour is no colour")
+        try expect(TrackerRenderer.shellTint(for: own)?.isEqual(magenta) == true, "the row's title takes the same own colour")
+        try expect(TrackerRenderer.shellTint(for: inheriting) == nil && TrackerRenderer.shellTint(for: none) == nil, "no own colour tints nothing")
     }
 
     /// The ring in Core Animation: a steady ring is still, a spinning one turns, a filling one sweeps to full and then
@@ -549,12 +574,40 @@ enum LogicSelfTests {
         // The master's crown pieces and ring are live: its row's hit and hover shape reaches the canvas's extents, above
         // the row and below it, past the crown's tip. The worker's has no artwork past its frame.
         let masterRow = CGRect(origin: .zero, size: TrackerPlateDesign.topLevelSize)
-        let masterHit = VerticallyOutsetRectangle(outset: TrackerNameplateRole.master.hitOutset).path(in: masterRow).boundingRect
+        let masterHit = RowHitShape(outset: TrackerNameplateRole.master.hitOutset).path(in: masterRow).boundingRect
         try expect(masterHit.minY <= -TrackerPlateDesign.svgDiscInset, "master hit shape top should reach the canvas's top, got \(masterHit.minY)")
         let crownBottom = ornamentBox.maxY - TrackerPlateDesign.svgDiscInset
         try expect(masterHit.maxY >= crownBottom, "master hit shape bottom should reach the crown's tip at \(crownBottom), got \(masterHit.maxY)")
         try expectClose(masterHit.width, TrackerPlateDesign.topLevelSize.width, "master hit shape width")
         try expect(TrackerNameplateRole.worker.hitOutset == 0, "the worker's row has no artwork past its frame")
+
+        // The agent badge hangs 5 past its disc's left edge and bottom: on a master's row, left of the frame and below it,
+        // on a worker's, below it. Every point of its rim is live, but the shape stays the circle: its square's corners are
+        // not. The row sits off the origin, so the badge has to follow the row.
+        try expectClose(TrackerPlateDesign.badgeDiameter, TrackerPlateDesign.collapsedCircleDiameter, "the badge is as big as a collapsed worker's circle")
+        try expectClose(TrackerPlateDesign.badgeLogoSide, TrackerPlateDesign.collapsedLogoSide, "its logo is the circle's logo size")
+        for role in [TrackerNameplateRole.master, .worker] {
+            try expectClose(role.portraitOrigin.x - role.badgeOrigin.x, TrackerPlateDesign.badgeOverhang, "\(role)'s badge hangs the overhang past the disc's left edge")
+            try expectClose(
+                role.badgeOrigin.y + TrackerPlateDesign.badgeDiameter - (role.portraitOrigin.y + role.portraitDiameter),
+                TrackerPlateDesign.badgeOverhang,
+                "\(role)'s badge hangs the overhang below the disc"
+            )
+            try expect(role.badgeOrigin.x == role.badgeOrigin.x.rounded() && role.badgeOrigin.y == role.badgeOrigin.y.rounded(), "\(role)'s badge frame sits on whole points")
+            let row = CGRect(origin: CGPoint(x: 7, y: 3), size: role.canvasSize)
+            let hit = RowHitShape(outset: role.hitOutset, overhang: role.badgeHitShape).path(in: row)
+            let radius = TrackerPlateDesign.badgeDiameter / 2
+            let centre = CGPoint(x: row.minX + role.badgeOrigin.x + radius, y: row.minY + role.badgeOrigin.y + radius)
+            try expect(centre.y + radius > row.maxY + role.hitOutset, "\(role)'s badge should hang past the row's own hit shape")
+            for step in 0..<16 {
+                let angle = CGFloat(step) * .pi / 8
+                let rim = CGPoint(x: centre.x + (radius - 0.5) * cos(angle), y: centre.y + (radius - 0.5) * sin(angle))
+                try expect(hit.contains(rim), "\(role)'s hit shape should take in the badge's rim at \(rim)")
+            }
+            let squareCorner = CGPoint(x: centre.x - radius + 0.5, y: centre.y + radius - 0.5)
+            try expect(!hit.contains(squareCorner), "\(role)'s hit shape should not take in the badge square's corner at \(squareCorner)")
+        }
+        try expect(TrackerNameplateRole.master.badgeOrigin.x < 0, "a master's badge hangs left of its row")
     }
 
     private static func testElapsedTimeShowsOnlyWhileWorkingAndIsLiveOnlyWhenCounting() throws {
@@ -739,13 +792,13 @@ enum LogicSelfTests {
         let master = TrackerSession(id: "qm-attached", title: "Fix bug", repoName: "Preview", role: "master")
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "preview", name: "Preview", sessions: [master])])
-        let repos = TrackerRenderer.tracker(snapshot)
+        let tracker = TrackerRenderer.tracker(snapshot)
 
-        let attached = SelectedSessionPanelContent.make(currentTerminalSessionID: "qm-attached", repos: repos)
+        let attached = SelectedSessionPanelContent.make(currentTerminalSessionID: "qm-attached", tracker: tracker)
         guard attached.id == "qm-attached", attached.projectName == "Preview" else {
             throw TestFailure("the panel should name the attached session's project, got \(attached.id) / \(attached.projectName)")
         }
-        let shell = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, repos: repos)
+        let shell = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, tracker: tracker)
         guard shell.projectName.isEmpty else {
             throw TestFailure("a shell with no attached session should show no project")
         }
@@ -767,7 +820,7 @@ enum LogicSelfTests {
             }
             var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
             snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "preview", name: "Preview", sessions: sessions)])
-            guard let group = TrackerRenderer.tracker(snapshot).first?.groups.first else {
+            guard let group = TrackerRenderer.tracker(snapshot).repos.first?.groups.first else {
                 throw TestFailure("tracker renderer should keep the master group")
             }
             return TrackerWorkerSummary.circles(for: group.workers)
@@ -1994,6 +2047,282 @@ enum LogicSelfTests {
         try expect(reported.last == false && !field.hasFocus, "focus moving elsewhere should clear it, reported \(reported)")
     }
 
+    /// The shell rows as the tracker mock lays them out, measured on the rendered section: 35 tall with no gap, each as
+    /// wide as the 260 column, the 25pt disc 10 into the row and the title 10 past it. The viewed shell and the cursor's
+    /// shell fill their rows, a resting row between them.
+    private static func testShellRowsKeepTheMocksGeometry() throws {
+        let sessions = ["a", "b", "c"].map { TrackerSession(id: $0, title: "Shell \($0)", repoName: "", agent: "") }
+        let shells = sessions.map { session in
+            TrackerRenderedShell(
+                rendered: TrackerRenderedSession(session: session, status: TrackerRenderer.status(for: session), groupColor: AppPalette.muted, recolorEditHint: nil),
+                repoName: ""
+            )
+        }
+        let size = CGSize(width: TrackerPlateDesign.topLevelSize.width, height: 3 * TrackerShellMetrics.rowHeight)
+        func render(selected: String, viewed: String) throws -> PixelProbe {
+            let section = TrackerShellRows(
+                shells: shells, selectedID: selected, viewedID: viewed, areaFocused: true, shortcutNumbers: [:], commandLongPressIsActive: false,
+                onSelect: { _ in }, onActivate: { _ in }, onEditSession: { _ in }
+            )
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .background(AppPalette.window.swiftUI)
+            let view = NSHostingView(rootView: section)
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = size
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return PixelProbe(bitmap: bitmap, height: Int(size.height))
+        }
+        let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        let middle = rowHeight / 2
+        let edgeColumn = 200
+
+        // The viewed shell (a) is filled, the cursor's (b) is outlined with no fill, and c rests.
+        let probe = try render(selected: "b", viewed: "a")
+
+        // Down a column past the row's corner and left of the disc: only the viewed row is filled, 35 high from the top.
+        let fillColumn = Int(TrackerShellMetrics.cornerRadius) + 1
+        let filledRows = (0..<Int(size.height)).filter { probe.isColor(fillColumn, $0, AppPalette.item) }
+        try expect(filledRows == Array(0..<rowHeight), "only the viewed row should be filled, 35 high, got rows \(filledRows)")
+
+        // Across the viewed row's middle: the fill runs the column's whole width, flush with the plates.
+        let filledColumns = (0..<Int(size.width)).filter { probe.isColor($0, middle, AppPalette.item) }
+        try expect(filledColumns.first == 0, "a row should start at the column's edge, got x \(String(describing: filledColumns.first))")
+        try expect(filledColumns.last == Int(size.width) - 1, "a row should run to the column's far edge, got x \(String(describing: filledColumns.last))")
+
+        // The cursor's row, with no gap under the filled one, stays apart: its 1pt controlBorder outline is inside its own
+        // 35 rows (top row, bottom row and left edge), and its inside is unfilled.
+        try expect(probe.isColor(edgeColumn, rowHeight - 1, AppPalette.item), "the viewed row should fill down to its own last row")
+        try expect(probe.isColor(edgeColumn, rowHeight, AppPalette.controlBorder), "the cursor's outline should start on its own first row, right under the fill")
+        try expect(probe.isColor(edgeColumn, 2 * rowHeight - 1, AppPalette.controlBorder), "the cursor's outline should end on its own last row")
+        try expect(probe.isColor(0, rowHeight + middle, AppPalette.controlBorder), "the cursor's outline should run along its left edge")
+        try expect(probe.isColor(edgeColumn, rowHeight + middle, AppPalette.window), "the cursor's row should have no fill")
+
+        // The resting row, last: its disc's border starts 10 into the row, and its title 10 past the disc.
+        let restMiddle = 2 * rowHeight + middle
+        let inkColumns = (0..<Int(size.width)).filter { !probe.isColor($0, restMiddle, AppPalette.window) }
+        let discLeft = Int(TrackerShellMetrics.discLead)
+        try expect(inkColumns.first == discLeft, "the disc should start 10 into the row, got x \(String(describing: inkColumns.first))")
+        let titleLeft = discLeft + Int(TrackerShellMetrics.discDiameter + Space.item)
+        let titleInk = inkColumns.first { $0 > discLeft + Int(TrackerShellMetrics.discDiameter) }
+        try expect(titleInk.map { $0 >= titleLeft && $0 <= titleLeft + 3 } == true, "the title should start 10 past the disc, got x \(String(describing: titleInk))")
+
+        // The cursor on the viewed shell: filled and outlined, the outline on the fill's own edge rows.
+        let both = try render(selected: "a", viewed: "a")
+        try expect(both.isColor(edgeColumn, 0, AppPalette.controlBorder) && both.isColor(edgeColumn, rowHeight - 1, AppPalette.controlBorder), "the viewed shell under the cursor should be outlined top and bottom")
+        try expect(both.isColor(edgeColumn, middle, AppPalette.item), "and filled inside the outline")
+    }
+
+    /// A real tracker in a headless window at 1x, with `masters` plates and `shells` shells (`shell-0` ...), `viewed` the
+    /// attached session. The viewed shell's row is filled, which marks where the shell section is.
+    private final class TrackerFixture {
+        let store: RuntimeStore
+        let view: NSView
+        let window: HeadlessWindow
+        let size: CGSize
+
+        @MainActor
+        init(masters: Int, shells: Int, viewed: String, height: Int) {
+            func session(_ id: String, role: String) -> TrackerSession {
+                TrackerSession(id: id, title: id, repoName: "Repo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
+            }
+            let plates = (0..<masters).map { session("master-\($0)", role: "master") }
+            let shellRows = (0..<shells).map { session("shell-\($0)", role: "shell") }
+            store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: viewed, expandedMasterIDs: [])
+            store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: plates + shellRows)])))
+            size = CGSize(width: 340, height: CGFloat(height))
+            let root = TrackerRootView(
+                store: store,
+                navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+                newSessionPresenter: NewSessionSheetPresenter(),
+                destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+            )
+            .frame(width: size.width, height: size.height)
+            .background(AppPalette.window.swiftUI)
+            view = NSHostingView(rootView: root)
+            view.frame = NSRect(origin: .zero, size: size)
+            window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            settle()
+        }
+
+        func settle(_ seconds: TimeInterval = 0.8) {
+            RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+        }
+
+        func close() {
+            window.close()
+        }
+
+        /// The tracker's pixels now.
+        func probe() throws -> PixelProbe {
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ) else {
+                throw TestFailure("could not make a bitmap")
+            }
+            bitmap.size = size
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return PixelProbe(bitmap: bitmap, height: Int(size.height))
+        }
+
+        /// The scroll view that is `height` tall: the shell section's (the plates' list is the one taller).
+        func scrollView(height: CGFloat) -> NSScrollView? {
+            func find(in view: NSView) -> NSScrollView? {
+                if let scrollView = view as? NSScrollView, abs(scrollView.frame.height - height) < 0.5 {
+                    return scrollView
+                }
+                return view.subviews.lazy.compactMap(find).first
+            }
+            return find(in: view)
+        }
+    }
+
+    private struct PixelProbe {
+        let bitmap: NSBitmapImageRep
+        let height: Int
+
+        func isColor(_ x: Int, _ y: Int, _ color: NSColor) -> Bool {
+            guard let pixel = bitmap.colorAt(x: x, y: y), let expected = color.usingColorSpace(.deviceRGB) else {
+                return false
+            }
+            return abs(pixel.redComponent - expected.redComponent) < 0.02
+                && abs(pixel.greenComponent - expected.greenComponent) < 0.02
+                && abs(pixel.blueComponent - expected.blueComponent) < 0.02
+        }
+
+        /// The rows of `color` down a column past a shell row's corner and left of its disc: the filled shell rows.
+        var filledShellRows: [Int] {
+            let column = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.cornerRadius) + 1
+            return (0..<height).filter { isColor(column, $0, AppPalette.item) }
+        }
+
+        /// Nothing of a plate in the band above the section, at several columns.
+        func clearBand(above sectionTop: Int) -> Bool {
+            let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
+            return [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
+        }
+    }
+
+    /// How far a scroll view has scrolled from the top of its content.
+    private static func offsetFromTop(_ scrollView: NSScrollView) -> CGFloat {
+        guard let document = scrollView.documentView else {
+            return 0
+        }
+        let visible = scrollView.documentVisibleRect
+        return document.isFlipped ? visible.minY : document.frame.height - visible.maxY
+    }
+
+    /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
+    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and with
+    /// many shells the section stops at its max height. The viewed shell's filled row marks the section's bottom (the
+    /// last shell) or its top (the first).
+    private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {
+        let height = 700
+        let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
+        let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        func probe(masters: Int, shells: Int, viewed: String) throws -> PixelProbe {
+            let fixture = TrackerFixture(masters: masters, shells: shells, viewed: viewed, height: height)
+            defer { fixture.close() }
+            return try fixture.probe()
+        }
+        func sectionTop(shells: Int) -> Int {
+            height - Int(TrackerListMetrics.verticalPadding) - min(shells * rowHeight, Int(TrackerShellMetrics.maxHeight))
+        }
+
+        let few = try probe(masters: 1, shells: 2, viewed: "shell-1")
+        try expect(few.filledShellRows.last == bottom, "with few plates the section should end at the column's bottom margin, got row \(String(describing: few.filledShellRows.last)) for \(bottom)")
+        try expect(few.filledShellRows.suffix(rowHeight).first == bottom - rowHeight + 1, "the viewed shell's row should be 35 high")
+        try expect(few.clearBand(above: sectionTop(shells: 2)), "there should be empty space above the section")
+
+        let many = try probe(masters: 14, shells: 2, viewed: "shell-1")
+        try expect(many.filledShellRows.last == bottom, "with many plates the section should stay at the column's bottom margin, got row \(String(describing: many.filledShellRows.last)) for \(bottom)")
+        try expect(many.clearBand(above: sectionTop(shells: 2)), "the plates should be cut a clearance above the section, leaving its band empty")
+
+        // Past five rows the section stops at its max height, five rows, and the plates keep their clearance above it.
+        let crowded = try probe(masters: 14, shells: 8, viewed: "shell-0")
+        let crowdedTop = sectionTop(shells: 8)
+        try expect(crowdedTop == bottom + 1 - Int(TrackerShellMetrics.maxHeight), "eight shells should stand 175 high")
+        try expect(crowded.filledShellRows.contains(crowdedTop) && !crowded.filledShellRows.contains(crowdedTop - 1), "the first of eight shells should be the section's top, got rows \(crowded.filledShellRows.suffix(40))")
+        try expect(crowded.clearBand(above: crowdedTop), "the capped section keeps its clearance too")
+    }
+
+    /// Many shells at the minimum window height: the section is `maxHeight` tall and scrolls inside itself, its last shell
+    /// reachable; a viewed last shell is in view on the first render; the cursor following the viewed session scrolls the
+    /// section the least it takes, but not when the pointer moved the cursor there.
+    private static func testTheShellSectionScrollsInsideItselfPastItsMaxHeight() throws {
+        let height = 600
+        let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        let maxHeight = Int(TrackerShellMetrics.maxHeight)
+        let shells = 14
+        let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
+        let sectionTop = bottom + 1 - maxHeight
+        let contentHeight = CGFloat(shells * rowHeight)
+
+        // First render with the last shell viewed: it is in view, at the section's bottom, and the section is 175 tall (the
+        // row above its first visible one starts at its top, and the band above it is clear).
+        let last = TrackerFixture(masters: 14, shells: shells, viewed: "shell-13", height: height)
+        defer { last.close() }
+        let lastProbe = try last.probe()
+        try expect(lastProbe.filledShellRows.last == bottom && lastProbe.filledShellRows.suffix(rowHeight).first == bottom - rowHeight + 1,
+                   "a viewed last shell should be in view on the first render, got rows \(lastProbe.filledShellRows.suffix(40))")
+        let discColumn = Int(TrackerListMetrics.sidePadding + TrackerShellMetrics.discLead + TrackerShellMetrics.discDiameter / 2)
+        let discTop = sectionTop + Int((TrackerShellMetrics.rowHeight - TrackerShellMetrics.discDiameter) / 2)
+        try expect(lastProbe.isColor(discColumn, discTop, AppPalette.item), "the section should be 175 tall: its first visible row's disc should sit at \(discTop)")
+        try expect(lastProbe.clearBand(above: sectionTop), "the plates should stay above the section's clearance")
+        guard let lastScroll = last.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view: the section should scroll inside itself")
+        }
+        try expect(abs((lastScroll.documentView?.frame.height ?? 0) - contentHeight) < 0.5, "the section's content should be all \(shells) rows, \(contentHeight) tall, got \(String(describing: lastScroll.documentView?.frame.height))")
+        try expect(abs(offsetFromTop(lastScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the first render should have scrolled to the last row, got \(offsetFromTop(lastScroll))")
+
+        // The last shell is reachable by scrolling: from the top, the section scrolls down to it.
+        let first = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { first.close() }
+        guard let firstScroll = first.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view when the first shell is viewed")
+        }
+        try expect(offsetFromTop(firstScroll) == 0, "a viewed first shell needs no scroll, got \(offsetFromTop(firstScroll))")
+        let firstProbe = try first.probe()
+        try expect(firstProbe.filledShellRows.first(where: { $0 > sectionTop - 1 }) == sectionTop, "the viewed first shell should be the section's top row")
+        firstScroll.contentView.scroll(to: NSPoint(x: 0, y: (firstScroll.documentView?.isFlipped ?? true) ? contentHeight - TrackerShellMetrics.maxHeight : 0))
+        firstScroll.reflectScrolledClipView(firstScroll.contentView)
+        try expect(abs(offsetFromTop(firstScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the section should scroll down to its last row")
+
+        // The cursor follows the viewed session: onto the last shell, by the keys' way, the section scrolls the least it takes.
+        let moved = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { moved.close() }
+        moved.store.setCurrentTerminalSessionID("shell-13")
+        moved.settle()
+        guard let movedScroll = moved.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view after the viewed session moved")
+        }
+        try expect(abs(offsetFromTop(movedScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the cursor onto the last shell should scroll it into view, got \(offsetFromTop(movedScroll))")
+
+        // A cursor the pointer moved is already under it: no scroll.
+        let hovered = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        defer { hovered.close() }
+        PointerHighlight.cursor.pointerMoved(to: "shell-13")
+        hovered.store.setCurrentTerminalSessionID("shell-13")
+        hovered.settle()
+        guard let hoveredScroll = hovered.scrollView(height: TrackerShellMetrics.maxHeight) else {
+            throw TestFailure("no 175pt scroll view after the pointer moved the cursor")
+        }
+        try expect(offsetFromTop(hoveredScroll) == 0, "a cursor the pointer moved should not scroll the section, got \(offsetFromTop(hoveredScroll))")
+    }
+
     /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row
     /// internals. The artifact rows' tiles sit on a 45pt pitch (a 40pt row and 5) and are 30 high; a form's first field
     /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
@@ -2051,6 +2380,27 @@ enum LogicSelfTests {
         try expect(fieldEdges.first == Int(ModalSheetHeader.height + Space.item), "the first field should start 10 under the header's band, got rows \(fieldEdges)")
         let secondTop = Int(ModalFormMetrics.contentTop + FormFieldMetrics.height + ModalFormMetrics.fieldSpacing)
         try expect(fieldEdges.contains(secondTop) && !fieldEdges.contains(secondTop - 1), "the second field should start 20 under the first, got rows \(fieldEdges)")
+
+        // The title row: a 40pt portrait disc, then the 35 high title field 10 right of it and top-aligned with it; the next
+        // field starts 20 under the disc.
+        let titleSize = CGSize(width: 460, height: ModalFormMetrics.height(fields: 2, portraitRow: true))
+        let titleForm = NSHostingView(rootView: ModalFormSheet(title: "Spacing", errorMessage: nil, primaryLabel: "Save", canSubmit: true, size: titleSize, onCancel: {}, onPrimary: {}) {
+            VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                SessionTitleRow(portrait: .master(.paladin), portraitLabel: "Class Paladin") {
+                    FormTextField(text: .constant(""), placeholder: "Title", focusNonce: 0, focused: false)
+                }
+                FormTextField(text: .constant(""), placeholder: "Second", focusNonce: 0, focused: false)
+            }
+        }.background(AppPalette.panel.swiftUI))
+        let rowTop = Int(ModalFormMetrics.contentTop)
+        let discColumn = Int(ModalFormMetrics.inset + SessionPortraitMetrics.sheetDiameter / 2)
+        let discRows = try borderRows(titleForm, size: titleSize, x: discColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        try expect(discRows.first == rowTop && discRows.contains(rowTop + 39), "the portrait disc should be 40 high from the row's top, got rows \(discRows)")
+        let titleColumn = Int(ModalFormMetrics.inset + SessionPortraitMetrics.sheetDiameter + Space.item + Space.section)
+        let titleRows = try borderRows(titleForm, size: titleSize, x: titleColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        try expect(titleRows.first == rowTop && titleRows.contains(rowTop + Int(FormFieldMetrics.height) - 1), "the title field should be 35 high from the row's top, got rows \(titleRows)")
+        let nextTop = rowTop + Int(SessionPortraitMetrics.sheetDiameter + ModalFormMetrics.fieldSpacing)
+        try expect(titleRows.contains(nextTop) && !titleRows.contains(nextTop - 1), "the next field should start 20 under the disc, got rows \(titleRows)")
     }
 
     /// The elevation shadows (AGENTS.md, "Interaction states") reach past the clip that shapes their panel: a modal's
@@ -2099,6 +2449,344 @@ enum LogicSelfTests {
 
     /// No single-line text field is shorter than its font's full line (ascent + descent + leading): the live
     /// field editor clips to the field's bounds, so a shorter field cuts ascenders or descenders.
+    /// The title row's model for the class-segment test: the segment's text, and the title field's.
+    @MainActor
+    private final class TitleRowModel: ObservableObject {
+        @Published var label = "Random"
+        @Published var text: String
+
+        init(text: String) {
+            self.text = text
+        }
+    }
+
+    /// The title row of New Session as it is laid out, in a 460 x 60 canvas.
+    private struct TitleRowHarness: View {
+        @ObservedObject var model: TitleRowModel
+        let placeholder: String
+
+        var body: some View {
+            SessionTitleRow(portrait: .master(nil), portraitLabel: "Class") {
+                FormTextField(text: Binding(get: { model.text }, set: { model.text = $0 }), placeholder: placeholder, focusNonce: 0, focused: true) {
+                    FormFieldSegment(text: model.label, color: AppPalette.textMeta)
+                }
+            }
+            .frame(width: 460, height: 60, alignment: .topLeading)
+            .background(AppPalette.panel.swiftUI)
+        }
+    }
+
+    /// A filter bar (the Quest Log's and the artifact dock's) with one chip, in a 340 x 60 canvas.
+    private struct FilterBarHarness: View {
+        @State var query: String
+        let tokens: [ArtifactFilterToken]
+
+        var body: some View {
+            FilterBar(
+                tokens: tokens,
+                query: $query,
+                placeholder: "xHH",
+                focusNonce: 0,
+                suggestions: [],
+                highlightedSuggestionID: nil,
+                accessibilityLabel: "Filter",
+                onCommand: { _ in false },
+                onRemoveToken: { _ in },
+                onSelectSuggestion: { _ in }
+            )
+            .frame(width: 340)
+            .frame(width: 340, height: 60, alignment: .topLeading)
+            .background(AppPalette.panel.swiftUI)
+        }
+    }
+
+    // The helpers of the text-position tests: pixels of a view at a backing scale, the ink edges of glyphs in them, and
+    // where a field editor's first line sits.
+
+    private static func findKeyField(in view: NSView) -> CommandTextField.KeyTextField? {
+        (view as? CommandTextField.KeyTextField) ?? view.subviews.lazy.compactMap(findKeyField).first
+    }
+
+    /// The view's pixels now, at `scale`.
+    private static func snapshot(_ view: NSView, size: CGSize, scale: CGFloat) throws -> NSBitmapImageRep {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else {
+            throw TestFailure("could not make a bitmap")
+        }
+        bitmap.size = size
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return bitmap
+    }
+
+    /// The top and bottom ink edges, in points from the view's top and to the backing pixel, of what differs from
+    /// `background` in `columns` (points) within `rows` (points).
+    private static func inkEdges(_ bitmap: NSBitmapImageRep, scale: CGFloat, columns: Range<Int>, rows: Range<Int> = 3..<32, over background: NSColor = AppPalette.window) -> (top: CGFloat, bottom: CGFloat)? {
+        guard let base = background.usingColorSpace(.deviceRGB) else {
+            return nil
+        }
+        let factor = Int(scale)
+        let inked = (rows.lowerBound * factor..<rows.upperBound * factor).filter { y in
+            (columns.lowerBound * factor..<columns.upperBound * factor).contains { x in
+                guard let pixel = bitmap.colorAt(x: x, y: y) else {
+                    return false
+                }
+                return abs(pixel.redComponent - base.redComponent) + abs(pixel.greenComponent - base.greenComponent)
+                    + abs(pixel.blueComponent - base.blueComponent) > 0.15
+            }
+        }
+        guard let first = inked.first, let last = inked.last else {
+            return nil
+        }
+        return (CGFloat(first) / scale, CGFloat(last + 1) / scale)
+    }
+
+    /// Where the field editor's first line stands on its baseline, in points from `view`'s top: the glyph's location is in
+    /// its line fragment, the line fragment in the text container, and the container sits `textContainerOrigin` into the
+    /// editor, which then converts into the view.
+    private static func firstLineBaseline(of editor: NSTextView, in view: NSView) -> CGFloat? {
+        guard let layout = editor.layoutManager, layout.numberOfGlyphs > 0 else {
+            return nil
+        }
+        let line = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+        let glyph = layout.location(forGlyphAt: 0)
+        let inEditor = NSPoint(
+            x: editor.textContainerOrigin.x + line.minX + glyph.x,
+            y: editor.textContainerOrigin.y + line.minY + glyph.y
+        )
+        return view.convert(inEditor, from: editor).y
+    }
+
+    /// A baseline in points, snapped to the backing pixel the glyphs are drawn on, so it compares with an ink edge.
+    private static func pixelEdge(_ y: CGFloat, scale: CGFloat) -> CGFloat {
+        (y * scale).rounded() / scale
+    }
+
+    /// Changing the class changes the segment's width, so the title field is laid out again. Its text must not move when
+    /// that happens, nor when the field takes focus: the field editor draws where the resting cell does, always, at 1x and
+    /// at 2x (a Retina display), with typed text or the placeholder showing, and the segment stays on its baseline.
+    ///
+    /// The resting baseline is the bottom ink edge of an "H" in an unfocused twin. The placeholder and the segment are
+    /// measured the same way, in pixels. Typed text in a focused field is the editor's, whose pixels a snapshot of the view
+    /// doesn't follow, so its baseline is read off the editor's own line (`firstLineBaseline`). Two claims, kept apart: the
+    /// text doesn't move across the change (the same measure before and after, exactly), and it sits on the resting
+    /// baseline (the editor's, snapped to its backing pixel, against the resting ink edge).
+    /// Once AppKit re-laid the editor out after a segment change it sat a point above where the editor was first placed
+    /// (the focus clip view's frame is recomputed on a resize, the editor in it is not), which a one-time offset of the
+    /// editor, made to match the resting cell, then got wrong.
+    private static func testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges() throws {
+        let size = CGSize(width: 460, height: 60)
+        // The field starts after the 40pt disc and its 10 gap; its text 10 in. The first "x" takes the caret's place at the
+        // start of an empty field, so the title's columns are the "H" after it.
+        let titleColumns = 68..<73
+        let segmentColumns = 430..<449
+        var failures: [String] = []
+        for scale in [CGFloat(1), CGFloat(2)] {
+            /// A title row in a window at `scale`, its field editing (caret at the end) or not.
+            func makeRow(text: String, focused: Bool) throws -> (model: TitleRowModel, view: NSView, window: HeadlessWindow) {
+                let model = TitleRowModel(text: text)
+                let view = NSHostingView(rootView: TitleRowHarness(model: model, placeholder: "xHH"))
+                view.frame = NSRect(origin: .zero, size: size)
+                let window = HeadlessWindow(size: size, scale: scale)
+                window.contentView = view
+                window.show(key: true)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                if focused {
+                    guard let field = findKeyField(in: view) else {
+                        throw TestFailure("no title text field")
+                    }
+                    field.focusEditorAtEnd()
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                    try expect(field.currentEditor() != nil, "the title field should be editing")
+                }
+                return (model, view, window)
+            }
+            func measure(_ view: NSView) throws -> (title: CGFloat?, segment: CGFloat?) {
+                let bitmap = try snapshot(view, size: size, scale: scale)
+                return (inkEdges(bitmap, scale: scale, columns: titleColumns)?.bottom, inkEdges(bitmap, scale: scale, columns: segmentColumns)?.bottom)
+            }
+            func editorBaseline(_ view: NSView) -> CGFloat? {
+                (findKeyField(in: view)?.currentEditor() as? NSTextView).flatMap { firstLineBaseline(of: $0, in: view) }
+            }
+
+            let resting = try makeRow(text: "xHH", focused: false)
+            defer { resting.window.close() }
+            guard let restingBaseline = try measure(resting.view).title else {
+                throw TestFailure("the resting title should show ink at \(scale)x")
+            }
+
+            for (name, text, focused) in [("typed, focused", "xHH", true), ("typed, unfocused", "xHH", false), ("placeholder, focused", "", true), ("placeholder, unfocused", "", false)] {
+                let row = try makeRow(text: text, focused: focused)
+                defer { row.window.close() }
+                let before = try measure(row.view)
+                let editorBefore = editorBaseline(row.view)
+                row.model.label = "Paladin"
+                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                let after = try measure(row.view)
+                let editorAfter = editorBaseline(row.view)
+                let label = "\(scale)x \(name)"
+
+                if before.segment == nil || before.segment != after.segment {
+                    failures.append("\(label): the segment's baseline should not move, \(String(describing: before.segment)) to \(String(describing: after.segment))")
+                }
+                if focused && !text.isEmpty {
+                    // Typed text under the editor: it doesn't move across the change, and it stands on the resting baseline.
+                    guard let editorBefore, let editorAfter else {
+                        failures.append("\(label): the editor should have a first line")
+                        continue
+                    }
+                    if editorBefore != editorAfter {
+                        failures.append("\(label): the editor's baseline moved when the class changed, \(editorBefore) to \(editorAfter)")
+                    }
+                    if pixelEdge(editorBefore, scale: scale) != restingBaseline || pixelEdge(editorAfter, scale: scale) != restingBaseline {
+                        failures.append("\(label): the editor's baseline \(editorBefore) / \(editorAfter) should stand on the resting \(restingBaseline)")
+                    }
+                } else {
+                    if before.title != after.title {
+                        failures.append("\(label): the title's baseline moved when the class changed, \(String(describing: before.title)) to \(String(describing: after.title))")
+                    }
+                    if before.title != restingBaseline {
+                        failures.append("\(label): the title's baseline should be the resting \(restingBaseline), got \(String(describing: before.title))")
+                    }
+                }
+            }
+        }
+        try expect(failures.isEmpty, failures.joined(separator: "; "))
+    }
+
+    /// The real Edit Session sheet: ⌃e in its focused title cycles a classless master from Random to paladin, the segment
+    /// widens by a letter, the title field is laid out again, and the editor's text stays where it was.
+    private static func testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass() throws {
+        func editingField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.currentEditor() != nil {
+                return field
+            }
+            return view.subviews.lazy.compactMap(editingField).first
+        }
+        for scale in [CGFloat(1), CGFloat(2)] {
+            let session = TrackerEditSession(sessionID: "qm-1", title: "Small fixes", color: "orange", allowsColor: true, portrait: .choosing(nil))
+            let size = CGSize(width: 460, height: 300)
+            let sheet = TrackerEditSessionSheet(session: session, dismiss: {}, save: { _, _, _ in true })
+                .frame(width: size.width, height: size.height, alignment: .top)
+                .background(AppPalette.window.swiftUI)
+            let view = NSHostingView(rootView: sheet)
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: scale)
+            window.contentView = view
+            window.show(key: true)
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+            func baseline() throws -> (y: CGFloat, width: CGFloat) {
+                guard let field = editingField(in: view), let editor = field.currentEditor() as? NSTextView,
+                      let y = firstLineBaseline(of: editor, in: view) else {
+                    throw TestFailure("the Edit Session title should be editing at \(scale)x")
+                }
+                return (y, field.frame.width)
+            }
+            let before = try baseline()
+            guard let controlE = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .control, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: "\u{5}", charactersIgnoringModifiers: "\u{5}",
+                isARepeat: false, keyCode: 14
+            ) else {
+                throw TestFailure("could not make a ⌃e key event")
+            }
+            NSApp.sendEvent(controlE)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            let after = try baseline()
+            try expect(before.width - after.width > 5, "⌃e should widen the class segment and narrow the title field at \(scale)x, got \(before.width) to \(after.width)")
+            try expect(before.y == after.y, "the Edit Session title's text should not move when ⌃e cycles the class at \(scale)x, baseline \(before.y) to \(after.y)")
+        }
+    }
+
+    /// The filter bar (the Quest Log's and the artifact dock's) places its text field by its first baseline, so the lost
+    /// point of field height moved nothing: at 1x and 2x, with one chip and with none (the usual state), its text rests, and
+    /// is focused, on one baseline, which is the designs' (21.5 down the bar, on its backing pixel) and, within a backing
+    /// pixel, the chip's text's, and the slash stays centred in the bar.
+    /// Run under `XDG_CONFIG_HOME=/nonexistent` too, where the font is the system mono and every metric differs: the
+    /// claims here are relations, so they hold in either.
+    private static func testFilterBarTextSitsOnOneBaselineRestingAndFocused() throws {
+        let size = CGSize(width: 340, height: 60)
+        let token = ArtifactFilterToken(kind: .project, value: "x", title: "HHH")
+        // The bar's "/" is 10 in; the chip's "HHH" follows its "@project " (the chip is 10 past the slash and its text 5 in).
+        // The field's text starts after the chip, or after the slash with none; its first "x" takes the caret's place at the
+        // start of an empty field, so the columns are the "H" after it.
+        let slashColumns = 10..<17
+        let chipColumns = 98..<118
+        var failures: [String] = []
+        for (chips, fieldColumns) in [(1, 142..<146), (0, 38..<42)] {
+            for scale in [CGFloat(1), CGFloat(2)] {
+                let tolerance = 0.5 + 0.001
+                let name = "\(scale)x, \(chips) chip\(chips == 1 ? "" : "s")"
+                func makeBar(query: String, focused: Bool) throws -> (view: NSView, window: HeadlessWindow) {
+                    let view = NSHostingView(rootView: FilterBarHarness(query: query, tokens: chips == 1 ? [token] : []))
+                    view.frame = NSRect(origin: .zero, size: size)
+                    let window = HeadlessWindow(size: size, scale: scale)
+                    window.contentView = view
+                    window.show(key: true)
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                    if focused {
+                        guard let field = findKeyField(in: view) else {
+                            throw TestFailure("no filter text field")
+                        }
+                        field.focusEditorAtEnd()
+                        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                        try expect(field.currentEditor() != nil, "the filter field should be editing")
+                    }
+                    return (view, window)
+                }
+                func fieldBaseline(_ bar: (view: NSView, window: HeadlessWindow)) throws -> CGFloat? {
+                    inkEdges(try snapshot(bar.view, size: size, scale: scale), scale: scale, columns: fieldColumns)?.bottom
+                }
+
+                let resting = try makeBar(query: "xHH", focused: false)
+                defer { resting.window.close() }
+                let bitmap = try snapshot(resting.view, size: size, scale: scale)
+                guard let restingBaseline = inkEdges(bitmap, scale: scale, columns: fieldColumns)?.bottom,
+                      let slash = inkEdges(bitmap, scale: scale, columns: slashColumns) else {
+                    throw TestFailure("\(name): the filter bar's text and slash should show ink")
+                }
+                let designBaseline = pixelEdge(FormFieldMetrics.baseline, scale: scale)
+                if restingBaseline != designBaseline {
+                    failures.append("\(name): the filter text's baseline \(restingBaseline) should be the designs' \(FormFieldMetrics.baseline) down the bar, on the backing pixel \(designBaseline)")
+                }
+                if chips == 1 {
+                    guard let chip = inkEdges(bitmap, scale: scale, columns: chipColumns, rows: 12..<24, over: AppPalette.item) else {
+                        throw TestFailure("\(name): the chip's text should show ink")
+                    }
+                    if abs(restingBaseline - chip.bottom) > tolerance {
+                        failures.append("\(name): the filter text's baseline \(restingBaseline) should be the chip text's \(chip.bottom)")
+                    }
+                }
+                if abs((slash.top + slash.bottom) / 2 - FilterBarMetrics.height / 2) > tolerance {
+                    failures.append("\(name): the slash (\(slash)) should stay centred in the \(FilterBarMetrics.height) bar")
+                }
+
+                let restingPlaceholder = try makeBar(query: "", focused: false)
+                defer { restingPlaceholder.window.close() }
+                if try fieldBaseline(restingPlaceholder) != restingBaseline {
+                    failures.append("\(name): the resting placeholder should sit on the resting text's baseline \(restingBaseline), got \(String(describing: try fieldBaseline(restingPlaceholder)))")
+                }
+                let focusedPlaceholder = try makeBar(query: "", focused: true)
+                defer { focusedPlaceholder.window.close() }
+                if try fieldBaseline(focusedPlaceholder) != restingBaseline {
+                    failures.append("\(name): the focused placeholder should stay on \(restingBaseline), got \(String(describing: try fieldBaseline(focusedPlaceholder)))")
+                }
+                let focusedTyped = try makeBar(query: "xHH", focused: true)
+                defer { focusedTyped.window.close() }
+                if let editor = findKeyField(in: focusedTyped.view)?.currentEditor() as? NSTextView, let baseline = firstLineBaseline(of: editor, in: focusedTyped.view) {
+                    if pixelEdge(baseline, scale: scale) != restingBaseline {
+                        failures.append("\(name): the focused editor's baseline \(baseline) should stand on the resting \(restingBaseline)")
+                    }
+                } else {
+                    failures.append("\(name): the focused filter field should have a first line")
+                }
+            }
+        }
+        try expect(failures.isEmpty, failures.joined(separator: "; "))
+    }
+
     private static func testTextFieldsFitTheirWholeLine() throws {
         func fields(in view: NSView) -> [NSTextField] {
             view.subviews.flatMap { subview in
@@ -2137,7 +2825,9 @@ enum LogicSelfTests {
             try check("New Quest", NewQuestSheetView(presentation: presentation, dismiss: {}), size: NewSessionSheetModel.sheetSize)
         }
         let editSession = TrackerEditSession(sessionID: "qm-1", title: "gjpqy", color: "orange", allowsColor: true)
-        try check("Edit Session", TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _ in true }), size: CGSize(width: 460, height: ModalFormMetrics.height(fields: 2)))
+        try check("Edit Session", TrackerEditSessionSheet(session: editSession, dismiss: {}, save: { _, _, _ in true }), size: CGSize(width: 460, height: ModalFormMetrics.height(fields: 2)))
+        let masterSession = TrackerEditSession(sessionID: "qm-1", title: "gjpqy", color: "orange", allowsColor: true, portrait: .choosing(.cleric))
+        try check("Edit Session (master)", TrackerEditSessionSheet(session: masterSession, dismiss: {}, save: { _, _, _ in true }), size: CGSize(width: 460, height: ModalFormMetrics.height(fields: 2, portraitRow: true)))
     }
 
     /// A long quest's ink scrolls under a wheel over the page: the page's point hit-tests into its scroll view,
@@ -3076,6 +3766,63 @@ enum LogicSelfTests {
         try expect(!model.handle(try keyEvent("e", keyCode: 14)), "e on the agent tabs is not an effort key")
         try expect(!model.handle(try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)), "⌃e on the agent tabs is not an effort key")
         try expect(model.state.model.selectedReasoningEffort == "high", "nothing outside the model field cycles the effort")
+    }
+
+    /// ⌃e in the title field cycles the class, Random first; a click on the portrait does the same from any focus. Summon
+    /// sends `class` only once one is chosen, so Random leaves the pick to the backend.
+    private static func testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne() throws {
+        let client = StubMutationClient(result: .failure(StubMutationError()))
+        let model = NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                initialPath: "/tmp/project",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: .title,
+                mutationClient: client,
+                directoryClient: nil,
+                modelClient: nil,
+                effortClient: nil,
+                onSuccess: { _ in }
+            ),
+            dismiss: {}
+        )
+        let controlE = try keyEvent("\u{5}", keyCode: 14, modifierFlags: .control)
+        try expect(model.state.model.sessionClass == nil && model.state.model.classLabel == "Random", "the sheet opens on Random")
+
+        model.submit()
+        try waitForMainQueue("the first Summon to fail", until: { !model.state.model.submitting })
+        try expect(client.sentRequests.count == 1 && client.sentRequests[0].data["class"] == nil, "Random sends no class")
+
+        try expect(model.handle(controlE), "⌃e should be consumed in the title field")
+        try expect(model.state.model.sessionClass == .paladin, "the first ⌃e from Random chooses paladin")
+        model.cycleClass()
+        try expect(model.state.model.sessionClass == .wizard, "a click on the portrait cycles forward too")
+
+        model.state.model.focusedField = .agent
+        try expect(!model.handle(controlE), "⌃e on the agent tabs is not a class key")
+        try expect(model.state.model.sessionClass == .wizard, "nothing outside the title field cycles the class by key")
+
+        model.submit()
+        try waitForMainQueue("the second Summon to fail", until: { !model.state.model.submitting })
+        try expect(client.sentRequests.count == 2 && client.sentRequests[1].data["class"] == "wizard", "a chosen class is sent by its id")
+    }
+
+    /// The portraits' bundle names are flattened (`class-<id>`, `familiar-<id>`, `random`): each resolves to its own raster,
+    /// the class portraits and Random at 150px and the familiars at 120px (3x their 50 and 40pt discs), so a misnamed or
+    /// missing file shows here instead of as an empty disc.
+    private static func testEveryPortraitIsBundledUnderItsOwnName() throws {
+        func pixelWidth(_ portrait: SessionPortrait) throws -> Int {
+            guard let image = SessionPortraitImages.image(for: portrait),
+                  let representation = image.representations.first else {
+                throw TestFailure("no image bundled as \(portrait.resourceName)")
+            }
+            return representation.pixelsWide
+        }
+        for sessionClass in SessionClass.allCases {
+            try expect(try pixelWidth(.master(sessionClass)) == 150, "\(sessionClass.rawValue)'s class portrait should be 150px")
+            try expect(try pixelWidth(.familiar(sessionClass)) == 120, "\(sessionClass.rawValue)'s familiar should be 120px")
+        }
+        try expect(try pixelWidth(.master(nil)) == 150, "the Random silhouette should be 150px")
     }
 
     private static func testNewSessionTabTakesTheHighlightedModelThenMovesOn() throws {
@@ -4234,13 +4981,6 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(observedLabel))
         return isBackendStartingMessage(snapshot.serviceStateMessage)
-    }
-
-    private static func renderedColor(_ rows: [TrackerRenderedSession], id: String) throws -> NSColor {
-        guard let row = rows.first(where: { $0.session.id == id }) else {
-            throw TestFailure("missing rendered row \(id)")
-        }
-        return row.groupColor
     }
 
     private static func keyEvent(_ characters: String, keyCode: UInt16) throws -> NSEvent {

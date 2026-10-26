@@ -104,6 +104,8 @@ public struct NewSessionSubmitPayload: Equatable {
     /// nothing configured either.
     public let reasoningEffort: String
     public let color: String
+    /// Nil is Random: no class is sent, and the backend picks one.
+    public let sessionClass: SessionClass?
     public let prompt: String?
 }
 
@@ -150,6 +152,8 @@ public struct NewSessionFormModel: Equatable {
     private var modelTextBeforeSearch = ""
     private var modelTextEditedBeforeSearch = false
     public private(set) var selectedEffortIndex: Int?
+    /// The new master's class; nil is Random, New Session's default.
+    public private(set) var sessionClass: SessionClass?
     /// Until the user types in the model field, each resolve fills it with Settings' default for the role.
     private var modelTextEdited = false
     /// False until `setEffortOptions` first resolves this agent's master-role
@@ -298,6 +302,19 @@ public struct NewSessionFormModel: Equatable {
         return true
     }
 
+    /// The title field's trailing segment: the chosen class's name, or "Random".
+    public var classLabel: String {
+        sessionClass?.displayName ?? SessionClass.randomLabel
+    }
+
+    /// Cycles the class through Random and the seven classes, independent of focus (see `SessionClassKey`).
+    public mutating func cycleSessionClass() {
+        guard !submitting else {
+            return
+        }
+        sessionClass = SessionClass.next(after: sessionClass)
+    }
+
     /// Whether the form can be submitted: a path is all it needs.
     public var canSubmit: Bool {
         !submitting && clean(path) != nil
@@ -443,6 +460,7 @@ public struct NewSessionFormModel: Equatable {
             model: selectedModel,
             reasoningEffort: selectedReasoningEffort,
             color: selectedColor,
+            sessionClass: sessionClass,
             prompt: clean(prompt)
         )
     }

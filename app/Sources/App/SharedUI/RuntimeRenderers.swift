@@ -53,7 +53,7 @@ enum AppSymbolStyle {
         canvasSize: NSSize,
         tintColor: NSColor? = nil
     ) -> NSImage? {
-        let bundle = appResourceBundle() ?? Bundle.module
+        let bundle = resourceBundle()
         let url = bundle.url(forResource: name, withExtension: fileExtension, subdirectory: subdirectory)
             ?? bundle.url(forResource: name, withExtension: fileExtension)
         guard let url,
@@ -81,6 +81,11 @@ enum AppSymbolStyle {
         image.cacheMode = .never
         image.alignmentRect = NSRect(origin: .zero, size: canvasSize)
         return image
+    }
+
+    /// The .app's resource bundle, or SwiftPM's own when running from the build folder.
+    static func resourceBundle() -> Bundle {
+        appResourceBundle() ?? Bundle.module
     }
 
     private static func appResourceBundle() -> Bundle? {

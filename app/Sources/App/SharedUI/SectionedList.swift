@@ -204,21 +204,27 @@ func hideScroller(on scrollView: NSScrollView) {
     scrollView.tile()
 }
 
-/// The row's own rectangle, grown above and below by `outset`, for a row whose artwork reaches past its layout frame.
-struct VerticallyOutsetRectangle: Shape {
+/// The row's own rectangle, grown above and below by `outset`, plus `overhang`, for a row whose artwork reaches past
+/// its layout frame. `overhang` is in the row's coordinates, origin at the row's top-left, for art that sticks out
+/// sideways or only in places (the tracker's agent badge).
+struct RowHitShape: Shape {
     let outset: CGFloat
+    var overhang = Path()
 
     func path(in rect: CGRect) -> Path {
-        Path(rect.insetBy(dx: 0, dy: -outset))
+        var path = Path(rect.insetBy(dx: 0, dy: -outset))
+        path.addPath(overhang, transform: CGAffineTransform(translationX: rect.minX, y: rect.minY))
+        return path
     }
 }
 
 struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
     let selected: Bool
     let leadingInset: CGFloat
-    /// How far the row's artwork reaches past its layout frame, above and below. Hover and taps cover it, so the
-    /// visible edges are live while the layout spacing stays the frame's.
+    /// How far the row's artwork reaches past its layout frame, above and below, and any art past it elsewhere
+    /// (`RowHitShape`). Hover and taps cover it, so the visible edges are live while the layout spacing stays the frame's.
     let hitOutset: CGFloat
+    let hitOverhang: Path
     var onTap: (() -> Void)?
     /// The pointer moved onto the row, for a list whose cursor hover moves (the focused tracker).
     var onHighlight: (() -> Void)?
@@ -233,6 +239,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
         selected: Bool,
         leadingInset: CGFloat,
         hitOutset: CGFloat = 0,
+        hitOverhang: Path = Path(),
         onTap: (() -> Void)? = nil,
         onHighlight: (() -> Void)? = nil,
         @ViewBuilder leadingDecoration: @escaping () -> LeadingDecoration,
@@ -242,6 +249,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
         self.selected = selected
         self.leadingInset = leadingInset
         self.hitOutset = hitOutset
+        self.hitOverhang = hitOverhang
         self.onTap = onTap
         self.onHighlight = onHighlight
         self.leadingDecoration = leadingDecoration
@@ -267,7 +275,7 @@ struct ListRow<Content: View, LeadingDecoration: View, Background: View>: View {
             .overlay(alignment: .leading) {
                 leadingDecoration()
             }
-            .contentShape(VerticallyOutsetRectangle(outset: hitOutset))
+            .contentShape(RowHitShape(outset: hitOutset, overhang: hitOverhang))
             .onHover { isPointerOver = $0 }
             .highlightOnHover {
                 if !selected {

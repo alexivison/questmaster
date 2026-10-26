@@ -78,10 +78,10 @@ struct FilterBar: View {
                 textColor: AppPalette.textBody,
                 placeholderColor: AppPalette.textMeta
             )
-            // The field is as tall as its font's whole line (KeyTextField); this places that frame where the
-            // designs set the text.
+            // The field is as tall as its font's whole line (KeyTextField); this places that frame by its first
+            // baseline, as the forms' fields are, so the text lands where the designs set it whatever the frame's height.
             .padding(.leading, FilterBarMetrics.textFieldLead)
-            .alignmentGuide(VerticalAlignment.center) { $0[VerticalAlignment.center] + FilterBarMetrics.textFieldDrop }
+            .alignmentGuide(VerticalAlignment.center) { _ in FilterBarMetrics.textFieldCenterGuide }
             .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, FilterBarMetrics.inset)
@@ -105,10 +105,14 @@ enum FilterBarMetrics {
     static let height = ControlHeight.field
     static let inset = Space.item
     static let spacing = Space.item
-    /// The text field sits 1 further right than the spacing puts it and `textFieldDrop` above centre, which lands
-    /// its text where the designs' placeholders are: 11.04 after a chip in both.
+    /// The text field sits 1 further right than the spacing puts it, which lands its text where the designs'
+    /// placeholders are: 11.04 after a chip in both.
     static let textFieldLead: CGFloat = 1
-    static let textFieldDrop: CGFloat = 1.25
+    /// The centre guide that puts the text field's frame top `FormFieldMetrics.baseline` less the editor's first
+    /// baseline down the bar: the bar's half height less that top.
+    static var textFieldCenterGuide: CGFloat {
+        height / 2 - (FormFieldMetrics.baseline - FormFieldMetrics.editorBaseline)
+    }
     /// The app font's "/" sits about 0.45 right of where both designs draw theirs; drawn, not laid out, 0.5 left.
     static let slashGlyphNudge: CGFloat = -0.5
 }
@@ -247,26 +251,7 @@ struct CommandTextField: NSViewRepresentable {
         }
     }
 
-    /// The field editor puts the text 1pt above where the resting cell draws it; placing the editor 1pt
-    /// lower keeps the text still as the field takes and loses focus.
-    final class KeyTextFieldCell: NSTextFieldCell {
-        static let editorDrop: CGFloat = 1
-
-        override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
-            super.select(withFrame: rect.offsetBy(dx: 0, dy: Self.editorDrop), in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
-        }
-
-        override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
-            super.edit(withFrame: rect.offsetBy(dx: 0, dy: Self.editorDrop), in: controlView, editor: textObj, delegate: delegate, event: event)
-        }
-    }
-
     final class KeyTextField: NSTextField {
-        override class var cellClass: AnyClass? {
-            get { KeyTextFieldCell.self }
-            set {}
-        }
-
         var onCommand: (UInt16) -> Bool = { _ in false }
         /// Whether this field's editor is the window's first responder, reported on every change: on a
         /// click, on "/", and when Esc or a click elsewhere takes focus away.
@@ -293,15 +278,14 @@ struct CommandTextField: NSViewRepresentable {
             onFirstResponderChange?(focused)
         }
 
-        /// At least the font's whole line (ascent + descent + leading) and the editor's drop: AppKit's own
-        /// intrinsic height rounds the line down (14 for 11pt JetBrains Mono's 14.52), and the field editor
-        /// clips descenders to the field.
+        /// At least the font's whole line (ascent + descent + leading): AppKit's own intrinsic height rounds the
+        /// line down (14 for 11pt JetBrains Mono's 14.52), and the field editor clips descenders to the field.
         override var intrinsicContentSize: NSSize {
             let size = super.intrinsicContentSize
             guard let font else {
                 return size
             }
-            let line = font.ascender - font.descender + font.leading + KeyTextFieldCell.editorDrop
+            let line = font.ascender - font.descender + font.leading
             return NSSize(width: size.width, height: max(size.height, line.rounded(.up)))
         }
 

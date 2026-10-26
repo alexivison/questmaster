@@ -57,6 +57,13 @@ enum TrackerPlateDesign {
     static let workerLogoSide = workerDiscDiameter * logoShare
     static let collapsedLogoSide = collapsedCircleDiameter * logoShare
 
+    /// A portrait's agent badge: a circle in the disc's fill with a 1pt `line` border, as big as a collapsed worker's circle
+    /// (25) and holding the agent's logo at the same 0.6 (15). Its edge sits `badgeOverhang` (5) outside the disc on the
+    /// left and the same below it, on the master's disc and the worker's alike, so its frame starts on whole points.
+    static let badgeDiameter = collapsedCircleDiameter
+    static let badgeOverhang = Space.row
+    static let badgeLogoSide = badgeDiameter * logoShare
+
     /// The collapsed workers' circles: 25 points across with 5 between, the first's left edge 40 points right of the
     /// master disc's, in a row right under the disc's.
     static let collapsedCircleDiameter: CGFloat = 25
@@ -151,6 +158,11 @@ extension GraphicsContext {
                 blurred.stroke(shape, with: .color(shadow.color), lineWidth: 2 * shadow.depth)
             }
         }
+    }
+
+    /// A `Recess` token's inner shadow, drawn as the SVG filters' are.
+    func fillInnerShadow(_ shape: Path, _ recess: Recess) {
+        fillInnerShadow(shape, TrackerPlateShadow(depth: recess.depth, blur: recess.sigma, color: recess.color.swiftUI))
     }
 
     /// An SVG drop shadow with no offset: the shape's edge, `depth` points out, blurred. Drawn under the shape, which
