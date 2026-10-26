@@ -227,10 +227,11 @@ func normalizeSessionState(ss *SessionState) {
 	if ss.Panes == nil {
 		ss.Panes = map[string]PaneState{}
 	}
-	if pane, ok := ss.Panes["primary"]; ok {
-		pane.Role = "agent"
-		if _, exists := ss.Panes["agent"]; !exists {
-			ss.Panes["agent"] = pane
+	if legacy, ok := ss.Panes["primary"]; ok {
+		canonical, exists := ss.Panes["agent"]
+		if !exists || legacy.LastEvent.After(canonical.LastEvent) {
+			legacy.Role = "agent"
+			ss.Panes["agent"] = legacy
 		}
 		delete(ss.Panes, "primary")
 	}

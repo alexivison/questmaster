@@ -97,6 +97,56 @@ func TestLoadSessionState_MigratesLegacyAgentPane(t *testing.T) {
 	}
 }
 
+func TestLoadSessionState_MixedPaneKeysKeepsNewestPane(t *testing.T) {
+	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		agentEvent time.Time
+		oldEvent   time.Time
+		wantAgent  string
+	}{
+		{name: "legacy pane newer", agentEvent: base, oldEvent: base.Add(time.Minute), wantAgent: "claude"},
+		{name: "canonical pane newer", agentEvent: base.Add(time.Minute), oldEvent: base, wantAgent: "codex"},
+		{name: "tie keeps canonical pane", agentEvent: base, oldEvent: base, wantAgent: "codex"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			id := "qm-mixed-state"
+			path := SessionStatePath(root, id)
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			data, err := json.Marshal(SessionState{
+				SessionID: id,
+				Version:   SchemaVersion,
+				Panes: map[string]PaneState{
+					"agent":   {Role: "agent", Agent: "codex", State: "idle", LastEvent: tc.agentEvent},
+					"primary": {Role: "primary", Agent: "claude", State: "working", LastEvent: tc.oldEvent},
+				},
+			})
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			got, err := LoadSessionStateAt(root, id)
+			if err != nil {
+				t.Fatalf("LoadSessionStateAt: %v", err)
+			}
+			pane := got.Panes["agent"]
+			if pane.Agent != tc.wantAgent || pane.Role != "agent" {
+				t.Fatalf("agent pane = %+v, want agent %q with agent role", pane, tc.wantAgent)
+			}
+			if _, ok := got.Panes["primary"]; ok {
+				t.Fatalf("legacy pane key remains: %+v", got.Panes)
+			}
+		})
+	}
+}
+
 func TestLoadMissingReturnsNil(t *testing.T) {
 	setStateRoot(t)
 	ss, err := LoadSessionState("qm-not-here")
