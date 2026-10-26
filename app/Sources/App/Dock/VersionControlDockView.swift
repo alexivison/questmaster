@@ -2,16 +2,19 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The version control dock's geometry, from the design's Session Detail Dock. Every row is two 20pt lines in a 40pt
-/// block, 10 in from its fill's edges, with a hairline in the 5pt gap under it (a pitch of 45, as the artifact rows).
+/// The version control rows' geometry, from `Session Detail Dock.svg` and `Pull Request Item.svg` with the design's 42pt
+/// pitch snapped to 40: 5 in from the row's edges, the title's baseline at 15, a line of 15pt icons from 20 to 35, and
+/// 5 under it, where the hairline sits.
 enum VersionControlMetrics {
     static let inset = Space.section
     static let rowHeight = ControlHeight.bar
-    static let lineHeight: CGFloat = 20
-    static let rowInset = Space.item
+    static let rowInset = Space.row
+    static let titleLineHeight = Space.section
+    static let detailLineHeight = ControlHeight.chip
     static let cornerRadius = Token.Radius.segment
-    static let iconSide = ControlHeight.chip
-    static let iconPointSize: CGFloat = 12
+    static let titleBaseline: CGFloat = 15
+    /// The detail line's text sits 11.6 under its icons' top edge in the design.
+    static let detailBaseline: CGFloat = 11.5
 }
 
 /// The pull requests the selected session watches, a master's with its workers', newest open first.
@@ -26,7 +29,6 @@ struct VersionControlDockView: View {
             content
             readNotice
         }
-        .padding(.top, VersionControlMetrics.inset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -41,7 +43,7 @@ struct VersionControlDockView: View {
                 titleColor: AppPalette.textBody.swiftUI,
                 messageFont: AppFonts.monoSmall.swiftUI,
                 messageColor: AppPalette.textMeta.swiftUI,
-                padding: EdgeInsets(top: 0, leading: VersionControlMetrics.inset, bottom: VersionControlMetrics.inset, trailing: VersionControlMetrics.inset),
+                padding: EdgeInsets(top: Space.section, leading: VersionControlMetrics.inset, bottom: VersionControlMetrics.inset, trailing: VersionControlMetrics.inset),
                 detailSelectable: true
             )
         } else {
@@ -74,52 +76,45 @@ struct VersionControlDockView: View {
     }
 }
 
-/// A glyph and the colour it takes while its data is current; nil takes the row look's icon colour.
-private struct VersionControlGlyph {
-    let symbol: String
-    let color: NSColor?
-    let help: String
-}
-
-/// SF Symbols for now. The git states share the pull glyph and differ by colour, as the design's legend does; the
-/// review icons are seals and the CI icons circles, so the two never read as one.
+/// The colours the design gives each state. A row whose data is stale or inaccessible draws them in its look's icon
+/// colour instead: it can't be trusted, so it doesn't show a vivid pass or fail.
 private extension PullRequestGitState {
-    var glyph: VersionControlGlyph {
+    var icon: (icon: PullRequestIcon, color: NSColor)? {
         switch self {
-        case .open: VersionControlGlyph(symbol: "arrow.triangle.pull", color: AppPalette.gitGreen, help: "Open")
-        case .draft: VersionControlGlyph(symbol: "arrow.triangle.pull", color: AppPalette.inert, help: "Draft")
-        case .merged: VersionControlGlyph(symbol: "arrow.triangle.merge", color: AppPalette.gitMerged, help: "Merged")
-        case .closed: VersionControlGlyph(symbol: "arrow.triangle.pull", color: AppPalette.gitRed, help: "Closed")
-        case .unknown: VersionControlGlyph(symbol: "questionmark.circle", color: nil, help: "Unknown state")
+        case .open: (.gitOpen, AppPalette.gitGreen)
+        case .draft: (.gitDraft, AppPalette.controlBorder)
+        case .merged: (.gitMerged, AppPalette.gitMerged)
+        case .closed: (.gitClosed, AppPalette.gitRed)
+        case .unknown: nil
         }
     }
 }
 
 private extension ReviewLook {
-    var glyph: VersionControlGlyph? {
+    /// No review yet and a review still required both wait: an empty amber ring.
+    var ring: (icon: PullRequestIcon, color: NSColor) {
         switch self {
-        case .approved: VersionControlGlyph(symbol: "checkmark.seal", color: AppPalette.gitGreen, help: "Review: approved")
-        case .changesRequested: VersionControlGlyph(symbol: "xmark.seal", color: AppPalette.gitRed, help: "Review: changes requested")
-        case .reviewRequired: VersionControlGlyph(symbol: "seal", color: AppPalette.warn, help: "Review: required")
-        case .none: nil
+        case .approved: (.ringApproved, AppPalette.gitGreen)
+        case .changesRequested: (.ringChanges, AppPalette.gitRed)
+        case .reviewRequired, .none: (.ringWaiting, AppPalette.gitAmber)
         }
     }
 }
 
 private extension CILook {
-    var glyph: VersionControlGlyph? {
+    /// Anything but a result or a running check (none, unknown) is the dim grey.
+    var color: NSColor {
         switch self {
-        case .success: VersionControlGlyph(symbol: "checkmark.circle", color: AppPalette.gitGreen, help: "CI: passing")
-        case .failure: VersionControlGlyph(symbol: "xmark.circle", color: AppPalette.gitRed, help: "CI: failing")
-        case .pending: VersionControlGlyph(symbol: "circle", color: AppPalette.warn, help: "CI: running")
-        case .none: nil
+        case .success: AppPalette.gitGreen
+        case .failure: AppPalette.gitRed
+        case .pending: AppPalette.gitAmber
+        case .none: AppPalette.line
         }
     }
 }
 
-/// `#number title` over the git state, the review and CI icons, the diff counter, the comment count and, for a master,
-/// the worker tag. A stale or inaccessible row draws its icons and counters in its look's own colours: its data can't be
-/// trusted, so it doesn't show a vivid pass or fail.
+/// `#number title` over the git state, the review ring, the `CI` label, the diff counter, the comment bubble and count
+/// and, for a master, the worker's tag at the right edge.
 struct VersionControlRow: View {
     let row: PullRequestDisplayRow
     let look: RowLook
@@ -137,10 +132,10 @@ struct VersionControlRow: View {
                 detailLine
             }
             .padding(.horizontal, Metrics.rowInset)
-            .frame(height: Metrics.rowHeight)
+            .frame(height: Metrics.rowHeight, alignment: .top)
             .stateRow(look, cornerRadius: Metrics.cornerRadius)
+            .overlay(alignment: .bottom) { separator }
             .onTapGesture(perform: action)
-            separator
         }
         .padding(.horizontal, Metrics.inset)
         .help(row.repoLabel)
@@ -150,111 +145,87 @@ struct VersionControlRow: View {
     }
 
     private var titleLine: some View {
-        HStack(spacing: Space.item) {
-            Text(row.numberLabel)
-                .lineLimit(1)
+        HStack(alignment: .top, spacing: Space.item) {
+            text(row.numberLabel, color: look.text.color, baseline: Metrics.titleBaseline)
                 .fixedSize()
-            Text(row.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
+            text(row.title, color: look.text.color, baseline: Metrics.titleBaseline)
         }
-        .font(AppFonts.artifactTitle.swiftUI)
-        .foregroundStyle(look.text.color.swiftUI)
-        .frame(height: Metrics.lineHeight)
+        .frame(height: Metrics.titleLineHeight, alignment: .top)
     }
 
     private var detailLine: some View {
-        HStack(spacing: Space.item) {
-            glyphView(row.gitState.glyph)
+        HStack(alignment: .top, spacing: Space.item) {
+            if let git = row.gitState.icon {
+                slot(git)
+            }
             if let inaccessibleLabel = row.inaccessibleLabel {
-                Text(inaccessibleLabel)
-                    .lineLimit(1)
-            } else {
-                glyphSlot(row.reviewLook.glyph)
-                glyphSlot(row.ciLook.glyph)
-                counters
+                text(inaccessibleLabel, color: look.icon.color, baseline: Metrics.detailBaseline)
+            } else if let additions = row.additionsLabel, let deletions = row.deletionsLabel, let comments = row.commentsLabel {
+                slot(row.reviewLook.ring)
+                text("CI", color: tint(row.ciLook.color, dim: row.ciLook == .none), baseline: Metrics.detailBaseline)
+                    .fixedSize()
+                HStack(alignment: .top, spacing: Space.row) {
+                    text(additions, color: tint(AppPalette.gitGreen), baseline: Metrics.detailBaseline)
+                    text(deletions, color: tint(AppPalette.gitRed), baseline: Metrics.detailBaseline)
+                }
+                .fixedSize()
+                HStack(alignment: .top, spacing: Space.row) {
+                    PullRequestIconView(icon: .bubble, color: AppPalette.line)
+                    text(comments, color: look.meta.color, baseline: Metrics.detailBaseline)
+                }
+                .fixedSize()
             }
             Spacer(minLength: 0)
-            ForEach(Array(row.watcherTags.enumerated()), id: \.offset) { _, tag in
+            if let tag = row.watcherTags.first {
                 workerTag(tag)
             }
         }
-        .font(AppFonts.monoSmall.swiftUI)
-        .foregroundStyle(look.meta.color.swiftUI)
-        .frame(height: Metrics.lineHeight)
-    }
-
-    @ViewBuilder
-    private var counters: some View {
-        if let additions = row.additionsLabel, let deletions = row.deletionsLabel, let comments = row.commentsLabel {
-            HStack(spacing: Space.row) {
-                Text(additions).foregroundStyle(tint(AppPalette.gitGreen))
-                Text("/")
-                Text(deletions).foregroundStyle(tint(AppPalette.gitRed))
-            }
-            .lineLimit(1)
-            .fixedSize()
-            HStack(spacing: Space.row) {
-                Image(systemName: "bubble.left")
-                    .font(.system(size: Metrics.iconPointSize))
-                Text(comments)
-            }
-            .lineLimit(1)
-            .fixedSize()
-            .help("Comments")
-        }
+        .frame(height: Metrics.detailLineHeight, alignment: .top)
     }
 
     private func workerTag(_ tag: PullRequestWatcherTag) -> some View {
-        HStack(spacing: Space.row) {
-            if let logo = TrackerAgentMark.image(for: tag.agent, side: Metrics.iconSide, tint: look.meta.color) {
+        HStack(alignment: .top, spacing: Space.row) {
+            if let logo = TrackerAgentMark.image(for: tag.agent, side: PullRequestIcon.side, tint: AppPalette.agentMarkTint) {
                 Image(nsImage: logo)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: Metrics.iconSide, height: Metrics.iconSide)
+                    .frame(width: PullRequestIcon.side, height: PullRequestIcon.side)
             }
-            Text(tag.title)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            text(tag.title, color: look.meta.color, baseline: Metrics.detailBaseline)
+            if row.extraWatcherCount > 0 {
+                text("+\(row.extraWatcherCount)", color: look.meta.color, baseline: Metrics.detailBaseline)
+                    .fixedSize()
+            }
         }
         .help(tag.title)
     }
 
-    /// An empty review or CI keeps its slot, so the counters line up from row to row.
-    private func glyphSlot(_ glyph: VersionControlGlyph?) -> some View {
-        ZStack {
-            if let glyph {
-                glyphView(glyph)
-            }
+    private func text(_ value: String, color: NSColor, baseline: CGFloat) -> some View {
+        BaselineText(value, font: AppFonts.artifactTitle, color: color, baseline: baseline)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private func slot(_ glyph: (icon: PullRequestIcon, color: NSColor)) -> some View {
+        PullRequestIconView(icon: glyph.icon, color: tint(glyph.color))
+    }
+
+    /// The design's colour while the row's data is current; the look's icon colour once it isn't. `dim` colours are the
+    /// design's own grey, which no state changes.
+    private func tint(_ semantic: NSColor, dim: Bool = false) -> NSColor {
+        guard showsSemanticColors || dim else {
+            return look.icon.color
         }
-        .frame(width: Metrics.iconSide, height: Metrics.iconSide)
+        return semantic
     }
 
-    private func glyphView(_ glyph: VersionControlGlyph) -> some View {
-        Image(systemName: glyph.symbol)
-            .font(.system(size: Metrics.iconPointSize))
-            .foregroundStyle(tint(glyph.color))
-            .frame(width: Metrics.iconSide, height: Metrics.iconSide)
-            .help(glyph.help)
-    }
-
-    private func tint(_ semantic: NSColor?) -> Color {
-        guard showsSemanticColors, let semantic else {
-            return look.icon.color.swiftUI
-        }
-        return semantic.swiftUI
-    }
-
+    /// The hairline in the row's bottom 5, hidden under a filled (highlighted) row's own fill.
     @ViewBuilder
     private var separator: some View {
-        if showsSeparator {
+        if showsSeparator && look.fill == nil {
             Rectangle()
-                .fill(AppPalette.line.swiftUI)
+                .fill(AppPalette.lineSoftSubtle.swiftUI)
                 .frame(height: Token.Size.divider)
-                .frame(height: Space.row)
-        } else {
-            Color.clear.frame(height: Space.row)
         }
     }
 }

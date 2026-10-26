@@ -85,6 +85,9 @@ enum RenderPreview {
         renderView(dockBarView(.versionControlUnfocused), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control-unfocused.png")
         renderView(dockBarView(.versionControlEmpty), size: CGSize(width: DockWidthPreference.compactWidth, height: 640), to: "\(outputDir)/dock-version-control-empty.png")
         renderView(dockBarView(.versionControlNotice), size: CGSize(width: DockWidthPreference.compactWidth, height: 240), to: "\(outputDir)/dock-version-control-notice.png")
+        // The design's own rows, in its order, at the Session Detail Dock's list width, for diffing against its SVG.
+        render(versionControlRowsView(highlight: 1), size: CGSize(width: 480, height: 240), to: "\(outputDir)/version-control-rows-design.png")
+        render(versionControlRowsView(highlight: nil), size: CGSize(width: 480, height: 240), to: "\(outputDir)/version-control-rows-design-rest.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
@@ -300,6 +303,52 @@ enum RenderPreview {
             let model = DockChromeModel(topBar: .make(mode: .versionControl, artifactRoute: .list, artifactTitle: nil))
             return DockShellView(body: NSHostingView(rootView: versionControlView(fixture)), model: model)
         }
+    }
+
+    /// The six rows of `Session Detail Dock.svg` in its order, each in the state the design draws, `highlight` (an index) on
+    /// the cursor. The rows are views of their own, not the store's, because the store sorts by state and the design doesn't.
+    @MainActor
+    private static func versionControlRowsView(highlight: Int?) -> some View {
+        let sessions = [
+            TrackerSession(id: "m", title: "Ship version control", repoName: "Repo", agent: "claude", role: "master"),
+            TrackerSession(id: "w1", title: "Implement ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w2", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "w3", title: "Review API", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w4", title: "Update Docs", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+        ]
+        // number, title, state, draft, review, ci, additions, deletions, comments, watcher
+        let specs: [(Int, String, String, Bool, String, String, Int, Int, Int, String?)] = [
+            (97612, "fix(agent-f): Support independent Edition suggestion field decisions", "open", false, "changes_requested", "failure", 1250, 540, 20, nil),
+            (97612, "fix(agent-f): Support independent Edition suggestion field decisions", "open", true, "none", "none", 1250, 540, 20, "w1"),
+            (97613, "fix(agent-f): Update dependency versions for stability", "merged", false, "approved", "none", 980, 320, 15, "w2"),
+            (97614, "feat(agent-f): Introduce new logging features", "open", true, "review_required", "success", 760, 200, 10, "w3"),
+            (97615, "fix(agent-f): Resolve memory leak issue", "merged", false, "approved", "success", 1400, 600, 25, "w2"),
+            (97616, "chore(agent-f): Refactor codebase for better readability", "closed", false, "changes_requested", "none", 500, 150, 8, "w4"),
+        ]
+        let rows = specs.map { spec -> PullRequestDisplayRow in
+            let object: [String: Any] = [
+                "key": "github.com/owner/repo#\(spec.0)", "host": "github.com", "owner": "Owner", "repo": "Repo", "number": spec.0,
+                "watchers": (spec.9.map { [["session_id": $0, "added_at": "2026-10-20T00:00:00Z"]] }) ?? [],
+                "status": [
+                    "title": spec.1, "url": "https://github.com/owner/repo/pull/\(spec.0)", "state": spec.2, "draft": spec.3,
+                    "review": spec.4, "ci": spec.5, "additions": spec.6, "deletions": spec.7, "comments": spec.8, "stale": false,
+                ] as [String: Any],
+            ]
+            let row = try! JSONDecoder().decode(PullRequestRow.self, from: JSONSerialization.data(withJSONObject: object))
+            return PullRequestDisplayRow.make(from: [row], selectedSessionID: "m", sessions: sessions)[0]
+        }
+        return VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                VersionControlRow(
+                    row: row,
+                    look: row.look(highlighted: index == highlight, areaFocused: true),
+                    showsSeparator: index < rows.count - 1,
+                    action: {}
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.panel.swiftUI)
     }
 
     /// A master with two workers, whose pull requests cover every state: open, draft, merged and closed, every review and

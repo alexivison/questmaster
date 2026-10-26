@@ -33,6 +33,11 @@ struct PullRequestModelsTests {
             PullRequestWatcherTag(title: "Build app", agent: "codex"), PullRequestWatcherTag(title: "worker-b", agent: ""),
         ], "master tags should show only child workers, with their agents")
         expect(PullRequestDisplayRow.make(from: [value], selectedSessionID: "worker-a", sessions: sessions)[0].watcherTags.isEmpty, "worker view should have no tags")
+        let master = PullRequestDisplayRow.make(from: [value], selectedSessionID: "master", sessions: sessions)[0]
+        expect(master.extraWatcherCount == 1, "two watching workers show the first and count one more")
+        let solo = PullRequestDisplayRow.make(from: [row(1, watchers: ["worker-a"])], selectedSessionID: "master", sessions: sessions)[0]
+        expect(solo.extraWatcherCount == 0, "one watching worker has no overflow")
+        expect(PullRequestDisplayRow.make(from: [value], selectedSessionID: "worker-a", sessions: sessions)[0].extraWatcherCount == 0, "a worker's view has no overflow")
     }
 
     private static func rowsSortByStateThenDateThenKey() {
@@ -75,20 +80,19 @@ struct PullRequestModelsTests {
         expect(value.numberLabel == "#324", "number label")
         expect(value.repoLabel == "Owner/Repo", "GitHub repo label")
         expect(value.title == "Ready", "title label")
-        expect(value.changesLabel == "+1,065 −100", "changes label")
-        expect(value.additionsLabel == "+1,065" && value.deletionsLabel == "−100", "additions and deletions labels")
+        expect(value.additionsLabel == "+1065" && value.deletionsLabel == "-100", "plain-digit additions and deletions labels, as the design sets them")
         expect(value.commentsLabel == "42", "comments label")
         expect(value.inaccessibleLabel == nil, "accessible row has no error label")
 
         let enterprise = display(row(42, host: "github.example.com"))
         expect(enterprise.repoLabel == "github.example.com/Owner/Repo", "enterprise host label")
         expect(enterprise.title == enterprise.pullRequest.key, "missing title falls back to ref")
-        expect(enterprise.changesLabel == nil && enterprise.commentsLabel == nil, "missing status has no counters")
+        expect(enterprise.commentsLabel == nil, "missing status has no comment count")
         expect(enterprise.additionsLabel == nil && enterprise.deletionsLabel == nil, "missing status has no diff counter")
         for (reason, label) in [("not_found", "Not found"), ("forbidden", "No access"), ("saml", "SSO required"), ("future", "Unavailable")] {
             let unavailable = display(row(1, status: status(reason: reason)))
             expect(unavailable.inaccessibleLabel == label, "inaccessible label for \(reason)")
-            expect(unavailable.changesLabel == nil && unavailable.commentsLabel == nil, "inaccessible row hides counters")
+            expect(unavailable.additionsLabel == nil && unavailable.deletionsLabel == nil && unavailable.commentsLabel == nil, "inaccessible row hides counters")
         }
     }
 

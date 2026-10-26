@@ -120,19 +120,18 @@ public struct PullRequestDisplayRow: Equatable {
         let value = pullRequest.status?.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? pullRequest.key : value
     }
+    /// Plain digits, as the design sets them: "+1250", "-540" and "20".
     public var additionsLabel: String? {
-        accessibleStatus.map { "+" + Self.format($0.additions) }
+        accessibleStatus.map { "+\($0.additions)" }
     }
     public var deletionsLabel: String? {
-        accessibleStatus.map { "−" + Self.format($0.deletions) }
-    }
-    public var changesLabel: String? {
-        guard let additions = additionsLabel, let deletions = deletionsLabel else { return nil }
-        return "\(additions) \(deletions)"
+        accessibleStatus.map { "-\($0.deletions)" }
     }
     public var commentsLabel: String? {
-        accessibleStatus.map { Self.format($0.comments) }
+        accessibleStatus.map { String($0.comments) }
     }
+    /// A master's row names the first worker watching it; the others count behind it as "+N".
+    public var extraWatcherCount: Int { max(0, watcherTags.count - 1) }
     public var inaccessibleLabel: String? {
         switch pullRequest.status?.inaccessibleReason {
         case .notFound: return "Not found"
@@ -190,10 +189,6 @@ public struct PullRequestDisplayRow: Equatable {
     private var accessibleStatus: PullRequestStatus? {
         guard let status = pullRequest.status, status.inaccessibleReason == nil else { return nil }
         return status
-    }
-
-    private static func format(_ count: Int) -> String {
-        count.formatted(.number.locale(Locale(identifier: "en_US")))
     }
 
     private static func webURL(_ raw: String) -> URL? {
