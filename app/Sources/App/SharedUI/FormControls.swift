@@ -12,9 +12,10 @@ enum FormFieldMetrics {
     static let baseline: CGFloat = 21.5
     /// NSTextField draws its text 1 in from its frame, and its first baseline sits `editorBaseline` down
     /// a frame as tall as the font's line (KeyTextField); the field is placed so the text lands on
-    /// `textInset` and `baseline`.
+    /// `textInset` and `baseline`. The baseline is the font's ascent rounded up: 13 for the 12pt JetBrains Mono,
+    /// 12 for the system mono it falls back to, so the text lands on `baseline` in either.
     static let editorLead: CGFloat = 1
-    static let editorBaseline: CGFloat = 13
+    static var editorBaseline: CGFloat { AppFonts.questLogBody.ascender.rounded(.up) }
     static let suggestionsGap = Space.row
     static let suggestionRowHeight = ControlHeight.control
     static let suggestionRowSpacing = Space.row

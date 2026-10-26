@@ -41,7 +41,8 @@ public enum StateColor: UInt32, CaseIterable, Sendable {
 public struct RowLook: Equatable, Sendable {
     /// No fill shows the list's own background.
     public let fill: StateColor?
-    /// A 1pt outline inside the row's shape; only the hover look draws one.
+    /// A 1pt outline inside the row's shape. The hover look draws one (`line`), and so do a shell row's cursor looks
+    /// (`controlBorder`: `shellCursor`, and `shellSelectedCursor` over its fill); no other look does.
     public let outline: StateColor?
     public let text: StateColor
     public let meta: StateColor

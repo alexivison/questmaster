@@ -54,6 +54,7 @@ enum LogicSelfTests {
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges", testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges),
         ("testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass", testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass),
+        ("testFilterBarTextSitsOnOneBaselineRestingAndFocused", testFilterBarTextSitsOnOneBaselineRestingAndFocused),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
         ("testChromeShadowsReachPastTheirClips", testChromeShadowsReachPastTheirClips),
@@ -2475,20 +2476,106 @@ enum LogicSelfTests {
         }
     }
 
+    /// A filter bar (the Quest Log's and the artifact dock's) with one chip, in a 340 x 60 canvas.
+    private struct FilterBarHarness: View {
+        @State var query: String
+        let tokens: [ArtifactFilterToken]
+
+        var body: some View {
+            FilterBar(
+                tokens: tokens,
+                query: $query,
+                placeholder: "xHH",
+                focusNonce: 0,
+                suggestions: [],
+                highlightedSuggestionID: nil,
+                accessibilityLabel: "Filter",
+                onCommand: { _ in false },
+                onRemoveToken: { _ in },
+                onSelectSuggestion: { _ in }
+            )
+            .frame(width: 340)
+            .frame(width: 340, height: 60, alignment: .topLeading)
+            .background(AppPalette.panel.swiftUI)
+        }
+    }
+
+    // The helpers of the text-position tests: pixels of a view at a backing scale, the ink edges of glyphs in them, and
+    // where a field editor's first line sits.
+
+    private static func findKeyField(in view: NSView) -> CommandTextField.KeyTextField? {
+        (view as? CommandTextField.KeyTextField) ?? view.subviews.lazy.compactMap(findKeyField).first
+    }
+
+    /// The view's pixels now, at `scale`.
+    private static func snapshot(_ view: NSView, size: CGSize, scale: CGFloat) throws -> NSBitmapImageRep {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else {
+            throw TestFailure("could not make a bitmap")
+        }
+        bitmap.size = size
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return bitmap
+    }
+
+    /// The top and bottom ink edges, in points from the view's top and to the backing pixel, of what differs from
+    /// `background` in `columns` (points) within `rows` (points).
+    private static func inkEdges(_ bitmap: NSBitmapImageRep, scale: CGFloat, columns: Range<Int>, rows: Range<Int> = 3..<32, over background: NSColor = AppPalette.window) -> (top: CGFloat, bottom: CGFloat)? {
+        guard let base = background.usingColorSpace(.deviceRGB) else {
+            return nil
+        }
+        let factor = Int(scale)
+        let inked = (rows.lowerBound * factor..<rows.upperBound * factor).filter { y in
+            (columns.lowerBound * factor..<columns.upperBound * factor).contains { x in
+                guard let pixel = bitmap.colorAt(x: x, y: y) else {
+                    return false
+                }
+                return abs(pixel.redComponent - base.redComponent) + abs(pixel.greenComponent - base.greenComponent)
+                    + abs(pixel.blueComponent - base.blueComponent) > 0.15
+            }
+        }
+        guard let first = inked.first, let last = inked.last else {
+            return nil
+        }
+        return (CGFloat(first) / scale, CGFloat(last + 1) / scale)
+    }
+
+    /// Where the field editor's first line stands on its baseline, in points from `view`'s top: the glyph's location is in
+    /// its line fragment, the line fragment in the text container, and the container sits `textContainerOrigin` into the
+    /// editor, which then converts into the view.
+    private static func firstLineBaseline(of editor: NSTextView, in view: NSView) -> CGFloat? {
+        guard let layout = editor.layoutManager, layout.numberOfGlyphs > 0 else {
+            return nil
+        }
+        let line = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+        let glyph = layout.location(forGlyphAt: 0)
+        let inEditor = NSPoint(
+            x: editor.textContainerOrigin.x + line.minX + glyph.x,
+            y: editor.textContainerOrigin.y + line.minY + glyph.y
+        )
+        return view.convert(inEditor, from: editor).y
+    }
+
+    /// A baseline in points, snapped to the backing pixel the glyphs are drawn on, so it compares with an ink edge.
+    private static func pixelEdge(_ y: CGFloat, scale: CGFloat) -> CGFloat {
+        (y * scale).rounded() / scale
+    }
+
     /// Changing the class changes the segment's width, so the title field is laid out again. Its text must not move when
     /// that happens, nor when the field takes focus: the field editor draws where the resting cell does, always, at 1x and
     /// at 2x (a Retina display), with typed text or the placeholder showing, and the segment stays on its baseline.
     ///
     /// The resting baseline is the bottom ink edge of an "H" in an unfocused twin. The placeholder and the segment are
     /// measured the same way, in pixels. Typed text in a focused field is the editor's, whose pixels a snapshot of the view
-    /// doesn't follow, so its baseline is read off the editor's own line (layout manager), in the row's coordinates.
+    /// doesn't follow, so its baseline is read off the editor's own line (`firstLineBaseline`). Two claims, kept apart: the
+    /// text doesn't move across the change (the same measure before and after, exactly), and it sits on the resting
+    /// baseline (the editor's, snapped to its backing pixel, against the resting ink edge).
     /// Once AppKit re-laid the editor out after a segment change it sat a point above where the editor was first placed
     /// (the focus clip view's frame is recomputed on a resize, the editor in it is not), which a one-time offset of the
     /// editor, made to match the resting cell, then got wrong.
     private static func testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges() throws {
-        func findField(in view: NSView) -> CommandTextField.KeyTextField? {
-            (view as? CommandTextField.KeyTextField) ?? view.subviews.lazy.compactMap(findField).first
-        }
         let size = CGSize(width: 460, height: 60)
         // The field starts after the 40pt disc and its 10 gap; its text 10 in. The first "x" takes the caret's place at the
         // start of an empty field, so the title's columns are the "H" after it.
@@ -2496,23 +2583,6 @@ enum LogicSelfTests {
         let segmentColumns = 430..<449
         var failures: [String] = []
         for scale in [CGFloat(1), CGFloat(2)] {
-            let factor = Int(scale)
-            // The bottom ink edge of the glyphs in `columns`, in points from the top, to the backing pixel.
-            func inkBottom(_ bitmap: NSBitmapImageRep, columns: Range<Int>) -> CGFloat? {
-                guard let window = AppPalette.window.usingColorSpace(.deviceRGB) else {
-                    return nil
-                }
-                let rows = (3 * factor..<32 * factor).filter { y in
-                    (columns.lowerBound * factor..<columns.upperBound * factor).contains { x in
-                        guard let pixel = bitmap.colorAt(x: x, y: y) else {
-                            return false
-                        }
-                        return abs(pixel.redComponent - window.redComponent) + abs(pixel.greenComponent - window.greenComponent)
-                            + abs(pixel.blueComponent - window.blueComponent) > 0.15
-                    }
-                }
-                return rows.last.map { CGFloat($0 + 1) / scale }
-            }
             /// A title row in a window at `scale`, its field editing (caret at the end) or not.
             func makeRow(text: String, focused: Bool) throws -> (model: TitleRowModel, view: NSView, window: HeadlessWindow) {
                 let model = TitleRowModel(text: text)
@@ -2523,7 +2593,7 @@ enum LogicSelfTests {
                 window.show(key: true)
                 RunLoop.main.run(until: Date().addingTimeInterval(0.5))
                 if focused {
-                    guard let field = findField(in: view) else {
+                    guard let field = findKeyField(in: view) else {
                         throw TestFailure("no title text field")
                     }
                     field.focusEditorAtEnd()
@@ -2533,24 +2603,11 @@ enum LogicSelfTests {
                 return (model, view, window)
             }
             func measure(_ view: NSView) throws -> (title: CGFloat?, segment: CGFloat?) {
-                guard let bitmap = NSBitmapImageRep(
-                    bitmapDataPlanes: nil, pixelsWide: Int(size.width) * factor, pixelsHigh: Int(size.height) * factor, bitsPerSample: 8,
-                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-                ) else {
-                    throw TestFailure("could not make a bitmap")
-                }
-                bitmap.size = size
-                view.cacheDisplay(in: view.bounds, to: bitmap)
-                return (inkBottom(bitmap, columns: titleColumns), inkBottom(bitmap, columns: segmentColumns))
+                let bitmap = try snapshot(view, size: size, scale: scale)
+                return (inkEdges(bitmap, scale: scale, columns: titleColumns)?.bottom, inkEdges(bitmap, scale: scale, columns: segmentColumns)?.bottom)
             }
-            /// Where the field editor's first line sits, in points from the row's top.
             func editorBaseline(_ view: NSView) -> CGFloat? {
-                guard let editor = findField(in: view)?.currentEditor() as? NSTextView, let layout = editor.layoutManager, layout.numberOfGlyphs > 0 else {
-                    return nil
-                }
-                let line = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
-                let location = layout.location(forGlyphAt: 0)
-                return view.convert(NSPoint(x: location.x, y: line.minY + location.y), from: editor).y
+                (findKeyField(in: view)?.currentEditor() as? NSTextView).flatMap { firstLineBaseline(of: $0, in: view) }
             }
 
             let resting = try makeRow(text: "xHH", focused: false)
@@ -2574,12 +2631,24 @@ enum LogicSelfTests {
                     failures.append("\(label): the segment's baseline should not move, \(String(describing: before.segment)) to \(String(describing: after.segment))")
                 }
                 if focused && !text.isEmpty {
-                    // Typed text under the editor: its line, before and after, where the resting text is.
-                    if editorBefore != restingBaseline || editorAfter != restingBaseline {
-                        failures.append("\(label): the editor's baseline should stay on the resting \(restingBaseline), \(String(describing: editorBefore)) to \(String(describing: editorAfter))")
+                    // Typed text under the editor: it doesn't move across the change, and it stands on the resting baseline.
+                    guard let editorBefore, let editorAfter else {
+                        failures.append("\(label): the editor should have a first line")
+                        continue
                     }
-                } else if before.title != restingBaseline || after.title != restingBaseline {
-                    failures.append("\(label): the title's baseline should stay on the resting \(restingBaseline), \(String(describing: before.title)) to \(String(describing: after.title))")
+                    if editorBefore != editorAfter {
+                        failures.append("\(label): the editor's baseline moved when the class changed, \(editorBefore) to \(editorAfter)")
+                    }
+                    if pixelEdge(editorBefore, scale: scale) != restingBaseline || pixelEdge(editorAfter, scale: scale) != restingBaseline {
+                        failures.append("\(label): the editor's baseline \(editorBefore) / \(editorAfter) should stand on the resting \(restingBaseline)")
+                    }
+                } else {
+                    if before.title != after.title {
+                        failures.append("\(label): the title's baseline moved when the class changed, \(String(describing: before.title)) to \(String(describing: after.title))")
+                    }
+                    if before.title != restingBaseline {
+                        failures.append("\(label): the title's baseline should be the resting \(restingBaseline), got \(String(describing: before.title))")
+                    }
                 }
             }
         }
@@ -2610,12 +2679,10 @@ enum LogicSelfTests {
             RunLoop.main.run(until: Date().addingTimeInterval(0.8))
             func baseline() throws -> (y: CGFloat, width: CGFloat) {
                 guard let field = editingField(in: view), let editor = field.currentEditor() as? NSTextView,
-                      let layout = editor.layoutManager, layout.numberOfGlyphs > 0 else {
+                      let y = firstLineBaseline(of: editor, in: view) else {
                     throw TestFailure("the Edit Session title should be editing at \(scale)x")
                 }
-                let line = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
-                let location = layout.location(forGlyphAt: 0)
-                return (view.convert(NSPoint(x: location.x, y: line.minY + location.y), from: editor).y, field.frame.width)
+                return (y, field.frame.width)
             }
             let before = try baseline()
             guard let controlE = NSEvent.keyEvent(
@@ -2631,6 +2698,86 @@ enum LogicSelfTests {
             try expect(before.width - after.width > 5, "⌃e should widen the class segment and narrow the title field at \(scale)x, got \(before.width) to \(after.width)")
             try expect(before.y == after.y, "the Edit Session title's text should not move when ⌃e cycles the class at \(scale)x, baseline \(before.y) to \(after.y)")
         }
+    }
+
+    /// The filter bar (the Quest Log's and the artifact dock's) places its text field by its first baseline, so the lost
+    /// point of field height moved nothing: at 1x and 2x its text rests, and is focused, on one baseline, which is the
+    /// designs' (21.5 down the bar, on its backing pixel) and, within a backing pixel, the chip's text's, and the slash
+    /// stays centred in the bar.
+    /// Run under `XDG_CONFIG_HOME=/nonexistent` too, where the font is the system mono and every metric differs: the
+    /// claims here are relations, so they hold in either.
+    private static func testFilterBarTextSitsOnOneBaselineRestingAndFocused() throws {
+        let size = CGSize(width: 340, height: 60)
+        let token = ArtifactFilterToken(kind: .project, value: "x", title: "HHH")
+        // The bar's "/" is 10 in; the chip's "HHH" follows its "@project " (the chip is 10 past the slash and its text 5 in);
+        // the field's text starts after the chip, whose first "x" takes the caret's place.
+        let slashColumns = 10..<17
+        let chipColumns = 98..<118
+        let fieldColumns = 142..<146
+        var failures: [String] = []
+        for scale in [CGFloat(1), CGFloat(2)] {
+            let tolerance = 0.5 + 0.001
+            func makeBar(query: String, focused: Bool) throws -> (view: NSView, window: HeadlessWindow) {
+                let view = NSHostingView(rootView: FilterBarHarness(query: query, tokens: [token]))
+                view.frame = NSRect(origin: .zero, size: size)
+                let window = HeadlessWindow(size: size, scale: scale)
+                window.contentView = view
+                window.show(key: true)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                if focused {
+                    guard let field = findKeyField(in: view) else {
+                        throw TestFailure("no filter text field")
+                    }
+                    field.focusEditorAtEnd()
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+                    try expect(field.currentEditor() != nil, "the filter field should be editing")
+                }
+                return (view, window)
+            }
+            func fieldBaseline(_ bar: (view: NSView, window: HeadlessWindow)) throws -> CGFloat? {
+                inkEdges(try snapshot(bar.view, size: size, scale: scale), scale: scale, columns: fieldColumns)?.bottom
+            }
+
+            let resting = try makeBar(query: "xHH", focused: false)
+            defer { resting.window.close() }
+            let bitmap = try snapshot(resting.view, size: size, scale: scale)
+            guard let restingBaseline = inkEdges(bitmap, scale: scale, columns: fieldColumns)?.bottom,
+                  let chip = inkEdges(bitmap, scale: scale, columns: chipColumns, rows: 12..<24, over: AppPalette.item),
+                  let slash = inkEdges(bitmap, scale: scale, columns: slashColumns) else {
+                throw TestFailure("the filter bar's text, chip and slash should show ink at \(scale)x")
+            }
+            let designBaseline = pixelEdge(FormFieldMetrics.baseline, scale: scale)
+            if restingBaseline != designBaseline {
+                failures.append("\(scale)x: the filter text's baseline \(restingBaseline) should be the designs' \(FormFieldMetrics.baseline) down the bar, on the backing pixel \(designBaseline)")
+            }
+            if abs(restingBaseline - chip.bottom) > tolerance {
+                failures.append("\(scale)x: the filter text's baseline \(restingBaseline) should be the chip text's \(chip.bottom)")
+            }
+            if abs((slash.top + slash.bottom) / 2 - FilterBarMetrics.height / 2) > tolerance {
+                failures.append("\(scale)x: the slash (\(slash)) should stay centred in the \(FilterBarMetrics.height) bar")
+            }
+
+            let restingPlaceholder = try makeBar(query: "", focused: false)
+            defer { restingPlaceholder.window.close() }
+            if try fieldBaseline(restingPlaceholder) != restingBaseline {
+                failures.append("\(scale)x: the resting placeholder should sit on the resting text's baseline \(restingBaseline), got \(String(describing: try fieldBaseline(restingPlaceholder)))")
+            }
+            let focusedPlaceholder = try makeBar(query: "", focused: true)
+            defer { focusedPlaceholder.window.close() }
+            if try fieldBaseline(focusedPlaceholder) != restingBaseline {
+                failures.append("\(scale)x: the focused placeholder should stay on \(restingBaseline), got \(String(describing: try fieldBaseline(focusedPlaceholder)))")
+            }
+            let focusedTyped = try makeBar(query: "xHH", focused: true)
+            defer { focusedTyped.window.close() }
+            if let editor = findKeyField(in: focusedTyped.view)?.currentEditor() as? NSTextView, let baseline = firstLineBaseline(of: editor, in: focusedTyped.view) {
+                if pixelEdge(baseline, scale: scale) != restingBaseline {
+                    failures.append("\(scale)x: the focused editor's baseline \(baseline) should stand on the resting \(restingBaseline)")
+                }
+            } else {
+                failures.append("\(scale)x: the focused filter field should have a first line")
+            }
+        }
+        try expect(failures.isEmpty, failures.joined(separator: "; "))
     }
 
     private static func testTextFieldsFitTheirWholeLine() throws {
