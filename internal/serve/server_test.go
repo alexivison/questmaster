@@ -106,7 +106,7 @@ func TestSnapshotterWorkersFollowMasterReclass(t *testing.T) {
 	if err := env.store.Create(state.Manifest{
 		SessionID: "qm-worker",
 		Cwd:       env.worktree,
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 		Display:   &state.DisplayMetadata{Class: "barbarian"},
 		Extra:     map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-demo"`)},
 	}); err != nil {
@@ -1965,7 +1965,7 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 			class: " Wizard ",
 			manifest: state.Manifest{
 				SessionID: "qm-class-master",
-				Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 			},
 		},
 		{
@@ -1973,7 +1973,7 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 			id:   "qm-class-worker",
 			manifest: state.Manifest{
 				SessionID: "qm-class-worker",
-				Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 				Extra:     map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)},
 			},
 			class:   "bard",
@@ -1991,7 +1991,7 @@ func TestServerReclassMutationRequiresMasterAndPersists(t *testing.T) {
 			id:   "qm-class-invalid",
 			manifest: state.Manifest{
 				SessionID: "qm-class-invalid",
-				Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+				Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 			},
 			class:   "ranger",
 			wantErr: "paladin, wizard, druid, barbarian, rogue, cleric, bard",

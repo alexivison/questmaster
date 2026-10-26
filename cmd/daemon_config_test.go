@@ -47,7 +47,7 @@ func TestDaemonClassBackfillUsesAbsoluteStateRootAfterChdir(t *testing.T) {
 	}
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-relative-root",
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
 		t.Fatalf("create master: %v", err)
 	}

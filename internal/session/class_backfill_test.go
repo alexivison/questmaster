@@ -53,7 +53,7 @@ func TestClassBackfillJobBalancesLiveMastersAndStopsAfterSuccess(t *testing.T) {
 
 	worker := state.Manifest{
 		SessionID: "qm-worker",
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 		Display:   &state.DisplayMetadata{Class: "bard"},
 		Extra:     map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master-paladin"`)},
 	}
@@ -181,7 +181,7 @@ func TestClassBackfillJobRescansNewMastersWithoutReportingWork(t *testing.T) {
 	}
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-later",
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
 		t.Fatalf("create master after first pass: %v", err)
 	}
@@ -353,7 +353,7 @@ func createClassBackfillMaster(t *testing.T, store *state.Store, id, class strin
 	t.Helper()
 	manifest := state.Manifest{
 		SessionID: id,
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}
 	if class != "" {
 		manifest.Display = &state.DisplayMetadata{Class: class}

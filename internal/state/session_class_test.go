@@ -68,15 +68,15 @@ func TestStoreSetSessionClassOnlyAllowsMasters(t *testing.T) {
 	}{
 		{
 			name: "master",
-			manifest: Manifest{SessionID: "qm-master", Agents: []AgentManifest{{Name: "codex", Role: "primary"}}, Display: &DisplayMetadata{
+			manifest: Manifest{SessionID: "qm-master", Agents: []AgentManifest{{Name: "codex", Role: "agent"}}, Display: &DisplayMetadata{
 				Color: "violet",
 				Extra: map[string]json.RawMessage{"future": json.RawMessage(`true`)},
 			}},
 			class: " ROGUE ", wantClass: "rogue",
 		},
-		{name: "worker", manifest: Manifest{SessionID: "qm-worker", Agents: []AgentManifest{{Name: "codex", Role: "primary"}}, Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)}}, class: "bard", wantErrPart: "workers inherit"},
+		{name: "worker", manifest: Manifest{SessionID: "qm-worker", Agents: []AgentManifest{{Name: "codex", Role: "agent"}}, Extra: map[string]json.RawMessage{"parent_session": json.RawMessage(`"qm-master"`)}}, class: "bard", wantErrPart: "workers inherit"},
 		{name: "shell", manifest: Manifest{SessionID: "qm-shell"}, class: "bard", wantErrPart: "shell sessions"},
-		{name: "invalid class", manifest: Manifest{SessionID: "qm-invalid", Agents: []AgentManifest{{Name: "codex", Role: "primary"}}}, class: "ranger", wantErrPart: "paladin, wizard, druid, barbarian, rogue, cleric, bard"},
+		{name: "invalid class", manifest: Manifest{SessionID: "qm-invalid", Agents: []AgentManifest{{Name: "codex", Role: "agent"}}}, class: "ranger", wantErrPart: "paladin, wizard, druid, barbarian, rogue, cleric, bard"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

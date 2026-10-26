@@ -94,7 +94,7 @@ func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
 	if err := store.Create(state.Manifest{
 		SessionID: "qm-old",
 		Cwd:       "/tmp",
-		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "agent"}},
 	}); err != nil {
 		t.Fatalf("create manifest: %v", err)
 	}
