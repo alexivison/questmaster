@@ -11,6 +11,19 @@ import (
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	root, err := os.MkdirTemp("", "qm-hooks-state-*")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("QUESTMASTER_STATE_ROOT", root); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(root)
+	os.Exit(code)
+}
+
 func TestPiMessagingSocketOwnership(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -23,6 +36,12 @@ func TestPiMessagingSocketOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	binDir := t.TempDir()
+	build := exec.CommandContext(t.Context(), "go", "build", "-buildvcs=false", "-o", filepath.Join(binDir, "questmaster"), "../..")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build test hook binary: %v\n%s", err, output)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, node, "--experimental-strip-types", filepath.Join("testdata", "pi_socket_ownership.mjs"), extension).CombinedOutput()
