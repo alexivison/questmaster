@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -27,10 +28,11 @@ import (
 
 type fakeTmuxRunner struct {
 	sessions string
+	err      error
 }
 
 func (r fakeTmuxRunner) Run(context.Context, ...string) (string, error) {
-	return r.sessions, nil
+	return r.sessions, r.err
 }
 
 type countingTmuxRunner struct {
@@ -160,6 +162,62 @@ func TestSnapshotterBackfillsMasterClassesOnce(t *testing.T) {
 		if !bytes.Equal(got, manifestBytes[row.ID]) {
 			t.Fatalf("manifest %s changed on the second snapshot", row.ID)
 		}
+	}
+}
+
+func TestSnapshotterKeepsTrackerWhenClassBackfillFails(t *testing.T) {
+	env := seedServeFixture(t)
+	manifestPath := filepath.Join(env.store.Root(), "qm-demo.json")
+	if err := os.Mkdir(manifestPath+".tmp", 0o700); err != nil {
+		t.Fatalf("block manifest temp path: %v", err)
+	}
+	defer os.RemoveAll(manifestPath + ".tmp")
+	snapshotter := NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now })
+	snapshotter.randomIndex = func(int) int { return 0 }
+	snapshotter.fetcher = func(tracker.SessionInfo) (tracker.TrackerSnapshot, error) {
+		return tracker.TrackerSnapshot{
+			LivenessKnown: true,
+			Sessions: []tracker.SessionRow{{
+				ID: "qm-demo", SessionType: "master", Status: "stopped",
+			}},
+		}, nil
+	}
+
+	got, err := snapshotter.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("tracker snapshot after failed backfill: %v", err)
+	}
+	if len(got.Sessions) != 1 || got.Sessions[0].Class != "" {
+		t.Fatalf("tracker sessions = %#v, want one unclassified row", got.Sessions)
+	}
+	manifest, err := env.store.Read("qm-demo")
+	if err != nil {
+		t.Fatalf("read manifest after failed write: %v", err)
+	}
+	if manifest.DisplayClass() != "" {
+		t.Fatalf("persisted class = %q after failed write, want none", manifest.DisplayClass())
+	}
+}
+
+func TestSnapshotterSkipsClassBackfillWhenTmuxLivenessIsUnknown(t *testing.T) {
+	env := seedServeFixture(t)
+	tmuxClient := tmux.NewClient(fakeTmuxRunner{err: errors.New("tmux unavailable")})
+	snapshotter := NewSnapshotter(env.store, tmuxClient, func() time.Time { return env.now })
+	snapshotter.randomIndex = func(int) int { return 0 }
+
+	got, err := snapshotter.TrackerForChange(Change{})
+	if err != nil {
+		t.Fatalf("tracker snapshot with unknown liveness: %v", err)
+	}
+	if len(got.Sessions) != 1 || got.Sessions[0].Class != "" {
+		t.Fatalf("tracker sessions = %#v, want one unclassified row", got.Sessions)
+	}
+	manifest, err := env.store.Read("qm-demo")
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if manifest.DisplayClass() != "" {
+		t.Fatalf("persisted class = %q, want none while liveness is unknown", manifest.DisplayClass())
 	}
 }
 

@@ -185,11 +185,17 @@ func (s *Store) readManifest(path string) (Manifest, error) {
 // writeManifest atomically writes a manifest to disk.
 // Mirrors bash semantics: initializes created_at on first write, bumps updated_at always.
 func (s *Store) writeManifest(path string, m Manifest) error {
-	now := NowUTC()
-	if m.CreatedAt == "" {
-		m.CreatedAt = now
+	return s.writeManifestWithTimestamps(path, m, true)
+}
+
+func (s *Store) writeManifestWithTimestamps(path string, m Manifest, updateTimestamps bool) error {
+	if updateTimestamps {
+		now := NowUTC()
+		if m.CreatedAt == "" {
+			m.CreatedAt = now
+		}
+		m.UpdatedAt = now
 	}
-	m.UpdatedAt = now
 
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {

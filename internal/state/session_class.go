@@ -2,7 +2,9 @@ package state
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"time"
 )
 
 var sessionClassNames = []string{"paladin", "wizard", "druid", "barbarian", "rogue", "cleric", "bard"}
@@ -103,12 +105,26 @@ func (s *Store) updateSessionClass(sessionID, class string, onlyIfMissing bool) 
 			stored = current
 			return nil
 		}
+		var oldModTime time.Time
+		if onlyIfMissing {
+			info, err := os.Stat(path)
+			if err != nil {
+				return err
+			}
+			oldModTime = info.ModTime()
+		}
 		if m.Display == nil {
 			m.Display = &DisplayMetadata{}
 		}
 		m.Display.Class = class
 		stored = class
-		return s.writeManifest(path, m)
+		if err := s.writeManifestWithTimestamps(path, m, !onlyIfMissing); err != nil {
+			return err
+		}
+		if onlyIfMissing {
+			return os.Chtimes(path, oldModTime, oldModTime)
+		}
+		return nil
 	})
 	return stored, err
 }

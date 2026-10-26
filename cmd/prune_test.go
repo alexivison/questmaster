@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -81,6 +82,73 @@ func writeManifestFile(t *testing.T, root, sessionID string, data map[string]any
 	past := time.Now().Add(-age)
 	if err := os.Chtimes(path, past, past); err != nil {
 		t.Fatalf("chtimes: %v", err)
+	}
+}
+
+func TestClassBackfillPreservesOldManifestRecencyForPrune(t *testing.T) {
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	if err := store.Create(state.Manifest{
+		SessionID: "qm-old",
+		Cwd:       "/tmp",
+		Agents:    []state.AgentManifest{{Name: "codex", Role: "primary"}},
+	}); err != nil {
+		t.Fatalf("create manifest: %v", err)
+	}
+	manifest, err := store.Read("qm-old")
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	manifest.UpdatedAt = "2020-01-02T03:04:05Z"
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	manifestPath := filepath.Join(root, "qm-old.json")
+	if err := os.WriteFile(manifestPath, raw, 0o644); err != nil {
+		t.Fatalf("write old manifest: %v", err)
+	}
+	oldTime := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(manifestPath, oldTime, oldTime); err != nil {
+		t.Fatalf("age manifest: %v", err)
+	}
+	beforeInfo, err := os.Stat(manifestPath)
+	if err != nil {
+		t.Fatalf("stat old manifest: %v", err)
+	}
+
+	client := tmux.NewClient(&pruneRunner{sessions: map[string]bool{}})
+	snapshotter := serve.NewSnapshotter(store, client, time.Now)
+	if _, err := snapshotter.TrackerForChange(serve.Change{}); err != nil {
+		t.Fatalf("tracker snapshot: %v", err)
+	}
+	after, err := store.Read("qm-old")
+	if err != nil {
+		t.Fatalf("read backfilled manifest: %v", err)
+	}
+	if after.UpdatedAt != manifest.UpdatedAt {
+		t.Fatalf("updated_at = %q, want preserved %q", after.UpdatedAt, manifest.UpdatedAt)
+	}
+	if after.CreatedAt != manifest.CreatedAt {
+		t.Fatalf("created_at = %q, want preserved %q", after.CreatedAt, manifest.CreatedAt)
+	}
+	afterInfo, err := os.Stat(manifestPath)
+	if err != nil {
+		t.Fatalf("stat backfilled manifest: %v", err)
+	}
+	if !afterInfo.ModTime().Equal(beforeInfo.ModTime()) {
+		t.Fatalf("manifest mtime = %v, want preserved %v", afterInfo.ModTime(), beforeInfo.ModTime())
+	}
+
+	result, err := pruneManifests(t.Context(), store, client, 7, true)
+	if err != nil {
+		t.Fatalf("prune old manifest: %v", err)
+	}
+	if result.Pruned != 1 || len(result.Paths) != 1 || result.Paths[0] != manifestPath {
+		t.Fatalf("prune result = %#v, want old manifest candidate", result)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -380,8 +381,8 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	if err != nil {
 		return TrackerSnapshot{}, err
 	}
-	if err := s.backfillSessionClasses(snap.Sessions); err != nil {
-		return TrackerSnapshot{}, err
+	if snap.LivenessKnown {
+		s.backfillSessionClasses(snap.Sessions)
 	}
 	tracker.InheritWorkerClasses(snap.Sessions)
 	observedAt := snap.ObservedAt.UTC()
@@ -405,7 +406,7 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	}), nil
 }
 
-func (s *Snapshotter) backfillSessionClasses(rows []tracker.SessionRow) error {
+func (s *Snapshotter) backfillSessionClasses(rows []tracker.SessionRow) {
 	activeClasses := make([]string, 0, len(rows))
 	for _, row := range rows {
 		if row.SessionType == "master" && row.Status == "active" && row.Class != "" {
@@ -423,14 +424,14 @@ func (s *Snapshotter) backfillSessionClasses(rows []tracker.SessionRow) error {
 		class := state.ChooseSessionClass(activeClasses, index)
 		stored, err := s.store.SetSessionClassIfMissing(rows[i].ID, class)
 		if err != nil {
-			return fmt.Errorf("backfill session class for %s: %w", rows[i].ID, err)
+			fmt.Fprintf(os.Stderr, "questmaster: warning: backfill session class for %s: %v\n", rows[i].ID, err)
+			continue
 		}
 		rows[i].Class = stored
 		if rows[i].Status == "active" {
 			activeClasses = append(activeClasses, stored)
 		}
 	}
-	return nil
 }
 
 func (s *Snapshotter) cacheTracker(snapshot TrackerSnapshot) TrackerSnapshot {
