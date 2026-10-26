@@ -49,19 +49,17 @@ enum QuestmasterLogicTests {
         timed("SpacingRulesScanTests") { SpacingRulesScanTests.run() }
 
         let packageRoot = try findPackageRoot()
-        let result = try timed("Questmaster self-tests") {
-            try run(
-                executable: "/usr/bin/env",
-                arguments: [
-                    "swift",
-                    "run",
-                    "--package-path",
-                    packageRoot.path,
-                    "Questmaster",
-                    "--run-logic-tests",
-                ]
-            )
-        }
+        let result = try run(
+            executable: "/usr/bin/env",
+            arguments: [
+                "swift",
+                "run",
+                "--package-path",
+                packageRoot.path,
+                "Questmaster",
+                "--run-logic-tests",
+            ]
+        )
 
         try expect(result.status == 0, "logic tests exited \(result.status)\n\(result.output)")
         try expect(
@@ -104,12 +102,42 @@ enum QuestmasterLogicTests {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
+
+        let inactivityLimit: TimeInterval = 120
+        let progressLock = NSLock()
+        var lastOutput = ProcessInfo.processInfo.systemUptime
+        var lastRun = "none"
+        let watchdog = DispatchSource.makeTimerSource(queue: .global())
+        watchdog.schedule(deadline: .now() + 1, repeating: .seconds(1))
+        watchdog.setEventHandler {
+            progressLock.lock()
+            let inactive = ProcessInfo.processInfo.systemUptime - lastOutput
+            let test = lastRun
+            progressLock.unlock()
+            if inactive >= inactivityLimit {
+                fputs("TIMEOUT Questmaster self-tests: no output for \(Int(inactivityLimit)) seconds (last RUN \(test))\n", stderr)
+                exit(1)
+            }
+        }
+        watchdog.resume()
+        defer { watchdog.cancel() }
+
         // Drain before waiting: a child that fills the pipe blocks on write until someone reads.
         var data = Data()
+        var pendingLine = ""
         while true {
             let chunk = pipe.fileHandleForReading.availableData
             if chunk.isEmpty { break }
             data.append(chunk)
+            pendingLine += String(decoding: chunk, as: UTF8.self)
+            let lines = pendingLine.split(separator: "\n", omittingEmptySubsequences: false)
+            pendingLine = String(lines.last ?? "")
+            progressLock.lock()
+            lastOutput = ProcessInfo.processInfo.systemUptime
+            for line in lines.dropLast() where line.hasPrefix("RUN ") {
+                lastRun = String(line.dropFirst(4))
+            }
+            progressLock.unlock()
             FileHandle.standardOutput.write(chunk)
         }
         process.waitUntilExit()
