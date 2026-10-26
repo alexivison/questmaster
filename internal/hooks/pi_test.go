@@ -12,6 +12,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("QM_OPENCODE_HOOK_STUB") == "1" {
+		os.Exit(runOpenCodeHookStub())
+	}
 	root, err := os.MkdirTemp("", "qm-hooks-state-*")
 	if err != nil {
 		panic(err)

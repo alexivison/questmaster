@@ -30,13 +30,47 @@ type daemonHarness struct {
 	env             []string
 }
 
+type cachedDaemonBuild struct {
+	sync.Once
+	path   string
+	output []byte
+	err    error
+}
+
+var cachedDaemonCLI, cachedDaemonHelper cachedDaemonBuild
+
+func (b *cachedDaemonBuild) binary(t *testing.T, source string) string {
+	t.Helper()
+	b.Do(func() {
+		var dir string
+		dir, b.err = os.MkdirTemp("", "qm-daemon-test-build-*")
+		if b.err != nil {
+			return
+		}
+		b.path = filepath.Join(dir, "qm")
+		b.output, b.err = exec.CommandContext(t.Context(), "go", "build", "-p=1", "-buildvcs=false", "-o", b.path, source).CombinedOutput()
+	})
+	if b.err != nil {
+		t.Fatalf("build %s: %v\n%s", source, b.err, b.output)
+	}
+	return b.path
+}
+
+func copyDaemonBinary(t *testing.T, source, dest string) {
+	t.Helper()
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newDaemonHarness(t *testing.T, root string) *daemonHarness {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "qm")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "..")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	copyDaemonBinary(t, cachedDaemonCLI.binary(t, ".."), bin)
 	home := t.TempDir()
 	if root == "" {
 		root = t.TempDir()
@@ -168,10 +202,7 @@ func TestDaemonExitHandoff(t *testing.T) {
 		t.Run(fmt.Sprint("resume=", resume), func(t *testing.T) {
 			h := newDaemonHarness(t, "")
 			helper := filepath.Join(t.TempDir(), "qm-exit-helper")
-			build := exec.Command("go", "build", "-buildvcs=false", "-o", helper, "../internal/daemon/testdata/exithelper")
-			if out, err := build.CombinedOutput(); err != nil {
-				t.Fatalf("helper build: %v\n%s", err, out)
-			}
+			copyDaemonBinary(t, cachedDaemonHelper.binary(t, "../internal/daemon/testdata/exithelper"), helper)
 			link := filepath.Join(h.home, ".local", "bin", "questmaster")
 			if err := os.Remove(link); err != nil {
 				t.Fatal(err)
@@ -494,7 +525,7 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 		t.Fatal("probe child survived its timeout")
 	}
 	candidate := h.bin + ".new"
-	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags=-buildid=d1-upgrade-probe", "-o", candidate, "..")
+	build := exec.Command("go", "build", "-p=1", "-buildvcs=false", "-ldflags=-buildid=d1-upgrade-probe", "-o", candidate, "..")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("candidate build: %v\n%s", err, out)
 	}
@@ -530,6 +561,7 @@ func TestDaemonUpgradeProbeRejectsUnreadyBinary(t *testing.T) {
 
 func TestDaemonDevBuildFromStablePath(t *testing.T) {
 	h := newDaemonHarness(t, "")
+	h.env = append(h.env, "GOFLAGS=-p=1") // The nested worktree build must not multiply CI's package-level compiler load.
 	cache, err := exec.Command("go", "env", "GOMODCACHE").Output()
 	if err != nil {
 		t.Fatal(err)
@@ -621,7 +653,7 @@ func TestDaemonReexecKeepsPIDSocketAndJobsLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidate := h.bin + ".new"
-	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags=-buildid=d1b-swap", "-o", candidate, "..")
+	build := exec.Command("go", "build", "-p=1", "-buildvcs=false", "-ldflags=-buildid=d1b-swap", "-o", candidate, "..")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("replacement build: %v\n%s", err, out)
 	}
@@ -785,10 +817,7 @@ func daemonRequest(socket, method string) error {
 func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	helper := filepath.Join(t.TempDir(), "qm-helper")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", helper, "../internal/daemon/testdata/exithelper")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("helper build: %v\n%s", err, out)
-	}
+	copyDaemonBinary(t, cachedDaemonHelper.binary(t, "../internal/daemon/testdata/exithelper"), helper)
 	link := filepath.Join(h.home, ".local", "bin", "questmaster")
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
@@ -836,7 +865,7 @@ func TestDaemonReexecWaitsForWorkAndDoesNotLeakLocksToChild(t *testing.T) {
 		t.Fatal("hold request never dispatched")
 	}
 	candidate := helper + ".new"
-	build = exec.Command("go", "build", "-buildvcs=false", "-ldflags=-buildid=d1b-helper-swap", "-o", candidate, "../internal/daemon/testdata/exithelper")
+	build := exec.Command("go", "build", "-p=1", "-buildvcs=false", "-ldflags=-buildid=d1b-helper-swap", "-o", candidate, "../internal/daemon/testdata/exithelper")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("replacement helper build: %v\n%s", err, out)
 	}
@@ -1013,10 +1042,7 @@ func TestDaemonBadHandoffFallsBackToLockedStart(t *testing.T) {
 func TestDaemonEnvironmentFromPollutedPaneReachesBothSessionMutations(t *testing.T) {
 	h := newDaemonHarness(t, "")
 	helper := filepath.Join(t.TempDir(), "qm-helper")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", helper, "../internal/daemon/testdata/exithelper")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("helper build: %v\n%s", err, out)
-	}
+	copyDaemonBinary(t, cachedDaemonHelper.binary(t, "../internal/daemon/testdata/exithelper"), helper)
 	link := filepath.Join(h.home, ".local", "bin", "questmaster")
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)

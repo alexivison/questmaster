@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -14,6 +15,11 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	code := m.Run()
+	for _, build := range []*cachedDaemonBuild{&cachedDaemonCLI, &cachedDaemonHelper} {
+		if build.path != "" {
+			_ = os.RemoveAll(filepath.Dir(build.path))
+		}
+	}
 	_ = os.RemoveAll(root)
 	os.Exit(code)
 }
