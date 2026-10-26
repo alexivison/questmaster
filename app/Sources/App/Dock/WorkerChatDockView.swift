@@ -70,19 +70,37 @@ enum WorkerChatMetrics {
     }
 }
 
-/// The worker chat dock: a chronological feed, newest at the bottom. A tab bar can sit above
-/// `WorkerChatFeedView` later without touching the feed itself.
+/// The worker log dock: the filter's chips, then a chronological feed, newest at the bottom. The filter's dropdown
+/// hangs `Space.row` under the top bar at the right, over the chips and the feed; a click on either closes it.
 struct WorkerChatDockView: View {
     let store: WorkerChatStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if !store.chips.isEmpty {
+                WorkerLogChipRow(chips: store.chips, onClear: store.clearFilter)
+            }
             if store.isKnownEmpty {
                 EmptyState()
             } else if !store.lines.isEmpty {
                 WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
             }
             readNotice
+        }
+        .overlay { filterMenu }
+    }
+
+    @ViewBuilder
+    private var filterMenu: some View {
+        if store.menu.isOpen {
+            ZStack(alignment: .topTrailing) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { store.closeMenu() }
+                WorkerLogFilterPanel(rows: store.menuRows, filter: store.filter, cursor: store.menu.cursor, onToggle: store.toggleRow)
+                    .padding(.top, Space.row)
+                    .padding(.trailing, WorkerChatMetrics.inset)
+            }
         }
     }
 
@@ -97,7 +115,6 @@ struct WorkerChatDockView: View {
                 .padding(.bottom, WorkerChatMetrics.inset)
         }
     }
-
 }
 
 /// A scrolling feed that keeps its bottom edge in view while the user stays at the bottom. The

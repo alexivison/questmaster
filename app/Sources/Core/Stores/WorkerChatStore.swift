@@ -22,6 +22,10 @@ public struct WorkerFeedRequest: Equatable {
 /// The worker chat feed for an attached master and its workers. It owns the cursors, the bounded
 /// history and the rendered `lines`; the app only executes requests and feeds responses back.
 ///
+/// The log filter narrows `lines` after they are built, so folding and trimming never see it: a Cast run folds
+/// across entries the filter hides, and the 600/500 line trim counts hidden lines too. Each master keeps its own
+/// filter in memory; switching away and back restores it.
+///
 /// Pull policy: a request is handed out when the dock is visible and the attached master changed,
 /// the dock just opened, a worker changed, or the last response said `has_more`. At most one
 /// request is in flight; a change that arrives meanwhile is picked up by the next one.
@@ -37,19 +41,25 @@ public final class WorkerChatStore {
     /// entries still reach the line trim first.
     public static let maxRecords = 2 * maxLines
 
+    /// The built lines that pass `filter`.
     public private(set) var lines: [WorkerChatLine] = []
     public private(set) var isAttached = false
     /// Whether the current master's first read has come back whole: no worker's log failed and nothing is left to read. A
     /// reset clears it, so a switch to a master with activity never reads as empty while its first reply is on its way.
     private var hasLoaded = false
     /// The feed is known to have nothing in it: a whole read came back and added no lines. Before that (a read pending,
-    /// failed or partial) the chat is blank rather than empty, and `readNotice` says what went wrong.
-    public var isKnownEmpty: Bool { hasLoaded && lines.isEmpty }
+    /// failed or partial) the chat is blank rather than empty, and `readNotice` says what went wrong. A filter that hides
+    /// every line leaves nothing to list too, and the feed has lines then, so it needs no whole read.
+    public var isKnownEmpty: Bool { lines.isEmpty && (hasLoaded || !allLines.isEmpty) }
+    public private(set) var filter = WorkerLogFilter()
+    public private(set) var menu = WorkerLogMenu()
+    /// The attached master's workers, in the order the tracker shows them.
+    public private(set) var workers: [WorkerLogWorker] = []
     /// A single muted notice naming the workers whose log the last pull couldn't read; cleared by a clean pull.
     public private(set) var readNotice: String?
     /// Changes with every replacement of `lines`, so a view can tell one update from the next.
     public private(set) var revision = 0
-    /// Counts the updates that trimmed `lines`, so a view can tell a trim from an arrival.
+    /// Counts the updates that trimmed or replaced `lines` (a filter change), so a view can tell either from an arrival.
     public private(set) var trimCount = 0
     /// Whether the last update only added lines at the end, so the new ones sit below the old ones.
     public private(set) var lastUpdateAppended = false
@@ -63,6 +73,10 @@ public final class WorkerChatStore {
     @ObservationIgnored private var records: [WorkerChatRecord] = []
     /// The records behind each line on screen, in line order, so a rebuild can tell when a line is gone.
     @ObservationIgnored private var lineSources: [[Int]] = []
+    /// Every built line, before the filter; `lineSources` runs parallel to it. Tracked, since `isKnownEmpty` reads it.
+    private var allLines: [WorkerChatLine] = []
+    @ObservationIgnored private var savedFilters: [String: WorkerLogFilter] = [:]
+    @ObservationIgnored private var workerOrder: [String] = []
     @ObservationIgnored private var nextSequence = 0
     @ObservationIgnored private var trackerNames: [String: String] = [:]
     @ObservationIgnored private var feedNames: [String: String] = [:]
@@ -74,6 +88,67 @@ public final class WorkerChatStore {
 
     public init(calendar: Calendar = .autoupdatingCurrent) {
         self.calendar = calendar
+    }
+
+    public var chips: [WorkerLogChip] {
+        filter.chips(workers: workers)
+    }
+
+    public var menuRows: [WorkerLogMenuRow] {
+        WorkerLogMenuRow.rows(workers: workers)
+    }
+
+    public func toggleMenu() {
+        guard isAttached else {
+            return
+        }
+        menu.toggleOpen()
+    }
+
+    public func closeMenu() {
+        guard menu.isOpen else {
+            return
+        }
+        menu.close()
+    }
+
+    /// Toggles the row at `index` and puts the cursor on it.
+    public func toggleRow(at index: Int) {
+        let rows = menuRows
+        guard isAttached, rows.indices.contains(index) else {
+            return
+        }
+        menu.setCursor(index, rowCount: rows.count)
+        switch rows[index] {
+        case .action(let action): filter.toggle(action)
+        case .worker(let worker): filter.toggle(worker, among: workers)
+        }
+        refilter()
+    }
+
+    public func clearFilter(_ section: WorkerLogSection) {
+        filter.clear(section)
+        refilter()
+    }
+
+    /// Whether the key was the filter's: only `toggleMenu` is while the dropdown is closed.
+    public func handle(_ key: WorkerLogFilterKey) -> Bool {
+        guard isAttached, key == .toggleMenu || menu.isOpen else {
+            return false
+        }
+        switch key {
+        case .toggleMenu:
+            toggleMenu()
+        case .close:
+            closeMenu()
+        case .moveUp:
+            menu.moveCursor(by: -1, rowCount: menuRows.count)
+        case .moveDown:
+            menu.moveCursor(by: 1, rowCount: menuRows.count)
+        case .toggleRow:
+            toggleRow(at: menu.cursor)
+        }
+        return true
     }
 
     /// Call on every runtime update and dock change. Returns the pull to run now, if any.
@@ -150,9 +225,17 @@ public final class WorkerChatStore {
     }
 
     private func reset(to nextMasterID: String?) {
+        if let masterID {
+            savedFilters[masterID] = filter.isActive ? filter : nil
+        }
         masterID = nextMasterID
         isAttached = nextMasterID != nil
         hasLoaded = false
+        filter = nextMasterID.flatMap { savedFilters[$0] } ?? WorkerLogFilter()
+        menu = WorkerLogMenu()
+        workers = []
+        workerOrder = []
+        allLines = []
         generation += 1
         cursors = [:]
         records = []
@@ -176,11 +259,13 @@ public final class WorkerChatStore {
             }
             nextAgents[worker.id] = worker.agent
         }
-        guard names != trackerNames || nextAgents != agents else {
+        let nextOrder = group.map(\.id)
+        guard names != trackerNames || nextAgents != agents || nextOrder != workerOrder else {
             return
         }
         trackerNames = names
         agents = nextAgents
+        workerOrder = nextOrder
         rebuild()
     }
 
@@ -208,17 +293,19 @@ public final class WorkerChatStore {
 
     private func rebuild() {
         let names = feedNames.merging(trackerNames) { _, tracker in tracker }
+        let filterChanged = refreshWorkers(names: names)
         let visible = records.filter { agents[$0.workerID] != nil }
         var visibleKept = Array(visible.suffix(Self.maxRecords))
         let hiddenKept = Array(records.filter { agents[$0.workerID] == nil }.suffix(Self.trimTarget))
         var build = WorkerChatLineBuilder.build(from: visibleKept, names: names, agents: agents, calendar: calendar)
         var didTrim = capRemovedShownLine(from: visible, keeping: visibleKept.count)
         if build.lines.count > Self.maxLines {
+            // A trim of hidden lines changes nothing on screen, so it doesn't count.
+            didTrim = didTrim || build.lines.dropLast(Self.trimTarget).contains(where: filter.allows)
             build = build.newest(Self.trimTarget)
             // A trimmed line's records go with it, even ones that sort after the kept lines.
             let kept = Set(build.sources.joined())
             visibleKept = visibleKept.filter { kept.contains($0.sequence) }
-            didTrim = true
         }
         if didTrim {
             trimCount += 1
@@ -226,8 +313,28 @@ public final class WorkerChatStore {
         // ponytail: visible history is bounded by maxRecords and the line trim; hidden history keeps trimTarget records.
         records = (visibleKept + hiddenKept).sorted { ($0.timestamp, $0.sequence) < ($1.timestamp, $1.sequence) }
         lineSources = build.sources
-        setLines(build.lines)
+        allLines = build.lines
+        setLines(allLines.filter(filter.allows), replaced: filterChanged)
         updateReadNotice()
+    }
+
+    /// Brings `workers` up to date with the tracker and drops selections of workers that are gone. Returns whether
+    /// that changed the filter.
+    private func refreshWorkers(names: [String: String]) -> Bool {
+        let nextWorkers = workerOrder.map { id in
+            WorkerLogWorker(id: id, name: WorkerChatLineBuilder.displayName(names[id] ?? id), agent: agents[id] ?? "")
+        }
+        if nextWorkers != workers {
+            workers = nextWorkers
+            menu.clampCursor(rowCount: menuRows.count)
+        }
+        let before = filter
+        filter.reconcile(with: workers)
+        return filter != before
+    }
+
+    private func refilter() {
+        setLines(allLines.filter(filter.allows), replaced: true)
     }
 
     /// True when the raw-record cap dropped every record of a line on screen. The cap drops the oldest
@@ -235,14 +342,24 @@ public final class WorkerChatStore {
     /// keep their line and don't count.
     private func capRemovedShownLine(from visible: [WorkerChatRecord], keeping kept: Int) -> Bool {
         let evicted = Set(visible.prefix(visible.count - kept).map(\.sequence))
-        return !evicted.isEmpty && lineSources.contains { $0.allSatisfy(evicted.contains) }
+        guard !evicted.isEmpty else {
+            return false
+        }
+        return zip(allLines, lineSources).contains { line, sources in
+            filter.allows(line) && sources.allSatisfy(evicted.contains)
+        }
     }
 
-    private func setLines(_ next: [WorkerChatLine]) {
+    /// `replaced` marks a change of the filter: its lines are no arrival, and no trim either, but the view treats
+    /// them alike (no fade-in, no glide).
+    private func setLines(_ next: [WorkerChatLine], replaced: Bool = false) {
         guard next != lines else {
             return
         }
-        lastUpdateAppended = next.starts(with: lines)
+        lastUpdateAppended = !replaced && next.starts(with: lines)
+        if replaced {
+            trimCount += 1
+        }
         lines = next
         revision += 1
     }

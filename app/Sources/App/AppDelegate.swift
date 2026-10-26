@@ -266,6 +266,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
         handles.topDockShell.onHideDock = { [weak self] in self?.hideVersionControl() }
         handles.bottomDockShell.onHideDock = { [weak self] in self?.hideBottomDock() }
+        handles.bottomDockShell.onToggleLogFilter = { [weak self] in
+            self?.focusCoordinator.focusDockPanel(.bottom)
+            self?.workerChatStore.toggleMenu()
+        }
         handles.bottomDockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
         handles.bottomDockShell.onCopyArtifactPath = { [weak self] in
             guard let self else {

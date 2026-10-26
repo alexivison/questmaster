@@ -100,6 +100,12 @@ enum RenderPreview {
         renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 640), to: "\(outputDir)/worker-chat.png")
+        let logDock = CGSize(width: DockWidthPreference.panelWidth + 2, height: 1020)
+        renderView(workerLogDockView(menuOpen: true), size: logDock, to: "\(outputDir)/worker-log-filter-open.png")
+        renderView(workerLogDockView(menuOpen: false), size: logDock, to: "\(outputDir)/worker-log-filter-closed.png")
+        renderView(workerLogDockView(menuOpen: false), size: CGSize(width: 300, height: 480), to: "\(outputDir)/worker-log-filter-wrapped.png")
+        render(workerLogPanelDesignView(), size: CGSize(width: 172, height: 330), to: "\(outputDir)/worker-log-filter-panel.png")
+        render(workerLogChipsDesignView(), size: CGSize(width: 230, height: 152), to: "\(outputDir)/worker-log-filter-chips.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
         render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
@@ -713,6 +719,92 @@ enum RenderPreview {
 
     private static func entry(_ minute: Int, _ second: Int, _ worker: String, _ kind: String, _ text: String) -> WorkerFeedEntry {
         WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
+    }
+
+    /// The worker log as `Worker Chat.png` draws it: five workers under one master, the Action filter on Status, Message
+    /// and Item, and four of the five workers selected.
+    @MainActor
+    private static func workerLogStore() -> WorkerChatStore {
+        let store = WorkerChatStore()
+        let tracker = [
+            TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+            TrackerSession(id: "w1", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "w2", title: "Implement-ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w3", title: "Review API", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w4", title: "Add Tests", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+            TrackerSession(id: "w5", title: "Update Docs", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+        ]
+        guard let request = store.sync(selectedSessionID: "m", sessions: tracker, isVisible: true) else {
+            return store
+        }
+        let entries = [
+            entry(20, 0, "w2", "status", "working"),
+            entry(20, 5, "w2", "say", "Understood. I will start by looking at the ticket and the related files."),
+            entry(20, 9, "w1", "status", "working"),
+            entry(20, 12, "w1", "action", "Bash"),
+            entry(21, 1, "w1", "say", "I see the problem. I will spin two sub-agents to debug the problem to see why the first round did not fix the issue."),
+            entry(21, 30, "w2", "message", "Found a contradiction in the referenced files, I should confirm this with the master."),
+            entry(22, 2, "w3", "status", "working"),
+            entry(22, 20, "w3", "say", "I will check ABC-123 against the API contract and flag any breaking changes."),
+            entry(23, 0, "w4", "status", "working"),
+            entry(23, 10, "w4", "action", "Edit"),
+            entry(24, 0, "w5", "say", "I will document the new behavior and update the migration notes for ABC-123."),
+            entry(25, 0, "w3", "report", "The response format is unchanged."),
+            entry(25, 30, "w2", "status", "done"),
+            entry(26, 0, "w1", "status", "done"),
+            entry(26, 30, "w4", "say", "The regression suite passes. Both the UI fix and the previous patch are covered."),
+        ]
+        _ = store.receive(WorkerFeedPayload(entries: entries), for: request)
+        // Rows: Cast, Status, Message, Item, then the workers.
+        [1, 2, 3, 4, 5, 6, 7].forEach(store.toggleRow)
+        return store
+    }
+
+    /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on the first worker.
+    @MainActor
+    private static func workerLogDockView(menuOpen: Bool) -> NSView {
+        let store = workerLogStore()
+        if menuOpen {
+            store.toggleMenu()
+            (0..<4).forEach { _ in _ = store.handle(.moveDown) }
+        }
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+    }
+
+    /// The dropdown of `Chat Filter.svg`: four workers named "worker-name", the keyboard cursor on the first, every Action
+    /// box checked but Cast. Its width hugs the names, as the design's 172 does.
+    @MainActor
+    private static func workerLogPanelDesignView() -> some View {
+        let workers = (1...4).map { WorkerLogWorker(id: "w\($0)", name: "worker-name", agent: "codex") }
+        var filter = WorkerLogFilter()
+        [WorkerLogAction.status, .message, .item].forEach { filter.toggle($0) }
+        // One more worker than the dropdown lists, so the four selected don't make up the whole section.
+        let extra = WorkerLogWorker(id: "w5", name: "other", agent: "codex")
+        workers.forEach { filter.toggle($0, among: workers + [extra]) }
+        return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: filter, cursor: 4, onToggle: { _ in })
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(AppPalette.window.swiftUI)
+    }
+
+    /// The four chips of `Selected Filter Item.svg` at its coordinates: each 11 in, 35 apart.
+    @MainActor
+    private static func workerLogChipsDesignView() -> some View {
+        let chips: [(WorkerLogChip.Value, String)] = [
+            (.text("Status"), "Action"),
+            (.text("3"), "Action"),
+            (.worker(name: "worker-name", agent: "codex"), "Worker"),
+            (.agentCounts([.init(agent: "codex", count: 2), .init(agent: "claude", count: 2)]), "Worker"),
+        ]
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(chips.enumerated()), id: \.offset) { _, item in
+                WorkerLogChipRow(chips: [WorkerLogChip(section: item.1 == "Action" ? .action : .worker, value: item.0)], onClear: { _ in })
+            }
+        }
+        // Each row pads 20 in and 10 down; the design's chips sit 11 in and start 11 down.
+        .offset(x: 11 - WorkerChatMetrics.inset, y: 1)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
     }
 
     /// The chat feed's rows (static, so the off-screen renderer sees them all) over the dock's panel fill.
@@ -1571,6 +1663,7 @@ enum RenderPreview {
             onBack: { _ in },
             onCopyArtifactPath: {},
             onRefreshArtifact: {},
+            onToggleLogFilter: {},
             onHideDock: {}
         )
         .background(AppPalette.panel.swiftUI)

@@ -136,6 +136,8 @@ enum LogicSelfTests {
         ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
         ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
         ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
+        ("testDockPaneRoutesTheWorkerLogFilterKeys", testDockPaneRoutesTheWorkerLogFilterKeys),
+        ("testWorkerLogFilterKeepsItsDesignedSize", testWorkerLogFilterKeepsItsDesignedSize),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -5219,6 +5221,71 @@ enum LogicSelfTests {
     }
 
     /// Pumps the run loop until `condition` holds, for at most five seconds, and reports whether it did.
+    /// `f` opens the filter while the dock shows the worker log, j/k and Space then work its rows instead of scrolling
+    /// the feed, and Esc, losing the keys or leaving the worker log close it.
+    private static func testDockPaneRoutesTheWorkerLogFilterKeys() throws {
+        let chat = WorkerChatStore()
+        let sessions = [
+            TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+            TrackerSession(id: "w1", title: "One", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w2", title: "Two", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+        ]
+        _ = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+        let dock = SwiftUIDockPane(store: RuntimeStore(sourceLabel: "test"), workerChatStore: chat, newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())
+        let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        dock.apply(DockState(bottomVisible: true, dockContent: .workerChat), snapshot: snapshot)
+
+        try dock.keyDown(with: keyEvent("j", keyCode: 38))
+        try expect(!chat.menu.isOpen && chat.menu.cursor == 0, "j scrolls the feed while the filter is closed")
+        try dock.keyDown(with: keyEvent("f", keyCode: 3))
+        try expect(chat.menu.isOpen, "f should open the filter")
+        try dock.keyDown(with: keyEvent("j", keyCode: 38))
+        try expect(chat.menu.cursor == 1, "j should move the cursor, got \(chat.menu.cursor)")
+        try dock.keyDown(with: keyEvent(" ", keyCode: 49))
+        try expect(chat.filter.actions == [.status], "Space should toggle the row under the cursor, got \(chat.filter.actions)")
+        try dock.keyDown(with: keyEvent("k", keyCode: 40, modifierFlags: .control))
+        try expect(chat.menu.cursor == 1, "a ⌃ chord is not the filter's")
+        try dock.keyDown(with: keyEvent("\u{1b}", keyCode: 53))
+        try expect(!chat.menu.isOpen && chat.filter.isActive, "Esc should close the filter and keep what it selected")
+
+        try dock.keyDown(with: keyEvent("f", keyCode: 3))
+        dock.setFocused(false)
+        try expect(!chat.menu.isOpen, "losing the keys should close the filter")
+        try dock.keyDown(with: keyEvent("f", keyCode: 3))
+        dock.apply(DockState(bottomVisible: true, dockContent: .artifactList), snapshot: snapshot)
+        try expect(!chat.menu.isOpen, "leaving the worker log should close the filter")
+        try dock.keyDown(with: keyEvent("f", keyCode: 3))
+        try expect(!chat.menu.isOpen, "f is the filter's only on the worker log")
+    }
+
+    /// The filter keeps the sizes measured from its designs on the 5pt rhythm: the dropdown is as wide as Chat Filter.svg's
+    /// 172 with 11-character names, and its rows are 30 high; a chip is 25 high.
+    private static func testWorkerLogFilterKeepsItsDesignedSize() throws {
+        let workers = (1...4).map { WorkerLogWorker(id: "w\($0)", name: "worker-name", agent: "codex") }
+        let panel = WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: WorkerLogFilter(), cursor: 0, onToggle: { _ in })
+        let panelSize = try fittingSize(of: panel)
+        let rowCount = CGFloat(WorkerLogAction.allCases.count + workers.count)
+        let headers = 2 * WorkerLogFilterMetrics.rowHeight
+        let chrome = 2 * (Token.Size.divider + Space.item) + Token.Size.divider
+        // The names' advances are fractional, so the width lands within a point of the design's 172.
+        try expect(abs(panelSize.width - 172) <= 1, "the dropdown should be Chat Filter.svg's 172 wide, got \(panelSize.width)")
+        try expect(panelSize.height == rowCount * WorkerLogFilterMetrics.rowHeight + headers + chrome, "the dropdown's height should be its rows and headers on the scale, got \(panelSize.height)")
+
+        let chipRow = WorkerLogChipRow(chips: [WorkerLogChip(section: .action, value: .text("Status"))], onClear: { _ in })
+        let chipSize = try fittingSize(of: chipRow.frame(width: DockWidthPreference.panelWidth))
+        try expect(chipSize.height == Space.item + ControlHeight.compact, "a chip row should be 10 over a 25-high chip, got \(chipSize.height)")
+    }
+
+    private static func fittingSize<V: View>(of view: V) throws -> CGSize {
+        let hosting = NSHostingView(rootView: view)
+        let window = HeadlessWindow(size: CGSize(width: 600, height: 600))
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        hosting.layoutSubtreeIfNeeded()
+        return hosting.fittingSize
+    }
+
     /// The name must start at its column past the logo in a proportional chat font too. A Ghostty family can be
     /// proportional, where the lead's space is narrower than the font's widest glyph.
     private static func testWorkerChatNameStartsPastLogoInAnyChatFont() throws {

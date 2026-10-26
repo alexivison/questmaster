@@ -43,6 +43,7 @@ enum QuestmasterLogicTests {
         timed("TerminalDetachSignalTests") { TerminalDetachSignalTests.run() }
         timed("WorkerChatTests") { WorkerChatTests.run() }
         timed("WorkerChatScrollTests") { WorkerChatScrollTests.run() }
+        timed("WorkerLogFilterTests") { WorkerLogFilterTests.run() }
         timed("TrackerCastTests") { TrackerCastTests.run() }
         timed("ModalCommandRoutingTests") { ModalCommandRoutingTests.run() }
         timed("InteractionLookTests") { InteractionLookTests.run() }

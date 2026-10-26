@@ -130,15 +130,23 @@ struct SuggestionDropdown: View {
                     .onTapGesture { onSelect(index) }
             }
         }
-        .padding(Token.Size.divider)
-        .background(AppPalette.window.swiftUI)
-        .clipShape(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
-                .strokeBorder(AppPalette.controlBorder.swiftUI, lineWidth: Token.Size.divider)
-        )
-        .elevation(.raised, of: RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
+        .dropdownChrome()
         .accessibilityLabel("Suggestions")
+    }
+}
+
+extension View {
+    /// The dropdown's box, shared by every dropdown: window fill, a 1pt `controlBorder` outline and the raised
+    /// elevation. The content sits inside the outline.
+    func dropdownChrome() -> some View {
+        padding(Token.Size.divider)
+            .background(AppPalette.window.swiftUI)
+            .clipShape(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
+                    .strokeBorder(AppPalette.controlBorder.swiftUI, lineWidth: Token.Size.divider)
+            )
+            .elevation(.raised, of: RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
     }
 }
 

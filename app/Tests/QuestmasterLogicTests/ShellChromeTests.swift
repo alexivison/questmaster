@@ -41,9 +41,12 @@ struct ShellChromeTests {
 
     private static func dockTopBarWorkerChatShowsItsTitle() {
         let model = DockTopBarModel.make(mode: .workerChat, artifactRoute: .viewer, artifactTitle: "report.html")
-        expect(model.title == "Worker Chat", "worker chat should show its own title")
+        expect(model.title == "Worker Log", "worker log should show its own title")
         expect(model.back == nil, "worker chat has no back affordance")
         expect(!model.showArtifactActions, "worker chat should not show artifact actions")
+        expect(model.showsLogFilter, "the worker log should show its filter")
+        let artifacts = DockTopBarModel.make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil)
+        expect(!artifacts.showsLogFilter, "the artifact dock has no log filter")
     }
 
     private static func dockTopBarVersionControlShowsItsTitle() {

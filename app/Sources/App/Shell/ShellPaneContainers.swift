@@ -134,6 +134,7 @@ final class DockShellView: NSView {
     var onArtifactBack: (() -> Void)?
     var onCopyArtifactPath: (() -> Void)?
     var onRefreshArtifact: (() -> Void)?
+    var onToggleLogFilter: (() -> Void)?
 
     init(body: NSView, model: DockChromeModel = DockChromeModel()) {
         self.model = model
@@ -147,6 +148,7 @@ final class DockShellView: NSView {
             },
             onCopyArtifactPath: { [weak self] in self?.onCopyArtifactPath?() },
             onRefreshArtifact: { [weak self] in self?.onRefreshArtifact?() },
+            onToggleLogFilter: { [weak self] in self?.onToggleLogFilter?() },
             onHideDock: { [weak self] in self?.onHideDock?() }
         ))
         let content = NSView()
