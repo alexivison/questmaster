@@ -100,6 +100,17 @@ func manifestResumeID(agents []state.AgentManifest, role string) string {
 // start command tests
 // ---------------------------------------------------------------------------
 
+func TestStartCmd_RejectsLegacyPrimaryFlag(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runCmdErr(t, store, allPassRunner(), "start", "--primary", "codex")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --primary") {
+		t.Fatalf("start --agent error = %v, want unknown flag", err)
+	}
+}
+
 func TestStartCmd_Basic(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
@@ -186,7 +197,7 @@ func TestStartCmd_RejectsRemovedNoCompanionFlag(t *testing.T) {
 	writeAgentConfig(t, cwd)
 
 	_, err := runCmdErr(t, store, allPassRunner(),
-		"start", "--cwd", cwd, "--primary", "codex", "--no-companion", "solo",
+		"start", "--cwd", cwd, "--agent", "codex", "--no-companion", "solo",
 	)
 	if err == nil {
 		t.Fatal("expected error for removed --no-companion flag")
@@ -230,8 +241,8 @@ func TestStartCmd_RejectsShellConflicts(t *testing.T) {
 		"worker":           {"start", "--shell", "--master-id", "qm-master"},
 		"prompt":           {"start", "--shell", "--prompt", "hello"},
 		"prompt-file":      {"start", "--shell", "--prompt-file", "-"},
-		"primary":          {"start", "--shell", "--primary", "codex"},
-		"resume-agent":     {"start", "--shell", "--resume-agent", "primary=abc"},
+		"agent":            {"start", "--shell", "--agent", "codex"},
+		"resume-agent":     {"start", "--shell", "--resume-agent", "abc"},
 		"model":            {"start", "--shell", "--model", "gpt-5.6-sol"},
 		"reasoning-effort": {"start", "--shell", "--reasoning-effort", "ultra"},
 	}
@@ -246,7 +257,7 @@ func TestStartCmd_RejectsShellConflicts(t *testing.T) {
 	}
 }
 
-func TestStartCmd_ModelAndReasoningEffortReachPrimary(t *testing.T) {
+func TestStartCmd_ModelAndReasoningEffortReachAgent(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
@@ -265,7 +276,7 @@ func TestStartCmd_ModelAndReasoningEffortReachPrimary(t *testing.T) {
 		}
 		return "", nil
 	}}
-	runCmd(t, store, runner, "start", "--cwd", cwd, "--primary", "codex", "--model", "gpt-6-luna", "--reasoning-effort", "max")
+	runCmd(t, store, runner, "start", "--cwd", cwd, "--agent", "codex", "--model", "gpt-6-luna", "--reasoning-effort", "max")
 
 	launch := strings.Join(calls, "\n")
 	for _, want := range []string{"--model 'gpt-6-luna'", `model_reasoning_effort="max"`} {
@@ -273,7 +284,7 @@ func TestStartCmd_ModelAndReasoningEffortReachPrimary(t *testing.T) {
 			t.Fatalf("start launch missing %q in:\n%s", want, launch)
 		}
 	}
-	if _, err := runCmdErr(t, store, runner, "start", "--cwd", cwd, "--primary", "codex", "--model", "gpt-6-luna", "--reasoning-effort", "minimal"); err == nil || !strings.Contains(err.Error(), "supported: low, medium, high, xhigh, max") {
+	if _, err := runCmdErr(t, store, runner, "start", "--cwd", cwd, "--agent", "codex", "--model", "gpt-6-luna", "--reasoning-effort", "minimal"); err == nil || !strings.Contains(err.Error(), "supported: low, medium, high, xhigh, max") {
 		t.Fatalf("unsupported Codex effort = %v, want the cache-reported levels", err)
 	}
 }
@@ -305,20 +316,20 @@ func TestSessionCommandsDoNotExposeCompanionFlag(t *testing.T) {
 	}
 }
 
-func TestStartCmd_MasterUsesPrimaryOnly(t *testing.T) {
+func TestStartCmd_MasterUsesAgentOnly(t *testing.T) {
 	store := setupStore(t)
 	cwd := t.TempDir()
 	writeAgentConfig(t, cwd)
 	prependStubQuestmasterToPath(t)
 
-	runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--primary", "codex", "orchestrator")
+	runCmd(t, store, allPassRunner(), "start", "--cwd", cwd, "--agent", "codex", "orchestrator")
 
 	m := readOnlyNewManifest(t, store)
 	if len(m.Agents) != 1 {
-		t.Fatalf("expected master manifest with one primary, got %+v", m.Agents)
+		t.Fatalf("expected master manifest with one agent, got %+v", m.Agents)
 	}
-	if m.Agents[0].Role != "primary" || m.Agents[0].Name != "codex" {
-		t.Fatalf("master primary agent = %+v, want codex primary", m.Agents[0])
+	if m.Agents[0].Role != "agent" || m.Agents[0].Name != "codex" {
+		t.Fatalf("master agent = %+v, want codex", m.Agents[0])
 	}
 	if m.SessionType != "master" {
 		t.Fatalf("session type = %q, want master", m.SessionType)
@@ -594,15 +605,15 @@ func TestSpawnCmd_ResumeAgentUsesResolvedRole(t *testing.T) {
 	runCmd(t, store, allPassRunner(),
 		"spawn",
 		"--cwd", cwd,
-		"--primary", "codex",
-		"--resume-agent", "primary=codex-thread",
+		"--agent", "codex",
+		"--resume-agent", "codex-thread",
 		"qm-master",
 		"worker-title",
 	)
 
 	m := readOnlyNewManifest(t, store, "qm-master")
-	if got := manifestResumeID(m.Agents, "primary"); got != "codex-thread" {
-		t.Fatalf("primary resume = %q, want codex-thread", got)
+	if got := manifestResumeID(m.Agents, "agent"); got != "codex-thread" {
+		t.Fatalf("agent resume = %q, want codex-thread", got)
 	}
 }
 
@@ -617,11 +628,25 @@ func TestSpawnCmd_NonMaster(t *testing.T) {
 	}
 }
 
-func TestParseResumeFlags_RejectsUnknownRole(t *testing.T) {
-	t.Parallel()
+func TestResumeAgentFlag_RejectsRoleSyntax(t *testing.T) {
 
-	_, err := parseResumeFlags([]string{"wizard=abc123"})
-	if err == nil {
-		t.Fatal("expected invalid role error")
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	createManifest(t, store, "qm-master", "orch", cwd, "master")
+	_, err := runCmdErr(t, store, allPassRunner(), "spawn", "--resume-agent", "agent=abc123", "qm-master", "worker-title")
+	if err == nil || !strings.Contains(err.Error(), "pass an ID without a role") {
+		t.Fatalf("role syntax error = %v, want an ID-only error", err)
+	}
+}
+
+func TestResumeAgentFlag_RejectsBlankID(t *testing.T) {
+	store := setupStore(t)
+	cwd := t.TempDir()
+	writeAgentConfig(t, cwd)
+	createManifest(t, store, "qm-master", "orch", cwd, "master")
+	_, err := runCmdErr(t, store, allPassRunner(), "spawn", "--resume-agent", "", "qm-master", "worker-title")
+	if err == nil || !strings.Contains(err.Error(), "missing resume ID") {
+		t.Fatalf("blank resume ID error = %v, want missing ID", err)
 	}
 }

@@ -130,7 +130,7 @@ func serveContractFixtures() []contractFixture {
 			LatestActivity:  "Bash: go test ./...",
 			LastKind:        "PreToolUse",
 			WorktreePath:    "/tmp/questmaster/worktrees/app-contract",
-			PrimaryAgent:    "codex",
+			Agent:           "codex",
 			SessionType:     "master",
 			WorkerCount:     1,
 			PullRequestsRev: "abcdef1234567890",

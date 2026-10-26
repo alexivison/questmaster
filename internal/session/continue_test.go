@@ -18,7 +18,7 @@ func TestContinueAgentlessManifestLaunchesShell(t *testing.T) {
 	t.Parallel()
 
 	svc, runner := setupService(t)
-	setMissingPrimaryRegistry(t, svc)
+	setMissingAgentRegistry(t, svc)
 	sessionID := "qm-shell-continue"
 	if err := svc.Store.Create(state.Manifest{
 		SessionID: sessionID,
@@ -75,7 +75,7 @@ func TestContinue_MissingAgentBinaryErrorNamesOverrideAndFallback(t *testing.T) 
 		SessionID: "qm-missing-cli",
 		Cwd:       t.TempDir(),
 		Agents: []state.AgentManifest{
-			{Name: "claude", Role: "primary", Window: 1},
+			{Name: "claude", Role: "agent", Window: 1},
 		},
 	}); err != nil {
 		t.Fatal(err)

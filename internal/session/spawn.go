@@ -26,9 +26,9 @@ type SpawnOpts struct {
 	Detached    bool
 	Registry    *agent.Registry
 	FromApp     bool
-	// Model overrides the worker's primary agent model.
+	// Model overrides the worker agent's model.
 	Model string
-	// ReasoningEffort overrides the worker's primary agent reasoning effort.
+	// ReasoningEffort overrides the worker agent's reasoning effort.
 	ReasoningEffort string
 }
 
@@ -86,19 +86,19 @@ func (s *Service) Spawn(ctx context.Context, masterID string, opts SpawnOpts) (S
 }
 
 // WorkerSpawnRegistry resolves the worker agent layout for a master. Workers
-// inherit the master's primary agent unless a per-spawn override is provided.
+// inherit the master's agent unless a per-spawn override is provided.
 func WorkerSpawnRegistry(master state.Manifest, overrides *agent.ConfigOverrides) (*agent.Registry, error) {
 	return WorkerSpawnRegistryWithBase(master, nil, overrides)
 }
 
 func WorkerSpawnRegistryWithBase(master state.Manifest, base *agent.Registry, overrides *agent.ConfigOverrides) (*agent.Registry, error) {
-	primary := masterPrimaryAgent(master)
-	if overrides != nil && overrides.Primary != "" {
-		primary = overrides.Primary
+	agentName := masterAgent(master)
+	if overrides != nil && overrides.Agent != "" {
+		agentName = overrides.Agent
 	}
 
 	effective := &agent.ConfigOverrides{
-		Primary: primary,
+		Agent: agentName,
 	}
 	cfg, err := agent.LoadConfig(effective)
 	if err != nil {
@@ -116,9 +116,9 @@ func WorkerSpawnRegistryWithBase(master state.Manifest, base *agent.Registry, ov
 	return agent.NewRegistry(cfg)
 }
 
-func masterPrimaryAgent(master state.Manifest) string {
+func masterAgent(master state.Manifest) string {
 	for _, spec := range master.Agents {
-		if spec.Role == string(agent.RolePrimary) && spec.Name != "" {
+		if spec.Role == string(agent.RoleAgent) && spec.Name != "" {
 			return spec.Name
 		}
 	}

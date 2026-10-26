@@ -10,7 +10,7 @@ import (
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
-		Short: "Query configured agents and roles",
+		Short: "Query configured agents",
 	}
 	cmd.AddCommand(newAgentQueryCmd())
 	return cmd
@@ -32,22 +32,10 @@ func newAgentQueryCmd() *cobra.Command {
 			}
 
 			switch args[0] {
-			case "roles":
-				for _, binding := range registry.Bindings() {
-					fmt.Fprintln(cmd.OutOrStdout(), binding.Role)
-				}
-				return nil
 			case "names":
 				for _, name := range registry.Names() {
 					fmt.Fprintln(cmd.OutOrStdout(), name)
 				}
-				return nil
-			case "primary-name":
-				binding, err := registry.ForRole(agent.RolePrimary)
-				if err != nil {
-					return err
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), binding.Agent.Name())
 				return nil
 			default:
 				return fmt.Errorf("unknown query %q", args[0])

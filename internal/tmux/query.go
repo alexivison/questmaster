@@ -271,6 +271,9 @@ func parsePanes(sessionID, output string) ([]Pane, error) {
 		role := ""
 		if len(parts) == 3 {
 			role = parts[2]
+			if role == "primary" {
+				role = RoleAgent
+			}
 		}
 
 		panes = append(panes, Pane{

@@ -222,7 +222,7 @@ func TestSpawnReasoningEffortFlag(t *testing.T) {
 	if flag == nil {
 		t.Fatal("spawn --reasoning-effort flag is not registered")
 	}
-	for _, want := range []string{"primary harness", "1.17.15+"} {
+	for _, want := range []string{"agent harness", "1.17.15+"} {
 		if !strings.Contains(flag.Usage, want) {
 			t.Fatalf("spawn --reasoning-effort help missing %q: %q", want, flag.Usage)
 		}
@@ -242,7 +242,7 @@ func TestStartModelAndReasoningEffortFlags(t *testing.T) {
 	if flag == nil {
 		t.Fatal("start --reasoning-effort flag is not registered")
 	}
-	for _, want := range []string{"primary harness", "1.17.15+"} {
+	for _, want := range []string{"agent harness", "1.17.15+"} {
 		if !strings.Contains(flag.Usage, want) {
 			t.Fatalf("start --reasoning-effort help missing %q: %q", want, flag.Usage)
 		}

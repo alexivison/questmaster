@@ -14,7 +14,7 @@ type AgentConfig struct {
 
 // RolesConfig maps abstract roles to concrete agents.
 type RolesConfig struct {
-	Primary *RoleConfig `toml:"primary"`
+	Agent *RoleConfig `toml:"agent"`
 }
 
 // RoleConfig configures a single role binding.
@@ -25,10 +25,10 @@ type RoleConfig struct {
 
 // ConfigOverrides are per-session role overrides.
 type ConfigOverrides struct {
-	Primary string
+	Agent string
 }
 
-// DefaultConfig returns the built-in Claude primary layout. The agent set is
+// DefaultConfig returns the built-in Claude agent layout. The agent set is
 // derived from providerDefs so a new built-in harness is picked up here
 // automatically.
 func DefaultConfig() *Config {
@@ -39,7 +39,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Agents: agents,
 		Roles: RolesConfig{
-			Primary: &RoleConfig{Agent: "claude", Window: -1},
+			Agent: &RoleConfig{Agent: "claude", Window: -1},
 		},
 	}
 }
@@ -69,11 +69,11 @@ func applyOverrides(cfg *Config, overrides *ConfigOverrides) {
 	if cfg == nil || overrides == nil {
 		return
 	}
-	if cfg.Roles.Primary == nil {
-		primary := *DefaultConfig().Roles.Primary
-		cfg.Roles.Primary = &primary
+	if cfg.Roles.Agent == nil {
+		agent := *DefaultConfig().Roles.Agent
+		cfg.Roles.Agent = &agent
 	}
-	if overrides.Primary != "" {
-		cfg.Roles.Primary.Agent = overrides.Primary
+	if overrides.Agent != "" {
+		cfg.Roles.Agent.Agent = overrides.Agent
 	}
 }

@@ -173,8 +173,8 @@ func TestOpenCodeBuildCmd_ReasoningEffortUsesInteractiveVariant(t *testing.T) {
 	}
 }
 
-func TestNewRegistry_OpenCodePrimaryFromOverride(t *testing.T) {
-	cfg, err := LoadConfig(&ConfigOverrides{Primary: "opencode"})
+func TestNewRegistry_OpenCodeAgentFromOverride(t *testing.T) {
+	cfg, err := LoadConfig(&ConfigOverrides{Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
@@ -182,11 +182,11 @@ func TestNewRegistry_OpenCodePrimaryFromOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	primary, err := registry.ForRole(RolePrimary)
+	agent, err := registry.ForRole(RoleAgent)
 	if err != nil {
-		t.Fatalf("ForRole(primary): %v", err)
+		t.Fatalf("ForRole(agent): %v", err)
 	}
-	if primary.Agent.Name() != "opencode" {
-		t.Fatalf("primary agent: got %q, want opencode", primary.Agent.Name())
+	if agent.Agent.Name() != "opencode" {
+		t.Fatalf("agent: got %q, want opencode", agent.Agent.Name())
 	}
 }
