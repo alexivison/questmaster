@@ -20,7 +20,8 @@ final class DockChromeModel {
         topBar: DockTopBarModel = .make(
             mode: .artifacts,
             artifactRoute: .list,
-            artifactTitle: nil
+            artifactTitle: nil,
+            logAttached: false
         ),
         isRefreshing: @escaping () -> Bool = { false }
     ) {
@@ -52,6 +53,8 @@ struct DockTopBar: View {
     let onCopyArtifactPath: () -> Void
     let onRefreshArtifact: () -> Void
     let onToggleLogFilter: () -> Void
+    /// A click on the bar that isn't on one of its buttons: it ends the log filter's dropdown, as one on the feed does.
+    let onDismissLogFilter: () -> Void
     let onHideDock: () -> Void
 
     var body: some View {
@@ -67,6 +70,8 @@ struct DockTopBar: View {
         .frame(maxWidth: .infinity)
         .frame(height: ShellMetrics.dockTopBarHeight)
         .background(AppPalette.panel.swiftUI)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onDismissLogFilter)
         // The pane sits under the full-size-content titlebar; ignore its safe area
         // so the bar fills its 46pt frame instead of being inset downward.
         .ignoresSafeArea()

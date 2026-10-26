@@ -138,6 +138,7 @@ enum LogicSelfTests {
         ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
         ("testDockPaneRoutesTheWorkerLogFilterKeys", testDockPaneRoutesTheWorkerLogFilterKeys),
         ("testWorkerLogFilterKeepsItsDesignedSize", testWorkerLogFilterKeepsItsDesignedSize),
+        ("testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons", testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons),
         ("testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView", testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
@@ -5275,6 +5276,48 @@ enum LogicSelfTests {
         let chipRow = WorkerLogChipRow(chips: [WorkerLogChip(section: .action, value: .text("Status"))], onClear: { _ in })
         let chipSize = try fittingSize(of: chipRow.frame(width: DockWidthPreference.panelWidth))
         try expect(chipSize.height == Space.item + ControlHeight.compact, "a chip row should be 10 over a 25-high chip, got \(chipSize.height)")
+    }
+
+    /// A click on the dock's top bar that isn't on a button (blank space, the title) ends the filter's dropdown, as one on
+    /// the feed does. The filter icon only toggles, once; the x only closes the dock. Through the real `DockShellView`, so
+    /// its top bar's hosting view and wiring are what is clicked.
+    private static func testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons() throws {
+        var toggles = 0, dismissals = 0, hides = 0
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
+        let dock = DockShellView(body: NSView(), model: model)
+        dock.onToggleLogFilter = { toggles += 1 }
+        dock.onDismissLogFilter = { dismissals += 1 }
+        dock.onHideDock = { hides += 1 }
+        let size = CGSize(width: DockWidthPreference.panelWidth, height: 300)
+        let window = HeadlessWindow(size: size)
+        dock.frame = NSRect(origin: .zero, size: size)
+        window.contentView = dock
+        window.show(key: true)
+        defer { window.close() }
+        pump(0.3)
+        // Window coordinates run up from the bottom; the icons sit `dockTopBarIconCentre` down, the x 30 in from the right
+        // edge less its half width.
+        let iconY = size.height - ShellMetrics.dockTopBarIconCentre
+        let closeX = size.width - ShellMetrics.dockTopBarHorizontalInset - ChromeMetrics.iconWidth / 2
+        let filterX = closeX - ChromeMetrics.iconWidth - Space.item
+        let blankY = size.height - ShellMetrics.dockTopBarHeight / 2
+        func click(_ x: CGFloat, _ y: CGFloat) throws {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+                    throw TestFailure("could not create a mouse event")
+                }
+                window.sendEvent(event)
+                pump(0.05)
+            }
+        }
+        try click(filterX, iconY)
+        try expect(toggles == 1 && dismissals == 0 && hides == 0, "the filter icon should toggle once and not also dismiss, got \(toggles) toggles, \(dismissals) dismissals, \(hides) hides")
+        try click(100, blankY)
+        try expect(toggles == 1 && dismissals == 1 && hides == 0, "blank top-bar space should dismiss, got \(toggles) toggles, \(dismissals) dismissals, \(hides) hides")
+        try click(size.width / 2, blankY)
+        try expect(dismissals == 2 && toggles == 1, "the title should dismiss too, got \(dismissals) dismissals, \(toggles) toggles")
+        try click(closeX, iconY)
+        try expect(hides == 1 && dismissals == 2 && toggles == 1, "the x should only close the dock, got \(hides) hides, \(dismissals) dismissals, \(toggles) toggles")
     }
 
     /// With room for its rows the dropdown has no scroll view; with less it is exactly `maxHeight` high, scrolls, and has

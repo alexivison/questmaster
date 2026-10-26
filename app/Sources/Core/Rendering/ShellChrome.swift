@@ -19,6 +19,7 @@ public enum ArtifactDockRoute: Equatable {
 
 /// Fully resolved dock top-bar layout: which back affordance (if any), the
 /// optional title, and whether an artifact's actions or the worker log's filter show.
+/// The filter shows only while the worker log is attached to a master, the one case it can open.
 public struct DockTopBarModel: Equatable {
     public enum Back: Equatable {
         case artifactList
@@ -47,14 +48,15 @@ public struct DockTopBarModel: Equatable {
     public static func make(
         mode: DockContentMode,
         artifactRoute: ArtifactDockRoute,
-        artifactTitle: String?
+        artifactTitle: String?,
+        logAttached: Bool
     ) -> DockTopBarModel {
         let viewingArtifact = mode == .artifacts && artifactRoute == .viewer
         return DockTopBarModel(
             back: viewingArtifact ? .artifactList : nil,
             title: title(mode: mode, viewingArtifact: viewingArtifact, artifactTitle: artifactTitle),
             showArtifactActions: viewingArtifact,
-            showsLogFilter: mode == .workerChat
+            showsLogFilter: mode == .workerChat && logAttached
         )
     }
 

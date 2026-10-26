@@ -325,7 +325,7 @@ enum RenderPreview {
         guard viewer else {
             return DockShellView(body: body)
         }
-        return DockShellView(body: body, model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: nil)))
+        return DockShellView(body: body, model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: nil, logAttached: false)))
     }
 
     enum DockBarFixture { case viewer, workerChat, workerChatEmpty }
@@ -335,10 +335,10 @@ enum RenderPreview {
     private static func dockBarView(_ fixture: DockBarFixture) -> NSView {
         switch fixture {
         case .viewer:
-            let model = DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: "Quest log mock"))
+            let model = DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: "Quest log mock", logAttached: false))
             return DockShellView(body: NSHostingView(rootView: artifactViewerView(lightDocument: false)), model: model)
         case .workerChat:
-            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
             return DockShellView(body: NSHostingView(rootView: workerChatView()), model: model)
         case .workerChatEmpty:
             // A master whose workers' logs were read and had nothing in them.
@@ -346,7 +346,7 @@ enum RenderPreview {
             if let request = store.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true) {
                 _ = store.receive(WorkerFeedPayload(), for: request)
             }
-            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
             return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store).background(AppPalette.panel.swiftUI)), model: model)
         }
     }
@@ -486,12 +486,12 @@ enum RenderPreview {
         case .workerChat:
             bottomShell = DockShellView(
                 body: NSHostingView(rootView: workerChatView()),
-                model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+                model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
             )
         case .artifacts, nil:
             bottomShell = DockShellView(
                 body: NSHostingView(rootView: artifactListView(focused: focus == .bottom)),
-                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil))
+                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false))
             )
         }
         topShell.setFocused(focus == .top)
@@ -773,7 +773,7 @@ enum RenderPreview {
             store.toggleMenu()
             (0..<cursor).forEach { _ in _ = store.handle(.moveDown) }
         }
-        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
         return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
     }
 
@@ -786,7 +786,7 @@ enum RenderPreview {
         store.clearFilter(.worker)
         store.toggleRow(at: 0)
         store.toggleRow(at: 8)
-        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
         return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
     }
 
@@ -1672,7 +1672,8 @@ enum RenderPreview {
         let model = DockChromeModel(topBar: .make(
             mode: .artifacts,
             artifactRoute: route,
-            artifactTitle: "Fantasy chrome followup"
+            artifactTitle: "Fantasy chrome followup",
+            logAttached: false
         ))
         return DockTopBar(
             model: model,
@@ -1680,6 +1681,7 @@ enum RenderPreview {
             onCopyArtifactPath: {},
             onRefreshArtifact: {},
             onToggleLogFilter: {},
+            onDismissLogFilter: {},
             onHideDock: {}
         )
         .background(AppPalette.panel.swiftUI)

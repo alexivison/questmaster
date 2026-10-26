@@ -270,6 +270,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.focusCoordinator.focusDockPanel(.bottom)
             self?.workerChatStore.toggleMenu()
         }
+        handles.bottomDockShell.onDismissLogFilter = { [weak self] in self?.workerChatStore.closeMenu() }
         handles.bottomDockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
         handles.bottomDockShell.onCopyArtifactPath = { [weak self] in
             guard let self else {
@@ -394,6 +395,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             animateDockLayout: animateDockLayout
         )
         syncWorkerChat()
+        // The worker log's attachment settles in the sync above, after the render updated the tabs.
+        updateDockTabs()
         syncPullRequests()
         if questLogStore.isOpen {
             syncQuestLog()
@@ -457,7 +460,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         shellHandles?.bottomDockShell.updateTabs(
             mode: dockView?.currentMode ?? .artifacts,
             artifactRoute: dockView?.currentArtifactRoute ?? .list,
-            artifactTitle: dockView?.currentArtifactTitle
+            artifactTitle: dockView?.currentArtifactTitle,
+            logAttached: workerChatStore.isAttached
         )
     }
 
