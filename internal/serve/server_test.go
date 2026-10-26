@@ -34,6 +34,19 @@ func (r fakeTmuxRunner) Run(context.Context, ...string) (string, error) {
 	return r.sessions, r.err
 }
 
+type mutableTmuxRunner struct {
+	sessions string
+	err      error
+	calls    int
+}
+
+func (r *mutableTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	if len(args) > 0 && args[0] == "list-sessions" {
+		r.calls++
+	}
+	return r.sessions, r.err
+}
+
 type countingTmuxRunner struct {
 	mu       sync.Mutex
 	sessions string
@@ -219,6 +232,110 @@ func TestSnapshotterSkipsClassBackfillWhenTmuxLivenessIsUnknown(t *testing.T) {
 	}
 	if manifest.DisplayClass() != "" {
 		t.Fatalf("persisted class = %q, want none while liveness is unknown", manifest.DisplayClass())
+	}
+}
+
+func TestSnapshotterRetriesIncompleteClassBackfillOnClock(t *testing.T) {
+	tests := []struct {
+		name              string
+		livenessError     bool
+		failManifestWrite bool
+	}{
+		{name: "liveness recovers", livenessError: true},
+		{name: "manifest write recovers", failManifestWrite: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := seedServeFixture(t)
+			manifestPath := filepath.Join(env.store.Root(), "qm-demo.json")
+			if tt.failManifestWrite {
+				if err := os.Mkdir(manifestPath+".tmp", 0o700); err != nil {
+					t.Fatalf("block manifest temp path: %v", err)
+				}
+				defer os.RemoveAll(manifestPath + ".tmp")
+			}
+
+			runner := &mutableTmuxRunner{sessions: "qm-demo"}
+			if tt.livenessError {
+				runner.err = &tmux.ExitError{
+					Code: 1, Stderr: "error connecting to /tmp/tmux-1000/default: Permission denied",
+				}
+			}
+			client := tmux.NewClient(runner)
+			now := env.now
+			snapshotter := NewSnapshotter(env.store, client, func() time.Time { return now })
+			snapshotter.randomIndex = func(int) int { return 0 }
+
+			initial, err := snapshotter.TrackerForChange(Change{})
+			if err != nil {
+				t.Fatalf("initial tracker snapshot: %v", err)
+			}
+			if len(initial.Sessions) != 1 || initial.Sessions[0].Class != "" {
+				t.Fatalf("initial tracker sessions = %#v, want one classless master", initial.Sessions)
+			}
+			assertManifestClassless := func() {
+				t.Helper()
+				manifest, err := env.store.Read("qm-demo")
+				if err != nil {
+					t.Fatalf("read manifest: %v", err)
+				}
+				if manifest.DisplayClass() != "" {
+					t.Fatalf("persisted class = %q, want none", manifest.DisplayClass())
+				}
+			}
+			assertManifestClassless()
+
+			if tt.livenessError {
+				runner.err = nil
+			}
+			if tt.failManifestWrite {
+				if err := os.Remove(manifestPath + ".tmp"); err != nil {
+					t.Fatalf("unblock manifest temp path: %v", err)
+				}
+			}
+			client.ClearListSessionsCache()
+			callsBeforeRetry := runner.calls
+			now = env.now.Add(classBackfillRetryDelay - time.Second)
+			beforeRetry, err := snapshotter.TrackerForChange(Change{Clock: true})
+			if err != nil {
+				t.Fatalf("clock tracker before retry time: %v", err)
+			}
+			if len(beforeRetry.Sessions) != 1 || beforeRetry.Sessions[0].Class != "" {
+				t.Fatalf("pre-retry tracker sessions = %#v, want one classless master", beforeRetry.Sessions)
+			}
+			assertManifestClassless()
+			if runner.calls != callsBeforeRetry {
+				t.Fatalf("tmux list calls before retry = %d, want unchanged %d", runner.calls, callsBeforeRetry)
+			}
+
+			now = env.now.Add(classBackfillRetryDelay + time.Second)
+			afterRetry, err := snapshotter.TrackerForChange(Change{Clock: true})
+			if err != nil {
+				t.Fatalf("clock tracker after retry time: %v", err)
+			}
+			if len(afterRetry.Sessions) != 1 {
+				t.Fatalf("retry tracker sessions = %#v, want one master", afterRetry.Sessions)
+			}
+			if _, err := state.ValidateSessionClass(afterRetry.Sessions[0].Class); err != nil {
+				t.Fatalf("retry tracker class = %q, want valid class: %v", afterRetry.Sessions[0].Class, err)
+			}
+			manifest, err := env.store.Read("qm-demo")
+			if err != nil {
+				t.Fatalf("read retried manifest: %v", err)
+			}
+			if manifest.DisplayClass() != afterRetry.Sessions[0].Class {
+				t.Fatalf("persisted class = %q, tracker class = %q", manifest.DisplayClass(), afterRetry.Sessions[0].Class)
+			}
+			snapshotter.mu.Lock()
+			backfillIncomplete := snapshotter.classBackfillIncomplete
+			snapshotter.mu.Unlock()
+			if backfillIncomplete {
+				t.Fatal("complete class backfill left retry pending")
+			}
+			if runner.calls != callsBeforeRetry+1 {
+				t.Fatalf("tmux list calls after retry = %d, want %d", runner.calls, callsBeforeRetry+1)
+			}
+		})
 	}
 }
 
