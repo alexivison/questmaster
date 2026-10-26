@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 enum QuestmasterLogicTests {
     static func main() throws {
@@ -116,6 +117,16 @@ enum QuestmasterLogicTests {
             progressLock.unlock()
             if inactive >= inactivityLimit {
                 fputs("TIMEOUT Questmaster self-tests: no output for \(Int(inactivityLimit)) seconds (last RUN \(test))\n", stderr)
+                if process.isRunning {
+                    process.terminate()
+                    let deadline = ProcessInfo.processInfo.systemUptime + 2
+                    while process.isRunning && ProcessInfo.processInfo.systemUptime < deadline {
+                        Thread.sleep(forTimeInterval: 0.05)
+                    }
+                    if process.isRunning {
+                        _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                    }
+                }
                 exit(1)
             }
         }
