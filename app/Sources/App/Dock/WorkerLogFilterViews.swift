@@ -80,19 +80,68 @@ struct WorkerLogChipRow: View {
     }
 }
 
-/// The filter's dropdown: the Action boxes, then a box per worker. It hangs on the shared dropdown chrome. The row under
-/// the keyboard cursor is the highlighted look; the pointer only draws the hover outline (`stateRow`).
+/// The filter's dropdown: the Action boxes, then a box per worker, on the raised surface (lighter than the dock it
+/// stands in front of). It is as tall as its rows, up to `maxHeight`, and scrolls past that, keeping the keyboard
+/// cursor in view. The row under the cursor is the raised highlight; the pointer only draws the hover outline
+/// (`stateRow`).
 struct WorkerLogFilterPanel: View {
     let rows: [WorkerLogMenuRow]
     let filter: WorkerLogFilter
     let cursor: Int
+    var maxHeight: CGFloat = .infinity
+    /// The row drawn under the pointer, for the renders.
+    var previewHoveredRow: Int?
     let onToggle: (Int) -> Void
 
     var body: some View {
+        ViewThatFits(in: .vertical) {
+            content
+            scrolling
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .dropdownChrome(.raised)
+        // The panel is as tall as its rows and no taller than this; the frame only gives it room to hang from the top.
+        .frame(maxHeight: maxHeight, alignment: .top)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Worker Log filter")
+    }
+
+    private var scrolling: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                content
+                    .background(ScrollerHider())
+            }
+            .scrollIndicators(.hidden)
+            .onAppear { reveal(cursor, with: proxy) }
+            .onChange(of: cursor) { _, index in reveal(index, with: proxy) }
+        }
+    }
+
+    /// Brings the cursor's row into view with the least scroll; the first and the last row bring their end of the
+    /// list, header or padding and all.
+    private func reveal(_ index: Int, with proxy: ScrollViewProxy) {
+        guard rows.indices.contains(index) else {
+            return
+        }
+        if index == 0 {
+            proxy.scrollTo(Self.topID, anchor: .top)
+        } else if index == rows.count - 1 {
+            proxy.scrollTo(Self.bottomID, anchor: .bottom)
+        } else {
+            proxy.scrollTo(rows[index].id)
+        }
+    }
+
+    private static let topID = "top"
+    private static let bottomID = "bottom"
+
+    private var content: some View {
         let actionRows = rows.enumerated().filter { $0.element.section == .action }
         let workerRows = rows.enumerated().filter { $0.element.section == .worker }
-        VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: 0) {
             header("Action")
+                .id(Self.topID)
             ForEach(actionRows, id: \.element.id) { index, row in
                 rowView(row, index: index)
             }
@@ -106,13 +155,11 @@ struct WorkerLogFilterPanel: View {
                     rowView(row, index: index)
                 }
             }
+            Color.clear
+                .frame(height: Space.item)
+                .id(Self.bottomID)
         }
         .padding(.horizontal, Space.item)
-        .padding(.bottom, Space.item)
-        .fixedSize(horizontal: true, vertical: false)
-        .dropdownChrome()
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Worker Log filter")
     }
 
     private func header(_ title: String) -> some View {
@@ -126,9 +173,10 @@ struct WorkerLogFilterPanel: View {
         WorkerLogFilterRow(
             row: row,
             isChecked: filter.isChecked(row),
-            look: RowLook.pick(highlighted: index == cursor, areaFocused: true),
+            look: RowLook.raisedPick(highlighted: index == cursor).underPointer(index == previewHoveredRow),
             onToggle: { onToggle(index) }
         )
+        .id(row.id)
     }
 }
 

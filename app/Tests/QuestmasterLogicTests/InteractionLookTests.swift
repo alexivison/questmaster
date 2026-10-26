@@ -12,6 +12,7 @@ struct InteractionLookTests {
         aCursorThePointerMovedDoesNotScroll()
         aRegionHasTheKeysOnlyWithoutAModal()
         missingFilesAndMarksKeepTheirColours()
+        rowsOnARaisedSurfaceStepUpFromItsFill()
         print("InteractionLookTests: all tests passed")
     }
 
@@ -107,6 +108,23 @@ struct InteractionLookTests {
         expect(RowLook.hovered.fill == nil && RowLook.hovered.outline == .line && !RowLook.hovered.bold, "the hover look is a line outline, no fill")
         expect(RowLook.hovered.text == RowLook.rest.text && RowLook.hovered.meta == RowLook.rest.meta && RowLook.hovered.icon == RowLook.rest.icon,
                "the hover look keeps the resting text and icon")
+    }
+
+    /// The raised surface is `item`: a cursor filled with `item` would vanish on it, and a `line` hover outline barely
+    /// shows. So the cursor steps up to `line`, and the hover outline to `controlBorder`, still an outline and never a fill.
+    private static func rowsOnARaisedSurfaceStepUpFromItsFill() {
+        expect(RowLook.raisedPick(highlighted: false) == .raisedRest && RowLook.raisedPick(highlighted: true) == .raisedHighlighted, "raised rows pick rest or the highlight")
+        expect(RowLook.raisedHighlighted.fill == .line && RowLook.raisedHighlighted.fill != .item, "the raised cursor is filled one step above the surface")
+        expectBrighter([[StateColor.item.luminance], [RowLook.raisedHighlighted.fill?.luminance ?? 0]], "raised surface, then its cursor")
+        expect(RowLook.raisedRest.fill == nil && RowLook.raisedRest.outline == nil, "a raised row at rest shows the surface")
+        expect(RowLook.raisedRest.underPointer(true).outline == .controlBorder && RowLook.raisedRest.underPointer(true).fill == nil, "a raised row under the pointer is outlined in controlBorder, unfilled")
+        expect(RowLook.raisedRest.underPointer(true).outline != RowLook.raisedHighlighted.fill, "the hover outline and the cursor fill differ")
+        expectBrighter([[StateColor.item.luminance], [StateColor.controlBorder.luminance]], "raised surface, then the hover outline")
+        expect(RowLook.raisedHighlighted.underPointer(true) == .raisedHighlighted, "the pointer leaves the raised cursor as it is")
+        expect(RowLook.raisedRest.text == RowLook.rest.text && RowLook.raisedHighlighted.text == RowLook.highlighted.text, "raised rows keep the text steps")
+        expect(!RowLook.raisedRest.bold && !RowLook.raisedHighlighted.bold, "raised rows are never bold")
+        expect(RowLook.rest.hoverOutline == .line && RowLook.hovered.outline == .line, "the other rows keep the line hover outline")
+        expect(RowLook.raisedRest.missingFile.underPointer(true).outline == .controlBorder, "a look's hover outline survives the missing-file variant")
     }
 
     private static func missingFilesAndMarksKeepTheirColours() {

@@ -90,16 +90,27 @@ struct WorkerChatDockView: View {
         .overlay { filterMenu }
     }
 
+    /// The dropdown can be as tall as the dock leaves it: below its `Space.row` under the bar, and above the dock's
+    /// bottom inset. Past that its rows scroll.
     @ViewBuilder
     private var filterMenu: some View {
         if store.menu.isOpen {
-            ZStack(alignment: .topTrailing) {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { store.closeMenu() }
-                WorkerLogFilterPanel(rows: store.menuRows, filter: store.filter, cursor: store.menu.cursor, onToggle: store.toggleRow)
+            GeometryReader { dock in
+                ZStack(alignment: .topTrailing) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { store.closeMenu() }
+                    WorkerLogFilterPanel(
+                        rows: store.menuRows,
+                        filter: store.filter,
+                        cursor: store.menu.cursor,
+                        maxHeight: max(dock.size.height - Space.row - WorkerChatMetrics.inset, 0),
+                        onToggle: store.toggleRow
+                    )
                     .padding(.top, Space.row)
                     .padding(.trailing, WorkerChatMetrics.inset)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
         }
     }

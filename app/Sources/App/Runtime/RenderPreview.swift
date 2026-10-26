@@ -104,7 +104,13 @@ enum RenderPreview {
         renderView(workerLogDockView(menuOpen: true), size: logDock, to: "\(outputDir)/worker-log-filter-open.png")
         renderView(workerLogDockView(menuOpen: false), size: logDock, to: "\(outputDir)/worker-log-filter-closed.png")
         renderView(workerLogDockView(menuOpen: false), size: CGSize(width: 300, height: 480), to: "\(outputDir)/worker-log-filter-wrapped.png")
+        renderView(workerLogNothingMatchesView(), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-nothing-matches.png")
+        // Fifteen workers in a 480 high dock: the dropdown stops 20 above the bottom and scrolls, the cursor on the last row.
+        renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 18), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll.png")
+        renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 0), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll-top.png")
         render(workerLogPanelDesignView(), size: CGSize(width: 172, height: 330), to: "\(outputDir)/worker-log-filter-panel.png")
+        // The pointer over "Message" (row 2) while the cursor is on the first worker, on the dock's own fill.
+        render(workerLogPanelDesignView(hovering: 2).background(AppPalette.panel.swiftUI), size: CGSize(width: 172, height: 330), to: "\(outputDir)/worker-log-filter-hover.png")
         render(workerLogChipsDesignView(), size: CGSize(width: 230, height: 152), to: "\(outputDir)/worker-log-filter-chips.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
@@ -722,18 +728,16 @@ enum RenderPreview {
     }
 
     /// The worker log as `Worker Chat.png` draws it: five workers under one master, the Action filter on Status, Message
-    /// and Item, and four of the five workers selected.
+    /// and Item, and four of the five workers selected. With more `workers` the extra ones are named "Worker 06" on.
     @MainActor
-    private static func workerLogStore() -> WorkerChatStore {
+    private static func workerLogStore(workers: Int = 5) -> WorkerChatStore {
         let store = WorkerChatStore()
-        let tracker = [
-            TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
-            TrackerSession(id: "w1", title: "Fix UI Bug", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
-            TrackerSession(id: "w2", title: "Implement-ABC-123", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
-            TrackerSession(id: "w3", title: "Review API", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
-            TrackerSession(id: "w4", title: "Add Tests", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
-            TrackerSession(id: "w5", title: "Update Docs", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
-        ]
+        let named = [("Fix UI Bug", "claude"), ("Implement-ABC-123", "codex"), ("Review API", "codex"), ("Add Tests", "claude"), ("Update Docs", "codex")]
+        let tracker = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+            + (1...workers).map { index in
+                let (title, agent) = index <= named.count ? named[index - 1] : (String(format: "Worker %02d", index), index.isMultiple(of: 2) ? "claude" : "codex")
+                return TrackerSession(id: "w\(index)", title: title, repoName: "Repo", agent: agent, role: "worker", parentID: "m")
+            }
         guard let request = store.sync(selectedSessionID: "m", sessions: tracker, isVisible: true) else {
             return store
         }
@@ -760,14 +764,27 @@ enum RenderPreview {
         return store
     }
 
-    /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on the first worker.
+    /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on row `cursor` (the first worker by default).
     @MainActor
-    private static func workerLogDockView(menuOpen: Bool) -> NSView {
-        let store = workerLogStore()
+    private static func workerLogDockView(menuOpen: Bool, workers: Int = 5, cursor: Int = 4) -> NSView {
+        let store = workerLogStore(workers: workers)
         if menuOpen {
             store.toggleMenu()
-            (0..<4).forEach { _ in _ = store.handle(.moveDown) }
+            (0..<cursor).forEach { _ in _ = store.handle(.moveDown) }
         }
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+    }
+
+    /// A filter that hides every line of a feed that has some: Cast from the one worker that never ran a tool. The chips
+    /// stay over the empty icon, so their x can clear it.
+    @MainActor
+    private static func workerLogNothingMatchesView() -> DockShellView {
+        let store = workerLogStore(workers: 5)
+        store.clearFilter(.action)
+        store.clearFilter(.worker)
+        store.toggleRow(at: 0)
+        store.toggleRow(at: 8)
         let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
         return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
     }
@@ -775,14 +792,14 @@ enum RenderPreview {
     /// The dropdown of `Chat Filter.svg`: four workers named "worker-name", the keyboard cursor on the first, every Action
     /// box checked but Cast. Its width hugs the names, as the design's 172 does.
     @MainActor
-    private static func workerLogPanelDesignView() -> some View {
+    private static func workerLogPanelDesignView(hovering: Int? = nil) -> some View {
         let workers = (1...4).map { WorkerLogWorker(id: "w\($0)", name: "worker-name", agent: "codex") }
         var filter = WorkerLogFilter()
         [WorkerLogAction.status, .message, .item].forEach { filter.toggle($0) }
         // One more worker than the dropdown lists, so the four selected don't make up the whole section.
         let extra = WorkerLogWorker(id: "w5", name: "other", agent: "codex")
         workers.forEach { filter.toggle($0, among: workers + [extra]) }
-        return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: filter, cursor: 4, onToggle: { _ in })
+        return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: filter, cursor: 4, previewHoveredRow: hovering, onToggle: { _ in })
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(AppPalette.window.swiftUI)
     }

@@ -158,8 +158,9 @@ builds its matching entries from (`SharedUI/Theme.swift`).
 
 The mouse highlights, the keys move the cursor, and a click acts. The pointer
 shows the hover look (`RowLook.hovered`: a 1pt `line` outline, no fill, text
-and icon unchanged; every cursor and selection look is filled, so the two never
-read alike) on the row under it, via `stateRow`, and moves no list's cursor or
+and icon unchanged; `controlBorder` on a raised surface, where `line` barely
+shows; every cursor and selection look is filled, so the two never read alike)
+on the row under it, via `stateRow`, and moves no list's cursor or
 selection. Return, Tab and Save
 commit the keyboard cursor; a row the pointer only crossed needs a click. The
 one exception is the tracker while it has the keys: hover moves its cursor
@@ -185,6 +186,9 @@ again where it was when the keys come back.
 | | missing file (`RowLook.missingFile`) | the row's look with a `warn` icon |
 | | marked for deletion (`MarkLook`) | `accent` diamond in the row's left gutter |
 | Any row | under the pointer (`RowLook.hovered`) | 1pt `line` outline, no fill; text, icon and meta as at rest |
+| Row on a raised surface (the Worker Log filter's dropdown, drawn in `item`) | rest (`RowLook.raisedRest`) | no fill, `textBody`, icon and meta as at rest |
+| | highlighted (`RowLook.raisedHighlighted`) | `line` fill, one step above the surface (an `item` fill would vanish on it), `textSelected`, meta `textMetaHighlighted` |
+| | under the pointer | 1pt `controlBorder` outline, no fill; text, icon and meta as at rest |
 | Lasting-selection row (the Quest Log) | selected (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
 | Tab (agent tabs, Session/All, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
 | | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
@@ -233,9 +237,13 @@ again where it was when the keys come back.
   filter chips (`ClearableChip` for a selection with an x), the `AngledButton`
   styles for buttons.
 - The Worker Log's filter (`WorkerLogFilterPanel`) is a dropdown of checkbox
-  rows on `dropdownChrome`: the keyboard cursor is `RowLook.highlighted`, the
-  pointer the hover look, and a checked box's mark takes the row's text colour.
-  Its chips hold their values in `textBody` at regular weight (bold means selected).
+  rows on `dropdownChrome(.raised)`: it stands in front of the dock, so it is
+  lighter than it (`item` fill, `line` border, radius 4.5), and its rows take the
+  raised looks (`RowLook.raisedPick`). A checked box's mark takes the row's text
+  colour. It is as tall as its rows, up to the dock's height less the 5 under the
+  bar and the 20 inset below, and scrolls past that with the cursor kept in
+  view. Its chips hold their values in `textBody` at regular weight (bold means
+  selected).
 - Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
   section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
   artifact viewer, the Worker Log, Version Control), the tracker and the Quest Log's page draw it; the page passes the

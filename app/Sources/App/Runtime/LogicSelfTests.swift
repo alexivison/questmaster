@@ -138,6 +138,7 @@ enum LogicSelfTests {
         ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
         ("testDockPaneRoutesTheWorkerLogFilterKeys", testDockPaneRoutesTheWorkerLogFilterKeys),
         ("testWorkerLogFilterKeepsItsDesignedSize", testWorkerLogFilterKeepsItsDesignedSize),
+        ("testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView", testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -5274,6 +5275,40 @@ enum LogicSelfTests {
         let chipRow = WorkerLogChipRow(chips: [WorkerLogChip(section: .action, value: .text("Status"))], onClear: { _ in })
         let chipSize = try fittingSize(of: chipRow.frame(width: DockWidthPreference.panelWidth))
         try expect(chipSize.height == Space.item + ControlHeight.compact, "a chip row should be 10 over a 25-high chip, got \(chipSize.height)")
+    }
+
+    /// With room for its rows the dropdown has no scroll view; with less it is exactly `maxHeight` high, scrolls, and has
+    /// the cursor's row in view, here the last one.
+    private static func testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView() throws {
+        func panel(workers: Int, cursor: Int, maxHeight: CGFloat) -> some View {
+            let list = (1...workers).map { WorkerLogWorker(id: "w\($0)", name: "Worker \($0)", agent: "codex") }
+            return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: list), filter: WorkerLogFilter(), cursor: cursor, maxHeight: maxHeight, onToggle: { _ in })
+                .frame(width: 400, height: 700, alignment: .topTrailing)
+        }
+        let fits = NSHostingView(rootView: panel(workers: 4, cursor: 0, maxHeight: 400))
+        let window = HeadlessWindow(size: CGSize(width: 400, height: 700))
+        window.contentView = fits
+        window.show()
+        defer { window.close() }
+        pump(0.3)
+        try expect(descendant(NSScrollView.self, in: fits) == nil, "a dropdown with room for its rows should not scroll")
+
+        let cap: CGFloat = 300
+        let rowCount = WorkerLogAction.allCases.count + 15
+        let hosting = NSHostingView(rootView: panel(workers: 15, cursor: rowCount - 1, maxHeight: cap))
+        let tall = HeadlessWindow(size: CGSize(width: 400, height: 700))
+        tall.contentView = hosting
+        tall.show()
+        defer { tall.close() }
+        try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "a dropdown taller than its cap should scroll")
+        guard let scrollView = descendant(NSScrollView.self, in: hosting), let documentView = scrollView.documentView else {
+            throw TestFailure("the dropdown should host a scroll view with a document")
+        }
+        let height = scrollView.convert(scrollView.bounds, to: hosting).height
+        try expect(abs(height - (cap - 2 * Token.Size.divider)) <= 1, "the rows should fill the cap inside the outline, got \(height)")
+        let clip = scrollView.contentView
+        try expect(waitUntil { clip.bounds.origin.y > 0 }, "the cursor on the last row should scroll it into view")
+        try expect(clip.bounds.maxY >= documentView.bounds.height - 1, "the last row should sit at the bottom of the rows, got \(clip.bounds.maxY) of \(documentView.bounds.height)")
     }
 
     private static func fittingSize<V: View>(of view: V) throws -> CGSize {
