@@ -189,8 +189,10 @@ hides.
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
 | Shell row (the tracker's shell section) | rest (`RowLook.shellRest`) | no fill, title and glyph `textMeta`, glyph disc `item` rim (a filled row's disc takes the look's own rim) |
-| | under the pointer | the hover look, on a resting row only |
-| | the viewed shell (`RowLook.selected`) / the cursor on another, while the tracker has the keys (`.highlighted`) | `item` fill, `textSelected`: **bold** for the viewed shell only |
+| | under the pointer | the hover look (1pt `line` outline), on a resting row only |
+| | keyboard cursor, while the tracker has the keys (`RowLook.shellCursor`) | 1pt `controlBorder` outline inside the row, no fill, text and glyph as at rest, regular weight |
+| | the viewed shell (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
+| | the cursor on the viewed shell (`RowLook.shellSelectedCursor`) | the fill and bold, plus the `controlBorder` outline |
 
 - Bold means selected and appears only in a lasting-selection list. Artifacts
   have no selected state: picking one opens it.

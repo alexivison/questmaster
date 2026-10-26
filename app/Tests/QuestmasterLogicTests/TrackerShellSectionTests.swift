@@ -86,14 +86,18 @@ struct TrackerShellSectionTests {
         expect(TrackerShellSection.revealID(cursorID: "s", viewedID: nil, in: []) == nil, "no shells reveal nothing")
     }
 
-    /// The viewed shell is the lasting selection, so it is the only bold row; the cursor fills another row without
-    /// the bold; the rest is quiet.
+    /// Shell Session.svg's four states: rest; the cursor alone, outlined with no fill; the viewed shell, filled and bold (the
+    /// lasting selection, the only bold row); the cursor on the viewed shell, fill, bold and outline.
     private static func aShellRowTakesItsLookFromViewingAndTheCursor() {
         expect(ShellRowStyle.look(viewed: false, cursor: false) == .shellRest, "a shell nobody views or points at rests")
+        expect(ShellRowStyle.look(viewed: false, cursor: true) == .shellCursor, "the cursor alone outlines a shell")
         expect(ShellRowStyle.look(viewed: true, cursor: false) == .selected, "the viewed shell is selected")
-        expect(ShellRowStyle.look(viewed: true, cursor: true) == .selected, "the viewed shell stays selected under the cursor")
-        expect(ShellRowStyle.look(viewed: false, cursor: true) == .highlighted, "the cursor fills another shell without the bold")
-        expect(!ShellRowStyle.look(viewed: false, cursor: true).bold && ShellRowStyle.look(viewed: true, cursor: false).bold, "only the viewed shell is bold")
+        expect(ShellRowStyle.look(viewed: true, cursor: true) == .shellSelectedCursor, "the cursor on the viewed shell adds its outline to the fill")
+        let looks = [(false, false), (false, true), (true, false), (true, true)].map { ShellRowStyle.look(viewed: $0.0, cursor: $0.1) }
+        expect(Set(looks.map { "\($0)" }).count == 4, "the four states look different")
+        expect(looks.map(\.bold) == [false, false, true, true], "only the viewed shell is bold")
+        expect(looks.map { $0.fill != nil } == [false, false, true, true], "only the viewed shell is filled")
+        expect(looks.map { $0.outline != nil } == [false, true, false, true], "the cursor is the outline")
     }
 
     private static func theShellLooksFollowTheStateRules() {
@@ -104,12 +108,25 @@ struct TrackerShellSectionTests {
         let hovered = rest.underPointer(true)
         expect(hovered.outline == RowLook.hovered.outline && hovered.fill == nil, "the pointer adds the hover outline to a resting shell")
         expect(hovered.text == rest.text && hovered.icon == rest.icon, "and leaves its text and glyph as at rest")
-        for filled in [RowLook.selected, .highlighted] {
-            expect(filled.fill == .item, "\(filled) is filled")
+
+        // The cursor: a 1pt controlBorder outline inside the row with no fill, the text as at rest (the SVG's outlined row).
+        let cursor = RowLook.shellCursor
+        expect(cursor.fill == nil && cursor.outline == .controlBorder && !cursor.bold, "the cursor alone is a controlBorder outline, no fill, regular weight")
+        expect(cursor.text == rest.text && cursor.icon == rest.icon && cursor.meta == rest.meta, "its text and glyph are as at rest")
+        expect(cursor.outline != RowLook.hovered.outline, "the cursor's outline is a step above the hover's, so the two never read alike")
+        expect(cursor.underPointer(true) == cursor, "the pointer leaves the cursor's outline as it is")
+
+        // The viewed shell, alone and under the cursor: filled, bold, textSelected; the cursor adds the outline.
+        let attached = RowLook.selected
+        let attachedCursor = RowLook.shellSelectedCursor
+        expect(attached.fill == .item && attached.outline == nil && attached.bold && attached.text == .textSelected, "the viewed shell is filled and bold")
+        expect(attachedCursor.fill == .item && attachedCursor.outline == .controlBorder && attachedCursor.bold && attachedCursor.text == .textSelected,
+               "the viewed shell under the cursor is filled, bold and outlined")
+        for filled in [attached, attachedCursor] {
             expect(filled.underPointer(true) == filled, "the pointer adds nothing to a filled shell")
         }
-        expect(rest.text.luminance < RowLook.highlighted.text.luminance && rest.text.luminance < RowLook.selected.text.luminance, "a filled shell's text is brighter than at rest")
-        for look in [rest, hovered] {
+        expect(rest.text.luminance < attached.text.luminance && rest.text.luminance < attachedCursor.text.luminance, "an attached shell's text is brighter than at rest")
+        for look in [rest, hovered, cursor, attached, attachedCursor] {
             expect(look.text != .accent && look.icon != .accent && look.text != .brassActive && look.icon != .brassActive, "shell rows carry no gold or brass")
         }
     }

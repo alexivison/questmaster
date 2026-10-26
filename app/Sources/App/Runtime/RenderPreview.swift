@@ -48,7 +48,8 @@ enum RenderPreview {
         render(newSessionView(.classChosen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-cleric.png")
         render(classPlatesView(), size: CGSize(width: 340, height: 360), to: "\(outputDir)/class-plates.png")
         render(classTrackerView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/class-tracker.png")
-        render(shellRowStatesView(), size: CGSize(width: 300, height: 400), to: "\(outputDir)/shell-rows.png")
+        render(shellRowStatesView(), size: CGSize(width: 300, height: 500), to: "\(outputDir)/shell-rows.png")
+        render(shellRowStatesView(gapless: true), size: CGSize(width: 300, height: 290), to: "\(outputDir)/shell-rows-stack.png")
         render(trackerWithShellsView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells.png")
         render(trackerWithShellsView(extraMasters: 9), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells-long.png")
         // 14 shells at the 600pt minimum window, the last one attached: the section stops at 175 and scrolls to it.
@@ -894,23 +895,34 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The shell row in each state, as Shell Session.svg shows its four (rest, under the pointer, filled, filled and under
-    /// the pointer), then the keyboard cursor on a shell that isn't the viewed one, and a shell with a display colour at
-    /// rest, under the pointer and filled: the colour tints the title in every state.
+    /// The shell row in each state: rest, under the pointer, the keyboard cursor (an outline), the attached shell (filled and
+    /// bold) and the cursor on the attached shell (both), then the same in a display colour, which tints the title in every
+    /// state. `gapless` stacks a short run of them as the tracker does (no gap), an attached row above a cursor row among
+    /// them, to show the outlined row stays apart from the filled one; the sheet itself puts `Space.item` between rows.
     @MainActor
-    private static func shellRowStatesView() -> some View {
-        let states: [(name: String, color: String, viewed: Bool, cursor: Bool, hovered: Bool)] = [
-            ("rest", "", false, false, false),
-            ("hovered", "", false, false, true),
-            ("filled (viewed)", "", true, false, false),
-            ("filled, hovered", "", true, false, true),
-            ("cursor", "", false, true, false),
-            ("green, rest", "green", false, false, false),
-            ("green, hovered", "green", false, false, true),
-            ("green, filled", "green", true, false, false),
-        ]
-        // A state sheet: the rows sit `Space.item` apart so each state reads on its own. In the tracker they stack with no gap.
-        return VStack(alignment: .leading, spacing: Space.item) {
+    private static func shellRowStatesView(gapless: Bool = false) -> some View {
+        let states: [(name: String, color: String, viewed: Bool, cursor: Bool, hovered: Bool)]
+        if gapless {
+            states = [
+                ("attached", "", true, false, false), ("cursor", "", false, true, false), ("rest", "", false, false, false),
+                ("hovered", "", false, false, true), ("rest again", "", false, false, false),
+                ("green attached", "green", true, false, false), ("green cursor", "green", false, true, false),
+            ]
+        } else {
+            states = [
+                ("rest", "", false, false, false),
+                ("hovered", "", false, false, true),
+                ("cursor", "", false, true, false),
+                ("attached", "", true, false, false),
+                ("attached, cursor", "", true, true, false),
+                ("green, rest", "green", false, false, false),
+                ("green, hovered", "green", false, false, true),
+                ("green, cursor", "green", false, true, false),
+                ("green, attached", "green", true, false, false),
+                ("green, attached, cursor", "green", true, true, false),
+            ]
+        }
+        return VStack(alignment: .leading, spacing: gapless ? 0 : Space.item) {
             ForEach(Array(states.enumerated()), id: \.offset) { _, state in
                 let session = TrackerSession(id: "qm-\(state.name)", title: "Shell", repoName: "", displayColor: state.color, agent: "")
                 TrackerShellRow(

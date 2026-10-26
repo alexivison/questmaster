@@ -51,6 +51,10 @@ struct InteractionLookTests {
             expect(lit.fill == .item && lit.outline == nil, "\(lit) should be filled, without the hover outline")
             expect(RowLook.hovered.fill == nil, "a hovered row should have no fill, unlike \(lit)")
         }
+        // A shell's cursor is an outline too, so it reads apart from the hover's by the outline's colour, a step brighter; the
+        // viewed shell under it is the only look with both.
+        expect(RowLook.shellCursor.outline == .controlBorder && RowLook.shellCursor.outline != RowLook.hovered.outline, "the shell cursor's outline differs from the hover's")
+        expect(RowLook.shellCursor.fill == nil && RowLook.shellSelectedCursor.fill == .item && RowLook.shellSelectedCursor.outline == .controlBorder, "only the viewed shell under the cursor is filled and outlined")
         let bands = [
             PlateBand.color(showsCursor: true, pointerOver: false, recoloring: false),
             PlateBand.color(showsCursor: false, pointerOver: true, recoloring: false),
@@ -66,8 +70,8 @@ struct InteractionLookTests {
     private static func eachStateStepIsBrighterThanTheOneBelow() {
         expectBrighter([RowLook.rest, .highlightedUnfocused, .highlighted].map(levels), "pick rows")
         expectBrighter([RowLook.rest, .selected].map(levels), "lasting rows")
-        expectBrighter([RowLook.shellRest, .highlighted].map(levels), "shell rows under the cursor")
-        expectBrighter([RowLook.shellRest, .selected].map(levels), "shell rows, the viewed one")
+        expectBrighter([RowLook.shellRest, .shellCursor, .shellSelectedCursor].map(levels), "shell rows: rest, the cursor, the viewed shell under it")
+        expectBrighter([RowLook.shellRest, .selected, .shellSelectedCursor].map(levels), "shell rows: rest, the viewed shell, the viewed shell under the cursor")
         expectBrighter([OutlineLook.tabRest, .tabSelectedUnfocused, .tabSelected].map(levels), "tabs")
         expectBrighter([OutlineLook.fieldRest, .fieldFocused].map(levels), "fields")
         expectBrighter([OutlineLook.frameRest, .frameFocused].map(levels), "dock frames")
@@ -80,8 +84,8 @@ struct InteractionLookTests {
     /// Bold means selected, so only a lasting selection is bold. Gold marks the recolour band only; brass means a
     /// toggle is on and nothing else.
     private static func boldGoldAndBrassStayInTheirPlace() {
-        let rows = [RowLook.rest, .hovered, .highlighted, .highlightedUnfocused, .selected, .shellRest]
-        expect(rows.filter(\.bold) == [.selected], "only the lasting selection should be bold")
+        let rows = [RowLook.rest, .hovered, .highlighted, .highlightedUnfocused, .selected, .shellRest, .shellCursor, .shellSelectedCursor]
+        expect(rows.filter(\.bold) == [.selected, .shellSelectedCursor], "only a lasting selection (the viewed shell, under the cursor or not) should be bold")
         let rowColors = rows.flatMap { [$0.fill, $0.outline, $0.text, $0.meta, $0.icon, $0.iconBorder].compactMap { $0 } }
         let outlineColors = [OutlineLook.tabRest, .tabSelected, .tabSelectedUnfocused, .fieldRest, .fieldFocused, .frameRest, .frameFocused].flatMap { [$0.border, $0.label] }
         for color in rowColors + outlineColors {
@@ -94,7 +98,7 @@ struct InteractionLookTests {
     private static func thePointerShowsTheHoverLookAndMovesNoCursor() {
         expect(RowLook.rest.underPointer(true) == .hovered, "a resting row under the pointer shows the hover look")
         expect(RowLook.rest.underPointer(false) == .rest, "a resting row away from the pointer rests")
-        for look in [RowLook.highlighted, .highlightedUnfocused, .selected] {
+        for look in [RowLook.highlighted, .highlightedUnfocused, .selected, .shellCursor, .shellSelectedCursor] {
             expect(look.underPointer(true) == look, "the pointer should leave \(look) as it is")
         }
         expect(RowLook.hovered.fill == nil && RowLook.hovered.outline == .line && !RowLook.hovered.bold, "the hover look is a line outline, no fill")
@@ -138,9 +142,9 @@ struct InteractionLookTests {
         expect(navigation.hasKeys(.tracker), "the keys come back with the modal gone")
     }
 
-    /// A look's colours as luminances, in a fixed order; no fill counts as 0, below any fill.
+    /// A look's colours as luminances, in a fixed order; no fill or outline counts as 0, below any.
     private static func levels(_ look: RowLook) -> [Double] {
-        [look.fill?.luminance ?? 0, look.text.luminance, look.meta.luminance, look.icon.luminance, look.iconBorder.luminance]
+        [look.fill?.luminance ?? 0, look.outline?.luminance ?? 0, look.text.luminance, look.meta.luminance, look.icon.luminance, look.iconBorder.luminance]
     }
 
     private static func levels(_ look: OutlineLook) -> [Double] {

@@ -60,17 +60,25 @@ public enum TrackerShellSection {
     }
 }
 
-/// How a shell row looks (Shell Session.svg): a simple list row, a step quieter than a plate at rest. The viewed shell
-/// is the row's lasting selection and the tracker's cursor, while the tracker has the keys, fills the row too; the
-/// pointer adds the hover outline to a resting row only (`RowLook.underPointer`).
+/// How a shell row looks (Shell Session.svg's four states): a simple list row, a step quieter than a plate at rest. The
+/// viewed shell is the row's lasting selection: filled and bold. The tracker's cursor, while the tracker has the keys, is
+/// an outline with no fill, so a cursor row beside a filled row stays apart in a gapless stack; on the viewed shell it adds
+/// the outline to the fill. The pointer adds the thinner hover outline to a resting row only (`RowLook.underPointer`).
 public enum ShellRowStyle {
-    /// The look of a row from its state. The viewed shell is `selected` (filled, bold) whether or not the cursor is
-    /// on it; the cursor on another shell fills it without the bold, which only a lasting selection has.
+    /// The look of a row from its state: rest; the cursor alone (`shellCursor`, outlined); the viewed shell (`selected`,
+    /// filled and bold); the viewed shell under the cursor (`shellSelectedCursor`, both). Only the viewed shell is bold,
+    /// which only a lasting selection is.
     public static func look(viewed: Bool, cursor: Bool) -> RowLook {
-        if viewed {
+        switch (viewed, cursor) {
+        case (true, true):
+            return .shellSelectedCursor
+        case (true, false):
             return .selected
+        case (false, true):
+            return .shellCursor
+        case (false, false):
+            return .shellRest
         }
-        return cursor ? .highlighted : .shellRest
     }
 
     /// The display colour that tints a shell's title in every state, or nil for a shell with none: its title then
@@ -86,6 +94,13 @@ public enum ShellRowStyle {
 
 extension RowLook {
     /// A shell row at rest: no fill, and the title and the glyph in meta text, a step under a plate row's body text, the
-    /// glyph's disc rimmed in `item` (Shell Session.svg). A filled row takes `highlighted`'s and `selected`'s own rim.
+    /// glyph's disc rimmed in `item` (Shell Session.svg). A filled row takes `selected`'s own rim.
     public static let shellRest = RowLook(fill: nil, outline: nil, text: .textMeta, meta: .textMeta, icon: .textMeta, iconBorder: .item, bold: false)
+    /// The tracker's cursor on a shell that isn't the viewed one: a 1pt `controlBorder` outline inside the row, no fill,
+    /// the text and glyph as at rest (the SVG's outlined row).
+    public static let shellCursor = RowLook(fill: nil, outline: .controlBorder, text: .textMeta, meta: .textMeta, icon: .textMeta, iconBorder: .item, bold: false)
+    /// The cursor on the viewed shell: `selected`'s fill and bold, and the cursor's outline (the SVG's fourth state).
+    public static let shellSelectedCursor = RowLook(
+        fill: .item, outline: .controlBorder, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: true
+    )
 }

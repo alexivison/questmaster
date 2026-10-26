@@ -2056,57 +2056,68 @@ enum LogicSelfTests {
             )
         }
         let size = CGSize(width: TrackerPlateDesign.topLevelSize.width, height: 3 * TrackerShellMetrics.rowHeight)
-        let section = TrackerShellRows(
-            shells: shells, selectedID: "c", viewedID: "a", areaFocused: true, shortcutNumbers: [:], commandLongPressIsActive: false,
-            onSelect: { _ in }, onActivate: { _ in }, onEditSession: { _ in }
-        )
-        .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .background(AppPalette.window.swiftUI)
-        let view = NSHostingView(rootView: section)
-        view.frame = NSRect(origin: .zero, size: size)
-        let window = HeadlessWindow(size: size, scale: 1)
-        window.contentView = view
-        window.show()
-        defer { window.close() }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-        guard let bitmap = NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
-            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-        ) else {
-            throw TestFailure("could not make a bitmap")
-        }
-        bitmap.size = size
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        func isColor(_ x: Int, _ y: Int, _ color: NSColor) -> Bool {
-            guard let pixel = bitmap.colorAt(x: x, y: y), let expected = color.usingColorSpace(.deviceRGB) else {
-                return false
+        func render(selected: String, viewed: String) throws -> PixelProbe {
+            let section = TrackerShellRows(
+                shells: shells, selectedID: selected, viewedID: viewed, areaFocused: true, shortcutNumbers: [:], commandLongPressIsActive: false,
+                onSelect: { _ in }, onActivate: { _ in }, onEditSession: { _ in }
+            )
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            .background(AppPalette.window.swiftUI)
+            let view = NSHostingView(rootView: section)
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ) else {
+                throw TestFailure("could not make a bitmap")
             }
-            return abs(pixel.redComponent - expected.redComponent) < 0.02
-                && abs(pixel.greenComponent - expected.greenComponent) < 0.02
-                && abs(pixel.blueComponent - expected.blueComponent) < 0.02
+            bitmap.size = size
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return PixelProbe(bitmap: bitmap, height: Int(size.height))
         }
         let rowHeight = Int(TrackerShellMetrics.rowHeight)
+        let middle = rowHeight / 2
+        let edgeColumn = 200
 
-        // Down a column past the row's corner and left of the disc: the viewed row and the cursor's, 35 high each, with the
-        // resting row between them, so the second starts 70 down: the pitch is the row's own height.
+        // The viewed shell (a) is filled, the cursor's (b) is outlined with no fill, and c rests.
+        let probe = try render(selected: "b", viewed: "a")
+
+        // Down a column past the row's corner and left of the disc: only the viewed row is filled, 35 high from the top.
         let fillColumn = Int(TrackerShellMetrics.cornerRadius) + 1
-        let filledRows = (0..<Int(size.height)).filter { isColor(fillColumn, $0, AppPalette.item) }
-        try expect(filledRows == Array(0..<rowHeight) + Array(2 * rowHeight..<(3 * rowHeight)), "the filled rows should be 35 high and 35 apart, got rows \(filledRows)")
+        let filledRows = (0..<Int(size.height)).filter { probe.isColor(fillColumn, $0, AppPalette.item) }
+        try expect(filledRows == Array(0..<rowHeight), "only the viewed row should be filled, 35 high, got rows \(filledRows)")
 
         // Across the viewed row's middle: the fill runs the column's whole width, flush with the plates.
-        let middle = rowHeight / 2
-        let filledColumns = (0..<Int(size.width)).filter { isColor($0, middle, AppPalette.item) }
+        let filledColumns = (0..<Int(size.width)).filter { probe.isColor($0, middle, AppPalette.item) }
         try expect(filledColumns.first == 0, "a row should start at the column's edge, got x \(String(describing: filledColumns.first))")
         try expect(filledColumns.last == Int(size.width) - 1, "a row should run to the column's far edge, got x \(String(describing: filledColumns.last))")
 
-        // The resting row, in the middle: its disc's border starts 10 into the row, and its title 10 past the disc.
-        let restMiddle = rowHeight + middle
-        let inkColumns = (0..<Int(size.width)).filter { !isColor($0, restMiddle, AppPalette.window) }
+        // The cursor's row, with no gap under the filled one, stays apart: its 1pt controlBorder outline is inside its own
+        // 35 rows (top row, bottom row and left edge), and its inside is unfilled.
+        try expect(probe.isColor(edgeColumn, rowHeight - 1, AppPalette.item), "the viewed row should fill down to its own last row")
+        try expect(probe.isColor(edgeColumn, rowHeight, AppPalette.controlBorder), "the cursor's outline should start on its own first row, right under the fill")
+        try expect(probe.isColor(edgeColumn, 2 * rowHeight - 1, AppPalette.controlBorder), "the cursor's outline should end on its own last row")
+        try expect(probe.isColor(0, rowHeight + middle, AppPalette.controlBorder), "the cursor's outline should run along its left edge")
+        try expect(probe.isColor(edgeColumn, rowHeight + middle, AppPalette.window), "the cursor's row should have no fill")
+
+        // The resting row, last: its disc's border starts 10 into the row, and its title 10 past the disc.
+        let restMiddle = 2 * rowHeight + middle
+        let inkColumns = (0..<Int(size.width)).filter { !probe.isColor($0, restMiddle, AppPalette.window) }
         let discLeft = Int(TrackerShellMetrics.discLead)
         try expect(inkColumns.first == discLeft, "the disc should start 10 into the row, got x \(String(describing: inkColumns.first))")
         let titleLeft = discLeft + Int(TrackerShellMetrics.discDiameter + Space.item)
         let titleInk = inkColumns.first { $0 > discLeft + Int(TrackerShellMetrics.discDiameter) }
         try expect(titleInk.map { $0 >= titleLeft && $0 <= titleLeft + 3 } == true, "the title should start 10 past the disc, got x \(String(describing: titleInk))")
+
+        // The cursor on the viewed shell: filled and outlined, the outline on the fill's own edge rows.
+        let both = try render(selected: "a", viewed: "a")
+        try expect(both.isColor(edgeColumn, 0, AppPalette.controlBorder) && both.isColor(edgeColumn, rowHeight - 1, AppPalette.controlBorder), "the viewed shell under the cursor should be outlined top and bottom")
+        try expect(both.isColor(edgeColumn, middle, AppPalette.item), "and filled inside the outline")
     }
 
     /// A real tracker in a headless window at 1x, with `masters` plates and `shells` shells (`shell-0` ...), `viewed` the

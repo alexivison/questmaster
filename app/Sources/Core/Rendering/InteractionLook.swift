@@ -81,10 +81,11 @@ public struct RowLook: Equatable, Sendable {
         selected ? .selected : .rest
     }
 
-    /// This look with the pointer over the row: an unfilled (resting) row gains the hover outline and keeps its own
-    /// colours, a missing file's warning icon included; a highlighted or selected one keeps its look.
+    /// This look with the pointer over the row: an unfilled, unoutlined (resting) row gains the hover outline and keeps its
+    /// own colours, a missing file's warning icon included; a highlighted, selected or already outlined one (a shell's
+    /// cursor) keeps its look.
     public func underPointer(_ pointerOver: Bool) -> RowLook {
-        guard pointerOver, fill == nil else {
+        guard pointerOver, fill == nil, outline == nil else {
             return self
         }
         return RowLook(fill: nil, outline: RowLook.hovered.outline, text: text, meta: meta, icon: icon, iconBorder: iconBorder, bold: bold)
