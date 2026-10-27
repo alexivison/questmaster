@@ -539,7 +539,7 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	sessionID := "qm-pi-cleanup-resume"
+	sessionID := uniqueRuntimeSessionID(t, "qm-pi-cleanup-resume")
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
 	if err := store.Create(state.Manifest{
 		SessionID: sessionID,
@@ -607,8 +607,8 @@ func TestWriteCleanupScript_IgnoresDifferentClosedSession(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 
-	masterID := "qm-master-wrong-hook"
-	workerID := "qm-worker-wrong-hook"
+	masterID := uniqueRuntimeSessionID(t, "qm-master-wrong-hook")
+	workerID := uniqueRuntimeSessionID(t, "qm-worker-wrong-hook")
 	otherID := "qm-other-wrong-hook"
 	if err := store.Create(state.Manifest{SessionID: masterID, SessionType: "master", Workers: []string{workerID}}); err != nil {
 		t.Fatalf("create master: %v", err)
@@ -623,13 +623,6 @@ func TestWriteCleanupScript_IgnoresDifferentClosedSession(t *testing.T) {
 	}
 
 	runtime := filepath.Join("/tmp", workerID)
-	if err := os.RemoveAll(runtime); err != nil {
-		t.Fatalf("remove stale runtime: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
-	if err := os.MkdirAll(runtime, 0o755); err != nil {
-		t.Fatalf("mkdir runtime: %v", err)
-	}
 
 	scriptPath := filepath.Join(runtime, "cleanup.sh")
 	if err := writeCleanupScript(scriptPath, store.Root(), workerID, masterID); err != nil {
