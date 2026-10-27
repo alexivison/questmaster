@@ -599,7 +599,12 @@ enum LogicSelfTests {
                 window.contentView = view
                 window.show()
                 defer { window.close() }
-                RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+                try expect(waitUntil {
+                    guard let documentView = descendant(NSScrollView.self, in: view)?.documentView else {
+                        return false
+                    }
+                    return documentView.bounds.width > 0 && documentView.bounds.height > 0
+                }, "the tracker should finish laying out before its attached dot is measured")
                 let bitmap = try snapshot(view, size: size, scale: scale)
 
                 for (name, centre) in positions {
@@ -1450,14 +1455,16 @@ enum LogicSelfTests {
             let own = (view.layer?.animation(forKey: SkeletonMotion.animationKey) as? CABasicAnimation).map { [$0] } ?? []
             return view.subviews.reduce(own) { $0 + breaths(in: $1) }
         }
-        func hosted<V: View>(_ root: V) -> [CABasicAnimation] {
+        func hosted<V: View>(_ root: V, shouldBreathe: Bool) throws -> [CABasicAnimation] {
             let view = NSHostingView(rootView: root.frame(width: size.width, height: size.height).background(AppPalette.window.swiftUI))
             view.frame = NSRect(origin: .zero, size: size)
             let host = HeadlessWindow(size: size, scale: 1)
             host.contentView = view
             host.show()
             defer { host.close() }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            try expect(waitUntil {
+                view.window === host && view.layer != nil && (!shouldBreathe || !breaths(in: view).isEmpty)
+            }, "the skeleton view should mount and start its expected motion")
             return breaths(in: view)
         }
         func tracker(_ label: String) -> some View {
@@ -1481,17 +1488,17 @@ enum LogicSelfTests {
         // Forced on here, the real skeletons must hold still, which only a view reading the token can do on a machine without it.
         Motion.reducesMotion = { true }
         defer { Motion.reducesMotion = { false } }
-        try expect(hosted(TerminalAttachSkeleton()).isEmpty, "the terminal's veil holds still under Reduce Motion")
-        try expect(hosted(tracker("connecting to backend...")).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
-        try expect(hosted(settings).isEmpty, "the Settings pickers hold still under Reduce Motion")
+        try expect(try hosted(TerminalAttachSkeleton(), shouldBreathe: false).isEmpty, "the terminal's veil holds still under Reduce Motion")
+        try expect(try hosted(tracker("connecting to backend..."), shouldBreathe: false).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
+        try expect(try hosted(settings, shouldBreathe: false).isEmpty, "the Settings pickers hold still under Reduce Motion")
         Motion.reducesMotion = { false }
 
-        let veil = hosted(TerminalAttachSkeleton())
+        let veil = try hosted(TerminalAttachSkeleton(), shouldBreathe: true)
         try expect(veil.count == 1 && veil[0].duration == SkeletonMotion.period, "the terminal's veil should be one breath, got \(veil.count)")
-        let ghosts = hosted(tracker("connecting to backend..."))
+        let ghosts = try hosted(tracker("connecting to backend..."), shouldBreathe: true)
         try expect(ghosts.count == 1 && ghosts[0].duration == SkeletonMotion.period, "the tracker's ghost plates should be one breath, got \(ghosts.count)")
-        try expect(hosted(tracker("")).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
-        let pickers = hosted(settings)
+        try expect(try hosted(tracker(""), shouldBreathe: false).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
+        let pickers = try hosted(settings, shouldBreathe: true)
         try expect(!pickers.isEmpty && pickers.allSatisfy { $0.duration == SkeletonMotion.period }, "the Settings pickers waiting for options should breathe, got \(pickers.count)")
     }
 
@@ -1848,8 +1855,6 @@ enum LogicSelfTests {
             window.show()
             return (column, top, bottom, window)
         }
-        func settle(_ seconds: TimeInterval = MotionStep.standard.seconds + 0.25) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-
         let (column, top, bottom, window) = makeColumn()
         defer { window.close() }
         column.setPanels(DockPanels(bottom: true), animated: true)
@@ -1861,26 +1866,23 @@ enum LogicSelfTests {
         try expect(column.isTransitioning, "a panel appearing while the dock stays up transitions")
         try expect(!top.isHidden && top.alphaValue == 0, "the new panel starts unseen, got alpha \(top.alphaValue)")
         try expect(top.frame.maxY == 870 && top.frame.height == 300, "and 10 above its slot, got \(top.frame)")
-        settle(MotionStep.standard.seconds / 2)
-        try expect(column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1, "partway it's half in, got alpha \(top.alphaValue)")
-        settle()
-        try expect(!column.isTransitioning, "the transition ends on its own")
+        try expect(waitUntil { column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1 }, "the appearing panel should reach an intermediate state")
+        try expect(waitUntil { !column.isTransitioning }, "the dock's panel transition should finish")
         try expect(top.alphaValue == 1 && top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control ends at its slot, got \(top.frame)")
         try expect(bottom.alphaValue == 1 && bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel ends shrunk under it, got \(bottom.frame)")
 
         column.setPanels(DockPanels(bottom: true), animated: true)
         try expect(column.isTransitioning && !top.isHidden, "a panel going away stays up while it fades")
-        settle()
-        try expect(!column.isTransitioning && top.isHidden, "then it's gone")
+        try expect(waitUntil { !column.isTransitioning && top.isHidden }, "the closing panel should finish fading out")
         try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 860) && bottom.alphaValue == 1, "and the bottom panel fills the dock again, got \(bottom.frame)")
 
         // A new change mid-transition settles the running one first.
         column.setPanels(DockPanels(top: true, bottom: true), animated: true)
-        settle(MotionStep.standard.seconds / 3)
+        try expect(waitUntil { column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1 }, "the dock should be mid-transition before the next change")
         column.setPanels(DockPanels(top: true), animated: true)
         try expect(column.isTransitioning, "the interrupting change starts its own transition")
-        settle()
-        try expect(!column.isTransitioning && bottom.isHidden && top.frame == NSRect(x: 0, y: 0, width: 480, height: 860) && top.alphaValue == 1, "and the dock ends on its latest panels, got \(top.frame)")
+        try expect(waitUntil { !column.isTransitioning }, "the interrupted dock transition should settle on the latest panel")
+        try expect(bottom.isHidden && top.frame == NSRect(x: 0, y: 0, width: 480, height: 860) && top.alphaValue == 1, "and the dock ends on its latest panels, got \(top.frame)")
 
         let (still, stillTop, stillBottom, stillWindow) = makeColumn()
         defer { stillWindow.close() }
@@ -2358,12 +2360,10 @@ enum LogicSelfTests {
         let windowSize = window.frame.size
         window.show()
         defer { window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.3)) }
-        settle()
         try expect(host.isHidden, "the modal host should stay hidden, and out of the way of clicks, while nothing is presented")
 
         holder.item = Item(id: "a")
-        settle()
+        try expect(waitUntil { stack.entries.count == 1 && !host.isHidden && window.firstResponder === host }, "the in-window modal should mount and take focus")
         try expect(window.attachedSheet == nil, "presenting should not attach a system sheet window")
         try expect(stack.entries.count == 1, "presenting should push one in-window modal, got \(stack.entries.count)")
         try expect(!host.isHidden, "the modal host should show while a modal is presented")
@@ -2375,7 +2375,7 @@ enum LogicSelfTests {
         try expect(stack.isEmpty, "a dismissed modal should stop counting as open at once, so keys go back underneath")
         try expect(stack.entries.count == 1 && stack.entries[0].closing, "a dismissed modal should stay mounted, closing, while it fades out")
         try expect(!host.isHidden, "the host should stay visible until the fade-out ends")
-        settle()
+        try expect(waitUntil { stack.entries.isEmpty && host.isHidden }, "the modal fade-out should finish and hide the host")
         try expect(stack.entries.isEmpty && host.isHidden, "once the fade-out ends the stack should empty and the host hide")
     }
 
@@ -2433,16 +2433,14 @@ enum LogicSelfTests {
         let windowSize = window.frame.size
         window.show(key: true)
         defer { window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
         func pressEsc() {
             guard let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) else {
                 return
             }
             NSApp.sendEvent(esc)
-            settle()
         }
         window.makeFirstResponder(terminal)
-        settle()
+        try expect(waitUntil { window.firstResponder === terminal }, "the terminal should start with the keys")
 
         store.open()
         stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { command in
@@ -2452,7 +2450,7 @@ enum LogicSelfTests {
             store.close()
             stack.dismiss(id: QuestLogModal.stackID)
         }))
-        settle()
+        try expect(waitUntil { stack.top?.kind == .questLog && window.firstResponder === host }, "the Quest Log should mount and take focus")
         try expect(stack.top?.kind == .questLog, "the Quest Log should be an entry on the modal stack")
         try expect(window.firstResponder === host, "the open Quest Log should hold the keys, not the terminal")
         try expect(stack.route(.newSession) == .ignored && stack.route(.settings) == .ignored, "a global New Session or Settings over the Quest Log should be ignored")
@@ -2460,22 +2458,25 @@ enum LogicSelfTests {
 
         // Send forth's New Session: a child the log opens itself goes on top, and Esc closes it first.
         newSession.present(initialPath: "/tmp", mutationClient: StubMutationClient(result: .failure(TestFailure("unused"))), directoryClient: nil, onSuccess: { _ in })
-        settle()
+        try expect(waitUntil { stack.entries.count == 2 && stack.entries.last?.kind == .other }, "New Session should mount over the Quest Log")
         try expect(stack.entries.count == 2 && stack.entries.last?.kind == .other, "the child should draw on top of the Quest Log, got \(stack.entries.map(\.kind))")
         try expect(stack.route(.toggleQuestLog) == .ignored, "the Quest Log's toggle should do nothing while a child is on top")
         pressEsc()
+        try expect(waitUntil { newSession.presentation == nil && stack.entries.count == 1 }, "Esc should finish closing the child modal")
         try expect(newSession.presentation == nil, "the first Esc should close the child on top")
         try expect(store.isOpen && stack.top?.kind == .questLog, "the first Esc should leave the Quest Log open")
 
         // ⌘T over the log: New Quest opens as its child, and Esc closes it alone.
         try expect(stack.route(.newQuest) == .child, "⌘T over the Quest Log should open New Quest as its child")
         newQuest.item = Item(id: "new-quest")
-        settle()
+        try expect(waitUntil { stack.entries.count == 2 && stack.entries.last?.kind == .other }, "New Quest should mount over the Quest Log")
         try expect(stack.entries.last?.kind == .other && stack.entries.filter { !$0.closing }.count == 2, "New Quest should open on top of the Quest Log")
         pressEsc()
+        try expect(waitUntil { newQuest.item == nil && stack.entries.count == 1 }, "Esc should finish closing New Quest")
         try expect(newQuest.item == nil && store.isOpen, "Esc should close New Quest and leave the Quest Log open")
 
         pressEsc()
+        try expect(waitUntil { !store.isOpen && stack.entries.isEmpty && host.isHidden && window.firstResponder === terminal }, "the Quest Log should close and restore terminal focus")
         try expect(!store.isOpen, "the next Esc should close the Quest Log")
         try expect(stack.entries.isEmpty && host.isHidden, "once every modal has faded out the host should hide")
         try expect(window.firstResponder === terminal, "focus should go back to the terminal, got \(String(describing: window.firstResponder))")
@@ -2537,7 +2538,6 @@ enum LogicSelfTests {
             host.onEmpty = { coordinator.focusCurrentRegion() }
             window.show(key: true)
             defer { window.close() }
-            func settle(_ seconds: TimeInterval = 0.4) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
             var responders: [NSResponder?] = []
             let observation = window.observe(\.firstResponder, options: [.new]) { window, _ in
                 MainActor.assumeIsolated { responders.append(window.firstResponder) }
@@ -2545,7 +2545,7 @@ enum LogicSelfTests {
             defer { observation.invalidate() }
 
             coordinator.focus(.terminal)
-            settle()
+            try expect(waitUntil { window.firstResponder === terminal.view }, "\(start): the terminal should take focus before the sheet opens")
             let id = UUID()
             var summoned: String?
             let presentation = NewSessionSheetPresentation(
@@ -2563,9 +2563,13 @@ enum LogicSelfTests {
                 }
             )
             stack.present(id: id, AnyView(NewSessionSheetView(presentation: presentation, dismiss: { stack.dismiss(id: id) })))
-            settle()
-            let holder = String(describing: window.firstResponder.map { type(of: $0) })
             let expected = start == .prompt ? "ModalPromptEditorTextView" : "SinkView"
+            try expect(waitUntil {
+                let holder = String(describing: window.firstResponder.map { type(of: $0) })
+                return !host.isHidden && holder.contains(expected)
+                    && subviews(of: host).contains { $0 is SheetKeyEventMonitor.MonitorView }
+            }, "\(start): the sheet should mount its key monitor and focus \(expected)")
+            let holder = String(describing: window.firstResponder.map { type(of: $0) })
             try expect(holder.contains(expected), "\(start): the sheet should start with \(expected) focused, got \(holder)")
 
             // ⌘Return, through the sheet's own key handler, as the user summons.
@@ -2574,9 +2578,11 @@ enum LogicSelfTests {
             }
             let submitted = responders.count
             _ = monitor.onKeyDown(try keyEvent("\r", keyCode: 36, modifierFlags: .command))
-            settle(0.6)
+            // Keep the run loop active past the fade and delayed focus restores to catch a late sheet responder.
+            func observeFocusFor(_ seconds: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+            observeFocusFor(0.6)
             for _ in 0..<5 {
-                settle(0.05)
+                observeFocusFor(0.05)
             }
             try expect(summoned == "qm-new", "\(start): Summon should succeed, got \(String(describing: summoned))")
             try expect(stack.entries.isEmpty && host.isHidden, "\(start): the sheet should be gone")
@@ -2647,25 +2653,23 @@ enum LogicSelfTests {
         host.onEmpty = { coordinator.focusCurrentRegion() }
         window.show(key: true)
         defer { window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
-        func presentModal() {
+        func presentModal() throws {
             stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
-            settle()
+            try expect(waitUntil { !host.isHidden && window.firstResponder === host }, "the modal should mount and take focus")
         }
         coordinator.focus(.tracker)
-        settle()
-        try expect(window.firstResponder === tracker, "the tracker should start with the keys")
+        try expect(waitUntil { window.firstResponder === tracker }, "the tracker should start with the keys")
 
         // New Session's Summon: close(), then onSuccess's switchTerminal focuses the new terminal at once.
-        presentModal()
+        try presentModal()
         stack.dismiss(id: "modal")
         coordinator.focusTerminal()
         try expect(window.firstResponder === host, "a focus request during the fade-out should leave the keys on the host")
-        settle()
+        try expect(waitUntil { stack.entries.isEmpty && window.firstResponder === terminal.view }, "the terminal should take focus after the modal fades")
         try expect(window.firstResponder === terminal.view, "after Summon the terminal should have the keys, got \(String(describing: window.firstResponder))")
 
         coordinator.focus(.tracker)
-        presentModal()
+        try presentModal()
         coordinator.focusTerminal()
         try expect(window.firstResponder === host, "focusing the terminal (⌥⌘2, a session switch) under a modal should leave the keys on it, got \(String(describing: window.firstResponder))")
         coordinator.focusRegionLeft()
@@ -2673,7 +2677,7 @@ enum LogicSelfTests {
         try expect(navigation.focusedRegion == .tracker, "the region move should still update navigation")
         coordinator.focusTerminal()
         stack.dismiss(id: "modal")
-        settle()
+        try expect(waitUntil { stack.entries.isEmpty && window.firstResponder === terminal.view }, "the last focus request should take effect after the modal fades")
         try expect(window.firstResponder === terminal.view, "the last request should take the keys once the modal has faded, got \(String(describing: window.firstResponder))")
     }
 
@@ -2716,7 +2720,6 @@ enum LogicSelfTests {
         host.onDrawingChange = { coordinator.updateRegionKeys() }
         window.show(key: true)
         defer { window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
 
         coordinator.focus(.dock)
         try expect(dock.isFocused, "the dock's frame should lift while the dock has focus")
@@ -2725,19 +2728,19 @@ enum LogicSelfTests {
 
         coordinator.focus(.dock)
         stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
-        settle()
+        try expect(waitUntil { !dock.isFocused }, "a modal should drop the focused dock's frame")
         try expect(!dock.isFocused, "a modal over the focused dock should drop its frame")
         stack.dismiss(id: "modal")
-        settle()
+        try expect(waitUntil { dock.isFocused }, "the focused dock should lift its frame after the modal fades")
         try expect(dock.isFocused, "the frame should lift again once the modal has faded")
 
         coordinator.focus(.tracker)
         stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
-        settle()
+        try expect(waitUntil { !dock.isFocused }, "a modal should keep the unfocused dock's frame down")
         coordinator.focus(.dock)
         try expect(!dock.isFocused, "a dock focus request deferred under a modal should not light the frame")
         stack.dismiss(id: "modal")
-        settle()
+        try expect(waitUntil { dock.isFocused }, "the deferred dock focus should light after the modal fades")
         try expect(dock.isFocused, "the deferred dock focus should light the frame once the modal has faded")
     }
 
@@ -2754,12 +2757,11 @@ enum LogicSelfTests {
         window.contentView = host
         window.show(key: true)
         defer { window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
         store.open()
         stack.presentQuestLog(QuestLogModal(store: store, filter: filter, pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
-        settle()
+        try expect(waitUntil { !host.isHidden && window.firstResponder === host && findKeyField(in: host) != nil }, "the Quest Log filter should mount under its modal")
         filter.focus()
-        settle()
+        try expect(waitUntil { (window.firstResponder as? NSTextView)?.isFieldEditor == true }, "the filter should take focus")
         guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
             throw TestFailure("the filter should take focus, got \(String(describing: window.firstResponder))")
         }
@@ -2768,10 +2770,12 @@ enum LogicSelfTests {
         let field = editor.delegate as? NSTextField
 
         stack.present(id: "new-quest", AnyView(Color.clear.frame(width: 120, height: 80)))
-        settle()
+        try expect(waitUntil { stack.entries.count == 2 && window.firstResponder === host }, "the child should mount over the filter")
         try expect(window.firstResponder === host, "the child should take the keys from the filter")
         stack.dismiss(id: "new-quest")
-        settle()
+        try expect(waitUntil {
+            stack.entries.count == 1 && (window.firstResponder as? NSTextView)?.isFieldEditor == true
+        }, "the filter should regain focus after the child closes")
         guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor, restored.delegate as? NSTextField === field else {
             throw TestFailure("closing the child should refocus the filter, got \(String(describing: window.firstResponder))")
         }
@@ -2790,12 +2794,11 @@ enum LogicSelfTests {
         window.contentView = host
         window.show(key: true)
         defer { window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
         store.open()
         stack.presentQuestLog(QuestLogModal(store: store, filter: filter, pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
-        settle()
+        try expect(waitUntil { !host.isHidden && window.firstResponder === host && findKeyField(in: host) != nil }, "the Quest Log filter should mount under its modal")
         filter.focus()
-        settle()
+        try expect(waitUntil { (window.firstResponder as? NSTextView)?.isFieldEditor == true }, "the filter should take focus")
         guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
             throw TestFailure("the filter should take focus, got \(String(describing: window.firstResponder))")
         }
@@ -2803,9 +2806,11 @@ enum LogicSelfTests {
         editor.setSelectedRange(NSRange(location: 1, length: 2))
 
         stack.present(id: "new-quest", AnyView(Color.clear.frame(width: 120, height: 80)))
-        settle()
+        try expect(waitUntil { stack.entries.count == 2 && window.firstResponder === host }, "the child should mount over the filter")
         stack.dismiss(id: "new-quest")
-        settle()
+        try expect(waitUntil {
+            stack.entries.count == 1 && (window.firstResponder as? NSTextView)?.isFieldEditor == true
+        }, "the filter should regain focus after the child closes")
         guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor else {
             throw TestFailure("closing the child should refocus the filter, got \(String(describing: window.firstResponder))")
         }
@@ -2827,9 +2832,8 @@ enum LogicSelfTests {
         window.contentView = container
         window.show(key: true)
         defer { window.close() }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.4)) }
-        settle()
         window.makeFirstResponder(field)
+        try expect(waitUntil { field.currentEditor() != nil }, "the field editor should mount before typing")
         guard let editor = field.currentEditor() as? NSTextView else {
             throw TestFailure("the field should take focus")
         }
@@ -2837,10 +2841,10 @@ enum LogicSelfTests {
         editor.setSelectedRange(NSRange(location: 1, length: 0))
 
         stack.present(id: "modal", AnyView(Color.clear.frame(width: 120, height: 80)))
-        settle()
+        try expect(waitUntil { window.firstResponder === host }, "the modal should take focus from the field")
         try expect(window.firstResponder === host, "the modal should take the keys from the field")
         stack.dismiss(id: "modal")
-        settle()
+        try expect(waitUntil { stack.entries.isEmpty && (window.firstResponder as? NSTextView)?.isFieldEditor == true }, "the field should regain focus after the last modal fades")
         guard let restored = window.firstResponder as? NSTextView, restored.isFieldEditor, restored.delegate as? NSTextField === field else {
             throw TestFailure("the last modal fading should refocus the field, got \(String(describing: window.firstResponder))")
         }
@@ -2864,7 +2868,14 @@ enum LogicSelfTests {
         defer { window.close() }
         store.open()
         stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: QuestLogPageScroll(), onCommand: { _ in }))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        try expect(waitUntil {
+            !hasAnimations(in: host.layer) && scrollViews(in: host).contains { list in
+                guard let height = list.documentView?.frame.height else {
+                    return false
+                }
+                return height > list.contentView.bounds.height && list.contentView.bounds.origin.y > 0
+            }
+        }, "the Quest Log should finish laying out and scroll to the kept selection")
         let list = scrollViews(in: host).min { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }
         guard let list, let height = list.documentView?.frame.height, height > list.contentView.bounds.height else {
             throw TestFailure("the 40-quest list should overflow its scroll view")
@@ -2886,20 +2897,15 @@ enum LogicSelfTests {
         defer { window.close() }
         var reported: [Bool] = []
         field.onFirstResponderChange = { reported.append($0) }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.15)) }
-        settle()
 
         window.makeFirstResponder(field)
-        settle()
-        try expect(reported.last == true && field.hasFocus, "taking focus should light the field, reported \(reported)")
+        try expect(waitUntil { reported.last == true && field.hasFocus }, "taking focus should light the field")
         window.makeFirstResponder(nil)
-        settle()
-        try expect(reported.last == false && !field.hasFocus, "Esc (focus to nil) should clear it, reported \(reported)")
+        try expect(waitUntil { reported.last == false && !field.hasFocus }, "Esc (focus to nil) should clear the field")
         window.makeFirstResponder(field)
-        settle()
+        try expect(waitUntil { reported.last == true && field.hasFocus }, "the field should light when it takes focus again")
         window.makeFirstResponder(other)
-        settle()
-        try expect(reported.last == false && !field.hasFocus, "focus moving elsewhere should clear it, reported \(reported)")
+        try expect(waitUntil { reported.last == false && !field.hasFocus }, "focus moving elsewhere should clear the field")
     }
 
     /// The shell rows as the tracker mock lays them out, measured on the rendered section: 35 tall with no gap, each as
@@ -2927,6 +2933,7 @@ enum LogicSelfTests {
             window.contentView = view
             window.show()
             defer { window.close() }
+            // `cacheDisplay` needs the hosted SwiftUI tree's first draw, which has no completion signal.
             RunLoop.main.run(until: Date().addingTimeInterval(0.6))
             guard let bitmap = NSBitmapImageRep(
                 bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
@@ -2987,7 +2994,7 @@ enum LogicSelfTests {
         let size: CGSize
 
         @MainActor
-        init(masters: Int, shells: Int, viewed: String, height: Int) {
+        init(masters: Int, shells: Int, viewed: String, height: Int) throws {
             func session(_ id: String, role: String) -> TrackerSession {
                 TrackerSession(id: id, title: id, repoName: "Repo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
             }
@@ -3009,10 +3016,11 @@ enum LogicSelfTests {
             window = HeadlessWindow(size: size, scale: 1)
             window.contentView = view
             window.show()
-            settle()
+            let shellSectionHeight = min(CGFloat(shells) * TrackerShellMetrics.rowHeight, TrackerShellMetrics.maxHeight)
+            try expect(LogicSelfTests.waitUntil { scrollView(height: shellSectionHeight) != nil }, "the tracker shell section should finish laying out")
         }
 
-        func settle(_ seconds: TimeInterval = 0.8) {
+        func observePointerMove(_ seconds: TimeInterval) {
             RunLoop.main.run(until: Date().addingTimeInterval(seconds))
         }
 
@@ -3089,7 +3097,7 @@ enum LogicSelfTests {
         let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
         let rowHeight = Int(TrackerShellMetrics.rowHeight)
         func probe(masters: Int, shells: Int, viewed: String) throws -> PixelProbe {
-            let fixture = TrackerFixture(masters: masters, shells: shells, viewed: viewed, height: height)
+            let fixture = try TrackerFixture(masters: masters, shells: shells, viewed: viewed, height: height)
             defer { fixture.close() }
             return try fixture.probe()
         }
@@ -3128,7 +3136,7 @@ enum LogicSelfTests {
 
         // First render with the last shell viewed: it is in view, at the section's bottom, and the section is 175 tall (the
         // row above its first visible one starts at its top, and the band above it is clear).
-        let last = TrackerFixture(masters: 14, shells: shells, viewed: "shell-13", height: height)
+        let last = try TrackerFixture(masters: 14, shells: shells, viewed: "shell-13", height: height)
         defer { last.close() }
         let lastProbe = try last.probe()
         try expect(lastProbe.filledShellRows.last == bottom && lastProbe.filledShellRows.suffix(rowHeight).first == bottom - rowHeight + 1,
@@ -3144,7 +3152,7 @@ enum LogicSelfTests {
         try expect(abs(offsetFromTop(lastScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the first render should have scrolled to the last row, got \(offsetFromTop(lastScroll))")
 
         // The last shell is reachable by scrolling: from the top, the section scrolls down to it.
-        let first = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        let first = try TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
         defer { first.close() }
         guard let firstScroll = first.scrollView(height: TrackerShellMetrics.maxHeight) else {
             throw TestFailure("no 175pt scroll view when the first shell is viewed")
@@ -3157,21 +3165,21 @@ enum LogicSelfTests {
         try expect(abs(offsetFromTop(firstScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the section should scroll down to its last row")
 
         // The cursor follows the viewed session: onto the last shell, by the keys' way, the section scrolls the least it takes.
-        let moved = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        let moved = try TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
         defer { moved.close() }
-        moved.store.setCurrentTerminalSessionID("shell-13")
-        moved.settle()
         guard let movedScroll = moved.scrollView(height: TrackerShellMetrics.maxHeight) else {
             throw TestFailure("no 175pt scroll view after the viewed session moved")
         }
+        moved.store.setCurrentTerminalSessionID("shell-13")
+        try expect(waitUntil { abs(offsetFromTop(movedScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5 }, "the viewed last shell should scroll into view")
         try expect(abs(offsetFromTop(movedScroll) - (contentHeight - TrackerShellMetrics.maxHeight)) < 0.5, "the cursor onto the last shell should scroll it into view, got \(offsetFromTop(movedScroll))")
 
         // A cursor the pointer moved is already under it: no scroll.
-        let hovered = TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
+        let hovered = try TrackerFixture(masters: 14, shells: shells, viewed: "shell-0", height: height)
         defer { hovered.close() }
         PointerHighlight.cursor.pointerMoved(to: "shell-13")
         hovered.store.setCurrentTerminalSessionID("shell-13")
-        hovered.settle()
+        hovered.observePointerMove(0.8)
         guard let hoveredScroll = hovered.scrollView(height: TrackerShellMetrics.maxHeight) else {
             throw TestFailure("no 175pt scroll view after the pointer moved the cursor")
         }
@@ -3183,35 +3191,45 @@ enum LogicSelfTests {
     /// starts 10 under the header's band, and the next 20 under it. Each is found as the `line`-coloured border rows
     /// in one pixel column.
     private static func testRenderedSpacingStaysOnTheScale() throws {
-        func borderRows(_ view: NSView, size: CGSize, x: Int) throws -> [Int] {
+        func borderRows(_ view: NSView, size: CGSize, x: Int, startingAt startY: Int = 0, atLeast count: Int) throws -> [Int] {
             view.frame = NSRect(origin: .zero, size: size)
             let window = HeadlessWindow(size: size, scale: 1)
             window.contentView = view
             window.show()
             defer { window.close() }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-            guard let bitmap = NSBitmapImageRep(
-                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
-                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-            ), let line = AppPalette.line.usingColorSpace(.deviceRGB) else {
+            guard let line = AppPalette.line.usingColorSpace(.deviceRGB) else {
                 throw TestFailure("could not make a bitmap")
             }
-            bitmap.size = size
-            view.cacheDisplay(in: view.bounds, to: bitmap)
-            return (0..<Int(size.height)).filter { y in
-                guard let pixel = bitmap.colorAt(x: x, y: y) else {
-                    return false
+            func capture() -> [Int]? {
+                guard let bitmap = NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+                ) else {
+                    return nil
                 }
-                return abs(pixel.redComponent - line.redComponent) < 0.01
-                    && abs(pixel.greenComponent - line.greenComponent) < 0.01
-                    && abs(pixel.blueComponent - line.blueComponent) < 0.01
+                bitmap.size = size
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                return (0..<Int(size.height)).filter { y in
+                    guard let pixel = bitmap.colorAt(x: x, y: y) else {
+                        return false
+                    }
+                    return abs(pixel.redComponent - line.redComponent) < 0.01
+                        && abs(pixel.greenComponent - line.greenComponent) < 0.01
+                        && abs(pixel.blueComponent - line.blueComponent) < 0.01
+                }
             }
+            var rendered: [Int] = []
+            try expect(waitUntil {
+                rendered = capture() ?? []
+                return rendered.filter { $0 >= startY }.count >= count
+            }, "at least \(count) spacing border pixels should render at x \(x) from row \(startY)")
+            return rendered
         }
 
         // Inside the tile, past its 5pt corner and clear of its glyph: the gutter, the tile's inset, and 6.
         let tileColumn = Int(Space.section + Space.item) + 6
         let pane = CGSize(width: 480, height: 1015)
-        let paneRows = try borderRows(RenderPreview.artifactPaneView(highlight: nil), size: pane, x: tileColumn)
+        let paneRows = try borderRows(RenderPreview.artifactPaneView(highlight: nil), size: pane, x: tileColumn, atLeast: 22)
         // The tiles are the last borders down the column: a top and a bottom edge each, the eleven fixture rows.
         let tiles = Array(paneRows.suffix(22))
         try expect(tiles.count == 22, "the artifact tiles' borders should show in the column, got rows \(paneRows)")
@@ -3231,7 +3249,7 @@ enum LogicSelfTests {
                 FormTextField(text: .constant(""), placeholder: "Second", focusNonce: 0, focused: false)
             }
         }.background(AppPalette.panel.swiftUI))
-        let fieldEdges = try borderRows(form, size: formSize, x: fieldColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        let fieldEdges = try borderRows(form, size: formSize, x: fieldColumn, startingAt: Int(ModalSheetHeader.height), atLeast: 2)
         try expect(fieldEdges.first == Int(ModalSheetHeader.height + Space.item), "the first field should start 10 under the header's band, got rows \(fieldEdges)")
         let secondTop = Int(ModalFormMetrics.contentTop + FormFieldMetrics.height + ModalFormMetrics.fieldSpacing)
         try expect(fieldEdges.contains(secondTop) && !fieldEdges.contains(secondTop - 1), "the second field should start 20 under the first, got rows \(fieldEdges)")
@@ -3249,10 +3267,10 @@ enum LogicSelfTests {
         }.background(AppPalette.panel.swiftUI))
         let rowTop = Int(ModalFormMetrics.contentTop)
         let discColumn = Int(ModalFormMetrics.inset + SessionPortraitMetrics.sheetDiameter / 2)
-        let discRows = try borderRows(titleForm, size: titleSize, x: discColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        let discRows = try borderRows(titleForm, size: titleSize, x: discColumn, startingAt: Int(ModalSheetHeader.height), atLeast: 2)
         try expect(discRows.first == rowTop && discRows.contains(rowTop + 39), "the portrait disc should be 40 high from the row's top, got rows \(discRows)")
         let titleColumn = Int(ModalFormMetrics.inset + SessionPortraitMetrics.sheetDiameter + Space.item + Space.section)
-        let titleRows = try borderRows(titleForm, size: titleSize, x: titleColumn).filter { CGFloat($0) >= ModalSheetHeader.height }
+        let titleRows = try borderRows(titleForm, size: titleSize, x: titleColumn, startingAt: Int(ModalSheetHeader.height), atLeast: 2)
         try expect(titleRows.first == rowTop && titleRows.contains(rowTop + Int(FormFieldMetrics.height) - 1), "the title field should be 35 high from the row's top, got rows \(titleRows)")
         let nextTop = rowTop + Int(SessionPortraitMetrics.sheetDiameter + ModalFormMetrics.fieldSpacing)
         try expect(titleRows.contains(nextTop) && !titleRows.contains(nextTop - 1), "the next field should start 20 under the disc, got rows \(titleRows)")
@@ -3269,19 +3287,30 @@ enum LogicSelfTests {
             window.contentView = view
             window.show()
             defer { window.close() }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
-            guard let bitmap = NSBitmapImageRep(
-                bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
-                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
-            ) else {
-                throw TestFailure("could not make a bitmap")
+            func capture() -> CGFloat? {
+                guard let bitmap = NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8, samplesPerPixel: 4,
+                    hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+                ) else {
+                    return nil
+                }
+                bitmap.size = size
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                guard let shadowed = bitmap.colorAt(x: Int(probe.x), y: Int(probe.y)),
+                      let bare = bitmap.colorAt(x: 2, y: 2), bare.redComponent > 0 else {
+                    return nil
+                }
+                return shadowed.redComponent / bare.redComponent
             }
-            bitmap.size = size
-            view.cacheDisplay(in: view.bounds, to: bitmap)
-            guard let shadowed = bitmap.colorAt(x: Int(probe.x), y: Int(probe.y)), let bare = bitmap.colorAt(x: 2, y: 2), bare.redComponent > 0 else {
-                throw TestFailure("could not read the render")
-            }
-            return shadowed.redComponent / bare.redComponent
+            var darkness: CGFloat = .infinity
+            try expect(waitUntil {
+                guard let value = capture() else {
+                    return false
+                }
+                darkness = value
+                return value < 0.92
+            }, "the panel shadow should render under its clipped edge")
+            return darkness
         }
 
         let margin = Space.group + Space.section
@@ -3446,14 +3475,13 @@ enum LogicSelfTests {
                 let window = HeadlessWindow(size: size, scale: scale)
                 window.contentView = view
                 window.show(key: true)
-                RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                try expect(waitUntil { findKeyField(in: view) != nil }, "the title field should mount at \(scale)x")
                 if focused {
                     guard let field = findKeyField(in: view) else {
                         throw TestFailure("no title text field")
                     }
                     field.focusEditorAtEnd()
-                    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-                    try expect(field.currentEditor() != nil, "the title field should be editing")
+                    try expect(waitUntil { field.currentEditor() != nil }, "the title field should become editable at \(scale)x")
                 }
                 return (model, view, window)
             }
@@ -3476,8 +3504,14 @@ enum LogicSelfTests {
                 defer { row.window.close() }
                 let before = try measure(row.view)
                 let editorBefore = editorBaseline(row.view)
+                let fieldWidthBefore = findKeyField(in: row.view)?.frame.width
                 row.model.label = "Paladin"
-                RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+                try expect(waitUntil {
+                    guard let fieldWidthBefore, let field = findKeyField(in: row.view) else {
+                        return false
+                    }
+                    return abs(field.frame.width - fieldWidthBefore) > 0.5
+                }, "the class segment should relayout the title field at \(scale)x")
                 let after = try measure(row.view)
                 let editorAfter = editorBaseline(row.view)
                 let label = "\(scale)x \(name)"
@@ -3531,7 +3565,7 @@ enum LogicSelfTests {
             window.contentView = view
             window.show(key: true)
             defer { window.close() }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+            try expect(waitUntil { editingField(in: view) != nil }, "the Edit Session title should begin editing at \(scale)x")
             func baseline() throws -> (y: CGFloat, width: CGFloat) {
                 guard let field = editingField(in: view), let editor = field.currentEditor() as? NSTextView,
                       let y = firstLineBaseline(of: editor, in: view) else {
@@ -3548,7 +3582,12 @@ enum LogicSelfTests {
                 throw TestFailure("could not make a ⌃e key event")
             }
             NSApp.sendEvent(controlE)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            try expect(waitUntil {
+                guard let field = editingField(in: view) else {
+                    return false
+                }
+                return before.width - field.frame.width > 5
+            }, "⌃e should finish widening the class segment at \(scale)x")
             let after = try baseline()
             try expect(before.width - after.width > 5, "⌃e should widen the class segment and narrow the title field at \(scale)x, got \(before.width) to \(after.width)")
             try expect(before.y == after.y, "the Edit Session title's text should not move when ⌃e cycles the class at \(scale)x, baseline \(before.y) to \(after.y)")
@@ -3580,14 +3619,13 @@ enum LogicSelfTests {
                     let window = HeadlessWindow(size: size, scale: scale)
                     window.contentView = view
                     window.show(key: true)
-                    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+                    try expect(waitUntil { findKeyField(in: view) != nil }, "the filter field should mount for \(name)")
                     if focused {
                         guard let field = findKeyField(in: view) else {
                             throw TestFailure("no filter text field")
                         }
                         field.focusEditorAtEnd()
-                        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-                        try expect(field.currentEditor() != nil, "the filter field should be editing")
+                        try expect(waitUntil { field.currentEditor() != nil }, "the filter field should become editable for \(name)")
                     }
                     return (view, window)
                 }
@@ -3655,7 +3693,7 @@ enum LogicSelfTests {
             window.contentView = hosting
             window.show()
             defer { window.close() }
-            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            try expect(waitUntil { fields(in: hosting).contains(where: \.isEditable) }, "\(name): an editable text field should mount")
             let found = fields(in: hosting).filter { $0.isEditable }
             try expect(!found.isEmpty, "\(name): no editable text field found")
             for field in found {
@@ -3701,15 +3739,31 @@ enum LogicSelfTests {
         let pageScroll = QuestLogPageScroll()
         store.open()
         stack.presentQuestLog(QuestLogModal(store: store, filter: QuestLogFilter(), pageScroll: pageScroll, onCommand: { _ in }))
-        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
 
         // The page's middle, in the host's coordinates: the 900 x 780 log is centred, its page 473 wide at (397, 40).
         let logOrigin = NSPoint(x: (1000 - 900) / 2, y: (860 - 780) / 2)
         let pageMiddle = NSPoint(x: logOrigin.x + 397 + 236, y: host.bounds.height - (logOrigin.y + 40 + 330))
-        guard let hit = host.hitTest(host.superview?.convert(pageMiddle, from: host) ?? pageMiddle) else {
+        func pageHit() -> NSView? {
+            host.hitTest(host.superview?.convert(pageMiddle, from: host) ?? pageMiddle)
+        }
+        func pageScrollView() -> NSScrollView? {
+            guard let hit = pageHit() else {
+                return nil
+            }
+            return hit as? NSScrollView ?? hit.enclosingScrollView
+        }
+        try expect(waitUntil {
+            guard !hasAnimations(in: host.layer),
+                  let scrollView = pageScrollView(),
+                  let documentView = scrollView.documentView else {
+                return false
+            }
+            return documentView.frame.height > scrollView.contentView.bounds.height && pageScroll.moreBelow
+        }, "the Quest Log page should finish opening and lay out its overflowing scroll view before wheel input")
+        guard let hit = pageHit() else {
             throw TestFailure("nothing under the page takes the wheel")
         }
-        guard let scrollView = hit as? NSScrollView ?? hit.enclosingScrollView else {
+        guard let scrollView = pageScrollView() else {
             throw TestFailure("the page hit-tests to \(type(of: hit)), not into a scroll view")
         }
         let documentHeight = scrollView.documentView?.frame.height ?? 0
@@ -3721,18 +3775,15 @@ enum LogicSelfTests {
         try expect(pageScroll.moreBelow, "an overflowing page should show the cue that more ink lies below")
         let before = scrollView.contentView.bounds.origin.y
         hit.scrollWheel(with: wheel)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        try expect(scrollView.contentView.bounds.origin.y != before, "the wheel should scroll the page (offset stayed \(before))")
+        try expect(waitUntil { scrollView.contentView.bounds.origin.y != before }, "the wheel should scroll the Quest Log page (offset stayed \(before))")
 
         // The page keys (PageDown and friends) go through the same scroller; past the end, the cue goes away.
         let afterWheel = scrollView.contentView.bounds.origin.y
         pageScroll.scroll(byPages: 0.5)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
-        try expect(scrollView.contentView.bounds.origin.y > afterWheel, "a half-page key should scroll further down")
+        try expect(waitUntil { scrollView.contentView.bounds.origin.y > afterWheel }, "a half-page key should scroll the Quest Log further down")
         pageScroll.scroll(byPages: 50)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         let maxOffset = documentHeight - scrollView.contentView.bounds.height
-        try expect(abs(scrollView.contentView.bounds.origin.y - maxOffset) < 1, "scrolling past the end should stop at the bottom")
+        try expect(waitUntil { abs(scrollView.contentView.bounds.origin.y - maxOffset) < 1 }, "scrolling past the end should stop at the bottom of the Quest Log")
         try expect(!pageScroll.moreBelow, "at the bottom the overflow cue should go away")
     }
 
@@ -3748,7 +3799,6 @@ enum LogicSelfTests {
         window.contentView = host
         window.show()
         defer { window.close() }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
 
         QuestLogDebug.parchmentDraws = 0
         store.open()
@@ -3761,7 +3811,7 @@ enum LogicSelfTests {
         stack.dismiss(id: QuestLogModal.stackID)
         RunLoop.main.run(until: Date().addingTimeInterval(MotionStep.fast.seconds / 3))
         try expect(!host.isHidden, "the Quest Log should stay visible while it fades out")
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        try expect(waitUntil { host.isHidden }, "the Quest Log host should hide when its fade-out finishes")
         try expect(host.isHidden, "the Quest Log host should hide once the fade-out ends")
     }
 
@@ -5274,6 +5324,13 @@ enum LogicSelfTests {
             pump(0.005)
         }
         return true
+    }
+
+    private static func hasAnimations(in layer: CALayer?) -> Bool {
+        guard let layer else {
+            return false
+        }
+        return !(layer.animationKeys() ?? []).isEmpty || (layer.sublayers ?? []).contains { hasAnimations(in: $0) }
     }
 
     private static func hasGlide(_ view: NSView) -> Bool {
