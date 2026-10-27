@@ -83,11 +83,16 @@ enum Motion {
         #endif
     }()
 
-    /// The Core Animation and AppKit form of the shared easing.
-    static let timingFunction: CAMediaTimingFunction = {
-        let curve = MotionEasing.controlPoints
-        return CAMediaTimingFunction(controlPoints: Float(curve.x1), Float(curve.y1), Float(curve.x2), Float(curve.y2))
-    }()
+    /// The Core Animation and AppKit form of the one-shot easing.
+    static let timingFunction = makeTimingFunction(MotionEasing.controlPoints)
+
+    /// The Core Animation form of the breathing easing: a continuous animation's up-and-back (the pulses). A one-shot
+    /// takes `timingFunction`, never this.
+    static let breathingTimingFunction = makeTimingFunction(MotionEasing.breathingControlPoints)
+
+    private static func makeTimingFunction(_ curve: (x1: Double, y1: Double, x2: Double, y2: Double)) -> CAMediaTimingFunction {
+        CAMediaTimingFunction(controlPoints: Float(curve.x1), Float(curve.y1), Float(curve.x2), Float(curve.y2))
+    }
 
     /// How long `step` runs, in seconds: 0 under Reduce Motion. A Core Animation animation must not take this as its
     /// duration (0 means the default there); it skips itself when `reducesMotion()`.

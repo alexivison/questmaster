@@ -6,24 +6,21 @@ import Foundation
 /// - raw-duration: no number literal as an animation's duration or delay (`duration: 0.2`, `.duration = 0.18`,
 ///   `.delay(0.1)`, `setAnimationDuration(0.3)`), and no SwiftUI curve built outside the token layer (`.easeOut`,
 ///   `.snappy`, `.spring` … in `withAnimation`, `.animation` or an `Animation` value), which carry a default duration
-///   of their own. 0 is allowed. A line that repeats forever is a continuous animation (a skeleton's pulse), which keeps
-///   its own period and is out of the rule.
+///   of their own. 0 is allowed. A SwiftUI animation chained straight into `.repeatForever` on the same line is a
+///   continuous one (the skeletons' pulse), which keeps its own period; that is the rule's only exception, and it goes
+///   when those pulses take a token.
 /// - duration-constant: a constant or local whose name ends in an animation-timing word (duration, delay, time, fade,
 ///   crossfade, sweep, flash, transition, glide, unroll) isn't a number literal, typed or inferred (`let fadeTime =
 ///   0.4`); it comes from a step. A continuous animation names its `period` instead.
-/// - raw-easing: no `CAMediaTimingFunction(name:)`; Core Animation and AppKit take `Motion.timingFunction`. The one
-///   exception is a repeating animation's own breathing curve (`.easeInEaseOut` beside a `repeatCount`/`.infinity`/
-///   `repeatForever`) in a file of `continuousFiles`; a finite animation there is held to the rule like anywhere else.
+/// - raw-easing: no curve built outside the token layer, whatever the animation: no `CAMediaTimingFunction(` (by name
+///   or control points) and no `.timingCurve(`. A one-shot takes `Motion.timingFunction`, a pulse that breathes takes
+///   `Motion.breathingTimingFunction`; there is no exception by file or by neighbouring line.
 ///
 /// The scan reads lines, so it can't see a duration passed through a helper's parameter or built by arithmetic.
 struct MotionRulesScanTests {
     static let tokenLayer = "SharedUI/DesignTokens.swift"
     /// Render fixtures, self-tests and the ring preview tool, not views.
     static let exempt = SpacingRulesScanTests.exempt
-    /// Files whose continuous animations (the cast bar's overrun pulse, the status ring's) breathe on their own easing.
-    static let continuousFiles = ["Tracker/TrackerCastRow.swift", "Tracker/TrackerPortraitStatus.swift"]
-    /// How far from an easing a repeat marker still makes it that repeating animation's own.
-    private static let repeatReach = 4
 
     private static let notZero = #"(?!0(?![\d.]))\d"#
     private static let curve = #"(?:default|linear|easeIn|easeOut|easeInOut|spring|snappy|smooth|bouncy|interpolatingSpring|interactiveSpring|timingCurve)"#
@@ -37,10 +34,8 @@ struct MotionRulesScanTests {
     /// A `let` or `var` given a non-zero number literal, with or without a type: its name and the literal.
     private static let literalConstant = SpacingRulesScanTests.regex(#"\b(?:let|var)\s+(\w+)\s*(?::\s*[\w.?]+)?\s*=\s*"# + notZero)
     private static let timingWords: Set = ["duration", "delay", "time", "fade", "crossfade", "sweep", "flash", "transition", "glide", "unroll"]
-    private static let rawEasing = SpacingRulesScanTests.regex(#"\bCAMediaTimingFunction\(\s*name:"#)
-    private static let breathingEasing = SpacingRulesScanTests.regex(#"\bCAMediaTimingFunction\(\s*name:\s*\.easeInEaseOut\)"#)
+    private static let rawEasing = SpacingRulesScanTests.regex(#"\bCAMediaTimingFunction\(|\.timingCurve\("#)
     private static let repeatsForever = SpacingRulesScanTests.regex(#"\brepeatForever\b"#)
-    private static let repeats = SpacingRulesScanTests.regex(#"\brepeatCount\b|\.infinity\b|\brepeatForever\b"#)
 
     static func run() {
         scannerCatchesEachRule()
@@ -48,7 +43,7 @@ struct MotionRulesScanTests {
         print("MotionRulesScanTests: all tests passed")
     }
 
-    /// Each rule fires on its deliberate break, and spares comments, steps, continuous animations and the allowed files.
+    /// Each rule fires on its deliberate break, and spares comments, steps, the tokens and the token layer.
     private static func scannerCatchesEachRule() {
         let breaks = """
         .animation(.easeOut(duration: 0.16), value: open)
@@ -86,6 +81,7 @@ struct MotionRulesScanTests {
         let clean = [
             ".animation(Motion.animation(.fast), value: open)", "withAnimation(Motion.animation(.standard, after: .fast)) {", "context.duration = 0",
             "Motion.configure(context, .standard)", "glide.duration = Motion.duration(.standard)", "context.timingFunction = Motion.timingFunction",
+            "breath.timingFunction = Motion.breathingTimingFunction",
             "withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { pulsing = true }",
             "static let pulsePeriod: TimeInterval = 1.2", "static let overflowFadeHeight: CGFloat = 40", "private let debounceInterval: TimeInterval = 0.15",
             "let delay = Motion.duration(.fast)", "static let settle: TimeInterval = 0.8", "let fadeTime = Motion.duration(.standard)",
@@ -97,18 +93,30 @@ struct MotionRulesScanTests {
         }
         expect(violations(in: "context.duration = 0.18\nlet fadeTime = 0.4", file: tokenLayer).isEmpty, "the token layer may state durations")
 
-        // Continuous files keep their repeating animations' breathing curve, and nothing finite.
-        let breath = "breath.autoreverses = true\nbreath.repeatCount = .infinity\nbreath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)"
-        for file in continuousFiles {
-            expect(violations(in: breath, file: file).isEmpty, "\(file) keeps its repeating animations' easing, got \(violations(in: breath, file: file))")
-            expect(violations(in: "sweep.timingFunction = CAMediaTimingFunction(name: .easeOut)", file: file)["raw-easing"] != nil, "\(file) is held to the easing token for a finite animation")
-            expect(violations(in: "fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)", file: file)["raw-easing"] != nil, "\(file) is held to the easing token for a finite animation, whatever the curve")
+        // No curve is built outside the token layer: by name or control points, one-shot or repeating, in any file, and
+        // whatever lies near it. A pulse takes the breathing token.
+        let curves = [
+            "sweep.timingFunction = CAMediaTimingFunction(name: .easeOut)",
+            "fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)",
+            "fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 0.6, 1)",
+            ".animation(.timingCurve(0.2, 0, 0.8, 1, duration: Motion.duration(.fast)), value: open)",
+            // A finite fade beside a pulse's repeat marker is still a raw curve.
+            "breath.repeatCount = .infinity\nfade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)",
+            // So is a pulse's own curve, however far from its repeat marker it sits.
+            "breath.repeatCount = .infinity\nbreath.duration = period\nbreath.autoreverses = true\nbreath.fromValue = 0\nbreath.toValue = 1\nbreath.beginTime = start\nbreath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)",
+            "breath.autoreverses = true\nbreath.repeatCount = .infinity\nbreath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)",
+        ]
+        for file in ["Quest/Example.swift", "Tracker/TrackerCastRow.swift", "Tracker/TrackerPortraitStatus.swift"] {
+            for source in curves {
+                expect(violations(in: source, file: file)["raw-easing"] != nil, "raw-easing should fire in \(file) on \(source)")
+            }
             expect(violations(in: "static let exitFade: CFTimeInterval = 0.4", file: file)["duration-constant"] != nil, "\(file) is held to the step tokens for a finite duration")
             expect(violations(in: "let fadeTime = 0.4", file: file)["duration-constant"] != nil, "\(file) is held to the step tokens for a finite local")
             expect(violations(in: "context.duration = 0.18", file: file)["raw-duration"] != nil, "\(file) is not excused from raw durations passed to an animation")
+            let pulse = "breath.autoreverses = true\nbreath.repeatCount = .infinity\nbreath.timingFunction = Motion.breathingTimingFunction\nsweep.duration = Self.shimmerPeriod"
+            expect(violations(in: pulse, file: file).isEmpty, "a pulse on the breathing token is clean in \(file), got \(violations(in: pulse, file: file))")
             expect(violations(in: "static let shimmerPeriod: CFTimeInterval = 1.2", file: file).isEmpty, "\(file) names its continuous periods")
         }
-        expect(violations(in: breath, file: "Quest/Example.swift")["raw-easing"] != nil, "a repeating animation elsewhere takes the easing token too")
     }
 
     private static func appSourcesFollowTheRules() {
@@ -135,7 +143,7 @@ struct MotionRulesScanTests {
             if isTimingConstant(code) {
                 found["duration-constant", default: []].append(index + 1)
             }
-            if SpacingRulesScanTests.matches(rawEasing, code), !isRepeatingBreath(code, at: index, in: lines, file: file) {
+            if SpacingRulesScanTests.matches(rawEasing, code) {
                 found["raw-easing", default: []].append(index + 1)
             }
         }
@@ -151,13 +159,6 @@ struct MotionRulesScanTests {
         let name = String(code[nameRange])
         let words = SpacingRulesScanTests.nameWord.matches(in: name, range: NSRange(name.startIndex..., in: name)).compactMap { Range($0.range, in: name).map { name[$0].lowercased() } }
         return words.last.map(timingWords.contains) ?? false
-    }
-
-    /// A continuous file's repeating animation's own `.easeInEaseOut`: a repeat marker within `repeatReach` lines of it.
-    private static func isRepeatingBreath(_ code: String, at index: Int, in lines: [String], file: String) -> Bool {
-        guard continuousFiles.contains(file), SpacingRulesScanTests.matches(breathingEasing, code) else { return false }
-        let nearby = lines[max(0, index - repeatReach)...min(lines.count - 1, index + repeatReach)]
-        return nearby.contains { SpacingRulesScanTests.matches(repeats, SpacingRulesScanTests.withoutComment($0)) }
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

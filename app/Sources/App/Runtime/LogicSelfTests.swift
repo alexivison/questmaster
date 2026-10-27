@@ -321,6 +321,7 @@ enum LogicSelfTests {
         guard let fill = status.fillAnimation, let pulse = status.pulseAnimation else { throw TestFailure("a cast with a learned duration should fill the ring, then pulse") }
         try expect(abs(fill.duration - 4) < 0.1 && (fill.toValue as? CGFloat) == 1, "2s into a 6s tool the ring should fill to full in 4s, got \(fill.duration)")
         try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the ring is full")
+        try expect(pulse.timingFunction === Motion.breathingTimingFunction, "the ring's pulse should breathe on the breathing easing")
         try expect(status.spinAnimation == nil, "a filling ring should not spin")
 
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
@@ -856,6 +857,7 @@ enum LogicSelfTests {
         try expect(abs(animation.duration - 4) < 0.1, "2s into a 6s tool the fill should run 4s to full, got \(animation.duration)")
         try expect(abs(pulse.beginTime - CACurrentMediaTime() - 4) < 0.2, "the pulse should start when the bar is full")
         try expect(pulse.repeatCount == .infinity && pulse.autoreverses, "the pulse should breathe until the tool ends")
+        try expect(pulse.timingFunction === Motion.breathingTimingFunction, "the bar's pulse should breathe on the breathing easing")
         try expect(!fill.isShimmering, "a learned duration should not shimmer")
 
         fill.configure(cast: overrun, isFinishing: false, reduceMotion: false)
@@ -1030,14 +1032,19 @@ enum LogicSelfTests {
             try expect(Motion.duration(step) == step.seconds * Motion.slowdown, "\(step) should run its own length")
             try expect(Motion.animation(step) != nil, "\(step) should animate in SwiftUI")
         }
-        let curve = MotionEasing.controlPoints
-        var points = [Float](repeating: 0, count: 2)
-        var controls: [Float] = []
-        for index in 1...2 {
-            Motion.timingFunction.getControlPoint(at: index, values: &points)
-            controls += points
+        func controls(of function: CAMediaTimingFunction) -> [Float] {
+            var points = [Float](repeating: 0, count: 2)
+            var controls: [Float] = []
+            for index in 1...2 {
+                function.getControlPoint(at: index, values: &points)
+                controls += points
+            }
+            return controls
         }
-        try expect(controls == [Float(curve.x1), Float(curve.y1), Float(curve.x2), Float(curve.y2)], "the Core Animation easing should be Core's control points, got \(controls)")
+        let curve = MotionEasing.controlPoints
+        try expect(controls(of: Motion.timingFunction) == [Float(curve.x1), Float(curve.y1), Float(curve.x2), Float(curve.y2)], "the Core Animation easing should be Core's control points, got \(controls(of: Motion.timingFunction))")
+        let breathing = MotionEasing.breathingControlPoints
+        try expect(controls(of: Motion.breathingTimingFunction) == [Float(breathing.x1), Float(breathing.y1), Float(breathing.x2), Float(breathing.y2)], "the breathing easing should be Core's breathing control points, got \(controls(of: Motion.breathingTimingFunction))")
         var configured: (duration: TimeInterval, curve: CAMediaTimingFunction?)?
         NSAnimationContext.runAnimationGroup { context in
             Motion.configure(context, .fast)

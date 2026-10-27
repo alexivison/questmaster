@@ -332,6 +332,10 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 - **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
   `Motion.timingFunction` is its Core Animation and AppKit form, `Motion.animation(_:after:)` its SwiftUI form, and
   `MotionEasing.eased` the same curve for a transition stepped by hand (the dock column).
+- **One breathing easing**, for a continuous animation that eases up and back (the cast bar's and the status ring's
+  pulse): ease in and out, the Bézier (0.42, 0, 0.58, 1), the system's `.easeInEaseOut`. `Motion.breathingTimingFunction`
+  is its Core Animation form (numbers in `MotionEasing.breathingControlPoints`). A one-shot never takes it, and a pulse
+  takes no other curve; a new continuous animation (a skeleton's breath) uses it too.
 - **Reduce Motion is read once**, in `Motion.reducesMotion` (a var, so a self-test can set it). Under it every step is 0:
   `Motion.animation` returns nil (the change lands at once), `Motion.configure` gives an AppKit context no duration, and
   Core Animation code checks `Motion.reducesMotion()` and adds no animation (a duration of 0 means "the default" there). A
@@ -357,15 +361,15 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 - **raw-duration**: a number literal as an animation's `duration:` / `.duration =` / `.delay(` /
   `setAnimationDuration(` (0 is allowed), or a SwiftUI curve built outside the token layer (`.easeOut`, `.snappy`,
   `.spring`, `.default` … in `withAnimation`, `.animation` or an `Animation` value; they carry a default duration of
-  their own). A line with `.repeatForever` is a continuous animation and is out of the rule.
+  their own). The one exception is a SwiftUI animation chained into `.repeatForever` on the same line (the skeletons'
+  pulse); it goes when those pulses take the breathing token.
 - **duration-constant**: a constant or local whose name ends in a timing word (duration, delay, time, fade, crossfade,
   sweep, flash, transition, glide, unroll) assigned a non-zero literal, typed or inferred (`let fadeTime = 0.4`); it
   comes from a step. A continuous animation names its `period`.
-- **raw-easing**: `CAMediaTimingFunction(name:)`; take `Motion.timingFunction`. The one exception is a repeating
-  animation's breathing curve (`.easeInEaseOut` within four lines of a `repeatCount`, `.infinity` or `repeatForever`) in a
-  file listed in the scan's `continuousFiles` (`TrackerCastRow.swift`, `TrackerPortraitStatus.swift`). A file with a new
-  continuous animation of its own is added to that list; a finite animation, in those files or any other, is held to
-  all three rules.
+- **raw-easing**: any `CAMediaTimingFunction(` (by name or control points) or `.timingCurve(` outside the token layer.
+  A one-shot takes `Motion.timingFunction`, a pulse `Motion.breathingTimingFunction`. There is no exception by file or by
+  neighbouring line, and no file list: a finite animation and a continuous one are held to the same three rules, and a
+  continuous one passes them by naming its `period` and taking the breathing token.
 
 The scan reads lines, so a duration passed through a helper's parameter isn't seen.
 `testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges`

@@ -7,7 +7,20 @@ struct MotionTests {
         stepsAreShortAndFastIsFaster()
         reduceMotionSkipsTheStepInsteadOfShorteningIt()
         theEasingRunsFromZeroToOneAndEasesOut()
+        theBreathingEasingEasesInAndOutSymmetrically()
         print("MotionTests: all tests passed")
+    }
+
+    /// A pulse that eases up and back has its own curve, the system's ease in and out: slow at both ends, mirrored, and
+    /// unlike the one-shot's, which starts at full speed.
+    private static func theBreathingEasingEasesInAndOutSymmetrically() {
+        let breathing = MotionEasing.breathingControlPoints
+        let oneShot = MotionEasing.controlPoints
+        expect(breathing.x1 > 0 && breathing.y1 == 0, "it starts slow: its first control point leaves the start along the time axis, got \(breathing)")
+        expect(breathing.y2 == 1 && breathing.x2 < 1, "it ends slow: its last control point arrives at full progress before the end, got \(breathing)")
+        expect(abs((1 - breathing.x2) - breathing.x1) < 1e-9, "it mirrors itself, so the way down matches the way up, got \(breathing)")
+        expect(oneShot.x1 == 0, "the one-shot starts at full speed")
+        expect(breathing.x1 != oneShot.x1 || breathing.x2 != oneShot.x2, "the breathing curve is its own, not the one-shot's")
     }
 
     private static func stepsAreShortAndFastIsFaster() {

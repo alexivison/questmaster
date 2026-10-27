@@ -334,7 +334,7 @@ final class TrackerCastFillNSView: NSView {
         breath.duration = TrackerCastFill.pulsePeriod / 2
         breath.autoreverses = true
         breath.repeatCount = .infinity
-        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.timingFunction = Motion.breathingTimingFunction
         breath.beginTime = CACurrentMediaTime() + delay
         pulse.add(breath, forKey: Self.pulseKey)
     }

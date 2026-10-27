@@ -21,11 +21,14 @@ public enum MotionStep: Equatable, Sendable {
     }
 }
 
-/// The one easing: ease out, quick at first and settling, as a cubic Bézier. These are the control points of the
-/// system's own `.easeOut` (`CAMediaTimingFunction`, SwiftUI's `Animation`), so Core Animation, SwiftUI and a
-/// hand-stepped transition all trace the same curve.
+/// The easings, as cubic Béziers (x1, y1, x2, y2). A one-shot transition has one: ease out, quick at first and
+/// settling, the control points of the system's own `.easeOut` (`CAMediaTimingFunction`, SwiftUI's `Animation`), so Core
+/// Animation, SwiftUI and a hand-stepped transition all trace the same curve. A continuous animation that breathes
+/// (a pulse that eases up and back, over and over) has its own: ease in and out, the system's `.easeInEaseOut`, which
+/// no one-shot takes.
 public enum MotionEasing {
     public static let controlPoints = (x1: 0.0, y1: 0.0, x2: 0.58, y2: 1.0)
+    public static let breathingControlPoints = (x1: 0.42, y1: 0.0, x2: 0.58, y2: 1.0)
 
     /// The curve's progress at `time` (0 to 1, clamped), for a transition stepped by hand.
     public static func eased(_ time: Double) -> Double {
