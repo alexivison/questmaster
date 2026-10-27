@@ -129,13 +129,19 @@ type PaneState struct {
 	ClaudeLastSayTranscript      string                 `json:"claude_last_say_transcript,omitempty"`
 	ClaudeLastStopPromptID       string                 `json:"claude_last_stop_prompt_id,omitempty"`
 	ClaudeLastStopTranscript     string                 `json:"claude_last_stop_transcript,omitempty"`
-	ClaudeSubagentWakeState      string                 `json:"claude_subagent_wake_state,omitempty"`
-	ClaudeSubagentWakeActivity   string                 `json:"claude_subagent_wake_activity,omitempty"`
-	ClaudeSubagentWakeIDs        []string               `json:"claude_subagent_wake_ids,omitempty"`
+	SubagentWake                 *SubagentWake          `json:"subagent_wake,omitempty"`
 
 	CodexTranscriptPath         string `json:"codex_transcript_path,omitempty"`
 	CodexTranscriptOffset       int64  `json:"codex_transcript_offset,omitempty"`
 	CodexTranscriptSkippingLine bool   `json:"codex_transcript_skipping_line,omitempty"`
+}
+
+// SubagentWake stores the parent pane state to restore after subagents that
+// woke an idle parent have all stopped.
+type SubagentWake struct {
+	State    string   `json:"state,omitempty"`
+	Activity string   `json:"activity,omitempty"`
+	IDs      []string `json:"ids,omitempty"`
 }
 
 // StateRoot resolves the directory that holds per-session state. Honors
