@@ -1330,7 +1330,11 @@ enum LogicSelfTests {
     }
 
     /// The Version Control title bar shows the spinner beside its title exactly while the pull request store refreshes
-    /// (`r` until the daemon's reply and one turn), and the other docks never do.
+    /// (`r` until the daemon's reply and one turn), and the other docks never do. It reads the ring's presence, not its
+    /// animation: a hosted ring turns or holds still by the host's Reduce Motion setting (`SpinnerRingView` reads the
+    /// environment's), which a CI runner doesn't share with a desk, so the turn is tested on the view itself
+    /// (`testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow`). Every wait lays the hosted views out, as the
+    /// other hosted-view tests do: nothing else is guaranteed to on a host with no display ticking.
     private static func testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes() throws {
         let store = PullRequestStore()
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
@@ -1346,19 +1350,36 @@ enum LogicSelfTests {
         window.contentView = column
         window.show()
         defer { window.close() }
+        func spinner(in shell: DockShellView) -> SpinnerRingNSView? {
+            column.layoutSubtreeIfNeeded()
+            return descendant(SpinnerRingNSView.self, in: shell)
+        }
 
-        try waitForMainQueue("the title bar to draw") { descendant(NSHostingView<DockTopBar>.self, in: top) != nil }
-        try expect(descendant(SpinnerRingNSView.self, in: top) == nil, "no spinner until a refresh starts")
+        try waitForMainQueue("the title bar to draw") {
+            column.layoutSubtreeIfNeeded()
+            return descendant(NSHostingView<DockTopBar>.self, in: top) != nil
+        }
+        try expect(spinner(in: top) == nil, "no spinner until a refresh starts")
 
         let now = Date()
         guard case .refresh(let request)? = store.handle(.refresh, now: now) else {
             throw TestFailure("r should ask for a refresh")
         }
-        try waitForMainQueue("the spinner to appear") { descendant(SpinnerRingNSView.self, in: top)?.spinAnimation != nil }
-        try expect(descendant(SpinnerRingNSView.self, in: bottom) == nil, "the bottom panel's bar never shows it")
+        // What the host does, for the CI log: whether the ring mounts with nothing laying the views out, and whether the
+        // host holds it still.
+        var mountedWithoutLayout = false
+        let looked = Date()
+        while Date().timeIntervalSince(looked) < 1, !mountedWithoutLayout {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            mountedWithoutLayout = descendant(SpinnerRingNSView.self, in: top) != nil
+        }
+        try waitForMainQueue("the spinner to appear") { spinner(in: top) != nil }
+        let ring = spinner(in: top)
+        print("note: host Reduce Motion \(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion), hosted ring holds still \(ring?.holdsStill == true), turning \(ring?.spinAnimation != nil), mounted without a forced layout \(mountedWithoutLayout)")
+        try expect(spinner(in: bottom) == nil, "the bottom panel's bar never shows it")
 
         store.finishRefresh(request, failed: false, now: now.addingTimeInterval(PullRequestStore.refreshMinimumShown + 1))
-        try waitForMainQueue("the spinner to go") { descendant(SpinnerRingNSView.self, in: top) == nil }
+        try waitForMainQueue("the spinner to go") { spinner(in: top) == nil }
     }
 
     /// The column puts Version Control on top at 300, the bottom panel under it, 20 apart; a panel alone fills the column and
