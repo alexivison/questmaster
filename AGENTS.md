@@ -233,7 +233,9 @@ again where it was when the keys come back.
 - Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
   section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
   artifact viewer, the worker chat, Version Control), the tracker and the Quest Log's page draw it; the page passes the
-  parchment ink instead. A message the user needs (the terminal's status, a missing file, an artifact kind the build
+  parchment ink instead. The worker chat draws it only once its first read came back whole and empty
+  (`WorkerChatStore.isKnownEmpty`, decided in Core); while that read is pending, failed or partial it is blank, and its
+  `readNotice` says what failed. A message the user needs (the terminal's status, a missing file, an artifact kind the build
   can't show, an incompatible backend) is a `StatusMessagePane`, which an empty list never is.
 - A list still loading is a skeleton: a ghost of the real thing, in its own shapes and palette (the tracker's is
   `TrackerNameplateBackground`'s plates with no text, status or portrait, the Settings picker's is `fieldChrome`, the

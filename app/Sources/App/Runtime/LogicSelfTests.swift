@@ -1533,10 +1533,16 @@ enum LogicSelfTests {
         )
 
         let chat = CGSize(width: 480, height: 400)
-        let attached = WorkerChatStore()
-        _ = attached.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true)
-        try expectCentred(try ink(WorkerChatDockView(store: attached), size: chat), in: CGRect(origin: .zero, size: chat), "the worker chat")
-        try expect(try ink(WorkerChatDockView(store: WorkerChatStore()), size: chat) == nil, "an unattached worker chat should stay blank until it has a chat to show")
+        let master = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+        let pending = WorkerChatStore()
+        let firstRead = pending.sync(selectedSessionID: "m", sessions: master, isVisible: true)
+        try expect(try ink(WorkerChatDockView(store: pending), size: chat) == nil, "a worker chat whose first read is pending should stay blank")
+        pending.fail(firstRead!)
+        try expect(try ink(WorkerChatDockView(store: pending), size: chat) == nil, "and so should one whose first read failed")
+        let retry = pending.sync(selectedSessionID: "m", sessions: master, isVisible: true)
+        _ = pending.receive(WorkerFeedPayload(), for: retry!)
+        try expectCentred(try ink(WorkerChatDockView(store: pending), size: chat), in: CGRect(origin: .zero, size: chat), "the worker chat once a read came back empty")
+        try expect(try ink(WorkerChatDockView(store: WorkerChatStore()), size: chat) == nil, "an unattached worker chat should stay blank")
 
         func artifacts(_ route: ArtifactDockRoute) -> some View {
             var model = ArtifactDockModel.empty

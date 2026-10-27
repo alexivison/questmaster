@@ -77,12 +77,9 @@ struct WorkerChatDockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if store.lines.isEmpty {
-                // Blank until a chat is attached, so the icon doesn't flash before the first read.
-                if store.isAttached {
-                    EmptyState()
-                }
-            } else {
+            if store.isKnownEmpty {
+                EmptyState()
+            } else if !store.lines.isEmpty {
                 WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
             }
             readNotice

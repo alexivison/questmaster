@@ -328,9 +328,11 @@ enum RenderPreview {
             let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
             return DockShellView(body: NSHostingView(rootView: workerChatView()), model: model)
         case .workerChatEmpty:
-            // A master with workers attached, and nothing read from their logs yet.
+            // A master whose workers' logs were read and had nothing in them.
             let store = WorkerChatStore()
-            _ = store.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true)
+            if let request = store.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true) {
+                _ = store.receive(WorkerFeedPayload(), for: request)
+            }
             let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
             return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store).background(AppPalette.panel.swiftUI)), model: model)
         }

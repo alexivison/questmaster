@@ -28,6 +28,7 @@ struct WorkerChatTests {
         lastChatTimestampChangeTriggersPull()
         changeDuringAPullIsPickedUpByTheNextOne()
         failedPullRetriesOnNextSync()
+        emptyStateWaitsForTheFirstWholeRead()
         attachChangeResetsTheFeed()
         hiddenAttachmentChangesResetWhenReopened()
         nonMasterRolesDoNotPull()
@@ -336,6 +337,50 @@ struct WorkerChatTests {
         store.fail(first)
         let retry = store.sync(selectedSessionID: "m", sessions: group(), isVisible: true)
         expect(retry != nil, "a failed pull should retry on the next sync")
+    }
+
+    /// The dock's empty icon means "read, and nothing there": never while the first read is pending, failed or partial, and
+    /// not again after a switch until the new master's own first read comes back.
+    private static func emptyStateWaitsForTheFirstWholeRead() {
+        let store = makeStore()
+        expect(!store.isKnownEmpty, "a store with no master has read nothing")
+        let first = open(store)
+        expect(store.isAttached && !store.isKnownEmpty, "attached with the first read pending is blank, not empty")
+        _ = store.receive(WorkerFeedPayload(), for: first)
+        expect(store.isKnownEmpty, "an empty whole reply should show the empty state")
+        let live = makeStore()
+        feed(live, [entry(0, "w1", "say", "hello")])
+        expect(!live.isKnownEmpty && live.lines.count == 1, "a feed with lines is not empty")
+
+        let otherMaster = [
+            TrackerSession(id: "m2", title: "Other", repoName: "Repo", role: "master"),
+            TrackerSession(id: "x1", title: "X", repoName: "Repo", agent: "codex", role: "worker", parentID: "m2"),
+        ]
+        let second = store.sync(selectedSessionID: "m2", sessions: otherMaster, isVisible: true)!
+        expect(!store.isKnownEmpty, "switching master clears the feed and must not flash the empty state before its reply")
+        _ = store.receive(WorkerFeedPayload(), for: first)
+        expect(!store.isKnownEmpty, "a late reply for the old master changes nothing")
+        _ = store.receive(WorkerFeedPayload(), for: second)
+        expect(store.isKnownEmpty, "the new master's empty reply shows the empty state")
+
+        let failing = makeStore()
+        let attempt = open(failing)
+        failing.fail(attempt)
+        expect(!failing.isKnownEmpty, "a failed first read leaves the chat blank")
+        let retry = failing.sync(selectedSessionID: "m", sessions: group(), isVisible: true)!
+        expect(!failing.isKnownEmpty, "and so does its retry while pending")
+        _ = failing.receive(WorkerFeedPayload(), for: retry)
+        expect(failing.isKnownEmpty, "the retry's empty reply shows the empty state")
+
+        let partial = makeStore()
+        let unreadable = partial.receive(WorkerFeedPayload(errors: ["w2": "permission denied"]), for: open(partial))
+        expect(unreadable == nil && !partial.isKnownEmpty, "a reply with an unreadable log may be hiding lines: blank")
+        expect(partial.readNotice == "Couldn't read Worker Two's activity", "the notice says what failed, got \(String(describing: partial.readNotice))")
+        let more = makeStore()
+        let followUp = more.receive(WorkerFeedPayload(hasMore: ["w1": true]), for: open(more))
+        expect(followUp != nil && !more.isKnownEmpty, "a reply with more to read is not the whole read")
+        _ = more.receive(WorkerFeedPayload(), for: followUp!)
+        expect(more.isKnownEmpty, "the last page, empty, shows the empty state")
     }
 
     // MARK: - Attach
