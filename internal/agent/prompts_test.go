@@ -123,6 +123,18 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 	}
 }
 
+func TestSessionPromptsPreferQuestmasterPRAlerts(t *testing.T) {
+	for name, prompt := range map[string]string{"master": masterPromptWithGuide(), "worker": workerPrompt} {
+		t.Run(name, func(t *testing.T) {
+			for _, phrase := range []string{"questmaster pr watch <url>", "questmaster pr events <ref> --unread", "end the turn", "gh pr checks --watch", "gh run watch", "Claude Monitor", "ScheduleWakeup", "Codex watch loops"} {
+				if !strings.Contains(prompt, phrase) {
+					t.Fatalf("%s prompt missing PR alert rule %q", name, phrase)
+				}
+			}
+		})
+	}
+}
+
 func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 	for name, got := range map[string]string{
 		"master": masterPromptWithGuide(),

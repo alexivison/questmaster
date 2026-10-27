@@ -69,6 +69,176 @@ func jobGH(t *testing.T, j *Job, calls *[]string, stateByHost map[string]string,
 		return []byte(`{"data":{` + strings.Join(parts, ",") + `}}`), nil, nil
 	}
 }
+
+func TestJobHoldsThenCoalescesPendingAlert(t *testing.T) {
+	t.Parallel()
+	j, store, now, _ := jobFixture(t)
+	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	j.RunGH = func(_ context.Context, _, query string) ([]byte, []byte, error) {
+		if strings.Contains(query, "p0: repository") {
+			return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100,"resetAt":"2026-10-28T00:00:00Z"},"p0":{"pullRequest":{"title":"PR","state":"OPEN","updatedAt":%q,"totalCommentsCount":1}}}}`, now.Format(time.RFC3339))), nil, nil
+		}
+		source := "comments"
+		nodes := `[{"id":"comment-1","body":"please fix","createdAt":"2026-10-26T00:01:00Z","author":{"login":"reviewer"}}]`
+		if strings.Contains(query, "reviews(last:") {
+			source, nodes = "reviews", `[]`
+		}
+		return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100,"resetAt":"2026-10-28T00:00:00Z"},"repository":{"pullRequest":{"%s":{"nodes":%s,"pageInfo":{"hasPreviousPage":false,"startCursor":""}}}}}}`, source, nodes)), nil, nil
+	}
+	j.RunREST = func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
+	ready := false
+	var sent []string
+	j.SendAlert = func(_ context.Context, id, text string) (bool, error) {
+		if id != "qm-live" {
+			t.Fatalf("alert recipient = %s", id)
+		}
+		if ready {
+			sent = append(sent, text)
+		}
+		return ready, nil
+	}
+	for tick := 0; tick < 3; tick++ {
+		if tick == 1 {
+			ready = true
+		}
+		if err := j.step(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sent) != 1 || !strings.Contains(sent[0], "1 comment") {
+		t.Fatalf("alerts = %#v", sent)
+	}
+	log, err := state.LoadPullRequestEventLog(store.Root(), pr.Key)
+	if err != nil || log.Seq != 1 || log.Cursors["qm-live"].AlertedSeq != 1 {
+		t.Fatalf("event log = %#v, %v", log, err)
+	}
+}
+
+func TestMergedPRKeepsPendingAlertUntilDelivered(t *testing.T) {
+	t.Parallel()
+	j, store, now, _ := jobFixture(t)
+	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.RecordPullRequestEvents(store.Root(), pr.Key, []state.PullRequestEvent{{ID: "state:merged", Kind: "state", State: "merged", OccurredAt: now.Format(time.RFC3339Nano)}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SavePullRequestStatuses(store.Root(), map[string]state.PullRequestStatus{pr.Key: {State: "merged"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !j.HasWork() {
+		t.Fatal("pending merged alert did not keep job alive")
+	}
+	called := 0
+	j.SendAlert = func(context.Context, string, string) (bool, error) { called++; return true, nil }
+	if err := j.step(context.Background()); err != nil || called != 1 || j.HasWork() {
+		t.Fatalf("merged delivery: calls=%d work=%v err=%v", called, j.HasWork(), err)
+	}
+}
+
+func TestStoppedPendingAlertWaitsForLiveWatcher(t *testing.T) {
+	t.Parallel()
+	j, store, now, live := jobFixture(t)
+	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.RecordPullRequestEvents(store.Root(), pr.Key, []state.PullRequestEvent{{ID: "state:merged", Kind: "state", State: "merged", OccurredAt: now.Format(time.RFC3339Nano)}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SavePullRequestStatuses(store.Root(), map[string]state.PullRequestStatus{pr.Key: {State: "merged"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	(*live)["qm-live"] = false
+	if j.HasWork() {
+		t.Fatal("stopped watcher kept daemon work alive")
+	}
+	called := 0
+	j.SendAlert = func(context.Context, string, string) (bool, error) { called++; return true, nil }
+	if err := j.deliverPending(context.Background()); err != nil || called != 0 {
+		t.Fatalf("stopped delivery: calls=%d err=%v", called, err)
+	}
+	(*live)["qm-live"] = true
+	resumed := NewJob(store.Root(), j.Tmux, nil) // a daemon started after the session resumes
+	resumed.Now, resumed.SendAlert = j.Now, j.SendAlert
+	if !resumed.HasWork() {
+		t.Fatal("resumed watcher lost pending work")
+	}
+	if err := resumed.step(context.Background()); err != nil || called != 1 || resumed.HasWork() {
+		t.Fatalf("resumed delivery: calls=%d work=%v err=%v", called, resumed.HasWork(), err)
+	}
+}
+
+func TestAlertSendErrorIsRateLimitedAndRetried(t *testing.T) {
+	t.Parallel()
+	j, store, now, _ := jobFixture(t)
+	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.RecordPullRequestEvents(store.Root(), pr.Key, []state.PullRequestEvent{{ID: "comment-1", Kind: "comment", OccurredAt: now.Format(time.RFC3339Nano)}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	called := 0
+	j.SendAlert = func(context.Context, string, string) (bool, error) {
+		called++
+		return false, errors.New("permanent send failure")
+	}
+	key := pr.Key + "\x00qm-live"
+	for i := 0; i < 2; i++ {
+		if err := j.deliverPending(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if called != 2 || !j.alertErrorLogged[key].Equal(*now) {
+		t.Fatalf("retry count=%d last log=%v", called, j.alertErrorLogged[key])
+	}
+	log, err := state.LoadPullRequestEventLog(store.Root(), pr.Key)
+	if err != nil || log.Cursors["qm-live"].AlertedSeq != 0 {
+		t.Fatalf("failed send advanced cursor=%#v err=%v", log.Cursors, err)
+	}
+	*now = now.Add(time.Minute)
+	if err := j.deliverPending(context.Background()); err != nil || !j.alertErrorLogged[key].Equal(*now) {
+		t.Fatalf("later retry: last log=%v err=%v", j.alertErrorLogged[key], err)
+	}
+}
+
+func TestRemovedWatchDoesNotStopOtherAlerts(t *testing.T) {
+	t.Parallel()
+	j, store, now, _ := jobFixture(t)
+	refs := []state.PullRequest{}
+	for _, ref := range []string{"owner/one#1", "owner/two#2"} {
+		pr, _ := state.ParsePullRequestRef(ref)
+		refs = append(refs, pr)
+		if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := state.RecordPullRequestEvents(store.Root(), pr.Key, []state.PullRequestEvent{{ID: "comment-1", Kind: "comment", OccurredAt: now.Format(time.RFC3339Nano)}}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	called := 0
+	j.SendAlert = func(context.Context, string, string) (bool, error) {
+		called++
+		if called == 1 {
+			if removed, err := state.UnwatchPullRequest(store.Root(), "qm-live", refs[0].Key); err != nil || !removed {
+				t.Fatalf("remove during send: removed=%v err=%v", removed, err)
+			}
+		}
+		return true, nil
+	}
+	if err := j.deliverPending(context.Background()); err != nil || called != 2 {
+		t.Fatalf("delivery after watch removal: calls=%d err=%v", called, err)
+	}
+	log, err := state.LoadPullRequestEventLog(store.Root(), refs[1].Key)
+	if err != nil || log.Cursors["qm-live"].AlertedSeq != 1 {
+		t.Fatalf("second watch cursor=%#v err=%v", log.Cursors, err)
+	}
+}
 func TestJobCadenceLivenessAndMerged(t *testing.T) {
 	t.Parallel()
 	j, store, now, live := jobFixture(t)

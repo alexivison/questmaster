@@ -38,12 +38,13 @@ type HostResult struct {
 
 type Result struct {
 	Statuses map[string]state.PullRequestStatus `json:"-"`
+	StateAt  map[string]string                  `json:"-"`
 	Hosts    map[string]HostResult              `json:"hosts"`
 }
 
 // Fetch groups by host and caps each GraphQL query at 50 PRs.
 func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Time) Result {
-	result := Result{Statuses: map[string]state.PullRequestStatus{}, Hosts: map[string]HostResult{}}
+	result := Result{Statuses: map[string]state.PullRequestStatus{}, StateAt: map[string]string{}, Hosts: map[string]HostResult{}}
 	byHost := map[string][]state.PullRequest{}
 	for _, pr := range prs {
 		byHost[pr.Host] = append(byHost[pr.Host], pr)
@@ -115,6 +116,12 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 					}
 					if repo.PullRequest != nil {
 						result.Statuses[pr.Key] = repo.PullRequest.status(now)
+						switch repo.PullRequest.State {
+						case "MERGED":
+							result.StateAt[pr.Key] = repo.PullRequest.MergedAt
+						case "CLOSED":
+							result.StateAt[pr.Key] = repo.PullRequest.ClosedAt
+						}
 						continue
 					}
 				}
@@ -149,7 +156,7 @@ func query(prs []state.PullRequest) string {
 	b.WriteString("query { rateLimit { cost remaining resetAt } ")
 	// shortcut: review pagination stops at 100 reviewers per PR; paginate if a PR reaches that count.
 	for i, pr := range prs {
-		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision latestOpinionatedReviews(last:100) { nodes { state } } commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
+		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state closedAt mergedAt isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision latestOpinionatedReviews(last:100) { nodes { state } } commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
 	}
 	b.WriteByte('}')
 	return b.String()
@@ -199,6 +206,8 @@ type graphPR struct {
 	Title          string  `json:"title"`
 	URL            string  `json:"url"`
 	State          string  `json:"state"`
+	ClosedAt       string  `json:"closedAt"`
+	MergedAt       string  `json:"mergedAt"`
 	Draft          bool    `json:"isDraft"`
 	HeadSHA        string  `json:"headRefOid"`
 	UpdatedAt      string  `json:"updatedAt"`

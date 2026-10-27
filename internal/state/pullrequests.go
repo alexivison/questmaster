@@ -76,40 +76,73 @@ func ParsePullRequestRef(raw string) (PullRequest, error) {
 func PullRequestsRegistryPath(root string) string { return filepath.Join(root, "pull_requests.json") }
 
 func LoadPullRequests(root string) ([]PullRequest, error) {
+	registry, err := loadPullRequestRegistry(root)
+	return registry.PullRequests, err
+}
+
+type pullRequestRegistry struct {
+	PullRequests []PullRequest                   `json:"pull_requests"`
+	EventLogs    map[string]*PullRequestEventLog `json:"event_logs,omitempty"`
+}
+
+func loadPullRequestRegistry(root string) (pullRequestRegistry, error) {
 	data, err := os.ReadFile(PullRequestsRegistryPath(root))
 	if errors.Is(err, os.ErrNotExist) {
-		return []PullRequest{}, nil
+		return pullRequestRegistry{PullRequests: []PullRequest{}, EventLogs: map[string]*PullRequestEventLog{}}, nil
 	}
 	if err != nil {
-		return nil, err
+		return pullRequestRegistry{}, err
 	}
-	var registry struct {
-		PullRequests []PullRequest `json:"pull_requests"`
-	}
+	var registry pullRequestRegistry
 	if err := json.Unmarshal(data, &registry); err != nil {
-		return nil, fmt.Errorf("decode pull_requests registry: %w", err)
+		return pullRequestRegistry{}, fmt.Errorf("decode pull_requests registry: %w", err)
 	}
-	return registry.PullRequests, nil
+	if registry.EventLogs == nil {
+		registry.EventLogs = map[string]*PullRequestEventLog{}
+	}
+	return registry, nil
 }
 
 func mutatePullRequests(root string, fn func(*[]PullRequest) (int, error)) (int, error) {
+	return mutatePullRequestRegistry(root, func(registry *pullRequestRegistry) (int, error) {
+		return fn(&registry.PullRequests)
+	})
+}
+
+func mutatePullRequestRegistry(root string, fn func(*pullRequestRegistry) (int, error)) (int, error) {
 	if err := EnsurePrivateStateRoot(root); err != nil {
 		return 0, err
 	}
 	var changed int
 	err := withFileLock(PullRequestsRegistryPath(root)+".lock", func() error {
-		prs, err := LoadPullRequests(root)
+		registry, err := loadPullRequestRegistry(root)
 		if err != nil {
 			return err
 		}
-		changed, err = fn(&prs)
+		changed, err = fn(&registry)
 		if err != nil || changed == 0 {
 			return err
 		}
-		sort.Slice(prs, func(i, j int) bool { return prs[i].Key < prs[j].Key })
-		data, err := json.Marshal(struct {
-			PullRequests []PullRequest `json:"pull_requests"`
-		}{prs})
+		sort.Slice(registry.PullRequests, func(i, j int) bool { return registry.PullRequests[i].Key < registry.PullRequests[j].Key })
+		live := make(map[string]map[string]bool, len(registry.PullRequests))
+		for _, pr := range registry.PullRequests {
+			live[pr.Key] = map[string]bool{}
+			for _, watcher := range pr.Watchers {
+				live[pr.Key][watcher.SessionID] = true
+			}
+		}
+		for key, log := range registry.EventLogs {
+			if live[key] == nil {
+				delete(registry.EventLogs, key)
+				continue
+			}
+			for id := range log.Cursors {
+				if !live[key][id] {
+					delete(log.Cursors, id)
+				}
+			}
+		}
+		data, err := json.Marshal(registry)
 		if err != nil {
 			return err
 		}
@@ -131,7 +164,8 @@ func WatchPullRequest(root, sessionID string, ref PullRequest, now time.Time) (b
 	if !IsValidSessionID(sessionID) {
 		return false, fmt.Errorf("invalid session id %q", sessionID)
 	}
-	n, err := mutatePullRequests(root, func(prs *[]PullRequest) (int, error) {
+	n, err := mutatePullRequestRegistry(root, func(registry *pullRequestRegistry) (int, error) {
+		prs := &registry.PullRequests
 		if _, err := OpenStore(root).Read(sessionID); err != nil {
 			return 0, fmt.Errorf("session %s has no live manifest: %w", sessionID, err)
 		}
@@ -145,6 +179,12 @@ func WatchPullRequest(root, sessionID string, ref PullRequest, now time.Time) (b
 				}
 			}
 			(*prs)[i].Watchers = append((*prs)[i].Watchers, PullRequestWatcher{sessionID, now.UTC().Format(time.RFC3339Nano)})
+			if log := registry.EventLogs[ref.Key]; log != nil {
+				if log.Cursors == nil {
+					log.Cursors = map[string]PullRequestEventCursor{}
+				}
+				log.Cursors[sessionID] = PullRequestEventCursor{AlertedSeq: log.Seq, ReadSeq: log.Seq}
+			}
 			return 1, nil
 		}
 		ref.Watchers = []PullRequestWatcher{{sessionID, now.UTC().Format(time.RFC3339Nano)}}

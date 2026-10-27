@@ -51,6 +51,13 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			m, err := store.Read(id)
+			if err != nil {
+				return err
+			}
+			if len(m.Agents) == 0 {
+				return fmt.Errorf("session %s has no agent (plain terminal session)", id)
+			}
 			ref, err := state.ParsePullRequestRef(args[0])
 			if err != nil {
 				return err
@@ -123,6 +130,27 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	}
 	ls.Flags().BoolVar(&all, "all", false, "list all watched pull requests")
 	cmd.AddCommand(ls)
+	var unread bool
+	events := &cobra.Command{
+		Use: "events <ref>", Short: "Read watched pull-request activity", Args: cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			id, err := resolve(c.Context())
+			if err != nil {
+				return err
+			}
+			ref, err := state.ParsePullRequestRef(args[0])
+			if err != nil {
+				return err
+			}
+			items, err := state.ReadPullRequestEvents(store.Root(), ref.Key, id, unread)
+			if err != nil {
+				return err
+			}
+			return writeJSON(c.OutOrStdout(), items)
+		},
+	}
+	events.Flags().BoolVar(&unread, "unread", false, "show unread events and mark them read")
+	cmd.AddCommand(events)
 	var refreshAll bool
 	refresh := &cobra.Command{
 		Use: "refresh [ref]", Short: "Refresh watched pull-request statuses", Args: cobra.MaximumNArgs(1),
