@@ -51,6 +51,13 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			m, err := store.Read(id)
+			if err != nil {
+				return err
+			}
+			if len(m.Agents) == 0 {
+				return fmt.Errorf("session %s has no agent (plain terminal session)", id)
+			}
 			ref, err := state.ParsePullRequestRef(args[0])
 			if err != nil {
 				return err

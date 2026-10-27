@@ -2,6 +2,8 @@ package prstatus
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,28 +20,29 @@ type refreshWaiter struct {
 }
 
 type Job struct {
-	Root      string
-	Tmux      *tmux.Client
-	RunGH     Runner
-	RunREST   Runner
-	SendAlert func(context.Context, string, string) (bool, error)
-	Now       func() time.Time
-	Tick      <-chan time.Time // injected by tests; production ticks every five seconds
-	mu        sync.Mutex
-	forced    map[string]bool
-	waiters   map[string][]refreshWaiter
-	signal    chan struct{}
-	runStop   <-chan struct{}
-	next      map[string]time.Time
-	blocked   map[string]time.Time
-	last      map[string]HostResult
-	failures  map[string]int
-	done      map[string]time.Time
-	seen      map[string]bool
+	Root             string
+	Tmux             *tmux.Client
+	RunGH            Runner
+	RunREST          Runner
+	SendAlert        func(context.Context, string, string) (bool, error)
+	Now              func() time.Time
+	Tick             <-chan time.Time // injected by tests; production ticks every five seconds
+	mu               sync.Mutex
+	forced           map[string]bool
+	waiters          map[string][]refreshWaiter
+	signal           chan struct{}
+	runStop          <-chan struct{}
+	next             map[string]time.Time
+	blocked          map[string]time.Time
+	last             map[string]HostResult
+	failures         map[string]int
+	done             map[string]time.Time
+	seen             map[string]bool
+	alertErrorLogged map[string]time.Time
 }
 
 func NewJob(root string, client *tmux.Client, run Runner) *Job {
-	return &Job{Root: root, Tmux: client, RunGH: run, RunREST: GHREST, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, last: map[string]HostResult{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}}
+	return &Job{Root: root, Tmux: client, RunGH: run, RunREST: GHREST, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, last: map[string]HostResult{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}, alertErrorLogged: map[string]time.Time{}}
 }
 func (*Job) Name() string { return "pr-status" }
 
@@ -52,7 +55,23 @@ func (j *Job) HasWork() bool {
 	if err != nil {
 		return true
 	}
-	return len(alerts) > 0
+	if len(alerts) == 0 {
+		return false
+	}
+	sessions, err := j.Tmux.ListSessions(context.Background())
+	if err != nil {
+		return true
+	}
+	live := make(map[string]bool, len(sessions))
+	for _, id := range sessions {
+		live[id] = true
+	}
+	for _, alert := range alerts {
+		if live[alert.SessionID] {
+			return true
+		}
+	}
+	return false
 }
 
 func (j *Job) live(ctx context.Context) ([]state.PullRequest, map[string]state.PullRequestStatus, error) {
@@ -415,20 +434,48 @@ func (j *Job) deliverPending(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(alerts) == 0 {
+		clear(j.alertErrorLogged)
+		return nil
+	}
+	sessions, err := j.Tmux.ListSessions(ctx)
+	if err != nil {
+		return err
+	}
+	live := make(map[string]bool, len(sessions))
+	for _, id := range sessions {
+		live[id] = true
+	}
 	send := j.SendAlert
 	if send == nil {
 		send = message.NewService(state.OpenStore(j.Root), j.Tmux).Notify
 	}
+	active := make(map[string]bool, len(alerts))
 	for _, alert := range alerts {
+		if !live[alert.SessionID] {
+			continue
+		}
+		key := alert.PullRequest.Key + "\x00" + alert.SessionID
+		active[key] = true
 		text := alertText(alert.PullRequest, alert.Events)
 		delivered, err := send(ctx, alert.SessionID, text)
 		if err != nil {
+			if ctx.Err() == nil && j.Now().Sub(j.alertErrorLogged[key]) >= time.Minute {
+				fmt.Fprintf(os.Stderr, "daemon job pr-status: alert %s to %s: %v\n", alert.PullRequest.Key, alert.SessionID, err)
+				j.alertErrorLogged[key] = j.Now()
+			}
 			continue // transport failures are retried on the next tick
 		}
 		if delivered {
+			delete(j.alertErrorLogged, key)
 			if err := state.AdvancePullRequestAlert(j.Root, alert.PullRequest.Key, alert.SessionID, alert.Seq); err != nil {
 				return err
 			}
+		}
+	}
+	for key := range j.alertErrorLogged {
+		if !active[key] {
+			delete(j.alertErrorLogged, key)
 		}
 	}
 	return nil

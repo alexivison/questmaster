@@ -51,10 +51,10 @@ func TestPRCommands(t *testing.T) {
 	}
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
-	if err := store.Create(state.Manifest{SessionID: "qm-pr"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Create(state.Manifest{SessionID: "qm-other"}); err != nil {
+	if err := store.Create(state.Manifest{SessionID: "qm-other", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 		t.Fatal(err)
 	}
 	var result struct {
@@ -97,6 +97,22 @@ func TestPRCommands(t *testing.T) {
 	}
 	if got := runCmd(t, store, sessionsRunner(), "pr", "ls"); strings.TrimSpace(got) != "[]" {
 		t.Fatalf("ls after unwatch = %q", got)
+	}
+}
+
+func TestPRWatchRejectsPlainSession(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupStore(t)
+	if err := store.Create(state.Manifest{SessionID: "qm-shell"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runCmdErr(t, store, sessionsRunner(), "pr", "watch", "owner/repo#1", "--session", "qm-shell")
+	if err == nil || !strings.Contains(err.Error(), "has no agent") {
+		t.Fatalf("watch plain session: %v", err)
+	}
+	prs, err := state.LoadPullRequests(store.Root())
+	if err != nil || len(prs) != 0 {
+		t.Fatalf("plain watch registry=%v err=%v", prs, err)
 	}
 }
 
@@ -147,7 +163,7 @@ func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
 	for _, id := range []string{"qm-pr", "qm-other"} {
-		if err := store.Create(state.Manifest{SessionID: id}); err != nil {
+		if err := store.Create(state.Manifest{SessionID: id, Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
 			t.Fatal(err)
 		}
 	}
