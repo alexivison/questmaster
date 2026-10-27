@@ -5273,8 +5273,10 @@ enum LogicSelfTests {
         let rowCount = CGFloat(WorkerLogAction.allCases.count + workers.count)
         let headers = 2 * WorkerLogFilterMetrics.rowHeight
         let chrome = 2 * (Token.Size.divider + Space.item) + Token.Size.divider
-        // The names' advances are fractional, so the width lands within a point of the design's 172.
-        try expect(abs(panelSize.width - 172) <= 1, "the dropdown should be Chat Filter.svg's 172 wide, got \(panelSize.width)")
+        // The names' advances are fractional, so the width lands within a point of the design's 172. The dropdown is as wide
+        // as its widest name, so the design's width holds only in the design's font; CI has no JetBrains Mono.
+        let hasDesignFont = AppFonts.questLogBody.familyName == "JetBrains Mono"
+        try expect(!hasDesignFont || abs(panelSize.width - 172) <= 1,"the dropdown should be Chat Filter.svg's 172 wide, got \(panelSize.width)")
         try expect(panelSize.height == rowCount * WorkerLogFilterMetrics.rowHeight + headers + chrome, "the dropdown's height should be its rows and headers on the scale, got \(panelSize.height)")
 
         let chipRow = WorkerLogChipRow(chips: [WorkerLogChip(section: .action, value: .text("Status"))], onClear: { _ in })
