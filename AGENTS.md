@@ -236,14 +236,17 @@ again where it was when the keys come back.
 - The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
   under it the artifacts or the worker chat. Each has its own title and close button, and either shows alone
   (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them (all
-  navigation is ⇧⌘). They are the dock's own: handled only while the dock has the keys and both panels show
-  (`NavigationStore.dockPanelKeyRoute`; pressing the key of the panel that has them does nothing). From the terminal or
-  tracker, under a modal, or in a dock with one panel, they aren't handled: `MenuController`'s key monitor returns
-  the event untouched (no beep), so the terminal gets ⇧⌘K and Ghostty its own ⇧⌘J (`write_screen_file:paste`), and the
-  View menu items are disabled by the same rule. ⇧⌘H/L and ⇧⌘R stay global, taken by the monitor before the terminal. A panel
-  appearing or going away fades and slides 10pt while the other grows or shrinks, over the standard motion step and only
-  once (`DockPanelMotion`; Reduce Motion skips it, see "Motion"): never an animation that keeps running, as the terminal
-  shares the main thread.
+  navigation is ⇧⌘). An open modal owns ⇧⌘H/J/K/L: J/K move its vertical cursor or field, and H/L move a horizontal
+  choice when it has one; otherwise they do nothing inside the modal. With no modal, H/L focus shell regions and J/K
+  are the dock's own only while the dock has the keys and both panels show (`NavigationStore.commandChordRoute`, which
+  uses `dockPanelKeyRoute`; pressing the focused panel's key does nothing). From the terminal or tracker, or in a dock
+  with one panel, J/K pass through to the focused responder, so Ghostty receives its own ⇧⌘J binding
+  (`write_screen_file:paste`); the View menu items are enabled only for the dock route. With no modal, ⇧⌘R toggles
+  Version Control from the monitor before the terminal; while a modal is drawn, app shortcuts are consumed or disabled,
+  except text editing, Quit and modal commands the top modal accepts (the Quest Log permits its toggle and New Quest as
+  a child). A panel appearing or going away fades and slides 10pt while the other grows or shrinks, over the standard
+  motion step and only once (`DockPanelMotion`; Reduce Motion skips it, see "Motion"): never an animation that keeps
+  running, as the terminal shares the main thread.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`

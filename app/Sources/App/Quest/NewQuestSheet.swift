@@ -78,7 +78,7 @@ struct NewQuestSheetView: View {
         }
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
         .scoopedPanel()
-        .background(SheetKeyEventMonitor { model.handle($0) })
+        .background(SheetKeyEventMonitor(onKeyDown: { model.handle($0) }, onNavigation: { model.navigate($0) }))
         .onAppear { model.present() }
         .onDisappear { model.disappear() }
     }
@@ -304,6 +304,20 @@ final class NewQuestSheetModel: ObservableObject {
         return false
     }
 
+    func navigate(_ direction: NavigationDirection) {
+        guard !form.submitting else {
+            return
+        }
+        switch direction {
+        case .up:
+            moveFocus(-1)
+        case .down:
+            moveFocus(1)
+        case .left, .right:
+            break
+        }
+    }
+
     /// The project field's own keys and its SELECT / SEARCH states (`PickerFieldMode`). In SEARCH, Tab
     /// or Return takes the highlighted project (Tab completes a typed path), ↑/↓ move, and Esc restores
     /// the text; picking or Esc returns to SELECT.
@@ -376,9 +390,9 @@ final class NewQuestSheetModel: ObservableObject {
         }
     }
 
-    private func moveFocus() {
+    private func moveFocus(_ delta: Int = 1) {
         let before = form.projectMode
-        form.moveFocus(1)
+        form.moveFocus(delta)
         follow(from: before)
         if form.focusedField == .project {
             sinkNonce += 1

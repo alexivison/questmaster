@@ -128,8 +128,8 @@ struct QuestLogView: View {
 
 /// The Quest Log as an entry on the in-window modal stack. While it is the top modal it takes every plain key:
 /// its own keys become commands and the rest are swallowed so they never reach the terminal underneath.
-/// Command-key shortcuts pass through to the menus. A modal it opens (Edit, Abandon's confirmation, New
-/// Session) goes on top and takes the keys until it closes.
+/// The shared modal monitor routes ⇧⌘H/J/K/L here before disabled menus can swallow them. A modal it opens (Edit,
+/// Abandon's confirmation, New Session) goes on top and takes the keys until it closes.
 struct QuestLogModal: View {
     static let stackID: AnyHashable = "quest-log"
 
@@ -142,7 +142,13 @@ struct QuestLogModal: View {
         // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
         QuestLogView(store: store, filter: filter, pageScroll: pageScroll, onCommand: onCommand)
             .id(store.openGeneration)
-            .background(SheetKeyEventMonitor { handle($0) })
+            .background(SheetKeyEventMonitor(onKeyDown: handle, onNavigation: handleNavigation))
+    }
+
+    private func handleNavigation(_ direction: NavigationDirection) {
+        if let command = QuestLogCommand.navigation(for: direction) {
+            onCommand(command)
+        }
     }
 
     private func handle(_ event: NSEvent) -> Bool {

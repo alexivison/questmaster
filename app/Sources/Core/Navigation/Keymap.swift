@@ -70,6 +70,22 @@ public enum Keymap {
         }
     }
 
+    public enum NavigationChord {
+        /// Matches only ⇧⌘H/J/K/L; all modifiers are exact so a modal never mistakes a text command for navigation.
+        public static func direction(characters: String?, modifiers: Set<Modifier>) -> NavigationDirection? {
+            guard modifiers == [.command, .shift] else {
+                return nil
+            }
+            switch characters?.lowercased() {
+            case "h": return .left
+            case "j": return .down
+            case "k": return .up
+            case "l": return .right
+            default: return nil
+            }
+        }
+    }
+
     public enum Command {
         public static let settings = CommandBinding(title: "Settings…", keyEquivalent: ",")
         public static let openGhosttyConfig = CommandBinding(title: "Open Ghostty Config", keyEquivalent: ".")
@@ -104,9 +120,9 @@ public enum Keymap {
         public static let copySessionID = CommandBinding(title: "Copy Session ID", keyEquivalent: "y")
         public static let focusRegionLeft = CommandBinding(title: "Focus Region Left", keyEquivalent: "h", modifiers: [.command, .shift])
         public static let focusRegionRight = CommandBinding(title: "Focus Region Right", keyEquivalent: "l", modifiers: [.command, .shift])
-        // K up, J down, as in vim, beside ⇧⌘H/L: all of Questmaster's navigation is ⇧⌘. They act only while the dock has the
-        // keys and both panels show (NavigationStore.dockPanelKeyRoute); anywhere else the key monitor lets them through, so
-        // Ghostty's own ⇧⌘J (write_screen_file:paste) is shadowed only inside the two-panel dock.
+        // K up, J down, as in vim, beside ⇧⌘H/L: all of Questmaster's navigation is ⇧⌘. `commandChordRoute` gives modals
+        // first refusal; otherwise these act only while the dock has the keys and both panels show, so Ghostty's own ⇧⌘J
+        // (write_screen_file:paste) is shadowed only inside the two-panel dock.
         public static let focusDockTop = CommandBinding(title: "Focus Top Dock Panel", keyEquivalent: "k", modifiers: [.command, .shift])
         public static let focusDockBottom = CommandBinding(title: "Focus Bottom Dock Panel", keyEquivalent: "j", modifiers: [.command, .shift])
         public static let copy = CommandBinding(title: "Copy", keyEquivalent: "c")
@@ -186,8 +202,8 @@ public enum Keymap {
     }
 
     public enum NewSession {
-        public static let defaultFooterText = "⏎ create · tab/⌃j field · ←→ agent · type to search · e/⌃e effort · ⌃r refresh models · ↑↓ suggestion · esc cancel"
-        public static let promptFooterText = "⏎/^s create · ⇧⏎ newline · ⌥k field · esc cancel"
+        public static let defaultFooterText = "⏎ create · tab · ⌃j/k · ⇧⌘j/k fields · ←→/⇧⌘h/l agent · type to search · e/⌃e effort · ⌃r models · ↑↓ suggestions · esc cancel"
+        public static let promptFooterText = "⏎/^s create · ⇧⏎ newline · ⌥k/⇧⌘j/k field · esc cancel"
 
         public static let cancel = KeyCodeBinding(keyCodes: [53])
         public static let nextField = CharacterBinding(keys: ["j"], modifiers: [.control])

@@ -94,7 +94,7 @@ struct TrackerEditSessionSheet: View {
         }
         .scoopedPanel()
         .floatingDropdownHost()
-        .background(SheetKeyEventMonitor(onKeyDown: handle))
+        .background(SheetKeyEventMonitor(onKeyDown: handle, onNavigation: navigate))
         .onAppear {
             if focus == .title {
                 titleNonce += 1
@@ -172,6 +172,23 @@ struct TrackerEditSessionSheet: View {
             titleNonce += 1
         case .color:
             colorFocus.sinkNonce += 1
+        }
+    }
+
+    private func navigate(_ direction: NavigationDirection) {
+        switch direction {
+        case .up, .down:
+            guard allowsColor else {
+                return
+            }
+            moveFocus(to: focus == .title ? .color : .title)
+        case .left, .right:
+            guard focus == .color else {
+                return
+            }
+            let before = color.mode
+            color.cycle(direction == .left ? -1 : 1)
+            colorFocus.follow(from: before, to: color.mode)
         }
     }
 
@@ -263,8 +280,17 @@ struct TrackerEditRepoSheet: View {
         }
         .scoopedPanel()
         .floatingDropdownHost()
-        .background(SheetKeyEventMonitor(onKeyDown: handle))
+        .background(SheetKeyEventMonitor(onKeyDown: handle, onNavigation: navigate))
         .onAppear { colorFocus.sinkNonce += 1 }
+    }
+
+    private func navigate(_ direction: NavigationDirection) {
+        guard direction == .left || direction == .right else {
+            return
+        }
+        let before = color.mode
+        color.cycle(direction == .left ? -1 : 1)
+        colorFocus.follow(from: before, to: color.mode)
     }
 
     private func submit() {
@@ -301,7 +327,7 @@ struct TrackerEditRepoSheet: View {
             dismiss()
             return true
         }
-        // The colour input is the only stop: Tab and ⌃j/⌃k have nowhere else to go.
+        // The colour input is the only stop: Tab and vertical navigation have nowhere else to go.
         return Keymap.NewSession.completePath.matches(event.keyCode)
     }
 }

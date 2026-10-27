@@ -13,6 +13,7 @@ struct KeymapTests {
         regionToggleCommandsUseRedesignChords()
         controlHandoffMapsListControlDirections()
         trackerSessionSelectBindingsUsePlainCommandDigits()
+        navigationChordMatchesOnlyShiftCommandHJKL()
         displayGlyphOrdersModifiersAndUppercasesTheKey()
         gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter()
         gPrefixTrackerResetClearsPendingState()
@@ -139,6 +140,15 @@ struct KeymapTests {
             expect(binding.modifiers == [.command], "session-select binding for \(digit) should be plain command, was \(binding.modifiers)")
         }
         expect(commandBindings.contains(Keymap.Command.selectSession[0]), "session-select bindings missing from command list")
+    }
+
+    private static func navigationChordMatchesOnlyShiftCommandHJKL() {
+        for (key, direction) in [("h", NavigationDirection.left), ("j", .down), ("k", .up), ("l", .right)] {
+            expect(Keymap.NavigationChord.direction(characters: key, modifiers: [.command, .shift]) == direction, "⇧⌘\(key) direction mismatch")
+        }
+        expect(Keymap.NavigationChord.direction(characters: "j", modifiers: [.command]) == nil, "⌘J must not be a navigation chord")
+        expect(Keymap.NavigationChord.direction(characters: "j", modifiers: [.command, .shift, .option]) == nil, "⇧⌘⌥J must not be a navigation chord")
+        expect(Keymap.NavigationChord.direction(characters: "x", modifiers: [.command, .shift]) == nil, "⇧⌘X must not be a navigation chord")
     }
 
     private static func displayGlyphOrdersModifiersAndUppercasesTheKey() {

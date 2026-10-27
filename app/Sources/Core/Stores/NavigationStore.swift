@@ -46,15 +46,41 @@ public final class NavigationStore {
         state.focusedDockPanel
     }
 
-    /// What the chord that focuses `panel` does. The chords move the keys between the dock's two panels, so they are
-    /// the dock's own: handled only while the dock has the keys (`hasKeys`) and both panels show. Anywhere else (the
-    /// terminal, the tracker, under a modal, a dock with one panel) they are not handled and go on to whoever has the
-    /// focus, Ghostty's own ⇧⌘J binding included.
+    /// What the chord that focuses `panel` does inside dock routing. The dock handles it only while it has the keys
+    /// (`hasKeys`) and both panels show. `commandChordRoute` gives an open modal first refusal before this route;
+    /// anywhere else the chord goes on to the focused responder, including Ghostty's ⇧⌘J binding.
     public func dockPanelKeyRoute(_ panel: DockPanel, panels: DockPanels) -> DockPanelKeyRoute {
         guard hasKeys(.dock), panels.top, panels.bottom else {
             return .passThrough
         }
         return state.focusedDockPanel == panel ? .alreadyFocused : .focus
+    }
+
+    /// The modal owns every navigation chord while it is drawn; otherwise H/L focus shell regions and J/K retain
+    /// their two-panel dock scope, passing through to the terminal everywhere else.
+    public func commandChordRoute(_ direction: NavigationDirection, panels: DockPanels) -> CommandChordRoute {
+        guard !isModalDrawn else {
+            return .modal
+        }
+        switch direction {
+        case .left, .right:
+            return .shell
+        case .up:
+            return dockRoute(.top, panels: panels)
+        case .down:
+            return dockRoute(.bottom, panels: panels)
+        }
+    }
+
+    private func dockRoute(_ panel: DockPanel, panels: DockPanels) -> CommandChordRoute {
+        switch dockPanelKeyRoute(panel, panels: panels) {
+        case .passThrough:
+            return .passThrough
+        case .alreadyFocused:
+            return .dock(.alreadyFocused)
+        case .focus:
+            return .dock(.focus)
+        }
     }
 
     public var trackerVisible: Bool {

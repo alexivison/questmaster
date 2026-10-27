@@ -188,8 +188,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         menuController.installCommandKeyMonitor(CommandKeyActions(
-            focusRegionLeft: .anywhere { [weak self] in self?.focusRegionLeft() },
-            focusRegionRight: .anywhere { [weak self] in self?.focusRegionRight() },
+            focusRegionLeft: CommandKeyAction(
+                handles: { [weak self] in self?.commandChordRoute(.left) == .shell },
+                run: { [weak self] in self?.focusRegionLeft() }
+            ),
+            focusRegionRight: CommandKeyAction(
+                handles: { [weak self] in self?.commandChordRoute(.right) == .shell },
+                run: { [weak self] in self?.focusRegionRight() }
+            ),
             focusDockTop: dockPanelKeyAction(.top),
             focusDockBottom: dockPanelKeyAction(.bottom),
             toggleVersionControlDock: .anywhere { [weak self] in self?.toggleVersionControlDock() }
@@ -661,10 +667,20 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         navigation.dockPanelKeyRoute(panel, panels: dockPanels)
     }
 
+    private func commandChordRoute(_ direction: NavigationDirection) -> CommandChordRoute {
+        navigation.commandChordRoute(direction, panels: dockPanels)
+    }
+
     /// The key monitor's entry for a panel's chord: Core decides whether the press is the dock's; if not, it goes on.
     private func dockPanelKeyAction(_ panel: DockPanel) -> CommandKeyAction {
-        CommandKeyAction(
-            handles: { [weak self] in (self?.dockPanelKeyRoute(panel) ?? .passThrough) != .passThrough },
+        let direction: NavigationDirection = panel == .top ? .up : .down
+        return CommandKeyAction(
+            handles: { [weak self] in
+                guard let self, case .dock = self.commandChordRoute(direction) else {
+                    return false
+                }
+                return true
+            },
             run: { [weak self] in self?.focusDockPanel(panel) }
         )
     }
@@ -1083,10 +1099,22 @@ extension AppDelegate: NSMenuItemValidation {
         }
         // The panel focus keys are the dock's alone, as in the key monitor: a disabled item's shortcut does nothing.
         if action == #selector(focusDockTopPanel) {
-            return dockPanelKeyRoute(.top) != .passThrough
+            guard case .dock = commandChordRoute(.up) else {
+                return false
+            }
+            return true
         }
         if action == #selector(focusDockBottomPanel) {
-            return dockPanelKeyRoute(.bottom) != .passThrough
+            guard case .dock = commandChordRoute(.down) else {
+                return false
+            }
+            return true
+        }
+        if action == #selector(focusRegionLeft) {
+            return commandChordRoute(.left) == .shell
+        }
+        if action == #selector(focusRegionRight) {
+            return commandChordRoute(.right) == .shell
         }
         if Self.shellNavigationActions.contains(action) {
             return InWindowModalStack.shared.isEmpty
@@ -1100,8 +1128,7 @@ extension AppDelegate: NSMenuItemValidation {
     /// Commands that move focus between the shell's regions or switch the session: an open modal owns the
     /// keyboard, so they're disabled under it.
     private static let shellNavigationActions: Set<Selector> = [
-        #selector(focusTerminal), #selector(focusRegionLeft), #selector(focusRegionRight),
-        #selector(selectTrackerSession(_:)), #selector(toggleTracker), #selector(toggleDock), #selector(toggleWorkerChatDock),
+        #selector(focusTerminal), #selector(selectTrackerSession(_:)), #selector(toggleTracker), #selector(toggleDock), #selector(toggleWorkerChatDock),
         #selector(toggleVersionControlDock),
     ]
 }

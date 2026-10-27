@@ -44,6 +44,14 @@ public enum DockPanelKeyRoute: Equatable {
     case focus
 }
 
+/// Where a Questmaster navigation chord goes before any menu or shell command handles it.
+public enum CommandChordRoute: Equatable {
+    case modal
+    case shell
+    case dock(DockPanelKeyRoute)
+    case passThrough
+}
+
 public struct AppNavigationState: Equatable {
     public private(set) var focusedRegion: FocusRegion
     public private(set) var trackerVisible: Bool

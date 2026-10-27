@@ -8,6 +8,7 @@ struct NavigationStoreTests {
         showDockPreservingFocusUpdatesVisibilityOnly()
         settleDockUpdatesStateAndPreservesFocus()
         dockPanelKeysAreTheDocksAloneWithBothPanelsShown()
+        commandChordsRouteToTheModalBeforeTheShell()
         print("NavigationStoreTests: all tests passed")
     }
 
@@ -90,6 +91,25 @@ struct NavigationStoreTests {
             expect(dock.dockPanelKeyRoute(.top, panels: alone) == .passThrough, "a dock with \(alone) doesn't handle the top key")
             expect(dock.dockPanelKeyRoute(.bottom, panels: alone) == .passThrough, "a dock with \(alone) doesn't handle the bottom key")
         }
+    }
+
+    private static func commandChordsRouteToTheModalBeforeTheShell() {
+        let both = DockPanels(top: true, bottom: true)
+        let modal = NavigationStore(state: AppNavigationState(focusedRegion: .dock, dockVisible: true))
+        modal.setModalDrawn(true)
+        for direction in [NavigationDirection.left, .down, .up, .right] {
+            expect(modal.commandChordRoute(direction, panels: both) == .modal, "a modal should own the \(direction) chord")
+        }
+
+        let terminal = NavigationStore()
+        expect(terminal.commandChordRoute(.left, panels: both) == .shell, "⇧⌘H should keep its shell route without a modal")
+        expect(terminal.commandChordRoute(.right, panels: both) == .shell, "⇧⌘L should keep its shell route without a modal")
+        expect(terminal.commandChordRoute(.up, panels: both) == .passThrough, "⇧⌘K should pass through outside the dock")
+        expect(terminal.commandChordRoute(.down, panels: both) == .passThrough, "⇧⌘J should pass through outside the dock")
+
+        let dock = NavigationStore(state: AppNavigationState(focusedRegion: .dock, dockVisible: true, focusedDockPanel: .bottom))
+        expect(dock.commandChordRoute(.up, panels: both) == .dock(.focus), "⇧⌘K should focus the top dock panel")
+        expect(dock.commandChordRoute(.down, panels: both) == .dock(.alreadyFocused), "⇧⌘J should stay on the focused bottom dock panel")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

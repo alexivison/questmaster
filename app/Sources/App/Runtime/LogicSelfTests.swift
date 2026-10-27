@@ -1621,7 +1621,7 @@ enum LogicSelfTests {
         try send("K", "K", keyCode: 40, [.command, .shift, .capsLock])
         try expect(ran == ["⇧⌘K"], "Caps Lock doesn't change a chord, got \(ran)")
 
-        // Out of the dock's scope (the terminal or tracker focused, a modal up, a dock with one panel) the dock's chords
+        // Out of the dock's scope (the terminal or tracker focused, or a dock with one panel) the dock's chords
         // are returned untouched, so the terminal still gets ⇧⌘K and Ghostty's own ⇧⌘J; the global chords stay the monitor's.
         ran.removeAll()
         dockHasKeys = false
