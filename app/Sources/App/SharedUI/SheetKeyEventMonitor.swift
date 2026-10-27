@@ -67,12 +67,20 @@ struct SheetKeyEventMonitor: NSViewRepresentable {
                     return event
                 }
                 let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
-                if flags == [.command, .shift], let direction = Keymap.NavigationChord.direction(
-                    characters: event.charactersIgnoringModifiers,
-                    modifiers: [.command, .shift]
-                ) {
-                    self.onNavigation(direction)
-                    return nil
+                if flags == [.command, .shift] {
+                    switch Keymap.NavigationChord.route(
+                        characters: event.charactersIgnoringModifiers,
+                        modifiers: [.command, .shift],
+                        isRepeat: event.isARepeat
+                    ) {
+                    case .passThrough:
+                        break
+                    case .consume:
+                        return nil
+                    case .navigate(let direction):
+                        self.onNavigation(direction)
+                        return nil
+                    }
                 }
                 return self.onKeyDown(event) ? nil : event
             }

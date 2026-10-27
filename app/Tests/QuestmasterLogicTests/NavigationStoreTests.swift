@@ -9,6 +9,7 @@ struct NavigationStoreTests {
         settleDockUpdatesStateAndPreservesFocus()
         dockPanelKeysAreTheDocksAloneWithBothPanelsShown()
         commandChordsRouteToTheModalBeforeTheShell()
+        appCommandsRespectModalOwnershipAndExceptions()
         print("NavigationStoreTests: all tests passed")
     }
 
@@ -110,6 +111,17 @@ struct NavigationStoreTests {
         let dock = NavigationStore(state: AppNavigationState(focusedRegion: .dock, dockVisible: true, focusedDockPanel: .bottom))
         expect(dock.commandChordRoute(.up, panels: both) == .dock(.focus), "⇧⌘K should focus the top dock panel")
         expect(dock.commandChordRoute(.down, panels: both) == .dock(.alreadyFocused), "⇧⌘J should stay on the focused bottom dock panel")
+    }
+
+    private static func appCommandsRespectModalOwnershipAndExceptions() {
+        let modal = NavigationStore()
+        modal.setModalDrawn(true)
+        for binding in [Keymap.Command.toggleVersionControlDock, Keymap.Command.widenDock] {
+            expect(modal.appCommandRoute(.app) == .blockedByModal, "a modal should block \(binding.displayGlyph), including menu-only commands")
+        }
+        expect(modal.appCommandRoute(.textEditing) == .allowed, "standard text editing remains available in a modal")
+        expect(modal.appCommandRoute(.quit) == .allowed, "Quit remains available in a modal")
+        expect(NavigationStore().appCommandRoute(.app) == .allowed, "app commands remain available without a modal")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

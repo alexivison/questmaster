@@ -292,9 +292,12 @@ final class NewQuestSheetModel: ObservableObject {
         }
         let tabOutOfProject = form.focusedField == .project && Keymap.NewSession.completePath.matches(event.keyCode)
         if tabOutOfProject
-            || (option && Keymap.NewSession.nextFieldOption.matches(event.keyCode))
-            || (control && (Keymap.NewSession.nextField.matches(chars) || Keymap.NewSession.previousField.matches(chars))) {
-            moveFocus()
+            || (option && Keymap.NewSession.nextFieldOption.matches(event.keyCode)) {
+            navigate(.down)
+            return true
+        }
+        if control, let direction = Keymap.NewSession.controlFieldDirection(chars) {
+            navigate(direction)
             return true
         }
         if control, Keymap.NewSession.createFromPrompt.matches(chars), form.focusedField == .content {

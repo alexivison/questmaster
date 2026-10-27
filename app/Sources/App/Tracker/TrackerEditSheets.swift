@@ -213,13 +213,13 @@ struct TrackerEditSessionSheet: View {
             dismiss()
             return true
         }
-        let movesFocus = Keymap.NewSession.completePath.matches(event.keyCode)
-            || (flags.contains(.option) && Keymap.NewSession.nextFieldOption.matches(event.keyCode))
-            || (flags.contains(.control) && (Keymap.NewSession.nextField.matches(chars) || Keymap.NewSession.previousField.matches(chars)))
-        if movesFocus {
-            if allowsColor {
-                moveFocus(to: focus == .title ? .color : .title)
-            }
+        if Keymap.NewSession.completePath.matches(event.keyCode)
+            || (flags.contains(.option) && Keymap.NewSession.nextFieldOption.matches(event.keyCode)) {
+            navigate(.down)
+            return true
+        }
+        if flags.contains(.control), let direction = Keymap.NewSession.controlFieldDirection(chars) {
+            navigate(direction)
             return true
         }
         if Keymap.NewSession.create.matches(chars) {

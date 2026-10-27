@@ -71,6 +71,12 @@ public enum Keymap {
     }
 
     public enum NavigationChord {
+        public enum Route: Equatable {
+            case passThrough
+            case consume
+            case navigate(NavigationDirection)
+        }
+
         /// Matches only ⇧⌘H/J/K/L; all modifiers are exact so a modal never mistakes a text command for navigation.
         public static func direction(characters: String?, modifiers: Set<Modifier>) -> NavigationDirection? {
             guard modifiers == [.command, .shift] else {
@@ -83,6 +89,12 @@ public enum Keymap {
             case "l": return .right
             default: return nil
             }
+        }
+        public static func route(characters: String?, modifiers: Set<Modifier>, isRepeat: Bool) -> Route {
+            guard let direction = direction(characters: characters, modifiers: modifiers) else {
+                return .passThrough
+            }
+            return isRepeat ? .consume : .navigate(direction)
         }
     }
 
@@ -208,6 +220,11 @@ public enum Keymap {
         public static let cancel = KeyCodeBinding(keyCodes: [53])
         public static let nextField = CharacterBinding(keys: ["j"], modifiers: [.control])
         public static let previousField = CharacterBinding(keys: ["k"], modifiers: [.control])
+        public static func controlFieldDirection(_ characters: String?) -> NavigationDirection? {
+            if nextField.matches(characters) { return .down }
+            if previousField.matches(characters) { return .up }
+            return nil
+        }
         public static let nextFieldOption = KeyCodeBinding(keyCodes: [40], modifiers: [.option])
         public static let recentPaths = CharacterBinding(keys: ["r"], modifiers: [.control])
         public static let createFromPrompt = CharacterBinding(keys: ["s"], modifiers: [.control])

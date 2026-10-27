@@ -638,7 +638,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Shows or hides the top panel without touching the bottom one. Showing it takes the keys.
     @objc private func toggleVersionControlDock() {
         // Also reached from MenuController's key monitor, which runs before menu validation.
-        guard InWindowModalStack.shared.isEmpty else {
+        guard navigation.appCommandRoute(.app) == .allowed else {
             return
         }
         if dockCoordinator.state.topVisible {
@@ -1092,10 +1092,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: NSMenuItemValidation {
-    /// Greys out a global modal command that would stack an unrelated modal; a disabled item's shortcut does nothing.
+    /// While a modal is drawn, only Quit and standard text editing menu actions remain available.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else {
             return true
+        }
+        guard navigation.appCommandRoute(Self.appCommandKind(for: action)) == .allowed else {
+            return false
         }
         // The panel focus keys are the dock's alone, as in the key monitor: a disabled item's shortcut does nothing.
         if action == #selector(focusDockTopPanel) {
@@ -1116,20 +1119,25 @@ extension AppDelegate: NSMenuItemValidation {
         if action == #selector(focusRegionRight) {
             return commandChordRoute(.right) == .shell
         }
-        if Self.shellNavigationActions.contains(action) {
-            return InWindowModalStack.shared.isEmpty
-        }
         guard let command = globalModalCommand(for: action) else {
             return true
         }
         return modalCommandRoute(command) != .ignored
     }
 
-    /// Commands that move focus between the shell's regions or switch the session: an open modal owns the
-    /// keyboard, so they're disabled under it.
-    private static let shellNavigationActions: Set<Selector> = [
-        #selector(focusTerminal), #selector(selectTrackerSession(_:)), #selector(toggleTracker), #selector(toggleDock), #selector(toggleWorkerChatDock),
-        #selector(toggleVersionControlDock),
+    private static func appCommandKind(for action: Selector) -> AppCommandKind {
+        if action == #selector(NSApplication.terminate(_:)) {
+            return .quit
+        }
+        if textEditingActions.contains(action) {
+            return .textEditing
+        }
+        return .app
+    }
+
+    private static let textEditingActions: Set<Selector> = [
+        #selector(NSText.cut(_:)), #selector(NSText.copy(_:)), #selector(NSText.paste(_:)), #selector(NSText.selectAll(_:)),
+        NSSelectorFromString("undo:"), NSSelectorFromString("redo:"),
     ]
 }
 

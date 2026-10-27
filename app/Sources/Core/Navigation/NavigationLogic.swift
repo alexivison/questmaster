@@ -52,6 +52,17 @@ public enum CommandChordRoute: Equatable {
     case passThrough
 }
 
+public enum AppCommandKind: Equatable {
+    case app
+    case textEditing
+    case quit
+}
+
+public enum AppCommandRoute: Equatable {
+    case allowed
+    case blockedByModal
+}
+
 public struct AppNavigationState: Equatable {
     public private(set) var focusedRegion: FocusRegion
     public private(set) var trackerVisible: Bool

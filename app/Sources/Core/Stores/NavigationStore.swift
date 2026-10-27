@@ -72,6 +72,14 @@ public final class NavigationStore {
         }
     }
 
+    /// App commands pause while a modal is drawn. Standard text editing and Quit remain available.
+    public func appCommandRoute(_ kind: AppCommandKind) -> AppCommandRoute {
+        guard isModalDrawn, kind == .app else {
+            return .allowed
+        }
+        return .blockedByModal
+    }
+
     private func dockRoute(_ panel: DockPanel, panels: DockPanels) -> CommandChordRoute {
         switch dockPanelKeyRoute(panel, panels: panels) {
         case .passThrough:
