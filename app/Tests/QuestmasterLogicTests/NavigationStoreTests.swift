@@ -8,6 +8,8 @@ struct NavigationStoreTests {
         showDockPreservingFocusUpdatesVisibilityOnly()
         settleDockUpdatesStateAndPreservesFocus()
         dockPanelKeysAreTheDocksAloneWithBothPanelsShown()
+        commandChordsRouteToTheModalBeforeTheShell()
+        appCommandsRespectModalOwnershipAndExceptions()
         print("NavigationStoreTests: all tests passed")
     }
 
@@ -90,6 +92,52 @@ struct NavigationStoreTests {
             expect(dock.dockPanelKeyRoute(.top, panels: alone) == .passThrough, "a dock with \(alone) doesn't handle the top key")
             expect(dock.dockPanelKeyRoute(.bottom, panels: alone) == .passThrough, "a dock with \(alone) doesn't handle the bottom key")
         }
+    }
+
+    private static func commandChordsRouteToTheModalBeforeTheShell() {
+        let both = DockPanels(top: true, bottom: true)
+        let modal = NavigationStore(state: AppNavigationState(focusedRegion: .dock, dockVisible: true))
+        modal.setModalDrawn(true)
+        for direction in [NavigationDirection.left, .down, .up, .right] {
+            expect(modal.commandChordRoute(direction, panels: both) == .modal, "a modal should own the \(direction) chord")
+        }
+
+        let terminal = NavigationStore()
+        expect(terminal.commandChordRoute(.left, panels: both) == .shell, "⇧⌘H should keep its shell route without a modal")
+        expect(terminal.commandChordRoute(.right, panels: both) == .shell, "⇧⌘L should keep its shell route without a modal")
+        expect(terminal.commandChordRoute(.up, panels: both) == .passThrough, "⇧⌘K should pass through outside the dock")
+        expect(terminal.commandChordRoute(.down, panels: both) == .passThrough, "⇧⌘J should pass through outside the dock")
+
+        let dock = NavigationStore(state: AppNavigationState(focusedRegion: .dock, dockVisible: true, focusedDockPanel: .bottom))
+        expect(dock.commandChordRoute(.up, panels: both) == .dock(.focus), "⇧⌘K should focus the top dock panel")
+        expect(dock.commandChordRoute(.down, panels: both) == .dock(.alreadyFocused), "⇧⌘J should stay on the focused bottom dock panel")
+    }
+
+    private static func appCommandsRespectModalOwnershipAndExceptions() {
+        let modal = NavigationStore()
+        modal.setModalDrawn(true)
+        for binding in [Keymap.Command.toggleVersionControlDock, Keymap.Command.widenDock] {
+            expect(modal.appCommandRoute(.app) == .blockedByModal, "a modal should block \(binding.displayGlyph), including menu-only commands")
+        }
+        expect(modal.appCommandRoute(.textEditing) == .allowed, "standard text editing remains available in a modal")
+        expect(modal.appCommandRoute(.quit) == .allowed, "Quit remains available in a modal")
+        expect(NavigationStore().appCommandRoute(.app) == .allowed, "app commands remain available without a modal")
+
+        let questLog = NavigationStore()
+        questLog.setModalDrawn(true)
+        expect(
+            questLog.appCommandRoute(.globalModal(.newQuest), topModal: .questLog) == .child,
+            "⌘T should remain enabled to open New Quest as the Quest Log's child"
+        )
+        expect(
+            questLog.appCommandRoute(.globalModal(.toggleQuestLog), topModal: .questLog) == .allowed,
+            "⇧⌘T should remain enabled to close the Quest Log"
+        )
+        let caffeinate = Keymap.Command.toggleCaffeine
+        expect(
+            questLog.appCommandRoute(.app, topModal: .questLog) == .blockedByModal,
+            "menu-only command \(caffeinate.displayGlyph) should stay disabled under the Quest Log"
+        )
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
