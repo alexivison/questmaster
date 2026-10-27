@@ -1,56 +1,45 @@
 import AppKit
 import SwiftUI
 
-/// Pulsing placeholder shown over the terminal pane from window-open until the
-/// embedded tmux client is confirmed attached (same skeleton language as the
-/// tracker's). It covers the transient login shell that a too-early ghostty
-/// surface spawns while the attach retries converge.
+enum TerminalSkeletonMetrics {
+    static let lineWidths: [CGFloat] = [190, 300, 250, 120, 280, 210, 90]
+    /// The prompt's mark and the cursor's block, the line under the text.
+    static let markSide = Space.item
+    static let promptWidth: CGFloat = 50
+    static let cursorWidth: CGFloat = 15
+    /// The veil breathes between these, over the terminal's own fill.
+    static let pulseFrom = 0.6
+    static let pulseTo = 0.7
+}
+
+/// Breathing placeholder shown over the terminal pane from window-open until the embedded tmux client is confirmed attached.
+/// It covers the transient login shell that a too-early ghostty surface spawns while the attach retries converge. It is the
+/// terminal's text as the chrome draws a ghost: a prompt (the chrome's diamond, then a short line) over lines of text, each a
+/// `SkeletonBar`, on the terminal's own fill.
 struct TerminalAttachSkeleton: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-
-    private static let barHeight: CGFloat = 10
-    private let lineWidths: [CGFloat] = [190, 300, 250, 120, 280, 210, 90]
-
-    private var pulseOpacity: Double {
-        pulse ? 0.7 : 0.6
-    }
+    private typealias Metrics = TerminalSkeletonMetrics
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.item) {
-            ForEach(Array(lineWidths.enumerated()), id: \.offset) { _, width in
-                skeletonBar(width: width)
+        SkeletonPulse(from: Metrics.pulseFrom, to: Metrics.pulseTo) {
+            VStack(alignment: .leading, spacing: Space.item) {
+                HStack(spacing: Space.item) {
+                    DiamondShape()
+                        .fill(AppPalette.controlBorder.swiftUI)
+                        .frame(width: Metrics.markSide, height: Metrics.markSide)
+                    SkeletonBar(width: Metrics.promptWidth)
+                }
+                ForEach(Array(Metrics.lineWidths.enumerated()), id: \.offset) { _, width in
+                    SkeletonBar(width: width)
+                }
+                SkeletonBar(width: Metrics.cursorWidth)
+                    .padding(.top, Space.row)
             }
-            HStack(spacing: Space.row) {
-                skeletonBar(width: 15)
-                skeletonBar(width: 50)
-            }
-            .padding(.top, Space.row)
+            // Ghostty's own padding, where the terminal's first cell will sit.
+            .padding(.top, CGFloat(GhosttyWindowPadding.resolved.y))
+            .padding(.leading, CGFloat(GhosttyWindowPadding.resolved.x))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .opacity(pulseOpacity)
-        // Ghostty's own padding, where the terminal's first cell will sit.
-        .padding(.top, CGFloat(GhosttyWindowPadding.resolved.y))
-        .padding(.leading, CGFloat(GhosttyWindowPadding.resolved.x))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.terminal.swiftUI)
-        .onAppear {
-            guard !reduceMotion else {
-                pulse = true
-                return
-            }
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
-        }
-        .onDisappear {
-            pulse = false
-        }
-    }
-
-    private func skeletonBar(width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(AppPalette.dim.swiftUI)
-            .frame(width: width, height: Self.barHeight)
     }
 }
 

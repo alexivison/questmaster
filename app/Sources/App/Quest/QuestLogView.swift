@@ -88,7 +88,7 @@ struct QuestLogView: View {
             QuestLogList(store: store)
                 .frame(width: QuestLogMetrics.listWidth, height: QuestLogMetrics.pageOrigin.y + QuestLogMetrics.pageSize.height - QuestLogMetrics.listOrigin.y, alignment: .top)
                 .offset(x: QuestLogMetrics.listOrigin.x, y: QuestLogMetrics.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, isFiltering: filter.isActive, pageScroll: pageScroll)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll)
                 .offset(x: QuestLogMetrics.pageOrigin.x, y: QuestLogMetrics.pageOrigin.y)
             buttons
                 .frame(width: QuestLogMetrics.sheetSize.width)
@@ -268,7 +268,6 @@ private struct QuestLogList: View {
 private struct QuestLogPageView: View {
     let page: QuestLogPage?
     let pageID: String?
-    let isFiltering: Bool
     let pageScroll: QuestLogPageScroll
     @State private var unrolled = false
     @State private var inked = false
@@ -335,10 +334,7 @@ private struct QuestLogPageView: View {
             .id(pageID)
             .transition(.opacity)
         } else {
-            Text(isFiltering ? "No quest matches the filter." : "No quests yet. ⌘T posts one.")
-                .font(AppFonts.monoSmall.swiftUI)
-                .foregroundStyle(AppPalette.panel.swiftUI)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            EmptyState(color: AppPalette.panel)
         }
     }
 }

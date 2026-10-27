@@ -123,7 +123,7 @@ final class TerminalSessionController {
             attachEmbeddedTerminal(to: sessionID, completion: completion)
         case .focusAttachedTerminal:
             runtimeStore.setCurrentTerminalSessionID(sessionID)
-            terminalShell()?.clearMessage()
+            terminalShell()?.clearEnded()
             focusTerminal()
             render()
             completion?(true)
@@ -156,10 +156,8 @@ final class TerminalSessionController {
         if let deferredTerminalHost = terminalHost as? DeferredTerminalHost,
            !deferredTerminalHost.isInstalled {
             pendingTerminalAttachments.append(PendingTerminalAttachment(sessionID: sessionID, completion: completion))
-            terminalShell()?.showMessage(
-                title: "Terminal starting",
-                detail: "The requested session will attach when the terminal environment is ready."
-            )
+            // Until the terminal environment is ready the pane shows the placeholder's attach veil, which nothing covers.
+            terminalShell()?.clearEnded()
             render()
             return
         }
@@ -178,7 +176,8 @@ final class TerminalSessionController {
             }
             terminalHost.start()
             runtimeStore.setCurrentTerminalSessionID(sessionID)
-            terminalShell()?.clearMessage()
+            // Same turn as the connect, which raises the attach veil when it builds a surface, so no frame has the icon over it.
+            terminalShell()?.clearEnded()
             focusTerminal()
             render()
             completion?(true)

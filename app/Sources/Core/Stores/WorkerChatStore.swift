@@ -39,6 +39,12 @@ public final class WorkerChatStore {
 
     public private(set) var lines: [WorkerChatLine] = []
     public private(set) var isAttached = false
+    /// Whether the current master's first read has come back whole: no worker's log failed and nothing is left to read. A
+    /// reset clears it, so a switch to a master with activity never reads as empty while its first reply is on its way.
+    private var hasLoaded = false
+    /// The feed is known to have nothing in it: a whole read came back and added no lines. Before that (a read pending,
+    /// failed or partial) the chat is blank rather than empty, and `readNotice` says what went wrong.
+    public var isKnownEmpty: Bool { hasLoaded && lines.isEmpty }
     /// A single muted notice naming the workers whose log the last pull couldn't read; cleared by a clean pull.
     public private(set) var readNotice: String?
     /// Changes with every replacement of `lines`, so a view can tell one update from the next.
@@ -114,6 +120,9 @@ public final class WorkerChatStore {
         }
         let previousErrors = readErrorWorkerIDs
         readErrorWorkerIDs = (payload.errors ?? [:]).keys.sorted()
+        if readErrorWorkerIDs.isEmpty && !payload.hasMore.values.contains(true) {
+            hasLoaded = true
+        }
         if !payload.entries.isEmpty {
             merge(payload.entries)
         } else if previousErrors != readErrorWorkerIDs {
@@ -143,6 +152,7 @@ public final class WorkerChatStore {
     private func reset(to nextMasterID: String?) {
         masterID = nextMasterID
         isAttached = nextMasterID != nil
+        hasLoaded = false
         generation += 1
         cursors = [:]
         records = []

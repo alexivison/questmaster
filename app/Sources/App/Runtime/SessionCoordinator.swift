@@ -12,10 +12,10 @@ final class SessionCoordinator {
         let switchTerminal: (_ sessionID: String, _ completion: ((Bool) -> Void)?) -> Void
         /// Surfaces a mutation failure banner.
         let showMutationFailure: (_ label: String, _ errorDescription: String) -> Void
-        /// Clears the terminal shell message.
-        let clearTerminalMessage: () -> Void
-        /// Shows the "Session ended" banner.
-        let showTerminalEndedMessage: () -> Void
+        /// Takes the ended-session icon off the terminal pane.
+        let clearTerminalEnded: () -> Void
+        /// Puts the ended-session icon on the terminal pane: only once the viewed session is deleted with nowhere to go.
+        let showTerminalEnded: () -> Void
         /// Drives the dock / terminal chrome / navigation refresh.
         let render: () -> Void
     }
@@ -146,7 +146,7 @@ final class SessionCoordinator {
                             return
                         }
                         self?.store.setCurrentTerminalSessionID(sessionID)
-                        self?.dependencies.clearTerminalMessage()
+                        self?.dependencies.clearTerminalEnded()
                         self?.dependencies.switchTerminal(sessionID, nil)
                     case .failure(let error):
                         self?.dependencies.showMutationFailure("New Terminal", error.localizedDescription)
@@ -174,7 +174,7 @@ final class SessionCoordinator {
 
     private func showTerminalSessionEnded() {
         store.setCurrentTerminalSessionID(nil)
-        dependencies.showTerminalEndedMessage()
+        dependencies.showTerminalEnded()
     }
 
     private func selectedWorktreePath() -> String? {

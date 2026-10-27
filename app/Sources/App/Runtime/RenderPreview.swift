@@ -65,6 +65,9 @@ enum RenderPreview {
         renderView(shellView(size: CGSize(width: 1100, height: 700)), size: CGSize(width: 1100, height: 700), to: "\(outputDir)/shell.png")
         render(breathingListView(), size: CGSize(width: 300, height: 720), to: "\(outputDir)/breathing-list.png")
         render(skeletonView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-skeleton.png")
+        render(trackerEmptyView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-empty.png")
+        render(TerminalAttachSkeleton(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-skeleton.png")
+        renderView(terminalEndedView(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-ended.png")
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
@@ -177,12 +180,16 @@ enum RenderPreview {
         render(artifactHoverView(), size: CGSize(width: 400, height: 260), to: "\(outputDir)/artifact-hover.png")
         renderView(artifactPaneView(highlight: 1, marked: [0, 2], missing: [1, 3]), size: pane, to: "\(outputDir)/artifact-pane-marked.png")
         renderView(artifactPaneView(highlight: nil, empty: true), size: pane, to: "\(outputDir)/artifact-pane-empty.png")
+        renderView(artifactPaneView(highlight: nil, empty: true, allTab: true), size: pane, to: "\(outputDir)/artifact-pane-empty-all.png")
+        renderView(artifactPaneView(highlight: nil, empty: true, viewer: true), size: pane, to: "\(outputDir)/artifact-viewer-empty.png")
         renderView(dockBarView(.viewer), size: CGSize(width: 480, height: 200), to: "\(outputDir)/dock-viewer.png")
         renderView(dockBarView(.workerChat), size: CGSize(width: DockWidthPreference.panelWidth, height: 200), to: "\(outputDir)/dock-worker-chat.png")
+        renderView(dockBarView(.workerChatEmpty), size: CGSize(width: DockWidthPreference.panelWidth, height: 640), to: "\(outputDir)/worker-chat-empty.png")
         renderView(dockFrameView(focused: true), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-focused.png")
         renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
         render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
+        render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
         print("RenderPreview: done")
         exit(0)
     }
@@ -248,7 +255,8 @@ enum RenderPreview {
 
     /// The artifact pane as artifacts.svg draws it (480 x 1015): the All tab, a "@project questmaster" chip, eleven
     /// rows with `highlight` the cursor; `suggesting` focuses the filter with its dropdown open; `marked` rows are
-    /// in the delete selection and `missing` ones lost their file; `empty` shows the Session tab with nothing in it.
+    /// in the delete selection and `missing` ones lost their file; `empty` shows the Session tab, or the All tab (`allTab`),
+    /// with nothing in it, or the viewer (`viewer`) with no artifact to show.
     @MainActor
     static func artifactPaneView(
         highlight: Int?,
@@ -256,7 +264,9 @@ enum RenderPreview {
         suggesting: Bool = false,
         marked: Set<Int> = [],
         missing: Set<Int> = [],
-        empty: Bool = false
+        empty: Bool = false,
+        allTab: Bool = false,
+        viewer: Bool = false
     ) -> NSView {
         let artifacts = (0..<11).map { index in
             ArtifactReference(
@@ -276,10 +286,10 @@ enum RenderPreview {
             currentSessionID: "preview",
             artifacts: empty ? [] : artifacts,
             projectTitlesByArtifactID: Dictionary(uniqueKeysWithValues: artifacts.map { ($0.id, "questmaster") }),
-            artifactScope: empty ? .session : .all,
+            artifactScope: empty && !allTab ? .session : .all,
             selectedArtifactID: highlight.map { artifacts[$0].id },
             selectedArtifactIDs: Set(marked.map { artifacts[$0].id }),
-            route: .list,
+            route: viewer ? .viewer : .list,
             displayState: empty ? .empty(sessionID: "preview") : .viewing(artifacts[0]),
             artifactFilterTokens: empty ? [] : [ArtifactFilterToken(kind: .project, value: "questmaster", title: "questmaster")],
             filterSuggestions: suggesting ? suggestions : [],
@@ -300,10 +310,13 @@ enum RenderPreview {
             areaFocused: focused,
             previewFilterFocused: suggesting
         ))
-        return DockShellView(body: body)
+        guard viewer else {
+            return DockShellView(body: body)
+        }
+        return DockShellView(body: body, model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: nil)))
     }
 
-    enum DockBarFixture { case viewer, workerChat }
+    enum DockBarFixture { case viewer, workerChat, workerChatEmpty }
 
     /// The dock's top bar over its content: an open artifact ("Quest log mock") in the viewer, or the worker chat feed.
     @MainActor
@@ -315,6 +328,14 @@ enum RenderPreview {
         case .workerChat:
             let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
             return DockShellView(body: NSHostingView(rootView: workerChatView()), model: model)
+        case .workerChatEmpty:
+            // A master whose workers' logs were read and had nothing in them.
+            let store = WorkerChatStore()
+            if let request = store.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true) {
+                _ = store.receive(WorkerFeedPayload(), for: request)
+            }
+            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+            return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store).background(AppPalette.panel.swiftUI)), model: model)
         }
     }
 
@@ -826,10 +847,32 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// The terminal pane after its session ended: the real shell view with its ended icon up over the terminal's fill.
+    @MainActor
+    private static func terminalEndedView() -> NSView {
+        let body = NSView()
+        body.wantsLayer = true
+        body.layer?.backgroundColor = AppPalette.terminal.cgColor
+        let shell = TerminalShellView(body: body, dragHandleHeight: 0)
+        shell.showEnded()
+        return shell
+    }
+
+    /// The tracker with no sessions and a connected backend: the empty state alone.
+    @MainActor
+    private static func trackerEmptyView() -> some View {
+        TrackerRootView(
+            store: RuntimeStore(sourceLabel: "preview"),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
     @MainActor
     private static func skeletonView() -> some View {
         let store = RuntimeStore(sourceLabel: "preview")
-        store.apply(.serveUnavailable("connecting to serve..."))
+        store.apply(.serveUnavailable("connecting to backend..."))
         return TrackerRootView(
             store: store,
             newSessionPresenter: NewSessionSheetPresenter(),
@@ -1827,13 +1870,14 @@ enum RenderPreview {
         .scoopedPanel()
     }
 
+    /// `loading` leaves every picker's options unanswered, so each shows its skeleton.
     @MainActor
-    private static func settingsView() -> some View {
+    private static func settingsView(loading: Bool = false) -> some View {
         SettingsSheetView(
             presentation: SettingsSheetPresentation(
                 mutationClient: SettingsPreviewMutationClient(),
-                modelClient: SettingsPreviewModelClient(),
-                effortClient: SettingsPreviewEffortClient()
+                modelClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewModelClient(),
+                effortClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewEffortClient()
             ),
             dismiss: {}
         )
@@ -2028,8 +2072,14 @@ enum RenderPreview {
         warmUpFirstWindow()
         hostingView.frame = NSRect(origin: .zero, size: size)
 
+        // The fixture sits in a frame-based container, not as the window's content view. A content view's Auto Layout
+        // constraints give the window a minimum size, and a hosting view nested in them (a dock panel's body) reports its
+        // SwiftUI content's minimum: multi-line text wrapped at zero width. The window grew to it, so a render came out
+        // taller than asked (an empty pane 898 tall for 640).
+        let container = NSView(frame: hostingView.frame)
+        container.addSubview(hostingView)
         let window = HeadlessWindow(size: size, scale: scale)
-        window.contentView = hostingView
+        window.contentView = container
         window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(Double(environment["RENDER_SETTLE"] ?? "") ?? 0.8))
 
@@ -2097,6 +2147,13 @@ private final class SettingsPreviewModelClient: ServeModelSuggesting {
             defaultModel: model
         )))
     }
+}
+
+/// A backend that never answers: the pickers stay on their skeletons.
+private final class SettingsPreviewStalledClient: ServeModelSuggesting, ServeReasoningEffortSuggesting {
+    func suggestModels(agent: String, role: String, refresh: Bool, completion: @escaping (Result<ModelSuggestionResponse, Error>) -> Void) {}
+
+    func suggestReasoningEfforts(agent: String, role: String, model: String, completion: @escaping (Result<ReasoningEffortSuggestionResponse, Error>) -> Void) {}
 }
 
 private final class SettingsPreviewEffortClient: ServeReasoningEffortSuggesting {

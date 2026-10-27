@@ -56,6 +56,10 @@ private enum SettingsMetrics {
     static let pickerSpacing = Space.item
     static let pickerBaseline = FormFieldMetrics.baseline
     static let skeletonWidth: CGFloat = 90
+    /// The ghost of the picker's value, and the opacities the whole ghost breathes between.
+    static let skeletonValueWidth: CGFloat = 40
+    static let skeletonPulseFrom = 0.5
+    static let skeletonPulseTo = 0.7
 }
 
 /// The sidebar's sections. Only the ones that exist are listed; a new one is a new case.
@@ -251,29 +255,15 @@ private struct SettingsRoleRow: View {
     }
 }
 
-/// Pulsing placeholder shown in place of a select control until its options
-/// resolve — same visual language as `TerminalAttachSkeleton`/the tracker's
-/// skeleton, sized to one control instead of a whole pane.
+/// A ghost of the compact picker, shown in its place until its options resolve: the picker's own field chrome around a ghost of
+/// its value, breathing as the other skeletons do (`SkeletonPulse`).
 private struct SettingsSkeletonControl: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-
     var body: some View {
-        RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
-            .fill(AppPalette.item.swiftUI)
-            .opacity(pulse ? 0.7 : 0.5)
-            .onAppear {
-                guard !reduceMotion else {
-                    pulse = true
-                    return
-                }
-                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
-                    pulse = true
-                }
-            }
-            .onDisappear {
-                pulse = false
-            }
+        SkeletonPulse(from: SettingsMetrics.skeletonPulseFrom, to: SettingsMetrics.skeletonPulseTo) {
+            SkeletonBar(width: SettingsMetrics.skeletonValueWidth)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .fieldChrome(focused: false)
+        }
     }
 }
 

@@ -839,14 +839,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 showMutationFailure: { [weak self] label, errorDescription in
                     self?.errorPresenter.showMutationFailure(label: label, errorDescription: errorDescription)
                 },
-                clearTerminalMessage: { [weak self] in
-                    self?.shellHandles?.terminalShell.clearMessage()
+                clearTerminalEnded: { [weak self] in
+                    self?.shellHandles?.terminalShell.clearEnded()
                 },
-                showTerminalEndedMessage: { [weak self] in
-                    self?.shellHandles?.terminalShell.showMessage(
-                        title: "Session ended",
-                        detail: "No active terminal session. Press Cmd-N to start a new session."
-                    )
+                showTerminalEnded: { [weak self] in
+                    self?.shellHandles?.terminalShell.showEnded()
                 },
                 render: { [weak self] in
                     self?.renderSnapshot()
