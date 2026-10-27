@@ -130,13 +130,14 @@ func TestQuestListByIDs(t *testing.T) {
 func TestQuestStartPayloadRequiresSingleProject(t *testing.T) {
 	quests := []state.Quest{
 		{ID: "qst-one", Content: "First\nline", ProjectID: "repo", ProjectPath: "/tmp/repo"},
-		{ID: "qst-two", Content: "Second", ProjectID: "repo", ProjectPath: "/tmp/repo"},
+		{ID: "qst two", Content: "Second", ProjectID: "repo", ProjectPath: "/tmp/repo"},
+		{ID: "qst'three", Content: "Third", ProjectID: "repo", ProjectPath: "/tmp/repo"},
 	}
 	cwd, prompt, err := questStartPayload(quests)
 	if err != nil {
 		t.Fatalf("questStartPayload: %v", err)
 	}
-	if cwd != "/tmp/repo" || prompt != "Quest IDs: qst-one qst-two\nRead them with: questmaster quest ls qst-one qst-two" {
+	if cwd != "/tmp/repo" || prompt != "Quest IDs: 'qst-one' 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls 'qst-one' 'qst two' 'qst'\\''three'" {
 		t.Fatalf("cwd=%q prompt=%q", cwd, prompt)
 	}
 

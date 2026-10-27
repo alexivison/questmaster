@@ -1244,54 +1244,6 @@ func TestSessionMutationsRejectLegacyAgentField(t *testing.T) {
 	}
 }
 
-func TestStartMutationBuildsQuestPromptFromIDs(t *testing.T) {
-	env := seedServeFixture(t)
-	for _, quest := range []state.Quest{
-		{ID: "qst-one", Content: "Private quest body one", ProjectID: "repo", ProjectPath: env.worktree},
-		{ID: "qst-two", Content: "Private quest body two", ProjectID: "repo", ProjectPath: env.worktree},
-	} {
-		if _, err := state.UpsertQuestAt(env.store.Root(), quest); err != nil {
-			t.Fatalf("seed quest %q: %v", quest.ID, err)
-		}
-	}
-	runner := &recordingMutationRunner{}
-	srv := &Server{Snapshotter: &Snapshotter{store: env.store}, MutationRunner: runner}
-	data, err := json.Marshal(map[string]string{"quest_ids": "qst-one qst-two", "agent": "codex"})
-	if err != nil {
-		t.Fatalf("encode request data: %v", err)
-	}
-	if _, err := srv.mutate(context.Background(), Request{Method: "start", Data: data}); err != nil {
-		t.Fatalf("start quests: %v", err)
-	}
-	commands := runner.Commands()
-	if len(commands) != 1 {
-		t.Fatalf("commands = %#v, want one start", commands)
-	}
-	wantArgs := []string{"start", "--from-app", "--cwd", env.worktree, "--agent", "codex", "--prompt-file", "-"}
-	if !slices.Equal(commands[0].Args, wantArgs) {
-		t.Fatalf("start args = %v, want %v", commands[0].Args, wantArgs)
-	}
-	wantPrompt := "Quest IDs: qst-one qst-two\nRead them with: questmaster quest ls qst-one qst-two"
-	if commands[0].Stdin != wantPrompt {
-		t.Fatalf("prompt = %q, want %q", commands[0].Stdin, wantPrompt)
-	}
-	if strings.Contains(commands[0].Stdin, "Private quest body") {
-		t.Fatalf("prompt leaked quest contents: %q", commands[0].Stdin)
-	}
-
-	runner.Reset()
-	data, err = json.Marshal(map[string]string{"quest_ids": "qst-missing", "agent": "codex"})
-	if err != nil {
-		t.Fatalf("encode unknown quest data: %v", err)
-	}
-	if _, err := srv.mutate(context.Background(), Request{Method: "start", Data: data}); err == nil || !strings.Contains(err.Error(), `quest "qst-missing" not found`) {
-		t.Fatalf("unknown quest error = %v", err)
-	}
-	if commands := runner.Commands(); len(commands) != 0 {
-		t.Fatalf("unknown quest started a session: %#v", commands)
-	}
-}
-
 func TestMutationMethodRegistryDrivesRouting(t *testing.T) {
 	methods := mutationMethodNames()
 	if len(methods) == 0 {

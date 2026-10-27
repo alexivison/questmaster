@@ -16,7 +16,7 @@ struct DaemonConnectionTests {
         """.utf8))
     }
 
-    private static func handshake(_ root: String = "/state", _ identity: String = "canonical", _ version: Int = 3, _ accepting: Bool = true) throws -> DaemonHandshake {
+    private static func handshake(_ root: String = "/state", _ identity: String = "canonical", _ version: Int = 2, _ accepting: Bool = true) throws -> DaemonHandshake {
         let value: [String: Any] = ["root": root, "identity": identity, "protocol_version": version, "accepting": accepting]
         return try JSONDecoder().decode(DaemonHandshake.self, from: JSONSerialization.data(withJSONObject: value))
     }
@@ -35,7 +35,7 @@ struct DaemonConnectionTests {
         do {
             let value = try record()
             try handshake().validate(against: value)
-            for hello in [try handshake("/other"), try handshake("/state", "other"), try handshake("/state", "canonical", 1), try handshake("/state", "canonical", 3, false)] {
+            for hello in [try handshake("/other"), try handshake("/state", "other"), try handshake("/state", "canonical", 1), try handshake("/state", "canonical", 2, false)] {
                 do {
                     try hello.validate(against: value)
                     fail("invalid handshake was accepted")

@@ -33,7 +33,7 @@ struct QuestCoreTests {
         anAssignedQuestCanBeUnfiled()
         browsingReachesEveryProject()
         leavingTheProjectFieldEndsItsSearch()
-        startFromQuestsSendsIDsAndRejectsMixedProjects()
+        startFromQuestsBuildsIDPromptAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
     }
 
@@ -485,17 +485,18 @@ struct QuestCoreTests {
         expect(!edit.canSubmit, "clearing a filed quest's project needs a new one")
     }
 
-    private static func startFromQuestsSendsIDsAndRejectsMixedProjects() {
+    private static func startFromQuestsBuildsIDPromptAndRejectsMixedProjects() {
         let quests = [
             QuestItem(id: "qst-one", content: "First\nline", projectID: "repo", projectPath: "/tmp/repo"),
-            QuestItem(id: "qst-two", content: "Second", projectID: "repo", projectPath: "/tmp/repo"),
+            QuestItem(id: "qst two", content: "Second", projectID: "repo", projectPath: "/tmp/repo"),
+            QuestItem(id: "qst'three", content: "Third", projectID: "repo", projectPath: "/tmp/repo"),
         ]
         do {
             let request = try ServeMutationRequests.startFromQuests(quests, title: "quests", agent: "codex")
             let data = request.jsonObject(id: "start")["data"] as? NSDictionary
             expect(data?["cwd"] as? String == "/tmp/repo", "cwd mismatch")
-            expect(data?["quest_ids"] as? String == "qst-one qst-two", "start should send quest IDs")
-            expect(data?["prompt"] == nil, "app should leave quest prompt construction to the backend")
+            expect(data?["prompt"] as? String == "Quest IDs: 'qst-one' 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls 'qst-one' 'qst two' 'qst'\\''three'", "start prompt should instruct agents to read the quest IDs")
+            expect(data?["quest_ids"] == nil, "start should send the editable prompt through the existing prompt field")
         } catch {
             fail("startFromQuests threw \(error)")
         }

@@ -42,8 +42,12 @@ func StartPayload(quests []state.Quest) (string, string, error) {
 		if quest.ProjectID != projectID || quest.ProjectPath == "" {
 			return "", "", fmt.Errorf("selected quests must share one project")
 		}
-		ids = append(ids, quest.ID)
+		ids = append(ids, shellArgument(quest.ID))
 	}
 	joinedIDs := strings.Join(ids, " ")
 	return projectPath, fmt.Sprintf("Quest IDs: %s\nRead them with: questmaster quest ls %s", joinedIDs, joinedIDs), nil
+}
+
+func shellArgument(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
