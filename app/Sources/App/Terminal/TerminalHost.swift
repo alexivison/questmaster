@@ -653,7 +653,7 @@ final class GhosttyKitTerminalHost: TerminalPaneHosting {
         }
         attachVeil = nil
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.18
+            Motion.configure(context, .standard)
             veil.animator().alphaValue = 0
         }, completionHandler: {
             veil.removeFromSuperview()

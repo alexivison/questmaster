@@ -260,7 +260,7 @@ struct ArtifactRow: View {
             Color.clear.frame(width: Metrics.gutter, height: 1)
         }
         .padding(.bottom, Metrics.spacing)
-        .animation(.easeInOut(duration: 0.16), value: selectMode)
+        .animation(Motion.animation(.fast), value: selectMode)
         .help(artifact.path)
         .accessibilityElement(children: selectMode ? .contain : .ignore)
         .accessibilityLabel(artifact.label)

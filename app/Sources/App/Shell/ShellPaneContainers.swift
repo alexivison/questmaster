@@ -213,8 +213,6 @@ final class DockColumnView: NSView {
     let bottomShell: DockShellView
     private var panels = DockPanels()
     private var transition: Transition?
-    /// Whether the system asks for less motion. A property so a test can set it.
-    var reducesMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
     private struct Transition {
         let from: DockColumnLayout
@@ -249,7 +247,7 @@ final class DockColumnView: NSView {
         finishTransition()
         let previous = panels
         panels = next
-        guard animated, window != nil, previous.isShown, next.isShown, !reducesMotion() else {
+        guard animated, window != nil, previous.isShown, next.isShown, !Motion.reducesMotion() else {
             needsLayout = true
             return
         }
@@ -286,13 +284,12 @@ final class DockColumnView: NSView {
         guard let running = transition else {
             return
         }
-        let duration = DockPanelMotion.duration * ModalFade.slowdown
-        let progress = min(1, (CACurrentMediaTime() - running.began) / duration)
+        let progress = min(1, (CACurrentMediaTime() - running.began) / Motion.duration(.standard))
         guard progress < 1 else {
             finishTransition()
             return
         }
-        apply(running, progress: DockPanelMotion.eased(progress))
+        apply(running, progress: MotionEasing.eased(progress))
     }
 
     private func apply(_ running: Transition, progress: Double) {

@@ -334,7 +334,7 @@ final class TrackerCastFillNSView: NSView {
         breath.duration = TrackerCastFill.pulsePeriod / 2
         breath.autoreverses = true
         breath.repeatCount = .infinity
-        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.timingFunction = Motion.breathingTimingFunction
         breath.beginTime = CACurrentMediaTime() + delay
         pulse.add(breath, forKey: Self.pulseKey)
     }
@@ -352,7 +352,8 @@ final class TrackerCastFillNSView: NSView {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1
         fade.toValue = 0
-        fade.duration = TrackerCastPhase.flashDuration
+        fade.duration = Motion.duration(.standard)
+        fade.timingFunction = Motion.timingFunction
         flash.add(fade, forKey: Self.flashKey)
     }
 }

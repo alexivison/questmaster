@@ -50,7 +50,7 @@ final class InWindowModalStack: ObservableObject {
             return
         }
         entries[index].closing = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + ModalFade.fadeOut) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Motion.duration(.fast)) { [weak self] in
             self?.entries.removeAll { $0.id == id && $0.closing }
         }
     }
@@ -158,7 +158,7 @@ struct ModalLayer<Content: View>: View {
         .onPreferenceChange(ModalSizeKey.self) { contentSize = $0 }
         .ignoresSafeArea()
         .allowsHitTesting(!closing)
-        .animation(.easeOut(duration: closing ? ModalFade.fadeOut : ModalFade.fadeIn), value: isShown)
+        .animation(Motion.animation(closing ? .fast : .standard), value: isShown)
         .onAppear { entered = true }
     }
 
@@ -176,23 +176,6 @@ private struct ModalSizeKey: PreferenceKey {
     static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
         value = nextValue()
     }
-}
-
-/// How long modals take to come and go (`ModalLayer` draws it: the backdrop fades, the modal fades and scales). A
-/// closing modal stays mounted and stops taking clicks until its fade-out ends, so a second click can't act twice.
-enum ModalFade {
-    static let fadeIn = 0.18 * slowdown
-    static let fadeOut = 0.14 * slowdown
-
-    /// Stretches the modal animations: 1 in the app. DEBUG renders set QUESTMASTER_ANIMATION_SLOWDOWN so an
-    /// animation recording can sample each frame (its GIF then plays the frames back at real speed).
-    static let slowdown: Double = {
-        #if DEBUG
-        return ProcessInfo.processInfo.environment["QUESTMASTER_ANIMATION_SLOWDOWN"].flatMap(Double.init) ?? 1
-        #else
-        return 1
-        #endif
-    }()
 }
 
 struct InWindowModalStackView: View {

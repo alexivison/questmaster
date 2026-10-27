@@ -64,11 +64,6 @@ final class MainSplitView: NSView {
     var onFooterBottomInsetChanged: ((CGFloat) -> Void)?
     private var lastFooterBottomInset: CGFloat = 0
 
-    private enum CanonicalAnimation {
-        static let duration: TimeInterval = 0.18
-        static let timingFunction = CAMediaTimingFunction(name: .easeOut)
-    }
-
     private struct CanonicalLayout {
         let trackerFrame: NSRect
         let terminalFrame: NSRect
@@ -254,8 +249,7 @@ final class MainSplitView: NSView {
         }
         isAnimatingCanonicalLayout = true
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = CanonicalAnimation.duration
-            context.timingFunction = CanonicalAnimation.timingFunction
+            Motion.configure(context, .standard)
             animatePane(panes[0], to: layout.trackerFrame, isVisible: trackerVisible)
             panes[1].animator().frame = layout.terminalFrame
             animatePane(panes[2], to: layout.dockFrame, isVisible: dockVisible)

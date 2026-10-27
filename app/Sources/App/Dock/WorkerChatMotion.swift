@@ -4,12 +4,11 @@ import QuestmasterCore
 /// Core Animation motion for the worker chat. Clip bounds move at once, and a translation on the
 /// document layer carries the content from where it was on screen to its new place. Arrivals while
 /// following also fade in through a mask on the document layer, so the fades move with the glide.
+/// Both take the standard motion step and, under Reduce Motion, don't run.
 /// Nothing here runs per frame on the main thread.
 @MainActor
 enum WorkerChatMotion {
-    static let glideDuration: CFTimeInterval = 0.2
     static let glideKey = "workerChatGlide"
-    static let enterDuration: CFTimeInterval = 0.3
     static let enterKey = "workerChatEnter"
 
     /// Moves the clip to `offset` at once. With `glides`, the content then eases from where it was shown
@@ -23,14 +22,14 @@ enum WorkerChatMotion {
         scrollView.reflectScrolledClipView(clipView)
         cancelGlide(scrollView)
         let distance = WorkerChatScroll.glideDistance(from: shownOffset, to: offset, viewportHeight: clipView.bounds.height)
-        guard glides, distance != 0, let layer = documentLayer(scrollView) else {
+        guard glides, distance != 0, !Motion.reducesMotion(), let layer = documentLayer(scrollView) else {
             return
         }
         let glide = CABasicAnimation(keyPath: "transform.translation.y")
         glide.fromValue = distance
         glide.toValue = 0
-        glide.duration = glideDuration
-        glide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        glide.duration = Motion.duration(.standard)
+        glide.timingFunction = Motion.timingFunction
         layer.add(glide, forKey: glideKey)
     }
 
@@ -42,7 +41,7 @@ enum WorkerChatMotion {
     /// Fades the rows between `top` and `bottom` (document coordinates) in from transparent. Rows above
     /// stay opaque, and a fade still running keeps its own band and timing.
     static func fadeInRows(_ scrollView: NSScrollView, from top: CGFloat, to bottom: CGFloat) {
-        guard let layer = documentLayer(scrollView) else {
+        guard !Motion.reducesMotion(), let layer = documentLayer(scrollView) else {
             return
         }
         withoutActions {
@@ -103,8 +102,8 @@ enum WorkerChatMotion {
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1
-        fade.duration = enterDuration
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        fade.duration = Motion.duration(.standard)
+        fade.timingFunction = Motion.timingFunction
         fade.delegate = FadeEnd(layer: layer)
         return fade
     }

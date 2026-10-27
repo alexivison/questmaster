@@ -69,12 +69,6 @@ private enum QuestLogMetrics {
     static let buttonWidth: CGFloat = 200
     static let buttonSpacing = Space.item
     static let buttonTop = pageOrigin.y + pageSize.height + Space.section
-    static let pageTransition = 0.12
-    /// Opening: the paper unrolls top to bottom as the fade-in ends, and the ink follows it down.
-    static let unrollDelay = 0.12 * ModalFade.slowdown
-    static let unrollDuration = 0.25 * ModalFade.slowdown
-    static let inkInDelay = 0.25 * ModalFade.slowdown
-    static let inkInDuration = 0.18 * ModalFade.slowdown
 }
 
 struct QuestLogView: View {
@@ -272,7 +266,6 @@ private struct QuestLogPageView: View {
     let pageScroll: QuestLogPageScroll
     @State private var unrolled = false
     @State private var inked = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -281,7 +274,7 @@ private struct QuestLogPageView: View {
             ink
                 .frame(height: QuestLogMetrics.parchmentHeight)
                 .frame(maxHeight: .infinity, alignment: .top)
-                .animation(.easeOut(duration: QuestLogMetrics.pageTransition), value: pageID)
+                .animation(Motion.animation(.fast), value: pageID)
                 .opacity(inked ? 1 : 0)
         }
         .frame(width: QuestLogMetrics.pageSize.width, height: QuestLogMetrics.pageSize.height)
@@ -298,17 +291,13 @@ private struct QuestLogPageView: View {
         }
     }
 
-    /// Plays once per opening (the view is rebuilt for each). Reduce Motion skips it: the paper is just there.
+    /// Plays once per opening (the view is rebuilt for each): the paper unrolls top to bottom as the modal's fade-in
+    /// ends, and the ink follows it down. Reduce Motion skips it: the paper is just there.
     private func unroll() {
-        guard !reduceMotion else {
-            unrolled = true
-            inked = true
-            return
-        }
-        withAnimation(.easeOut(duration: QuestLogMetrics.unrollDuration).delay(QuestLogMetrics.unrollDelay)) {
+        withAnimation(Motion.animation(.standard, after: .fast)) {
             unrolled = true
         }
-        withAnimation(.easeOut(duration: QuestLogMetrics.inkInDuration).delay(QuestLogMetrics.inkInDelay)) {
+        withAnimation(Motion.animation(.standard, after: .standard)) {
             inked = true
         }
     }
@@ -335,8 +324,8 @@ private struct QuestLogPageView: View {
                         .frame(height: QuestLogMetrics.overflowFadeHeight)
                 }
             }
-            .animation(.easeOut(duration: QuestLogMetrics.pageTransition), value: pageScroll.moreBelow)
-            .animation(.easeOut(duration: QuestLogMetrics.pageTransition), value: pageScroll.moreAbove)
+            .animation(Motion.animation(.fast), value: pageScroll.moreBelow)
+            .animation(Motion.animation(.fast), value: pageScroll.moreAbove)
             .id(pageID)
             .transition(.opacity)
         } else {

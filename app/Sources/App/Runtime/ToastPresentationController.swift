@@ -51,8 +51,7 @@ final class ToastPresentationController {
         }
         view.isHidden = false
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            Motion.configure(context, .fast)
             view.animator().alphaValue = 1
         }
         NSAccessibility.post(
@@ -76,8 +75,7 @@ final class ToastPresentationController {
             return
         }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            Motion.configure(context, .standard)
             toastView.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in

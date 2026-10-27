@@ -48,6 +48,8 @@ enum QuestmasterLogicTests {
         timed("InteractionLookTests") { InteractionLookTests.run() }
         timed("StateRulesScanTests") { StateRulesScanTests.run() }
         timed("SpacingRulesScanTests") { SpacingRulesScanTests.run() }
+        timed("MotionTests") { MotionTests.run() }
+        timed("MotionRulesScanTests") { MotionRulesScanTests.run() }
 
         let packageRoot = try findPackageRoot()
         let result = try run(

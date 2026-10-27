@@ -243,7 +243,6 @@ struct TrackerRootView: View {
     @State private var snapshot: RuntimeSnapshot
     @State private var currentTerminalSessionID: String?
     @State private var runtimeObservation: RuntimeStoreObservation?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         store: RuntimeStore,
@@ -396,7 +395,7 @@ struct TrackerRootView: View {
     }
 
     private func toggleWorkersCollapsed(for sessionID: String) {
-        withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
+        withAnimation(Motion.animation(.standard)) {
             store.toggleWorkersCollapsed(for: sessionID)
         }
     }
@@ -404,7 +403,7 @@ struct TrackerRootView: View {
     private func toggleAllWorkersCollapsed() {
         let masterIDs = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
             .compactMap { $0.parentID.isEmpty ? nil : $0.parentID }
-        withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
+        withAnimation(Motion.animation(.standard)) {
             store.toggleAllWorkersCollapsed(masterIDs: masterIDs)
         }
     }
@@ -1389,7 +1388,6 @@ private struct TrackerSessionRow: View {
     @State private var cast = CastRowState()
     /// Bumped on every cast change, so a finish scheduled for an earlier cast does nothing.
     @State private var castGeneration = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var session: TrackerSession { rendered.session }
     private var portrait: SessionPortrait? { SessionPortrait(session: session) }
@@ -1488,17 +1486,15 @@ private struct TrackerSessionRow: View {
         guard next != cast.phase else { return }
         castGeneration += 1
         let generation = castGeneration
-        let rowAnimation: Animation? = reduceMotion ? nil : .snappy(duration: TrackerCastPhase.rowDuration)
-        let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: TrackerCastPhase.barFadeDuration)
         cast.phase = next
         cast.bar = TrackerCastPhase.bar(after: next, holding: cast.bar)
         switch next {
         case .casting:
             let opensRow = !cast.isOpen
-            withAnimation(rowAnimation) { cast.isOpen = true }
-            withAnimation(opensRow ? fade?.delay(TrackerCastPhase.rowDuration) : fade) { cast.isBarVisible = true }
+            withAnimation(Motion.animation(.standard)) { cast.isOpen = true }
+            withAnimation(Motion.animation(.fast, after: opensRow ? .standard : nil)) { cast.isBarVisible = true }
         case .finishing:
-            closeCastRow(after: reduceMotion ? 0 : TrackerCastPhase.flashDuration, generation: generation)
+            closeCastRow(after: Motion.duration(.standard), generation: generation)
         case .hidden:
             closeCastRow(after: 0, generation: generation)
         }
@@ -1506,15 +1502,12 @@ private struct TrackerSessionRow: View {
 
     /// Fades the cast bar after `delay`, then closes the row, unless a newer cast update took over meanwhile.
     private func closeCastRow(after delay: TimeInterval, generation: Int) {
-        let rowAnimation: Animation? = reduceMotion ? nil : .snappy(duration: TrackerCastPhase.rowDuration)
-        let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: TrackerCastPhase.barFadeDuration)
-        let fadeTime = reduceMotion ? 0 : TrackerCastPhase.barFadeDuration
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             guard generation == castGeneration else { return }
-            withAnimation(fade) { cast.isBarVisible = false }
-            DispatchQueue.main.asyncAfter(deadline: .now() + fadeTime) {
+            withAnimation(Motion.animation(.fast)) { cast.isBarVisible = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Motion.duration(.fast)) {
                 guard generation == castGeneration else { return }
-                withAnimation(rowAnimation) {
+                withAnimation(Motion.animation(.standard)) {
                     cast.isOpen = false
                     cast.phase = .hidden
                     cast.bar = nil
