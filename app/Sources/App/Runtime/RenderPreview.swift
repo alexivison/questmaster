@@ -154,6 +154,7 @@ enum RenderPreview {
         renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
         recordQuestLogAnimations(to: outputDir)
         recordDockPanelAnimations(to: outputDir)
+        recordSelectedSessionFade(to: outputDir)
         recordRefreshSpinner(to: outputDir)
         // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.
         let scrolledPage = QuestLogPageScroll()
@@ -472,13 +473,31 @@ enum RenderPreview {
         return (canvas, column)
     }
 
+    /// The selected-session panel's class icon fading in as the attached session changes, sampled frame by frame: the
+    /// paladin's icon, then the wizard's. Ends past the fade so the last frames are the settled icon.
+    @MainActor
+    private static func recordSelectedSessionFade(to dir: String) {
+        let size = SelectedSessionPanel.canvasSize
+        let model = SelectedSessionPanelFadeModel(SelectedSessionPanelContent(
+            title: "Improve fuzzy search ranking", id: "qm-1789532989", projectName: "Questmaster",
+            projectColor: NSColor(hex: 0x7A7AF0), portrait: .master(.paladin)
+        ))
+        let host = NSHostingView(rootView: SelectedSessionPanelFadeHarness(model: model).background(AppPalette.window.swiftUI))
+        recordAnimation("selected-session-fade-gif", root: host, size: size, crop: CGRect(origin: .zero, size: size), duration: (MotionStep.standard.seconds + 0.12) * Motion.slowdown, to: dir) {
+            model.content = SelectedSessionPanelContent(
+                title: "Wire up the worker chat", id: "qm-1789533001", projectName: "Questmaster",
+                projectColor: NSColor(hex: 0x7A7AF0), portrait: .master(.wizard)
+            )
+        }
+    }
+
     /// A panel coming and going while the other grows or shrinks, as `DockColumnView` runs it, sampled frame by frame.
     @MainActor
     private static func recordDockPanelAnimations(to dir: String) {
         let size = CGSize(width: 520, height: 900)
         let whole = CGRect(origin: .zero, size: size)
-        let slow = ModalFade.slowdown
-        let duration = (DockPanelMotion.duration + 0.12) * slow
+        let slow = Motion.slowdown
+        let duration = (MotionStep.standard.seconds + 0.12) * slow
         func record(_ name: String, from: DockPanels, to: DockPanels) {
             let (canvas, column) = dockSplitCanvas(bottom: from.bottom ? .artifacts : nil, top: from.top, focus: nil)
             column.setPanels(from)
@@ -1922,7 +1941,7 @@ enum RenderPreview {
             let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
             let stack = InWindowModalStack()
             (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
-            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * ModalFade.slowdown, to: dir) {
+            recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * Motion.slowdown, to: dir) {
                 stack.presentQuestLog(questLogModal(questLogStore()))
             }
         }
@@ -1931,7 +1950,7 @@ enum RenderPreview {
             let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
             let stack = InWindowModalStack()
             (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
-            let slow = ModalFade.slowdown
+            let slow = Motion.slowdown
             recordAnimation("confirm-fade-gif", root: shell, size: size, crop: modalCrop, duration: 1.6 * slow, to: dir) {
                 stack.presentQuestLog(questLogModal(questLogStore()))
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6 * slow) {
@@ -2091,6 +2110,24 @@ private final class SettingsPreviewEffortClient: ServeReasoningEffortSuggesting 
             efforts: ["low", "medium", "high", "xhigh"],
             defaultEffort: role == "worker" ? "high" : "xhigh"
         )))
+    }
+}
+
+/// The selected-session panel over a model its content can change in, for the fade's recording and self-test.
+@MainActor
+final class SelectedSessionPanelFadeModel: ObservableObject {
+    @Published var content: SelectedSessionPanelContent
+
+    init(_ content: SelectedSessionPanelContent) {
+        self.content = content
+    }
+}
+
+struct SelectedSessionPanelFadeHarness: View {
+    @ObservedObject var model: SelectedSessionPanelFadeModel
+
+    var body: some View {
+        SelectedSessionPanel(content: model.content, onCopyID: { _ in })
     }
 }
 #endif

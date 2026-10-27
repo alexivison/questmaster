@@ -42,17 +42,10 @@ public struct DockColumnLayout: Equatable {
 
 /// How the dock's panels come, go and resize: short and quiet, and only once (the terminal shares the main thread, so
 /// nothing here keeps running). A panel appearing fades in as it slides `slide` points in from its own edge, a panel going
-/// away fades out as it slides back, and a panel that stays grows or shrinks to its new slot.
+/// away fades out as it slides back, and a panel that stays grows or shrinks to its new slot. It runs the standard
+/// motion step on the shared easing (`MotionStep`, `MotionEasing`).
 public enum DockPanelMotion {
-    /// Seconds, as the dock region's own show, hide and width animation and the modals' fade (0.18).
-    public static let duration = 0.18
     public static let slide = 10.0
-
-    /// Ease out, as every other animation in the app: quick at first, settling.
-    public static func eased(_ progress: Double) -> Double {
-        let remaining = 1 - min(max(progress, 0), 1)
-        return 1 - remaining * remaining * remaining
-    }
 }
 
 /// A panel's slot in a transition: its place, and how far it has faded in.

@@ -241,9 +241,9 @@ again where it was when the keys come back.
   tracker, under a modal, or in a dock with one panel, they aren't handled: `MenuController`'s key monitor returns
   the event untouched (no beep), so the terminal gets ⇧⌘K and Ghostty its own ⇧⌘J (`write_screen_file:paste`), and the
   View menu items are disabled by the same rule. ⇧⌘H/L and ⇧⌘R stay global, taken by the monitor before the terminal. A panel
-  appearing or going away fades and slides 10pt while the other grows or shrinks, in 0.18s and only once
-  (`DockPanelMotion`; Reduce Motion skips it): never an animation that keeps running, as the terminal shares the main
-  thread.
+  appearing or going away fades and slides 10pt while the other grows or shrinks, over the standard motion step and only
+  once (`DockPanelMotion`; Reduce Motion skips it, see "Motion"): never an animation that keeps running, as the terminal
+  shares the main thread.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`
@@ -317,6 +317,66 @@ The scan reads lines, so `testRenderedSpacingStaysOnTheScale` (a
 `--run-logic-tests` self-test) measures rendered pixels for what it can't see:
 the artifact rows' 45pt pitch and a form's fields 10 under the header band and
 20 apart.
+
+## Motion
+
+Every one-shot transition takes a step from the motion tokens, so the app moves at two paces on one easing. A view never
+states a duration or a curve. Core holds the numbers (`MotionStep`, `MotionEasing` in `Core/Rendering/Motion.swift`), the
+App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.swift`).
+
+| Step | Seconds | Role |
+|---|---|---|
+| `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade |
+| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
+
+- **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
+  `Motion.timingFunction` is its Core Animation and AppKit form, `Motion.animation(_:after:)` its SwiftUI form, and
+  `MotionEasing.eased` the same curve for a transition stepped by hand (the dock column).
+- **One breathing easing**, for a continuous animation that eases up and back (the cast bar's and the status ring's
+  pulse): ease in and out, the Bézier (0.42, 0, 0.58, 1), the system's `.easeInEaseOut`. `Motion.breathingTimingFunction`
+  is its Core Animation form (numbers in `MotionEasing.breathingControlPoints`). A one-shot never takes it, and a pulse
+  takes no other curve; a new continuous animation (a skeleton's breath) uses it too.
+- **Reduce Motion is read once**, in `Motion.reducesMotion` (a var, so a self-test can set it). Under it every step is 0:
+  `Motion.animation` returns nil (the change lands at once), `Motion.configure` gives an AppKit context no duration, and
+  Core Animation code checks `Motion.reducesMotion()` and adds no animation (a duration of 0 means "the default" there). A
+  transition is skipped, not shortened; a fade is skipped too. A Core Animation view that already gets `reduceMotion`
+  from the SwiftUI environment (the status ring, the cast bar) skips on that and takes its step lengths from
+  `Motion.duration`; the ring's exit and crossfade are skipped under it, so the ring just goes. The logic-test runner
+  starts every case with it off.
+- **Sequencing** is a step too: `Motion.animation(.standard, after: .fast)` starts one step late (the Quest Log's paper
+  unrolls as the modal's fade-in ends, then the ink follows).
+- **One-shot only.** The terminal shares the main thread, so a transition runs once and nothing keeps running. Prefer
+  Core Animation; SwiftUI's `withAnimation` and `.animation(_:value:)` are fine for a short one-shot. Continuous
+  animations (`SpinnerRing`/`WorkingSpinner`, the cast bar's and status ring's fill, pulse and shimmer, the skeleton
+  pulses) keep their own periods, named as a `period` or a duration learned at runtime, and are outside the steps. An
+  animation that ends, even one of those views' (a flash, an exit, a crossfade), takes a step.
+- **A new transition** picks `fast` or `standard`; a step is added to `MotionStep` only for a new pace the app doesn't
+  have yet, never a one-off number.
+- **Selected-session panel:** the class icon (the portrait, or the Q) fades in once when the attached session or its
+  portrait changes (`SelectedSessionPanel`, `fadesIn`), over `standard`; the old icon goes at once and the first draw
+  doesn't fade. The disc is three layers (base, portrait, overlay) so only the portrait fades.
+
+`MotionRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and fails on a break:
+
+- **raw-duration**: a number literal as an animation's `duration:` / `.duration =` / `.delay(` /
+  `setAnimationDuration(` (0 is allowed), or a SwiftUI curve built outside the token layer (`.easeOut`, `.snappy`,
+  `.spring`, `.default` … in `withAnimation`, `.animation` or an `Animation` value; they carry a default duration of
+  their own). The one exception is a SwiftUI animation chained into `.repeatForever` on the same line (the skeletons'
+  pulse); it goes when those pulses take the breathing token.
+- **duration-constant**: a constant or local whose name ends in a timing word (duration, delay, time, fade, crossfade,
+  sweep, flash, transition, glide, unroll) assigned a non-zero literal, typed or inferred (`let fadeTime = 0.4`); it
+  comes from a step. A continuous animation names its `period`.
+- **raw-easing**: any `CAMediaTimingFunction(` (by name or control points) or `.timingCurve(` outside the token layer.
+  A one-shot takes `Motion.timingFunction`, a pulse `Motion.breathingTimingFunction`. There is no exception by file or by
+  neighbouring line, and no file list: a finite animation and a continuous one are held to the same three rules, and a
+  continuous one passes them by naming its `period` and taking the breathing token.
+
+The scan reads lines, so a duration passed through a helper's parameter isn't seen.
+`testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges`
+reads the disc's pixels at fixed times in an off-screen window (the fade is under way, the old icon is gone, it ends on
+the icon drawn fresh, and Reduce Motion and an unrelated edit show none), and
+`RENDER_ONLY=selected-session-fade-gif QUESTMASTER_ANIMATION_SLOWDOWN=6 … --render-preview <dir>` records it frame by
+frame (`QUESTMASTER_ANIMATION_SLOWDOWN` stretches every step in DEBUG builds so the recorder can sample it).
 
 ## Testing conventions
 

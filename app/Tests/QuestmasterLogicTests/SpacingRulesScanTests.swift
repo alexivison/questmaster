@@ -55,7 +55,7 @@ struct SpacingRulesScanTests {
     private static let literal = regex(#"(?<![\w.])\d+(?:\.\d+)?(?![\w.])"#)
     private static let metricsEnum = regex(#"\benum\s+\w*(?:Metrics|Layout|Design)\b"#)
     private static let constant = regex(#"\b(?:let|var)\s+(\w+)\s*(?::\s*CGFloat)?\s*=\s*(-?\d+(?:\.\d+)?)\s*(?://.*)?$"#)
-    private static let nameWord = regex(#"[A-Z]?[a-z]+|[A-Z]+(?![a-z])"#)
+    static let nameWord = regex(#"[A-Z]?[a-z]+|[A-Z]+(?![a-z])"#)
 
     private static let lengthWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "pitch", "indent", "inset", "clearance", "offset", "height", "width", "side", "size", "lead", "trail", "nudge", "origin", "x", "y"]
     private static let spacingWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "inset"]
@@ -169,7 +169,7 @@ struct SpacingRulesScanTests {
     }
 
     /// The line up to a `//` comment; a `//` inside a string literal is no comment.
-    private static func withoutComment(_ line: String) -> String {
+    static func withoutComment(_ line: String) -> String {
         var inString = false
         var previous: Character = " "
         for index in line.indices {
@@ -212,14 +212,14 @@ struct SpacingRulesScanTests {
         return nil
     }
 
-    private static func regex(_ pattern: String) -> NSRegularExpression {
+    static func regex(_ pattern: String) -> NSRegularExpression {
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             fatalError("bad pattern \(pattern)")
         }
         return regex
     }
 
-    private static func matches(_ regex: NSRegularExpression, _ text: String) -> Bool {
+    static func matches(_ regex: NSRegularExpression, _ text: String) -> Bool {
         regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
