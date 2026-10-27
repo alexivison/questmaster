@@ -1,20 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// A message that carries information the user needs: the terminal's status, a file that went missing, an artifact kind the
-/// build can't show, a backend that doesn't fit. An empty list is not one: it draws `EmptyState`, which has no text.
+/// A message that carries information the user needs: a file that went missing, an artifact kind the build can't show, a
+/// backend that doesn't fit. Nothing-to-list is not one: an empty list or an ended session draws `EmptyState`, which has no text.
 struct StatusMessagePane: View {
     var title: String = ""
     var message: String
     var detail: String = ""
     var symbolName: String?
-    var titleFont: Font = AppFonts.bodyBold.swiftUI
-    var titleColor: Color = AppPalette.bright.swiftUI
     var alignment: HorizontalAlignment = .leading
     var textAlignment: TextAlignment = .leading
     var frameAlignment: Alignment = .topLeading
-    var maxTextWidth: CGFloat?
-    var padding = EdgeInsets(top: Space.section, leading: Space.section, bottom: Space.section, trailing: Space.section)
     var backgroundColor: NSColor?
     var detailSelectable = false
 
@@ -35,36 +31,23 @@ struct StatusMessagePane: View {
             }
             if !title.isEmpty {
                 Text(title)
-                    .font(titleFont)
-                    .foregroundStyle(titleColor)
+                    .font(AppFonts.bodyBold.swiftUI)
+                    .foregroundStyle(AppPalette.bright.swiftUI)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .frame(maxWidth: maxTextWidth, alignment: textFrameAlignment)
             }
             Text(message)
                 .font(AppFonts.body.swiftUI)
                 .foregroundStyle(AppPalette.muted.swiftUI)
                 .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: maxTextWidth, alignment: textFrameAlignment)
             if !detail.isEmpty {
                 detailView
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: frameAlignment)
-        .padding(padding)
+        .padding(Space.section)
         .background(backgroundFill)
-    }
-
-    private var textFrameAlignment: Alignment {
-        switch alignment {
-        case .leading:
-            return .leading
-        case .trailing:
-            return .trailing
-        default:
-            return .center
-        }
     }
 
     @ViewBuilder
@@ -81,7 +64,6 @@ struct StatusMessagePane: View {
             .foregroundStyle(AppPalette.dim.swiftUI)
             .multilineTextAlignment(textAlignment)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: maxTextWidth, alignment: textFrameAlignment)
         if detailSelectable {
             text.textSelection(.enabled)
         } else {

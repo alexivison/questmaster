@@ -235,8 +235,10 @@ again where it was when the keys come back.
   artifact viewer, the worker chat, Version Control), the tracker and the Quest Log's page draw it; the page passes the
   parchment ink instead. The worker chat draws it only once its first read came back whole and empty
   (`WorkerChatStore.isKnownEmpty`, decided in Core); while that read is pending, failed or partial it is blank, and its
-  `readNotice` says what failed. A message the user needs (the terminal's status, a missing file, an artifact kind the build
-  can't show, an incompatible backend) is a `StatusMessagePane`, which an empty list never is.
+  `readNotice` says what failed. So does the terminal pane once its session has ended (`TerminalShellView.showEnded`, only
+  after the viewed session is deleted with nowhere to switch to); every attach clears it first, and while a session attaches
+  the pane shows the skeleton veil. A message the user needs (a missing file, an artifact kind the build can't show, an
+  incompatible backend) is a `StatusMessagePane`, which an empty list never is.
 - A list still loading is a skeleton: a ghost of the real thing, in its own shapes and palette (the tracker's is
   `TrackerNameplateBackground`'s plates with no text, status or portrait, the Settings picker's is `fieldChrome`, the
   terminal's is `SkeletonBar` lines), breathing in `SkeletonPulse`. That is one Core Animation fade of the layer SwiftUI drew

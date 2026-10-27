@@ -87,6 +87,7 @@ enum LogicSelfTests {
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
+        ("testEndedIconShowsOnlyWhenTheViewedSessionIsGone", testEndedIconShowsOnlyWhenTheViewedSessionIsGone),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
         ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
@@ -1486,8 +1487,8 @@ enum LogicSelfTests {
     /// An empty panel draws the one icon and nothing else, centred in the section its list would fill: the whole panel, or what is
     /// left under the artifact list's tabs. Measured as the ink on the panel's fill, so it holds for whatever the icon is.
     private static func testEveryEmptyPanelDrawsTheOneIconCentredInItsSection() throws {
-        func ink<V: View>(_ root: V, size: CGSize, below top: Int = 0) throws -> CGRect? {
-            let view = NSHostingView(rootView: root.frame(width: size.width, height: size.height).background(AppPalette.panel.swiftUI))
+        func ink<V: View>(_ root: V, size: CGSize, below top: Int = 0, over fill: NSColor = AppPalette.panel) throws -> CGRect? {
+            let view = NSHostingView(rootView: root.frame(width: size.width, height: size.height).background(fill.swiftUI))
             view.frame = NSRect(origin: .zero, size: size)
             let window = HeadlessWindow(size: size, scale: 1)
             window.contentView = view
@@ -1495,7 +1496,7 @@ enum LogicSelfTests {
             defer { window.close() }
             RunLoop.main.run(until: Date().addingTimeInterval(0.4))
             let bitmap = try snapshot(view, size: size, scale: 1)
-            guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
+            guard let base = fill.usingColorSpace(.deviceRGB) else {
                 throw TestFailure("could not read the panel fill")
             }
             var box: CGRect?
@@ -1524,6 +1525,13 @@ enum LogicSelfTests {
 
         let single = CGSize(width: 300, height: 200)
         try expectCentred(try ink(EmptyState(), size: single), in: CGRect(origin: .zero, size: single), "the shared empty state")
+
+        let terminal = CGSize(width: 600, height: 400)
+        try expectCentred(
+            try ink(TerminalEndedOverlay(), size: terminal, over: AppPalette.terminal),
+            in: CGRect(origin: .zero, size: terminal),
+            "the ended terminal"
+        )
 
         let versionControl = CGSize(width: 480, height: 260)
         try expectCentred(
@@ -4216,6 +4224,47 @@ enum LogicSelfTests {
         try expect(failures.value == 0, "switch-before mutation should not report failure")
     }
 
+    /// The ended-session icon means the viewed session is really gone: a delete of it that succeeded with nowhere to switch to.
+    /// A plain mutation, a failed one and a delete that first switches to a recovery session (an attach, whose veil must show)
+    /// never raise it; and the terminal pane's overlay is up only between `showEnded` and `clearEnded`.
+    private static func testEndedIconShowsOnlyWhenTheViewedSessionIsGone() throws {
+        func ended(_ result: Result<ServeMutationAck, Error>, request: ServeMutationRequest, switchTo: String? = nil, clear: Bool) throws -> (ended: Int, switches: Int) {
+            let endedCount = Counter()
+            let switches = Counter()
+            let failures = Counter()
+            var finished = false
+            let coordinator = sessionCoordinator(client: StubMutationClient(result: result), failures: failures, switches: switches, ended: endedCount)
+            coordinator.sendMutation(
+                request,
+                label: "delete",
+                switchToSessionID: switchTo,
+                switchBeforeMutation: switchTo != nil,
+                clearTerminalOnSuccess: clear
+            ) { finished = true }
+            try waitForMainQueue("the mutation to settle", timeout: 2, until: { finished || failures.value > 0 })
+            try waitForMainQueueTurn()
+            return (endedCount.value, switches.value)
+        }
+        let delete = try ServeMutationRequests.delete(sessionID: "qm-a")
+        let ack = ServeMutationAck(data: nil)
+
+        let gone = try ended(.success(ack), request: delete, clear: true)
+        try expect(gone.ended == 1 && gone.switches == 0, "deleting the viewed session with nowhere to go shows the ended icon, with no attach")
+        let recovered = try ended(.success(ack), request: delete, switchTo: "qm-b", clear: false)
+        try expect(recovered.ended == 0 && recovered.switches == 1, "deleting it after switching to a recovery session attaches and never shows the icon")
+        let other = try ended(.success(ack), request: delete, clear: false)
+        try expect(other.ended == 0, "deleting some other session doesn't end the viewed one")
+        let failed = try ended(.failure(StubMutationError()), request: delete, clear: true)
+        try expect(failed.ended == 0, "a delete that failed hasn't ended anything")
+
+        let shell = TerminalShellView(body: NSView(), dragHandleHeight: 0)
+        try expect(!shell.showsEnded, "a terminal pane starts with no ended icon: it is attaching or attached")
+        shell.showEnded()
+        try expect(shell.showsEnded, "showEnded puts the icon up")
+        shell.clearEnded()
+        try expect(!shell.showsEnded, "clearEnded, which every attach does, takes it off")
+    }
+
     private static func testDeferredDeleteConfirmationRetainsExecutor() throws {
         let request = try ServeMutationRequests.delete(sessionID: "qm-delete")
         var confirmation: ((Bool) -> Void)?
@@ -5780,7 +5829,8 @@ enum LogicSelfTests {
     private static func sessionCoordinator(
         client: ServeMutationSending,
         failures: Counter,
-        switches: Counter? = nil
+        switches: Counter? = nil,
+        ended: Counter? = nil
     ) -> SessionCoordinator {
         SessionCoordinator(
             store: RuntimeStore(sourceLabel: "test"),
@@ -5791,8 +5841,8 @@ enum LogicSelfTests {
                     completion?(true)
                 },
                 showMutationFailure: { _, _ in failures.value += 1 },
-                clearTerminalMessage: {},
-                showTerminalEndedMessage: {},
+                clearTerminalEnded: {},
+                showTerminalEnded: { ended?.value += 1 },
                 render: {}
             )
         )

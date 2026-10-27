@@ -80,7 +80,7 @@ final class ShellSnapshotRenderer {
         )
 
         if runtimeStore.currentTerminalSessionID != nil {
-            terminalShell()?.clearMessage()
+            terminalShell()?.clearEnded()
         }
         focusCoordinator()?.applyNavigationState(animateDockVisibility: shouldAnimateDockVisibility)
         if case .focused = focusOutcome {

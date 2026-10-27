@@ -67,6 +67,7 @@ enum RenderPreview {
         render(skeletonView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-skeleton.png")
         render(trackerEmptyView(), size: CGSize(width: 340, height: 330), to: "\(outputDir)/tracker-empty.png")
         render(TerminalAttachSkeleton(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-skeleton.png")
+        renderView(terminalEndedView(), size: CGSize(width: 520, height: 300), to: "\(outputDir)/terminal-ended.png")
         render(trackerView(), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker.png")
         render(trackerView(expandedMasterID: "root-2"), size: CGSize(width: 340, height: 700), to: "\(outputDir)/tracker-expanded.png")
         render(trackerListDesignView(), size: CGSize(width: 340, height: 780), to: "\(outputDir)/tracker-list-design.png")
@@ -844,6 +845,17 @@ enum RenderPreview {
             destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
         )
         .background(AppPalette.window.swiftUI)
+    }
+
+    /// The terminal pane after its session ended: the real shell view with its ended icon up over the terminal's fill.
+    @MainActor
+    private static func terminalEndedView() -> NSView {
+        let body = NSView()
+        body.wantsLayer = true
+        body.layer?.backgroundColor = AppPalette.terminal.cgColor
+        let shell = TerminalShellView(body: body, dragHandleHeight: 0)
+        shell.showEnded()
+        return shell
     }
 
     /// The tracker with no sessions and a connected backend: the empty state alone.
