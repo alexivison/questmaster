@@ -1,11 +1,10 @@
 import Foundation
 
 public enum RightDockWidthMode: Equatable {
+    /// The artifact viewer: the user's resizable width.
     case standard
-    case compact
-    case workerChat
-    /// Version Control alone: the width its design draws.
-    case versionControl
+    /// Everything else (Version Control, the artifact list, worker chat): one fixed width.
+    case panel
 }
 
 public struct ShellSplitLayoutMetrics: Equatable {
@@ -266,12 +265,8 @@ public enum ShellSplitLayoutPlanner {
         switch dockWidthMode {
         case .standard:
             return preferredDockWidth ?? DockWidthPreference.defaultWidth(forWindowWidth: windowWidth)
-        case .compact:
-            return DockWidthPreference.compactWidth
-        case .workerChat:
-            return DockWidthPreference.workerChatWidth
-        case .versionControl:
-            return DockWidthPreference.versionControlWidth
+        case .panel:
+            return DockWidthPreference.panelWidth
         }
     }
 

@@ -9,7 +9,7 @@ struct NavigationLogicTests {
         directionalRegionFocusSkipsHiddenRegions()
         nativeHorizontalControlsReturnFromSideRegions()
         verticalNativeControlsStayInRegion()
-        regionToggleShowFocusesShownRegion()
+        regionToggleShowKeepsFocus()
         showDockPreservingFocusDoesNotMoveFocus()
         settleDockPreservesFocusAndReappliesInvariant()
         regionToggleHideFallsBackToTerminal()
@@ -104,22 +104,22 @@ struct NavigationLogicTests {
         expect(state.focusedRegion == .dock, "dock down changed focus")
     }
 
-    private static func regionToggleShowFocusesShownRegion() {
+    private static func regionToggleShowKeepsFocus() {
         var state = AppNavigationState(trackerVisible: false, dockVisible: false)
 
-        expect(state.toggleTracker() == .focused(.tracker), "showing tracker should focus tracker")
+        expect(state.toggleTracker() == .unchanged, "showing the tracker should not move focus")
         expect(state.trackerVisible, "tracker did not show")
-        expect(state.focusedRegion == .tracker, "showing tracker did not focus tracker")
-
-        state = AppNavigationState(trackerVisible: false, dockVisible: false)
-        expect(state.focusDockPanel(.bottom) == .focused(.dock), "showing dock should focus dock")
-        expect(state.dockVisible, "dock did not show")
-        expect(state.focusedRegion == .dock, "showing dock did not focus dock")
+        expect(state.focusedRegion == .terminal, "showing the tracker should leave the terminal focused")
 
         state = AppNavigationState(focusedRegion: .dock, trackerVisible: false, dockVisible: true)
-        expect(state.toggleTracker() == .focused(.tracker), "showing tracker from dock should focus tracker")
+        expect(state.toggleTracker() == .unchanged, "showing the tracker from the dock should not move focus")
         expect(state.trackerVisible, "tracker did not show while dock focused")
-        expect(state.focusedRegion == .tracker, "showing tracker from dock did not focus tracker")
+        expect(state.focusedRegion == .dock, "showing the tracker should leave the dock focused")
+
+        state = AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true)
+        expect(state.toggleTracker() == .unchanged, "hiding an unfocused tracker should not move focus")
+        expect(!state.trackerVisible, "unfocused tracker did not hide")
+        expect(state.focusedRegion == .dock, "hiding an unfocused tracker should leave the dock focused")
     }
 
     private static func showDockPreservingFocusDoesNotMoveFocus() {
@@ -189,14 +189,14 @@ struct NavigationLogicTests {
         expect(state.focusedRegion == .terminal, "hiding focused dock did not fall back to terminal")
 
         state = AppNavigationState()
-        expect(state.toggleTracker() == .focused(.terminal), "hiding non-focused tracker should focus terminal")
+        expect(state.toggleTracker() == .unchanged, "hiding a non-focused tracker should not move focus")
         expect(!state.trackerVisible, "non-focused tracker did not hide")
-        expect(state.focusedRegion == .terminal, "hiding non-focused tracker did not focus terminal")
+        expect(state.focusedRegion == .terminal, "hiding a non-focused tracker should leave the terminal focused")
 
         state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
-        expect(state.toggleTracker() == .focused(.terminal), "hiding tracker while dock focused should focus terminal")
+        expect(state.toggleTracker() == .unchanged, "hiding the tracker while the dock is focused should not move focus")
         expect(!state.trackerVisible, "tracker did not hide while dock focused")
-        expect(state.focusedRegion == .terminal, "hiding tracker while dock focused did not focus terminal")
+        expect(state.focusedRegion == .dock, "hiding the tracker should leave the dock focused")
 
         state = AppNavigationState(focusedRegion: .tracker, dockVisible: true)
         expect(state.settleDock(DockPanels()) == .unchanged, "hiding dock while tracker focused should leave focus alone")

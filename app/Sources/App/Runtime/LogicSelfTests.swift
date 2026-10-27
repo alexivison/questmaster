@@ -17,7 +17,7 @@ enum LogicSelfTests {
         ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
-        ("testNavigationTogglesFocusShownRegionAndHideToTerminal", testNavigationTogglesFocusShownRegionAndHideToTerminal),
+        ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
@@ -1240,16 +1240,16 @@ enum LogicSelfTests {
         try expect(script.contains("set-environment -g 'HOME'"), "startup script may still global-sync safe shell keys")
     }
 
-    private static func testNavigationTogglesFocusShownRegionAndHideToTerminal() throws {
+    private static func testNavigationTogglesKeepFocusAndHideToTerminal() throws {
         var state = AppNavigationState(trackerVisible: false, dockVisible: false)
-        try expect(state.toggleTracker() == .focused(.tracker), "showing tracker should focus tracker")
+        try expect(state.toggleTracker() == .unchanged, "showing tracker should not move focus")
         try expect(state.trackerVisible, "tracker should show")
-        try expect(state.focusedRegion == .tracker, "showing tracker should focus tracker")
+        try expect(state.focusedRegion == .terminal, "showing tracker should leave the terminal focused")
 
         state = AppNavigationState(focusedRegion: .dock, trackerVisible: false, dockVisible: true)
-        try expect(state.toggleTracker() == .focused(.tracker), "showing tracker should focus tracker from dock")
+        try expect(state.toggleTracker() == .unchanged, "showing tracker from dock should not move focus")
         try expect(state.trackerVisible, "tracker should show while dock is focused")
-        try expect(state.focusedRegion == .tracker, "showing tracker should take focus from dock")
+        try expect(state.focusedRegion == .dock, "showing tracker should leave the dock focused")
 
         state = AppNavigationState(focusedRegion: .tracker)
         try expect(state.toggleTracker() == .focused(.terminal), "hiding focused tracker should focus terminal")

@@ -75,7 +75,7 @@ final class ShellSnapshotRenderer {
         )
         // The column is as wide as the bottom panel wants it; Version Control alone takes its own width.
         splitView()?.setDockWidthMode(
-            panels.bottom ? dockView()?.currentWidthMode ?? .standard : .versionControl,
+            panels.bottom ? dockView()?.currentWidthMode ?? .standard : .panel,
             animated: shouldAnimateDockLayout
         )
 
