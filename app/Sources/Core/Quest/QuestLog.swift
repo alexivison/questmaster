@@ -137,6 +137,14 @@ public enum QuestLogCommand: Equatable {
     case halfPageDown
     case close
 
+    public static func navigation(for direction: NavigationDirection) -> QuestLogCommand? {
+        switch direction {
+        case .up: return .moveUp
+        case .down: return .moveDown
+        case .left, .right: return nil
+        }
+    }
+
     /// The keys mean their command only with no modifier held, so ⌃d or ⌥d never reads as d (Abandon). The
     /// exceptions: ⌃u / ⌃d page, and Shift types `G`. Caps Lock isn't a modifier here; it only changes the letter.
     public static func from(characters: String?, keyCode: UInt16, modifiers: Set<Keymap.Modifier> = []) -> QuestLogCommand? {

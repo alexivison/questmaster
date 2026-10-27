@@ -196,6 +196,9 @@ struct QuestCoreTests {
     }
 
     private static func questLogKeysMapToCommands() {
+        expect(QuestLogCommand.navigation(for: .down) == .moveDown, "⇧⌘J should move down like j in the Quest Log")
+        expect(QuestLogCommand.navigation(for: .up) == .moveUp, "⇧⌘K should move up like k in the Quest Log")
+        expect(QuestLogCommand.navigation(for: .left) == nil && QuestLogCommand.navigation(for: .right) == nil, "H/L have no horizontal choice in the Quest Log")
         expect(QuestLogCommand.from(characters: "j", keyCode: 38) == .moveDown, "j")
         expect(QuestLogCommand.from(characters: "k", keyCode: 40) == .moveUp, "k")
         expect(QuestLogCommand.from(characters: nil, keyCode: 125) == .moveDown, "down arrow")

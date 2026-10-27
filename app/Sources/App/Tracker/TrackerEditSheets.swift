@@ -94,7 +94,7 @@ struct TrackerEditSessionSheet: View {
         }
         .scoopedPanel()
         .floatingDropdownHost()
-        .background(SheetKeyEventMonitor(onKeyDown: handle))
+        .background(SheetKeyEventMonitor(onKeyDown: handle, onNavigation: navigate))
         .onAppear {
             if focus == .title {
                 titleNonce += 1
@@ -175,6 +175,23 @@ struct TrackerEditSessionSheet: View {
         }
     }
 
+    private func navigate(_ direction: NavigationDirection) {
+        switch direction {
+        case .up, .down:
+            guard allowsColor else {
+                return
+            }
+            moveFocus(to: focus == .title ? .color : .title)
+        case .left, .right:
+            guard focus == .color else {
+                return
+            }
+            let before = color.mode
+            color.cycle(direction == .left ? -1 : 1)
+            colorFocus.follow(from: before, to: color.mode)
+        }
+    }
+
     private func handle(_ event: NSEvent) -> Bool {
         let chars = event.charactersIgnoringModifiers?.lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -196,13 +213,13 @@ struct TrackerEditSessionSheet: View {
             dismiss()
             return true
         }
-        let movesFocus = Keymap.NewSession.completePath.matches(event.keyCode)
-            || (flags.contains(.option) && Keymap.NewSession.nextFieldOption.matches(event.keyCode))
-            || (flags.contains(.control) && (Keymap.NewSession.nextField.matches(chars) || Keymap.NewSession.previousField.matches(chars)))
-        if movesFocus {
-            if allowsColor {
-                moveFocus(to: focus == .title ? .color : .title)
-            }
+        if Keymap.NewSession.completePath.matches(event.keyCode)
+            || (flags.contains(.option) && Keymap.NewSession.nextFieldOption.matches(event.keyCode)) {
+            navigate(.down)
+            return true
+        }
+        if flags.contains(.control), let direction = Keymap.NewSession.controlFieldDirection(chars) {
+            navigate(direction)
             return true
         }
         if Keymap.NewSession.create.matches(chars) {
@@ -263,8 +280,17 @@ struct TrackerEditRepoSheet: View {
         }
         .scoopedPanel()
         .floatingDropdownHost()
-        .background(SheetKeyEventMonitor(onKeyDown: handle))
+        .background(SheetKeyEventMonitor(onKeyDown: handle, onNavigation: navigate))
         .onAppear { colorFocus.sinkNonce += 1 }
+    }
+
+    private func navigate(_ direction: NavigationDirection) {
+        guard direction == .left || direction == .right else {
+            return
+        }
+        let before = color.mode
+        color.cycle(direction == .left ? -1 : 1)
+        colorFocus.follow(from: before, to: color.mode)
     }
 
     private func submit() {
@@ -301,7 +327,7 @@ struct TrackerEditRepoSheet: View {
             dismiss()
             return true
         }
-        // The colour input is the only stop: Tab and ⌃j/⌃k have nowhere else to go.
+        // The colour input is the only stop: Tab and vertical navigation have nowhere else to go.
         return Keymap.NewSession.completePath.matches(event.keyCode)
     }
 }

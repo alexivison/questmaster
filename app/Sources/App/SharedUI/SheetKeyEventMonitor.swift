@@ -1,21 +1,29 @@
 import AppKit
+import QuestmasterCore
 import SwiftUI
 
 /// A modal's key handler. Inside the in-window modal stack it only sees keys while its modal is the top one,
 /// whatever order the monitors were installed in (AppKit calls local monitors oldest first).
 struct SheetKeyEventMonitor: NSViewRepresentable {
     let onKeyDown: (NSEvent) -> Bool
+    let onNavigation: (NavigationDirection) -> Void
     @Environment(\.inWindowModalStack) private var stack
     @Environment(\.inWindowModalEntryID) private var entryID
 
+    init(onKeyDown: @escaping (NSEvent) -> Bool, onNavigation: @escaping (NavigationDirection) -> Void = { _ in }) {
+        self.onKeyDown = onKeyDown
+        self.onNavigation = onNavigation
+    }
+
     func makeNSView(context: Context) -> MonitorView {
-        let view = MonitorView(onKeyDown: onKeyDown)
+        let view = MonitorView(onKeyDown: onKeyDown, onNavigation: onNavigation)
         view.isTop = isTop
         return view
     }
 
     func updateNSView(_ view: MonitorView, context: Context) {
         view.onKeyDown = onKeyDown
+        view.onNavigation = onNavigation
         view.isTop = isTop
     }
 
@@ -25,11 +33,13 @@ struct SheetKeyEventMonitor: NSViewRepresentable {
 
     final class MonitorView: NSView {
         var onKeyDown: (NSEvent) -> Bool
+        var onNavigation: (NavigationDirection) -> Void
         var isTop: () -> Bool = { true }
         private var eventMonitor: Any?
 
-        init(onKeyDown: @escaping (NSEvent) -> Bool) {
+        init(onKeyDown: @escaping (NSEvent) -> Bool, onNavigation: @escaping (NavigationDirection) -> Void) {
             self.onKeyDown = onKeyDown
+            self.onNavigation = onNavigation
             super.init(frame: .zero)
         }
 
@@ -55,6 +65,22 @@ struct SheetKeyEventMonitor: NSViewRepresentable {
             eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, let window = self.window, event.window === window, self.isTop() else {
                     return event
+                }
+                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
+                if flags == [.command, .shift] {
+                    switch Keymap.NavigationChord.route(
+                        characters: event.charactersIgnoringModifiers,
+                        modifiers: [.command, .shift],
+                        isRepeat: event.isARepeat
+                    ) {
+                    case .passThrough:
+                        break
+                    case .consume:
+                        return nil
+                    case .navigate(let direction):
+                        self.onNavigation(direction)
+                        return nil
+                    }
                 }
                 return self.onKeyDown(event) ? nil : event
             }

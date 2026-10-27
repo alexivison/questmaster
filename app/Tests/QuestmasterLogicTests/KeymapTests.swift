@@ -13,6 +13,9 @@ struct KeymapTests {
         regionToggleCommandsUseRedesignChords()
         controlHandoffMapsListControlDirections()
         trackerSessionSelectBindingsUsePlainCommandDigits()
+        navigationChordMatchesOnlyShiftCommandHJKL()
+        navigationChordRepeatsAreConsumedWithoutDispatch()
+        controlFieldAliasesKeepTheirDirections()
         displayGlyphOrdersModifiersAndUppercasesTheKey()
         gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter()
         gPrefixTrackerResetClearsPendingState()
@@ -139,6 +142,27 @@ struct KeymapTests {
             expect(binding.modifiers == [.command], "session-select binding for \(digit) should be plain command, was \(binding.modifiers)")
         }
         expect(commandBindings.contains(Keymap.Command.selectSession[0]), "session-select bindings missing from command list")
+    }
+
+    private static func navigationChordMatchesOnlyShiftCommandHJKL() {
+        for (key, direction) in [("h", NavigationDirection.left), ("j", .down), ("k", .up), ("l", .right)] {
+            expect(Keymap.NavigationChord.direction(characters: key, modifiers: [.command, .shift]) == direction, "⇧⌘\(key) direction mismatch")
+        }
+        expect(Keymap.NavigationChord.direction(characters: "j", modifiers: [.command]) == nil, "⌘J must not be a navigation chord")
+        expect(Keymap.NavigationChord.direction(characters: "j", modifiers: [.command, .shift, .option]) == nil, "⇧⌘⌥J must not be a navigation chord")
+        expect(Keymap.NavigationChord.direction(characters: "x", modifiers: [.command, .shift]) == nil, "⇧⌘X must not be a navigation chord")
+    }
+
+    private static func navigationChordRepeatsAreConsumedWithoutDispatch() {
+        expect(Keymap.NavigationChord.route(characters: "j", modifiers: [.command, .shift], isRepeat: false) == .navigate(.down), "the initial ⇧⌘J should navigate down")
+        expect(Keymap.NavigationChord.route(characters: "j", modifiers: [.command, .shift], isRepeat: true) == .consume, "a repeated ⇧⌘J should be consumed without navigating")
+        expect(Keymap.NavigationChord.route(characters: "j", modifiers: [.command], isRepeat: true) == .passThrough, "a non-navigation repeat should pass through")
+    }
+
+    private static func controlFieldAliasesKeepTheirDirections() {
+        expect(Keymap.NewSession.controlFieldDirection("j") == .down, "⌃J should move to the next field")
+        expect(Keymap.NewSession.controlFieldDirection("k") == .up, "⌃K should move to the previous field")
+        expect(Keymap.NewSession.controlFieldDirection("x") == nil, "an unbound control character should not navigate fields")
     }
 
     private static func displayGlyphOrdersModifiersAndUppercasesTheKey() {

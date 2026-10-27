@@ -103,7 +103,7 @@ struct SettingsSheetView: View {
         }
         .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height)
         .scoopedPanel()
-        .background(SheetKeyEventMonitor { model.handle($0) })
+        .background(SheetKeyEventMonitor(onKeyDown: { model.handle($0) }, onNavigation: { model.navigate($0) }))
         .onAppear { model.present() }
         .onDisappear { model.disappear() }
     }
@@ -337,6 +337,19 @@ final class SettingsSheetModel: ObservableObject {
 
     func selectTab(_ index: Int) {
         state.selectTab(index)
+    }
+
+    func navigate(_ direction: NavigationDirection) {
+        switch direction {
+        case .up:
+            state.moveFocus(-1)
+        case .down:
+            state.moveFocus(1)
+        case .left:
+            cycleFocusedValue(-1)
+        case .right:
+            cycleFocusedValue(1)
+        }
     }
 
     func handle(_ event: NSEvent) -> Bool {

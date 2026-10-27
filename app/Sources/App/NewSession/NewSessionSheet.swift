@@ -77,9 +77,10 @@ struct NewSessionSheetView: View {
         )
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
         .scoopedPanel()
-        .background(SheetKeyEventMonitor { event in
-            model.handle(event)
-        })
+        .background(SheetKeyEventMonitor(
+            onKeyDown: { model.handle($0) },
+            onNavigation: { model.navigate($0) }
+        ))
         .onAppear {
             model.present()
         }
@@ -158,6 +159,22 @@ final class NewSessionSheetModel: ObservableObject {
         modelRequestID += 1
         effortRequestID += 1
         state.paths.clear()
+    }
+
+    func navigate(_ direction: NavigationDirection) {
+        guard !state.model.submitting else {
+            return
+        }
+        switch direction {
+        case .up:
+            moveFocus(.controlK)
+        case .down:
+            moveFocus(.controlJ)
+        case .left:
+            if state.model.isSelectFocused { cycleSelection(.left) }
+        case .right:
+            if state.model.isSelectFocused { cycleSelection(.right) }
+        }
     }
 
     func handle(_ event: NSEvent) -> Bool {
