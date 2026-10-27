@@ -342,7 +342,6 @@ enum RenderPreview {
                 VersionControlRow(
                     row: row,
                     look: row.look(highlighted: index == highlight, areaFocused: true),
-                    showsSeparator: index < rows.count - 1,
                     action: {}
                 )
             }

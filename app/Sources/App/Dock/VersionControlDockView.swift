@@ -3,7 +3,7 @@ import QuestmasterCore
 import SwiftUI
 
 /// The version control rows' geometry, from `pr-item-v2.png`: 45 tall, 5 in from the row's edges, two 15pt lines 5 apart, and
-/// 5 under the second, where the hairline sits. Text is centred on its line, so its baseline is 11.8 below the line's top.
+/// 5 under the second. Text is centred on its line, so its baseline is 11.8 below the line's top.
 enum VersionControlMetrics {
     static let inset = Space.section
     static let rowHeight = ControlHeight.bar + Space.row
@@ -50,7 +50,6 @@ struct VersionControlDockView: View {
                     VersionControlRow(
                         row: row,
                         look: row.look(highlighted: row.pullRequest.key == store.cursorKey, areaFocused: areaFocused),
-                        showsSeparator: row.pullRequest.key != rows.last?.pullRequest.key,
                         action: { onOpenRow(row.pullRequest.key) }
                     )
                     .id(row.pullRequest.key)
@@ -115,7 +114,6 @@ private extension CILook {
 struct VersionControlRow: View {
     let row: PullRequestDisplayRow
     let look: RowLook
-    let showsSeparator: Bool
     let action: () -> Void
 
     private typealias Metrics = VersionControlMetrics
@@ -132,7 +130,6 @@ struct VersionControlRow: View {
             .padding(.top, Metrics.rowInset)
             .frame(height: Metrics.rowHeight, alignment: .top)
             .stateRow(look, cornerRadius: Metrics.cornerRadius)
-            .overlay(alignment: .bottom) { separator }
             .onTapGesture(perform: action)
         }
         .padding(.horizontal, Metrics.inset)
@@ -235,15 +232,5 @@ struct VersionControlRow: View {
             return look.icon.color
         }
         return semantic
-    }
-
-    /// The hairline in the row's bottom 5, hidden under a filled (highlighted) row's own fill.
-    @ViewBuilder
-    private var separator: some View {
-        if showsSeparator && look.fill == nil {
-            Rectangle()
-                .fill(AppPalette.lineSoftSubtle.swiftUI)
-                .frame(height: Token.Size.divider)
-        }
     }
 }
