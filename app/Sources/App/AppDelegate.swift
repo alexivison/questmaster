@@ -614,7 +614,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private func copyQuests(_ quests: [QuestItem]) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        guard pasteboard.setString(quests.map(\.content).joined(separator: "\n\n"), forType: .string) else {
+        guard pasteboard.setString(QuestLogCopyText.text(for: quests), forType: .string) else {
             NSSound.beep()
             return
         }

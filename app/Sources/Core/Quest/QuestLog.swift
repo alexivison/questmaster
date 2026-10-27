@@ -180,6 +180,20 @@ public enum QuestLogEffect: Equatable {
     case close
 }
 
+public enum QuestLogCopyText {
+    public static func text(for quests: [QuestItem]) -> String {
+        quests.map { argument(for: $0.id) }.joined(separator: " ")
+    }
+
+    static func argument(for value: String) -> String {
+        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        if !value.isEmpty && value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
 /// The Quest Log modal's state: whether it is open, the quests grouped by project, the selection and the
 /// quests marked with space.
 @Observable

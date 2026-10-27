@@ -72,10 +72,11 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 	var project string
 	var query string
 	cmd := &cobra.Command{
-		Use:     "ls",
+		Use:     "ls [id...]",
 		Aliases: []string{"list"},
 		Short:   "List quests",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:    cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			projectID := ""
 			if cmd.Flags().Changed("project") {
 				meta, err := questProjectFromPath(project, true)
@@ -84,7 +85,13 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 				}
 				projectID = meta.id
 			}
-			quests, err := state.LoadQuestsAt(questStateRoot(store))
+			var quests []state.Quest
+			var err error
+			if len(args) > 0 {
+				quests, err = questsByID(store, args)
+			} else {
+				quests, err = state.LoadQuestsAt(questStateRoot(store))
+			}
 			if err != nil {
 				return err
 			}
@@ -303,15 +310,19 @@ func questsByID(store *state.Store, ids []string) ([]state.Quest, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]state.Quest, 0, len(ids))
+	byID := make(map[string]state.Quest, len(all))
+	for _, quest := range all {
+		byID[quest.ID] = quest
+	}
+	selected := make([]state.Quest, 0, len(ids))
 	for _, id := range ids {
-		quest, ok := findQuest(all, id)
+		quest, ok := byID[id]
 		if !ok {
 			return nil, fmt.Errorf("quest %q not found", id)
 		}
-		out = append(out, quest)
+		selected = append(selected, quest)
 	}
-	return out, nil
+	return selected, nil
 }
 
 func questStartPayload(quests []state.Quest) (string, string, error) {
@@ -323,12 +334,27 @@ func questStartPayload(quests []state.Quest) (string, string, error) {
 	if projectID == "" || projectPath == "" {
 		return "", "", fmt.Errorf("quest %q has no startable project", quests[0].ID)
 	}
-	var bodies []string
+	ids := make([]string, 0, len(quests))
 	for _, quest := range quests {
 		if quest.ProjectID != projectID || quest.ProjectPath == "" {
 			return "", "", fmt.Errorf("selected quests must share one project")
 		}
-		bodies = append(bodies, "- "+strings.ReplaceAll(quest.Content, "\n", "\n  "))
+		ids = append(ids, shellArgument(quest.ID))
 	}
-	return projectPath, strings.Join(bodies, "\n"), nil
+	joinedIDs := strings.Join(ids, " ")
+	return projectPath, fmt.Sprintf("Quest IDs: %s\nRead them with: questmaster quest ls -- %s", joinedIDs, joinedIDs), nil
+}
+
+func shellArgument(value string) string {
+	if value == "" {
+		return "''"
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.' {
+			continue
+		}
+		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	}
+	return value
 }
