@@ -1,4 +1,5 @@
 import AppKit
+import QuestmasterCore
 import SwiftUI
 
 /// Foundation design tokens (Phase 1 of the architecture modernization).
@@ -62,6 +63,53 @@ enum ControlHeight {
     static let bar: CGFloat = 40
     /// The tracker master plate's row.
     static let row: CGFloat = 50
+}
+
+/// The motion tokens (AGENTS.md, "Motion"): every one-shot transition takes a `MotionStep` from here, so the app has two
+/// paces, one easing, and one place that reads Reduce Motion. A view never states a duration or a curve. Continuous
+/// animations (spinners, the cast bar, status glows) keep their own periods.
+@MainActor
+enum Motion {
+    /// The one place the system's Reduce Motion setting is read. A var so a self-test can set it.
+    static var reducesMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    /// Stretches every step: 1 in the app. DEBUG renders set QUESTMASTER_ANIMATION_SLOWDOWN so an animation
+    /// recording can sample each frame (its GIF then plays the frames back at real speed).
+    nonisolated static let slowdown: Double = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["QUESTMASTER_ANIMATION_SLOWDOWN"].flatMap(Double.init) ?? 1
+        #else
+        return 1
+        #endif
+    }()
+
+    /// The Core Animation and AppKit form of the shared easing.
+    static let timingFunction: CAMediaTimingFunction = {
+        let curve = MotionEasing.controlPoints
+        return CAMediaTimingFunction(controlPoints: Float(curve.x1), Float(curve.y1), Float(curve.x2), Float(curve.y2))
+    }()
+
+    /// How long `step` runs, in seconds: 0 under Reduce Motion. A Core Animation animation must not take this as its
+    /// duration (0 means the default there); it skips itself when `reducesMotion()`.
+    static func duration(_ step: MotionStep) -> TimeInterval {
+        step.duration(reduceMotion: reducesMotion()) * slowdown
+    }
+
+    /// The SwiftUI form: the shared easing over `step`, started `delay` late. nil under Reduce Motion, so the change
+    /// lands at once.
+    static func animation(_ step: MotionStep, after delay: MotionStep? = nil) -> Animation? {
+        let seconds = duration(step)
+        guard seconds > 0 else { return nil }
+        let curve = MotionEasing.controlPoints
+        let animation = Animation.timingCurve(curve.x1, curve.y1, curve.x2, curve.y2, duration: seconds)
+        return delay.map { animation.delay(duration($0)) } ?? animation
+    }
+
+    /// The AppKit form: runs `context` over `step` on the shared easing (an instant change under Reduce Motion).
+    static func configure(_ context: NSAnimationContext, _ step: MotionStep) {
+        context.duration = duration(step)
+        context.timingFunction = timingFunction
+    }
 }
 
 extension NSColor {

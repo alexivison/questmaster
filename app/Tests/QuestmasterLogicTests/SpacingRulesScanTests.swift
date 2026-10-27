@@ -169,7 +169,7 @@ struct SpacingRulesScanTests {
     }
 
     /// The line up to a `//` comment; a `//` inside a string literal is no comment.
-    private static func withoutComment(_ line: String) -> String {
+    static func withoutComment(_ line: String) -> String {
         var inString = false
         var previous: Character = " "
         for index in line.indices {
@@ -212,14 +212,14 @@ struct SpacingRulesScanTests {
         return nil
     }
 
-    private static func regex(_ pattern: String) -> NSRegularExpression {
+    static func regex(_ pattern: String) -> NSRegularExpression {
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
             fatalError("bad pattern \(pattern)")
         }
         return regex
     }
 
-    private static func matches(_ regex: NSRegularExpression, _ text: String) -> Bool {
+    static func matches(_ regex: NSRegularExpression, _ text: String) -> Bool {
         regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 

@@ -38,6 +38,8 @@ enum LogicSelfTests {
         ("testOnlyLiveElapsedTimesSubscribeToTheDurationClock", testOnlyLiveElapsedTimesSubscribeToTheDurationClock),
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
+        ("testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges", testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges),
+        ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
         ("testDockContentRoutingRequiresASession", testDockContentRoutingRequiresASession),
@@ -149,6 +151,8 @@ enum LogicSelfTests {
             exit(1)
         }
 
+        // Cases run as if Reduce Motion is off whatever the machine says; the ones that test it set it themselves.
+        Motion.reducesMotion = { false }
         var passed = 0
         for testCase in cases {
             // A blocked call (process, socket, window server) never returns to the loop, so a
@@ -939,6 +943,113 @@ enum LogicSelfTests {
         }
     }
 
+    /// The class icon fades in when the attached session (or its portrait) changes: once, over the standard step, the
+    /// old icon gone at once, ending as the icon looks drawn fresh. Reduce Motion, and an edit that leaves the session
+    /// and its portrait alone, show no fade. Frames are the disc's pixels in an off-screen window, read at fixed times.
+    private static func testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges() throws {
+        func content(id: String, title: String = "Fix bug", portrait: SessionPortrait?) -> SelectedSessionPanelContent {
+            SelectedSessionPanelContent(title: title, id: id, projectName: "Preview", projectColor: AppPalette.accent, portrait: portrait)
+        }
+        func spin(_ seconds: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+        func host(_ initial: SelectedSessionPanelContent) -> (model: SelectedSessionPanelFadeModel, view: NSView, window: HeadlessWindow) {
+            let model = SelectedSessionPanelFadeModel(initial)
+            let size = SelectedSessionPanel.canvasSize
+            let window = HeadlessWindow(size: size)
+            let view = NSHostingView(rootView: SelectedSessionPanelFadeHarness(model: model))
+            view.frame = NSRect(origin: .zero, size: size)
+            window.contentView = view
+            window.show()
+            spin(0.4)
+            return (model, view, window)
+        }
+        /// The bytes of the disc's square, 64 across, from the panel's top left.
+        func disc(_ view: NSView) throws -> [UInt8] {
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds), let data = rep.bitmapData else {
+                throw TestFailure("the panel should render to a bitmap")
+            }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+            let side = Int(64 * scale)
+            let origin = Int(6 * scale)
+            var bytes: [UInt8] = []
+            for row in origin..<(origin + side) {
+                let start = row * rep.bytesPerRow + origin * rep.samplesPerPixel
+                bytes.append(contentsOf: UnsafeBufferPointer(start: data + start, count: side * rep.samplesPerPixel))
+            }
+            return bytes
+        }
+        func distance(_ a: [UInt8], _ b: [UInt8]) -> Double {
+            Double(zip(a, b).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }) / Double(max(1, a.count))
+        }
+
+        let paladin = content(id: "qm-a", portrait: .master(.paladin))
+        let wizard = content(id: "qm-b", portrait: .master(.wizard))
+        let fresh = host(wizard)
+        defer { fresh.window.close() }
+        let wizardSettled = try disc(fresh.view)
+
+        let (model, view, window) = host(paladin)
+        defer { window.close() }
+        let paladinSettled = try disc(view)
+        try expect(distance(paladinSettled, wizardSettled) > 5, "the two classes should draw differently, got \(distance(paladinSettled, wizardSettled))")
+
+        model.content = wizard
+        spin(0.02)
+        let early = try disc(view)
+        spin(0.05)
+        let middle = try disc(view)
+        spin(0.4)
+        let settled = try disc(view)
+        let earlyGap = distance(early, wizardSettled)
+        let middleGap = distance(middle, wizardSettled)
+        try expect(earlyGap > 3, "right after the switch the new icon should still be fading in, \(earlyGap) from its settled look")
+        try expect(middleGap < earlyGap, "the icon should keep coming in: \(middleGap) after \(earlyGap)")
+        try expect(distance(early, paladinSettled) > 3, "the old icon should be gone at once, not fading out")
+        try expect(distance(settled, wizardSettled) < 1.5, "the fade should end on the icon as drawn fresh, got \(distance(settled, wizardSettled))")
+
+        // The same session and portrait with a new title: no fade.
+        model.content = content(id: "qm-b", title: "Another title", portrait: .master(.wizard))
+        spin(0.02)
+        try expect(distance(try disc(view), wizardSettled) < 1.5, "an edit to the same session shouldn't fade its icon")
+
+        // Reduce Motion: the new icon is there at once.
+        Motion.reducesMotion = { true }
+        defer { Motion.reducesMotion = { false } }
+        model.content = paladin
+        spin(0.02)
+        try expect(distance(try disc(view), paladinSettled) < 1.5, "under Reduce Motion the icon should land with no fade")
+    }
+
+    private static func testMotionTokensShareOneEasingAndFollowReduceMotion() throws {
+        defer { Motion.reducesMotion = { false } }
+        Motion.reducesMotion = { false }
+        for step in [MotionStep.fast, .standard] {
+            try expect(Motion.duration(step) == step.seconds * Motion.slowdown, "\(step) should run its own length")
+            try expect(Motion.animation(step) != nil, "\(step) should animate in SwiftUI")
+        }
+        let curve = MotionEasing.controlPoints
+        var points = [Float](repeating: 0, count: 2)
+        var controls: [Float] = []
+        for index in 1...2 {
+            Motion.timingFunction.getControlPoint(at: index, values: &points)
+            controls += points
+        }
+        try expect(controls == [Float(curve.x1), Float(curve.y1), Float(curve.x2), Float(curve.y2)], "the Core Animation easing should be Core's control points, got \(controls)")
+        var configured: (duration: TimeInterval, curve: CAMediaTimingFunction?)?
+        NSAnimationContext.runAnimationGroup { context in
+            Motion.configure(context, .fast)
+            configured = (context.duration, context.timingFunction)
+        }
+        try expect(configured?.duration == MotionStep.fast.seconds * Motion.slowdown, "an AppKit animation should run the step's length, got \(String(describing: configured?.duration))")
+        try expect(configured?.curve === Motion.timingFunction, "an AppKit animation should take the shared easing")
+
+        Motion.reducesMotion = { true }
+        for step in [MotionStep.fast, .standard] {
+            try expect(Motion.duration(step) == 0, "\(step) should not run under Reduce Motion")
+            try expect(Motion.animation(step) == nil && Motion.animation(step, after: .fast) == nil, "\(step) should not animate in SwiftUI under Reduce Motion")
+        }
+    }
+
     private static func testWorkerSummaryShowsOneCirclePerWorkerAndCountsTheRest() throws {
         func entries(workerCount: Int) throws -> [TrackerWorkerSummary.Entry] {
             let master = TrackerSession(id: "master", title: "Master", repoName: "Preview", role: "master")
@@ -1550,13 +1661,12 @@ enum LogicSelfTests {
             let bottom = DockShellView(body: NSView())
             let column = DockColumnView(top: top, bottom: bottom)
             column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
-            column.reducesMotion = { false }
             content.addSubview(column)
             window.contentView = content
             window.show()
             return (column, top, bottom, window)
         }
-        func settle(_ seconds: TimeInterval = DockPanelMotion.duration + 0.25) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+        func settle(_ seconds: TimeInterval = MotionStep.standard.seconds + 0.25) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
 
         let (column, top, bottom, window) = makeColumn()
         defer { window.close() }
@@ -1569,7 +1679,7 @@ enum LogicSelfTests {
         try expect(column.isTransitioning, "a panel appearing while the dock stays up transitions")
         try expect(!top.isHidden && top.alphaValue == 0, "the new panel starts unseen, got alpha \(top.alphaValue)")
         try expect(top.frame.maxY == 870 && top.frame.height == 300, "and 10 above its slot, got \(top.frame)")
-        settle(DockPanelMotion.duration / 2)
+        settle(MotionStep.standard.seconds / 2)
         try expect(column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1, "partway it's half in, got alpha \(top.alphaValue)")
         settle()
         try expect(!column.isTransitioning, "the transition ends on its own")
@@ -1584,7 +1694,7 @@ enum LogicSelfTests {
 
         // A new change mid-transition settles the running one first.
         column.setPanels(DockPanels(top: true, bottom: true), animated: true)
-        settle(DockPanelMotion.duration / 3)
+        settle(MotionStep.standard.seconds / 3)
         column.setPanels(DockPanels(top: true), animated: true)
         try expect(column.isTransitioning, "the interrupting change starts its own transition")
         settle()
@@ -1592,7 +1702,8 @@ enum LogicSelfTests {
 
         let (still, stillTop, stillBottom, stillWindow) = makeColumn()
         defer { stillWindow.close() }
-        still.reducesMotion = { true }
+        Motion.reducesMotion = { true }
+        defer { Motion.reducesMotion = { false } }
         still.setPanels(DockPanels(bottom: true))
         still.setPanels(DockPanels(top: true, bottom: true), animated: true)
         try expect(!still.isTransitioning, "Reduce Motion skips the transition")
@@ -2078,7 +2189,7 @@ enum LogicSelfTests {
         try expect(window.frame.size == windowSize, "a presented modal must not resize the window, got \(window.frame.size) from \(windowSize)")
 
         holder.item = nil
-        RunLoop.main.run(until: Date().addingTimeInterval(ModalFade.fadeOut / 3))
+        RunLoop.main.run(until: Date().addingTimeInterval(MotionStep.fast.seconds / 3))
         try expect(stack.isEmpty, "a dismissed modal should stop counting as open at once, so keys go back underneath")
         try expect(stack.entries.count == 1 && stack.entries[0].closing, "a dismissed modal should stay mounted, closing, while it fades out")
         try expect(!host.isHidden, "the host should stay visible until the fade-out ends")
@@ -3466,7 +3577,7 @@ enum LogicSelfTests {
 
         store.close()
         stack.dismiss(id: QuestLogModal.stackID)
-        RunLoop.main.run(until: Date().addingTimeInterval(ModalFade.fadeOut / 3))
+        RunLoop.main.run(until: Date().addingTimeInterval(MotionStep.fast.seconds / 3))
         try expect(!host.isHidden, "the Quest Log should stay visible while it fades out")
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         try expect(host.isHidden, "the Quest Log host should hide once the fade-out ends")
@@ -4962,7 +5073,8 @@ enum LogicSelfTests {
         try expect((glide.toValue as? NSNumber)?.doubleValue == 0, "the glide should end at zero, got \(String(describing: glide.toValue))")
         let start = (glide.fromValue as? NSNumber)?.doubleValue ?? .nan
         try expect(start >= low - 0.001 && start <= high + 0.001, "the glide should start between \(low) and \(high) points, got \(start)")
-        try expect(glide.duration == WorkerChatMotion.glideDuration, "the glide should last \(WorkerChatMotion.glideDuration)s, got \(glide.duration)")
+        try expect(glide.duration == MotionStep.standard.seconds, "the glide should last the standard step, \(MotionStep.standard.seconds)s, got \(glide.duration)")
+        try expect(glide.timingFunction == Motion.timingFunction, "the glide should take the shared easing")
         try expect(CATransform3DIsIdentity(view.layer?.transform ?? CATransform3DIdentity), "the model transform should stay at identity while the glide runs")
     }
 
@@ -5106,13 +5218,14 @@ enum LogicSelfTests {
         try expectFade(fade, on: band)
     }
 
-    /// Checks a fade: opacity from transparent to opaque over the enter duration. The model stays opaque, so
+    /// Checks a fade: opacity from transparent to opaque over the standard step. The model stays opaque, so
     /// the rows are fully visible once the fade is gone.
     private static func expectFade(_ fade: CABasicAnimation, on band: CALayer) throws {
         try expect(fade.keyPath == "opacity", "the fade should animate opacity, got \(String(describing: fade.keyPath))")
         try expect((fade.fromValue as? NSNumber)?.doubleValue == 0, "the fade should start transparent, got \(String(describing: fade.fromValue))")
         try expect((fade.toValue as? NSNumber)?.doubleValue == 1, "the fade should end opaque, got \(String(describing: fade.toValue))")
-        try expect(fade.duration == WorkerChatMotion.enterDuration, "the fade should last \(WorkerChatMotion.enterDuration)s, got \(fade.duration)")
+        try expect(fade.duration == MotionStep.standard.seconds, "the fade should last the standard step, \(MotionStep.standard.seconds)s, got \(fade.duration)")
+        try expect(fade.timingFunction == Motion.timingFunction, "the fade should take the shared easing")
         try expect(band.opacity == 1, "the band's model opacity should stay opaque, got \(band.opacity)")
     }
 

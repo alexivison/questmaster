@@ -12,6 +12,9 @@ struct SelectedSessionPanelContent {
     /// The attached master's class portrait or worker's familiar; nil (a shell, no class, nothing attached) keeps the Q.
     var portrait: SessionPortrait? = nil
 
+    /// Names the icon on show: the attached session and its portrait. The panel fades the icon in when it changes.
+    var iconKey: String { "\(id)|\(portrait?.resourceName ?? "")" }
+
     static func make(currentTerminalSessionID: String?, tracker: TrackerRenderedTracker) -> SelectedSessionPanelContent {
         let id = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID) ?? ""
         guard let match = matchingRow(id: id, tracker: tracker) else {
@@ -94,12 +97,22 @@ struct SelectedSessionPanel: View {
                 baseline: Self.projectBaseline
             )
             Canvas { context, _ in
-                drawPortrait(&context)
+                drawDiscBase(&context)
+            }
+            if content.portrait != nil {
+                Canvas { context, _ in
+                    drawPortrait(&context)
+                }
+                .fadesIn(on: content.iconKey)
+            }
+            Canvas { context, _ in
+                drawDiscOverlay(&context)
             }
             if content.portrait == nil, let logo = Self.logo {
                 Image(nsImage: logo)
                     .resizable()
                     .frame(width: Self.logoSize.width, height: Self.logoSize.height)
+                    .fadesIn(on: content.iconKey)
             }
         }
         .frame(width: Self.canvasSize.width, height: Self.canvasSize.height, alignment: .topLeading)
@@ -129,14 +142,20 @@ struct SelectedSessionPanel: View {
         context.fillInnerShadow(PanelDesign.projectBar, PanelDesign.barRimShadow(content.projectColor))
     }
 
-    /// The disc over its shadow, the class portrait, its inner shadow, then the ornaments over it, in the SVG's order.
-    /// Without a portrait the logo draws over all of them.
-    private func drawPortrait(_ context: inout GraphicsContext) {
+    /// The disc and its shadow, then the class portrait, its inner shadow and the ornaments over it, in the SVG's order,
+    /// as three layers so the portrait fades in on its own (`fadesIn`). Without a portrait the logo draws over all
+    /// of them.
+    private func drawDiscBase(_ context: inout GraphicsContext) {
         context.fillOuterShadow(PanelDesign.disc, PanelDesign.discOuterShadow)
         context.fill(PanelDesign.disc, with: .color(AppPalette.panel.swiftUI))
-        if let portrait = content.portrait {
-            context.drawPortrait(portrait, in: PanelDesign.disc, strength: PanelDesign.portraitStrength)
-        }
+    }
+
+    private func drawPortrait(_ context: inout GraphicsContext) {
+        guard let portrait = content.portrait else { return }
+        context.drawPortrait(portrait, in: PanelDesign.disc, strength: PanelDesign.portraitStrength)
+    }
+
+    private func drawDiscOverlay(_ context: inout GraphicsContext) {
         context.fillInnerShadow(PanelDesign.disc, PanelDesign.discInnerShadow)
         for ornament in PanelDesign.ornaments {
             context.fill(ornament.path, with: .color(color(for: ornament.role)), style: FillStyle(eoFill: true))
@@ -149,6 +168,15 @@ struct SelectedSessionPanel: View {
         case .panel: AppPalette.panel.swiftUI
         case .project: content.projectColor.swiftUI
         }
+    }
+}
+
+private extension View {
+    /// Fades this view in from clear each time `key` changes, once, over the standard motion step (none under Reduce
+    /// Motion). A new key makes a new view, which is inserted with the fade; the old one goes at once. The first
+    /// appearance doesn't fade.
+    func fadesIn(on key: String) -> some View {
+        id(key).transition(.asymmetric(insertion: .opacity.animation(Motion.animation(.standard)), removal: .identity))
     }
 }
 
