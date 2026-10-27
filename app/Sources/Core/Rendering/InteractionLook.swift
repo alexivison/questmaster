@@ -66,9 +66,17 @@ public struct RowLook: Equatable, Sendable {
         fill: .item, outline: nil, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: true
     )
 
-    /// The same look for a row whose file is missing: its icon warns in every state.
-    public var missingFile: RowLook {
+    /// The same look with its icon warning, in every state.
+    public var warned: RowLook {
         RowLook(fill: fill, outline: outline, text: text, meta: meta, icon: .warn, iconBorder: iconBorder, bold: bold)
+    }
+
+    /// The same look for a row whose file is missing: its icon warns in every state.
+    public var missingFile: RowLook { warned }
+
+    /// The same look for a row whose data is out of date: its text and icon drop to the meta step.
+    public var dimmed: RowLook {
+        RowLook(fill: fill, outline: outline, text: meta, meta: meta, icon: meta, iconBorder: iconBorder, bold: bold)
     }
 
     /// A pick-to-open row (artifacts, dropdowns, filter suggestions): picking it opens it, so it is never selected.

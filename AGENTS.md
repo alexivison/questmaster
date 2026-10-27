@@ -224,7 +224,7 @@ hides.
   `fieldChrome`/`FormTextField` for fields, `FilterBar` for filter fields,
   `SuggestionDropdown` for every dropdown and suggestion list, `FilterChip` for
   filter chips, the `AngledButton` styles for buttons.
-- Dock titles (Artifacts, Worker Chat, an open artifact) are title case in
+- Dock titles (Artifacts, Worker Chat, Version Control, an open artifact) are title case in
   `accent`, 14pt bold, on the top bar's baseline 35 down.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and

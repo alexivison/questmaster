@@ -9,6 +9,7 @@ import Foundation
 public enum DockContentMode: Equatable {
     case artifacts
     case workerChat
+    case versionControl
 }
 
 /// Where the artifact area of the dock currently is.
@@ -55,6 +56,8 @@ public struct DockTopBarModel: Equatable {
         switch mode {
         case .workerChat:
             return "Worker Chat"
+        case .versionControl:
+            return "Version Control"
         case .artifacts:
             return viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"
         }

@@ -35,6 +35,14 @@ final class DockPaneModel: ObservableObject {
     var onFocusRequested: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
     var onControlDirection: ((NavigationDirection) -> Bool)?
+    /// Runs what a version control key or click asked for: opening or copying a pull request's page, a refresh.
+    var onPullRequestEffect: ((PullRequestEffect) -> Void)?
+
+    let pullRequestStore: PullRequestStore
+
+    init(pullRequestStore: PullRequestStore = PullRequestStore()) {
+        self.pullRequestStore = pullRequestStore
+    }
 
     private var preferredArtifactSessionID: String?
     private var selectedArtifactID: String?
@@ -58,6 +66,7 @@ final class DockPaneModel: ObservableObject {
     var currentMode: DockContentMode {
         switch currentDockContent {
         case .workerChat: .workerChat
+        case .versionControl: .versionControl
         case .artifactList, .artifactViewer: .artifacts
         }
     }
@@ -130,6 +139,9 @@ final class DockPaneModel: ObservableObject {
             }
             return onControlDirection?(direction) == true
         }
+        if currentMode == .versionControl {
+            return handleVersionControlKey(event)
+        }
         guard currentArtifactRoute == .list else {
             if Self.isArtifactViewerBack(event) {
                 onShowArtifactListIntent?()
@@ -198,6 +210,52 @@ final class DockPaneModel: ObservableObject {
         case .listCommand:
             return false
         }
+    }
+
+    /// The arrows, j/k and Return move and open as in the artifact list; y copies the page's URL, r refreshes.
+    private func handleVersionControlKey(_ event: NSEvent) -> Bool {
+        if let direction = Self.plainListDirection(from: event) {
+            switch direction {
+            case .up: return performPullRequestCommand(.move(-1))
+            case .down: return performPullRequestCommand(.move(1))
+            case .left, .right: break
+            }
+        }
+        let key = Self.plainShortcutCharacter(from: event)
+        if Keymap.VersionControl.copyURL.matches(key) {
+            return performPullRequestCommand(.copyURL)
+        }
+        if Keymap.VersionControl.refresh.matches(key) {
+            return performPullRequestCommand(.refresh)
+        }
+        guard let action = TrackerEventCommandResolver.action(for: event) else {
+            return false
+        }
+        switch action {
+        case .nativeRegionTab:
+            return true
+        case .focusDirection(let direction):
+            return onControlDirection?(direction) == true
+        case .moveSelection(let delta):
+            return performPullRequestCommand(.move(delta))
+        case .openSelection:
+            return performPullRequestCommand(.open)
+        case .listCommand:
+            return false
+        }
+    }
+
+    /// A click on a row picks it and opens its page.
+    func openPullRequest(_ key: String) {
+        pullRequestStore.setCursor(key)
+        _ = performPullRequestCommand(.open)
+    }
+
+    private func performPullRequestCommand(_ command: PullRequestCommand) -> Bool {
+        if let effect = pullRequestStore.handle(command) {
+            onPullRequestEffect?(effect)
+        }
+        return true
     }
 
     func openArtifact(_ artifactID: String) {

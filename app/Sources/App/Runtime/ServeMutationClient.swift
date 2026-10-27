@@ -85,6 +85,9 @@ final class UnixSocketMutationClient: ServeMutationSending {
     /// Feed pulls read log files and can chain on `has_more`; their own queue keeps them from
     /// delaying a mutation.
     private let feedQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.workerFeed")
+    /// Pull request pulls and refreshes reach GitHub through the daemon; their own queue keeps them from delaying a
+    /// mutation.
+    private let pullRequestQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.pullRequests")
     private static let responseTimeoutSeconds = 35
     /// A one-shot request may race daemon startup or an upgrade. Retry only
     /// before writing bytes, so a mutation in flight is never repeated.
@@ -287,6 +290,30 @@ extension UnixSocketMutationClient {
             do {
                 let ack = try Self.sendObject(request.jsonObject(id: UUID().uuidString), connection: connection, userInitiated: false)
                 completion(.success(try ack.decoded(WorkerFeedPayload.self)))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+}
+
+extension UnixSocketMutationClient {
+    func fetchPullRequests(_ request: PullRequestsRequest, completion: @escaping (Result<[PullRequestRow], Error>) -> Void) {
+        pullRequestQueue.async { [connection] in
+            do {
+                let ack = try Self.sendObject(request.jsonObject(id: UUID().uuidString), connection: connection, userInitiated: false)
+                completion(.success(try ack.decoded([PullRequestRow].self)))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    func refreshPullRequests(_ request: PullRequestRefreshRequest, completion: @escaping (Result<Void, Error>) -> Void) {
+        pullRequestQueue.async { [connection] in
+            do {
+                _ = try Self.sendObject(request.jsonObject(id: UUID().uuidString), connection: connection, userInitiated: false)
+                completion(.success(()))
             } catch {
                 completion(.failure(error))
             }

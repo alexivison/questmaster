@@ -32,6 +32,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let navigation = NavigationStore()
     private let dockCoordinator = DockCoordinator()
     private let workerChatStore = WorkerChatStore()
+    private let pullRequestStore = PullRequestStore()
     private let questLogStore = QuestLogStore()
     private let questLogFilter = QuestLogFilter()
     private let questLogPageScroll = QuestLogPageScroll()
@@ -39,9 +40,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         store: workerChatStore,
         feedClient: { [weak self] in self?.workerFeedClient }
     )
+    private lazy var pullRequestController = PullRequestController(
+        store: pullRequestStore,
+        client: { [weak self] in self?.workerFeedClient }
+    )
     private lazy var shellWindowController = ShellWindowController(
         runtimeStore: runtimeStore,
         workerChatStore: workerChatStore,
+        pullRequestStore: pullRequestStore,
         navigation: navigation,
         newSessionPresenter: newSessionPresenter,
         newQuestPresenter: newQuestPresenter,
@@ -165,6 +171,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleDock: #selector(toggleDock),
                 toggleQuestLog: #selector(toggleQuestLog),
                 toggleWorkerChatDock: #selector(toggleWorkerChatDock),
+                toggleVersionControlDock: #selector(toggleVersionControlDock),
                 widenDock: #selector(widenDock),
                 narrowDock: #selector(narrowDock),
                 toggleCaffeine: #selector(toggleCaffeine),
@@ -234,6 +241,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
         handles.modalHost.onDrawingChange = { [weak self] in self?.focusCoordinator.updateRegionKeys() }
         handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
+        handles.footerShell.onOpenVersionControl = { [weak self] in self?.toggleVersionControlDock() }
+        handles.dockView.onPullRequestEffect = { [weak self] effect in self?.runPullRequestEffect(effect) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
         handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
@@ -361,6 +370,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             animateDockLayout: animateDockLayout
         )
         syncWorkerChat()
+        syncPullRequests()
         if questLogStore.isOpen {
             syncQuestLog()
         }
@@ -386,6 +396,31 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             sessions: isChatDockOpen ? runtimeStore.snapshot.tracker.repos.flatMap(\.sessions) : [],
             isVisible: isChatDockOpen
         )
+    }
+
+    private func syncPullRequests() {
+        pullRequestController.sync(
+            selectedSessionID: runtimeStore.currentTerminalSessionID,
+            sessions: runtimeStore.snapshot.tracker.repos.flatMap(\.sessions),
+            isVisible: navigation.dockVisible && dockCoordinator.state.dockContent == .versionControl
+        )
+    }
+
+    private func runPullRequestEffect(_ effect: PullRequestEffect) {
+        switch effect {
+        case .open(let url):
+            NSWorkspace.shared.open(url)
+        case .copy(let url):
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            guard pasteboard.setString(url.absoluteString, forType: .string) else {
+                NSSound.beep()
+                return
+            }
+            toastPresenter.show("Copied \(url.absoluteString)")
+        case .refresh(let request):
+            pullRequestController.refresh(request)
+        }
     }
 
     private func updateDockTabs() {
@@ -456,7 +491,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showDockContent(_ content: DockContent, focusDock: Bool) {
         guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID) else {
-            if content == .workerChat {
+            if content == .workerChat || content == .versionControl {
                 NSSound.beep()
             }
             renderSnapshot()
@@ -575,6 +610,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         showDockContent(.workerChat, focusDock: true)
+    }
+
+    @objc private func toggleVersionControlDock() {
+        if navigation.dockVisible && dockCoordinator.state.dockContent == .versionControl {
+            hideDock()
+            return
+        }
+        showDockContent(.versionControl, focusDock: true)
     }
 
     @objc private func toggleTracker() {
@@ -995,12 +1038,13 @@ extension AppDelegate: NSMenuItemValidation {
     private static let shellNavigationActions: Set<Selector> = [
         #selector(focusTerminal), #selector(focusRegionLeft), #selector(focusRegionRight),
         #selector(selectTrackerSession(_:)), #selector(toggleTracker), #selector(toggleDock), #selector(toggleWorkerChatDock),
+        #selector(toggleVersionControlDock),
     ]
 }
 
 enum DockCommandRouting {
     static func shouldHideArtifactDock(isDockVisible: Bool, content: DockContent) -> Bool {
-        isDockVisible && (content == .artifactList || content == .artifactViewer)
+        isDockVisible && content.isArtifact
     }
 }
 
@@ -1008,7 +1052,7 @@ enum DockContentRouting {
     static func canShow(_ content: DockContent, sessionID: String?) -> Bool {
         let hasSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         switch content {
-        case .artifactList, .artifactViewer, .workerChat:
+        case .artifactList, .artifactViewer, .workerChat, .versionControl:
             return hasSession
         }
     }

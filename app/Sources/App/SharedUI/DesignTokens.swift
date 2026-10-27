@@ -22,6 +22,11 @@ enum Token {
         static let card: CGFloat = 8
     }
 
+    enum Opacity {
+        /// A figure that reads dimmer than the text beside it: a pull request's diff counter (design: 70%).
+        static let dimmed: Double = 0.7
+    }
+
     enum Size {
         /// One-pixel rules and dividers.
         static let divider: CGFloat = 1
