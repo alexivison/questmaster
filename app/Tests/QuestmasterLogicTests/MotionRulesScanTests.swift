@@ -6,9 +6,7 @@ import Foundation
 /// - raw-duration: no number literal as an animation's duration or delay (`duration: 0.2`, `.duration = 0.18`,
 ///   `.delay(0.1)`, `setAnimationDuration(0.3)`), and no SwiftUI curve built outside the token layer (`.easeOut`,
 ///   `.snappy`, `.spring` … in `withAnimation`, `.animation` or an `Animation` value), which carry a default duration
-///   of their own. 0 is allowed. A SwiftUI animation chained straight into `.repeatForever` on the same line is a
-///   continuous one (the skeletons' pulse), which keeps its own period; that is the rule's only exception, and it goes
-///   when those pulses take a token.
+///   of their own. 0 is allowed. There is no exception, a repeating SwiftUI animation included.
 /// - duration-constant: a constant or local whose name ends in an animation-timing word (duration, delay, time, fade,
 ///   crossfade, sweep, flash, transition, glide, unroll) isn't a number literal, typed or inferred (`let fadeTime =
 ///   0.4`); it comes from a step. A continuous animation names its `period` instead.
@@ -35,7 +33,6 @@ struct MotionRulesScanTests {
     private static let literalConstant = SpacingRulesScanTests.regex(#"\b(?:let|var)\s+(\w+)\s*(?::\s*[\w.?]+)?\s*=\s*"# + notZero)
     private static let timingWords: Set = ["duration", "delay", "time", "fade", "crossfade", "sweep", "flash", "transition", "glide", "unroll"]
     private static let rawEasing = SpacingRulesScanTests.regex(#"\bCAMediaTimingFunction\(|\.timingCurve\("#)
-    private static let repeatsForever = SpacingRulesScanTests.regex(#"\brepeatForever\b"#)
 
     static func run() {
         scannerCatchesEachRule()
@@ -66,6 +63,8 @@ struct MotionRulesScanTests {
             "withAnimation(.easeOut) { open = true }", ".animation(.default, value: open)", "withAnimation(Animation.spring()) {",
             "let fade: Animation? = reduceMotion ? nil : .easeInOut(duration: fadeTime)", "withAnimation(.easeOut(duration: 0.18).delay(0.1)) {",
             "CATransaction.setAnimationDuration(0.25)", ".transition(.opacity.animation(.linear(duration: 0.1)))",
+            // A repeating animation is held to the rule like any other.
+            "withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { pulsing = true }",
         ]
         for line in raws {
             expect(violations(in: line, file: "Quest/Example.swift")["raw-duration"] != nil, "raw-duration should fire on \(line)")
@@ -82,7 +81,6 @@ struct MotionRulesScanTests {
             ".animation(Motion.animation(.fast), value: open)", "withAnimation(Motion.animation(.standard, after: .fast)) {", "context.duration = 0",
             "Motion.configure(context, .standard)", "glide.duration = Motion.duration(.standard)", "context.timingFunction = Motion.timingFunction",
             "breath.timingFunction = Motion.breathingTimingFunction",
-            "withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { pulsing = true }",
             "static let pulsePeriod: TimeInterval = 1.2", "static let overflowFadeHeight: CGFloat = 40", "private let debounceInterval: TimeInterval = 0.15",
             "let delay = Motion.duration(.fast)", "static let settle: TimeInterval = 0.8", "let fadeTime = Motion.duration(.standard)",
             "static let flashOpacity: Float = 0.5", "let delay = 0", "let startTime = Date()", "static let shimmerPeriod: CFTimeInterval = 1.2",
@@ -137,7 +135,7 @@ struct MotionRulesScanTests {
         for (index, line) in lines.enumerated() {
             guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") else { continue }
             let code = SpacingRulesScanTests.withoutComment(line)
-            if !SpacingRulesScanTests.matches(repeatsForever, code), rawDuration.contains(where: { SpacingRulesScanTests.matches($0, code) }) {
+            if rawDuration.contains(where: { SpacingRulesScanTests.matches($0, code) }) {
                 found["raw-duration", default: []].append(index + 1)
             }
             if isTimingConstant(code) {

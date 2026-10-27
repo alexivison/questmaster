@@ -33,6 +33,8 @@ enum Token {
         static let divider: CGFloat = 1
         /// Two-point hairline gaps and strokes (the cast square → bar).
         static let hairline: CGFloat = 2
+        /// The empty state's icon (`EmptyState`): one box for every panel, as tall as the dock's top bar.
+        static let emptyIcon: CGFloat = 40
     }
 }
 

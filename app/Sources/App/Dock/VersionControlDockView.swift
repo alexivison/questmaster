@@ -54,17 +54,7 @@ struct VersionControlList: View {
     @ViewBuilder
     private var content: some View {
         if isUnwatched {
-            EmptyStatePane(
-                title: "No pull requests watched.",
-                message: "Watch one from this session's terminal:",
-                detail: "questmaster pr watch <url>",
-                titleFont: AppFonts.questLogBody.swiftUI,
-                titleColor: AppPalette.textBody.swiftUI,
-                messageFont: AppFonts.monoSmall.swiftUI,
-                messageColor: AppPalette.textMeta.swiftUI,
-                padding: EdgeInsets(top: Space.section, leading: VersionControlMetrics.inset, bottom: VersionControlMetrics.inset, trailing: VersionControlMetrics.inset),
-                detailSelectable: true
-            )
+            EmptyState()
         } else {
             SectionedList(selectedID: cursorKey, scrollOnAppear: true) {
                 ForEach(rows, id: \.pullRequest.key) { row in

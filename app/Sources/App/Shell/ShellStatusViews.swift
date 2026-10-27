@@ -2,27 +2,15 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// SwiftUI shell status leaves (read-only display): the terminal message overlay
+/// SwiftUI shell status leaves (read-only display): the ended-session overlay
 /// and the mutation-error banner.
 
-struct TerminalMessageOverlay: View {
-    let title: String
-    let detail: String
-
+/// The terminal pane once its session has ended: the shared empty icon over the terminal's own fill, nearly opaque so the
+/// finished terminal under it doesn't show. Never up while a session attaches: that is `TerminalAttachSkeleton`'s.
+struct TerminalEndedOverlay: View {
     var body: some View {
-        EmptyStatePane(
-            title: title,
-            message: detail,
-            titleFont: AppFonts.monospaced(size: 18, weight: .semibold).swiftUI,
-            titleColor: AppPalette.text.swiftUI,
-            alignment: .center,
-            textAlignment: .center,
-            frameAlignment: .center,
-            maxTextWidth: 420,
-            padding: EdgeInsets(top: 0, leading: Space.section, bottom: 0, trailing: Space.section),
-            backgroundColor: AppPalette.terminal.withAlphaComponent(0.96)
-        )
-        .help(detail)
+        EmptyState()
+            .background(AppPalette.terminal.withAlphaComponent(0.96).swiftUI)
     }
 }
 

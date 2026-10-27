@@ -72,10 +72,10 @@ private final class WindowDragHandleView: NSView {
 }
 
 final class TerminalShellView: NSView {
-    private let messageOverlay: NSHostingView<TerminalMessageOverlay>
+    private let messageOverlay: NSHostingView<TerminalEndedOverlay>
 
     init(body: NSView, dragHandleHeight: CGFloat) {
-        messageOverlay = NSHostingView(rootView: TerminalMessageOverlay(title: "", detail: ""))
+        messageOverlay = NSHostingView(rootView: TerminalEndedOverlay())
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = AppPalette.terminal.cgColor
@@ -115,12 +115,14 @@ final class TerminalShellView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func showMessage(title: String, detail: String) {
-        messageOverlay.rootView = TerminalMessageOverlay(title: title, detail: detail)
+    /// Whether the ended-session icon is up.
+    var showsEnded: Bool { !messageOverlay.isHidden }
+
+    func showEnded() {
         messageOverlay.isHidden = false
     }
 
-    func clearMessage() {
+    func clearEnded() {
         messageOverlay.isHidden = true
     }
 }

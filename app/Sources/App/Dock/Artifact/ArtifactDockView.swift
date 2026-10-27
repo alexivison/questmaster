@@ -83,10 +83,8 @@ struct ArtifactDockView: View {
                 filterBar
             }
             switch model.displayState {
-            case .noCurrentSession:
-                selectorStatus("No current session.", detail: "Select a running session in the tracker.")
-            case .empty:
-                selectorStatus(emptyTitle, detail: emptyDetail)
+            case .noCurrentSession, .empty:
+                EmptyState()
             case .missing, .unsupported, .viewing:
                 SectionedList(
                     selectedID: model.selectedArtifactID,
@@ -133,22 +131,6 @@ struct ArtifactDockView: View {
         .zIndex(2)
     }
 
-    private var emptyTitle: String {
-        hasActiveFilter ? "No matching artifacts." : model.artifactScope.emptyTitle
-    }
-
-    private var emptyDetail: String {
-        hasActiveFilter ? "Clear the filter to show all artifacts." : model.artifactScope.emptyDetail
-    }
-
-    private var hasActiveFilter: Bool {
-        model.artifactScope == .all && (
-            !model.artifactFilterQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !model.artifactProjectFilterIDs.isEmpty
-            || !model.artifactTypeFilterIDs.isEmpty
-        )
-    }
-
     private func projectTitle(for artifact: ArtifactReference) -> String {
         model.projectTitlesByArtifactID[artifact.id] ?? "Unknown Project"
     }
@@ -163,18 +145,6 @@ struct ArtifactDockView: View {
             onSelect: onSetScope
         )
         .padding(.horizontal, Space.section)
-    }
-
-    private func selectorStatus(_ title: String, detail: String) -> some View {
-        EmptyStatePane(
-            title: title,
-            message: detail,
-            titleFont: AppFonts.questLogBody.swiftUI,
-            titleColor: AppPalette.textBody.swiftUI,
-            messageFont: AppFonts.monoSmall.swiftUI,
-            messageColor: AppPalette.textMeta.swiftUI,
-            padding: EdgeInsets(top: 0, leading: Space.section, bottom: Space.section, trailing: Space.section)
-        )
     }
 }
 
@@ -191,28 +161,6 @@ private extension ArtifactScope {
             return "Project"
         case .all:
             return "All"
-        }
-    }
-
-    var emptyTitle: String {
-        switch self {
-        case .session:
-            return "No session artifacts."
-        case .project:
-            return "No project artifacts."
-        case .all:
-            return "No artifacts."
-        }
-    }
-
-    var emptyDetail: String {
-        switch self {
-        case .session:
-            return "Run qm artifact add from this session."
-        case .project:
-            return "No artifacts registered for this project."
-        case .all:
-            return "No artifacts registered yet."
         }
     }
 }
@@ -418,18 +366,8 @@ private struct ArtifactViewerPane: View {
                     detail: artifact.kind
                 )
             }
-        case .noCurrentSession:
-            ArtifactStatusPane(
-                symbolName: "rectangle.slash",
-                title: "No current session",
-                message: "Select a running session in the tracker."
-            )
-        case .empty:
-            ArtifactStatusPane(
-                symbolName: "doc",
-                title: "No artifacts",
-                message: "Run qm artifact add from this session."
-            )
+        case .noCurrentSession, .empty:
+            EmptyState()
         case .missing(let artifact):
             ArtifactStatusPane(
                 symbolName: "exclamationmark.triangle",
@@ -456,7 +394,7 @@ struct ArtifactStatusPane: View {
     var detail: String = ""
 
     var body: some View {
-        EmptyStatePane(
+        StatusMessagePane(
             title: title,
             message: message,
             detail: detail,

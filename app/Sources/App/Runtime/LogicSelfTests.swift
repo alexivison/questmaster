@@ -70,6 +70,8 @@ enum LogicSelfTests {
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
         ("testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow", testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow),
+        ("testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion", testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion),
+        ("testEveryEmptyPanelDrawsTheOneIconCentredInItsSection", testEveryEmptyPanelDrawsTheOneIconCentredInItsSection),
         ("testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
@@ -85,6 +87,7 @@ enum LogicSelfTests {
         ("testArtifactViewerCopiesAndRefreshesWithKeys", testArtifactViewerCopiesAndRefreshesWithKeys),
         ("testArtifactViewerBackKeysReturnToList", testArtifactViewerBackKeysReturnToList),
         ("testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck", testSessionCoordinatorRunsSuccessCallbackOnlyAfterAck),
+        ("testEndedIconShowsOnlyWhenTheViewedSessionIsGone", testEndedIconShowsOnlyWhenTheViewedSessionIsGone),
         ("testArtifactDockAllFiltersUseVisibleList", testArtifactDockAllFiltersUseVisibleList),
         ("testDeferredDeleteConfirmationRetainsExecutor", testDeferredDeleteConfirmationRetainsExecutor),
         ("testNewSessionArrowKeysNavigatePathSuggestions", testNewSessionArrowKeysNavigatePathSuggestions),
@@ -1410,6 +1413,175 @@ enum LogicSelfTests {
         try expect(!pane.handleKeyDown(try keyEvent("x", keyCode: 7)), "an unrelated key should pass through")
         try expect(!pane.handleKeyDown(try keyEvent("y", keyCode: 16, modifierFlags: [.command])), "a command chord should pass through")
         try expect(effects.count == count, "passed-through keys run no effect")
+    }
+
+    /// The skeletons (the terminal's veil, the tracker's ghost plates, the Settings pickers' ghosts) breathe in one way: a Core
+    /// Animation fade of the layer their content was drawn on, once every `SkeletonMotion.period`, for good, only while in a
+    /// window, and held still at the resting opacity under Reduce Motion. SwiftUI never animates them, so nothing redraws.
+    private static func testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion() throws {
+        let size = CGSize(width: 520, height: 300)
+        let window = HeadlessWindow(size: size)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = container
+
+        let pulse = SkeletonPulseView(rootView: Color.clear)
+        pulse.frame = container.bounds
+        pulse.configure(rootView: Color.clear, from: 0.6, to: 0.7, reduceMotion: false)
+        try expect(pulse.pulseAnimation == nil, "a skeleton outside a window should not breathe")
+        container.addSubview(pulse)
+        guard let breath = pulse.pulseAnimation else {
+            throw TestFailure("a skeleton in a window should breathe")
+        }
+        try expect(
+            breath.keyPath == "opacity" && breath.fromValue as? Double == 0.6 && breath.toValue as? Double == 0.7
+                && breath.duration == SkeletonMotion.period && breath.autoreverses && breath.repeatCount == .infinity,
+            "it fades between its two opacities, once every \(SkeletonMotion.period)s, for good"
+        )
+        try expect(breath.timingFunction === Motion.breathingTimingFunction, "and on the breathing easing, the token")
+        pulse.configure(rootView: Color.clear, from: 0.6, to: 0.7, reduceMotion: true)
+        try expect(pulse.pulseAnimation == nil && pulse.layer?.opacity == 0.7, "Reduce Motion holds it still at the resting opacity")
+        pulse.configure(rootView: Color.clear, from: 0.6, to: 0.7, reduceMotion: false)
+        try expect(pulse.pulseAnimation != nil, "and it breathes again when the setting goes")
+        pulse.removeFromSuperview()
+        try expect(pulse.pulseAnimation == nil, "a skeleton that leaves its window stops")
+
+        /// The breaths running anywhere under `view`.
+        func breaths(in view: NSView) -> [CABasicAnimation] {
+            let own = (view.layer?.animation(forKey: SkeletonMotion.animationKey) as? CABasicAnimation).map { [$0] } ?? []
+            return view.subviews.reduce(own) { $0 + breaths(in: $1) }
+        }
+        func hosted<V: View>(_ root: V) -> [CABasicAnimation] {
+            let view = NSHostingView(rootView: root.frame(width: size.width, height: size.height).background(AppPalette.window.swiftUI))
+            view.frame = NSRect(origin: .zero, size: size)
+            let host = HeadlessWindow(size: size, scale: 1)
+            host.contentView = view
+            host.show()
+            defer { host.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            return breaths(in: view)
+        }
+        func tracker(_ label: String) -> some View {
+            let store = RuntimeStore(sourceLabel: "test")
+            if !label.isEmpty {
+                store.apply(.serveUnavailable(label))
+            }
+            return TrackerRootView(store: store, newSessionPresenter: NewSessionSheetPresenter(), destructiveConfirmationPresenter: DestructiveConfirmationPresenter())
+        }
+        let settings = SettingsSheetView(
+            presentation: SettingsSheetPresentation(
+                mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
+                modelClient: StubModelClient(deferCompletions: true),
+                effortClient: StubReasoningEffortClient()
+            ),
+            dismiss: {}
+        )
+
+        // Reduce Motion is read where every animation reads it (`Motion.reducesMotion`), so the runner's setting rules whatever
+        // the machine says; a CI runner has it on, and a skeleton that asked SwiftUI's environment instead never breathed there.
+        // Forced on here, the real skeletons must hold still, which only a view reading the token can do on a machine without it.
+        Motion.reducesMotion = { true }
+        defer { Motion.reducesMotion = { false } }
+        try expect(hosted(TerminalAttachSkeleton()).isEmpty, "the terminal's veil holds still under Reduce Motion")
+        try expect(hosted(tracker("connecting to backend...")).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
+        try expect(hosted(settings).isEmpty, "the Settings pickers hold still under Reduce Motion")
+        Motion.reducesMotion = { false }
+
+        let veil = hosted(TerminalAttachSkeleton())
+        try expect(veil.count == 1 && veil[0].duration == SkeletonMotion.period, "the terminal's veil should be one breath, got \(veil.count)")
+        let ghosts = hosted(tracker("connecting to backend..."))
+        try expect(ghosts.count == 1 && ghosts[0].duration == SkeletonMotion.period, "the tracker's ghost plates should be one breath, got \(ghosts.count)")
+        try expect(hosted(tracker("")).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
+        let pickers = hosted(settings)
+        try expect(!pickers.isEmpty && pickers.allSatisfy { $0.duration == SkeletonMotion.period }, "the Settings pickers waiting for options should breathe, got \(pickers.count)")
+    }
+
+    /// An empty panel draws the one icon and nothing else, centred in the section its list would fill: the whole panel, or what is
+    /// left under the artifact list's tabs. Measured as the ink on the panel's fill, so it holds for whatever the icon is.
+    private static func testEveryEmptyPanelDrawsTheOneIconCentredInItsSection() throws {
+        func ink<V: View>(_ root: V, size: CGSize, below top: Int = 0, over fill: NSColor = AppPalette.panel) throws -> CGRect? {
+            let view = NSHostingView(rootView: root.frame(width: size.width, height: size.height).background(fill.swiftUI))
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            let bitmap = try snapshot(view, size: size, scale: 1)
+            guard let base = fill.usingColorSpace(.deviceRGB) else {
+                throw TestFailure("could not read the panel fill")
+            }
+            var box: CGRect?
+            for y in top..<Int(size.height) {
+                for x in 0..<Int(size.width) {
+                    guard let pixel = bitmap.colorAt(x: x, y: y),
+                          abs(pixel.redComponent - base.redComponent) + abs(pixel.greenComponent - base.greenComponent)
+                            + abs(pixel.blueComponent - base.blueComponent) > 0.05 else {
+                        continue
+                    }
+                    box = (box ?? CGRect(x: x, y: y, width: 0, height: 0)).union(CGRect(x: x, y: y, width: 1, height: 1))
+                }
+            }
+            return box
+        }
+        func expectCentred(_ box: CGRect?, in section: CGRect, _ name: String) throws {
+            guard let box else {
+                throw TestFailure("\(name) should draw the icon")
+            }
+            try expect(
+                abs(box.midX - section.midX) <= 1 && abs(box.midY - section.midY) <= 1,
+                "\(name)'s icon should be centred in its section \(section), got \(box)"
+            )
+            try expect(box.width <= Token.Size.emptyIcon && box.height <= Token.Size.emptyIcon, "\(name) should draw one icon in a \(Token.Size.emptyIcon)pt box, got \(box)")
+        }
+
+        let single = CGSize(width: 300, height: 200)
+        try expectCentred(try ink(EmptyState(), size: single), in: CGRect(origin: .zero, size: single), "the shared empty state")
+
+        let terminal = CGSize(width: 600, height: 400)
+        try expectCentred(
+            try ink(TerminalEndedOverlay(), size: terminal, over: AppPalette.terminal),
+            in: CGRect(origin: .zero, size: terminal),
+            "the ended terminal"
+        )
+
+        let versionControl = CGSize(width: 480, height: 260)
+        try expectCentred(
+            try ink(VersionControlList(rows: [], cursorKey: nil, isUnwatched: true, readNotice: nil, areaFocused: true, onOpenRow: { _ in }), size: versionControl),
+            in: CGRect(origin: .zero, size: versionControl),
+            "Version Control"
+        )
+
+        let chat = CGSize(width: 480, height: 400)
+        let master = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+        let pending = WorkerChatStore()
+        let firstRead = pending.sync(selectedSessionID: "m", sessions: master, isVisible: true)
+        try expect(try ink(WorkerChatDockView(store: pending), size: chat) == nil, "a worker chat whose first read is pending should stay blank")
+        pending.fail(firstRead!)
+        try expect(try ink(WorkerChatDockView(store: pending), size: chat) == nil, "and so should one whose first read failed")
+        let retry = pending.sync(selectedSessionID: "m", sessions: master, isVisible: true)
+        _ = pending.receive(WorkerFeedPayload(), for: retry!)
+        try expectCentred(try ink(WorkerChatDockView(store: pending), size: chat), in: CGRect(origin: .zero, size: chat), "the worker chat once a read came back empty")
+        try expect(try ink(WorkerChatDockView(store: WorkerChatStore()), size: chat) == nil, "an unattached worker chat should stay blank")
+
+        func artifacts(_ route: ArtifactDockRoute) -> some View {
+            var model = ArtifactDockModel.empty
+            model.route = route
+            model.displayState = .empty(sessionID: "s")
+            return ArtifactDockView(
+                model: model,
+                onSelectArtifact: { _ in }, onToggleArtifact: { _ in }, onSetScope: { _ in }, onSetFilterQuery: { _ in },
+                onRemoveFilterToken: { _ in }, onSelectFilterSuggestion: { _ in }, onFilterCommand: { _ in false }, onFilterEndEditing: {},
+                onOpenExternal: { _ in }, areaFocused: true
+            )
+        }
+        let dock = CGSize(width: 480, height: 400)
+        try expectCentred(try ink(artifacts(.viewer), size: dock), in: CGRect(origin: .zero, size: dock), "the artifact viewer")
+        let listTop = Space.section + ControlHeight.compact + Space.section
+        try expectCentred(
+            try ink(artifacts(.list), size: dock, below: Int(listTop)),
+            in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),
+            "the artifact list under its tabs"
+        )
     }
 
     /// The refresh mark is the tracker's spinner, not a lookalike (one `SpinnerRing`): the same turn, once every
@@ -4063,6 +4235,47 @@ enum LogicSelfTests {
         try expect(failures.value == 0, "switch-before mutation should not report failure")
     }
 
+    /// The ended-session icon means the viewed session is really gone: a delete of it that succeeded with nowhere to switch to.
+    /// A plain mutation, a failed one and a delete that first switches to a recovery session (an attach, whose veil must show)
+    /// never raise it; and the terminal pane's overlay is up only between `showEnded` and `clearEnded`.
+    private static func testEndedIconShowsOnlyWhenTheViewedSessionIsGone() throws {
+        func ended(_ result: Result<ServeMutationAck, Error>, request: ServeMutationRequest, switchTo: String? = nil, clear: Bool) throws -> (ended: Int, switches: Int) {
+            let endedCount = Counter()
+            let switches = Counter()
+            let failures = Counter()
+            var finished = false
+            let coordinator = sessionCoordinator(client: StubMutationClient(result: result), failures: failures, switches: switches, ended: endedCount)
+            coordinator.sendMutation(
+                request,
+                label: "delete",
+                switchToSessionID: switchTo,
+                switchBeforeMutation: switchTo != nil,
+                clearTerminalOnSuccess: clear
+            ) { finished = true }
+            try waitForMainQueue("the mutation to settle", timeout: 2, until: { finished || failures.value > 0 })
+            try waitForMainQueueTurn()
+            return (endedCount.value, switches.value)
+        }
+        let delete = try ServeMutationRequests.delete(sessionID: "qm-a")
+        let ack = ServeMutationAck(data: nil)
+
+        let gone = try ended(.success(ack), request: delete, clear: true)
+        try expect(gone.ended == 1 && gone.switches == 0, "deleting the viewed session with nowhere to go shows the ended icon, with no attach")
+        let recovered = try ended(.success(ack), request: delete, switchTo: "qm-b", clear: false)
+        try expect(recovered.ended == 0 && recovered.switches == 1, "deleting it after switching to a recovery session attaches and never shows the icon")
+        let other = try ended(.success(ack), request: delete, clear: false)
+        try expect(other.ended == 0, "deleting some other session doesn't end the viewed one")
+        let failed = try ended(.failure(StubMutationError()), request: delete, clear: true)
+        try expect(failed.ended == 0, "a delete that failed hasn't ended anything")
+
+        let shell = TerminalShellView(body: NSView(), dragHandleHeight: 0)
+        try expect(!shell.showsEnded, "a terminal pane starts with no ended icon: it is attaching or attached")
+        shell.showEnded()
+        try expect(shell.showsEnded, "showEnded puts the icon up")
+        shell.clearEnded()
+        try expect(!shell.showsEnded, "clearEnded, which every attach does, takes it off")
+    }
+
     private static func testDeferredDeleteConfirmationRetainsExecutor() throws {
         let request = try ServeMutationRequests.delete(sessionID: "qm-delete")
         var confirmation: ((Bool) -> Void)?
@@ -5627,7 +5840,8 @@ enum LogicSelfTests {
     private static func sessionCoordinator(
         client: ServeMutationSending,
         failures: Counter,
-        switches: Counter? = nil
+        switches: Counter? = nil,
+        ended: Counter? = nil
     ) -> SessionCoordinator {
         SessionCoordinator(
             store: RuntimeStore(sourceLabel: "test"),
@@ -5638,8 +5852,8 @@ enum LogicSelfTests {
                     completion?(true)
                 },
                 showMutationFailure: { _, _ in failures.value += 1 },
-                clearTerminalMessage: {},
-                showTerminalEndedMessage: {},
+                clearTerminalEnded: {},
+                showTerminalEnded: { ended?.value += 1 },
                 render: {}
             )
         )
