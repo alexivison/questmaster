@@ -99,7 +99,35 @@ enum RenderPreview {
         renderView(dockSplitView(bottom: .artifacts, top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-bottom.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
+        // The Worker Log filter in the split: its chips and open dropdown in the bottom panel under Version Control, and
+        // with fifteen workers the dropdown scrolling inside the room that panel has left.
+        renderView(dockSplitView(bottom: .workerLog(), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-open.png")
+        renderView(dockSplitView(bottom: .workerLog(menuOpen: false), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-closed.png")
+        renderView(dockSplitView(bottom: .workerLog(workers: 15, cursor: 18), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-scroll.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 640), to: "\(outputDir)/worker-chat.png")
+        let logDock = CGSize(width: DockWidthPreference.panelWidth + 2, height: 1020)
+        renderView(workerLogDockView(menuOpen: true), size: logDock, to: "\(outputDir)/worker-log-filter-open.png")
+        renderView(workerLogDockView(menuOpen: false), size: logDock, to: "\(outputDir)/worker-log-filter-closed.png")
+        renderView(workerLogDockView(menuOpen: false), size: CGSize(width: 300, height: 480), to: "\(outputDir)/worker-log-filter-wrapped.png")
+        renderView(workerLogNothingMatchesView(), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-nothing-matches.png")
+        // The feed's top edge under the header: with chips, with none, and with chips wrapped onto two lines; the lines
+        // scrolled up under the fade (the follower's usual place) and the feed scrolled to its top.
+        let headerFade = CGSize(width: logDock.width, height: 400)
+        let headerFadeWrapped = CGSize(width: 300, height: 400)
+        renderView(workerLogDockView(menuOpen: false), size: headerFade, to: "\(outputDir)/header-fade-chips.png")
+        renderView(workerLogDockView(menuOpen: false), size: headerFade, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-chips-top.png")
+        renderView(workerLogDockView(menuOpen: false, filtered: false), size: headerFade, to: "\(outputDir)/header-fade-no-chips.png")
+        renderView(workerLogDockView(menuOpen: false, filtered: false), size: headerFade, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-no-chips-top.png")
+        renderView(workerLogPendingView(), size: headerFade, to: "\(outputDir)/header-fade-pending.png")
+        renderView(workerLogDockView(menuOpen: false), size: headerFadeWrapped, to: "\(outputDir)/header-fade-wrapped.png")
+        renderView(workerLogDockView(menuOpen: false), size: headerFadeWrapped, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-wrapped-top.png")
+        // Fifteen workers in a 480 high dock: the dropdown stops 20 above the bottom and scrolls, the cursor on the last row.
+        renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 18), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll.png")
+        renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 0), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll-top.png")
+        render(workerLogPanelDesignView(), size: CGSize(width: 172, height: 330), to: "\(outputDir)/worker-log-filter-panel.png")
+        // The pointer over "Message" (row 2) while the cursor is on the first worker, on the dock's own fill.
+        render(workerLogPanelDesignView(hovering: 2).background(AppPalette.panel.swiftUI), size: CGSize(width: 172, height: 330), to: "\(outputDir)/worker-log-filter-hover.png")
+        render(workerLogChipsDesignView(), size: CGSize(width: 230, height: 152), to: "\(outputDir)/worker-log-filter-chips.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
         render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
@@ -313,7 +341,7 @@ enum RenderPreview {
         guard viewer else {
             return DockShellView(body: body)
         }
-        return DockShellView(body: body, model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: nil)))
+        return DockShellView(body: body, model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: nil, logAttached: false)))
     }
 
     enum DockBarFixture { case viewer, workerChat, workerChatEmpty }
@@ -323,10 +351,10 @@ enum RenderPreview {
     private static func dockBarView(_ fixture: DockBarFixture) -> NSView {
         switch fixture {
         case .viewer:
-            let model = DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: "Quest log mock"))
+            let model = DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .viewer, artifactTitle: "Quest log mock", logAttached: false))
             return DockShellView(body: NSHostingView(rootView: artifactViewerView(lightDocument: false)), model: model)
         case .workerChat:
-            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
             return DockShellView(body: NSHostingView(rootView: workerChatView()), model: model)
         case .workerChatEmpty:
             // A master whose workers' logs were read and had nothing in them.
@@ -334,7 +362,7 @@ enum RenderPreview {
             if let request = store.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true) {
                 _ = store.receive(WorkerFeedPayload(), for: request)
             }
-            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+            let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
             return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store).background(AppPalette.panel.swiftUI)), model: model)
         }
     }
@@ -454,7 +482,7 @@ enum RenderPreview {
         return canvas
     }
 
-    enum DockSplitBottom { case artifacts, workerChat }
+    enum DockSplitBottom { case artifacts, workerChat, workerLog(menuOpen: Bool = true, workers: Int = 4, cursor: Int = 4) }
 
     /// The dock column as the shell lays it out, 20 in from a window-coloured canvas's edges: Version Control (unless
     /// `top` is false) over the artifact list or the worker chat (unless `bottom` is nil), `focus` giving one panel the keys.
@@ -474,12 +502,14 @@ enum RenderPreview {
         case .workerChat:
             bottomShell = DockShellView(
                 body: NSHostingView(rootView: workerChatView()),
-                model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil))
+                model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
             )
+        case .workerLog(let menuOpen, let workers, let cursor):
+            bottomShell = workerLogDockView(menuOpen: menuOpen, workers: workers, cursor: cursor)
         case .artifacts, nil:
             bottomShell = DockShellView(
                 body: NSHostingView(rootView: artifactListView(focused: focus == .bottom)),
-                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil))
+                model: DockChromeModel(topBar: .make(mode: .artifacts, artifactRoute: .list, artifactTitle: nil, logAttached: false))
             )
         }
         topShell.setFocused(focus == .top)
@@ -713,6 +743,135 @@ enum RenderPreview {
 
     private static func entry(_ minute: Int, _ second: Int, _ worker: String, _ kind: String, _ text: String) -> WorkerFeedEntry {
         WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
+    }
+
+    /// The worker log as `Worker Chat.png` draws it: four workers under one master, the Action filter on Status, Message
+    /// and Item, and every worker ticked (a selection like any other, so the Worker chip counts them: 2 and 2). With more
+    /// `workers` the first four are ticked and the extra ones are named "Worker 06" on.
+    @MainActor
+    private static func workerLogStore(workers: Int = 4, filtered: Bool = true) -> WorkerChatStore {
+        let store = WorkerChatStore()
+        let named = [("Fix UI Bug", "claude"), ("Implement-ABC-123", "codex"), ("Review API", "codex"), ("Add Tests", "claude"), ("Update Docs", "codex")]
+        let tracker = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+            + (1...workers).map { index in
+                let (title, agent) = index <= named.count ? named[index - 1] : (String(format: "Worker %02d", index), index.isMultiple(of: 2) ? "claude" : "codex")
+                return TrackerSession(id: "w\(index)", title: title, repoName: "Repo", agent: agent, role: "worker", parentID: "m")
+            }
+        guard let request = store.sync(selectedSessionID: "m", sessions: tracker, isVisible: true) else {
+            return store
+        }
+        let entries = [
+            entry(20, 0, "w2", "status", "working"),
+            entry(20, 5, "w2", "say", "Understood. I will start by looking at the ticket and the related files."),
+            entry(20, 9, "w1", "status", "working"),
+            entry(20, 12, "w1", "action", "Bash"),
+            entry(21, 1, "w1", "say", "I see the problem. I will spin two sub-agents to debug the problem to see why the first round did not fix the issue."),
+            entry(21, 30, "w2", "message", "Found a contradiction in the referenced files, I should confirm this with the master."),
+            entry(22, 2, "w3", "status", "working"),
+            entry(22, 20, "w3", "say", "I will check ABC-123 against the API contract and flag any breaking changes."),
+            entry(23, 0, "w4", "status", "working"),
+            entry(23, 10, "w4", "action", "Edit"),
+            entry(24, 0, "w5", "say", "I will document the new behavior and update the migration notes for ABC-123."),
+            entry(25, 0, "w3", "report", "The response format is unchanged."),
+            entry(25, 30, "w2", "status", "done"),
+            entry(26, 0, "w1", "status", "done"),
+            entry(26, 30, "w4", "say", "The regression suite passes. Both the UI fix and the previous patch are covered."),
+        ]
+        _ = store.receive(WorkerFeedPayload(entries: entries), for: request)
+        // Rows: Cast, Status, Message, Item, then the workers.
+        if filtered {
+            [1, 2, 3, 4, 5, 6, 7].forEach(store.toggleRow)
+        }
+        return store
+    }
+
+    /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on row `cursor` (the first worker by default).
+    @MainActor
+    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = 4, filtered: Bool = true) -> DockShellView {
+        let store = workerLogStore(workers: workers, filtered: filtered)
+        if menuOpen {
+            store.toggleMenu()
+            (0..<cursor).forEach { _ in _ = store.handle(.moveDown) }
+        }
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+    }
+
+    /// A master whose first read is still on its way, with the filter's chips: nothing is under them yet, and they stay
+    /// under the top bar.
+    @MainActor
+    private static func workerLogPendingView() -> DockShellView {
+        let store = WorkerChatStore()
+        let sessions = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+            + (1...2).map { TrackerSession(id: "w\($0)", title: "Worker \($0)", repoName: "Repo", agent: "codex", role: "worker", parentID: "m") }
+        _ = store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+        [1, 2, 3].forEach(store.toggleRow)
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+    }
+
+    /// Scrolls the first scroll view under `root` to its top, as a user who scrolled all the way up leaves it.
+    @MainActor
+    private static func scrollFeedToTop(_ root: NSView) {
+        guard let scrollView = firstScrollView(in: root) else {
+            return
+        }
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    @MainActor
+    private static func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
+        return view.subviews.lazy.compactMap { firstScrollView(in: $0) }.first
+    }
+
+    /// A filter that hides every line of a feed that has some: Cast from the one worker that never ran a tool. The chips
+    /// stay over the empty icon, so their x can clear it.
+    @MainActor
+    private static func workerLogNothingMatchesView() -> DockShellView {
+        let store = workerLogStore(workers: 5)
+        store.clearFilter(.action)
+        store.clearFilter(.worker)
+        store.toggleRow(at: 0)
+        store.toggleRow(at: 8)
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+    }
+
+    /// The dropdown of `Chat Filter.svg`: four workers named "worker-name", the keyboard cursor on the first, every Action
+    /// box checked but Cast. Its width hugs the names, as the design's 172 does.
+    @MainActor
+    private static func workerLogPanelDesignView(hovering: Int? = nil) -> some View {
+        let workers = (1...4).map { WorkerLogWorker(id: "w\($0)", name: "worker-name", agent: "codex") }
+        var filter = WorkerLogFilter()
+        [WorkerLogAction.status, .message, .item].forEach { filter.toggle($0) }
+        workers.forEach { filter.toggle($0) }
+        return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: filter, cursor: 4, previewHoveredRow: hovering, onToggle: { _ in })
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(AppPalette.window.swiftUI)
+    }
+
+    /// The four chips of `Selected Filter Item.svg` at its coordinates: each 11 in, 35 apart.
+    @MainActor
+    private static func workerLogChipsDesignView() -> some View {
+        let chips: [(WorkerLogChip.Value, String)] = [
+            (.text("Status"), "Action"),
+            (.text("3"), "Action"),
+            (.worker(name: "worker-name", agent: "codex"), "Worker"),
+            (.agentCounts([.init(agent: "codex", count: 2), .init(agent: "claude", count: 2)]), "Worker"),
+        ]
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(chips.enumerated()), id: \.offset) { _, item in
+                WorkerLogChipRow(chips: [WorkerLogChip(section: item.1 == "Action" ? .action : .worker, value: item.0)], onClear: { _ in })
+            }
+        }
+        // Each row pads 20 in and 10 down; the design's chips sit 11 in and start 11 down.
+        .offset(x: 11 - WorkerChatMetrics.inset, y: 1)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
     }
 
     /// The chat feed's rows (static, so the off-screen renderer sees them all) over the dock's panel fill.
@@ -1564,13 +1723,16 @@ enum RenderPreview {
         let model = DockChromeModel(topBar: .make(
             mode: .artifacts,
             artifactRoute: route,
-            artifactTitle: "Fantasy chrome followup"
+            artifactTitle: "Fantasy chrome followup",
+            logAttached: false
         ))
         return DockTopBar(
             model: model,
             onBack: { _ in },
             onCopyArtifactPath: {},
             onRefreshArtifact: {},
+            onToggleLogFilter: {},
+            onDismissLogFilter: {},
             onHideDock: {}
         )
         .background(AppPalette.panel.swiftUI)
@@ -2063,7 +2225,7 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func renderView(_ hostingView: NSView, size: CGSize, autoHeight: Bool = false, to path: String) {
+    private static func renderView(_ hostingView: NSView, size: CGSize, autoHeight: Bool = false, afterSettle: ((NSView) -> Void)? = nil, to path: String) {
         let environment = ProcessInfo.processInfo.environment
         if let only = environment["RENDER_ONLY"], !only.split(separator: ",").contains(where: { path.hasSuffix("/\($0).png") }) {
             return
@@ -2082,6 +2244,10 @@ enum RenderPreview {
         window.contentView = container
         window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(Double(environment["RENDER_SETTLE"] ?? "") ?? 0.8))
+        if let afterSettle {
+            afterSettle(hostingView)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
 
         if autoHeight {
             let fitting = hostingView.fittingSize

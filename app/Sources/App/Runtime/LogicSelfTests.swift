@@ -136,6 +136,14 @@ enum LogicSelfTests {
         ("testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange", testWorkerChatNonAppendUpdateEndsAFadeWithoutAGeometryChange),
         ("testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace", testWorkerChatCrossingTheViewportGlidesRowsFromTheirOldPlace),
         ("testWorkerChatNameStartsPastLogoInAnyChatFont", testWorkerChatNameStartsPastLogoInAnyChatFont),
+        ("testDockPaneRoutesTheWorkerLogFilterKeys", testDockPaneRoutesTheWorkerLogFilterKeys),
+        ("testWorkerLogFilterKeepsItsDesignedSize", testWorkerLogFilterKeepsItsDesignedSize),
+        ("testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons", testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons),
+        ("testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView", testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView),
+        ("testWorkerLogFilterFollowsTheBottomPanelsKeys", testWorkerLogFilterFollowsTheBottomPanelsKeys),
+        ("testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl", testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl),
+        ("testWorkerLogChipsStayUnderTheTopBarInEveryState", testWorkerLogChipsStayUnderTheTopBarInEveryState),
+        ("testWorkerChatFeedFadesInUnderItsHeader", testWorkerChatFeedFadesInUnderItsHeader),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -5269,6 +5277,334 @@ enum LogicSelfTests {
     }
 
     /// Pumps the run loop until `condition` holds, for at most five seconds, and reports whether it did.
+    /// `f` opens the filter while the dock shows the worker log, j/k and Space then work its rows instead of scrolling
+    /// the feed, and Esc, losing the keys or leaving the worker log close it.
+    private static func testDockPaneRoutesTheWorkerLogFilterKeys() throws {
+        let chat = WorkerChatStore()
+        let sessions = [
+            TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+            TrackerSession(id: "w1", title: "One", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "w2", title: "Two", repoName: "Repo", agent: "claude", role: "worker", parentID: "m"),
+        ]
+        _ = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+        let dock = SwiftUIDockPane(store: RuntimeStore(sourceLabel: "test"), workerChatStore: chat, newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter())
+        let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        dock.apply(DockState(bottomVisible: true, dockContent: .workerChat), snapshot: snapshot)
+
+        try dock.keyDown(with: keyEvent("j", keyCode: 38))
+        try expect(!chat.menu.isOpen && chat.menu.cursor == 0, "j scrolls the feed while the filter is closed")
+        try dock.keyDown(with: keyEvent("f", keyCode: 3))
+        try expect(chat.menu.isOpen, "f should open the filter")
+        try dock.keyDown(with: keyEvent("j", keyCode: 38))
+        try expect(chat.menu.cursor == 1, "j should move the cursor, got \(chat.menu.cursor)")
+        try dock.keyDown(with: keyEvent(" ", keyCode: 49))
+        try expect(chat.filter.actions == [.status], "Space should toggle the row under the cursor, got \(chat.filter.actions)")
+        try dock.keyDown(with: keyEvent("k", keyCode: 40, modifierFlags: .control))
+        try expect(chat.menu.cursor == 1, "a ⌃ chord is not the filter's")
+        try dock.keyDown(with: keyEvent("\u{1b}", keyCode: 53))
+        try expect(!chat.menu.isOpen && chat.filter.isActive, "Esc should close the filter and keep what it selected")
+
+        try dock.keyDown(with: keyEvent("f", keyCode: 3))
+        dock.setFocused(false)
+        try expect(!chat.menu.isOpen, "losing the keys should close the filter")
+        try dock.keyDown(with: keyEvent("f", keyCode: 3))
+        dock.apply(DockState(bottomVisible: true, dockContent: .artifactList), snapshot: snapshot)
+        try expect(!chat.menu.isOpen, "leaving the worker log should close the filter")
+        try dock.keyDown(with: keyEvent("f", keyCode: 3))
+        try expect(!chat.menu.isOpen, "f is the filter's only on the worker log")
+    }
+
+    /// The filter keeps the sizes measured from its designs on the 5pt rhythm: the dropdown is as wide as Chat Filter.svg's
+    /// 172 with 11-character names, and its rows are 30 high; a chip is 25 high.
+    private static func testWorkerLogFilterKeepsItsDesignedSize() throws {
+        let workers = (1...4).map { WorkerLogWorker(id: "w\($0)", name: "worker-name", agent: "codex") }
+        let panel = WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: WorkerLogFilter(), cursor: 0, onToggle: { _ in })
+        let panelSize = try fittingSize(of: panel)
+        let rowCount = CGFloat(WorkerLogAction.allCases.count + workers.count)
+        let headers = 2 * WorkerLogFilterMetrics.rowHeight
+        let chrome = 2 * (Token.Size.divider + Space.item) + Token.Size.divider
+        // The names' advances are fractional, so the width lands within a point of the design's 172. The dropdown is as wide
+        // as its widest name, so the design's width holds only in the design's font; CI has no JetBrains Mono.
+        let hasDesignFont = AppFonts.questLogBody.familyName == "JetBrains Mono"
+        try expect(!hasDesignFont || abs(panelSize.width - 172) <= 1,"the dropdown should be Chat Filter.svg's 172 wide, got \(panelSize.width)")
+        try expect(panelSize.height == rowCount * WorkerLogFilterMetrics.rowHeight + headers + chrome, "the dropdown's height should be its rows and headers on the scale, got \(panelSize.height)")
+
+        let chipRow = WorkerLogChipRow(chips: [WorkerLogChip(section: .action, value: .text("Status"))], onClear: { _ in })
+        let chipSize = try fittingSize(of: chipRow.frame(width: DockWidthPreference.panelWidth))
+        try expect(chipSize.height == Space.row + ControlHeight.compact, "a chip row should be 5 over a 25-high chip, got \(chipSize.height)")
+    }
+
+    /// A click on the dock's top bar that isn't on a button (blank space, the title) ends the filter's dropdown, as one on
+    /// the feed does. The filter icon only toggles, once; the x only closes the dock. Through the real `DockShellView`, so
+    /// its top bar's hosting view and wiring are what is clicked.
+    private static func testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons() throws {
+        var toggles = 0, dismissals = 0, hides = 0
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
+        let dock = DockShellView(body: NSView(), model: model)
+        dock.onToggleLogFilter = { toggles += 1 }
+        dock.onDismissLogFilter = { dismissals += 1 }
+        dock.onHideDock = { hides += 1 }
+        let size = CGSize(width: DockWidthPreference.panelWidth, height: 300)
+        let window = HeadlessWindow(size: size)
+        dock.frame = NSRect(origin: .zero, size: size)
+        window.contentView = dock
+        window.show(key: true)
+        defer { window.close() }
+        pump(0.3)
+        // Window coordinates run up from the bottom; the icons sit `dockTopBarIconCentre` down, the x 30 in from the right
+        // edge less its half width.
+        let iconY = size.height - ShellMetrics.dockTopBarIconCentre
+        let closeX = size.width - ShellMetrics.dockTopBarHorizontalInset - ChromeMetrics.iconWidth / 2
+        let filterX = closeX - ChromeMetrics.iconWidth - Space.item
+        let blankY = size.height - ShellMetrics.dockTopBarHeight / 2
+        func click(_ x: CGFloat, _ y: CGFloat) throws {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: y), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else {
+                    throw TestFailure("could not create a mouse event")
+                }
+                window.sendEvent(event)
+                pump(0.05)
+            }
+        }
+        try click(filterX, iconY)
+        try expect(toggles == 1 && dismissals == 0 && hides == 0, "the filter icon should toggle once and not also dismiss, got \(toggles) toggles, \(dismissals) dismissals, \(hides) hides")
+        try click(100, blankY)
+        try expect(toggles == 1 && dismissals == 1 && hides == 0, "blank top-bar space should dismiss, got \(toggles) toggles, \(dismissals) dismissals, \(hides) hides")
+        try click(size.width / 2, blankY)
+        try expect(dismissals == 2 && toggles == 1, "the title should dismiss too, got \(dismissals) dismissals, \(toggles) toggles")
+        try click(closeX, iconY)
+        try expect(hides == 1 && dismissals == 2 && toggles == 1, "the x should only close the dock, got \(hides) hides, \(dismissals) dismissals, \(toggles) toggles")
+    }
+
+    /// With room for its rows the dropdown has no scroll view; with less it is exactly `maxHeight` high, scrolls, and has
+    /// the cursor's row in view, here the last one.
+    private static func testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView() throws {
+        func panel(workers: Int, cursor: Int, maxHeight: CGFloat) -> some View {
+            let list = (1...workers).map { WorkerLogWorker(id: "w\($0)", name: "Worker \($0)", agent: "codex") }
+            return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: list), filter: WorkerLogFilter(), cursor: cursor, maxHeight: maxHeight, onToggle: { _ in })
+                .frame(width: 400, height: 700, alignment: .topTrailing)
+        }
+        let fits = NSHostingView(rootView: panel(workers: 4, cursor: 0, maxHeight: 400))
+        let window = HeadlessWindow(size: CGSize(width: 400, height: 700))
+        window.contentView = fits
+        window.show()
+        defer { window.close() }
+        pump(0.3)
+        try expect(descendant(NSScrollView.self, in: fits) == nil, "a dropdown with room for its rows should not scroll")
+
+        let cap: CGFloat = 300
+        let rowCount = WorkerLogAction.allCases.count + 15
+        let hosting = NSHostingView(rootView: panel(workers: 15, cursor: rowCount - 1, maxHeight: cap))
+        let tall = HeadlessWindow(size: CGSize(width: 400, height: 700))
+        tall.contentView = hosting
+        tall.show()
+        defer { tall.close() }
+        try expect(waitUntil { descendant(NSScrollView.self, in: hosting) != nil }, "a dropdown taller than its cap should scroll")
+        guard let scrollView = descendant(NSScrollView.self, in: hosting), let documentView = scrollView.documentView else {
+            throw TestFailure("the dropdown should host a scroll view with a document")
+        }
+        let height = scrollView.convert(scrollView.bounds, to: hosting).height
+        try expect(abs(height - (cap - 2 * Token.Size.divider)) <= 1, "the rows should fill the cap inside the outline, got \(height)")
+        let clip = scrollView.contentView
+        try expect(waitUntil { clip.bounds.origin.y > 0 }, "the cursor on the last row should scroll it into view")
+        try expect(clip.bounds.maxY >= documentView.bounds.height - 1, "the last row should sit at the bottom of the rows, got \(clip.bounds.maxY) of \(documentView.bounds.height)")
+    }
+
+    /// The split dock with both panels showing: Version Control over the Worker Log, which is attached to a master with
+    /// `workers` workers. The caller closes `window`.
+    private static func splitWorkerLogDock(workers: Int) -> (window: HeadlessWindow, column: DockColumnView, pane: SwiftUIDockPane, chat: WorkerChatStore, coordinator: ShellFocusCoordinator) {
+        let chat = WorkerChatStore()
+        let sessions = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+            + (1...workers).map { TrackerSession(id: "w\($0)", title: "Worker \($0)", repoName: "Repo", agent: "codex", role: "worker", parentID: "m") }
+        _ = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+        let pane = SwiftUIDockPane(
+            store: RuntimeStore(sourceLabel: "test"),
+            workerChatStore: chat,
+            newQuestPresenter: NewQuestSheetPresenter(),
+            settingsPresenter: SettingsSheetPresenter()
+        )
+        pane.apply(DockState(bottomVisible: true, dockContent: .workerChat), snapshot: RuntimeSnapshot.empty(sourceLabel: "test"))
+        let versionControl = VersionControlDockPane(store: PullRequestStore())
+        let top = DockShellView(body: versionControl, model: DockChromeModel(topBar: .versionControl))
+        let bottom = DockShellView(
+            body: pane,
+            model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
+        )
+        let column = DockColumnView(top: top, bottom: bottom)
+        column.frame = NSRect(x: 0, y: 0, width: 480, height: 860)
+        column.setPanels(DockPanels(top: true, bottom: true))
+        let window = HeadlessWindow(size: CGSize(width: 480, height: 860))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 860))
+        content.addSubview(column)
+        window.contentView = content
+        let coordinator = ShellFocusCoordinator(
+            navigation: NavigationStore(),
+            window: { window },
+            splitView: { nil },
+            terminalShell: { nil },
+            topDockShell: { top },
+            bottomDockShell: { bottom },
+            dockColumn: { column },
+            dockPanels: { DockPanels(top: true, bottom: true) },
+            footerShell: { nil },
+            trackerHosting: { nil },
+            dockView: { pane },
+            versionControlPane: { versionControl },
+            terminalHost: { nil },
+            modalHost: { nil },
+            updateDockTabs: {}
+        )
+        window.show(key: true)
+        column.layoutSubtreeIfNeeded()
+        return (window, column, pane, chat, coordinator)
+    }
+
+    /// In the split dock the filter belongs to the bottom panel: `f` opens it while that panel has the keys, the keys
+    /// moving to Version Control close it, and while they are there `f` is not the filter's.
+    private static func testWorkerLogFilterFollowsTheBottomPanelsKeys() throws {
+        let dock = splitWorkerLogDock(workers: 2)
+        defer { dock.window.close() }
+        dock.coordinator.focusDockPanel(.bottom)
+        let opened = try dock.pane.performKeyEquivalent(with: keyEvent("f", keyCode: 3))
+        try expect(opened && dock.chat.menu.isOpen, "f should open the filter while the bottom panel has the keys")
+        dock.coordinator.focusDockPanel(.top)
+        try expect(!dock.chat.menu.isOpen, "the keys moving to Version Control should close the filter")
+        let stolen = try dock.pane.performKeyEquivalent(with: keyEvent("f", keyCode: 3))
+        try expect(!stolen && !dock.chat.menu.isOpen, "f should not open the filter while Version Control has the keys")
+    }
+
+    /// Under Version Control the bottom panel is shorter, and the dropdown scrolls inside what it has: 5 under the top
+    /// bar and 20 above the panel's edge, never reaching behind Version Control.
+    private static func testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl() throws {
+        let dock = splitWorkerLogDock(workers: 15)
+        defer { dock.window.close() }
+        dock.coordinator.focusDockPanel(.bottom)
+        _ = dock.chat.handle(.toggleMenu)
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        // The feed scrolls too: the dropdown is the narrow one.
+        func dropdown() -> NSScrollView? {
+            scrollViews(in: dock.pane).first { $0.convert($0.bounds, to: dock.pane).width < dock.pane.bounds.width / 2 }
+        }
+        try expect(waitUntil { dropdown() != nil }, "the dropdown should scroll under Version Control, with 19 rows in the room left")
+        guard let list = dropdown() else {
+            throw TestFailure("the dropdown should host a scroll view")
+        }
+        let paneFrame = dock.column.convert(dock.pane.bounds, from: dock.pane)
+        let listFrame = dock.column.convert(list.bounds, from: list)
+        let topGap = paneFrame.maxY - listFrame.maxY
+        let bottomGap = listFrame.minY - paneFrame.minY
+        try expect(topGap >= Space.row, "the dropdown should hang 5 under the top bar, got \(topGap)")
+        try expect(bottomGap >= Space.section, "the dropdown should stop 20 above the panel's edge, got \(bottomGap)")
+    }
+
+    /// The chip row sits under the top bar whatever is under it: with the first read pending, partial or failed nothing
+    /// under the chips is greedy, and a stack that wraps its content would centre them in the dock.
+    private static func testWorkerLogChipsStayUnderTheTopBarInEveryState() throws {
+        let entry = WorkerFeedEntry(timestamp: "2026-10-07T00:00:00.000Z", workerID: "w1", workerTitle: "Worker 1", kind: "action", text: "Bash")
+        let states: [(label: String, payload: WorkerFeedPayload?)] = [
+            ("a pending first read", nil),
+            ("a partial read", WorkerFeedPayload(hasMore: ["w1": true])),
+            ("a failed read", WorkerFeedPayload(errors: ["w1": "unreadable"])),
+            ("a known empty feed", WorkerFeedPayload()),
+            ("a feed with lines", WorkerFeedPayload(entries: [entry])),
+        ]
+        var pendingTop: CGFloat?
+        for (label, payload) in states {
+            let chat = WorkerChatStore()
+            let sessions = [
+                TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+                TrackerSession(id: "w1", title: "Worker 1", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            ]
+            let request = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+            chat.toggleRow(at: 0)
+            if let payload, let request {
+                _ = chat.receive(payload, for: request)
+            }
+            let size = CGSize(width: 480, height: 400)
+            // The panel fill covers the whole view, so a dock that shrinks to its content shows as chips floating in it.
+            let hosting = NSHostingView(rootView: WorkerChatDockView(store: chat).frame(maxWidth: .infinity, maxHeight: .infinity).background(AppPalette.panel.swiftUI))
+            hosting.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size)
+            window.contentView = hosting
+            window.show()
+            defer { window.close() }
+            pump(0.2)
+            hosting.layoutSubtreeIfNeeded()
+            let bitmap = try snapshot(hosting, size: size, scale: 2)
+            // The chip's label starts 10 in from the row's 20 inset.
+            guard let edges = inkEdges(bitmap, scale: 2, columns: 30..<80, rows: 0..<Int(size.height), over: AppPalette.panel) else {
+                throw TestFailure("the chips should draw in \(label)")
+            }
+            try expect(edges.top < ControlHeight.compact + Space.row, "the chips should sit under the top bar in \(label), got y \(edges.top)")
+            if let pendingTop {
+                try expect(abs(edges.top - pendingTop) < 0.5, "the chips should sit where they do with the read pending in \(label): \(pendingTop), got \(edges.top)")
+            }
+            pendingTop = pendingTop ?? edges.top
+        }
+    }
+
+    /// The lines scrolled up under the header fade in over the feed's top `topFadeHeight`, from nothing at its edge, instead
+    /// of being cut there. Solid blocks make each ink row's coverage the mask's alpha.
+    private static func testWorkerChatFeedFadesInUnderItsHeader() throws {
+        let lines = (0..<40).map { index in
+            WorkerChatLine(id: "e\(index)", time: "09:00", agent: "claude", segments: [WorkerChatSegment(String(repeating: "\u{2588}", count: 12), .normal)])
+        }
+        let size = CGSize(width: 300, height: 200)
+        let hosting = NSHostingView(rootView: WorkerChatFeedView(lines: lines, revision: 1, trimCount: 0, appended: false)
+            .frame(width: size.width, height: size.height)
+            .background(AppPalette.panel.swiftUI))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        pump(0.3)
+        hosting.layoutSubtreeIfNeeded()
+        guard let scrollView = descendant(NSScrollView.self, in: hosting) else {
+            throw TestFailure("the feed should scroll")
+        }
+        // Row 10's ink starts 8 below the feed's top edge, inside the fade.
+        let linePitch = WorkerChatMetrics.lineHeight + WorkerChatMetrics.itemGap
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: WorkerChatMetrics.inset + 10 * linePitch - 8))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        pump(0.2)
+        let bitmap = try snapshot(hosting, size: size, scale: 2)
+        guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("the panel colour should convert")
+        }
+        // The blocks' columns, clear of the time and the logo.
+        func difference(atRow row: Int) -> CGFloat {
+            (180..<260).map { x in
+                guard let pixel = bitmap.colorAt(x: x, y: row)?.usingColorSpace(.deviceRGB) else {
+                    return 0
+                }
+                return abs(pixel.redComponent - base.redComponent) + abs(pixel.greenComponent - base.greenComponent)
+                    + abs(pixel.blueComponent - base.blueComponent)
+            }.max() ?? 0
+        }
+        let fade = Int(WorkerChatMetrics.topFadeHeight * 2)
+        let full = (fade + 20..<fade + 60).map(difference).max() ?? 0
+        try expect(full > 0.3, "the feed's lines should show in full below the fade, got \(full)")
+        let coverage = (0..<fade).map { difference(atRow: $0) / full }
+        try expect(coverage.contains { $0 > 0.2 }, "a line should sit under the fade for the check to mean anything")
+        for (row, value) in coverage.enumerated() {
+            let allowed = (CGFloat(row) + 1) / CGFloat(fade) + 0.1
+            try expect(value <= allowed, "ink at y \(CGFloat(row) / 2) should be at most \(allowed) of full under the fade, got \(value)")
+        }
+    }
+
+    private static func fittingSize<V: View>(of view: V) throws -> CGSize {
+        let hosting = NSHostingView(rootView: view)
+        let window = HeadlessWindow(size: CGSize(width: 600, height: 600))
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        hosting.layoutSubtreeIfNeeded()
+        return hosting.fittingSize
+    }
+
     /// The name must start at its column past the logo in a proportional chat font too. A Ghostty family can be
     /// proportional, where the lead's space is narrower than the font's widest glyph.
     private static func testWorkerChatNameStartsPastLogoInAnyChatFont() throws {

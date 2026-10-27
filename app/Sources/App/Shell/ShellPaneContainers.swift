@@ -134,6 +134,8 @@ final class DockShellView: NSView {
     var onArtifactBack: (() -> Void)?
     var onCopyArtifactPath: (() -> Void)?
     var onRefreshArtifact: (() -> Void)?
+    var onToggleLogFilter: (() -> Void)?
+    var onDismissLogFilter: (() -> Void)?
 
     init(body: NSView, model: DockChromeModel = DockChromeModel()) {
         self.model = model
@@ -147,6 +149,8 @@ final class DockShellView: NSView {
             },
             onCopyArtifactPath: { [weak self] in self?.onCopyArtifactPath?() },
             onRefreshArtifact: { [weak self] in self?.onRefreshArtifact?() },
+            onToggleLogFilter: { [weak self] in self?.onToggleLogFilter?() },
+            onDismissLogFilter: { [weak self] in self?.onDismissLogFilter?() },
             onHideDock: { [weak self] in self?.onHideDock?() }
         ))
         let content = NSView()
@@ -188,12 +192,14 @@ final class DockShellView: NSView {
     func updateTabs(
         mode: DockContentMode,
         artifactRoute: ArtifactDockRoute,
-        artifactTitle: String?
+        artifactTitle: String?,
+        logAttached: Bool
     ) {
         let next = DockTopBarModel.make(
             mode: mode,
             artifactRoute: artifactRoute,
-            artifactTitle: artifactTitle
+            artifactTitle: artifactTitle,
+            logAttached: logAttached
         )
         guard model.topBar != next else {
             return

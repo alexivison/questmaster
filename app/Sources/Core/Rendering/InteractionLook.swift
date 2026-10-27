@@ -50,6 +50,28 @@ public struct RowLook: Equatable, Sendable {
     public let iconBorder: StateColor
     /// Bold means selected, so only a lasting-selection row is ever bold.
     public let bold: Bool
+    /// The outline a resting row of this look shows under the pointer: `line`, but brighter on a raised surface.
+    public let hoverOutline: StateColor
+
+    public init(
+        fill: StateColor?,
+        outline: StateColor?,
+        text: StateColor,
+        meta: StateColor,
+        icon: StateColor,
+        iconBorder: StateColor,
+        bold: Bool,
+        hoverOutline: StateColor = .line
+    ) {
+        self.fill = fill
+        self.outline = outline
+        self.text = text
+        self.meta = meta
+        self.icon = icon
+        self.iconBorder = iconBorder
+        self.bold = bold
+        self.hoverOutline = hoverOutline
+    }
 
     public static let rest = RowLook(fill: nil, outline: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
     public static let highlighted = RowLook(
@@ -66,9 +88,18 @@ public struct RowLook: Equatable, Sendable {
         fill: .item, outline: nil, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: true
     )
 
+    /// A row on a raised surface (the Worker Log filter's dropdown, drawn in `item`): at rest, as `rest`.
+    public static let raisedRest = RowLook(
+        fill: nil, outline: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false, hoverOutline: .controlBorder
+    )
+    /// The cursor on a raised surface: `item` would vanish there, so the fill steps up to `line`. Text as in `highlighted`.
+    public static let raisedHighlighted = RowLook(
+        fill: .line, outline: nil, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: false, hoverOutline: .controlBorder
+    )
+
     /// The same look with its icon warning, in every state.
     public var warned: RowLook {
-        RowLook(fill: fill, outline: outline, text: text, meta: meta, icon: .warn, iconBorder: iconBorder, bold: bold)
+        RowLook(fill: fill, outline: outline, text: text, meta: meta, icon: .warn, iconBorder: iconBorder, bold: bold, hoverOutline: hoverOutline)
     }
 
     /// The same look for a row whose file is missing: its icon warns in every state.
@@ -76,13 +107,19 @@ public struct RowLook: Equatable, Sendable {
 
     /// The same look for a row whose data is out of date: its text and icon drop to the meta step.
     public var dimmed: RowLook {
-        RowLook(fill: fill, outline: outline, text: meta, meta: meta, icon: meta, iconBorder: iconBorder, bold: bold)
+        RowLook(fill: fill, outline: outline, text: meta, meta: meta, icon: meta, iconBorder: iconBorder, bold: bold, hoverOutline: hoverOutline)
     }
 
     /// A pick-to-open row (artifacts, dropdowns, filter suggestions): picking it opens it, so it is never selected.
     public static func pick(highlighted: Bool, areaFocused: Bool) -> RowLook {
         guard highlighted else { return .rest }
         return areaFocused ? .highlighted : .highlightedUnfocused
+    }
+
+    /// A pick row on a raised surface: the dropdown has the keys whenever it shows, so the highlight is never dimmed.
+    public static func raisedPick(highlighted: Bool) -> RowLook {
+        guard highlighted else { return .raisedRest }
+        return .raisedHighlighted
     }
 
     /// A lasting-selection row (the Quest Log): the highlight is the selection.
@@ -96,14 +133,14 @@ public struct RowLook: Equatable, Sendable {
         PlateBand.showsCursor(highlighted: highlighted, areaFocused: areaFocused) ? .highlighted : .rest
     }
 
-    /// This look with the pointer over the row: an unfilled, unoutlined (resting) row gains the hover outline and keeps its
-    /// own colours, a missing file's warning icon included; a highlighted, selected or already outlined one (a shell's
-    /// cursor) keeps its look.
+    /// This look with the pointer over the row: an unfilled, unoutlined (resting) row gains its hover outline (`line`, or
+    /// `controlBorder` on a raised surface) and keeps its own colours, a missing file's warning icon included; a
+    /// highlighted, selected or already outlined one (a shell's cursor) keeps its look.
     public func underPointer(_ pointerOver: Bool) -> RowLook {
         guard pointerOver, fill == nil, outline == nil else {
             return self
         }
-        return RowLook(fill: nil, outline: RowLook.hovered.outline, text: text, meta: meta, icon: icon, iconBorder: iconBorder, bold: bold)
+        return RowLook(fill: nil, outline: hoverOutline, text: text, meta: meta, icon: icon, iconBorder: iconBorder, bold: bold, hoverOutline: hoverOutline)
     }
 }
 

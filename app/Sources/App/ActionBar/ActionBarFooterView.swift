@@ -88,7 +88,7 @@ struct ActionBarFooterView: View {
             ),
             ActionBarSlotSpec(
                 symbolName: "bubble.left.and.bubble.right",
-                tooltip: tooltip("Open Worker Chat", Keymap.Command.toggleWorkerChatDock),
+                tooltip: tooltip("Open Worker Log", Keymap.Command.toggleWorkerChatDock),
                 isActive: model.dockPanels.bottom && model.dockContentMode == .workerChat,
                 action: onOpenWorkerChat
             ),

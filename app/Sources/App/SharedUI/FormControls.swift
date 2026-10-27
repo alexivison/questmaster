@@ -8,6 +8,8 @@ import SwiftUI
 enum FormFieldMetrics {
     static let height = ControlHeight.field
     static let cornerRadius: CGFloat = 5
+    /// A raised dropdown's corners, as Chat Filter.svg draws them.
+    static let raisedCornerRadius: CGFloat = 4.5
     static let textInset = Space.item
     static let baseline: CGFloat = 21.5
     /// NSTextField draws its text 1 in from its frame, and its first baseline sits `editorBaseline` down
@@ -130,15 +132,50 @@ struct SuggestionDropdown: View {
                     .onTapGesture { onSelect(index) }
             }
         }
-        .padding(Token.Size.divider)
-        .background(AppPalette.window.swiftUI)
-        .clipShape(RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius)
-                .strokeBorder(AppPalette.controlBorder.swiftUI, lineWidth: Token.Size.divider)
-        )
-        .elevation(.raised, of: RoundedRectangle(cornerRadius: FormFieldMetrics.cornerRadius))
+        .dropdownChrome()
         .accessibilityLabel("Suggestions")
+    }
+}
+
+/// What a dropdown is drawn on. A suggestion list sits in the window's colour; a dropdown that stands in front of
+/// the dock (the Worker Log filter) is lighter than it, in `item`, with its rows' looks stepped up to match
+/// (`RowLook.raisedPick`).
+enum DropdownSurface {
+    case window
+    case raised
+
+    var fill: NSColor {
+        switch self {
+        case .window: AppPalette.window
+        case .raised: AppPalette.item
+        }
+    }
+
+    var border: NSColor {
+        switch self {
+        case .window: AppPalette.controlBorder
+        case .raised: AppPalette.line
+        }
+    }
+
+    var cornerRadius: CGFloat {
+        switch self {
+        case .window: FormFieldMetrics.cornerRadius
+        case .raised: FormFieldMetrics.raisedCornerRadius
+        }
+    }
+}
+
+extension View {
+    /// The dropdown's box, shared by every dropdown: the surface's fill, a 1pt outline and the raised elevation. The
+    /// content sits inside the outline.
+    func dropdownChrome(_ surface: DropdownSurface = .window) -> some View {
+        let shape = RoundedRectangle(cornerRadius: surface.cornerRadius)
+        return padding(Token.Size.divider)
+            .background(surface.fill.swiftUI)
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(surface.border.swiftUI, lineWidth: Token.Size.divider))
+            .elevation(.raised, of: shape)
     }
 }
 
