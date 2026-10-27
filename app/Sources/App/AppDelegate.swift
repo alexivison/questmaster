@@ -116,10 +116,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             window: { [weak self] in self?.shellHandles?.window },
             splitView: { [weak self] in self?.shellHandles?.splitView },
             terminalShell: { [weak self] in self?.shellHandles?.terminalShell },
-            dockShell: { [weak self] in self?.shellHandles?.dockShell },
+            topDockShell: { [weak self] in self?.shellHandles?.topDockShell },
+            bottomDockShell: { [weak self] in self?.shellHandles?.bottomDockShell },
+            dockColumn: { [weak self] in self?.shellHandles?.dockColumn },
+            dockPanels: { [weak self] in self?.dockPanels ?? DockPanels() },
             footerShell: { [weak self] in self?.shellHandles?.footerShell },
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
+            versionControlPane: { [weak self] in self?.shellHandles?.versionControlPane },
             terminalHost: { [weak self] in self?.terminalSessionController.terminalHost },
             modalHost: { [weak self] in self?.shellHandles?.modalHost },
             updateDockTabs: { [weak self] in self?.updateDockTabs() }
@@ -172,6 +176,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleQuestLog: #selector(toggleQuestLog),
                 toggleWorkerChatDock: #selector(toggleWorkerChatDock),
                 toggleVersionControlDock: #selector(toggleVersionControlDock),
+                focusDockTop: #selector(focusDockTopPanel),
+                focusDockBottom: #selector(focusDockBottomPanel),
                 widenDock: #selector(widenDock),
                 narrowDock: #selector(narrowDock),
                 toggleCaffeine: #selector(toggleCaffeine),
@@ -181,10 +187,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 focusRegionRight: #selector(focusRegionRight)
             )
         )
-        menuController.installCommandKeyMonitor(
-            focusRegionLeft: { [weak self] in self?.focusRegionLeft() },
-            focusRegionRight: { [weak self] in self?.focusRegionRight() }
-        )
+        menuController.installCommandKeyMonitor(CommandKeyActions(
+            focusRegionLeft: .anywhere { [weak self] in self?.focusRegionLeft() },
+            focusRegionRight: .anywhere { [weak self] in self?.focusRegionRight() },
+            focusDockTop: dockPanelKeyAction(.top),
+            focusDockBottom: dockPanelKeyAction(.bottom),
+            toggleVersionControlDock: .anywhere { [weak self] in self?.toggleVersionControlDock() }
+        ))
         let serveMutationClient = UnixSocketMutationClient(connection: daemonConnection)
         mutationClient = serveMutationClient
         directorySuggestionClient = serveMutationClient
@@ -228,7 +237,11 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.dockView.onControlDirection = { [weak self] direction in
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
         }
-        handles.dockView.onFocusRequested = { [weak self] in self?.focusCoordinator.focus(.dock) }
+        handles.dockView.onFocusRequested = { [weak self] in self?.focusCoordinator.focusDockPanel(.bottom) }
+        handles.versionControlPane.onFocusRequested = { [weak self] in self?.focusCoordinator.focusDockPanel(.top) }
+        handles.versionControlPane.onControlDirection = { [weak self] direction in
+            self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
+        }
         handles.footerShell.onNewSession = { [weak self] in self?.openNewSession() }
         handles.footerShell.onShowTracker = { [weak self] in self?.toggleTracker() }
         handles.footerShell.onHideTracker = { [weak self] in self?.hideTracker() }
@@ -242,12 +255,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.modalHost.onDrawingChange = { [weak self] in self?.focusCoordinator.updateRegionKeys() }
         handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
         handles.footerShell.onOpenVersionControl = { [weak self] in self?.toggleVersionControlDock() }
-        handles.dockView.onPullRequestEffect = { [weak self] effect in self?.runPullRequestEffect(effect) }
+        handles.versionControlPane.onPullRequestEffect = { [weak self] effect in self?.runPullRequestEffect(effect) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
-        handles.dockShell.onHideDock = { [weak self] in self?.hideDock() }
-        handles.dockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
-        handles.dockShell.onCopyArtifactPath = { [weak self] in
+        handles.topDockShell.onHideDock = { [weak self] in self?.hideVersionControl() }
+        handles.bottomDockShell.onHideDock = { [weak self] in self?.hideBottomDock() }
+        handles.bottomDockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
+        handles.bottomDockShell.onCopyArtifactPath = { [weak self] in
             guard let self else {
                 return
             }
@@ -255,7 +269,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSSound.beep()
             }
         }
-        handles.dockShell.onRefreshArtifact = { [weak self] in self?.shellHandles?.dockView.refreshCurrentArtifact() }
+        handles.bottomDockShell.onRefreshArtifact = { [weak self] in self?.shellHandles?.dockView.refreshCurrentArtifact() }
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
         handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
@@ -390,7 +404,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func syncWorkerChat() {
         let sessionID = runtimeStore.currentTerminalSessionID
-        let isChatDockOpen = navigation.dockVisible && dockCoordinator.state.dockContent == .workerChat
+        let isChatDockOpen = dockPanels.bottom && dockCoordinator.state.dockContent == .workerChat
         workerChatController.sync(
             selectedSessionID: sessionID,
             sessions: isChatDockOpen ? runtimeStore.snapshot.tracker.repos.flatMap(\.sessions) : [],
@@ -398,11 +412,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// Which dock panels show, from the app-wide dock state and whether a session is attached.
+    private var dockPanels: DockPanels {
+        dockCoordinator.state.panels(hasSession: runtimeStore.currentTerminalSessionID != nil)
+    }
+
     private func syncPullRequests() {
         pullRequestController.sync(
             selectedSessionID: runtimeStore.currentTerminalSessionID,
             sessions: runtimeStore.snapshot.tracker.repos.flatMap(\.sessions),
-            isVisible: navigation.dockVisible && dockCoordinator.state.dockContent == .versionControl
+            isVisible: dockPanels.top
         )
     }
 
@@ -425,7 +444,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateDockTabs() {
         let dockView = shellHandles?.dockView
-        shellHandles?.dockShell.updateTabs(
+        shellHandles?.bottomDockShell.updateTabs(
             mode: dockView?.currentMode ?? .artifacts,
             artifactRoute: dockView?.currentArtifactRoute ?? .list,
             artifactTitle: dockView?.currentArtifactTitle
@@ -474,8 +493,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleDock() {
-        if DockCommandRouting.shouldHideArtifactDock(isDockVisible: navigation.dockVisible, content: dockCoordinator.state.dockContent) {
-            hideDock()
+        if DockCommandRouting.shouldHideArtifactDock(isDockVisible: dockCoordinator.state.bottomVisible, content: dockCoordinator.state.dockContent) {
+            hideBottomDock()
             return
         }
         showArtifactListFromDock()
@@ -491,14 +510,14 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showDockContent(_ content: DockContent, focusDock: Bool) {
         guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID) else {
-            if content == .workerChat || content == .versionControl {
+            if content == .workerChat {
                 NSSound.beep()
             }
             renderSnapshot()
             return
         }
         dockCoordinator.state.show(content)
-        let outcome = focusDock ? navigation.focus(.dock) : navigation.showDockPreservingFocus()
+        let outcome = focusDock ? navigation.focusDockPanel(.bottom) : navigation.showDockPreservingFocus()
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         if focusDock {
             focusCoordinator.applyNavigationOutcome(outcome)
@@ -515,7 +534,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         dockCoordinator.state.showArtifact(artifactID)
-        let outcome = navigation.focus(.dock)
+        let outcome = navigation.focusDockPanel(.bottom)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         focusCoordinator.applyNavigationOutcome(outcome)
     }
@@ -603,21 +622,59 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleWorkerChatDock() {
-        if navigation.dockVisible {
-            if dockCoordinator.state.dockContent == .workerChat {
-                hideDock()
-                return
-            }
+        if dockCoordinator.state.bottomVisible && dockCoordinator.state.dockContent == .workerChat {
+            hideBottomDock()
+            return
         }
         showDockContent(.workerChat, focusDock: true)
     }
 
+    /// Shows or hides the top panel without touching the bottom one. Showing it takes the keys.
     @objc private func toggleVersionControlDock() {
-        if navigation.dockVisible && dockCoordinator.state.dockContent == .versionControl {
-            hideDock()
+        // Also reached from MenuController's key monitor, which runs before menu validation.
+        guard InWindowModalStack.shared.isEmpty else {
             return
         }
-        showDockContent(.versionControl, focusDock: true)
+        if dockCoordinator.state.topVisible {
+            hideVersionControl()
+            return
+        }
+        guard runtimeStore.currentTerminalSessionID != nil else {
+            NSSound.beep()
+            return
+        }
+        dockCoordinator.state.topVisible = true
+        let outcome = navigation.focusDockPanel(.top)
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
+        focusCoordinator.applyNavigationOutcome(outcome)
+    }
+
+    @objc private func focusDockTopPanel() {
+        focusDockPanel(.top)
+    }
+
+    @objc private func focusDockBottomPanel() {
+        focusDockPanel(.bottom)
+    }
+
+    private func dockPanelKeyRoute(_ panel: DockPanel) -> DockPanelKeyRoute {
+        navigation.dockPanelKeyRoute(panel, panels: dockPanels)
+    }
+
+    /// The key monitor's entry for a panel's chord: Core decides whether the press is the dock's; if not, it goes on.
+    private func dockPanelKeyAction(_ panel: DockPanel) -> CommandKeyAction {
+        CommandKeyAction(
+            handles: { [weak self] in (self?.dockPanelKeyRoute(panel) ?? .passThrough) != .passThrough },
+            run: { [weak self] in self?.focusDockPanel(panel) }
+        )
+    }
+
+    /// Moves the keys to `panel`, when the press is the dock's (`NavigationStore.dockPanelKeyRoute`).
+    private func focusDockPanel(_ panel: DockPanel) {
+        guard dockPanelKeyRoute(panel) == .focus else {
+            return
+        }
+        focusCoordinator.focusDockPanel(panel)
     }
 
     @objc private func toggleTracker() {
@@ -726,16 +783,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         focusCoordinator.applyNavigationOutcome(outcome)
     }
 
-    private func hideDock() {
-        let outcome: NavigationOutcome
-        if navigation.dockVisible {
-            outcome = navigation.toggleDock()
-            dockCoordinator.state.dockVisible = navigation.dockVisible
-        } else {
-            outcome = navigation.focus(.terminal)
-        }
+    /// Hides the bottom panel only; Version Control stays, and fills the dock. If the bottom panel had the keys they go
+    /// to the top panel, or to the terminal when it was the dock's last one (`NavigationStore.settleDock`).
+    private func hideBottomDock() {
+        dockCoordinator.state.bottomVisible = false
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        focusCoordinator.applyNavigationOutcome(outcome)
+    }
+
+    private func hideVersionControl() {
+        dockCoordinator.state.topVisible = false
+        renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
     }
 
     private func sendMutation(
@@ -1024,6 +1081,13 @@ extension AppDelegate: NSMenuItemValidation {
         guard let action = menuItem.action else {
             return true
         }
+        // The panel focus keys are the dock's alone, as in the key monitor: a disabled item's shortcut does nothing.
+        if action == #selector(focusDockTopPanel) {
+            return dockPanelKeyRoute(.top) != .passThrough
+        }
+        if action == #selector(focusDockBottomPanel) {
+            return dockPanelKeyRoute(.bottom) != .passThrough
+        }
         if Self.shellNavigationActions.contains(action) {
             return InWindowModalStack.shared.isEmpty
         }
@@ -1044,7 +1108,7 @@ extension AppDelegate: NSMenuItemValidation {
 
 enum DockCommandRouting {
     static func shouldHideArtifactDock(isDockVisible: Bool, content: DockContent) -> Bool {
-        isDockVisible && content.isArtifact
+        isDockVisible && (content == .artifactList || content == .artifactViewer)
     }
 }
 
@@ -1052,7 +1116,7 @@ enum DockContentRouting {
     static func canShow(_ content: DockContent, sessionID: String?) -> Bool {
         let hasSession = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         switch content {
-        case .artifactList, .artifactViewer, .workerChat, .versionControl:
+        case .artifactList, .artifactViewer, .workerChat:
             return hasSession
         }
     }

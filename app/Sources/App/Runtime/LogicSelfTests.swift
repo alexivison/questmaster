@@ -67,6 +67,12 @@ enum LogicSelfTests {
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
+        ("testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow", testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow),
+        ("testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
+        ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
+        ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
+        ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
+        ("testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents", testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
         ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
@@ -305,7 +311,7 @@ enum LogicSelfTests {
 
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
         guard let spin = status.spinAnimation else { throw TestFailure("working with no tool should spin the ring") }
-        try expect(spin.duration == TrackerPortraitStatusNSView.spinPeriod && spin.repeatCount == .infinity, "the spinner should orbit once every 1.2s, for good")
+        try expect(spin.duration == WorkingSpinner.period && spin.repeatCount == .infinity, "the spinner should orbit once every 1.2s, for good")
 
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
         guard let fill = status.fillAnimation, let pulse = status.pulseAnimation else { throw TestFailure("a cast with a learned duration should fill the ring, then pulse") }
@@ -1130,9 +1136,9 @@ enum LogicSelfTests {
         try expect(state.focusedRegion == .terminal, "hidden tracker should not keep focus")
 
         state = AppNavigationState(focusedRegion: .tracker, dockVisible: true)
-        try expect(state.toggleDock() == .focused(.terminal), "hiding non-focused dock should focus terminal")
+        try expect(state.settleDock(DockPanels()) == .unchanged, "hiding a non-focused dock should leave focus alone")
         try expect(!state.dockVisible, "dock should hide")
-        try expect(state.focusedRegion == .terminal, "hiding non-focused dock should focus terminal")
+        try expect(state.focusedRegion == .tracker, "hiding a non-focused dock should keep the tracker focused")
     }
 
     private static func testDirectionalRegionFocusMapping() throws {
@@ -1232,19 +1238,9 @@ enum LogicSelfTests {
         )
         try expect(model.currentMode == .artifacts, "artifact dock content should render artifact mode")
         try expect(publishCount > beforeArtifacts, "artifact mode change should publish for DockRootView")
-
-        let beforeVersionControl = publishCount
-        _ = model.apply(
-            DockState(dockContent: .versionControl),
-            snapshot: snapshot,
-            preferredArtifactSessionID: nil
-        )
-        try expect(model.currentMode == .versionControl, "version control dock content should render version control mode")
-        try expect(model.currentWidthMode == .compact, "version control should take the compact dock width")
-        try expect(publishCount > beforeVersionControl, "version control mode change should publish for DockRootView")
     }
 
-    /// The version control dock's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
+    /// The Version Control panel's keys: j/k and the arrows move the cursor, Return opens the row's page, y copies its URL
     /// and r asks the daemon to refresh; a click picks and opens; modified keys and others pass through.
     private static func testVersionControlDockKeysMoveOpenCopyAndRefresh() throws {
         let store = PullRequestStore()
@@ -1262,39 +1258,401 @@ enum LogicSelfTests {
         }
         _ = store.apply(response: [try pull(1, updated: "2026-10-01T00:00:00Z"), try pull(2, updated: "2026-10-02T00:00:00Z")], for: request)
 
-        let model = DockPaneModel(pullRequestStore: store)
+        let pane = VersionControlDockPane(store: store)
         var effects: [PullRequestEffect] = []
-        model.onPullRequestEffect = { effects.append($0) }
-        let snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
-        _ = model.apply(DockState(dockContent: .versionControl), snapshot: snapshot, preferredArtifactSessionID: nil)
+        pane.onPullRequestEffect = { effects.append($0) }
 
         try expect(store.cursorKey?.hasSuffix("#2") == true, "the newest row starts under the cursor")
-        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("j", keyCode: 38)), "j should be handled")
         try expect(store.cursorKey?.hasSuffix("#1") == true, "j should move down")
-        try expect(model.handleKeyDown(try keyEvent("k", keyCode: 40), snapshot: snapshot), "k should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("k", keyCode: 40)), "k should be handled")
         try expect(store.cursorKey?.hasSuffix("#2") == true, "k should move up")
-        try expect(model.handleKeyDown(try keyEvent("\u{F701}", keyCode: 125), snapshot: snapshot), "Down should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("\u{F701}", keyCode: 125)), "Down should be handled")
         try expect(store.cursorKey?.hasSuffix("#1") == true, "Down should move down")
         try expect(effects.isEmpty, "moving runs no effect")
 
         let url = URL(string: "https://github.com/owner/repo/pull/1")!
-        try expect(model.handleKeyDown(try keyEvent("\r", keyCode: 36), snapshot: snapshot), "Return should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("\r", keyCode: 36)), "Return should be handled")
         try expect(effects.last == .open(url), "Return should open the row's page")
-        try expect(model.handleKeyDown(try keyEvent("y", keyCode: 16), snapshot: snapshot), "y should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("y", keyCode: 16)), "y should be handled")
         try expect(effects.last == .copy(url), "y should copy the row's URL")
-        try expect(model.handleKeyDown(try keyEvent("r", keyCode: 15), snapshot: snapshot), "r should be handled")
+        try expect(pane.handleKeyDown(try keyEvent("r", keyCode: 15)), "r should be handled")
         guard case .refresh(let refresh)? = effects.last else {
             throw TestFailure("r should refresh, got \(String(describing: effects.last))")
         }
         try expect(refresh.sessionID == "qm-a", "r should refresh the selected session")
 
-        model.openPullRequest("github.com/owner/repo#2")
+        pane.openPullRequest("github.com/owner/repo#2")
         try expect(store.cursorKey?.hasSuffix("#2") == true && effects.last == .open(URL(string: "https://github.com/owner/repo/pull/2")!), "a click should pick the row and open it")
 
         let count = effects.count
-        try expect(!model.handleKeyDown(try keyEvent("x", keyCode: 7), snapshot: snapshot), "an unrelated key should pass through")
-        try expect(!model.handleKeyDown(try keyEvent("y", keyCode: 16, modifierFlags: [.command]), snapshot: snapshot), "a command chord should pass through")
+        try expect(!pane.handleKeyDown(try keyEvent("x", keyCode: 7)), "an unrelated key should pass through")
+        try expect(!pane.handleKeyDown(try keyEvent("y", keyCode: 16, modifierFlags: [.command])), "a command chord should pass through")
         try expect(effects.count == count, "passed-through keys run no effect")
+    }
+
+    /// The refresh mark is the tracker's spinner, not a lookalike (one `SpinnerRing`): the same turn, once every
+    /// `WorkingSpinner.period` and for good, only while its view is in a window, and still and full under Reduce Motion.
+    private static func testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow() throws {
+        let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
+        window.contentView = container
+
+        let spinner = SpinnerRingNSView(frame: NSRect(x: 0, y: 0, width: 15, height: 15))
+        spinner.configure(stroke: 2, reduceMotion: false)
+        try expect(spinner.spinAnimation == nil, "a spinner outside a window should not turn")
+        container.addSubview(spinner)
+        guard let turn = spinner.spinAnimation else {
+            throw TestFailure("a spinner in a window should turn")
+        }
+        try expect(turn.duration == WorkingSpinner.period && turn.repeatCount == .infinity && !spinner.holdsStill, "it turns once every \(WorkingSpinner.period)s, for good")
+
+        let status = TrackerPortraitStatusNSView(frame: NSRect(x: 40, y: 0, width: 40, height: 40))
+        container.addSubview(status)
+        status.configure(geometry: TrackerPlateDesign.collapsedCircleStatus, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        guard let trackerTurn = status.spinAnimation else {
+            throw TestFailure("the tracker's working ring should turn")
+        }
+        try expect(
+            turn.keyPath == trackerTurn.keyPath && turn.fromValue as? Double == trackerTurn.fromValue as? Double
+                && turn.toValue as? Double == trackerTurn.toValue as? Double && turn.duration == trackerTurn.duration
+                && turn.repeatCount == trackerTurn.repeatCount,
+            "it is the tracker's turn: same axis, direction and period"
+        )
+
+        spinner.configure(stroke: 2, reduceMotion: true)
+        try expect(spinner.spinAnimation == nil && spinner.holdsStill, "Reduce Motion holds the ring still and full")
+        spinner.configure(stroke: 2, reduceMotion: false)
+        try expect(spinner.spinAnimation != nil && !spinner.holdsStill, "and it turns again when the setting goes")
+
+        spinner.removeFromSuperview()
+        try expect(spinner.spinAnimation == nil, "a spinner that leaves its window stops")
+    }
+
+    /// The Version Control title bar shows the spinner beside its title exactly while the pull request store refreshes
+    /// (`r` until the daemon's reply and one turn), and the other docks never do. It reads the ring's presence, not its
+    /// animation: a hosted ring turns or holds still by the host's Reduce Motion setting (`SpinnerRingView` reads the
+    /// environment's), and CI's macOS runner reduces motion where a desk doesn't, so the turn is tested on the view
+    /// itself (`testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow`).
+    private static func testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes() throws {
+        let store = PullRequestStore()
+        let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
+        _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
+        let window = HeadlessWindow(size: CGSize(width: 480, height: 300))
+        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl, isRefreshing: { store.isRefreshing }))
+        let bottom = DockShellView(body: NSView(), model: DockChromeModel(isRefreshing: { false }))
+        let column = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 300))
+        top.frame = NSRect(x: 0, y: 150, width: 480, height: 150)
+        bottom.frame = NSRect(x: 0, y: 0, width: 480, height: 150)
+        column.addSubview(top)
+        column.addSubview(bottom)
+        window.contentView = column
+        window.show()
+        defer { window.close() }
+        func spinner(in shell: DockShellView) -> SpinnerRingNSView? {
+            column.layoutSubtreeIfNeeded()
+            return descendant(SpinnerRingNSView.self, in: shell)
+        }
+
+        try waitForMainQueue("the title bar to draw") {
+            column.layoutSubtreeIfNeeded()
+            return descendant(NSHostingView<DockTopBar>.self, in: top) != nil
+        }
+        try expect(spinner(in: top) == nil, "no spinner until a refresh starts")
+
+        let now = Date()
+        guard case .refresh(let request)? = store.handle(.refresh, now: now) else {
+            throw TestFailure("r should ask for a refresh")
+        }
+        try waitForMainQueue("the spinner to appear") { spinner(in: top) != nil }
+        try expect(spinner(in: bottom) == nil, "the bottom panel's bar never shows it")
+
+        store.finishRefresh(request, failed: false, now: now.addingTimeInterval(PullRequestStore.refreshMinimumShown + 1))
+        try waitForMainQueue("the spinner to go") { spinner(in: top) == nil }
+    }
+
+    /// The column puts Version Control on top at 300, the bottom panel under it, 20 apart; a panel alone fills the column and
+    /// a hidden one leaves the view hidden.
+    private static func testDockColumnLaysOutItsPanels() throws {
+        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl))
+        let bottom = DockShellView(body: NSView())
+        let column = DockColumnView(top: top, bottom: bottom)
+        column.frame = NSRect(x: 0, y: 0, width: 480, height: 860)
+        func laidOut(_ panels: DockPanels) -> DockColumnView {
+            column.setPanels(panels)
+            column.layoutSubtreeIfNeeded()
+            return column
+        }
+
+        _ = laidOut(DockPanels(top: true, bottom: true))
+        try expect(!top.isHidden && !bottom.isHidden, "both panels show in the split")
+        try expect(top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control sits at the column's top, 300 tall, got \(top.frame)")
+        try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel takes what's left under a 20 gap, got \(bottom.frame)")
+
+        _ = laidOut(DockPanels(top: true))
+        try expect(!top.isHidden && bottom.isHidden, "Version Control alone leaves the bottom panel hidden")
+        try expect(top.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "Version Control alone fills the dock, got \(top.frame)")
+
+        _ = laidOut(DockPanels(bottom: true))
+        try expect(top.isHidden && !bottom.isHidden, "the bottom panel alone leaves Version Control hidden")
+        try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 860), "the bottom panel alone fills the dock, got \(bottom.frame)")
+
+        _ = laidOut(DockPanels(top: true, bottom: true))
+        try expect(top.frame.height == 300 && bottom.frame.height == 540, "the split comes back as it was")
+    }
+
+    /// The terminal consumes command-key chords as key equivalents before the menu sees them, so the chords that must work
+    /// from it (⇧⌘H/L, ⇧⌘R) run from `MenuController`'s key monitor, which comes first; ⇧⌘K/J do too, but only in the
+    /// dock's scope (⇧⌘J is also Ghostty's own write_screen_file:paste, shadowed only there), and the monitor returns them
+    /// untouched elsewhere. A stand-in for the terminal consumes every key equivalent; an in-process key event for each
+    /// chord must reach its action once, never the stand-in (so the menu can't run it a second time), and a held key must
+    /// not run it again.
+    private static func testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents() throws {
+        final class TerminalStandIn: NSView {
+            var keyEquivalents = 0
+            var keyDowns = 0
+            override var acceptsFirstResponder: Bool { true }
+            override func performKeyEquivalent(with event: NSEvent) -> Bool {
+                keyEquivalents += 1
+                return true
+            }
+            override func keyDown(with event: NSEvent) { keyDowns += 1 }
+        }
+        let window = HeadlessWindow(size: CGSize(width: 400, height: 300))
+        let terminal = TerminalStandIn(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = terminal
+        window.show(key: true)
+        defer { window.close() }
+        try expect(window.makeFirstResponder(terminal), "the stand-in terminal should take the keys")
+
+        func send(_ characters: String, _ plain: String, keyCode: UInt16, _ flags: NSEvent.ModifierFlags, isARepeat: Bool = false) throws {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: plain,
+                isARepeat: isARepeat, keyCode: keyCode
+            ) else {
+                throw TestFailure("could not create the \(plain) key event")
+            }
+            NSApp.sendEvent(event)
+        }
+        // keyCodes: K 40, J 38, H 4, L 37, R 15. Shift gives the capital character.
+        let chords: [(name: String, characters: String, plain: String, keyCode: UInt16, flags: NSEvent.ModifierFlags)] = [
+            ("⇧⌘K", "K", "K", 40, [.command, .shift]),
+            ("⇧⌘J", "J", "J", 38, [.command, .shift]),
+            ("⇧⌘R", "R", "R", 15, [.command, .shift]),
+            ("⇧⌘H", "H", "H", 4, [.command, .shift]),
+            ("⇧⌘L", "L", "L", 37, [.command, .shift]),
+        ]
+
+        // The premise: the view hierarchy sees a key equivalent before the menu, and the terminal consumes it, so a menu item
+        // alone never runs from the terminal.
+        let first = chords[0]
+        guard let premise = NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: first.flags, timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil, characters: first.characters, charactersIgnoringModifiers: first.plain,
+            isARepeat: false, keyCode: first.keyCode
+        ) else {
+            throw TestFailure("could not create the premise event")
+        }
+        try expect(window.performKeyEquivalent(with: premise) && terminal.keyEquivalents == 1, "the terminal consumes the chord as a key equivalent, ahead of the menu")
+        terminal.keyEquivalents = 0
+
+        var ran: [String] = []
+        // The dock's chords are in scope only while it has the keys (`NavigationStore.dockPanelKeyRoute`).
+        var dockHasKeys = true
+        let actions = CommandKeyActions(
+            focusRegionLeft: .anywhere { ran.append("⇧⌘H") },
+            focusRegionRight: .anywhere { ran.append("⇧⌘L") },
+            focusDockTop: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘K") }),
+            focusDockBottom: CommandKeyAction(handles: { dockHasKeys }, run: { ran.append("⇧⌘J") }),
+            toggleVersionControlDock: .anywhere { ran.append("⇧⌘R") }
+        )
+        let menu = MenuController()
+        menu.installCommandKeyMonitor(actions)
+        defer { menu.stop() }
+
+        // Through the real monitor: NSApp runs it ahead of any view, so each chord reaches its action exactly once.
+        for chord in chords {
+            try send(chord.characters, chord.plain, keyCode: chord.keyCode, chord.flags)
+        }
+        try expect(ran == chords.map(\.name), "each chord should run its own action once, in order, got \(ran)")
+        try expect(terminal.keyEquivalents == 0 && terminal.keyDowns == 0, "and none should reach the terminal, so the menu can't run it again")
+
+        // What the monitor hands back decides whether the terminal or the menu ever sees the press: nil for a chord it took,
+        // the event itself for anything else.
+        let handler = MenuController.commandKeyHandler(actions)
+        ran.removeAll()
+        for chord in chords {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: chord.flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: chord.characters, charactersIgnoringModifiers: chord.plain,
+                isARepeat: false, keyCode: chord.keyCode
+            ) else {
+                throw TestFailure("could not create the \(chord.name) event")
+            }
+            try expect(handler(event) == nil, "the monitor should swallow \(chord.name) once it has run it")
+        }
+        try expect(ran == chords.map(\.name), "and run it, got \(ran)")
+
+        ran.removeAll()
+        try send("K", "K", keyCode: 40, [.command, .shift], isARepeat: true)
+        try expect(ran.isEmpty, "a held chord is swallowed without running again")
+        try send("K", "K", keyCode: 40, [.command, .shift, .capsLock])
+        try expect(ran == ["⇧⌘K"], "Caps Lock doesn't change a chord, got \(ran)")
+
+        // Out of the dock's scope (the terminal or tracker focused, a modal up, a dock with one panel) the dock's chords
+        // are returned untouched, so the terminal still gets ⇧⌘K and Ghostty's own ⇧⌘J; the global chords stay the monitor's.
+        ran.removeAll()
+        dockHasKeys = false
+        for chord in chords {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: chord.flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: chord.characters, charactersIgnoringModifiers: chord.plain,
+                isARepeat: false, keyCode: chord.keyCode
+            ) else {
+                throw TestFailure("could not create the \(chord.name) event")
+            }
+            let result = handler(event)
+            if chord.name == "⇧⌘K" || chord.name == "⇧⌘J" {
+                try expect(result === event, "\(chord.name) outside the dock goes on to the terminal, not taken")
+            } else {
+                try expect(result == nil, "\(chord.name) works from every region")
+            }
+        }
+        try expect(ran == ["⇧⌘R", "⇧⌘H", "⇧⌘L"], "only the global chords ran outside the dock, got \(ran)")
+        ran.removeAll()
+        try send("K", "K", keyCode: 40, [.command, .shift], isARepeat: true)
+        try expect(ran.isEmpty, "a held dock chord outside the dock runs nothing either")
+        dockHasKeys = true
+
+        ran.removeAll()
+        for (characters, plain, keyCode, flags) in [("˚", "k", UInt16(40), NSEvent.ModifierFlags([.command, .option])), ("K", "K", UInt16(40), NSEvent.ModifierFlags([.command, .option, .shift])), ("k", "k", UInt16(40), []), ("r", "r", UInt16(15), [.command])] {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: plain,
+                isARepeat: false, keyCode: keyCode
+            ) else {
+                throw TestFailure("could not create the \(plain) event")
+            }
+            try expect(handler(event) === event, "a key that is no chord of the monitor's goes on to the terminal and the menu")
+        }
+        try expect(ran.isEmpty, "and runs nothing")
+    }
+
+    /// A panel appearing or going away while the dock stays up is one short transition that ends on its own: the panel
+    /// starts unseen and slid out, everything lands on the final layout, and nothing keeps running. The first panel
+    /// showing, a hidden window and Reduce Motion skip it.
+    private static func testDockPanelsTransitionOnceAndSkipItWithReducedMotion() throws {
+        func makeColumn() -> (DockColumnView, DockShellView, DockShellView, HeadlessWindow) {
+            let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
+            let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
+            let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl))
+            let bottom = DockShellView(body: NSView())
+            let column = DockColumnView(top: top, bottom: bottom)
+            column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
+            column.reducesMotion = { false }
+            content.addSubview(column)
+            window.contentView = content
+            window.show()
+            return (column, top, bottom, window)
+        }
+        func settle(_ seconds: TimeInterval = DockPanelMotion.duration + 0.25) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+
+        let (column, top, bottom, window) = makeColumn()
+        defer { window.close() }
+        column.setPanels(DockPanels(bottom: true), animated: true)
+        try expect(!column.isTransitioning, "the dock's first panel showing is the split view's to animate, not the column's")
+        column.layoutSubtreeIfNeeded()
+        try expect(bottom.frame.height == 860 && bottom.alphaValue == 1, "the first panel lands at once, fully shown")
+
+        column.setPanels(DockPanels(top: true, bottom: true), animated: true)
+        try expect(column.isTransitioning, "a panel appearing while the dock stays up transitions")
+        try expect(!top.isHidden && top.alphaValue == 0, "the new panel starts unseen, got alpha \(top.alphaValue)")
+        try expect(top.frame.maxY == 870 && top.frame.height == 300, "and 10 above its slot, got \(top.frame)")
+        settle(DockPanelMotion.duration / 2)
+        try expect(column.isTransitioning && top.alphaValue > 0 && top.alphaValue < 1, "partway it's half in, got alpha \(top.alphaValue)")
+        settle()
+        try expect(!column.isTransitioning, "the transition ends on its own")
+        try expect(top.alphaValue == 1 && top.frame == NSRect(x: 0, y: 560, width: 480, height: 300), "Version Control ends at its slot, got \(top.frame)")
+        try expect(bottom.alphaValue == 1 && bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 540), "the bottom panel ends shrunk under it, got \(bottom.frame)")
+
+        column.setPanels(DockPanels(bottom: true), animated: true)
+        try expect(column.isTransitioning && !top.isHidden, "a panel going away stays up while it fades")
+        settle()
+        try expect(!column.isTransitioning && top.isHidden, "then it's gone")
+        try expect(bottom.frame == NSRect(x: 0, y: 0, width: 480, height: 860) && bottom.alphaValue == 1, "and the bottom panel fills the dock again, got \(bottom.frame)")
+
+        // A new change mid-transition settles the running one first.
+        column.setPanels(DockPanels(top: true, bottom: true), animated: true)
+        settle(DockPanelMotion.duration / 3)
+        column.setPanels(DockPanels(top: true), animated: true)
+        try expect(column.isTransitioning, "the interrupting change starts its own transition")
+        settle()
+        try expect(!column.isTransitioning && bottom.isHidden && top.frame == NSRect(x: 0, y: 0, width: 480, height: 860) && top.alphaValue == 1, "and the dock ends on its latest panels, got \(top.frame)")
+
+        let (still, stillTop, stillBottom, stillWindow) = makeColumn()
+        defer { stillWindow.close() }
+        still.reducesMotion = { true }
+        still.setPanels(DockPanels(bottom: true))
+        still.setPanels(DockPanels(top: true, bottom: true), animated: true)
+        try expect(!still.isTransitioning, "Reduce Motion skips the transition")
+        still.layoutSubtreeIfNeeded()
+        try expect(stillTop.alphaValue == 1 && stillTop.frame == NSRect(x: 0, y: 560, width: 480, height: 300) && stillBottom.frame.height == 540, "and the panels land at once, got \(stillTop.frame)")
+    }
+
+    /// Focus goes to one dock panel at a time: its pane takes the first responder and only its frame lifts, and moving to the
+    /// other panel hands both over.
+    private static func testOnlyTheFocusedDockPanelHasTheKeys() throws {
+        let window = HeadlessWindow(size: CGSize(width: 1000, height: 900))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 900))
+        let pane = VersionControlDockPane(store: PullRequestStore())
+        let bottomPane = SwiftUIDockPane(
+            store: RuntimeStore(sourceLabel: "test"),
+            workerChatStore: WorkerChatStore(),
+            newQuestPresenter: NewQuestSheetPresenter(),
+            settingsPresenter: SettingsSheetPresenter()
+        )
+        let top = DockShellView(body: pane, model: DockChromeModel(topBar: .versionControl))
+        let bottom = DockShellView(body: bottomPane)
+        let column = DockColumnView(top: top, bottom: bottom)
+        column.frame = NSRect(x: 500, y: 0, width: 480, height: 860)
+        content.addSubview(column)
+        window.contentView = content
+        let navigation = NavigationStore()
+        let coordinator = ShellFocusCoordinator(
+            navigation: navigation,
+            window: { window },
+            splitView: { nil },
+            terminalShell: { nil },
+            topDockShell: { top },
+            bottomDockShell: { bottom },
+            dockColumn: { column },
+            dockPanels: { DockPanels(top: true, bottom: true) },
+            footerShell: { nil },
+            trackerHosting: { nil },
+            dockView: { bottomPane },
+            versionControlPane: { pane },
+            terminalHost: { nil },
+            modalHost: { nil },
+            updateDockTabs: {}
+        )
+        window.show(key: true)
+        defer { window.close() }
+
+        coordinator.focusDockPanel(.top)
+        try expect(window.firstResponder === pane, "the top panel's pane should take the keys")
+        try expect(top.isFocused && !bottom.isFocused, "only the top panel's frame should lift")
+        try expect(pane.hasFocusedLook && !bottomPane.isFocused, "Version Control draws its cursor, and the bottom panel's content its focused look, only for the panel with the keys")
+        coordinator.focusDockPanel(.bottom)
+        try expect(!top.isFocused && bottom.isFocused, "the bottom panel's frame lifts as the top's drops")
+        try expect(!pane.hasFocusedLook && bottomPane.isFocused, "the cursor hides with the top panel's keys and the bottom content's focused look comes on")
+        coordinator.focusDockPanel(.top)
+        coordinator.focus(.tracker)
+        try expect(!top.isFocused && !bottom.isFocused, "no panel has the keys once focus leaves the dock")
+        try expect(!pane.hasFocusedLook && !bottomPane.isFocused, "nothing in the dock draws a focused look once focus leaves it")
+        coordinator.focus(.dock)
+        try expect(top.isFocused && !bottom.isFocused && window.firstResponder === pane, "coming back lands on the panel that had the keys")
+        try expect(pane.hasFocusedLook && !bottomPane.isFocused, "and its cursor shows again")
     }
 
     private static func testDockSelectionPublishesImmediately() throws {
@@ -1651,8 +2009,6 @@ enum LogicSelfTests {
         try expect(DockContentRouting.canShow(.artifactList, sessionID: "qm-demo"), "artifact list should open with a current session")
         try expect(DockContentRouting.canShow(.workerChat, sessionID: "qm-demo"), "worker chat should open for every attached session")
         try expect(!DockContentRouting.canShow(.workerChat, sessionID: nil), "worker chat should still require a current session")
-        try expect(DockContentRouting.canShow(.versionControl, sessionID: "qm-demo"), "version control should open for every attached session")
-        try expect(!DockContentRouting.canShow(.versionControl, sessionID: nil), "version control should require a current session")
     }
 
     private static func testArtifactDockCommandSwitchesFromWorkerChat() throws {
@@ -1671,10 +2027,6 @@ enum LogicSelfTests {
         try expect(
             DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .artifactViewer),
             "Cmd-3 should hide a visible artifact viewer"
-        )
-        try expect(
-            !DockCommandRouting.shouldHideArtifactDock(isDockVisible: true, content: .versionControl),
-            "Cmd-3 should switch a visible version control dock to artifacts"
         )
     }
 
@@ -1877,10 +2229,14 @@ enum LogicSelfTests {
                 window: { window },
                 splitView: { nil },
                 terminalShell: { nil },
-                dockShell: { nil },
+                topDockShell: { nil },
+                bottomDockShell: { nil },
+                dockColumn: { nil },
+                dockPanels: { DockPanels() },
                 footerShell: { nil },
                 trackerHosting: { tracker },
                 dockView: { nil },
+                versionControlPane: { nil },
                 terminalHost: { terminal },
                 modalHost: { host },
                 updateDockTabs: {}
@@ -1983,10 +2339,14 @@ enum LogicSelfTests {
             window: { window },
             splitView: { nil },
             terminalShell: { nil },
-            dockShell: { nil },
+            topDockShell: { nil },
+            bottomDockShell: { nil },
+            dockColumn: { nil },
+            dockPanels: { DockPanels() },
             footerShell: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
+            versionControlPane: { nil },
             terminalHost: { terminal },
             modalHost: { host },
             updateDockTabs: {}
@@ -2047,10 +2407,14 @@ enum LogicSelfTests {
             window: { window },
             splitView: { nil },
             terminalShell: { nil },
-            dockShell: { dock },
+            topDockShell: { nil },
+            bottomDockShell: { dock },
+            dockColumn: { nil },
+            dockPanels: { DockPanels(bottom: true) },
             footerShell: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
+            versionControlPane: { nil },
             terminalHost: { nil },
             modalHost: { host },
             updateDockTabs: {}
@@ -3165,13 +3529,13 @@ enum LogicSelfTests {
         }
         let model = DockPaneModel()
 
-        var state = DockState(dockVisible: false, dockContent: .workerChat)
+        var state = DockState(bottomVisible: false, dockContent: .workerChat)
         _ = model.apply(state, snapshot: snapshot([a1]), preferredArtifactSessionID: "qm-a")
         let hidden = model.apply(state, snapshot: snapshot([a2, a1]), preferredArtifactSessionID: "qm-a")
         try expect(hidden.intent == .open(a2), "a new artifact behind a hidden worker chat should report its open, got \(hidden.intent)")
         try expect(state.openNewArtifact(a2.id) && state.dockContent == .artifactViewer, "it should open the dock on the viewer")
 
-        state = DockState(dockVisible: true, dockContent: .workerChat)
+        state = DockState(bottomVisible: true, dockContent: .workerChat)
         let shown = model.apply(state, snapshot: snapshot([a3, a2, a1]), preferredArtifactSessionID: "qm-a")
         if case .open(let artifact) = shown.intent {
             try expect(!state.openNewArtifact(artifact.id), "a new artifact should not open over the worker chat")

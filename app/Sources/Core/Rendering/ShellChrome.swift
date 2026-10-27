@@ -5,11 +5,10 @@ import Foundation
 /// chrome shows, keyed off UI-independent state, so both the decision and its
 /// edge cases stay testable.
 
-/// What content the dock pane is showing.
+/// What the bottom dock panel is showing.
 public enum DockContentMode: Equatable {
     case artifacts
     case workerChat
-    case versionControl
 }
 
 /// Where the artifact area of the dock currently is.
@@ -39,6 +38,9 @@ public struct DockTopBarModel: Equatable {
         self.showArtifactActions = showArtifactActions
     }
 
+    /// The top panel's bar: its title and the close button, nothing else.
+    public static let versionControl = DockTopBarModel(back: nil, title: "Version Control", showArtifactActions: false)
+
     public static func make(
         mode: DockContentMode,
         artifactRoute: ArtifactDockRoute,
@@ -56,8 +58,6 @@ public struct DockTopBarModel: Equatable {
         switch mode {
         case .workerChat:
             return "Worker Chat"
-        case .versionControl:
-            return "Version Control"
         case .artifacts:
             return viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"
         }

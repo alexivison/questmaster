@@ -1,23 +1,53 @@
 import Foundation
 
-/// What the dock shows.
+/// What the bottom dock panel shows.
 public enum DockContent: Equatable {
     case artifactList
     case artifactViewer
     case workerChat
-    case versionControl
+}
 
-    /// The artifact list and viewer, as opposed to the dock's other surfaces.
-    public var isArtifact: Bool {
-        self == .artifactList || self == .artifactViewer
+/// The dock's two stacked panels: Version Control on top, and under it whatever `DockContent` names.
+public enum DockPanel: Equatable {
+    case top
+    case bottom
+}
+
+/// Which of the dock's panels show.
+public struct DockPanels: Equatable {
+    public var top: Bool
+    public var bottom: Bool
+
+    public init(top: Bool = false, bottom: Bool = false) {
+        self.top = top
+        self.bottom = bottom
+    }
+
+    /// The dock region shows while either panel does.
+    public var isShown: Bool {
+        top || bottom
+    }
+
+    public func contains(_ panel: DockPanel) -> Bool {
+        switch panel {
+        case .top: top
+        case .bottom: bottom
+        }
     }
 }
 
-/// The dock's state, app-wide: switching sessions never opens, closes, swaps or resizes the dock. Only what it lists
-/// follows the session (the Session tab's artifacts, the worker chat's workers, the version control dock's pull requests). The open artifact stays across
-/// sessions: the viewer may show another session's artifact, as the All tab lists them anyway. In memory only.
+/// The dock's state, app-wide: switching sessions never opens, closes, swaps or resizes a panel. Only what they list
+/// follows the session (the Session tab's artifacts, the worker chat's workers, Version Control's pull requests). The
+/// open artifact stays across sessions: the viewer may show another session's artifact, as the All tab lists them
+/// anyway. In memory only.
+///
+/// The two panels are independent: Version Control (top) opens and closes without touching the bottom panel, and what
+/// the bottom panel shows changes without touching Version Control.
 public struct DockState: Equatable {
-    public var dockVisible: Bool
+    /// Version Control, the top panel.
+    public var topVisible: Bool
+    /// The bottom panel: `dockContent` names what it shows.
+    public var bottomVisible: Bool
     public var dockContent: DockContent
     /// The viewer's open artifact, and the list's cursor.
     public var selectedArtifactID: String?
@@ -27,7 +57,8 @@ public struct DockState: Equatable {
     public var artifactFilterTokens: [ArtifactFilterToken]
 
     public init(
-        dockVisible: Bool = false,
+        topVisible: Bool = false,
+        bottomVisible: Bool = false,
         dockContent: DockContent = .artifactList,
         selectedArtifactID: String? = nil,
         dockPreferredWidth: Double? = nil,
@@ -35,7 +66,8 @@ public struct DockState: Equatable {
         artifactFilterQuery: String = "",
         artifactFilterTokens: [ArtifactFilterToken] = []
     ) {
-        self.dockVisible = dockVisible
+        self.topVisible = topVisible
+        self.bottomVisible = bottomVisible
         self.dockContent = dockContent
         self.selectedArtifactID = selectedArtifactID
         self.dockPreferredWidth = dockPreferredWidth
@@ -44,19 +76,20 @@ public struct DockState: Equatable {
         self.artifactFilterTokens = artifactFilterTokens
     }
 
-    /// First launch: hidden, on the artifact list.
+    /// First launch: both panels hidden, the bottom one on the artifact list.
     public static let initial = DockState()
 
+    /// Shows `content` in the bottom panel, opening it if it's hidden. The top panel stays as it was.
     public mutating func show(_ content: DockContent) {
-        dockVisible = true
+        bottomVisible = true
         dockContent = content
-        if !content.isArtifact {
+        if content == .workerChat {
             selectedArtifactID = nil
         }
     }
 
     public mutating func showArtifact(_ artifactID: String) {
-        dockVisible = true
+        bottomVisible = true
         dockContent = .artifactViewer
         selectedArtifactID = artifactID
     }
@@ -67,16 +100,16 @@ public struct DockState: Equatable {
         dockContent = .artifactList
     }
 
-    /// Whether the dock shows: with no session (a detached terminal) it hides, and its state stays, so it comes back
-    /// as it was when a session attaches.
-    public func isShown(hasSession: Bool) -> Bool {
-        dockVisible && hasSession
+    /// Which panels show: with no session (a detached terminal) both hide, and their state stays, so they come back
+    /// as they were when a session attaches.
+    public func panels(hasSession: Bool) -> DockPanels {
+        DockPanels(top: topVisible && hasSession, bottom: bottomVisible && hasSession)
     }
 
-    /// A new artifact in the viewed session opens in the viewer, opening the dock if it's hidden, but never over the
-    /// worker chat or the version control dock while one shows. Returns whether it opened.
+    /// A new artifact in the viewed session opens in the viewer, opening the bottom panel if it's hidden, but never over
+    /// the worker chat while it shows. Returns whether it opened.
     public mutating func openNewArtifact(_ artifactID: String) -> Bool {
-        guard !(dockVisible && !dockContent.isArtifact) else {
+        guard !(bottomVisible && dockContent == .workerChat) else {
             return false
         }
         showArtifact(artifactID)
