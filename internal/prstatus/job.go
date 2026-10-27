@@ -2,10 +2,13 @@ package prstatus
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -17,32 +20,58 @@ type refreshWaiter struct {
 }
 
 type Job struct {
-	Root     string
-	Tmux     *tmux.Client
-	RunGH    Runner
-	Now      func() time.Time
-	Tick     <-chan time.Time // injected by tests; production ticks every five seconds
-	mu       sync.Mutex
-	forced   map[string]bool
-	waiters  map[string][]refreshWaiter
-	signal   chan struct{}
-	runStop  <-chan struct{}
-	next     map[string]time.Time
-	blocked  map[string]time.Time
-	last     map[string]HostResult
-	failures map[string]int
-	done     map[string]time.Time
-	seen     map[string]bool
+	Root             string
+	Tmux             *tmux.Client
+	RunGH            Runner
+	RunREST          Runner
+	SendAlert        func(context.Context, string, string) (bool, error)
+	Now              func() time.Time
+	Tick             <-chan time.Time // injected by tests; production ticks every five seconds
+	mu               sync.Mutex
+	forced           map[string]bool
+	waiters          map[string][]refreshWaiter
+	signal           chan struct{}
+	runStop          <-chan struct{}
+	next             map[string]time.Time
+	blocked          map[string]time.Time
+	last             map[string]HostResult
+	failures         map[string]int
+	done             map[string]time.Time
+	seen             map[string]bool
+	alertErrorLogged map[string]time.Time
 }
 
 func NewJob(root string, client *tmux.Client, run Runner) *Job {
-	return &Job{Root: root, Tmux: client, RunGH: run, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, last: map[string]HostResult{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}}
+	return &Job{Root: root, Tmux: client, RunGH: run, RunREST: GHREST, Now: time.Now, forced: map[string]bool{}, waiters: map[string][]refreshWaiter{}, signal: make(chan struct{}, 1), next: map[string]time.Time{}, blocked: map[string]time.Time{}, last: map[string]HostResult{}, failures: map[string]int{}, done: map[string]time.Time{}, seen: map[string]bool{}, alertErrorLogged: map[string]time.Time{}}
 }
 func (*Job) Name() string { return "pr-status" }
 
 func (j *Job) HasWork() bool {
 	prs, _, err := j.live(context.Background())
-	return err != nil || len(prs) > 0 // a transient tmux error must not idle out monitoring
+	if err != nil || len(prs) > 0 {
+		return true // a transient tmux error must not idle out monitoring
+	}
+	alerts, err := state.PendingPullRequestAlerts(j.Root)
+	if err != nil {
+		return true
+	}
+	if len(alerts) == 0 {
+		return false
+	}
+	sessions, err := j.Tmux.ListSessions(context.Background())
+	if err != nil {
+		return true
+	}
+	live := make(map[string]bool, len(sessions))
+	for _, id := range sessions {
+		live[id] = true
+	}
+	for _, alert := range alerts {
+		if live[alert.SessionID] {
+			return true
+		}
+	}
+	return false
 }
 
 func (j *Job) live(ctx context.Context) ([]state.PullRequest, map[string]state.PullRequestStatus, error) {
@@ -70,14 +99,14 @@ func (j *Job) live(ctx context.Context) ([]state.PullRequest, map[string]state.P
 		if statuses[pr.Key].State == "merged" {
 			continue
 		}
-		watchers := pr.Watchers[:0]
+		hasLiveWatcher := false
 		for _, watcher := range pr.Watchers {
 			if live[watcher.SessionID] {
-				watchers = append(watchers, watcher)
+				hasLiveWatcher = true
+				break
 			}
 		}
-		if len(watchers) > 0 {
-			pr.Watchers = watchers
+		if hasLiveWatcher {
 			result = append(result, pr)
 		}
 	}
@@ -263,8 +292,63 @@ func (j *Job) step(ctx context.Context) error {
 			return ctx.Err()
 		}
 		failed := map[string]bool{}
+		limited := map[string]bool{}
 		for host, item := range result.Hosts {
 			failed[host] = item.Error != ""
+			limited[host] = item.BackoffUntil != ""
+		}
+		for _, pr := range due {
+			current, ok := result.Statuses[pr.Key]
+			if !ok || failed[pr.Host] || current.InaccessibleReason != "" {
+				continue
+			}
+			prior := statuses[pr.Key]
+			if current.UpdatedAt == prior.UpdatedAt && current.Comments == prior.Comments && current.Review == prior.Review && current.State == prior.State && current.HeadSHA == prior.HeadSHA && current.CI == prior.CI {
+				continue
+			}
+			if limited[pr.Host] {
+				delete(result.Statuses, pr.Key)
+				continue
+			}
+			var baseline time.Time
+			for _, watcher := range pr.Watchers {
+				if added, err := time.Parse(time.RFC3339Nano, watcher.AddedAt); err == nil && (baseline.IsZero() || added.Before(baseline)) {
+					baseline = added
+				}
+			}
+			updated, _ := time.Parse(time.RFC3339Nano, current.UpdatedAt)
+			stateAt, _ := time.Parse(time.RFC3339Nano, result.StateAt[pr.Key])
+			if baseline.After(now) {
+				continue
+			}
+			if prior.FetchedAt == "" && !baseline.IsZero() && updated.Before(baseline) && stateAt.Before(baseline) && current.CI != "success" && current.CI != "failure" {
+				continue
+			}
+			log, err := state.LoadPullRequestEventLog(j.Root, pr.Key)
+			if err != nil {
+				return err
+			}
+			events, ids, detail := fetchDetails(ctx, pr, prior, current, result.StateAt[pr.Key], log, j.RunGH, j.RunREST, now)
+			if detail.Error != "" {
+				result.Hosts[pr.Host] = detail
+				failed[pr.Host] = true
+				delete(result.Statuses, pr.Key)
+				continue
+			}
+			if detail.RateLimit != nil || detail.BackoffUntil != "" {
+				host := result.Hosts[pr.Host]
+				if detail.RateLimit != nil {
+					host.RateLimit = mergeRateLimit(host.RateLimit, detail.RateLimit)
+				}
+				if detail.BackoffUntil != "" {
+					host.BackoffUntil = detail.BackoffUntil
+				}
+				result.Hosts[pr.Host] = host
+				limited[pr.Host] = host.BackoffUntil != ""
+			}
+			if _, err := state.RecordPullRequestEvents(j.Root, pr.Key, events, ids); err != nil {
+				return err
+			}
 		}
 		if err := state.SavePullRequestStatuses(j.Root, result.Statuses, failed); err != nil {
 			return err
@@ -338,7 +422,62 @@ func (j *Job) step(ctx context.Context) error {
 		}
 	}
 	j.mu.Unlock()
+	if err := j.deliverPending(ctx); err != nil {
+		return err
+	}
 	completed = true
+	return nil
+}
+
+func (j *Job) deliverPending(ctx context.Context) error {
+	alerts, err := state.PendingPullRequestAlerts(j.Root)
+	if err != nil {
+		return err
+	}
+	if len(alerts) == 0 {
+		clear(j.alertErrorLogged)
+		return nil
+	}
+	sessions, err := j.Tmux.ListSessions(ctx)
+	if err != nil {
+		return err
+	}
+	live := make(map[string]bool, len(sessions))
+	for _, id := range sessions {
+		live[id] = true
+	}
+	send := j.SendAlert
+	if send == nil {
+		send = message.NewService(state.OpenStore(j.Root), j.Tmux).Notify
+	}
+	active := make(map[string]bool, len(alerts))
+	for _, alert := range alerts {
+		if !live[alert.SessionID] {
+			continue
+		}
+		key := alert.PullRequest.Key + "\x00" + alert.SessionID
+		active[key] = true
+		text := alertText(alert.PullRequest, alert.Events)
+		delivered, err := send(ctx, alert.SessionID, text)
+		if err != nil {
+			if ctx.Err() == nil && j.Now().Sub(j.alertErrorLogged[key]) >= time.Minute {
+				fmt.Fprintf(os.Stderr, "daemon job pr-status: alert %s to %s: %v\n", alert.PullRequest.Key, alert.SessionID, err)
+				j.alertErrorLogged[key] = j.Now()
+			}
+			continue // transport failures are retried on the next tick
+		}
+		if delivered {
+			delete(j.alertErrorLogged, key)
+			if err := state.AdvancePullRequestAlert(j.Root, alert.PullRequest.Key, alert.SessionID, alert.Seq); err != nil {
+				return err
+			}
+		}
+	}
+	for key := range j.alertErrorLogged {
+		if !active[key] {
+			delete(j.alertErrorLogged, key)
+		}
+	}
 	return nil
 }
 
