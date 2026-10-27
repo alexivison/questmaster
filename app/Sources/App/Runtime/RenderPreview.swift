@@ -110,6 +110,17 @@ enum RenderPreview {
         renderView(workerLogDockView(menuOpen: false), size: logDock, to: "\(outputDir)/worker-log-filter-closed.png")
         renderView(workerLogDockView(menuOpen: false), size: CGSize(width: 300, height: 480), to: "\(outputDir)/worker-log-filter-wrapped.png")
         renderView(workerLogNothingMatchesView(), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-nothing-matches.png")
+        // The feed's top edge under the header: with chips, with none, and with chips wrapped onto two lines; the lines
+        // scrolled up under the fade (the follower's usual place) and the feed scrolled to its top.
+        let headerFade = CGSize(width: logDock.width, height: 400)
+        let headerFadeWrapped = CGSize(width: 300, height: 400)
+        renderView(workerLogDockView(menuOpen: false), size: headerFade, to: "\(outputDir)/header-fade-chips.png")
+        renderView(workerLogDockView(menuOpen: false), size: headerFade, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-chips-top.png")
+        renderView(workerLogDockView(menuOpen: false, filtered: false), size: headerFade, to: "\(outputDir)/header-fade-no-chips.png")
+        renderView(workerLogDockView(menuOpen: false, filtered: false), size: headerFade, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-no-chips-top.png")
+        renderView(workerLogPendingView(), size: headerFade, to: "\(outputDir)/header-fade-pending.png")
+        renderView(workerLogDockView(menuOpen: false), size: headerFadeWrapped, to: "\(outputDir)/header-fade-wrapped.png")
+        renderView(workerLogDockView(menuOpen: false), size: headerFadeWrapped, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-wrapped-top.png")
         // Fifteen workers in a 480 high dock: the dropdown stops 20 above the bottom and scrolls, the cursor on the last row.
         renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 18), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll.png")
         renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 0), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll-top.png")
@@ -738,7 +749,7 @@ enum RenderPreview {
     /// and Item, and every worker ticked (a selection like any other, so the Worker chip counts them: 2 and 2). With more
     /// `workers` the first four are ticked and the extra ones are named "Worker 06" on.
     @MainActor
-    private static func workerLogStore(workers: Int = 4) -> WorkerChatStore {
+    private static func workerLogStore(workers: Int = 4, filtered: Bool = true) -> WorkerChatStore {
         let store = WorkerChatStore()
         let named = [("Fix UI Bug", "claude"), ("Implement-ABC-123", "codex"), ("Review API", "codex"), ("Add Tests", "claude"), ("Update Docs", "codex")]
         let tracker = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
@@ -768,20 +779,53 @@ enum RenderPreview {
         ]
         _ = store.receive(WorkerFeedPayload(entries: entries), for: request)
         // Rows: Cast, Status, Message, Item, then the workers.
-        [1, 2, 3, 4, 5, 6, 7].forEach(store.toggleRow)
+        if filtered {
+            [1, 2, 3, 4, 5, 6, 7].forEach(store.toggleRow)
+        }
         return store
     }
 
     /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on row `cursor` (the first worker by default).
     @MainActor
-    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = 4) -> DockShellView {
-        let store = workerLogStore(workers: workers)
+    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = 4, filtered: Bool = true) -> DockShellView {
+        let store = workerLogStore(workers: workers, filtered: filtered)
         if menuOpen {
             store.toggleMenu()
             (0..<cursor).forEach { _ in _ = store.handle(.moveDown) }
         }
         let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
         return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+    }
+
+    /// A master whose first read is still on its way, with the filter's chips: nothing is under them yet, and they stay
+    /// under the top bar.
+    @MainActor
+    private static func workerLogPendingView() -> DockShellView {
+        let store = WorkerChatStore()
+        let sessions = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+            + (1...2).map { TrackerSession(id: "w\($0)", title: "Worker \($0)", repoName: "Repo", agent: "codex", role: "worker", parentID: "m") }
+        _ = store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+        [1, 2, 3].forEach(store.toggleRow)
+        let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+    }
+
+    /// Scrolls the first scroll view under `root` to its top, as a user who scrolled all the way up leaves it.
+    @MainActor
+    private static func scrollFeedToTop(_ root: NSView) {
+        guard let scrollView = firstScrollView(in: root) else {
+            return
+        }
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    @MainActor
+    private static func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scrollView = view as? NSScrollView {
+            return scrollView
+        }
+        return view.subviews.lazy.compactMap { firstScrollView(in: $0) }.first
     }
 
     /// A filter that hides every line of a feed that has some: Cast from the one worker that never ran a tool. The chips
@@ -2181,7 +2225,7 @@ enum RenderPreview {
     }
 
     @MainActor
-    private static func renderView(_ hostingView: NSView, size: CGSize, autoHeight: Bool = false, to path: String) {
+    private static func renderView(_ hostingView: NSView, size: CGSize, autoHeight: Bool = false, afterSettle: ((NSView) -> Void)? = nil, to path: String) {
         let environment = ProcessInfo.processInfo.environment
         if let only = environment["RENDER_ONLY"], !only.split(separator: ",").contains(where: { path.hasSuffix("/\($0).png") }) {
             return
@@ -2200,6 +2244,10 @@ enum RenderPreview {
         window.contentView = container
         window.show()
         RunLoop.current.run(until: Date().addingTimeInterval(Double(environment["RENDER_SETTLE"] ?? "") ?? 0.8))
+        if let afterSettle {
+            afterSettle(hostingView)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
 
         if autoHeight {
             let fitting = hostingView.fittingSize

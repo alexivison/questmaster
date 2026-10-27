@@ -251,7 +251,13 @@ again where it was when the keys come back.
   work only while that panel has the keys, and the keys leaving it (to Version
   Control, the tracker, the terminal or a modal) close it. A click anywhere else
   on the dock, either top bar included, closes it too. Its chips hold their
-  values in `textBody` at regular weight (bold means selected).
+  values in `textBody` at regular weight (bold means selected). They sit 5 under
+  the top bar and stay there whatever the feed is doing (first read pending or
+  failed, empty, lines). The feed fades in under its header, the bar and the
+  chips when there are any, over its top 20 (`WorkerChatMetrics.topFadeHeight`,
+  the Quest Log's overflow mask), so lines scrolled up under it are never cut
+  hard, and a feed at its top starts its first line 20 under the header, where
+  the fade ends, with or without chips.
 - Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
   section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
   artifact viewer, the Worker Log, Version Control), the tracker and the Quest Log's page draw it; the page passes the

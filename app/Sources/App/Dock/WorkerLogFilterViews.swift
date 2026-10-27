@@ -46,7 +46,7 @@ struct WorkerLogChipRow: View {
             }
         }
         .padding(.horizontal, WorkerChatMetrics.inset)
-        .padding(.top, Space.item)
+        .padding(.top, Space.row)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 

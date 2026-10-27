@@ -142,6 +142,8 @@ enum LogicSelfTests {
         ("testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView", testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView),
         ("testWorkerLogFilterFollowsTheBottomPanelsKeys", testWorkerLogFilterFollowsTheBottomPanelsKeys),
         ("testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl", testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl),
+        ("testWorkerLogChipsStayUnderTheTopBarInEveryState", testWorkerLogChipsStayUnderTheTopBarInEveryState),
+        ("testWorkerChatFeedFadesInUnderItsHeader", testWorkerChatFeedFadesInUnderItsHeader),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -5277,7 +5279,7 @@ enum LogicSelfTests {
 
         let chipRow = WorkerLogChipRow(chips: [WorkerLogChip(section: .action, value: .text("Status"))], onClear: { _ in })
         let chipSize = try fittingSize(of: chipRow.frame(width: DockWidthPreference.panelWidth))
-        try expect(chipSize.height == Space.item + ControlHeight.compact, "a chip row should be 10 over a 25-high chip, got \(chipSize.height)")
+        try expect(chipSize.height == Space.row + ControlHeight.compact, "a chip row should be 5 over a 25-high chip, got \(chipSize.height)")
     }
 
     /// A click on the dock's top bar that isn't on a button (blank space, the title) ends the filter's dropdown, as one on
@@ -5443,6 +5445,102 @@ enum LogicSelfTests {
         let bottomGap = listFrame.minY - paneFrame.minY
         try expect(topGap >= Space.row, "the dropdown should hang 5 under the top bar, got \(topGap)")
         try expect(bottomGap >= Space.section, "the dropdown should stop 20 above the panel's edge, got \(bottomGap)")
+    }
+
+    /// The chip row sits under the top bar whatever is under it: with the first read pending, partial or failed nothing
+    /// under the chips is greedy, and a stack that wraps its content would centre them in the dock.
+    private static func testWorkerLogChipsStayUnderTheTopBarInEveryState() throws {
+        let entry = WorkerFeedEntry(timestamp: "2026-10-07T00:00:00.000Z", workerID: "w1", workerTitle: "Worker 1", kind: "action", text: "Bash")
+        let states: [(label: String, payload: WorkerFeedPayload?)] = [
+            ("a pending first read", nil),
+            ("a partial read", WorkerFeedPayload(hasMore: ["w1": true])),
+            ("a failed read", WorkerFeedPayload(errors: ["w1": "unreadable"])),
+            ("a known empty feed", WorkerFeedPayload()),
+            ("a feed with lines", WorkerFeedPayload(entries: [entry])),
+        ]
+        var pendingTop: CGFloat?
+        for (label, payload) in states {
+            let chat = WorkerChatStore()
+            let sessions = [
+                TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+                TrackerSession(id: "w1", title: "Worker 1", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            ]
+            let request = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+            chat.toggleRow(at: 0)
+            if let payload, let request {
+                _ = chat.receive(payload, for: request)
+            }
+            let size = CGSize(width: 480, height: 400)
+            // The panel fill covers the whole view, so a dock that shrinks to its content shows as chips floating in it.
+            let hosting = NSHostingView(rootView: WorkerChatDockView(store: chat).frame(maxWidth: .infinity, maxHeight: .infinity).background(AppPalette.panel.swiftUI))
+            hosting.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size)
+            window.contentView = hosting
+            window.show()
+            defer { window.close() }
+            pump(0.2)
+            hosting.layoutSubtreeIfNeeded()
+            let bitmap = try snapshot(hosting, size: size, scale: 2)
+            // The chip's label starts 10 in from the row's 20 inset.
+            guard let edges = inkEdges(bitmap, scale: 2, columns: 30..<80, rows: 0..<Int(size.height), over: AppPalette.panel) else {
+                throw TestFailure("the chips should draw in \(label)")
+            }
+            try expect(edges.top < ControlHeight.compact + Space.row, "the chips should sit under the top bar in \(label), got y \(edges.top)")
+            if let pendingTop {
+                try expect(abs(edges.top - pendingTop) < 0.5, "the chips should sit where they do with the read pending in \(label): \(pendingTop), got \(edges.top)")
+            }
+            pendingTop = pendingTop ?? edges.top
+        }
+    }
+
+    /// The lines scrolled up under the header fade in over the feed's top `topFadeHeight`, from nothing at its edge, instead
+    /// of being cut there. Solid blocks make each ink row's coverage the mask's alpha.
+    private static func testWorkerChatFeedFadesInUnderItsHeader() throws {
+        let lines = (0..<40).map { index in
+            WorkerChatLine(id: "e\(index)", time: "09:00", agent: "claude", segments: [WorkerChatSegment(String(repeating: "\u{2588}", count: 12), .normal)])
+        }
+        let size = CGSize(width: 300, height: 200)
+        let hosting = NSHostingView(rootView: WorkerChatFeedView(lines: lines, revision: 1, trimCount: 0, appended: false)
+            .frame(width: size.width, height: size.height)
+            .background(AppPalette.panel.swiftUI))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        pump(0.3)
+        hosting.layoutSubtreeIfNeeded()
+        guard let scrollView = descendant(NSScrollView.self, in: hosting) else {
+            throw TestFailure("the feed should scroll")
+        }
+        // Row 10's ink starts 8 below the feed's top edge, inside the fade.
+        let linePitch = WorkerChatMetrics.lineHeight + WorkerChatMetrics.itemGap
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: WorkerChatMetrics.inset + 10 * linePitch - 8))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        pump(0.2)
+        let bitmap = try snapshot(hosting, size: size, scale: 2)
+        guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("the panel colour should convert")
+        }
+        // The blocks' columns, clear of the time and the logo.
+        func difference(atRow row: Int) -> CGFloat {
+            (180..<260).map { x in
+                guard let pixel = bitmap.colorAt(x: x, y: row)?.usingColorSpace(.deviceRGB) else {
+                    return 0
+                }
+                return abs(pixel.redComponent - base.redComponent) + abs(pixel.greenComponent - base.greenComponent)
+                    + abs(pixel.blueComponent - base.blueComponent)
+            }.max() ?? 0
+        }
+        let fade = Int(WorkerChatMetrics.topFadeHeight * 2)
+        let full = (fade + 20..<fade + 60).map(difference).max() ?? 0
+        try expect(full > 0.3, "the feed's lines should show in full below the fade, got \(full)")
+        let coverage = (0..<fade).map { difference(atRow: $0) / full }
+        try expect(coverage.contains { $0 > 0.2 }, "a line should sit under the fade for the check to mean anything")
+        for (row, value) in coverage.enumerated() {
+            let allowed = (CGFloat(row) + 1) / CGFloat(fade) + 0.1
+            try expect(value <= allowed, "ink at y \(CGFloat(row) / 2) should be at most \(allowed) of full under the fade, got \(value)")
+        }
     }
 
     private static func fittingSize<V: View>(of view: V) throws -> CGSize {

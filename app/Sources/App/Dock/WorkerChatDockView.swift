@@ -9,6 +9,9 @@ import SwiftUI
 /// 5pt rhythm), 20pt from the card edge on every side.
 enum WorkerChatMetrics {
     static let inset = Space.section
+    /// How far the lines fade in under the header (the top bar, and the filter's chips when there are any): the feed's own
+    /// top inset, so a feed scrolled to its top starts with its first line where the fade ends.
+    static let topFadeHeight = inset
     /// The font's line, typography rather than spacing: JetBrains Mono 12's 15.84 ceiled.
     static let lineHeight: CGFloat = 16
     static let itemGap = Space.item
@@ -80,12 +83,17 @@ struct WorkerChatDockView: View {
             if !store.chips.isEmpty {
                 WorkerLogChipRow(chips: store.chips, onClear: store.clearFilter)
             }
-            if store.isKnownEmpty {
-                EmptyState()
-            } else if !store.lines.isEmpty {
-                WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
+            // Greedy, so the chips stay under the top bar when nothing under them is (a first read still pending or
+            // failed): a lone notice sits in the middle of what is left, as it does with no chips.
+            VStack(alignment: .leading, spacing: 0) {
+                if store.isKnownEmpty {
+                    EmptyState()
+                } else if !store.lines.isEmpty {
+                    WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
+                }
+                readNotice
             }
-            readNotice
+            .frame(maxHeight: .infinity)
         }
         .overlay { filterMenu }
     }
@@ -151,6 +159,15 @@ struct WorkerChatFeedView: View {
                 .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
+        }
+        // The Quest Log page's overflow cue, at the top only: the lines scrolled up under the header fade out over the
+        // feed's first `topFadeHeight` instead of being cut at its edge.
+        .mask {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, AppPalette.mask.swiftUI], startPoint: .top, endPoint: .bottom)
+                    .frame(height: WorkerChatMetrics.topFadeHeight)
+                AppPalette.mask.swiftUI
+            }
         }
     }
 }
