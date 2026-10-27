@@ -253,7 +253,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         questLogFilter.onLeave = { [weak window = handles.window] in window?.makeFirstResponder(nil) }
         handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
         handles.modalHost.onDrawingChange = { [weak self] in self?.focusCoordinator.updateRegionKeys() }
-        handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat, focusDock: true) }
+        handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat) }
         handles.footerShell.onOpenVersionControl = { [weak self] in self?.toggleVersionControlDock() }
         handles.versionControlPane.onPullRequestEffect = { [weak self] effect in self?.runPullRequestEffect(effect) }
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
@@ -508,7 +508,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         shellHandles?.splitView.nudgeDockWidth(by: -DockWidthPreference.resizeStep)
     }
 
-    private func showDockContent(_ content: DockContent, focusDock: Bool) {
+    /// Shows `content` in the bottom panel without moving focus to it.
+    private func showDockContent(_ content: DockContent) {
         guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID) else {
             if content == .workerChat {
                 NSSound.beep()
@@ -517,15 +518,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         dockCoordinator.state.show(content)
-        let outcome = focusDock ? navigation.focusDockPanel(.bottom) : navigation.showDockPreservingFocus()
+        navigation.showDockPreservingFocus()
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        if focusDock {
-            focusCoordinator.applyNavigationOutcome(outcome)
-        }
     }
 
     private func showArtifactListFromDock() {
-        showDockContent(.artifactList, focusDock: true)
+        showDockContent(.artifactList)
     }
 
     private func openArtifactFromDock(_ artifactID: String) {
@@ -626,10 +624,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             hideBottomDock()
             return
         }
-        showDockContent(.workerChat, focusDock: true)
+        showDockContent(.workerChat)
     }
 
-    /// Shows or hides the top panel without touching the bottom one. Showing it takes the keys.
+    /// Shows or hides the top panel without touching the bottom one. Showing it leaves the keys where they are.
     @objc private func toggleVersionControlDock() {
         // Also reached from MenuController's key monitor, which runs before menu validation.
         guard InWindowModalStack.shared.isEmpty else {
@@ -644,9 +642,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         dockCoordinator.state.topVisible = true
-        let outcome = navigation.focusDockPanel(.top)
+        navigation.showDockPreservingFocus()
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
-        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     @objc private func focusDockTopPanel() {

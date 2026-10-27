@@ -96,12 +96,12 @@ enum RenderPreview {
         renderView(dockSplitView(bottom: .artifacts, top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-bottom.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
-        render(workerChatView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 640), to: "\(outputDir)/worker-chat.png")
-        render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
-        render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
+        render(workerChatView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 640), to: "\(outputDir)/worker-chat.png")
+        render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
+        render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
         render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
         render(chatItemTextDesignView(), size: CGSize(width: 441, height: 174), to: "\(outputDir)/chat-item-text-design.png")
-        render(chatItemWrappedView(), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 120), autoHeight: true, to: "\(outputDir)/chat-item-wrapped.png")
+        render(chatItemWrappedView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 120), autoHeight: true, to: "\(outputDir)/chat-item-wrapped.png")
         // No window-centring margin here: this one's meant to overlay directly on
         // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
         render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
@@ -177,7 +177,7 @@ enum RenderPreview {
         renderView(artifactPaneView(highlight: 1, marked: [0, 2], missing: [1, 3]), size: pane, to: "\(outputDir)/artifact-pane-marked.png")
         renderView(artifactPaneView(highlight: nil, empty: true), size: pane, to: "\(outputDir)/artifact-pane-empty.png")
         renderView(dockBarView(.viewer), size: CGSize(width: 480, height: 200), to: "\(outputDir)/dock-viewer.png")
-        renderView(dockBarView(.workerChat), size: CGSize(width: DockWidthPreference.workerChatWidth, height: 200), to: "\(outputDir)/dock-worker-chat.png")
+        renderView(dockBarView(.workerChat), size: CGSize(width: DockWidthPreference.panelWidth, height: 200), to: "\(outputDir)/dock-worker-chat.png")
         renderView(dockFrameView(focused: true), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-focused.png")
         renderView(dockFrameView(focused: false), size: CGSize(width: 384, height: 440), to: "\(outputDir)/dock-frame-unfocused.png")
         render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
@@ -682,7 +682,7 @@ enum RenderPreview {
         return VStack(alignment: .leading, spacing: 0) { WorkerChatRows(lines: store.lines) }
             .padding(WorkerChatMetrics.inset)
             .frame(maxHeight: .infinity, alignment: .top)
-            .frame(width: DockWidthPreference.workerChatWidth)
+            .frame(width: DockWidthPreference.panelWidth)
             .background(AppPalette.panel.swiftUI)
     }
 
@@ -691,7 +691,7 @@ enum RenderPreview {
     private static func workerChatFeedView(rounds: Int, entryLimit: Int? = nil) -> some View {
         let (store, _) = workerChatStore(rounds: rounds, entryLimit: entryLimit)
         return WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
-            .frame(width: DockWidthPreference.workerChatWidth)
+            .frame(width: DockWidthPreference.panelWidth)
             .background(AppPalette.panel.swiftUI)
     }
 
@@ -753,7 +753,7 @@ enum RenderPreview {
             ]),
         ])
         .padding(WorkerChatMetrics.inset)
-        .frame(width: DockWidthPreference.workerChatWidth, alignment: .leading)
+        .frame(width: DockWidthPreference.panelWidth, alignment: .leading)
         .background(AppPalette.panel.swiftUI)
     }
 

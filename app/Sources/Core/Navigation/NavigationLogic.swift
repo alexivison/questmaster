@@ -81,15 +81,15 @@ public struct AppNavigationState: Equatable {
     }
 
     @discardableResult
+    /// Shows or hides the tracker, keeping focus where it is: showing it doesn't take the keys, and hiding it moves them
+    /// to the terminal only when the tracker had them.
     public mutating func toggleTracker() -> NavigationOutcome {
         trackerVisible.toggle()
-        if trackerVisible {
-            focusedRegion = .tracker
-            return .focused(.tracker)
-        } else {
-            focusedRegion = .terminal
-            return .focused(.terminal)
+        guard !trackerVisible, focusedRegion == .tracker else {
+            return .unchanged
         }
+        focusedRegion = .terminal
+        return .focused(.terminal)
     }
 
     /// Focuses one dock panel (showing the dock region if it was hidden); the caller has shown the panel.
