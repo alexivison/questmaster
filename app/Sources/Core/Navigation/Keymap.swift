@@ -115,7 +115,7 @@ public enum Keymap {
         // so the modifier mask is unambiguous across keyboard layouts.
         public static let toggleDock = CommandBinding(title: "Toggle Artifacts", keyEquivalent: "a", modifiers: [.command, .shift])
         public static let toggleQuestLog = CommandBinding(title: "Toggle Quest Log", keyEquivalent: "t", modifiers: [.command, .shift])
-        public static let toggleWorkerChatDock = CommandBinding(title: "Toggle Worker Chat", keyEquivalent: "w", modifiers: [.command, .shift])
+        public static let toggleWorkerChatDock = CommandBinding(title: "Toggle Worker Log", keyEquivalent: "w", modifiers: [.command, .shift])
         // R for pull Request. ⌘⇧V would shadow Ghostty's paste_from_selection; Ghostty binds no ⌘⇧R.
         public static let toggleVersionControlDock = CommandBinding(title: "Toggle Version Control", keyEquivalent: "r", modifiers: [.command, .shift])
         // ">"/"<" match vim's window-resize convention (Ctrl-w >/Ctrl-w <). Bound via
@@ -176,6 +176,18 @@ public enum Keymap {
         public static let pageDown = KeyCodeBinding(keyCodes: [121])
         public static let lineUpCharacter = CharacterBinding(keys: ["k"])
         public static let lineDownCharacter = CharacterBinding(keys: ["j"])
+    }
+
+    /// The Worker Log's filter. `f` opens it while the dock has the keys, and the rest act inside the open dropdown.
+    public enum WorkerLog {
+        public static let toggleMenu = CharacterBinding(keys: ["f"])
+        public static let close = KeyCodeBinding(keyCodes: [53])
+        public static let moveUpKeyCodes = KeyCodeBinding(keyCodes: [126])
+        public static let moveDownKeyCodes = KeyCodeBinding(keyCodes: [125])
+        public static let moveUpCharacters = CharacterBinding(keys: ["k"])
+        public static let moveDownCharacters = CharacterBinding(keys: ["j"])
+        public static let toggleRowKeyCodes = KeyCodeBinding(keyCodes: [36, 76])
+        public static let toggleRowCharacters = CharacterBinding(keys: [" "])
     }
 
     public enum List {

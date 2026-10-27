@@ -270,7 +270,7 @@ enum AppFonts {
     /// Artifact row titles at 12pt, as artifact-item-v2.svg sets them; never bold (bold means selected).
     static let artifactTitle = monospaced(size: 12)
     static let dockTabTitle = monospaced(size: 12, weight: .semibold)
-    /// The dock top bar's title ("Artifacts", "Worker Chat"), as artifacts.svg sets it: 14pt bold, title case.
+    /// The dock top bar's title ("Artifacts", "Worker Log"), as artifacts.svg sets it: 14pt bold, title case.
     static let dockTopBarTitle = monospaced(size: 14, weight: .bold)
     static let modalButtonLabel = monospaced(size: 12.5, weight: .semibold)
     /// Sectioned-list group titles (e.g. the repo name above a Tracker group).

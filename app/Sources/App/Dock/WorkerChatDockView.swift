@@ -9,6 +9,9 @@ import SwiftUI
 /// 5pt rhythm), 20pt from the card edge on every side.
 enum WorkerChatMetrics {
     static let inset = Space.section
+    /// How far the lines fade in under the header (the top bar, and the filter's chips when there are any): the feed's own
+    /// top inset, so a feed scrolled to its top starts with its first line where the fade ends.
+    static let topFadeHeight = inset
     /// The font's line, typography rather than spacing: JetBrains Mono 12's 15.84 ceiled.
     static let lineHeight: CGFloat = 16
     static let itemGap = Space.item
@@ -70,19 +73,53 @@ enum WorkerChatMetrics {
     }
 }
 
-/// The worker chat dock: a chronological feed, newest at the bottom. A tab bar can sit above
-/// `WorkerChatFeedView` later without touching the feed itself.
+/// The worker log dock: the filter's chips, then a chronological feed, newest at the bottom. The filter's dropdown
+/// hangs `Space.row` under the top bar at the right, over the chips and the feed; a click on either closes it.
 struct WorkerChatDockView: View {
     let store: WorkerChatStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if store.isKnownEmpty {
-                EmptyState()
-            } else if !store.lines.isEmpty {
-                WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
+            if !store.chips.isEmpty {
+                WorkerLogChipRow(chips: store.chips, onClear: store.clearFilter)
             }
-            readNotice
+            // Greedy, so the chips stay under the top bar when nothing under them is (a first read still pending or
+            // failed): a lone notice sits in the middle of what is left, as it does with no chips.
+            VStack(alignment: .leading, spacing: 0) {
+                if store.isKnownEmpty {
+                    EmptyState()
+                } else if !store.lines.isEmpty {
+                    WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
+                }
+                readNotice
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .overlay { filterMenu }
+    }
+
+    /// The dropdown can be as tall as the dock leaves it: below its `Space.row` under the bar, and above the dock's
+    /// bottom inset. Past that its rows scroll.
+    @ViewBuilder
+    private var filterMenu: some View {
+        if store.menu.isOpen {
+            GeometryReader { dock in
+                ZStack(alignment: .topTrailing) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { store.closeMenu() }
+                    WorkerLogFilterPanel(
+                        rows: store.menuRows,
+                        filter: store.filter,
+                        cursor: store.menu.cursor,
+                        maxHeight: max(dock.size.height - Space.row - WorkerChatMetrics.inset, 0),
+                        onToggle: store.toggleRow
+                    )
+                    .padding(.top, Space.row)
+                    .padding(.trailing, WorkerChatMetrics.inset)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
         }
     }
 
@@ -97,7 +134,6 @@ struct WorkerChatDockView: View {
                 .padding(.bottom, WorkerChatMetrics.inset)
         }
     }
-
 }
 
 /// A scrolling feed that keeps its bottom edge in view while the user stays at the bottom. The
@@ -123,6 +159,15 @@ struct WorkerChatFeedView: View {
                 .background(ScrollerHider())
             }
             .scrollIndicators(.hidden)
+        }
+        // The Quest Log page's overflow cue, at the top only: the lines scrolled up under the header fade out over the
+        // feed's first `topFadeHeight` instead of being cut at its edge.
+        .mask {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, AppPalette.mask.swiftUI], startPoint: .top, endPoint: .bottom)
+                    .frame(height: WorkerChatMetrics.topFadeHeight)
+                AppPalette.mask.swiftUI
+            }
         }
     }
 }

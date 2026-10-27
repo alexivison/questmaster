@@ -28,18 +28,23 @@ public enum WorkerChatRarity: Equatable {
     case epic
 }
 
-/// One feed entry: its HH:MM time, the agent whose logo it shows, and its text runs.
+/// One feed entry: its HH:MM time, the agent whose logo it shows, and its text runs. `workerID` and `action` are what
+/// the log filter matches; a line drawn outside the store (a fixture) leaves them at their defaults.
 public struct WorkerChatLine: Identifiable, Equatable {
     public let id: String
     public let time: String
     public let agent: String
     public let segments: [WorkerChatSegment]
+    public let workerID: String
+    public let action: WorkerLogAction
 
-    public init(id: String, time: String, agent: String, segments: [WorkerChatSegment]) {
+    public init(id: String, time: String, agent: String, segments: [WorkerChatSegment], workerID: String = "", action: WorkerLogAction = .message) {
         self.id = id
         self.time = time
         self.agent = agent
         self.segments = segments
+        self.workerID = workerID
+        self.action = action
     }
 }
 
@@ -93,6 +98,13 @@ public enum WorkerChatLineBuilder {
         var sequence: Int
         var sources: [Int]
         var body: Body
+
+        var action: WorkerLogAction {
+            switch body {
+            case .run: .cast
+            case .record(let record): record.kind.logAction
+            }
+        }
     }
 
     /// `records` must already be in chronological order. Same-worker actions in one minute fold
@@ -135,7 +147,9 @@ public enum WorkerChatLineBuilder {
                     id: draft.id,
                     time: timeLabel(draft.timestamp, calendar: calendar),
                     agent: agents[draft.workerID] ?? "",
-                    segments: [WorkerChatSegment(displayName(names[draft.workerID] ?? draft.workerID) + ":", .name)] + segments(for: draft.body)
+                    segments: [WorkerChatSegment(displayName(names[draft.workerID] ?? draft.workerID) + ":", .name)] + segments(for: draft.body),
+                    workerID: draft.workerID,
+                    action: draft.action
                 )
             },
             sources: drafts.map(\.sources)

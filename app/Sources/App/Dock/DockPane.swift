@@ -78,7 +78,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         if !GChordShortcut.isPrefix(event) {
             readSurfaceGTracker.reset()
         }
-        if model.handleKeyDown(event, snapshot: store.snapshot) {
+        if handleWorkerLogFilter(event) || model.handleKeyDown(event, snapshot: store.snapshot) {
             return
         }
         if handleReadSurfaceScroll(event) {
@@ -100,9 +100,27 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         if !GChordShortcut.isPrefix(event) {
             readSurfaceGTracker.reset()
         }
-        return model.handleKeyDown(event, snapshot: store.snapshot)
+        return handleWorkerLogFilter(event)
+            || model.handleKeyDown(event, snapshot: store.snapshot)
             || handleReadSurfaceScroll(event)
             || super.performKeyEquivalent(with: event)
+    }
+
+    /// The Worker Log filter's keys, ahead of the feed's own: while the dropdown is open j/k and the arrows move its
+    /// cursor instead of scrolling.
+    private func handleWorkerLogFilter(_ event: NSEvent) -> Bool {
+        guard model.currentMode == .workerChat else {
+            return false
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isDisjoint(with: [.command, .control, .option, .shift]) else {
+            return false
+        }
+        let key = WorkerLogFilterKey.resolve(keyCode: event.keyCode, character: event.charactersIgnoringModifiers, menuIsOpen: workerChatStore.menu.isOpen)
+        guard let key else {
+            return false
+        }
+        return workerChatStore.handle(key)
     }
 
     private var textInputOwnsFocus: Bool {
@@ -293,6 +311,10 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         if currentReadSurface != previousSurface {
             readSurfaceGTracker.reset()
         }
+        // The filter's dropdown belongs to the worker log: leaving it closes the dropdown.
+        if model.currentMode != .workerChat {
+            workerChatStore.closeMenu()
+        }
         return update
     }
 
@@ -303,6 +325,10 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     }
 
     func setFocused(_ focused: Bool) {
+        // A click elsewhere, or a modal, takes the keys: the dropdown closes with them.
+        if !focused {
+            workerChatStore.closeMenu()
+        }
         model.setFocused(focused)
     }
 

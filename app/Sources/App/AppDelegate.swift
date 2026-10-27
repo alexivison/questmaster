@@ -265,7 +265,13 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
         handles.topDockShell.onHideDock = { [weak self] in self?.hideVersionControl() }
+        handles.topDockShell.onDismissLogFilter = { [weak self] in self?.workerChatStore.closeMenu() }
         handles.bottomDockShell.onHideDock = { [weak self] in self?.hideBottomDock() }
+        handles.bottomDockShell.onToggleLogFilter = { [weak self] in
+            self?.focusCoordinator.focusDockPanel(.bottom)
+            self?.workerChatStore.toggleMenu()
+        }
+        handles.bottomDockShell.onDismissLogFilter = { [weak self] in self?.workerChatStore.closeMenu() }
         handles.bottomDockShell.onArtifactBack = { [weak self] in self?.showArtifactListFromDock() }
         handles.bottomDockShell.onCopyArtifactPath = { [weak self] in
             guard let self else {
@@ -390,6 +396,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             animateDockLayout: animateDockLayout
         )
         syncWorkerChat()
+        // The worker log's attachment settles in the sync above, after the render updated the tabs.
+        updateDockTabs()
         syncPullRequests()
         if questLogStore.isOpen {
             syncQuestLog()
@@ -453,7 +461,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         shellHandles?.bottomDockShell.updateTabs(
             mode: dockView?.currentMode ?? .artifacts,
             artifactRoute: dockView?.currentArtifactRoute ?? .list,
-            artifactTitle: dockView?.currentArtifactTitle
+            artifactTitle: dockView?.currentArtifactTitle,
+            logAttached: workerChatStore.isAttached
         )
     }
 

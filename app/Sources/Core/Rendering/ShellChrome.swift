@@ -18,7 +18,8 @@ public enum ArtifactDockRoute: Equatable {
 }
 
 /// Fully resolved dock top-bar layout: which back affordance (if any), the
-/// optional title, and whether an artifact's actions show.
+/// optional title, and whether an artifact's actions or the worker log's filter show.
+/// The filter shows only while the worker log is attached to a master, the one case it can open.
 public struct DockTopBarModel: Equatable {
     public enum Back: Equatable {
         case artifactList
@@ -27,37 +28,42 @@ public struct DockTopBarModel: Equatable {
     public let back: Back?
     public let title: String?
     public let showArtifactActions: Bool
+    public let showsLogFilter: Bool
 
     public init(
         back: Back?,
         title: String?,
-        showArtifactActions: Bool
+        showArtifactActions: Bool,
+        showsLogFilter: Bool
     ) {
         self.back = back
         self.title = title
         self.showArtifactActions = showArtifactActions
+        self.showsLogFilter = showsLogFilter
     }
 
     /// The top panel's bar: its title and the close button, nothing else.
-    public static let versionControl = DockTopBarModel(back: nil, title: "Version Control", showArtifactActions: false)
+    public static let versionControl = DockTopBarModel(back: nil, title: "Version Control", showArtifactActions: false, showsLogFilter: false)
 
     public static func make(
         mode: DockContentMode,
         artifactRoute: ArtifactDockRoute,
-        artifactTitle: String?
+        artifactTitle: String?,
+        logAttached: Bool
     ) -> DockTopBarModel {
         let viewingArtifact = mode == .artifacts && artifactRoute == .viewer
         return DockTopBarModel(
             back: viewingArtifact ? .artifactList : nil,
             title: title(mode: mode, viewingArtifact: viewingArtifact, artifactTitle: artifactTitle),
-            showArtifactActions: viewingArtifact
+            showArtifactActions: viewingArtifact,
+            showsLogFilter: mode == .workerChat && logAttached
         )
     }
 
     private static func title(mode: DockContentMode, viewingArtifact: Bool, artifactTitle: String?) -> String {
         switch mode {
         case .workerChat:
-            return "Worker Chat"
+            return "Worker Log"
         case .artifacts:
             return viewingArtifact ? (artifactTitle ?? "Artifact") : "Artifacts"
         }
