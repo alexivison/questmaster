@@ -9,21 +9,21 @@ enum SkeletonMotion {
 
 /// The skeletons' one shimmer: the content breathing between two opacities, in Core Animation only. SwiftUI draws the content
 /// once, in a hosting view whose layer Core Animation fades, so nothing redraws while it breathes, which the terminal, sharing the
-/// main thread, needs. It breathes only while in a window, and holds still under Reduce Motion. It fills the space it is given
-/// and takes no clicks.
+/// main thread, needs. It breathes only while in a window, and holds still under Reduce Motion, which it reads where every
+/// animation does (`Motion.reducesMotion`), not from SwiftUI's environment, which asks the system and so ignores the self-tests'
+/// override. It fills the space it is given and takes no clicks.
 struct SkeletonPulse<Content: View>: NSViewRepresentable {
     /// The opacity the breath starts from and the one it rests at under Reduce Motion.
     let from: Double
     let to: Double
     @ViewBuilder let content: Content
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeNSView(context: Context) -> SkeletonPulseView<Content> {
         SkeletonPulseView(rootView: content)
     }
 
     func updateNSView(_ view: SkeletonPulseView<Content>, context: Context) {
-        view.configure(rootView: content, from: from, to: to, reduceMotion: reduceMotion)
+        view.configure(rootView: content, from: from, to: to, reduceMotion: Motion.reducesMotion())
     }
 }
 
@@ -81,7 +81,7 @@ final class SkeletonPulseView<Content: View>: NSView {
         breath.fromValue = from
         breath.toValue = to
         breath.duration = SkeletonMotion.period
-        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.timingFunction = Motion.breathingTimingFunction
         breath.autoreverses = true
         breath.repeatCount = .infinity
         layer.add(breath, forKey: SkeletonMotion.animationKey)

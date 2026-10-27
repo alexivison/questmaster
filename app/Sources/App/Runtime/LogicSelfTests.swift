@@ -1437,6 +1437,7 @@ enum LogicSelfTests {
                 && breath.duration == SkeletonMotion.period && breath.autoreverses && breath.repeatCount == .infinity,
             "it fades between its two opacities, once every \(SkeletonMotion.period)s, for good"
         )
+        try expect(breath.timingFunction === Motion.breathingTimingFunction, "and on the breathing easing, the token")
         pulse.configure(rootView: Color.clear, from: 0.6, to: 0.7, reduceMotion: true)
         try expect(pulse.pulseAnimation == nil && pulse.layer?.opacity == 0.7, "Reduce Motion holds it still at the resting opacity")
         pulse.configure(rootView: Color.clear, from: 0.6, to: 0.7, reduceMotion: false)
@@ -1474,6 +1475,16 @@ enum LogicSelfTests {
             ),
             dismiss: {}
         )
+
+        // Reduce Motion is read where every animation reads it (`Motion.reducesMotion`), so the runner's setting rules whatever
+        // the machine says; a CI runner has it on, and a skeleton that asked SwiftUI's environment instead never breathed there.
+        // Forced on here, the real skeletons must hold still, which only a view reading the token can do on a machine without it.
+        Motion.reducesMotion = { true }
+        defer { Motion.reducesMotion = { false } }
+        try expect(hosted(TerminalAttachSkeleton()).isEmpty, "the terminal's veil holds still under Reduce Motion")
+        try expect(hosted(tracker("connecting to backend...")).isEmpty, "the tracker's ghost plates hold still under Reduce Motion")
+        try expect(hosted(settings).isEmpty, "the Settings pickers hold still under Reduce Motion")
+        Motion.reducesMotion = { false }
 
         let veil = hosted(TerminalAttachSkeleton())
         try expect(veil.count == 1 && veil[0].duration == SkeletonMotion.period, "the terminal's veil should be one breath, got \(veil.count)")

@@ -242,8 +242,9 @@ again where it was when the keys come back.
 - A list still loading is a skeleton: a ghost of the real thing, in its own shapes and palette (the tracker's is
   `TrackerNameplateBackground`'s plates with no text, status or portrait, the Settings picker's is `fieldChrome`, the
   terminal's is `SkeletonBar` lines), breathing in `SkeletonPulse`. That is one Core Animation fade of the layer SwiftUI drew
-  the ghost on, `SkeletonMotion.period` (1.6s) each way, only while in a window, still under Reduce Motion: SwiftUI never
-  animates a skeleton, so nothing redraws while the terminal shares the main thread.
+  the ghost on, `SkeletonMotion.period` (1.6s) each way on `Motion.breathingTimingFunction`, only while in a window, still
+  under Reduce Motion (read through `Motion.reducesMotion`, not SwiftUI's environment, so the self-tests' override applies):
+  SwiftUI never animates a skeleton, so nothing redraws while the terminal shares the main thread.
 - Dock titles (Artifacts, Worker Chat, Version Control, an open artifact) are title case in
   `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Version
   Control's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
@@ -382,8 +383,7 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 - **raw-duration**: a number literal as an animation's `duration:` / `.duration =` / `.delay(` /
   `setAnimationDuration(` (0 is allowed), or a SwiftUI curve built outside the token layer (`.easeOut`, `.snappy`,
   `.spring`, `.default` … in `withAnimation`, `.animation` or an `Animation` value; they carry a default duration of
-  their own). The one exception is a SwiftUI animation chained into `.repeatForever` on the same line (the skeletons'
-  pulse); it goes when those pulses take the breathing token.
+  their own); a repeating SwiftUI animation is no exception.
 - **duration-constant**: a constant or local whose name ends in a timing word (duration, delay, time, fade, crossfade,
   sweep, flash, transition, glide, unroll) assigned a non-zero literal, typed or inferred (`let fadeTime = 0.4`); it
   comes from a step. A continuous animation names its `period`.
