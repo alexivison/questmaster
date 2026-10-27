@@ -115,6 +115,11 @@ struct InteractionLookTests {
         expect(hoveredMissing.fill == nil && hoveredMissing.outline == RowLook.hovered.outline && !hoveredMissing.bold,
                "a missing file's resting row under the pointer shows the hover outline")
         expect(hoveredMissing.icon == .warn, "and keeps its warning icon")
+        for look in [RowLook.rest, .highlighted, .highlightedUnfocused] {
+            expect(look.dimmed.text == look.meta && look.dimmed.icon == look.meta && look.dimmed.meta == look.meta, "a dimmed row's text and icon drop to the meta step")
+            expect(look.dimmed.fill == look.fill && look.dimmed.iconBorder == look.iconBorder && !look.dimmed.bold, "dimming leaves the fill and border alone")
+            expect(look.dimmed.warned.icon == .warn && look.dimmed.warned.text == look.meta, "a dimmed row can still warn")
+        }
         expect(MarkLook.color(marked: true) == .accent, "a mark is the one gold")
         expect(MarkLook.color(marked: false) != .accent, "an unmarked row carries no gold")
     }

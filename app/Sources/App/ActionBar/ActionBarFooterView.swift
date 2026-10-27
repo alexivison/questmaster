@@ -35,6 +35,7 @@ struct ActionBarFooterView: View {
     let onOpenArtifacts: () -> Void
     let onOpenQuests: () -> Void
     let onOpenWorkerChat: () -> Void
+    let onOpenVersionControl: () -> Void
     let onToggleCaffeine: () -> Void
     let onOpenSettings: () -> Void
 
@@ -65,8 +66,8 @@ struct ActionBarFooterView: View {
         }
     }
 
-    /// The eleven slots, left to right. The worker chat keeps its place in the first empty slot after
-    /// new session until the design settles its slot; the other empty slots are placeholders.
+    /// The eleven slots, left to right. The worker chat and version control keep their places in the first empty
+    /// slots after new session until the design settles their slots; the other empty slots are placeholders.
     private func slots(navState: AppNavigationState) -> [ActionBarSlotSpec] {
         [
             ActionBarSlotSpec(
@@ -87,7 +88,13 @@ struct ActionBarFooterView: View {
                 isActive: navState.dockVisible && model.dockContentMode == .workerChat,
                 action: onOpenWorkerChat
             ),
-            .empty, .empty, .empty, .empty,
+            ActionBarSlotSpec(
+                symbolName: "arrow.triangle.pull",
+                tooltip: tooltip("Open Version Control", Keymap.Command.toggleVersionControlDock),
+                isActive: navState.dockVisible && model.dockContentMode == .versionControl,
+                action: onOpenVersionControl
+            ),
+            .empty, .empty, .empty,
             ActionBarSlotSpec(
                 symbolName: "checklist",
                 tooltip: tooltip("Quest Log", Keymap.Command.toggleQuestLog),

@@ -10,6 +10,11 @@ struct PullRequestStoreTests {
         failureKeepsRowsAndShowsNotice()
         unchangedSyncKeepsDisplayRowsBuffer()
         emptyRevisionSkipsPullAndClearsRows()
+        cursorStartsFirstMovesAndClamps()
+        cursorFollowsItsRowAndFallsBack()
+        commandsBuildEffects()
+        unwatchedFollowsTheRevision()
+        refreshFailureKeepsRowsAndShowsNotice()
         print("PullRequestStoreTests: all tests passed")
     }
 
@@ -99,6 +104,86 @@ struct PullRequestStoreTests {
         expect(store.rows.count == 1, "nonempty revision should load a row")
         expect(store.sync(selectedSessionID: "master", sessions: [session("master")], isVisible: true) == nil, "unwatching last PR should not pull")
         expect(store.rows.isEmpty && store.displayRows.isEmpty, "unwatching last PR should clear rows")
+    }
+
+    private static func loadedStore(_ numbers: [Int]) -> PullRequestStore {
+        let store = PullRequestStore()
+        let request = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "1")], isVisible: true)!
+        _ = store.apply(response: numbers.map { PullRequestModelsTests.row($0, status: PullRequestModelsTests.status(updated: "2026-06-\(10 + $0)T00:00:00Z")) }, for: request)
+        return store
+    }
+
+    /// Newest first, so row 3 sorts first.
+    private static func cursorStartsFirstMovesAndClamps() {
+        let store = loadedStore([1, 2, 3])
+        expect(store.cursorKey?.hasSuffix("#3") == true, "the cursor starts on the first row")
+        _ = store.handle(.move(1))
+        expect(store.cursorKey?.hasSuffix("#2") == true, "down moves to the next row")
+        _ = store.handle(.move(5))
+        expect(store.cursorKey?.hasSuffix("#1") == true, "down clamps at the last row")
+        _ = store.handle(.move(-5))
+        expect(store.cursorKey?.hasSuffix("#3") == true, "up clamps at the first row")
+        store.setCursor(store.displayRows[1].pullRequest.key)
+        expect(store.cursorKey?.hasSuffix("#2") == true, "a click picks its row")
+        store.setCursor("github.com/owner/repo#999")
+        expect(store.cursorKey?.hasSuffix("#2") == true, "a click on a row that's gone changes nothing")
+        let empty = PullRequestStore()
+        _ = empty.handle(.move(1))
+        expect(empty.cursorKey == nil, "no rows, no cursor")
+    }
+
+    private static func cursorFollowsItsRowAndFallsBack() {
+        let store = loadedStore([1, 2, 3])
+        _ = store.handle(.move(1))
+        let picked = store.cursorKey
+        let request = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "2")], isVisible: true)!
+        let newest = PullRequestModelsTests.row(2, status: PullRequestModelsTests.status(updated: "2026-07-01T00:00:00Z"))
+        _ = store.apply(response: [PullRequestModelsTests.row(1), newest, PullRequestModelsTests.row(3)], for: request)
+        expect(store.displayRows.first?.pullRequest.key == picked && store.cursorKey == picked, "the cursor follows its row through a re-sort")
+        let gone = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "3")], isVisible: true)!
+        _ = store.apply(response: [PullRequestModelsTests.row(1)], for: gone)
+        expect(store.cursorKey == store.displayRows.first?.pullRequest.key, "a vanished row's cursor falls back to the first row")
+        let other = store.sync(selectedSessionID: "worker", sessions: [session("master", rev: "3"), session("worker", role: "worker", rev: "1")], isVisible: true)!
+        expect(store.cursorKey == nil && other.sessionID == "worker", "a new selection clears the cursor")
+    }
+
+    private static func commandsBuildEffects() {
+        let store = loadedStore([1, 2])
+        let url = URL(string: "https://github.com/Owner/Repo/pull/2")!
+        expect(store.handle(.open) == .open(url), "open takes the cursor row's page")
+        expect(store.handle(.copyURL) == .copy(url), "copy takes the cursor row's page")
+        expect(store.handle(.move(1)) == nil, "moving builds no effect")
+        guard case .refresh(let request)? = store.handle(.refresh) else {
+            expect(false, "refresh scopes to the selected session")
+            return
+        }
+        expect(request.sessionID == "master", "refresh scopes to the selected session")
+        let object = request.jsonObject(id: "r-1")
+        let data = object["data"] as? [String: Any]
+        expect(object["method"] as? String == "pr.refresh" && object["id"] as? String == "r-1", "refresh method and id")
+        expect(data?["session_id"] as? String == "master" && data?["wait"] as? Bool == false, "refresh scope and no waiting")
+        let empty = PullRequestStore()
+        expect(empty.handle(.open) == nil && empty.handle(.copyURL) == nil && empty.handle(.refresh) == nil, "nothing selected, nothing to do")
+    }
+
+    private static func unwatchedFollowsTheRevision() {
+        let store = PullRequestStore()
+        expect(store.isUnwatched, "no session is unwatched")
+        _ = store.sync(selectedSessionID: "master", sessions: [session("master")], isVisible: true)
+        expect(store.isUnwatched, "an empty revision is unwatched")
+        _ = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "1")], isVisible: true)
+        expect(!store.isUnwatched, "a revision means pull requests are watched, even before they load")
+        _ = store.sync(selectedSessionID: "master", sessions: [session("master")], isVisible: true)
+        expect(store.isUnwatched, "unwatching the last one shows the empty state")
+    }
+
+    private static func refreshFailureKeepsRowsAndShowsNotice() {
+        let store = loadedStore([1])
+        store.failRefresh()
+        expect(store.rows.count == 1 && store.readNotice == "Couldn't refresh pull requests", "a refused refresh keeps the rows and says so")
+        let request = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "2")], isVisible: true)!
+        _ = store.apply(response: [PullRequestModelsTests.row(1)], for: request)
+        expect(store.readNotice == nil, "the next pull clears the notice")
     }
 
     private static func session(_ id: String, role: String = "master", rev: String = "") -> TrackerSession {
