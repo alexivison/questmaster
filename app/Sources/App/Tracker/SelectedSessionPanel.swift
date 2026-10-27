@@ -68,9 +68,14 @@ struct SelectedSessionPanel: View {
     private static let projectBaseline: CGFloat = 64.5
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        let logo = content.portrait == nil ? Self.logo : nil
+        // The Q's own canvas is the biggest thing in the stack, so it sets the size the Canvases draw at: 289 x 76 with
+        // the Q, 260 x 75 with a portrait, as it always was.
+        let logoSlot = logo == nil ? Self.canvasSize : Self.logoSize
+        return ZStack(alignment: .topLeading) {
             Canvas { context, _ in
                 drawStrips(&context)
+                drawDiscBase(&context)
             }
             TrackerPlateLine(
                 text: content.id,
@@ -96,24 +101,28 @@ struct SelectedSessionPanel: View {
                 width: Self.textRightEdge - Self.textX,
                 baseline: Self.projectBaseline
             )
-            Canvas { context, _ in
-                drawDiscBase(&context)
-            }
-            if content.portrait != nil {
+            // The portrait sits between the disc's base and its overlay, the Q over all of it, so each is its own fading
+            // layer. Both stay mounted so a switch between a class and the Q fades the new icon in; the one with
+            // nothing to show fades nothing visible.
+            IconFade(key: content.iconKey) {
                 Canvas { context, _ in
                     drawPortrait(&context)
                 }
-                .fadesIn(on: content.iconKey)
             }
+            .frame(width: Self.canvasSize.width, height: Self.canvasSize.height)
+            .allowsHitTesting(false)
             Canvas { context, _ in
                 drawDiscOverlay(&context)
             }
-            if content.portrait == nil, let logo = Self.logo {
-                Image(nsImage: logo)
-                    .resizable()
-                    .frame(width: Self.logoSize.width, height: Self.logoSize.height)
-                    .fadesIn(on: content.iconKey)
+            IconFade(key: content.iconKey) {
+                if let logo {
+                    Image(nsImage: logo)
+                        .resizable()
+                        .frame(width: Self.logoSize.width, height: Self.logoSize.height)
+                }
             }
+            .frame(width: logoSlot.width, height: logoSlot.height)
+            .allowsHitTesting(false)
         }
         .frame(width: Self.canvasSize.width, height: Self.canvasSize.height, alignment: .topLeading)
         .contentShape(Rectangle())
@@ -143,8 +152,8 @@ struct SelectedSessionPanel: View {
     }
 
     /// The disc and its shadow, then the class portrait, its inner shadow and the ornaments over it, in the SVG's order,
-    /// as three layers so the portrait fades in on its own (`fadesIn`). Without a portrait the logo draws over all
-    /// of them.
+    /// as three layers so the portrait fades in on its own (`IconFade`): the base, with the strips it draws over, the
+    /// portrait's layer, and the overlay. Without a portrait the logo draws over all of them.
     private func drawDiscBase(_ context: inout GraphicsContext) {
         context.fillOuterShadow(PanelDesign.disc, PanelDesign.discOuterShadow)
         context.fill(PanelDesign.disc, with: .color(AppPalette.panel.swiftUI))
@@ -171,12 +180,71 @@ struct SelectedSessionPanel: View {
     }
 }
 
-private extension View {
-    /// Fades this view in from clear each time `key` changes, once, over the standard motion step (none under Reduce
-    /// Motion). A new key makes a new view, which is inserted with the fade; the old one goes at once. The first
-    /// appearance doesn't fade.
-    func fadesIn(on key: String) -> some View {
-        id(key).transition(.asymmetric(insertion: .opacity.animation(Motion.animation(.standard)), removal: .identity))
+enum IconFadeMotion {
+    static let animationKey = "icon-fade"
+}
+
+/// Fades `content` in from clear each time `key` changes, once, over the standard motion step, in Core Animation only.
+/// SwiftUI draws the content in a hosting view whose layer Core Animation fades, so the render server runs the fade and
+/// the main thread, which the terminal shares, redraws nothing for it. The new content is in place when the fade starts, so
+/// the old goes at once. The first key, a change while no window shows the view, and Reduce Motion (read where every
+/// animation does, `Motion.reducesMotion`) show no fade. The animation ends on its own: nothing is left running. It
+/// fills the space it is given and takes no clicks.
+struct IconFade<Content: View>: NSViewRepresentable {
+    let key: String
+    @ViewBuilder let content: Content
+
+    func makeNSView(context: Context) -> IconFadeView {
+        IconFadeView(rootView: AnyView(content))
+    }
+
+    func updateNSView(_ view: IconFadeView, context: Context) {
+        view.configure(rootView: AnyView(content), key: key)
+    }
+}
+
+final class IconFadeView: NSView {
+    private let host: NSHostingView<AnyView>
+    private var key: String?
+
+    init(rootView: AnyView) {
+        host = NSHostingView(rootView: rootView)
+        // The icon is sized by the slot it fills, not by its content's minimum.
+        host.sizingOptions = []
+        super.init(frame: .zero)
+        wantsLayer = true
+        host.frame = bounds
+        host.autoresizingMask = [.width, .height]
+        addSubview(host)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The fade while it runs, nil when it doesn't. Tests read it.
+    var fadeAnimation: CABasicAnimation? { layer?.animation(forKey: IconFadeMotion.animationKey) as? CABasicAnimation }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func configure(rootView: AnyView, key: String) {
+        host.rootView = rootView
+        let previous = self.key
+        self.key = key
+        guard let layer, let previous, previous != key else {
+            return
+        }
+        layer.removeAnimation(forKey: IconFadeMotion.animationKey)
+        guard window != nil, !Motion.reducesMotion() else {
+            return
+        }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.0
+        fade.toValue = 1.0
+        fade.duration = Motion.duration(.standard)
+        fade.timingFunction = Motion.timingFunction
+        layer.add(fade, forKey: IconFadeMotion.animationKey)
     }
 }
 

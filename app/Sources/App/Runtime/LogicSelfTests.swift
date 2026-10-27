@@ -919,22 +919,32 @@ enum LogicSelfTests {
     @MainActor
     private static func testSelectedSessionPanelFrameKeepsItsRoundedCorners() throws {
         let content = SelectedSessionPanelContent(title: "", id: "", projectName: "", projectColor: AppPalette.accent)
-        let renderer = ImageRenderer(content: SelectedSessionPanel(content: content, onCopyID: { _ in }))
-        renderer.scale = 2
-        guard let image = renderer.cgImage else {
-            throw TestFailure("the panel should render to an image")
+        let size = SelectedSessionPanel.canvasSize
+        let scale: CGFloat = 2
+        // A real window, not `ImageRenderer`, which can't draw the panel's icon layers (they host their own views).
+        let window = HeadlessWindow(size: size, scale: scale)
+        defer { window.close() }
+        let view = NSHostingView(rootView: SelectedSessionPanel(content: content, onCopyID: { _ in }))
+        view.frame = NSRect(origin: .zero, size: size)
+        window.contentView = view
+        window.show()
+        func pixel(_ bitmap: NSBitmapImageRep, _ x: CGFloat, _ y: CGFloat) -> NSColor? {
+            bitmap.colorAt(x: Int(x * scale), y: Int(y * scale))?.usingColorSpace(.sRGB)
         }
-        let bitmap = NSBitmapImageRep(cgImage: image)
+        var bitmap = try snapshot(view, size: size, scale: scale)
+        try expect(waitUntil {
+            if let next = try? snapshot(view, size: size, scale: scale) {
+                bitmap = next
+            }
+            return (pixel(bitmap, 258.5, 24.5)?.alphaComponent ?? 0) > 0.9
+        }, "the panel should draw its frame")
         try expect(bitmap.pixelsWide == 520 && bitmap.pixelsHigh == 150, "the panel should render 260 x 75 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
-        func pixel(_ x: CGFloat, _ y: CGFloat) -> NSColor? {
-            bitmap.colorAt(x: Int(x * 2), y: Int(y * 2))?.usingColorSpace(.sRGB)
-        }
-        guard let arc = pixel(258.5, 24.5), let outside = pixel(259.5, 22) else {
+        guard let arc = pixel(bitmap, 258.5, 24.5), let outside = pixel(bitmap, 259.5, 22) else {
             throw TestFailure("the corner pixels should be readable")
         }
         try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
         try expect(arc.alphaComponent > 0.9 && arc.redComponent > 0.22, "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
-        guard let bottomArc = pixel(258.5, 65) else {
+        guard let bottomArc = pixel(bitmap, 258.5, 65) else {
             throw TestFailure("the bottom-right pixel should be readable")
         }
         try expect(bottomArc.alphaComponent > 0.9 && bottomArc.redComponent > 0.22, "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
@@ -956,15 +966,25 @@ enum LogicSelfTests {
         }
     }
 
-    /// The class icon fades in when the attached session (or its portrait) changes: once, over the standard step, the
-    /// old icon gone at once, ending as the icon looks drawn fresh. Reduce Motion, and an edit that leaves the session
-    /// and its portrait alone, show no fade. Frames are the disc's pixels in an off-screen window, read at fixed times.
+    /// The class icon fades in when the attached session (or its portrait) changes, in Core Animation: one opacity animation on
+    /// the icon's own layer, from clear to full over the standard step on the shared easing, run once by the render server with
+    /// the views left in place (the icon is neither re-created nor redrawn for it). The first icon, an edit that leaves the
+    /// session and its portrait alone, a view outside a window and Reduce Motion show no fade. The disc's pixels are the model
+    /// layers', which the fade leaves alone: the new icon is in them when the fade starts and they end as drawn fresh.
     private static func testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges() throws {
+        defer { Motion.reducesMotion = { false } }
+        Motion.reducesMotion = { false }
         func content(id: String, title: String = "Fix bug", portrait: SessionPortrait?) -> SelectedSessionPanelContent {
             SelectedSessionPanelContent(title: title, id: id, projectName: "Preview", projectColor: AppPalette.accent, portrait: portrait)
         }
-        func spin(_ seconds: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
-        func host(_ initial: SelectedSessionPanelContent) -> (model: SelectedSessionPanelFadeModel, view: NSView, window: HeadlessWindow) {
+        func views(under view: NSView) -> [NSView] { [view] + view.subviews.flatMap { views(under: $0) } }
+        func icons(in view: NSView) -> [IconFadeView] { views(under: view).compactMap { $0 as? IconFadeView } }
+        func fades(in view: NSView) -> [CABasicAnimation] { icons(in: view).compactMap(\.fadeAnimation) }
+        /// The clearest an animating icon layer is right now, as Core Animation shows it: 1 when none is animating.
+        func shownOpacity(in view: NSView) -> Float {
+            icons(in: view).filter { $0.fadeAnimation != nil }.compactMap { $0.layer?.presentation()?.opacity }.min() ?? 1
+        }
+        func host(_ initial: SelectedSessionPanelContent) throws -> (model: SelectedSessionPanelFadeModel, view: NSView, window: HeadlessWindow) {
             let model = SelectedSessionPanelFadeModel(initial)
             let size = SelectedSessionPanel.canvasSize
             let window = HeadlessWindow(size: size)
@@ -972,7 +992,7 @@ enum LogicSelfTests {
             view.frame = NSRect(origin: .zero, size: size)
             window.contentView = view
             window.show()
-            spin(0.4)
+            try expect(waitUntil { icons(in: view).count == 2 }, "the panel should mount its two icon layers, the portrait's and the Q's")
             return (model, view, window)
         }
         /// The bytes of the disc's square, 64 across, from the panel's top left.
@@ -991,46 +1011,97 @@ enum LogicSelfTests {
             }
             return bytes
         }
+        /// The disc once its portrait has drawn: a portrait has far more shades than the bare disc.
+        let portraitShades = 100
+        func drawnDisc(_ view: NSView) throws -> [UInt8] {
+            var bytes: [UInt8] = []
+            try expect(waitUntil {
+                bytes = (try? disc(view)) ?? []
+                return Set(bytes).count > portraitShades
+            }, "the portrait should draw")
+            return bytes
+        }
         func distance(_ a: [UInt8], _ b: [UInt8]) -> Double {
             Double(zip(a, b).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }) / Double(max(1, a.count))
+        }
+        func isDrawnAs(_ view: NSView, _ settled: [UInt8]) -> Bool {
+            (try? disc(view)).map { distance($0, settled) < 1.5 } ?? false
         }
 
         let paladin = content(id: "qm-a", portrait: .master(.paladin))
         let wizard = content(id: "qm-b", portrait: .master(.wizard))
-        let fresh = host(wizard)
+        let shell = content(id: "qm-c", portrait: nil)
+        let fresh = try host(wizard)
         defer { fresh.window.close() }
-        let wizardSettled = try disc(fresh.view)
+        let wizardSettled = try drawnDisc(fresh.view)
 
-        let (model, view, window) = host(paladin)
+        let (model, view, window) = try host(paladin)
         defer { window.close() }
-        let paladinSettled = try disc(view)
+        let paladinSettled = try drawnDisc(view)
         try expect(distance(paladinSettled, wizardSettled) > 5, "the two classes should draw differently, got \(distance(paladinSettled, wizardSettled))")
+        try expect(fades(in: view).isEmpty, "the first icon should not fade in")
+        let mounted = views(under: view).map(ObjectIdentifier.init)
 
+        // A new session's icon starts clear and comes in on the layer.
         model.content = wizard
-        spin(0.02)
-        let early = try disc(view)
-        spin(0.05)
-        let middle = try disc(view)
-        spin(0.4)
-        let settled = try disc(view)
-        let earlyGap = distance(early, wizardSettled)
-        let middleGap = distance(middle, wizardSettled)
-        try expect(earlyGap > 3, "right after the switch the new icon should still be fading in, \(earlyGap) from its settled look")
-        try expect(middleGap < earlyGap, "the icon should keep coming in: \(middleGap) after \(earlyGap)")
-        try expect(distance(early, paladinSettled) > 3, "the old icon should be gone at once, not fading out")
-        try expect(distance(settled, wizardSettled) < 1.5, "the fade should end on the icon as drawn fresh, got \(distance(settled, wizardSettled))")
+        try expect(waitUntil { shownOpacity(in: view) < 1 }, "a new session's icon should start clear and fade in on its layer")
+        let running = fades(in: view)
+        try expect(
+            !running.isEmpty && running.allSatisfy {
+                $0.keyPath == "opacity" && $0.fromValue as? Double == 0 && $0.toValue as? Double == 1
+                    && $0.duration == Motion.duration(.standard) && $0.repeatCount == 0 && !$0.autoreverses
+                    && $0.timingFunction === Motion.timingFunction
+            },
+            "it is one Core Animation opacity fade from clear to full over the standard step, once, on the shared easing"
+        )
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the fade should end on its own, on full opacity")
+        try expect(icons(in: view).allSatisfy { $0.layer?.opacity == 1 }, "and leave every icon layer fully opaque")
+        try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "the icon's views should be the same ones, not re-created")
+        try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "the fade should end on the new icon as drawn fresh")
 
-        // The same session and portrait with a new title: no fade.
+        // The same session and portrait with a new title: no fade. (A finished fade stays on its layer until Core Animation's
+        // next commit, so the ones above go first and a new one would show.)
+        icons(in: view).forEach { $0.layer?.removeAllAnimations() }
         model.content = content(id: "qm-b", title: "Another title", portrait: .master(.wizard))
-        spin(0.02)
-        try expect(distance(try disc(view), wizardSettled) < 1.5, "an edit to the same session shouldn't fade its icon")
+        pump(0.1)
+        try expect(fades(in: view).isEmpty, "an edit to the same session shouldn't fade its icon")
 
-        // Reduce Motion: the new icon is there at once.
-        Motion.reducesMotion = { true }
-        defer { Motion.reducesMotion = { false } }
+        // A session with no class fades the Q in, and the class fades its portrait back in.
+        model.content = shell
+        try expect(waitUntil { shownOpacity(in: view) < 1 }, "a session with no class should fade its Q in")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the Q's fade should end on its own")
         model.content = paladin
-        spin(0.02)
-        try expect(distance(try disc(view), paladinSettled) < 1.5, "under Reduce Motion the icon should land with no fade")
+        try expect(waitUntil { shownOpacity(in: view) < 1 }, "a class after a Q should fade its portrait in")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the portrait's fade should end on its own")
+        try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "switching between a class and the Q should not re-create the icon's views")
+        try expect(waitUntil { isDrawnAs(view, paladinSettled) }, "the class's portrait should end as drawn fresh")
+
+        // Reduce Motion: the new icon is there at once, with nothing to run.
+        icons(in: view).forEach { $0.layer?.removeAllAnimations() }
+        Motion.reducesMotion = { true }
+        model.content = wizard
+        try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "under Reduce Motion the icon should land")
+        try expect(fades(in: view).isEmpty, "under Reduce Motion the icon should land with no fade")
+
+        // The view itself: nothing to fade outside a window, on the first key or the same key; a fade still running goes when
+        // Reduce Motion lands the next icon.
+        Motion.reducesMotion = { false }
+        let loose = IconFadeView(rootView: AnyView(Color.clear))
+        loose.configure(rootView: AnyView(Color.clear), key: "a")
+        loose.configure(rootView: AnyView(Color.clear), key: "b")
+        try expect(loose.fadeAnimation == nil, "a view outside a window has nothing to fade")
+        let looseWindow = HeadlessWindow(size: SelectedSessionPanel.canvasSize)
+        defer { looseWindow.close() }
+        let container = NSView(frame: NSRect(origin: .zero, size: SelectedSessionPanel.canvasSize))
+        looseWindow.contentView = container
+        container.addSubview(loose)
+        loose.configure(rootView: AnyView(Color.clear), key: "b")
+        try expect(loose.fadeAnimation == nil, "the same key shouldn't fade")
+        loose.configure(rootView: AnyView(Color.clear), key: "c")
+        try expect(loose.fadeAnimation != nil, "a new key in a window should fade")
+        Motion.reducesMotion = { true }
+        loose.configure(rootView: AnyView(Color.clear), key: "d")
+        try expect(loose.fadeAnimation == nil, "Reduce Motion should drop a fade still running")
     }
 
     private static func testMotionTokensShareOneEasingAndFollowReduceMotion() throws {
