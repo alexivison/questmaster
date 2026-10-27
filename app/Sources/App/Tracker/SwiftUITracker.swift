@@ -1388,7 +1388,6 @@ private struct TrackerSessionRow: View {
     @State private var cast = CastRowState()
     /// Bumped on every cast change, so a finish scheduled for an earlier cast does nothing.
     @State private var castGeneration = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var session: TrackerSession { rendered.session }
     private var portrait: SessionPortrait? { SessionPortrait(session: session) }
@@ -1495,7 +1494,7 @@ private struct TrackerSessionRow: View {
             withAnimation(Motion.animation(.standard)) { cast.isOpen = true }
             withAnimation(Motion.animation(.fast, after: opensRow ? .standard : nil)) { cast.isBarVisible = true }
         case .finishing:
-            closeCastRow(after: reduceMotion ? 0 : TrackerCastPhase.flashDuration, generation: generation)
+            closeCastRow(after: Motion.duration(.standard), generation: generation)
         case .hidden:
             closeCastRow(after: 0, generation: generation)
         }

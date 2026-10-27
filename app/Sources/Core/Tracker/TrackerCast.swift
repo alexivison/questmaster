@@ -83,8 +83,6 @@ public enum TrackerCastPhase: Equatable {
     case casting(TrackerCast)
     case finishing(TrackerCast)
 
-    public static let flashDuration: TimeInterval = 0.3
-
     /// The phase after the payload reports `cast` (nil when no tool runs) for a session in `status`. A blocked session
     /// or one that needs input already says so on its ring, so its row hides the cast, with no finish flash, until the
     /// status leaves; a cast still running then shows again.

@@ -132,13 +132,12 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
 /// - when the cast it shows ends or changes, a full ring flashes like the cast bar's finish, then the new state shows.
 /// - when the session stops working, the ring exits: it sweeps on to full from wherever it is, flashes, and fades out.
 ///   Into a steady status (blocked, needs input, error) it crossfades instead.
+/// The one-shot steps (the crossfade, the exit's sweep, the flash and the exit's fade) each take the standard motion
+/// step; the fill, spin and pulse keep their own periods.
 /// Reduce motion: no spin, pulse or flash; a spinning ring holds full, a filling one still fills (a progress fill is
-/// not the motion it targets, and the cast bar fills too); the exit is a short fade.
+/// not the motion it targets, and the cast bar fills too); the exit and the crossfade are skipped, so the ring just goes.
 /// Animations are built only when the inputs or the window change, and only while in a window.
 final class TrackerPortraitStatusNSView: NSView {
-    static let exitSweep: CFTimeInterval = 0.25
-    static let exitFade: CFTimeInterval = 0.4
-    static let crossfade: CFTimeInterval = 0.2
     private static let fillKey = "fill"
     private static let headKey = "head"
     private static let pulseKey = "pulse"
@@ -209,11 +208,12 @@ final class TrackerPortraitStatusNSView: NSView {
         if crossfades {
             let fade = CATransition()
             fade.type = .fade
-            fade.duration = Self.crossfade
+            fade.duration = Motion.duration(.standard)
+            fade.timingFunction = Motion.timingFunction
             layer?.add(fade, forKey: kCATransition)
         }
         rebuild(flashes: ended)
-        if let exitStart {
+        if let exitStart, !reduceMotion {
             playExit(from: exitStart)
         } else {
             stopExit()
@@ -375,8 +375,9 @@ final class TrackerPortraitStatusNSView: NSView {
         }
     }
 
-    /// The exit: the ring completes from where it was to full, flashes like the cast bar's finish, and fades out. In the
-    /// done colour when the session is done, else the amber. Under reduce motion it only fades.
+    /// The exit: the ring completes from where it was to full, flashes like the cast bar's finish, and fades out, a
+    /// standard motion step for each. In the done colour when the session is done, else the amber. Not played under
+    /// reduce motion (`configure` skips it).
     private func playExit(from start: (startAngle: CGFloat, fraction: CGFloat)) {
         guard let applied, window != nil else { return }
         let geometry = applied.geometry
@@ -403,31 +404,29 @@ final class TrackerPortraitStatusNSView: NSView {
         exit.isHidden = false
         CATransaction.commit()
         let now = CACurrentMediaTime()
-        if applied.reduceMotion {
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 1
-            fade.toValue = 0
-            fade.duration = Self.exitFade
-            exit.add(fade, forKey: Self.exitKey)
-            return
-        }
+        let sweepTime = Motion.duration(.standard)
+        let flashTime = Motion.duration(.standard)
+        let fadeTime = Motion.duration(.standard)
         let sweep = CABasicAnimation(keyPath: "strokeEnd")
         sweep.fromValue = start.fraction
         sweep.toValue = 1
-        sweep.duration = Self.exitSweep
-        sweep.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        sweep.duration = sweepTime
+        sweep.timingFunction = Motion.timingFunction
         exitArc.add(sweep, forKey: Self.exitKey)
         let flashFade = CABasicAnimation(keyPath: "opacity")
         flashFade.fromValue = TrackerCastFillNSView.flashOpacity
         flashFade.toValue = 0
-        flashFade.beginTime = now + Self.exitSweep
-        flashFade.duration = TrackerCastPhase.flashDuration
+        flashFade.beginTime = now + sweepTime
+        flashFade.duration = flashTime
+        flashFade.timingFunction = Motion.timingFunction
         exitFlash.add(flashFade, forKey: Self.exitKey)
-        let held = Self.exitSweep + TrackerCastPhase.flashDuration
-        let total = held + Self.exitFade
+        // The whole ring stays up through the sweep and the flash, then fades.
+        let held = sweepTime + flashTime
+        let total = held + fadeTime
         let visibility = CAKeyframeAnimation(keyPath: "opacity")
         visibility.values = [1, 1, 0]
         visibility.keyTimes = [0, NSNumber(value: held / total), 1]
+        visibility.timingFunctions = [Motion.timingFunction, Motion.timingFunction]
         visibility.duration = total
         exit.add(visibility, forKey: Self.exitKey)
     }
@@ -447,12 +446,13 @@ final class TrackerPortraitStatusNSView: NSView {
         let hold = CABasicAnimation(keyPath: "opacity")
         hold.fromValue = 1
         hold.toValue = 1
-        hold.duration = TrackerCastPhase.flashDuration
+        hold.duration = Motion.duration(.standard)
         finishFill.add(hold, forKey: Self.flashKey)
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = TrackerCastFillNSView.flashOpacity
         fade.toValue = 0
-        fade.duration = TrackerCastPhase.flashDuration
+        fade.duration = Motion.duration(.standard)
+        fade.timingFunction = Motion.timingFunction
         flash.add(fade, forKey: Self.flashKey)
     }
 }

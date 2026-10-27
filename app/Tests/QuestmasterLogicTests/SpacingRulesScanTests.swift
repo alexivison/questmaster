@@ -55,7 +55,7 @@ struct SpacingRulesScanTests {
     private static let literal = regex(#"(?<![\w.])\d+(?:\.\d+)?(?![\w.])"#)
     private static let metricsEnum = regex(#"\benum\s+\w*(?:Metrics|Layout|Design)\b"#)
     private static let constant = regex(#"\b(?:let|var)\s+(\w+)\s*(?::\s*CGFloat)?\s*=\s*(-?\d+(?:\.\d+)?)\s*(?://.*)?$"#)
-    private static let nameWord = regex(#"[A-Z]?[a-z]+|[A-Z]+(?![a-z])"#)
+    static let nameWord = regex(#"[A-Z]?[a-z]+|[A-Z]+(?![a-z])"#)
 
     private static let lengthWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "pitch", "indent", "inset", "clearance", "offset", "height", "width", "side", "size", "lead", "trail", "nudge", "origin", "x", "y"]
     private static let spacingWords: Set = ["gap", "spacing", "margin", "padding", "gutter", "inset"]

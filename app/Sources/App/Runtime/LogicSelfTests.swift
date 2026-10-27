@@ -325,6 +325,7 @@ enum LogicSelfTests {
 
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
         try expect(status.flashAnimation != nil && status.spinAnimation != nil, "an ended cast should flash, then spin while still working")
+        try expect(status.flashAnimation?.duration == MotionStep.standard.seconds * Motion.slowdown, "the flash should fade over a standard step, got \(String(describing: status.flashAnimation?.duration))")
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .steady, reduceMotion: false)
         try expect(status.flashAnimation == nil, "a ring with no cast to end should not flash")
 
@@ -341,21 +342,23 @@ enum LogicSelfTests {
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: true)
         try expect(status.spinAnimation == nil && status.flashAnimation == nil, "reduce motion should hold a full ring, with no flash")
         status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: true)
-        try expect((status.exitAnimation as? CABasicAnimation)?.keyPath == "opacity", "under reduce motion the exit should only fade")
+        try expect(status.exitAnimation == nil, "under reduce motion the ring should just go, with no exit")
 
         // Leaving work: the ring completes, flashes and fades into no ring; into a steady status it crossfades.
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
         try expect(status.exitAnimation == nil, "a working ring should not be exiting")
         status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: false)
         guard let exit = status.exitAnimation as? CAKeyframeAnimation else { throw TestFailure("a ring that stops working should play its exit") }
-        let total = TrackerPortraitStatusNSView.exitSweep + TrackerCastPhase.flashDuration + TrackerPortraitStatusNSView.exitFade
-        try expect(abs(exit.duration - total) < 0.01, "the exit should sweep, flash and fade over \(total)s, got \(exit.duration)")
+        let step = MotionStep.standard.seconds * Motion.slowdown
+        try expect(abs(exit.duration - 3 * step) < 0.01, "the exit should sweep, flash and fade a standard step each, \(3 * step)s, got \(exit.duration)")
+        let heldUntil = exit.keyTimes?.dropFirst().first?.doubleValue ?? 0
+        try expect(abs(heldUntil - 2.0 / 3) < 0.01, "the ring should stay up through the sweep and the flash, then fade, got \(String(describing: exit.keyTimes))")
         try expect(status.spinAnimation == nil, "the spinner should stop as the ring exits")
         status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
         try expect(status.exitAnimation == nil, "a ring with nothing to exit from should not play the exit")
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
         status.configure(geometry: geometry, color: AppPalette.trackerBlocked, ring: .steady, reduceMotion: false)
-        try expect(status.layer?.animation(forKey: kCATransition) != nil, "working into a steady status should crossfade")
+        try expect(status.layer?.animation(forKey: kCATransition)?.duration == step, "working into a steady status should crossfade over a standard step")
 
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
         status.configure(geometry: geometry, color: AppPalette.trackerDone, ring: .none, finishColor: AppPalette.trackerDone, reduceMotion: false)
