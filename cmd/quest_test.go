@@ -137,7 +137,7 @@ func TestQuestStartPayloadRequiresSingleProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("questStartPayload: %v", err)
 	}
-	if cwd != "/tmp/repo" || prompt != "Quest IDs: 'qst-one' 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls 'qst-one' 'qst two' 'qst'\\''three'" {
+	if cwd != "/tmp/repo" || prompt != "Quest IDs: qst-one 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls qst-one 'qst two' 'qst'\\''three'" {
 		t.Fatalf("cwd=%q prompt=%q", cwd, prompt)
 	}
 

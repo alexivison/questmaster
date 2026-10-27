@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/alexivison/questmaster/internal/modelsuggest"
-	"github.com/alexivison/questmaster/internal/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -89,7 +88,7 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 			var quests []state.Quest
 			var err error
 			if len(args) > 0 {
-				quests, err = quest.LoadByID(questStateRoot(store), args)
+				quests, err = questsByID(store, args)
 			} else {
 				quests, err = state.LoadQuestsAt(questStateRoot(store))
 			}
@@ -307,9 +306,55 @@ func findQuest(quests []state.Quest, id string) (state.Quest, bool) {
 }
 
 func questsByID(store *state.Store, ids []string) ([]state.Quest, error) {
-	return quest.LoadByID(questStateRoot(store), ids)
+	all, err := state.LoadQuestsAt(questStateRoot(store))
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]state.Quest, len(all))
+	for _, quest := range all {
+		byID[quest.ID] = quest
+	}
+	selected := make([]state.Quest, 0, len(ids))
+	for _, id := range ids {
+		quest, ok := byID[id]
+		if !ok {
+			return nil, fmt.Errorf("quest %q not found", id)
+		}
+		selected = append(selected, quest)
+	}
+	return selected, nil
 }
 
 func questStartPayload(quests []state.Quest) (string, string, error) {
-	return quest.StartPayload(quests)
+	if len(quests) == 0 {
+		return "", "", fmt.Errorf("quest id is required")
+	}
+	projectID := quests[0].ProjectID
+	projectPath := quests[0].ProjectPath
+	if projectID == "" || projectPath == "" {
+		return "", "", fmt.Errorf("quest %q has no startable project", quests[0].ID)
+	}
+	ids := make([]string, 0, len(quests))
+	for _, quest := range quests {
+		if quest.ProjectID != projectID || quest.ProjectPath == "" {
+			return "", "", fmt.Errorf("selected quests must share one project")
+		}
+		ids = append(ids, shellArgument(quest.ID))
+	}
+	joinedIDs := strings.Join(ids, " ")
+	return projectPath, fmt.Sprintf("Quest IDs: %s\nRead them with: questmaster quest ls %s", joinedIDs, joinedIDs), nil
+}
+
+func shellArgument(value string) string {
+	if value == "" {
+		return "''"
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.' {
+			continue
+		}
+		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+	}
+	return value
 }

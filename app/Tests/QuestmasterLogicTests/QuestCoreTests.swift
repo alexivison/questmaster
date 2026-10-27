@@ -495,7 +495,7 @@ struct QuestCoreTests {
             let request = try ServeMutationRequests.startFromQuests(quests, title: "quests", agent: "codex")
             let data = request.jsonObject(id: "start")["data"] as? NSDictionary
             expect(data?["cwd"] as? String == "/tmp/repo", "cwd mismatch")
-            expect(data?["prompt"] as? String == "Quest IDs: 'qst-one' 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls 'qst-one' 'qst two' 'qst'\\''three'", "start prompt should instruct agents to read the quest IDs")
+            expect(data?["prompt"] as? String == "Quest IDs: qst-one 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls qst-one 'qst two' 'qst'\\''three'", "start prompt should instruct agents to read the quest IDs")
             expect(data?["quest_ids"] == nil, "start should send the editable prompt through the existing prompt field")
         } catch {
             fail("startFromQuests threw \(error)")
