@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/serve"
 	"github.com/alexivison/questmaster/internal/state"
 )
@@ -96,6 +97,21 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	if s.runtime.Snapshotter == nil {
 		s.runtime.Snapshotter = serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)
 	}
+	for _, job := range config.Jobs {
+		if pr, ok := job.(*prstatus.Job); ok {
+			s.runtime.PRRefresh = func(ctx context.Context, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
+				if !s.jobsOwner() {
+					return nil, fmt.Errorf("PR polling is unavailable on this daemon")
+				}
+				if !wait {
+					pr.Notify(keys)
+					return map[string]prstatus.HostResult{}, nil
+				}
+				return pr.Refresh(ctx, keys)
+			}
+			break
+		}
+	}
 	if config.ClockInterval > 0 {
 		s.runtime.ClockInterval = config.ClockInterval
 	}
@@ -164,6 +180,7 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	ticker := time.NewTicker(config.PollInterval)
 	defer ticker.Stop()
 	nextLogCheck := time.Now().Add(time.Minute)
+	nextWorkCheck := time.Time{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -185,7 +202,11 @@ func Run(ctx context.Context, config Config, jobsRequested bool) error {
 				nextLogCheck = time.Now().Add(time.Minute)
 			}
 			s.tryJobsLock()
-			if time.Since(s.activity()) >= config.IdleGrace && s.clients() == 0 && !s.hasWork() {
+			if time.Since(s.activity()) >= config.IdleGrace && s.clients() == 0 && !time.Now().Before(nextWorkCheck) {
+				nextWorkCheck = time.Now().Add(time.Second)
+				if s.hasWork() {
+					continue
+				}
 				if err := s.shutdown(true); err != nil {
 					return err
 				}
@@ -388,6 +409,8 @@ func (s *server) dispatch(req serve.Request) (serve.Envelope, string) {
 		return s.runtime.HandleRequest(context.Background(), req), ""
 	}
 }
+
+func (s *server) jobsOwner() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.record.Jobs }
 
 func daemonError(req serve.Request, message string) serve.Envelope {
 	ok := false

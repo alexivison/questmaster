@@ -22,7 +22,104 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/daemon"
+	"github.com/alexivison/questmaster/internal/state"
 )
+
+func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
+	h := newDaemonHarness(t, "")
+	store := state.OpenStore(h.root)
+	if err := store.Create(state.Manifest{SessionID: "qm-pr-job"}); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := state.ParsePullRequestRef("owner/repo#1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.WatchPullRequest(h.root, "qm-pr-job", ref, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(h.root, "live")
+	if err := os.WriteFile(marker, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	binDir := filepath.Join(h.root, "daemon", "bin", "canonical")
+	if err := os.MkdirAll(binDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, script := range map[string]string{
+		"tmux": fmt.Sprintf("#!/bin/sh\nif [ -f %q ]; then printf 'qm-pr-job\\n'; fi\n", marker),
+		"gh":   "#!/bin/sh\nprintf '%s\\n' '{\"data\":{\"p0\":{\"pullRequest\":{\"title\":\"PR\",\"state\":\"OPEN\"}}}}'\n",
+	} {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command(h.bin, "daemon", "run", "--jobs", "--idle-grace=300ms")
+	cmd.Env = h.env
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	done := make(chan struct{})
+	go func() { exited <- cmd.Wait(); close(done) }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+	deadline := time.Now().Add(30 * time.Second)
+	var status map[string]any
+	var statusErr error
+	for time.Now().Before(deadline) {
+		status, statusErr = h.command("daemon", "status")
+		if statusErr == nil && status["running"] == true && status["has_work"] == true {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if statusErr != nil || status["running"] != true || status["has_work"] != true {
+		t.Fatalf("job not active: %v %v\n%s", status, statusErr, output.String())
+	}
+	statusPath := state.PullRequestStatusPath(h.root)
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(statusPath); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(statusPath); err != nil {
+		t.Fatalf("job did not fetch: %v\n%s", err, output.String())
+	}
+	refreshed, err := h.command("pr", "--session", "qm-pr-job", "refresh", "owner/repo#1")
+	if err != nil {
+		t.Fatalf("CLI refresh through daemon: %v\n%s", err, output.String())
+	}
+	prs, ok := refreshed["pull_requests"].([]any)
+	if !ok || len(prs) != 1 || prs[0].(map[string]any)["status"].(map[string]any)["title"] != "PR" {
+		t.Fatalf("CLI refresh result: %v", refreshed)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if status := h.must("daemon", "status"); status["running"] != true {
+		t.Fatalf("job idled with live watcher: %v", status)
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("daemon exit: %v\n%s", err, output.String())
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatalf("daemon did not idle out\n%s", output.String())
+	}
+}
 
 type daemonHarness struct {
 	t               *testing.T
