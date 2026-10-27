@@ -154,6 +154,7 @@ enum RenderPreview {
         renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
         recordQuestLogAnimations(to: outputDir)
         recordDockPanelAnimations(to: outputDir)
+        recordRefreshSpinner(to: outputDir)
         // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.
         let scrolledPage = QuestLogPageScroll()
         scrolledPage.previewOffset = 160
@@ -418,8 +419,11 @@ enum RenderPreview {
 
     /// The Version Control panel on its own, 480 x 300 at the Session Detail Dock's offset in its 482 x 305 canvas.
     @MainActor
-    private static func versionControlPanelView(state: VersionControlPanelState = .design) -> NSView {
-        let panel = DockShellView(body: NSHostingView(rootView: versionControlContent(state)), model: DockChromeModel(topBar: .versionControl))
+    private static func versionControlPanelView(state: VersionControlPanelState = .design, isRefreshing: @escaping () -> Bool = { false }) -> NSView {
+        let panel = DockShellView(
+            body: NSHostingView(rootView: versionControlContent(state)),
+            model: DockChromeModel(topBar: .versionControl, isRefreshing: isRefreshing)
+        )
         panel.frame = NSRect(x: 1, y: 5, width: 480, height: 300)
         let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 482, height: 305))
         canvas.wantsLayer = true
@@ -487,6 +491,104 @@ enum RenderPreview {
         record("dock-panel-bottom-hide-gif", from: DockPanels(top: true, bottom: true), to: DockPanels(top: true))
     }
 
+
+    /// The Version Control title bar at rest and while a refresh spins its mark: the presentation layers sampled over one
+    /// turn of the spinner (the offscreen snapshot can't see Core Animation's own animation), as a contact sheet in slow
+    /// motion and a GIF at real speed. Only runs when RENDER_ONLY names `version-control-refresh-spinner`.
+    @MainActor
+    private static func recordRefreshSpinner(to dir: String) {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RENDER_ONLY"]?.split(separator: ",").contains("version-control-refresh-spinner") == true else {
+            return
+        }
+        let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 4)
+        warmUpFirstWindow()
+        let store = PullRequestStore()
+        let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
+        _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
+        let size = CGSize(width: 482, height: 305)
+        let canvas = versionControlPanelView(isRefreshing: { store.isRefreshing })
+        canvas.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size, scale: scale)
+        window.contentView = canvas
+        window.show()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        // The title and the mark beside it, from the top left.
+        let header = CGRect(x: 121, y: 5, width: 240, height: 40)
+        RingPreview.write(captureLayers(of: canvas, scale: scale, rect: header), to: "\(dir)/version-control-header-rest.png")
+
+        _ = store.handle(.refresh)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        let sheetFrames = 12
+        let began = Date()
+        var sheet: [CGImage] = []
+        for index in 0..<sheetFrames {
+            RunLoop.current.run(until: began.addingTimeInterval(Double(index) * WorkingSpinner.period / Double(sheetFrames)))
+            if let frame = captureLayers(of: canvas, scale: scale, rect: header) {
+                sheet.append(frame)
+            }
+        }
+        RingPreview.write(captureLayers(of: canvas, scale: scale), to: "\(dir)/version-control-panel-refreshing.png")
+        RingPreview.write(contactSheet(sheet, columns: 3, background: AppPalette.window.cgColor), to: "\(dir)/version-control-header-spinning-frames.png")
+
+        let gifFrames = Int(WorkingSpinner.period / 0.04)
+        let gifBegan = Date()
+        var gif: [CGImage] = []
+        for index in 0..<gifFrames {
+            RunLoop.current.run(until: gifBegan.addingTimeInterval(Double(index) * 0.04))
+            if let frame = captureLayers(of: canvas, scale: 2, rect: header) {
+                gif.append(frame)
+            }
+        }
+        RingPreview.writeGIF(gif, to: "\(dir)/version-control-header-spinning.gif")
+        window.orderOut(nil)
+    }
+
+    /// A (non-flipped) view as Core Animation is showing it right now: its presentation layers rendered into a bitmap,
+    /// cropped to `rect` in points from the top left.
+    @MainActor
+    private static func captureLayers(of root: NSView, scale: CGFloat, rect: CGRect? = nil) -> CGImage? {
+        let rect = rect ?? root.bounds
+        guard let layer = root.layer,
+              let context = CGContext(
+                data: nil, width: Int(rect.width * scale), height: Int(rect.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return nil
+        }
+        // The layer and the bitmap both run y up, so only the crop's origin flips.
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -rect.minX, y: -(root.bounds.height - rect.maxY))
+        (layer.presentation() ?? layer).render(in: context)
+        return context.makeImage()
+    }
+
+    /// `frames` in a grid, a few pixels apart on `background`.
+    private static func contactSheet(_ frames: [CGImage], columns: Int, background: CGColor) -> CGImage? {
+        guard let first = frames.first else {
+            return nil
+        }
+        let gap = 8
+        let rows = (frames.count + columns - 1) / columns
+        let width = columns * first.width + (columns + 1) * gap
+        let height = rows * first.height + (rows + 1) * gap
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return nil
+        }
+        context.setFillColor(background)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        for (index, frame) in frames.enumerated() {
+            let column = index % columns
+            let row = index / columns
+            let x = gap + column * (first.width + gap)
+            let y = height - (gap + (row + 1) * first.height + row * gap)
+            context.draw(frame, in: CGRect(x: x, y: y, width: first.width, height: first.height))
+        }
+        return context.makeImage()
+    }
 
     /// The dock alone on the window colour, with or without keyboard focus, for its frame.
     @MainActor

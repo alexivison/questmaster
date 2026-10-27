@@ -12,6 +12,9 @@ enum ShellMetrics {
     static let dockTopBarHeight = ControlHeight.bar
     static let dockTopBarTitleBaseline: CGFloat = 25
     static let dockTopBarIconCentre: CGFloat = 20
+    /// The refresh spinner beside a dock title: a chip's size, on the icon line.
+    static let dockTopBarSpinnerSize = ControlHeight.chip
+    static let dockTopBarSpinnerStroke: CGFloat = 2
     static let dockTopBarHorizontalInset: CGFloat = 30
     /// No extra space above the first tracker header (2026-10-07): `sideCardInset` alone now
     /// provides the window-top-to-tracker gap, matching every other G-rhythm gap in the shell.

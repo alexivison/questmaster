@@ -227,7 +227,12 @@ again where it was when the keys come back.
   `SuggestionDropdown` for every dropdown and suggestion list, `FilterChip` for
   filter chips, the `AngledButton` styles for buttons.
 - Dock titles (Artifacts, Worker Chat, Version Control, an open artifact) are title case in
-  `accent`, 14pt bold, on the top bar's baseline 25 down.
+  `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Version
+  Control's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
+  ring `Space.item` past the title, on the icon line, taking no room so the centred title never moves. Core decides it
+  (`PullRequestStore.isRefreshing`): from the key to the daemon's reply (`pr.refresh` with `wait`), for at least one turn
+  and never past 30s; a second `r` meanwhile sends nothing, and the daemon's background polls never show it. It is Core
+  Animation only, runs only while on screen, and holds still and full under Reduce Motion. No hint or footer text.
 - The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
   under it the artifacts or the worker chat. Each has its own title and close button, and either shows alone
   (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them (all

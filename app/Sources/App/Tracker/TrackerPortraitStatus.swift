@@ -127,7 +127,8 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
 /// - steady: a still ring in the status colour with its tight glow.
 /// - filling: the cast bar's toned amber sweeping clockwise from 12 o'clock (a stroke-end animation) to full at the
 ///   tool's learned duration, with the cast bar's light leading edge at its head; then held full and pulsing.
-/// - spinning: a third of the ring, fading from its tail to a light head, orbiting the disc once every `spinPeriod`.
+/// - spinning: a third of the ring, fading from its tail to a light head, orbiting the disc once every
+///   `WorkingSpinner.period` (`SpinnerRing`, shared with the dock's refresh mark).
 /// - when the cast it shows ends or changes, a full ring flashes like the cast bar's finish, then the new state shows.
 /// - when the session stops working, the ring exits: it sweeps on to full from wherever it is, flashes, and fades out.
 ///   Into a steady status (blocked, needs input, error) it crossfades instead.
@@ -135,16 +136,12 @@ private struct TrackerPortraitStatusView: NSViewRepresentable {
 /// not the motion it targets, and the cast bar fills too); the exit is a short fade.
 /// Animations are built only when the inputs or the window change, and only while in a window.
 final class TrackerPortraitStatusNSView: NSView {
-    static let spinPeriod: CFTimeInterval = 1.2
-    /// How much of the ring the spinner's arc covers, tail to head.
-    static let spinnerArc: Double = 1.0 / 3
     static let exitSweep: CFTimeInterval = 0.25
     static let exitFade: CFTimeInterval = 0.4
     static let crossfade: CFTimeInterval = 0.2
     private static let fillKey = "fill"
     private static let headKey = "head"
     private static let pulseKey = "pulse"
-    private static let spinKey = "spin"
     private static let flashKey = "flash"
     private static let exitKey = "exit"
 
@@ -153,9 +150,7 @@ final class TrackerPortraitStatusNSView: NSView {
     private let arc = CAShapeLayer()
     private let head = CAShapeLayer()
     private let pulse = CAShapeLayer()
-    private let spinner = CALayer()
-    private let spinnerGradient = CAGradientLayer()
-    private let spinnerMask = CAShapeLayer()
+    private let spinner = SpinnerRing()
     private let finishFill = CAShapeLayer()
     private let flash = CAShapeLayer()
     /// The exit: an arc that completes to full and a flash over it, in a layer that fades out.
@@ -173,16 +168,11 @@ final class TrackerPortraitStatusNSView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         glow.type = .radial
-        spinnerGradient.type = .conic
-        spinnerGradient.startPoint = CGPoint(x: 0.5, y: 0.5)
-        spinnerGradient.endPoint = CGPoint(x: 0.5, y: 1)
-        spinnerGradient.mask = spinnerMask
-        spinner.addSublayer(spinnerGradient)
-        for shape in shapeLayers + [spinnerMask, exitArc, exitFlash] {
+        for shape in shapeLayers + [exitArc, exitFlash] {
             shape.fillColor = nil
             shape.lineCap = .butt
         }
-        for sublayer in [glow, ring, arc, head, pulse, spinner, finishFill, flash, exit] as [CALayer] {
+        for sublayer in [glow, ring, arc, head, pulse, spinner.layer, finishFill, flash, exit] {
             layer?.addSublayer(sublayer)
         }
         exit.addSublayer(exitArc)
@@ -201,7 +191,7 @@ final class TrackerPortraitStatusNSView: NSView {
     /// The running animations, nil when absent. Tests read them to check what animates when.
     var fillAnimation: CABasicAnimation? { arc.animation(forKey: Self.fillKey) as? CABasicAnimation }
     var pulseAnimation: CABasicAnimation? { pulse.animation(forKey: Self.pulseKey) as? CABasicAnimation }
-    var spinAnimation: CABasicAnimation? { spinner.animation(forKey: Self.spinKey) as? CABasicAnimation }
+    var spinAnimation: CABasicAnimation? { spinner.spinAnimation }
     var flashAnimation: CABasicAnimation? { flash.animation(forKey: Self.flashKey) as? CABasicAnimation }
     var exitAnimation: CAAnimation? { exit.animation(forKey: Self.exitKey) }
 
@@ -248,7 +238,7 @@ final class TrackerPortraitStatusNSView: NSView {
     /// Sublayers added by hand render at 1x unless told the window's scale, which blurs the ring on a Retina display.
     private func updateContentsScale() {
         let scale = window?.backingScaleFactor ?? 1
-        for sublayer in [glow, spinner, spinnerGradient, spinnerMask] + shapeLayers + exitLayers as [CALayer] where sublayer.contentsScale != scale {
+        for sublayer in [glow] + spinner.layers + shapeLayers + exitLayers where sublayer.contentsScale != scale {
             sublayer.contentsScale = scale
         }
     }
@@ -264,7 +254,7 @@ final class TrackerPortraitStatusNSView: NSView {
         let light = TrackerCastFillNSView.edgeLight
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for sublayer in [glow, ring, arc, head, pulse, spinner, finishFill, flash] as [CALayer] {
+        for sublayer in [glow, ring, arc, head, pulse, spinner.layer, finishFill, flash] {
             sublayer.removeAllAnimations()
             sublayer.frame = bounds
             sublayer.isHidden = true
@@ -300,9 +290,13 @@ final class TrackerPortraitStatusNSView: NSView {
                 ring.isHidden = false
                 ring.strokeColor = amber.cgColor
             } else {
-                spinner.isHidden = false
-                layoutSpinner(around: middle, geometry: geometry, amber: amber, light: light)
-                animations.append { self.addSpin() }
+                spinner.layer.isHidden = false
+                let side = 2 * geometry.outerRadius
+                spinner.layout(
+                    around: middle, side: side,
+                    ringPath: geometry.ringPath(around: CGPoint(x: side / 2, y: side / 2)), lineWidth: geometry.ringLineWidth
+                )
+                animations.append { self.spinner.startSpinning() }
             }
         case .filling(let cast):
             arc.isHidden = false
@@ -332,32 +326,6 @@ final class TrackerPortraitStatusNSView: NSView {
         arc.strokeEnd = fraction
         head.strokeStart = max(0, fraction - headFraction)
         head.strokeEnd = fraction
-    }
-
-    /// The spinner: a conic gradient, clear at its tail through the amber to the light head, masked to the ring, in a
-    /// square layer centred on the disc so it turns about the disc's centre.
-    private func layoutSpinner(around middle: CGPoint, geometry: TrackerPortraitStatusGeometry, amber: NSColor, light: NSColor) {
-        let side = 2 * geometry.outerRadius
-        spinner.frame = CGRect(x: middle.x - side / 2, y: middle.y - side / 2, width: side, height: side)
-        spinnerGradient.frame = CGRect(origin: .zero, size: CGSize(width: side, height: side))
-        spinnerMask.frame = spinnerGradient.bounds
-        spinnerMask.path = geometry.ringPath(around: CGPoint(x: side / 2, y: side / 2))
-        spinnerMask.lineWidth = geometry.ringLineWidth
-        spinnerMask.strokeColor = AppPalette.mask.cgColor
-        // A conic gradient's locations run counterclockwise, so the light head sits at the start and the tail fades out
-        // behind it as the layer turns clockwise.
-        let arc = Self.spinnerArc
-        spinnerGradient.colors = [amber.withAlphaComponent(0), light, amber, amber.withAlphaComponent(0), amber.withAlphaComponent(0)].map(\.cgColor)
-        spinnerGradient.locations = [0, 0.001, NSNumber(value: arc / 6), NSNumber(value: arc), 1]
-    }
-
-    private func addSpin() {
-        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
-        spin.fromValue = 0
-        spin.toValue = -2 * Double.pi
-        spin.duration = Self.spinPeriod
-        spin.repeatCount = .infinity
-        spinner.add(spin, forKey: Self.spinKey)
     }
 
     private func addFill(from fraction: CGFloat, over duration: TimeInterval, headFraction: CGFloat) {
@@ -398,10 +366,10 @@ final class TrackerPortraitStatusNSView: NSView {
         case .filling:
             return (.pi / 2, (arc.presentation() ?? arc).strokeEnd)
         case .spinning where !(applied?.reduceMotion ?? true):
-            let transform = (spinner.presentation() ?? spinner).transform
+            let transform = (spinner.layer.presentation() ?? spinner.layer).transform
             let turn = atan2(transform.m12, transform.m11)
             let head = .pi / 2 + turn
-            return (head + 2 * .pi * CGFloat(Self.spinnerArc), CGFloat(Self.spinnerArc))
+            return (head + 2 * .pi * CGFloat(WorkingSpinner.arc), CGFloat(WorkingSpinner.arc))
         default:
             return (.pi / 2, 1)
         }

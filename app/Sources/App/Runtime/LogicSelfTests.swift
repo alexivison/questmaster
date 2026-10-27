@@ -67,6 +67,8 @@ enum LogicSelfTests {
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
+        ("testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow", testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow),
+        ("testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
@@ -309,7 +311,7 @@ enum LogicSelfTests {
 
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
         guard let spin = status.spinAnimation else { throw TestFailure("working with no tool should spin the ring") }
-        try expect(spin.duration == TrackerPortraitStatusNSView.spinPeriod && spin.repeatCount == .infinity, "the spinner should orbit once every 1.2s, for good")
+        try expect(spin.duration == WorkingSpinner.period && spin.repeatCount == .infinity, "the spinner should orbit once every 1.2s, for good")
 
         status.configure(geometry: geometry, color: AppPalette.accent, ring: .filling(bash), reduceMotion: false)
         guard let fill = status.fillAnimation, let pulse = status.pulseAnimation else { throw TestFailure("a cast with a learned duration should fill the ring, then pulse") }
@@ -1287,6 +1289,76 @@ enum LogicSelfTests {
         try expect(!pane.handleKeyDown(try keyEvent("x", keyCode: 7)), "an unrelated key should pass through")
         try expect(!pane.handleKeyDown(try keyEvent("y", keyCode: 16, modifierFlags: [.command])), "a command chord should pass through")
         try expect(effects.count == count, "passed-through keys run no effect")
+    }
+
+    /// The refresh mark is the tracker's spinner, not a lookalike (one `SpinnerRing`): the same turn, once every
+    /// `WorkingSpinner.period` and for good, only while its view is in a window, and still and full under Reduce Motion.
+    private static func testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow() throws {
+        let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 80))
+        window.contentView = container
+
+        let spinner = SpinnerRingNSView(frame: NSRect(x: 0, y: 0, width: 15, height: 15))
+        spinner.configure(stroke: 2, reduceMotion: false)
+        try expect(spinner.spinAnimation == nil, "a spinner outside a window should not turn")
+        container.addSubview(spinner)
+        guard let turn = spinner.spinAnimation else {
+            throw TestFailure("a spinner in a window should turn")
+        }
+        try expect(turn.duration == WorkingSpinner.period && turn.repeatCount == .infinity && !spinner.holdsStill, "it turns once every \(WorkingSpinner.period)s, for good")
+
+        let status = TrackerPortraitStatusNSView(frame: NSRect(x: 40, y: 0, width: 40, height: 40))
+        container.addSubview(status)
+        status.configure(geometry: TrackerPlateDesign.collapsedCircleStatus, color: AppPalette.accent, ring: .spinning(nil), reduceMotion: false)
+        guard let trackerTurn = status.spinAnimation else {
+            throw TestFailure("the tracker's working ring should turn")
+        }
+        try expect(
+            turn.keyPath == trackerTurn.keyPath && turn.fromValue as? Double == trackerTurn.fromValue as? Double
+                && turn.toValue as? Double == trackerTurn.toValue as? Double && turn.duration == trackerTurn.duration
+                && turn.repeatCount == trackerTurn.repeatCount,
+            "it is the tracker's turn: same axis, direction and period"
+        )
+
+        spinner.configure(stroke: 2, reduceMotion: true)
+        try expect(spinner.spinAnimation == nil && spinner.holdsStill, "Reduce Motion holds the ring still and full")
+        spinner.configure(stroke: 2, reduceMotion: false)
+        try expect(spinner.spinAnimation != nil && !spinner.holdsStill, "and it turns again when the setting goes")
+
+        spinner.removeFromSuperview()
+        try expect(spinner.spinAnimation == nil, "a spinner that leaves its window stops")
+    }
+
+    /// The Version Control title bar shows the spinner beside its title exactly while the pull request store refreshes
+    /// (`r` until the daemon's reply and one turn), and the other docks never do.
+    private static func testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes() throws {
+        let store = PullRequestStore()
+        let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
+        _ = store.sync(selectedSessionID: "qm-a", sessions: [session], isVisible: true)
+        let window = HeadlessWindow(size: CGSize(width: 480, height: 300))
+        let top = DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl, isRefreshing: { store.isRefreshing }))
+        let bottom = DockShellView(body: NSView(), model: DockChromeModel(isRefreshing: { false }))
+        let column = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 300))
+        top.frame = NSRect(x: 0, y: 150, width: 480, height: 150)
+        bottom.frame = NSRect(x: 0, y: 0, width: 480, height: 150)
+        column.addSubview(top)
+        column.addSubview(bottom)
+        window.contentView = column
+        window.show()
+        defer { window.close() }
+
+        try waitForMainQueue("the title bar to draw") { descendant(NSHostingView<DockTopBar>.self, in: top) != nil }
+        try expect(descendant(SpinnerRingNSView.self, in: top) == nil, "no spinner until a refresh starts")
+
+        let now = Date()
+        guard case .refresh(let request)? = store.handle(.refresh, now: now) else {
+            throw TestFailure("r should ask for a refresh")
+        }
+        try waitForMainQueue("the spinner to appear") { descendant(SpinnerRingNSView.self, in: top)?.spinAnimation != nil }
+        try expect(descendant(SpinnerRingNSView.self, in: bottom) == nil, "the bottom panel's bar never shows it")
+
+        store.finishRefresh(request, failed: false, now: now.addingTimeInterval(PullRequestStore.refreshMinimumShown + 1))
+        try waitForMainQueue("the spinner to go") { descendant(SpinnerRingNSView.self, in: top) == nil }
     }
 
     /// The column puts Version Control on top at 300, the bottom panel under it, 20 apart; a panel alone fills the column and

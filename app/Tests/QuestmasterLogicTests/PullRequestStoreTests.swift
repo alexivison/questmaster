@@ -15,6 +15,7 @@ struct PullRequestStoreTests {
         commandsBuildEffects()
         unwatchedFollowsTheRevision()
         refreshFailureKeepsRowsAndShowsNotice()
+        refreshSpinnerFollowsTheKeyAndTheReply()
         print("PullRequestStoreTests: all tests passed")
     }
 
@@ -161,7 +162,7 @@ struct PullRequestStoreTests {
         let object = request.jsonObject(id: "r-1")
         let data = object["data"] as? [String: Any]
         expect(object["method"] as? String == "pr.refresh" && object["id"] as? String == "r-1", "refresh method and id")
-        expect(data?["session_id"] as? String == "master" && data?["wait"] as? Bool == false, "refresh scope and no waiting")
+        expect(data?["session_id"] as? String == "master" && data?["wait"] as? Bool == true, "refresh scope, and the daemon replies once it has refreshed")
         let empty = PullRequestStore()
         expect(empty.handle(.open) == nil && empty.handle(.copyURL) == nil && empty.handle(.refresh) == nil, "nothing selected, nothing to do")
     }
@@ -179,11 +180,65 @@ struct PullRequestStoreTests {
 
     private static func refreshFailureKeepsRowsAndShowsNotice() {
         let store = loadedStore([1])
-        store.failRefresh()
+        guard case .refresh(let refresh)? = store.handle(.refresh) else {
+            expect(false, "r should ask for a refresh")
+            return
+        }
+        store.finishRefresh(refresh, failed: true)
         expect(store.rows.count == 1 && store.readNotice == "Couldn't refresh pull requests", "a refused refresh keeps the rows and says so")
         let request = store.sync(selectedSessionID: "master", sessions: [session("master", rev: "2")], isVisible: true)!
         _ = store.apply(response: [PullRequestModelsTests.row(1)], for: request)
         expect(store.readNotice == nil, "the next pull clears the notice")
+    }
+
+    /// The refresh spinner: `r` starts it, the daemon's reply (or its refusal) ends it, but not before one turn has shown;
+    /// no reply at all ends it at the cap; a second `r` while one runs sends nothing; a reply to a refresh that has ended,
+    /// or to another session's, is ignored.
+    private static func refreshSpinnerFollowsTheKeyAndTheReply() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        func after(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
+        func begin(_ store: PullRequestStore, at time: Date = start) -> PullRequestRefreshRequest {
+            guard case .refresh(let request)? = store.handle(.refresh, now: time) else {
+                fatalError("r should ask for a refresh")
+            }
+            return request
+        }
+
+        let store = loadedStore([1])
+        expect(!store.isRefreshing, "nothing refreshes until r")
+        let first = begin(store)
+        expect(store.isRefreshing, "r starts the spinner")
+        expect(store.handle(.refresh, now: after(0.5)) == nil && store.isRefreshing, "a second r while one runs sends no second request")
+        expect(store.settleRefresh(now: after(5)) == PullRequestStore.refreshCap - 5, "with no reply yet, the cap is what's left to wait for")
+        expect(store.isRefreshing, "and it keeps spinning meanwhile")
+
+        let quick = store.finishRefresh(first, failed: false, now: after(0.2))
+        expect(store.isRefreshing && quick != nil && abs(quick! - (WorkingSpinner.period - 0.2)) < 0.0001, "a quick reply keeps the spinner for the rest of one turn, got \(String(describing: quick))")
+        expect(store.settleRefresh(now: after(1.1)) != nil && store.isRefreshing, "still short of a full turn")
+        expect(store.settleRefresh(now: after(WorkingSpinner.period)) == nil && !store.isRefreshing, "a full turn after the key, it ends")
+        expect(store.readNotice == nil, "an answered refresh says nothing")
+
+        let slow = begin(store, at: after(10))
+        expect(store.finishRefresh(slow, failed: false, now: after(14)) == nil && !store.isRefreshing, "a reply after the turn ends it at once")
+
+        let refused = begin(store, at: after(20))
+        expect(store.finishRefresh(refused, failed: true, now: after(23)) == nil && !store.isRefreshing, "a refusal ends it too")
+        expect(store.readNotice == "Couldn't refresh pull requests", "and says so")
+
+        let lost = begin(store, at: after(30))
+        expect(store.settleRefresh(now: after(30 + PullRequestStore.refreshCap - 1)) == 1 && store.isRefreshing, "no reply, short of the cap: still spinning")
+        expect(store.settleRefresh(now: after(30 + PullRequestStore.refreshCap)) == nil && !store.isRefreshing, "no reply by the cap: it gives up")
+        expect(store.finishRefresh(lost, failed: false, now: after(100)) == nil, "a reply after the cap changes nothing")
+
+        let stale = begin(store, at: after(200))
+        _ = store.finishRefresh(stale, failed: false, now: after(205))
+        let next = begin(store, at: after(210))
+        expect(store.finishRefresh(stale, failed: false, now: after(211)) == nil && store.isRefreshing, "an earlier request's reply doesn't end the current refresh")
+        expect(next != stale, "each refresh is its own request")
+
+        _ = store.sync(selectedSessionID: "worker", sessions: [session("master", rev: "3"), session("worker", role: "worker", rev: "1")], isVisible: true)
+        expect(!store.isRefreshing, "another session's dock isn't refreshing")
+        expect(store.finishRefresh(next, failed: true, now: after(212)) == nil && store.readNotice == nil, "and the old session's reply is ignored")
     }
 
     private static func session(_ id: String, role: String = "master", rev: String = "") -> TrackerSession {

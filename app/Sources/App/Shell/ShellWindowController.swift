@@ -104,7 +104,7 @@ final class ShellWindowController {
         let bottomDockShell = DockShellView(body: dockView, model: dockChromeModel)
         let topDockShell = DockShellView(
             body: versionControlPane,
-            model: DockChromeModel(topBar: .versionControl)
+            model: DockChromeModel(topBar: .versionControl, isRefreshing: { [store = pullRequestStore] in store.isRefreshing })
         )
         let dockColumn = DockColumnView(top: topDockShell, bottom: bottomDockShell)
         let footerShell = ActionBarShellView()
