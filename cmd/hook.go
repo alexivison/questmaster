@@ -627,8 +627,17 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		prevClaude := pane
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevNarration := pane.Narration
+		prevClaudeSubagentWakeState := pane.ClaudeSubagentWakeState
+		prevClaudeSubagentWakeActivity := pane.ClaudeSubagentWakeActivity
+		prevClaudeSubagentWakeIDs := slices.Clone(pane.ClaudeSubagentWakeIDs)
 		prevClaude.ClaudeDisplayChunks = maps.Clone(pane.ClaudeDisplayChunks)
 		prevClaude.ClaudeOpenChatActions = slices.Clone(pane.ClaudeOpenChatActions)
+		if !isSubagent {
+			if len(pane.ClaudeSubagentWakeIDs) > 0 && setActivity == "" {
+				pane.Activity = pane.ClaudeSubagentWakeActivity
+			}
+			clearClaudeSubagentWake(&pane)
+		}
 		if !isSubagent {
 			if opts.action == "working" || opts.action == "done" || opts.action == "stopped" {
 				state.ClearRunningTools(&pane)
@@ -710,7 +719,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 				}
 			}
 			ss.Panes[role] = pane
-			return claudeDisplayStateChanged(prevClaude, pane)
+			return claudeDisplayStateChanged(prevClaude, pane) ||
+				prevClaudeSubagentWakeState != pane.ClaudeSubagentWakeState ||
+				prevClaudeSubagentWakeActivity != pane.ClaudeSubagentWakeActivity ||
+				!slices.Equal(prevClaudeSubagentWakeIDs, pane.ClaudeSubagentWakeIDs)
 		}
 
 		if !isSubagent {
@@ -749,6 +761,14 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// needs prev.State, the pane's state immediately before this hook
 		// event. Once the parent has gone idle/done, a sub-agent's real
 		// activity must still be able to flip the border back to working.
+		restoreState, restoreActivity, restoreWake := "", "", false
+		if isSubagent && opts.action == "subagent_stop" {
+			restoreState, restoreActivity, restoreWake = finishClaudeSubagentWake(&pane, payload.AgentID)
+		} else if isSubagent && setState == "working" &&
+			(prev.State != "working" || len(pane.ClaudeSubagentWakeIDs) > 0) {
+			rememberClaudeSubagentWake(&pane, payload.AgentID, prev.State, prev.Activity)
+		}
+
 		if isSubagent && suppressStateForSubagent && prev.State == "working" {
 			setState = ""
 		}
@@ -774,14 +794,18 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		}
 		setState = suppressSpuriousStartingRegression(setState, prev.State)
 
-		if setState != "" {
+		if restoreWake {
+			pane.State = restoreState
+		} else if setState != "" {
 			pane.State = setState
 		}
 		if pane.State == "blocked" {
 			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
-		if setActivity != "" {
+		if restoreWake {
+			pane.Activity = restoreActivity
+		} else if setActivity != "" {
 			pane.Activity = setActivity
 		}
 		if setTool != "" {
@@ -818,6 +842,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 				addVisibleStatus(&ev, &pane, pane.State)
 			}
 		}
+		if restoreWake {
+			ev.State = pane.State
+			addVisibleStatus(&ev, &pane, pane.State)
+		}
 		ss.Panes[role] = pane
 
 		// Conditional flush: rewrite state.json only when renderer-visible
@@ -829,6 +857,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.LastKind == prev.LastKind &&
 			pane.WorkingSince.Equal(prev.WorkingSince) &&
 			pane.LastChatStatus == prev.LastChatStatus &&
+			prevClaudeSubagentWakeState == pane.ClaudeSubagentWakeState &&
+			prevClaudeSubagentWakeActivity == pane.ClaudeSubagentWakeActivity &&
+			slices.Equal(prevClaudeSubagentWakeIDs, pane.ClaudeSubagentWakeIDs) &&
 			pane.LastChatAt.Equal(prev.LastChatAt) &&
 			pane.Narration == prevNarration &&
 			slices.Equal(pane.RunningTools, prevRunningTools) &&
@@ -874,6 +905,50 @@ func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLast
 		return
 	}
 	pane.WorkingSince = now
+}
+
+// shortcut: stores at most 8 waking subagents, increase if Claude sessions routinely exceed that.
+const maxClaudeSubagentWakeIDs = 8
+
+func rememberClaudeSubagentWake(pane *state.PaneState, agentID, restoreState, restoreActivity string) {
+	if agentID == "" {
+		return
+	}
+	for _, id := range pane.ClaudeSubagentWakeIDs {
+		if id == agentID {
+			return
+		}
+	}
+	if len(pane.ClaudeSubagentWakeIDs) >= maxClaudeSubagentWakeIDs {
+		return
+	}
+	if len(pane.ClaudeSubagentWakeIDs) == 0 {
+		pane.ClaudeSubagentWakeState = restoreState
+		pane.ClaudeSubagentWakeActivity = restoreActivity
+	}
+	pane.ClaudeSubagentWakeIDs = append(pane.ClaudeSubagentWakeIDs, agentID)
+}
+
+func finishClaudeSubagentWake(pane *state.PaneState, agentID string) (string, string, bool) {
+	for i, id := range pane.ClaudeSubagentWakeIDs {
+		if id != agentID {
+			continue
+		}
+		pane.ClaudeSubagentWakeIDs = slices.Delete(pane.ClaudeSubagentWakeIDs, i, i+1)
+		if len(pane.ClaudeSubagentWakeIDs) > 0 {
+			return "", "", false
+		}
+		restoreState, restoreActivity := pane.ClaudeSubagentWakeState, pane.ClaudeSubagentWakeActivity
+		clearClaudeSubagentWake(pane)
+		return restoreState, restoreActivity, true
+	}
+	return "", "", false
+}
+
+func clearClaudeSubagentWake(pane *state.PaneState) {
+	pane.ClaudeSubagentWakeState = ""
+	pane.ClaudeSubagentWakeActivity = ""
+	pane.ClaudeSubagentWakeIDs = nil
 }
 
 func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text string) {
