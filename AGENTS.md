@@ -323,7 +323,7 @@ own height as an `svg…` constant and scales to the control's.
 Portraits sit on 5s too: the master's disc spans 0-50 and the worker's 20-60 in
 their rows, and plate text starts `Space.row` past the disc's round edge (55,
 65; the side diamonds don't count). The selected-session panel's text starts
-`Space.item` past its disc (80), clear of the Q's spike. Logos are 0.6 of their disc (30, 24, 15),
+`Space.item` past its disc (80). Logos are 0.6 of their disc (30, 24, 15),
 canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
 agent's logo in a 25pt badge (logo 15), as big as a collapsed worker's circle, whose edge hangs `Space.row` outside the
 disc on the left and below it (`TrackerPlateDesign.badgeOverhang`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
@@ -402,9 +402,17 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   animation that ends, even one of those views' (a flash, an exit, a crossfade), takes a step.
 - **A new transition** picks `fast` or `standard`; a step is added to `MotionStep` only for a new pace the app doesn't
   have yet, never a one-off number.
-- **Selected-session panel:** the class icon (the portrait, or the Q) fades in once when the attached session or its
-  portrait changes (`SelectedSessionPanel`, `fadesIn`), over `standard`; the old icon goes at once and the first draw
-  doesn't fade. The disc is three layers (base, portrait, overlay) so only the portrait fades.
+- **Selected-session panel:** the disc's icon is the class portrait; a shell, tmux or orphan session shows the shell
+  row's terminal glyph (`ShellTerminalGlyph`, scaled with the disc, `textMeta`); no class, or nothing attached, leaves the
+  disc empty. The icon fades in once when the attached session or its portrait changes, over `standard`; the old icon goes
+  at once and the first draw doesn't fade. It is one Core Animation opacity animation (clear to full,
+  `Motion.timingFunction`) on the icon's own layer, run by the render server, so SwiftUI redraws nothing for it
+  (`IconFade`, a hosting view like `SkeletonPulse`'s; no `.id`/`.transition` re-creation per switch). The disc is drawn in
+  layers so only the icon fades: the base (with the strips, one Canvas), the icon's one `IconFade` layer, and the
+  overlay (a Canvas). The icon key is empty when the disc has none, and an empty key never fades, so a switch fades only
+  an icon coming in: one fade a switch that brings an icon in (from an empty disc too), none to an empty disc. A change
+  with no window or the same key adds no fade; a new key (an empty one too), leaving the window, or any update under
+  Reduce Motion drops one still running.
 
 `MotionRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and fails on a break:
 
@@ -422,10 +430,16 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 
 The scan reads lines, so a duration passed through a helper's parameter isn't seen.
 `testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges`
-reads the disc's pixels at fixed times in an off-screen window (the fade is under way, the old icon is gone, it ends on
-the icon drawn fresh, and Reduce Motion and an unrelated edit show none), and
+hosts the panel in an off-screen window and asserts the fade is a Core Animation opacity animation on the icon's layer
+(from clear to full, `standard`, `Motion.timingFunction`, once), that its presentation layer starts clear and reaches full
+opacity, that exactly one fade runs when an icon comes in (class to class, class to shell, shell to class, empty disc to
+class), that no view is re-created, that the disc ends as drawn fresh, that a switch to an empty disc drops a fade still
+running, and that the first icon, an unrelated edit, a switch to or between empty discs, a view outside a window, one that
+left it and Reduce Motion show none. `cacheDisplay` draws the model layers, so it cannot see a Core Animation fade; the
+test reads the presentation layer's opacity, and
 `RENDER_ONLY=selected-session-fade-gif QUESTMASTER_ANIMATION_SLOWDOWN=6 … --render-preview <dir>` records it frame by
-frame (`QUESTMASTER_ANIMATION_SLOWDOWN` stretches every step in DEBUG builds so the recorder can sample it).
+frame from the presentation layers (`recordAnimation(…, capturesLayers: true)`; `QUESTMASTER_ANIMATION_SLOWDOWN` stretches
+every step in DEBUG builds so the recorder can sample it).
 
 ## Testing conventions
 

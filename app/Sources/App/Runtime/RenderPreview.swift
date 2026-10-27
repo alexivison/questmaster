@@ -156,6 +156,7 @@ enum RenderPreview {
         render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
         render(selectedSessionPanelView(portrait: .master(.cleric)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-class.png")
         render(selectedSessionPanelView(portrait: .familiar(.wizard)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-familiar.png")
+        render(selectedSessionPanelView(isShell: true), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-shell.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -534,7 +535,11 @@ enum RenderPreview {
             projectColor: NSColor(hex: 0x7A7AF0), portrait: .master(.paladin)
         ))
         let host = NSHostingView(rootView: SelectedSessionPanelFadeHarness(model: model).background(AppPalette.window.swiftUI))
-        recordAnimation("selected-session-fade-gif", root: host, size: size, crop: CGRect(origin: .zero, size: size), duration: (MotionStep.standard.seconds + 0.12) * Motion.slowdown, to: dir) {
+        // The fade is Core Animation's, so the frames are its presentation layers, captured from a plain (non-flipped) container.
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        host.frame = container.bounds
+        container.addSubview(host)
+        recordAnimation("selected-session-fade-gif", root: container, size: size, crop: CGRect(origin: .zero, size: size), duration: (MotionStep.standard.seconds + 0.12) * Motion.slowdown, capturesLayers: true, to: dir) {
             model.content = SelectedSessionPanelContent(
                 title: "Wire up the worker chat", id: "qm-1789533001", projectName: "Questmaster",
                 projectColor: NSColor(hex: 0x7A7AF0), portrait: .master(.wizard)
@@ -1581,16 +1586,17 @@ enum RenderPreview {
     }
 
     /// The selected-session panel with the strings and the bar colour `Selected Session.svg` shows, or with no text, to
-    /// compare the plate alone against the SVG's raster.
+    /// compare the plate alone against the SVG's raster. With neither a portrait nor `isShell` the disc is empty.
     @MainActor
-    private static func selectedSessionPanelView(withText: Bool = true, portrait: SessionPortrait? = nil) -> some View {
+    private static func selectedSessionPanelView(withText: Bool = true, portrait: SessionPortrait? = nil, isShell: Bool = false) -> some View {
         SelectedSessionPanel(
             content: SelectedSessionPanelContent(
                 title: withText ? "Improve fuzzy search ranking" : "",
                 id: withText ? "qm-1789532989" : "",
                 projectName: withText ? "Questmaster" : "",
                 projectColor: NSColor(hex: 0x7A7AF0),
-                portrait: portrait
+                portrait: portrait,
+                isShell: isShell
             ),
             onCopyID: { _ in }
         )
@@ -2098,8 +2104,10 @@ enum RenderPreview {
 
     /// Records a real animation: lays `root` out in an off-screen window, runs `start`, then snapshots the window
     /// every 1/`fps` s for `duration` s into `<dir>/<name>-frames/NNN.png`. Only runs when RENDER_ONLY names it.
+    /// `capturesLayers` snapshots Core Animation's presentation layers (`captureLayers`, so `root` must be a plain view),
+    /// which is the only place an animation it runs itself shows its in-between values; `cacheDisplay` draws the model values.
     @MainActor
-    private static func recordAnimation(_ name: String, root: NSView, size: CGSize, crop: CGRect, duration: Double, fps: Double = 30, to dir: String, start: () -> Void) {
+    private static func recordAnimation(_ name: String, root: NSView, size: CGSize, crop: CGRect, duration: Double, fps: Double = 30, capturesLayers: Bool = false, to dir: String, start: () -> Void) {
         let environment = ProcessInfo.processInfo.environment
         guard environment["RENDER_ONLY"]?.split(separator: ",").contains(Substring(name)) == true else {
             return
@@ -2116,24 +2124,30 @@ enum RenderPreview {
         start()
         let began = Date()
         var index = 0
-        // The presentation layer tree, not `cacheDisplay`: animations Core Animation runs itself (the unroll's mask
-        // scale) only show their in-between values there.
         // Whole-view snapshots (a sub-rect snapshot draws the in-window modal host out of place), cropped to `crop`
         // (points from the top left) as they're saved.
-        var captured: [NSBitmapImageRep] = []
+        var captured: [CGImage] = []
         while Date().timeIntervalSince(began) < duration {
             RunLoop.current.run(until: began.addingTimeInterval(Double(index) / fps))
-            guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
-                break
+            if capturesLayers {
+                if let image = captureLayers(of: root, scale: scale) {
+                    captured.append(image)
+                }
+            } else {
+                guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+                    break
+                }
+                bitmap.size = size
+                root.cacheDisplay(in: root.bounds, to: bitmap)
+                if let image = bitmap.cgImage {
+                    captured.append(image)
+                }
             }
-            bitmap.size = size
-            root.cacheDisplay(in: root.bounds, to: bitmap)
-            captured.append(bitmap)
             index += 1
         }
         let pixelCrop = CGRect(x: crop.minX * scale, y: crop.minY * scale, width: crop.width * scale, height: crop.height * scale)
-        for (frame, bitmap) in captured.enumerated() {
-            guard let cropped = bitmap.cgImage?.cropping(to: pixelCrop) else {
+        for (frame, image) in captured.enumerated() {
+            guard let cropped = image.cropping(to: pixelCrop) else {
                 continue
             }
             try? NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: String(format: "%@/%03d.png", frames, frame)))
