@@ -180,6 +180,12 @@ public enum QuestLogEffect: Equatable {
     case close
 }
 
+public enum QuestLogCopyText {
+    public static func text(for quests: [QuestItem]) -> String {
+        quests.map(\.id).joined(separator: " ")
+    }
+}
+
 /// The Quest Log modal's state: whether it is open, the quests grouped by project, the selection and the
 /// quests marked with space.
 @Observable

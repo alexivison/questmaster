@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/alexivison/questmaster/internal/modelsuggest"
+	"github.com/alexivison/questmaster/internal/quest"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -72,10 +73,11 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 	var project string
 	var query string
 	cmd := &cobra.Command{
-		Use:     "ls",
+		Use:     "ls [id...]",
 		Aliases: []string{"list"},
 		Short:   "List quests",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:    cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			projectID := ""
 			if cmd.Flags().Changed("project") {
 				meta, err := questProjectFromPath(project, true)
@@ -84,7 +86,13 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 				}
 				projectID = meta.id
 			}
-			quests, err := state.LoadQuestsAt(questStateRoot(store))
+			var quests []state.Quest
+			var err error
+			if len(args) > 0 {
+				quests, err = quest.LoadByID(questStateRoot(store), args)
+			} else {
+				quests, err = state.LoadQuestsAt(questStateRoot(store))
+			}
 			if err != nil {
 				return err
 			}
@@ -299,36 +307,9 @@ func findQuest(quests []state.Quest, id string) (state.Quest, bool) {
 }
 
 func questsByID(store *state.Store, ids []string) ([]state.Quest, error) {
-	all, err := state.LoadQuestsAt(questStateRoot(store))
-	if err != nil {
-		return nil, err
-	}
-	out := make([]state.Quest, 0, len(ids))
-	for _, id := range ids {
-		quest, ok := findQuest(all, id)
-		if !ok {
-			return nil, fmt.Errorf("quest %q not found", id)
-		}
-		out = append(out, quest)
-	}
-	return out, nil
+	return quest.LoadByID(questStateRoot(store), ids)
 }
 
 func questStartPayload(quests []state.Quest) (string, string, error) {
-	if len(quests) == 0 {
-		return "", "", fmt.Errorf("quest id is required")
-	}
-	projectID := quests[0].ProjectID
-	projectPath := quests[0].ProjectPath
-	if projectID == "" || projectPath == "" {
-		return "", "", fmt.Errorf("quest %q has no startable project", quests[0].ID)
-	}
-	var bodies []string
-	for _, quest := range quests {
-		if quest.ProjectID != projectID || quest.ProjectPath == "" {
-			return "", "", fmt.Errorf("selected quests must share one project")
-		}
-		bodies = append(bodies, "- "+strings.ReplaceAll(quest.Content, "\n", "\n  "))
-	}
-	return projectPath, strings.Join(bodies, "\n"), nil
+	return quest.StartPayload(quests)
 }

@@ -4239,7 +4239,7 @@ enum LogicSelfTests {
                 }
             }
         }
-        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":2,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
+        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":3,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
     }
 
     private static func testServeStreamReconnectsAfterProtocolMismatch() throws {
@@ -4258,7 +4258,7 @@ enum LogicSelfTests {
 
         let lines = [
             "{\"protocol_version\":1,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wrong\",\"sessions\":[]}}\n",
-            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[]}}\n",
+            "{\"protocol_version\":3,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[]}}\n",
         ]
         DispatchQueue.global().async {
             for line in lines {
@@ -4267,7 +4267,7 @@ enum LogicSelfTests {
                 let peer = Darwin.accept(listener, nil, nil)
                 guard peer >= 0 else { return }
                 try? UnixSocketIO.setReadTimeout(on: peer, seconds: 5)
-                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":2,\"accepting\":true}\n"
+                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":3,\"accepting\":true}\n"
                 try? UnixSocketIO.write(Data(hello.utf8), to: peer)
                 var requestBytes = [UInt8](repeating: 0, count: 4096)
                 var requestLines = 0

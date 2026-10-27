@@ -1,5 +1,5 @@
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "type": "response",
   "id": "tracker-request",
   "ok": true,

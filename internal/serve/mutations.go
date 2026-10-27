@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/quest"
 	"github.com/alexivison/questmaster/internal/state"
 )
 
@@ -79,6 +80,7 @@ type mutationPayload struct {
 	Model           string          `json:"model"`
 	ReasoningEffort string          `json:"reasoning_effort"`
 	Prompt          string          `json:"prompt"`
+	QuestIDs        string          `json:"quest_ids"`
 	QuestID         string          `json:"quest_id"`
 	Path            string          `json:"path"`
 	ProjectID       string          `json:"project_id"`
@@ -245,7 +247,22 @@ func (s *Server) mutateSpawn(ctx context.Context, req Request, payload mutationP
 
 func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationPayload) (any, error) {
 	args := []string{"start", "--from-app"}
-	if cwd := strings.TrimSpace(payload.Cwd); cwd != "" {
+	cwd := strings.TrimSpace(payload.Cwd)
+	prompt := payload.Prompt
+	if ids := strings.Fields(payload.QuestIDs); len(ids) > 0 {
+		if strings.TrimSpace(payload.Prompt) != "" || mutationTruthy(payload.Shell) {
+			return nil, fmt.Errorf("quest IDs cannot be combined with prompt or shell")
+		}
+		quests, err := quest.LoadByID(s.mutationStore().Root(), ids)
+		if err != nil {
+			return nil, err
+		}
+		cwd, prompt, err = quest.StartPayload(quests)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if cwd != "" {
 		args = append(args, "--cwd", cwd)
 	}
 	if agent := strings.TrimSpace(payload.Agent); agent != "" {
@@ -275,9 +292,9 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 		args = append(args, "--shell")
 	}
 	var stdin []byte
-	if strings.TrimSpace(payload.Prompt) != "" {
+	if strings.TrimSpace(prompt) != "" {
 		args = append(args, "--prompt-file", "-")
-		stdin = []byte(payload.Prompt)
+		stdin = []byte(prompt)
 	}
 	if title := strings.TrimSpace(firstNonEmpty(payload.Title, payload.Name)); title != "" {
 		args = append(args, "--", title)

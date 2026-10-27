@@ -18,6 +18,7 @@ struct QuestCoreTests {
         questLogWrapsGreedilyWithoutPushingWordsDown()
         questLogStoreSelectsMovesAndRecovers()
         questLogStoreTargetsMarkedQuestsInListOrder()
+        questLogCopyTextUsesIDsForSelectedAndMarkedTargets()
         questLogStoreReturnsEffectsAndClosingClearsMarks()
         questLogKeysMapToCommands()
         questLogStoreJumpsToTheEdgesAndAsksForAScroll()
@@ -32,7 +33,7 @@ struct QuestCoreTests {
         anAssignedQuestCanBeUnfiled()
         browsingReachesEveryProject()
         leavingTheProjectFieldEndsItsSearch()
-        startFromQuestsBuildsPromptAndRejectsMixedProjects()
+        startFromQuestsSendsIDsAndRejectsMixedProjects()
         print("QuestCoreTests: all tests passed")
     }
 
@@ -156,6 +157,21 @@ struct QuestCoreTests {
         expect(store.markedIDs == ["b1"], "space again should unmark")
         store.sync(quests: Array(logQuests.prefix(2)), repos: [])
         expect(store.markedIDs.isEmpty, "marks on removed quests should be dropped")
+    }
+
+    private static func questLogCopyTextUsesIDsForSelectedAndMarkedTargets() {
+        let quests = [
+            QuestItem(id: "qst-a", content: "Private quest body A"),
+            QuestItem(id: "qst-b", content: "Private quest body B"),
+        ]
+        let store = QuestLogStore()
+        store.sync(quests: quests, repos: [])
+        expect(QuestLogCopyText.text(for: store.targets) == "qst-a", "copy should use the selected quest ID")
+        store.select("qst-b")
+        _ = store.handle(.toggleMark)
+        store.select("qst-a")
+        _ = store.handle(.toggleMark)
+        expect(QuestLogCopyText.text(for: store.targets) == "qst-a qst-b", "copy should use marked IDs in list order")
     }
 
     private static func questLogStoreReturnsEffectsAndClosingClearsMarks() {
@@ -469,7 +485,7 @@ struct QuestCoreTests {
         expect(!edit.canSubmit, "clearing a filed quest's project needs a new one")
     }
 
-    private static func startFromQuestsBuildsPromptAndRejectsMixedProjects() {
+    private static func startFromQuestsSendsIDsAndRejectsMixedProjects() {
         let quests = [
             QuestItem(id: "qst-one", content: "First\nline", projectID: "repo", projectPath: "/tmp/repo"),
             QuestItem(id: "qst-two", content: "Second", projectID: "repo", projectPath: "/tmp/repo"),
@@ -478,7 +494,8 @@ struct QuestCoreTests {
             let request = try ServeMutationRequests.startFromQuests(quests, title: "quests", agent: "codex")
             let data = request.jsonObject(id: "start")["data"] as? NSDictionary
             expect(data?["cwd"] as? String == "/tmp/repo", "cwd mismatch")
-            expect(data?["prompt"] as? String == "- First\n  line\n- Second", "prompt mismatch: \(String(describing: data?["prompt"]))")
+            expect(data?["quest_ids"] as? String == "qst-one qst-two", "start should send quest IDs")
+            expect(data?["prompt"] == nil, "app should leave quest prompt construction to the backend")
         } catch {
             fail("startFromQuests threw \(error)")
         }

@@ -112,7 +112,8 @@ public enum ServeMutationRequests {
         prompt: String?,
         model: String = "",
         reasoningEffort: String = "",
-        sessionClass: SessionClass? = nil
+        sessionClass: SessionClass? = nil,
+        questIDs: [String] = []
     ) throws -> ServeMutationRequest {
         var data: [String: String] = [
             "cwd": try required("cwd", cwd),
@@ -140,6 +141,9 @@ public enum ServeMutationRequests {
         }
         if let prompt = cleanOptional(prompt) {
             data["prompt"] = prompt
+        }
+        if !questIDs.isEmpty {
+            data["quest_ids"] = try questIDs.map { try required("quest_id", $0) }.joined(separator: " ")
         }
         return ServeMutationRequest(method: "start", data: data)
     }
@@ -222,10 +226,8 @@ public enum ServeMutationRequests {
         for quest in quests where quest.projectID != projectID || cleanOptional(quest.projectPath) == nil {
             throw ServeMutationRequestError.invalid("selected quests must share one project")
         }
-        let prompt = quests
-            .map { "- " + $0.content.replacingOccurrences(of: "\n", with: "\n  ") }
-            .joined(separator: "\n")
-        return try start(title: title, cwd: path, agent: agent, color: color, prompt: prompt)
+        let questIDs = try quests.map { try required("quest_id", $0.id) }
+        return try start(title: title, cwd: path, agent: agent, color: color, prompt: nil, questIDs: questIDs)
     }
 
     private static func required(_ field: String, _ value: String) throws -> String {
