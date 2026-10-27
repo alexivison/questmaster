@@ -659,7 +659,7 @@ func deriveWorkerEvent(worker worker, fileID string, offset int64, event state.S
 
 func validChatKind(kind string) bool {
 	switch kind {
-	case "status", "action", "message", "report", "say", "instructions":
+	case "status", "action", "message", "report", "say", "instructions", "summon", "dismiss":
 		return true
 	default:
 		return false

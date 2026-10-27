@@ -8,7 +8,7 @@
 //
 // The SIDECAR_VERSION marker must match openCodeSidecarVersion in opencode.go so
 // `questmaster hooks status opencode` can detect stale installs.
-const SIDECAR_VERSION = "phase2-v5";
+const SIDECAR_VERSION = "phase2-v6";
 const EMIT_TIMEOUT_MS = 5000;
 const EMIT_KILL_GRACE_MS = 1000;
 
@@ -150,11 +150,16 @@ export const QuestmasterOpenCode = async () => {
         },
       });
     },
-    "tool.execute.after": async (input) => {
+    "tool.execute.after": async (input, output) => {
       flushPart();
       emit({
         type: "tool.execute.after",
-        properties: { tool: input.tool, sessionID: input.sessionID, callID: input.callID },
+        properties: {
+          tool: input.tool,
+          sessionID: input.sessionID,
+          callID: input.callID,
+          metadata: jsonSafe(output.metadata),
+        },
       });
     },
   };

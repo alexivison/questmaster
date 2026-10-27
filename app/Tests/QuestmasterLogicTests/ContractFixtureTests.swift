@@ -82,7 +82,20 @@ struct ContractFixtureTests {
         let workerFeed = try decodeFixture(WorkerFeedEnvelopeFixture.self, "worker_feed_response_envelope.json").data
         expect(workerFeed.entries.first?.workerID == "qm-worker", "worker_feed worker id did not decode")
         expect(workerFeed.entries.first?.kind == "status" && workerFeed.entries.first?.text == "working", "worker_feed entry did not decode")
-        expect(workerFeed.entries.last?.kind == "action" && workerFeed.entries.last?.text == "Bash", "worker_feed action did not decode")
+        expect(workerFeed.entries.count == 4 && workerFeed.entries[1].kind == "action" && workerFeed.entries[1].text == "Bash", "worker_feed action did not decode")
+        expect(workerFeed.entries[2].kind == "summon" && workerFeed.entries[2].text == "Explore", "worker_feed summon did not decode")
+        expect(workerFeed.entries[3].kind == "dismiss" && workerFeed.entries[3].text == "Explore", "worker_feed dismiss did not decode")
+        // The store must accept every kind the golden carries: a kind it skips would silently drop the line.
+        let feedStore = WorkerChatStore()
+        let feedTracker = [
+            TrackerSession(id: "qm-master", title: "Master", repoName: "Repo", role: "master"),
+            TrackerSession(id: "qm-worker", title: "Worker", repoName: "Repo", agent: "claude", role: "worker", parentID: "qm-master"),
+        ]
+        if let request = feedStore.sync(selectedSessionID: "qm-master", sessions: feedTracker, isVisible: true) {
+            _ = feedStore.receive(workerFeed, for: request)
+        }
+        expect(feedStore.lines.count == 4, "the store should build a line for every golden entry, got \(feedStore.lines.count)")
+        expect(feedStore.lines.suffix(2).map(\.action) == [.summon, .summon], "the golden's summon and dismiss lines should file under Summon, got \(feedStore.lines.map(\.action))")
         expect(workerFeed.cursors["qm-worker"]?.offset == 128, "worker_feed cursor did not decode")
         expect(workerFeed.cursors["qm-worker"]?.fileID == "1:42", "worker_feed file identity did not decode")
         expect(workerFeed.hasMore["qm-worker"] == true, "worker_feed has_more did not decode")

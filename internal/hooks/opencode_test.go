@@ -260,7 +260,7 @@ const wasAsync = beforeReturned;
 writeFileSync(process.env.QM_CAPTURE + "/before-release", "");
 await beforeCall;
 assert.ok(wasAsync, "before hook awaited the emission queue");
-await hooks["tool.execute.after"]({ ...input, args }, { title: "bash", output: "", metadata: {} });
+await hooks["tool.execute.after"]({ ...input, args }, { title: "bash", output: "", metadata: { sessionId: "ses-child" } });
 const failedPart = { type: "message.part.updated", properties: { part: { id: "prt-1", callID: "call-1", type: "tool", state: { status: "error" } } } };
 await hooks.event({ event: failedPart });
 const wait = async (name) => {
@@ -274,7 +274,7 @@ const before = await wait("tool.execute.before");
 const after = await wait("tool.execute.after");
 const failed = await wait("message.part.updated");
 assert.deepEqual(before.event.properties, { ...input, args: { command: args.command } });
-assert.deepEqual(after.event.properties, input);
+assert.deepEqual(after.event.properties, { ...input, metadata: { sessionId: "ses-child" } });
 assert.deepEqual(failed.event, failedPart);
 await hooks.event({ event: { type: "test.timeout" } });
 await hooks.event({ event: { type: "test.after-timeout" } });

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -24,6 +25,8 @@ func TestAddChatEntryUpdatesNarrationOnlyForChatKinds(t *testing.T) {
 		{kind: "status", want: "previous"},
 		{kind: "report", want: "previous"},
 		{kind: "instructions", want: "previous"},
+		{kind: "summon", want: "previous"},
+		{kind: "dismiss", want: "previous"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			t.Parallel()
@@ -42,6 +45,65 @@ func TestAddChatEntryCapsNarrationToOneTrackerLine(t *testing.T) {
 	addChatEntryAt(&state.StateEvent{Ts: time.Unix(1, 0)}, &pane, "say", strings.Repeat("a", 250)+"\nmore", time.Time{})
 	if utf8.RuneCountInString(pane.Narration) != 180 || !strings.HasSuffix(pane.Narration, "...") || strings.ContainsAny(pane.Narration, "\r\n") {
 		t.Fatalf("narration length/newline = %d/%t, want 180/false", utf8.RuneCountInString(pane.Narration), strings.ContainsAny(pane.Narration, "\r\n"))
+	}
+}
+
+func TestSubagentChatRequiresIDAndPublicType(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		id       string
+		familiar string
+	}{
+		{name: "missing id", familiar: "Explore"},
+		{name: "missing type", id: "child-1"},
+		{name: "internal type", id: "child-1", familiar: "internal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pane := state.PaneState{}
+			event := state.StateEvent{Ts: time.Unix(1, 0)}
+			if updateSubagentChat(&pane, &event, "subagent_start", tc.id, tc.familiar) {
+				t.Fatal("invalid subagent start was recorded")
+			}
+			if len(chatEntries(event)) != 0 || len(pane.ActiveSubagents) != 0 {
+				t.Fatalf("invalid start changed pane/feed: pane=%+v event=%+v", pane, event)
+			}
+		})
+	}
+}
+
+func TestUpdateSubagentChatPrunesAndCapsActiveChildren(t *testing.T) {
+	t.Parallel()
+	base := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	old := base.Add(-activeSubagentMaxAge - time.Minute)
+	pane := state.PaneState{
+		ActiveSubagents:         map[string]string{"expired": "Explore"},
+		ActiveSubagentStartedAt: map[string]time.Time{"expired": old},
+	}
+	event := state.StateEvent{Ts: base}
+	if !updateSubagentChat(&pane, &event, "subagent_start", "current", "Codex") {
+		t.Fatal("fresh subagent start was not recorded after pruning")
+	}
+	if len(pane.ActiveSubagents) != 1 || pane.ActiveSubagents["current"] != "Codex" {
+		t.Fatalf("active subagents after pruning = %#v", pane.ActiveSubagents)
+	}
+
+	pane = state.PaneState{
+		ActiveSubagents:         make(map[string]string, maxActiveSubagents),
+		ActiveSubagentStartedAt: make(map[string]time.Time, maxActiveSubagents),
+	}
+	for i := 0; i < maxActiveSubagents; i++ {
+		id := fmt.Sprintf("child-%d", i)
+		pane.ActiveSubagents[id] = "Explore"
+		pane.ActiveSubagentStartedAt[id] = base
+	}
+	event = state.StateEvent{Ts: base}
+	if updateSubagentChat(&pane, &event, "subagent_start", "overflow", "Codex") {
+		t.Fatal("start beyond the active-child cap was recorded")
+	}
+	if len(pane.ActiveSubagents) != maxActiveSubagents || len(chatEntries(event)) != 0 {
+		t.Fatalf("cap state/feed = %d/%v, want %d/no entry", len(pane.ActiveSubagents), chatEntries(event), maxActiveSubagents)
 	}
 }
 
@@ -129,16 +191,16 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
 				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
-					"tool": "bash", "callID": "oc-call", "args": map[string]interface{}{"command": "timeout 12 sleep 6"},
+					"sessionID": "ses_cast", "tool": "bash", "callID": "oc-call", "args": map[string]interface{}{"command": "timeout 12 sleep 6"},
 				}))
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{"tool": "bash", "callID": "oc-call"}))
+				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{"sessionID": "ses_cast", "tool": "bash", "callID": "oc-call"}))
 			},
 			clear: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "session.status", map[string]interface{}{"status": map[string]interface{}{"type": "idle"}}))
+				runOpenCodeHookRaw(r, "qm-cast-opencode", openCodeJSON(t, "session.status", map[string]interface{}{"sessionID": "ses_cast", "status": map[string]interface{}{"type": "idle"}}))
 			},
 		},
 	}
@@ -147,6 +209,9 @@ func TestHookCastTracksStartsEndsAndClearsForHarnesses(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
+			if tc.name == "opencode" {
+				openCodeHookEvent(t, r, "qm-cast-opencode", "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_cast"}})
+			}
 			var durations []toolDurationCall
 			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})
@@ -299,17 +364,17 @@ func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
 			start: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
 				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "tool.execute.before", map[string]interface{}{
-					"tool": "bash", "callID": "call-1",
+					"sessionID": "ses_wait", "tool": "bash", "callID": "call-1",
 				}))
 			},
 			wait: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
-				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "permission.asked", map[string]interface{}{}))
+				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "permission.asked", map[string]interface{}{"sessionID": "ses_wait"}))
 			},
 			end: func(t *testing.T, r *HookRunner, now time.Time) {
 				r.Now = func() time.Time { return now }
 				runOpenCodeHookRaw(r, "qm-cast-wait-opencode", openCodeJSON(t, "tool.execute.after", map[string]interface{}{
-					"tool": "bash", "callID": "call-1",
+					"sessionID": "ses_wait", "tool": "bash", "callID": "call-1",
 				}))
 			},
 		},
@@ -318,6 +383,9 @@ func TestHookCastSkipsDurationAfterSessionWaitsForInput(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			r, rec := newTestRunner(t)
+			if tc.name == "opencode" {
+				openCodeHookEvent(t, r, "qm-cast-wait-opencode", "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_wait"}})
+			}
 			var durations []toolDurationCall
 			r.RecordToolDuration = func(agent, tool, command string, duration time.Duration) error {
 				durations = append(durations, toolDurationCall{agent: agent, tool: tool, command: command, duration: duration})

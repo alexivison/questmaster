@@ -425,6 +425,8 @@ public final class WorkerChatStore {
         case "message": return .message
         case "report": return .report
         case "instructions": return .instructions
+        case "summon": return .summon
+        case "dismiss": return .dismiss
         default: return nil
         }
     }

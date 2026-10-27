@@ -158,9 +158,19 @@ func TestPiInstallReplacesOutdatedExtension(t *testing.T) {
 }
 
 func TestPiMarkerVersionMatchesExtension(t *testing.T) {
+	t.Parallel()
 	want := `const sidecarVersion = "` + QuestmasterSidecarVersion + `";`
 	if !strings.Contains(piMessagingExtension, want) {
 		t.Fatalf("Pi extension marker does not match %q", QuestmasterSidecarVersion)
+	}
+	for _, hook := range []string{
+		`subagentEvents?.on?.("subagents:started", forwardSubagent("subagent_start"));`,
+		`subagentEvents?.on?.("subagents:completed", forwardSubagent("subagent_stop"));`,
+		`subagentEvents?.on?.("subagents:failed", forwardSubagent("subagent_stop"));`,
+	} {
+		if !strings.Contains(piMessagingExtension, hook) {
+			t.Errorf("Pi extension missing sub-agent bridge %q", hook)
+		}
 	}
 }
 

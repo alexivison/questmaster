@@ -12,9 +12,7 @@ import (
 // claudeEvents maps each Claude hook event we install to the action arg
 // passed to `questmaster hook claude <action>`.
 //
-// SubagentStop is installed because we want the activity-only update
-// even when the parent state suppression rule fires. The subagent rule
-// in cmd/hook.go drops the state mutation but still updates Activity.
+// SubagentStart and SubagentStop report a child agent's lifecycle.
 var claudeEvents = []claudeEntry{
 	{Event: "SessionStart", Action: "starting"},
 	{Event: "UserPromptSubmit", Action: "working"},
@@ -23,6 +21,7 @@ var claudeEvents = []claudeEntry{
 	{Event: "PostToolUseFailure", Action: "tool_end"},
 	{Event: "MessageDisplay", Action: "say", Async: true},
 	{Event: "Stop", Action: "done"},
+	{Event: "SubagentStart", Action: "subagent_start"},
 	{Event: "SubagentStop", Action: "subagent_stop"},
 	{Event: "Notification", Action: "blocked"},
 	{Event: "SessionEnd", Action: "stopped"},

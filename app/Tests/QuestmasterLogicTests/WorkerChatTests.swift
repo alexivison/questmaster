@@ -15,6 +15,8 @@ struct WorkerChatTests {
         statusLinesMuteTheVerbAndColourTheTag()
         idleAndUnknownEntriesAreNotShown()
         messageKeepsParagraphsAndItemTagsCarryTheirRarity()
+        summonAndDismissLinesNameTheFamiliar()
+        summonLinesCutCastRunsAndNeverFoldIntoThem()
         actionRunCollapsesWithCountsAndNoCommas()
         actionRunSplitsAtCalendarMinute()
         lateNarrationSortsBeforeEarlierActionArrival()
@@ -122,6 +124,47 @@ struct WorkerChatTests {
         )
         let drawn = store.lines.flatMap(\.segments).map(\.text).joined()
         expect(!drawn.contains("Tests pass") && !drawn.contains("Write the migration"), "report and instruction text should not be drawn, got \(drawn)")
+    }
+
+    private static func summonAndDismissLinesNameTheFamiliar() {
+        let store = makeStore()
+        feed(store, [
+            entry(0, "w1", "summon", "Explore"),
+            entry(1, "w1", "dismiss", "general-purpose"),
+            entry(2, "w1", "summon", "  "),
+        ])
+        expect(store.lines.count == 2, "a blank familiar name should not produce a line, got \(store.lines.count)")
+        expect(
+            segments(store, 0) == [
+                WorkerChatSegment("Worker One:", .name),
+                WorkerChatSegment(" Summoned ", .muted),
+                WorkerChatSegment("[Explore]", .rarity(.epic)),
+            ],
+            "summon line mismatch: \(segments(store, 0))"
+        )
+        expect(
+            segments(store, 1) == [
+                WorkerChatSegment("Worker One:", .name),
+                WorkerChatSegment(" Dismissed ", .muted),
+                WorkerChatSegment("[general-purpose]", .rarity(.epic)),
+            ],
+            "dismiss line mismatch: \(segments(store, 1))"
+        )
+        expect(store.lines.allSatisfy { $0.action == .summon }, "summon and dismiss lines should both file under Summon, got \(store.lines.map(\.action))")
+    }
+
+    /// A summon is a non-action entry, so it closes the worker's open run; the next tool call starts a new Cast line.
+    private static func summonLinesCutCastRunsAndNeverFoldIntoThem() {
+        let store = makeStore()
+        feed(store, [
+            entry(0, "w1", "action", "Bash"),
+            entry(1, "w1", "summon", "Explore"),
+            entry(2, "w1", "action", "Bash"),
+            entry(3, "w1", "dismiss", "Explore"),
+        ])
+        let tails = store.lines.map(lastText)
+        expect(tails == ["[Bash]", "[Explore]", "[Bash]", "[Explore]"], "summon lines should stand alone between two Cast lines, got \(tails)")
+        expect(store.lines.map(\.action) == [.cast, .summon, .cast, .summon], "line actions mismatch: \(store.lines.map(\.action))")
     }
 
     private static func actionRunCollapsesWithCountsAndNoCommas() {

@@ -191,6 +191,7 @@ func TestClaudeInstallSkipsCurrentSettingsWithoutReformatting(t *testing.T) {
     "Notification": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh blocked", "type": "command"}]}],
     "SessionEnd": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh stopped", "type": "command"}]}],
     "PreToolUse": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh tool_start", "type": "command"}]}],
+    "SubagentStart": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh subagent_start", "type": "command"}]}],
     "SubagentStop": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh subagent_stop", "type": "command"}]}],
     "SessionStart": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh starting", "type": "command"}]}],
     "Stop": [{"hooks": [{"timeout": 5, "command": "~/.claude/hooks/questmaster-state.sh done", "type": "command"}]}],

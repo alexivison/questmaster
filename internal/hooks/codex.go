@@ -19,6 +19,8 @@ var codexEvents = []codexEntry{
 	{Event: "PreToolUse", HookKey: "pre_tool_use", Action: "tool_start"},
 	{Event: "PostToolUse", HookKey: "post_tool_use", Action: "tool_end"},
 	{Event: "Stop", HookKey: "stop", Action: "done"},
+	{Event: "SubagentStart", HookKey: "subagent_start", Action: "subagent_start"},
+	{Event: "SubagentStop", HookKey: "subagent_stop", Action: "subagent_stop"},
 	{Event: "PermissionRequest", HookKey: "permission_request", Action: "permission"},
 }
 

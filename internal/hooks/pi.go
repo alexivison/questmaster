@@ -14,7 +14,7 @@ var piMessagingExtension string
 
 // QuestmasterSidecarVersion is the marker version emitted by the installed Pi
 // extension that calls `questmaster hook`.
-const QuestmasterSidecarVersion = "phase2-v2"
+const QuestmasterSidecarVersion = "phase2-v3"
 
 // PiInstaller manages the Pi extension marker and bundled TypeScript extension.
 // The extension also refreshes the marker at runtime.

@@ -20,6 +20,20 @@
         "kind": "action",
         "text": "Bash",
         "summary": "Bash: go test ./..."
+      },
+      {
+        "timestamp": "2026-06-19T04:20:02Z",
+        "worker_id": "qm-worker",
+        "worker_title": "Worker",
+        "kind": "summon",
+        "text": "Explore"
+      },
+      {
+        "timestamp": "2026-06-19T04:20:03Z",
+        "worker_id": "qm-worker",
+        "worker_title": "Worker",
+        "kind": "dismiss",
+        "text": "Explore"
       }
     ],
     "cursors": {

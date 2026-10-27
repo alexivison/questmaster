@@ -40,10 +40,12 @@ func TestDeriveWorkerEventIsStateless(t *testing.T) {
 			map[string]interface{}{"chat_kind": "action", "chat_text": "Bash"},
 			map[string]interface{}{"chat_kind": "status", "chat_text": "working"},
 			map[string]interface{}{"chat_kind": "instructions", "chat_text": "fix the bug"},
+			map[string]interface{}{"chat_kind": "summon", "chat_text": "Explore"},
+			map[string]interface{}{"chat_kind": "dismiss", "chat_text": "Explore"},
 		},
 	}}
 	got := deriveWorkerEvent(worker{id: "qm-w1", title: "Worker"}, "1:2", 64, event)
-	if len(got) != 3 || got[0].Kind != "action" || got[0].Summary != "Bash: safe summary" || got[1].Text != "working" || got[2].Kind != "instructions" {
+	if len(got) != 5 || got[0].Kind != "action" || got[0].Summary != "Bash: safe summary" || got[1].Text != "working" || got[2].Kind != "instructions" || got[3].Kind != "summon" || got[4].Kind != "dismiss" {
 		t.Fatalf("derived entries = %#v", got)
 	}
 	if got := renderEntry(got[2], false); got != "[Instructions] fix the bug" {
