@@ -15,8 +15,61 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/serve"
+	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
+
+func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(state.Manifest{SessionID: "qm-demo"}); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := state.ParsePullRequestRef("owner/repo#1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.WatchPullRequest(root, "qm-demo", ref, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SavePullRequestStatuses(root, map[string]state.PullRequestStatus{ref.Key: {Title: "last good"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	job := prstatus.NewJob(root, tmux.NewClient(runtimeTmuxRunner{}), func(ctx context.Context, _, _ string) ([]byte, []byte, error) {
+		close(started)
+		<-ctx.Done()
+		return []byte(`{"data":{"p0":{"pullRequest":{"title":"partial","state":"OPEN"}}}}`), nil, nil
+	})
+	dir := filepath.Join(root, "daemon")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s := &server{dir: dir, jobsRequested: true, config: Config{Jobs: []Job{job}, JobDrainTimeout: time.Second}}
+	s.tryJobsLock()
+	defer s.stopJobs()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("fetch did not start")
+	}
+	if !s.quiesceJobs() {
+		t.Fatal("fetch did not drain")
+	}
+	statuses, err := state.LoadPullRequestStatuses(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statuses[ref.Key].Title != "last good" {
+		t.Fatalf("status changed: %#v", statuses[ref.Key])
+	}
+}
 
 type mutationRunnerFunc func(context.Context, []string, []byte) ([]byte, error)
 

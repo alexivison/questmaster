@@ -1,0 +1,43 @@
+{
+  "protocol_version": 2,
+  "type": "response",
+  "id": "pr-refresh-request",
+  "ok": true,
+  "topic": "pr.refresh",
+  "data": {
+    "pull_requests": [
+      {
+        "key": "github.com/owner/repo#42",
+        "host": "github.com",
+        "owner": "Owner",
+        "repo": "Repo",
+        "number": 42,
+        "watchers": [
+          {
+            "session_id": "qm-demo",
+            "added_at": "2026-06-19T04:20:00Z"
+          }
+        ],
+        "status": {
+          "title": "Ready to merge",
+          "state": "open",
+          "draft": false,
+          "additions": 0,
+          "deletions": 0,
+          "comments": 0,
+          "fetched_at": "2026-06-19T04:20:00Z",
+          "stale": false
+        }
+      }
+    ],
+    "hosts": {
+      "github.com": {
+        "rate_limit": {
+          "cost": 1,
+          "remaining": 4999,
+          "reset_at": "2026-06-19T04:20:00Z"
+        }
+      }
+    }
+  }
+}

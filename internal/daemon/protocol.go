@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/serve"
 )
 
@@ -157,6 +158,48 @@ func Ready(c Config) error {
 		err = conn.Close()
 	}
 	return err
+}
+
+// RequestPRRefresh wakes watched PR hosts and optionally waits for the fetch.
+func RequestPRRefresh(ctx context.Context, c Config, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
+	conn, dec, err := dial(c, true)
+	if err != nil {
+		return nil, fmt.Errorf("PR refresh needs a running daemon: %w", err)
+	}
+	defer conn.Close()
+	timeout := 5 * time.Second
+	if wait {
+		timeout = 30 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	if requested, ok := ctx.Deadline(); ok && requested.Before(deadline) {
+		deadline = requested
+	}
+	_ = conn.SetDeadline(deadline)
+	data, err := json.Marshal(struct {
+		Keys []string `json:"keys"`
+		Wait bool     `json:"wait"`
+	}{keys, wait})
+	if err != nil {
+		return nil, err
+	}
+	if err := json.NewEncoder(conn).Encode(serve.Request{Method: "pr.refresh", Data: data, ProtocolVersion: ProtocolVersion}); err != nil {
+		return nil, err
+	}
+	var response struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+		Data  struct {
+			Hosts map[string]prstatus.HostResult `json:"hosts"`
+		} `json:"data"`
+	}
+	if err := dec.Decode(&response); err != nil {
+		return nil, fmt.Errorf("PR refresh: %w", err)
+	}
+	if !response.OK {
+		return nil, errors.New(response.Error)
+	}
+	return response.Data.Hosts, nil
 }
 
 func call(c Config, method string, requireReady bool) (Record, error) {

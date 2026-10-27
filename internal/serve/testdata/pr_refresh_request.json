@@ -1,0 +1,11 @@
+{
+  "id": "pr-refresh-request",
+  "method": "pr.refresh",
+  "data": {
+    "session_id": "qm-demo",
+    "keys": [
+      "github.com/owner/repo#42"
+    ]
+  },
+  "protocol_version": 2
+}

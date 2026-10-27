@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/daemon"
+	"github.com/alexivison/questmaster/internal/prstatus"
 	"github.com/alexivison/questmaster/internal/session"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -62,6 +63,9 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 			return err
 		}
 		c.IdleGrace = idleGrace
+		prTmux := tmux.NewExecClient()
+		prTmux.CacheListSessions(time.Second)
+		c.Jobs = append(c.Jobs, prstatus.NewJob(store.Root(), prTmux, prstatus.GH))
 		if clockInterval > 0 {
 			c.ClockInterval = clockInterval
 		}

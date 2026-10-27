@@ -1,0 +1,11 @@
+{
+  "id": "pr-wake-request",
+  "method": "pr.refresh",
+  "data": {
+    "keys": [
+      "github.com/owner/repo#42"
+    ],
+    "wait": false
+  },
+  "protocol_version": 2
+}
