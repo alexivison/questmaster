@@ -33,9 +33,10 @@ public struct WorkerFeedRequest: Equatable {
 /// Not thread-safe; callers use it on the main thread.
 @Observable
 public final class WorkerChatStore {
-    /// History grows to this many rendered lines, then trims back to `trimTarget` in one update.
-    public static let maxLines = 600
-    public static let trimTarget = 500
+    /// History grows to this many rendered lines, then trims back to `trimTarget` in one update. The feed lays out
+    /// every line (a plain VStack, for exact heights), so a switch costs time in proportion to these.
+    public static let maxLines = 200
+    public static let trimTarget = 150
     /// Raw records kept for the visible feed. Folded actions keep their records, so a run can grow without
     /// adding lines; this bounds each rebuild even when no line trim fires. Twice `maxLines`, so one-line
     /// entries still reach the line trim first.
