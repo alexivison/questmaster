@@ -72,12 +72,23 @@ public final class NavigationStore {
         }
     }
 
-    /// App commands pause while a modal is drawn. Standard text editing and Quit remain available.
-    public func appCommandRoute(_ kind: AppCommandKind) -> AppCommandRoute {
-        guard isModalDrawn, kind == .app else {
+    /// Routes menu commands through modal ownership before blocking other app commands. Text editing and Quit stay available.
+    public func appCommandRoute(_ kind: AppCommandKind, topModal: ModalKind? = nil) -> AppCommandRoute {
+        switch kind {
+        case .textEditing, .quit:
             return .allowed
+        case .globalModal(let command):
+            switch ModalCommandRouting.route(command, top: topModal) {
+            case .allowed: return .allowed
+            case .child: return .child
+            case .ignored: return .blockedByModal
+            }
+        case .app:
+            guard isModalDrawn || topModal != nil else {
+                return .allowed
+            }
+            return .blockedByModal
         }
-        return .blockedByModal
     }
 
     private func dockRoute(_ panel: DockPanel, panels: DockPanels) -> CommandChordRoute {

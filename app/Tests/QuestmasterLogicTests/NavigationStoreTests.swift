@@ -122,6 +122,22 @@ struct NavigationStoreTests {
         expect(modal.appCommandRoute(.textEditing) == .allowed, "standard text editing remains available in a modal")
         expect(modal.appCommandRoute(.quit) == .allowed, "Quit remains available in a modal")
         expect(NavigationStore().appCommandRoute(.app) == .allowed, "app commands remain available without a modal")
+
+        let questLog = NavigationStore()
+        questLog.setModalDrawn(true)
+        expect(
+            questLog.appCommandRoute(.globalModal(.newQuest), topModal: .questLog) == .child,
+            "⌘T should remain enabled to open New Quest as the Quest Log's child"
+        )
+        expect(
+            questLog.appCommandRoute(.globalModal(.toggleQuestLog), topModal: .questLog) == .allowed,
+            "⇧⌘T should remain enabled to close the Quest Log"
+        )
+        let caffeinate = Keymap.Command.toggleCaffeine
+        expect(
+            questLog.appCommandRoute(.app, topModal: .questLog) == .blockedByModal,
+            "menu-only command \(caffeinate.displayGlyph) should stay disabled under the Quest Log"
+        )
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

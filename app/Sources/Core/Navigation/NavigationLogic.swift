@@ -54,12 +54,14 @@ public enum CommandChordRoute: Equatable {
 
 public enum AppCommandKind: Equatable {
     case app
+    case globalModal(GlobalModalCommand)
     case textEditing
     case quit
 }
 
 public enum AppCommandRoute: Equatable {
     case allowed
+    case child
     case blockedByModal
 }
 

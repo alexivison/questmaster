@@ -1097,7 +1097,11 @@ extension AppDelegate: NSMenuItemValidation {
         guard let action = menuItem.action else {
             return true
         }
-        guard navigation.appCommandRoute(Self.appCommandKind(for: action)) == .allowed else {
+        let route = navigation.appCommandRoute(
+            appCommandKind(for: action),
+            topModal: InWindowModalStack.shared.top?.kind
+        )
+        guard route != .blockedByModal else {
             return false
         }
         // The panel focus keys are the dock's alone, as in the key monitor: a disabled item's shortcut does nothing.
@@ -1119,18 +1123,18 @@ extension AppDelegate: NSMenuItemValidation {
         if action == #selector(focusRegionRight) {
             return commandChordRoute(.right) == .shell
         }
-        guard let command = globalModalCommand(for: action) else {
-            return true
-        }
-        return modalCommandRoute(command) != .ignored
+        return true
     }
 
-    private static func appCommandKind(for action: Selector) -> AppCommandKind {
+    private func appCommandKind(for action: Selector) -> AppCommandKind {
         if action == #selector(NSApplication.terminate(_:)) {
             return .quit
         }
-        if textEditingActions.contains(action) {
+        if Self.textEditingActions.contains(action) {
             return .textEditing
+        }
+        if let command = globalModalCommand(for: action) {
+            return .globalModal(command)
         }
         return .app
     }
