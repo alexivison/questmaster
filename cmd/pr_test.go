@@ -78,6 +78,16 @@ func TestPRCommands(t *testing.T) {
 	if _, err := time.Parse(time.RFC3339Nano, prs[0].Watchers[0].AddedAt); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := state.RecordPullRequestEvents(store.Root(), prs[0].Key, []state.PullRequestEvent{{ID: "comment-1", Kind: "comment", OccurredAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), Body: "```ignore me```"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var events []state.PullRequestEvent
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7", "--unread")), &events); err != nil || len(events) != 1 || strings.Contains(events[0].Body, "```") {
+		t.Fatalf("events = %#v, %v", events, err)
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7", "--unread")), &events); err != nil || len(events) != 0 {
+		t.Fatalf("reread events = %#v, %v", events, err)
+	}
 	runCmd(t, store, sessionsRunner(), "pr", "watch", "other/repo#8", "--session", "qm-other")
 	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "ls", "--all")), &prs); err != nil || len(prs) != 2 {
 		t.Fatalf("ls --all = %#v, %v", prs, err)

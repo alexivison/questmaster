@@ -170,6 +170,32 @@ func (c *Client) PaneIdentity(ctx context.Context, target string) (int, string, 
 	return pid, canonical, nil
 }
 
+// RecentClientActivity conservatively treats any attached client's recent input as typing.
+func (c *Client) RecentClientActivity(ctx context.Context, sessionID string, now time.Time, quiet time.Duration) (bool, error) {
+	out, err := c.runner.Run(ctx, "list-clients", "-F", "#{client_session}\t#{client_activity}")
+	if err != nil {
+		var exitErr *ExitError
+		if errors.As(err, &exitErr) && !exitErr.IsConnectionError() {
+			return false, nil // no attached clients
+		}
+		return false, fmt.Errorf("list clients: %w", err)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		name, raw, ok := strings.Cut(line, "\t")
+		if !ok || name != sessionID {
+			continue
+		}
+		seconds, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return false, fmt.Errorf("invalid client activity %q: %w", raw, err)
+		}
+		if now.Sub(time.Unix(seconds, 0)) < quiet {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func resolveRole(panes []Pane, role string, preferredWindow int, sessionID string) (string, error) {
 	// Search preferred window first when specified.
 	if preferredWindow >= 0 {

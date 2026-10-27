@@ -81,6 +81,10 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
 - `daemon` owns the lock, ready handshake, idle lifetime, re-exec upgrade,
   clean child environment and identity shims. It uses `serve.Server` as its
   request layer for runtime snapshots, mutations and subscriptions.
+- `prstatus` polls watched PR status and new comments, reviews, CI results and
+  state changes. `pull_requests.json` stores watches, event history and each
+  watcher's read/alert cursors under one lock. `message.Service.Notify` gates
+  background alerts on live, idle or done sessions and recent tmux input.
 
 Invariants that aren't obvious from the code:
 
