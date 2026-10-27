@@ -162,10 +162,13 @@ final class UnixSocketServeClient {
                 return .failed(String(cString: strerror(errno)))
             }
 
+            // The bytes already buffered past `parseOffset` hold no newline, so only the new ones are searched.
+            var scanFrom = pending.endIndex
             pending.append(buffer, count: count)
-            while let newline = pending[parseOffset...].firstIndex(of: 0x0a) {
+            while let newline = pending[scanFrom...].firstIndex(of: 0x0a) {
                 let line = pending.subdata(in: parseOffset..<newline)
                 parseOffset = pending.index(after: newline)
+                scanFrom = parseOffset
                 switch handle(line) {
                 case .handled:
                     break

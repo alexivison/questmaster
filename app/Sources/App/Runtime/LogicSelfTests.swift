@@ -110,6 +110,7 @@ enum LogicSelfTests {
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
         ("testOneShotServeClientsRejectIncompatibleEnvelopes", testOneShotServeClientsRejectIncompatibleEnvelopes),
         ("testServeStreamReconnectsAfterProtocolMismatch", testServeStreamReconnectsAfterProtocolMismatch),
+        ("testReadLineReturnsALineSpanningManyReads", testReadLineReturnsALineSpanningManyReads),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
@@ -4770,9 +4771,11 @@ enum LogicSelfTests {
         }
         try expect(bound == 0 && listen(listener, 2) == 0, "could not listen on test socket")
 
+        // The recovered line is padded past many 8 KiB reads, so the stream has to join it across reads.
+        let padding = String(repeating: "x", count: 100_000)
         let lines = [
             "{\"protocol_version\":1,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wrong\",\"sessions\":[]}}\n",
-            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[]}}\n",
+            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[],\"padding\":\"\(padding)\"}}\n",
         ]
         DispatchQueue.global().async {
             for line in lines {
@@ -4812,6 +4815,27 @@ enum LogicSelfTests {
             labels.contains(where: { $0.contains("protocol_version") }) && labels.contains("recovered")
         })
         try expect(!labels.contains("wrong"), "incompatible tracker data should not reach the store")
+    }
+
+    private static func testReadLineReturnsALineSpanningManyReads() throws {
+        var fds: [Int32] = [0, 0]
+        try expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "could not create socket pair")
+        defer {
+            close(fds[0])
+            close(fds[1])
+        }
+        let line = Data(String(repeating: "x", count: 600_000).utf8)
+        let writer = fds[1]
+        let written = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            try? UnixSocketIO.write(line + Data("\nnext".utf8), to: writer)
+            written.signal()
+        }
+        try UnixSocketIO.setReadTimeout(on: fds[0], seconds: 5)
+        let read = try UnixSocketIO.readLine(from: fds[0])
+        // The sockets close only once the writer is done, so it never writes to a closed one.
+        _ = written.wait(timeout: .now() + 5)
+        try expect(read == line, "readLine should return the whole line, newline and later bytes excluded (got \(read.count) bytes)")
     }
 
     // The effort keys are the model field's own: e in its SELECT state, ⌃e in
