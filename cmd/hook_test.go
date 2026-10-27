@@ -2110,8 +2110,8 @@ func TestHookClaudeSubagentWakeLifecycle(t *testing.T) {
 			if pane.State != tc.wantState || pane.Activity != tc.wantActivity {
 				t.Errorf("final pane state/activity = %q / %q, want %q / %q", pane.State, pane.Activity, tc.wantState, tc.wantActivity)
 			}
-			if pane.ClaudeSubagentWakeState != "" || pane.ClaudeSubagentWakeActivity != "" || len(pane.ClaudeSubagentWakeIDs) != 0 {
-				t.Errorf("wake state was not cleared: state=%q activity=%q ids=%v", pane.ClaudeSubagentWakeState, pane.ClaudeSubagentWakeActivity, pane.ClaudeSubagentWakeIDs)
+			if pane.SubagentWake != nil {
+				t.Errorf("wake state was not cleared: %+v", pane.SubagentWake)
 			}
 			if len(tc.events) > 0 {
 				wantLastEvent := base.Add(time.Duration(len(tc.events)) * time.Second)
@@ -2136,21 +2136,111 @@ func TestHookClaudeSubagentWakeIDsAreBounded(t *testing.T) {
 			"agent": {Role: "agent", Agent: "claude", State: "done", Activity: "Parent reply"},
 		},
 	}
-	for i := 0; i < maxClaudeSubagentWakeIDs+2; i++ {
+	for i := 0; i < maxSubagentWakeIDs+2; i++ {
 		runHookWithStdin(r, "claude", "tool_start", "qm-abc", map[string]interface{}{
 			"agent_id":  fmt.Sprintf("task-%d", i),
 			"tool_name": "Read",
 		})
 	}
 	pane := rec.lastState.Panes["agent"]
-	if len(pane.ClaudeSubagentWakeIDs) != maxClaudeSubagentWakeIDs {
-		t.Fatalf("tracked wake ids = %d, want cap %d", len(pane.ClaudeSubagentWakeIDs), maxClaudeSubagentWakeIDs)
+	if pane.SubagentWake == nil || len(pane.SubagentWake.IDs) != maxSubagentWakeIDs {
+		t.Fatalf("tracked wake ids = %v, want cap %d", pane.SubagentWake, maxSubagentWakeIDs)
 	}
-	for _, id := range slices.Clone(pane.ClaudeSubagentWakeIDs) {
+	for _, id := range slices.Clone(pane.SubagentWake.IDs) {
 		runHookWithStdin(r, "claude", "subagent_stop", "qm-abc", map[string]interface{}{"agent_id": id})
 	}
 	if got := rec.lastState.Panes["agent"].State; got != "done" {
 		t.Errorf("state after tracked agents stop = %q, want done", got)
+	}
+}
+
+func TestHookCodexSubagentWakeLifecycle(t *testing.T) {
+	type hookEvent struct {
+		action  string
+		payload map[string]interface{}
+	}
+	tests := []struct {
+		name         string
+		initial      state.PaneState
+		events       []hookEvent
+		wantAfter    []string
+		wantState    string
+		wantActivity string
+	}{
+		{
+			name:         "stopped parent returns to done after subagent stops",
+			initial:      state.PaneState{Role: "agent", Agent: "codex", State: "working", Activity: "Parent thinking"},
+			wantAfter:    []string{"done", "working", "done"},
+			wantState:    "done",
+			wantActivity: "Parent reply",
+			events: []hookEvent{
+				{action: "done", payload: map[string]interface{}{"last_assistant_message": "Parent reply"}},
+				{action: "tool_start", payload: map[string]interface{}{"agent_id": "child-1", "tool_name": "Read"}},
+				{action: "subagent_stop", payload: map[string]interface{}{"agent_id": "child-1"}},
+			},
+		},
+		{
+			name:         "two waking subagents restore after both stop",
+			initial:      state.PaneState{Role: "agent", Agent: "codex", State: "idle", Activity: "Parent reply"},
+			wantAfter:    []string{"working", "working", "working", "idle"},
+			wantState:    "idle",
+			wantActivity: "Parent reply",
+			events: []hookEvent{
+				{action: "tool_start", payload: map[string]interface{}{"agent_id": "task-1", "tool_name": "Read"}},
+				{action: "tool_start", payload: map[string]interface{}{"agent_id": "task-2", "tool_name": "Read"}},
+				{action: "subagent_stop", payload: map[string]interface{}{"agent_id": "task-1"}},
+				{action: "subagent_stop", payload: map[string]interface{}{"agent_id": "task-2"}},
+			},
+		},
+		{
+			name:         "parent prompt cancels the wake restore",
+			initial:      state.PaneState{Role: "agent", Agent: "codex", State: "done", Activity: "Previous reply"},
+			wantAfter:    []string{"working", "working", "working"},
+			wantState:    "working",
+			wantActivity: "Previous reply",
+			events: []hookEvent{
+				{action: "tool_start", payload: map[string]interface{}{"agent_id": "task-1", "tool_name": "Read"}},
+				{action: "working", payload: map[string]interface{}{"prompt": "continue"}},
+				{action: "subagent_stop", payload: map[string]interface{}{"agent_id": "task-1"}},
+			},
+		},
+		{
+			name:         "subagent while parent is working stays suppressed",
+			initial:      state.PaneState{Role: "agent", Agent: "codex", State: "working", Activity: "Parent tool"},
+			wantAfter:    []string{"working", "working"},
+			wantState:    "working",
+			wantActivity: "Read: ",
+			events: []hookEvent{
+				{action: "tool_start", payload: map[string]interface{}{"agent_id": "task-1", "tool_name": "Read"}},
+				{action: "subagent_stop", payload: map[string]interface{}{"agent_id": "task-1"}},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r, rec := newTestRunner(t)
+			rec.lastState = &state.SessionState{
+				SessionID: "qm-abc",
+				Version:   state.SchemaVersion,
+				Panes:     map[string]state.PaneState{"agent": tc.initial},
+			}
+
+			for i, event := range tc.events {
+				runHookWithStdin(r, "codex", event.action, "qm-abc", event.payload)
+				if got := rec.lastState.Panes["agent"].State; got != tc.wantAfter[i] {
+					t.Fatalf("after %s state = %q, want %q", event.action, got, tc.wantAfter[i])
+				}
+			}
+
+			pane := rec.lastState.Panes["agent"]
+			if pane.State != tc.wantState || pane.Activity != tc.wantActivity {
+				t.Errorf("final pane state/activity = %q / %q, want %q / %q", pane.State, pane.Activity, tc.wantState, tc.wantActivity)
+			}
+			if pane.SubagentWake != nil {
+				t.Errorf("wake state was not cleared: %+v", pane.SubagentWake)
+			}
+		})
 	}
 }
 

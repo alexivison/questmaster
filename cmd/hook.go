@@ -617,6 +617,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		if !exists {
 			pane = state.PaneState{Role: role, Agent: "claude"}
 		}
+		pane.SubagentWake = cloneSubagentWake(pane.SubagentWake)
 		// Snapshot the renderer-visible fields before mutation so we can
 		// skip writes when the dot/snippet output would be identical.
 		prev := struct {
@@ -629,16 +630,14 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		prevActiveSubagents := maps.Clone(pane.ActiveSubagents)
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevNarration := pane.Narration
-		prevClaudeSubagentWakeState := pane.ClaudeSubagentWakeState
-		prevClaudeSubagentWakeActivity := pane.ClaudeSubagentWakeActivity
-		prevClaudeSubagentWakeIDs := slices.Clone(pane.ClaudeSubagentWakeIDs)
+		prevSubagentWake := cloneSubagentWake(pane.SubagentWake)
 		prevClaude.ClaudeDisplayChunks = maps.Clone(pane.ClaudeDisplayChunks)
 		prevClaude.ClaudeOpenChatActions = slices.Clone(pane.ClaudeOpenChatActions)
 		if !isSubagent {
-			if len(pane.ClaudeSubagentWakeIDs) > 0 && setActivity == "" {
-				pane.Activity = pane.ClaudeSubagentWakeActivity
+			if hasSubagentWake(pane) && setActivity == "" {
+				pane.Activity = pane.SubagentWake.Activity
 			}
-			clearClaudeSubagentWake(&pane)
+			clearSubagentWake(&pane)
 		}
 		if !isSubagent {
 			if opts.action == "working" || opts.action == "done" || opts.action == "stopped" {
@@ -722,9 +721,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			}
 			ss.Panes[role] = pane
 			return claudeDisplayStateChanged(prevClaude, pane) ||
-				prevClaudeSubagentWakeState != pane.ClaudeSubagentWakeState ||
-				prevClaudeSubagentWakeActivity != pane.ClaudeSubagentWakeActivity ||
-				!slices.Equal(prevClaudeSubagentWakeIDs, pane.ClaudeSubagentWakeIDs)
+				!sameSubagentWake(prevSubagentWake, pane.SubagentWake)
 		}
 
 		if !isSubagent {
@@ -765,10 +762,10 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 		// activity must still be able to flip the border back to working.
 		restoreState, restoreActivity, restoreWake := "", "", false
 		if isSubagent && opts.action == "subagent_stop" {
-			restoreState, restoreActivity, restoreWake = finishClaudeSubagentWake(&pane, payload.AgentID)
+			restoreState, restoreActivity, restoreWake = finishSubagentWake(&pane, payload.AgentID)
 		} else if isSubagent && setState == "working" &&
-			(prev.State != "working" || len(pane.ClaudeSubagentWakeIDs) > 0) {
-			rememberClaudeSubagentWake(&pane, payload.AgentID, prev.State, prev.Activity)
+			(prev.State != "working" || hasSubagentWake(pane)) {
+			rememberSubagentWake(&pane, payload.AgentID, prev.State, prev.Activity)
 		}
 
 		if isSubagent && suppressStateForSubagent && prev.State == "working" {
@@ -864,9 +861,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			pane.LastKind == prev.LastKind &&
 			pane.WorkingSince.Equal(prev.WorkingSince) &&
 			pane.LastChatStatus == prev.LastChatStatus &&
-			prevClaudeSubagentWakeState == pane.ClaudeSubagentWakeState &&
-			prevClaudeSubagentWakeActivity == pane.ClaudeSubagentWakeActivity &&
-			slices.Equal(prevClaudeSubagentWakeIDs, pane.ClaudeSubagentWakeIDs) &&
+			sameSubagentWake(prevSubagentWake, pane.SubagentWake) &&
 			pane.LastChatAt.Equal(prev.LastChatAt) &&
 			pane.Narration == prevNarration &&
 			maps.Equal(pane.ActiveSubagents, prevActiveSubagents) &&
@@ -915,48 +910,74 @@ func normalizeHookWorkingSince(pane *state.PaneState, prevState string, prevLast
 	pane.WorkingSince = now
 }
 
-// shortcut: stores at most 8 waking subagents, increase if Claude sessions routinely exceed that.
-const maxClaudeSubagentWakeIDs = 8
+// shortcut: stores at most 8 waking subagents, increase if sessions routinely exceed that.
+const maxSubagentWakeIDs = 8
 
-func rememberClaudeSubagentWake(pane *state.PaneState, agentID, restoreState, restoreActivity string) {
+func rememberSubagentWake(pane *state.PaneState, agentID, restoreState, restoreActivity string) {
 	if agentID == "" {
 		return
 	}
-	for _, id := range pane.ClaudeSubagentWakeIDs {
+	if pane.SubagentWake == nil {
+		pane.SubagentWake = &state.SubagentWake{}
+	}
+	wake := pane.SubagentWake
+	for _, id := range wake.IDs {
 		if id == agentID {
 			return
 		}
 	}
-	if len(pane.ClaudeSubagentWakeIDs) >= maxClaudeSubagentWakeIDs {
+	if len(wake.IDs) >= maxSubagentWakeIDs {
 		return
 	}
-	if len(pane.ClaudeSubagentWakeIDs) == 0 {
-		pane.ClaudeSubagentWakeState = restoreState
-		pane.ClaudeSubagentWakeActivity = restoreActivity
+	if len(wake.IDs) == 0 {
+		wake.State = restoreState
+		wake.Activity = restoreActivity
 	}
-	pane.ClaudeSubagentWakeIDs = append(pane.ClaudeSubagentWakeIDs, agentID)
+	wake.IDs = append(wake.IDs, agentID)
 }
 
-func finishClaudeSubagentWake(pane *state.PaneState, agentID string) (string, string, bool) {
-	for i, id := range pane.ClaudeSubagentWakeIDs {
+func finishSubagentWake(pane *state.PaneState, agentID string) (string, string, bool) {
+	wake := pane.SubagentWake
+	if wake == nil {
+		return "", "", false
+	}
+	for i, id := range wake.IDs {
 		if id != agentID {
 			continue
 		}
-		pane.ClaudeSubagentWakeIDs = slices.Delete(pane.ClaudeSubagentWakeIDs, i, i+1)
-		if len(pane.ClaudeSubagentWakeIDs) > 0 {
+		wake.IDs = slices.Delete(wake.IDs, i, i+1)
+		if len(wake.IDs) > 0 {
 			return "", "", false
 		}
-		restoreState, restoreActivity := pane.ClaudeSubagentWakeState, pane.ClaudeSubagentWakeActivity
-		clearClaudeSubagentWake(pane)
+		restoreState, restoreActivity := wake.State, wake.Activity
+		clearSubagentWake(pane)
 		return restoreState, restoreActivity, true
 	}
 	return "", "", false
 }
 
-func clearClaudeSubagentWake(pane *state.PaneState) {
-	pane.ClaudeSubagentWakeState = ""
-	pane.ClaudeSubagentWakeActivity = ""
-	pane.ClaudeSubagentWakeIDs = nil
+func clearSubagentWake(pane *state.PaneState) {
+	pane.SubagentWake = nil
+}
+
+func hasSubagentWake(pane state.PaneState) bool {
+	return pane.SubagentWake != nil && len(pane.SubagentWake.IDs) > 0
+}
+
+func cloneSubagentWake(wake *state.SubagentWake) *state.SubagentWake {
+	if wake == nil {
+		return nil
+	}
+	clone := *wake
+	clone.IDs = slices.Clone(wake.IDs)
+	return &clone
+}
+
+func sameSubagentWake(a, b *state.SubagentWake) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.State == b.State && a.Activity == b.Activity && slices.Equal(a.IDs, b.IDs)
 }
 
 func addChatEntry(event *state.StateEvent, pane *state.PaneState, kind, text string) {
@@ -1852,6 +1873,7 @@ func catchUpCodexRolloutUnderLock(r *HookRunner, sessionID, transcriptPath strin
 
 func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Writer) {
 	payload := decodeCodex(opts.stdin)
+	isSubagent := payload.AgentID != ""
 	threadID := codexResumeID(payload)
 	now := r.Now().UTC()
 	var rollout codexRolloutRead
@@ -1947,6 +1969,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		if !exists {
 			pane = state.PaneState{Role: role, Agent: "codex"}
 		}
+		pane.SubagentWake = cloneSubagentWake(pane.SubagentWake)
 		prev := struct {
 			State, Activity, Tool, LastKind string
 			LastEvent, WorkingSince         time.Time
@@ -1956,9 +1979,16 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			CodexTranscriptSkippingLine     bool
 			LastChatAt                      time.Time
 		}{pane.State, pane.Activity, pane.Tool, pane.LastKind, pane.LastEvent, pane.WorkingSince, pane.LastChatStatus, pane.CodexTranscriptPath, pane.CodexTranscriptOffset, pane.CodexTranscriptSkippingLine, pane.LastChatAt}
+		prevSubagentWake := cloneSubagentWake(pane.SubagentWake)
 		prevRunningTools := slices.Clone(pane.RunningTools)
 		prevActiveSubagents := maps.Clone(pane.ActiveSubagents)
 		prevNarration := pane.Narration
+		if !isSubagent {
+			if hasSubagentWake(pane) && setActivity == "" {
+				pane.Activity = pane.SubagentWake.Activity
+			}
+			clearSubagentWake(&pane)
+		}
 		clearStaleQuestionActivity := opts.action == "tool_end" &&
 			isCodexRequestUserInputTool(pane.Tool) && strings.HasPrefix(pane.Activity, "Question: ")
 		if payload.AgentID == "" {
@@ -1991,15 +2021,26 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 		// title check; steady-state prompts never touch it.
 		firstPrompt = opts.action == "working" && prev.State == "starting"
 		setState = suppressSpuriousStartingRegression(setState, prev.State)
+		restoreState, restoreActivity, restoreWake := "", "", false
+		if isSubagent && opts.action == "subagent_stop" {
+			restoreState, restoreActivity, restoreWake = finishSubagentWake(&pane, payload.AgentID)
+		} else if isSubagent && setState == "working" &&
+			(prev.State != "working" || hasSubagentWake(pane)) {
+			rememberSubagentWake(&pane, payload.AgentID, prev.State, prev.Activity)
+		}
 
-		if setState != "" {
+		if restoreWake {
+			pane.State = restoreState
+		} else if setState != "" {
 			pane.State = setState
 		}
 		if pane.State == "blocked" {
 			state.MarkRunningToolsWaitedForInput(&pane)
 		}
 		normalizeHookWorkingSince(&pane, prev.State, prev.LastEvent, now)
-		if setActivity != "" {
+		if restoreWake {
+			pane.Activity = restoreActivity
+		} else if setActivity != "" {
 			pane.Activity = setActivity
 		} else if clearStaleQuestionActivity {
 			pane.Activity = ""
@@ -2035,6 +2076,11 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 				addVisibleStatus(&ev, &pane, pane.State)
 			}
 		}
+		if restoreWake {
+			ev.State = pane.State
+			ev.Activity = pane.Activity
+			addVisibleStatus(&ev, &pane, pane.State)
+		}
 		ss.Panes[role] = pane
 
 		if pane.State == prev.State &&
@@ -2046,6 +2092,7 @@ func handleCodex(r *HookRunner, sessionID string, opts hookOptions, stderr io.Wr
 			pane.CodexTranscriptPath == prev.CodexTranscriptPath &&
 			pane.CodexTranscriptOffset == prev.CodexTranscriptOffset &&
 			pane.CodexTranscriptSkippingLine == prev.CodexTranscriptSkippingLine &&
+			sameSubagentWake(prevSubagentWake, pane.SubagentWake) &&
 			pane.LastChatAt.Equal(prev.LastChatAt) &&
 			pane.Narration == prevNarration &&
 			maps.Equal(pane.ActiveSubagents, prevActiveSubagents) &&
