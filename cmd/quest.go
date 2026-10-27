@@ -342,7 +342,7 @@ func questStartPayload(quests []state.Quest) (string, string, error) {
 		ids = append(ids, shellArgument(quest.ID))
 	}
 	joinedIDs := strings.Join(ids, " ")
-	return projectPath, fmt.Sprintf("Quest IDs: %s\nRead them with: questmaster quest ls %s", joinedIDs, joinedIDs), nil
+	return projectPath, fmt.Sprintf("Quest IDs: %s\nRead them with: questmaster quest ls -- %s", joinedIDs, joinedIDs), nil
 }
 
 func shellArgument(value string) string {

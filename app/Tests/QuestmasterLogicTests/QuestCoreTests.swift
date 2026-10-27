@@ -162,16 +162,16 @@ struct QuestCoreTests {
     private static func questLogCopyTextUsesIDsForSelectedAndMarkedTargets() {
         let quests = [
             QuestItem(id: "qst-a", content: "Private quest body A"),
-            QuestItem(id: "qst-b", content: "Private quest body B"),
+            QuestItem(id: "qst-b id", content: "Private quest body B"),
         ]
         let store = QuestLogStore()
         store.sync(quests: quests, repos: [])
         expect(QuestLogCopyText.text(for: store.targets) == "qst-a", "copy should use the selected quest ID")
-        store.select("qst-b")
+        store.select("qst-b id")
         _ = store.handle(.toggleMark)
         store.select("qst-a")
         _ = store.handle(.toggleMark)
-        expect(QuestLogCopyText.text(for: store.targets) == "qst-a qst-b", "copy should use marked IDs in list order")
+        expect(QuestLogCopyText.text(for: store.targets) == "qst-a 'qst-b id'", "copy should quote marked IDs in list order")
     }
 
     private static func questLogStoreReturnsEffectsAndClosingClearsMarks() {
@@ -488,6 +488,7 @@ struct QuestCoreTests {
     private static func startFromQuestsBuildsIDPromptAndRejectsMixedProjects() {
         let quests = [
             QuestItem(id: "qst-one", content: "First\nline", projectID: "repo", projectPath: "/tmp/repo"),
+            QuestItem(id: "-urgent", content: "Urgent", projectID: "repo", projectPath: "/tmp/repo"),
             QuestItem(id: "qst two", content: "Second", projectID: "repo", projectPath: "/tmp/repo"),
             QuestItem(id: "qst'three", content: "Third", projectID: "repo", projectPath: "/tmp/repo"),
         ]
@@ -495,7 +496,7 @@ struct QuestCoreTests {
             let request = try ServeMutationRequests.startFromQuests(quests, title: "quests", agent: "codex")
             let data = request.jsonObject(id: "start")["data"] as? NSDictionary
             expect(data?["cwd"] as? String == "/tmp/repo", "cwd mismatch")
-            expect(data?["prompt"] as? String == "Quest IDs: qst-one 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls qst-one 'qst two' 'qst'\\''three'", "start prompt should instruct agents to read the quest IDs")
+            expect(data?["prompt"] as? String == "Quest IDs: qst-one -urgent 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls -- qst-one -urgent 'qst two' 'qst'\\''three'", "start prompt should instruct agents to read the quest IDs")
             expect(data?["quest_ids"] == nil, "start should send the editable prompt through the existing prompt field")
         } catch {
             fail("startFromQuests threw \(error)")

@@ -182,7 +182,15 @@ public enum QuestLogEffect: Equatable {
 
 public enum QuestLogCopyText {
     public static func text(for quests: [QuestItem]) -> String {
-        quests.map(\.id).joined(separator: " ")
+        quests.map { argument(for: $0.id) }.joined(separator: " ")
+    }
+
+    static func argument(for value: String) -> String {
+        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        if !value.isEmpty && value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

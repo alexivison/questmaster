@@ -222,17 +222,9 @@ public enum ServeMutationRequests {
         for quest in quests where quest.projectID != projectID || cleanOptional(quest.projectPath) == nil {
             throw ServeMutationRequestError.invalid("selected quests must share one project")
         }
-        let questIDs = try quests.map { Self.shellArgument(try required("quest_id", $0.id)) }.joined(separator: " ")
-        let prompt = "Quest IDs: \(questIDs)\nRead them with: questmaster quest ls \(questIDs)"
+        let questIDs = try quests.map { QuestLogCopyText.argument(for: try required("quest_id", $0.id)) }.joined(separator: " ")
+        let prompt = "Quest IDs: \(questIDs)\nRead them with: questmaster quest ls -- \(questIDs)"
         return try start(title: title, cwd: path, agent: agent, color: color, prompt: prompt)
-    }
-
-    private static func shellArgument(_ value: String) -> String {
-        let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
-        if !value.isEmpty && value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return value
-        }
-        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func required(_ field: String, _ value: String) throws -> String {

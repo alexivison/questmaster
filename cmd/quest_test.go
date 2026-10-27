@@ -78,6 +78,7 @@ func TestQuestListByIDs(t *testing.T) {
 		t.Fatalf("resolve project B: %v", err)
 	}
 	for _, quest := range []state.Quest{
+		{ID: "-urgent", Content: "Urgent work", ProjectID: projectAID, ProjectPath: projectA, UpdatedAt: "2026-01-01T00:00:00Z"},
 		{ID: "qst-a", Content: "Alpha implementation", ProjectID: projectAID, ProjectPath: projectA, UpdatedAt: "2026-01-01T00:00:00Z"},
 		{ID: "qst-b", Content: "Beta followup", ProjectID: projectBID, ProjectPath: projectB, UpdatedAt: "2026-01-01T00:00:00Z"},
 		{ID: "qst-c", Content: "Alpha docs", ProjectID: projectAID, ProjectPath: projectA, UpdatedAt: "2026-01-01T00:00:00Z"},
@@ -94,6 +95,7 @@ func TestQuestListByIDs(t *testing.T) {
 		wantErr string
 	}{
 		{name: "selected IDs", args: []string{"quest", "ls", "qst-a", "qst-b"}, wantIDs: []string{"qst-a", "qst-b"}},
+		{name: "leading dash ID", args: []string{"quest", "ls", "--", "-urgent"}, wantIDs: []string{"-urgent"}},
 		{name: "project filter", args: []string{"quest", "ls", "qst-a", "qst-b", "qst-c", "--project", projectA}, wantIDs: []string{"qst-a", "qst-c"}},
 		{name: "search filter", args: []string{"quest", "ls", "qst-a", "qst-b", "qst-c", "--search", "beta"}, wantIDs: []string{"qst-b"}},
 		{name: "unknown ID", args: []string{"quest", "ls", "qst-missing"}, wantErr: `quest "qst-missing" not found`},
@@ -130,6 +132,7 @@ func TestQuestListByIDs(t *testing.T) {
 func TestQuestStartPayloadRequiresSingleProject(t *testing.T) {
 	quests := []state.Quest{
 		{ID: "qst-one", Content: "First\nline", ProjectID: "repo", ProjectPath: "/tmp/repo"},
+		{ID: "-urgent", Content: "Urgent", ProjectID: "repo", ProjectPath: "/tmp/repo"},
 		{ID: "qst two", Content: "Second", ProjectID: "repo", ProjectPath: "/tmp/repo"},
 		{ID: "qst'three", Content: "Third", ProjectID: "repo", ProjectPath: "/tmp/repo"},
 	}
@@ -137,7 +140,7 @@ func TestQuestStartPayloadRequiresSingleProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("questStartPayload: %v", err)
 	}
-	if cwd != "/tmp/repo" || prompt != "Quest IDs: qst-one 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls qst-one 'qst two' 'qst'\\''three'" {
+	if cwd != "/tmp/repo" || prompt != "Quest IDs: qst-one -urgent 'qst two' 'qst'\\''three'\nRead them with: questmaster quest ls -- qst-one -urgent 'qst two' 'qst'\\''three'" {
 		t.Fatalf("cwd=%q prompt=%q", cwd, prompt)
 	}
 
