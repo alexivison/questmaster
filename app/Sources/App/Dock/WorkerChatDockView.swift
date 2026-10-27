@@ -78,7 +78,10 @@ struct WorkerChatDockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if store.lines.isEmpty {
-                emptyState
+                // Blank until a chat is attached, so the icon doesn't flash before the first read.
+                if store.isAttached {
+                    EmptyState()
+                }
             } else {
                 WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
             }
@@ -98,16 +101,6 @@ struct WorkerChatDockView: View {
         }
     }
 
-    @ViewBuilder
-    private var emptyState: some View {
-        if store.isAttached {
-            EmptyStatePane(
-                title: "No worker activity yet.",
-                message: "Worker status, tool use and messages appear here.",
-                padding: EdgeInsets(top: Space.section, leading: Space.section, bottom: Space.section, trailing: Space.section)
-            )
-        }
-    }
 }
 
 /// A scrolling feed that keeps its bottom edge in view while the user stays at the bottom. The

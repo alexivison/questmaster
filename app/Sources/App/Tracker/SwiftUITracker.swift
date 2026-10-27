@@ -313,7 +313,6 @@ struct TrackerRootView: View {
         // The cursor shows while the tracker has the keys (focused, no modal drawn); otherwise the pointer only shows
         // the hover band (`PlateBand`).
         let areaFocused = navigation.hasKeys(.tracker)
-        let emptyMessage = snapshot.serviceStateMessage ?? "No sessions yet."
         // Powers the row tooltip and delayed Command shortcut hints from the same Cmd+1..9 mapping.
         let shortcutNumbers = TrackerSessionShortcuts.numbersByID(rows)
 
@@ -326,8 +325,16 @@ struct TrackerRootView: View {
                 TrackerSkeletonPlaceholder()
             } else {
                 if rows.isEmpty {
-                    SectionedList(selectedID: plateCursorID) {
-                        TrackerEmptyState(message: emptyMessage)
+                    // A backend that doesn't fit says so; otherwise there is just nothing to list.
+                    if let message = snapshot.serviceStateMessage {
+                        StatusMessagePane(
+                            message: message,
+                            alignment: .center,
+                            textAlignment: .center,
+                            frameAlignment: .center
+                        )
+                    } else {
+                        EmptyState()
                     }
                 } else {
                     SectionedList(selectedID: plateCursorID) {
@@ -1671,79 +1678,59 @@ struct TrackerAgentMark: View {
 }
 
 
-private struct TrackerEmptyState: View {
-    let message: String
-
-    var body: some View {
-        EmptyStatePane(
-            message: message,
-            symbolName: "sparkles",
-            symbolFallback: "*",
-            symbolPointSize: 16,
-            symbolColor: AppPalette.dim,
-            alignment: .center,
-            textAlignment: .center,
-            frameAlignment: .center,
-            padding: EdgeInsets(
-                top: Space.section,
-                leading: Space.section,
-                bottom: Space.item,
-                trailing: Space.section
-            ),
-            expandHeight: false
-        )
-    }
+private enum TrackerSkeletonMetrics {
+    /// The ghost breathes between these, dimmer than a stopped plate (`TrackerStoppedDimming`, 0.65).
+    static let pulseFrom = 0.4
+    static let pulseTo = 0.5
+    static let shellTitleWidth: CGFloat = 100
 }
 
-/// A dim outline of the tracker while the service starts: a master with two workers, each a plate-sized placeholder,
-/// and a shell row's placeholder at the column's bottom, where the shell section is pinned.
+/// The tracker while the service starts, as ghosts of its own plates: a master with two workers, each plate drawn from the
+/// real artwork with no text, status or portrait, and a shell row at the column's bottom, where the shell section is pinned. All of
+/// it breathes together (`SkeletonPulse`).
 private struct TrackerSkeletonPlaceholder: View {
-    private static let cornerRadius: CGFloat = 6
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-
-    private var pulseOpacity: Double {
-        pulse ? 0.7 : 0.6
-    }
+    private typealias Metrics = TrackerSkeletonMetrics
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
+        SkeletonPulse(from: Metrics.pulseFrom, to: Metrics.pulseTo) {
             VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
-                placeholder(role: .master)
-                placeholder(role: .worker)
-                placeholder(role: .worker)
+                VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
+                    plate(role: .master)
+                    plate(role: .worker)
+                    plate(role: .worker)
+                }
+                Spacer(minLength: TrackerListMetrics.shellClearance)
+                shellRow
             }
-            Spacer(minLength: TrackerListMetrics.shellClearance)
-            RoundedRectangle(cornerRadius: TrackerShellMetrics.cornerRadius)
-                .fill(AppPalette.dim.swiftUI)
-                .opacity(pulseOpacity)
-                .frame(width: TrackerShellMetrics.rowWidth, height: TrackerShellMetrics.rowHeight)
-        }
-        .padding(.leading, TrackerListMetrics.sidePadding)
-        .padding(.vertical, TrackerListMetrics.verticalPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear {
-            guard !reduceMotion else {
-                pulse = true
-                return
-            }
-            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
-        }
-        .onDisappear {
-            pulse = false
+            // Where the real list will put its first plate and its shell section.
+            .padding(.leading, TrackerListMetrics.sidePadding)
+            .padding(.top, TrackerListMetrics.selectedPanelGap)
+            .padding(.bottom, TrackerListMetrics.verticalPadding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
-    /// The placeholder spans the plate's drawn width, from the disc's outer left edge.
-    private func placeholder(role: TrackerNameplateRole) -> some View {
-        let discLeft = role.portraitOrigin.x
-        return RoundedRectangle(cornerRadius: Self.cornerRadius)
-            .fill(AppPalette.dim.swiftUI)
-            .opacity(pulseOpacity)
-            .frame(width: role.canvasSize.width - discLeft, height: role.canvasSize.height)
-            .padding(.leading, discLeft)
+    /// A plate as it rests with nothing to say: its art over an empty disc, the master's diamonds in the colour of an idle session.
+    private func plate(role: TrackerNameplateRole) -> some View {
+        TrackerNameplateBackground(
+            role: role,
+            color: AppPalette.inert,
+            showsCursor: false,
+            isRecoloring: false,
+            statusColor: nil,
+            ring: .none,
+            text: EmptyView()
+        )
+    }
+
+    /// A shell row at rest: its disc and glyph, and a ghost of its title.
+    private var shellRow: some View {
+        ZStack(alignment: .leading) {
+            ShellRowDisc(glyphColor: AppPalette.textMeta, borderColor: AppPalette.item)
+                .padding(.leading, TrackerShellMetrics.discLead)
+            SkeletonBar(width: Metrics.shellTitleWidth)
+                .padding(.leading, TrackerShellMetrics.titleLead)
+        }
+        .frame(width: TrackerShellMetrics.rowWidth, height: TrackerShellMetrics.rowHeight, alignment: .leading)
     }
 }

@@ -70,6 +70,8 @@ enum LogicSelfTests {
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
         ("testVersionControlDockKeysMoveOpenCopyAndRefresh", testVersionControlDockKeysMoveOpenCopyAndRefresh),
         ("testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow", testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow),
+        ("testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion", testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion),
+        ("testEveryEmptyPanelDrawsTheOneIconCentredInItsSection", testEveryEmptyPanelDrawsTheOneIconCentredInItsSection),
         ("testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes", testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes),
         ("testDockColumnLaysOutItsPanels", testDockColumnLaysOutItsPanels),
         ("testOnlyTheFocusedDockPanelHasTheKeys", testOnlyTheFocusedDockPanelHasTheKeys),
@@ -1410,6 +1412,151 @@ enum LogicSelfTests {
         try expect(!pane.handleKeyDown(try keyEvent("x", keyCode: 7)), "an unrelated key should pass through")
         try expect(!pane.handleKeyDown(try keyEvent("y", keyCode: 16, modifierFlags: [.command])), "a command chord should pass through")
         try expect(effects.count == count, "passed-through keys run no effect")
+    }
+
+    /// The skeletons (the terminal's veil, the tracker's ghost plates, the Settings pickers' ghosts) breathe in one way: a Core
+    /// Animation fade of the layer their content was drawn on, once every `SkeletonMotion.period`, for good, only while in a
+    /// window, and held still at the resting opacity under Reduce Motion. SwiftUI never animates them, so nothing redraws.
+    private static func testSkeletonsBreatheByCoreAnimationOnlyInAWindowAndHoldStillUnderReduceMotion() throws {
+        let size = CGSize(width: 520, height: 300)
+        let window = HeadlessWindow(size: size)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = container
+
+        let pulse = SkeletonPulseView(rootView: Color.clear)
+        pulse.frame = container.bounds
+        pulse.configure(rootView: Color.clear, from: 0.6, to: 0.7, reduceMotion: false)
+        try expect(pulse.pulseAnimation == nil, "a skeleton outside a window should not breathe")
+        container.addSubview(pulse)
+        guard let breath = pulse.pulseAnimation else {
+            throw TestFailure("a skeleton in a window should breathe")
+        }
+        try expect(
+            breath.keyPath == "opacity" && breath.fromValue as? Double == 0.6 && breath.toValue as? Double == 0.7
+                && breath.duration == SkeletonMotion.period && breath.autoreverses && breath.repeatCount == .infinity,
+            "it fades between its two opacities, once every \(SkeletonMotion.period)s, for good"
+        )
+        pulse.configure(rootView: Color.clear, from: 0.6, to: 0.7, reduceMotion: true)
+        try expect(pulse.pulseAnimation == nil && pulse.layer?.opacity == 0.7, "Reduce Motion holds it still at the resting opacity")
+        pulse.configure(rootView: Color.clear, from: 0.6, to: 0.7, reduceMotion: false)
+        try expect(pulse.pulseAnimation != nil, "and it breathes again when the setting goes")
+        pulse.removeFromSuperview()
+        try expect(pulse.pulseAnimation == nil, "a skeleton that leaves its window stops")
+
+        /// The breaths running anywhere under `view`.
+        func breaths(in view: NSView) -> [CABasicAnimation] {
+            let own = (view.layer?.animation(forKey: SkeletonMotion.animationKey) as? CABasicAnimation).map { [$0] } ?? []
+            return view.subviews.reduce(own) { $0 + breaths(in: $1) }
+        }
+        func hosted<V: View>(_ root: V) -> [CABasicAnimation] {
+            let view = NSHostingView(rootView: root.frame(width: size.width, height: size.height).background(AppPalette.window.swiftUI))
+            view.frame = NSRect(origin: .zero, size: size)
+            let host = HeadlessWindow(size: size, scale: 1)
+            host.contentView = view
+            host.show()
+            defer { host.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            return breaths(in: view)
+        }
+        func tracker(_ label: String) -> some View {
+            let store = RuntimeStore(sourceLabel: "test")
+            if !label.isEmpty {
+                store.apply(.serveUnavailable(label))
+            }
+            return TrackerRootView(store: store, newSessionPresenter: NewSessionSheetPresenter(), destructiveConfirmationPresenter: DestructiveConfirmationPresenter())
+        }
+        let settings = SettingsSheetView(
+            presentation: SettingsSheetPresentation(
+                mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
+                modelClient: StubModelClient(deferCompletions: true),
+                effortClient: StubReasoningEffortClient()
+            ),
+            dismiss: {}
+        )
+
+        let veil = hosted(TerminalAttachSkeleton())
+        try expect(veil.count == 1 && veil[0].duration == SkeletonMotion.period, "the terminal's veil should be one breath, got \(veil.count)")
+        let ghosts = hosted(tracker("connecting to backend..."))
+        try expect(ghosts.count == 1 && ghosts[0].duration == SkeletonMotion.period, "the tracker's ghost plates should be one breath, got \(ghosts.count)")
+        try expect(hosted(tracker("")).isEmpty, "a tracker with a backend shows no skeleton and nothing breathes")
+        let pickers = hosted(settings)
+        try expect(!pickers.isEmpty && pickers.allSatisfy { $0.duration == SkeletonMotion.period }, "the Settings pickers waiting for options should breathe, got \(pickers.count)")
+    }
+
+    /// An empty panel draws the one icon and nothing else, centred in the section its list would fill: the whole panel, or what is
+    /// left under the artifact list's tabs. Measured as the ink on the panel's fill, so it holds for whatever the icon is.
+    private static func testEveryEmptyPanelDrawsTheOneIconCentredInItsSection() throws {
+        func ink<V: View>(_ root: V, size: CGSize, below top: Int = 0) throws -> CGRect? {
+            let view = NSHostingView(rootView: root.frame(width: size.width, height: size.height).background(AppPalette.panel.swiftUI))
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = HeadlessWindow(size: size, scale: 1)
+            window.contentView = view
+            window.show()
+            defer { window.close() }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+            let bitmap = try snapshot(view, size: size, scale: 1)
+            guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
+                throw TestFailure("could not read the panel fill")
+            }
+            var box: CGRect?
+            for y in top..<Int(size.height) {
+                for x in 0..<Int(size.width) {
+                    guard let pixel = bitmap.colorAt(x: x, y: y),
+                          abs(pixel.redComponent - base.redComponent) + abs(pixel.greenComponent - base.greenComponent)
+                            + abs(pixel.blueComponent - base.blueComponent) > 0.05 else {
+                        continue
+                    }
+                    box = (box ?? CGRect(x: x, y: y, width: 0, height: 0)).union(CGRect(x: x, y: y, width: 1, height: 1))
+                }
+            }
+            return box
+        }
+        func expectCentred(_ box: CGRect?, in section: CGRect, _ name: String) throws {
+            guard let box else {
+                throw TestFailure("\(name) should draw the icon")
+            }
+            try expect(
+                abs(box.midX - section.midX) <= 1 && abs(box.midY - section.midY) <= 1,
+                "\(name)'s icon should be centred in its section \(section), got \(box)"
+            )
+            try expect(box.width <= Token.Size.emptyIcon && box.height <= Token.Size.emptyIcon, "\(name) should draw one icon in a \(Token.Size.emptyIcon)pt box, got \(box)")
+        }
+
+        let single = CGSize(width: 300, height: 200)
+        try expectCentred(try ink(EmptyState(), size: single), in: CGRect(origin: .zero, size: single), "the shared empty state")
+
+        let versionControl = CGSize(width: 480, height: 260)
+        try expectCentred(
+            try ink(VersionControlList(rows: [], cursorKey: nil, isUnwatched: true, readNotice: nil, areaFocused: true, onOpenRow: { _ in }), size: versionControl),
+            in: CGRect(origin: .zero, size: versionControl),
+            "Version Control"
+        )
+
+        let chat = CGSize(width: 480, height: 400)
+        let attached = WorkerChatStore()
+        _ = attached.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true)
+        try expectCentred(try ink(WorkerChatDockView(store: attached), size: chat), in: CGRect(origin: .zero, size: chat), "the worker chat")
+        try expect(try ink(WorkerChatDockView(store: WorkerChatStore()), size: chat) == nil, "an unattached worker chat should stay blank until it has a chat to show")
+
+        func artifacts(_ route: ArtifactDockRoute) -> some View {
+            var model = ArtifactDockModel.empty
+            model.route = route
+            model.displayState = .empty(sessionID: "s")
+            return ArtifactDockView(
+                model: model,
+                onSelectArtifact: { _ in }, onToggleArtifact: { _ in }, onSetScope: { _ in }, onSetFilterQuery: { _ in },
+                onRemoveFilterToken: { _ in }, onSelectFilterSuggestion: { _ in }, onFilterCommand: { _ in false }, onFilterEndEditing: {},
+                onOpenExternal: { _ in }, areaFocused: true
+            )
+        }
+        let dock = CGSize(width: 480, height: 400)
+        try expectCentred(try ink(artifacts(.viewer), size: dock), in: CGRect(origin: .zero, size: dock), "the artifact viewer")
+        let listTop = Space.section + ControlHeight.compact + Space.section
+        try expectCentred(
+            try ink(artifacts(.list), size: dock, below: Int(listTop)),
+            in: CGRect(x: 0, y: listTop, width: dock.width, height: dock.height - listTop),
+            "the artifact list under its tabs"
+        )
     }
 
     /// The refresh mark is the tracker's spinner, not a lookalike (one `SpinnerRing`): the same turn, once every

@@ -1,35 +1,37 @@
 import AppKit
 import SwiftUI
 
-struct EmptyStatePane: View {
+/// A message that carries information the user needs: the terminal's status, a file that went missing, an artifact kind the
+/// build can't show, a backend that doesn't fit. An empty list is not one: it draws `EmptyState`, which has no text.
+struct StatusMessagePane: View {
     var title: String = ""
     var message: String
     var detail: String = ""
     var symbolName: String?
-    var symbolFallback: String = ""
-    var symbolPointSize: CGFloat = 22
-    var symbolWeight: NSFont.Weight = .regular
-    var symbolColor: NSColor = AppPalette.muted
-    var symbolCanvasSize = NSSize(width: 22, height: 22)
     var titleFont: Font = AppFonts.bodyBold.swiftUI
     var titleColor: Color = AppPalette.bright.swiftUI
-    var messageFont: Font = AppFonts.body.swiftUI
-    var messageColor: Color = AppPalette.muted.swiftUI
-    var detailFont: Font = AppFonts.monoSmall.swiftUI
-    var detailColor: Color = AppPalette.dim.swiftUI
     var alignment: HorizontalAlignment = .leading
     var textAlignment: TextAlignment = .leading
     var frameAlignment: Alignment = .topLeading
     var maxTextWidth: CGFloat?
     var padding = EdgeInsets(top: Space.section, leading: Space.section, bottom: Space.section, trailing: Space.section)
-    var expandHeight = true
     var backgroundColor: NSColor?
     var detailSelectable = false
 
+    private static let symbolSide = ControlHeight.compact
+
     var body: some View {
         VStack(alignment: alignment, spacing: Space.item) {
-            if let symbolName {
-                symbol(for: symbolName)
+            if let symbolName, let image = AppSymbolStyle.image(
+                name: symbolName,
+                pointSize: Self.symbolSide,
+                color: AppPalette.muted,
+                canvasSize: NSSize(width: Self.symbolSide, height: Self.symbolSide)
+            ) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: Self.symbolSide, height: Self.symbolSide)
             }
             if !title.isEmpty {
                 Text(title)
@@ -40,8 +42,8 @@ struct EmptyStatePane: View {
                     .frame(maxWidth: maxTextWidth, alignment: textFrameAlignment)
             }
             Text(message)
-                .font(messageFont)
-                .foregroundStyle(messageColor)
+                .font(AppFonts.body.swiftUI)
+                .foregroundStyle(AppPalette.muted.swiftUI)
                 .multilineTextAlignment(textAlignment)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: maxTextWidth, alignment: textFrameAlignment)
@@ -49,30 +51,9 @@ struct EmptyStatePane: View {
                 detailView
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: expandHeight ? .infinity : nil, alignment: frameAlignment)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: frameAlignment)
         .padding(padding)
         .background(backgroundFill)
-    }
-
-    @ViewBuilder
-    private func symbol(for name: String) -> some View {
-        if let image = AppSymbolStyle.image(
-            name: name,
-            pointSize: symbolPointSize,
-            weight: symbolWeight,
-            color: symbolColor,
-            canvasSize: symbolCanvasSize
-        ) {
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: symbolCanvasSize.width, height: symbolCanvasSize.height)
-        } else if !symbolFallback.isEmpty {
-            Text(symbolFallback)
-                .font(AppFonts.monospaced(size: symbolPointSize).swiftUI)
-                .foregroundStyle(symbolColor.swiftUI)
-                .frame(width: symbolCanvasSize.width, height: symbolCanvasSize.height)
-        }
     }
 
     private var textFrameAlignment: Alignment {
@@ -96,8 +77,8 @@ struct EmptyStatePane: View {
     @ViewBuilder
     private var detailView: some View {
         let text = Text(detail)
-            .font(detailFont)
-            .foregroundStyle(detailColor)
+            .font(AppFonts.monoSmall.swiftUI)
+            .foregroundStyle(AppPalette.dim.swiftUI)
             .multilineTextAlignment(textAlignment)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: maxTextWidth, alignment: textFrameAlignment)

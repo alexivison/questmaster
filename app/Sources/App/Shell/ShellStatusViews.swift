@@ -10,7 +10,7 @@ struct TerminalMessageOverlay: View {
     let detail: String
 
     var body: some View {
-        EmptyStatePane(
+        StatusMessagePane(
             title: title,
             message: detail,
             titleFont: AppFonts.monospaced(size: 18, weight: .semibold).swiftUI,

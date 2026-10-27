@@ -38,7 +38,7 @@ private enum ShellTerminalGlyph {
 /// The icon disc of a shell row: the panel's fill, a 1pt border in the look's icon-border colour (`item` at rest, as the
 /// SVG draws it, then the state rules' `controlBorder` on a filled row), and the terminal glyph in the look's icon
 /// colour, centred.
-private struct ShellRowDisc: View {
+struct ShellRowDisc: View {
     let glyphColor: NSColor
     let borderColor: NSColor
 

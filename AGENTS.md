@@ -230,6 +230,16 @@ again where it was when the keys come back.
   `fieldChrome`/`FormTextField` for fields, `FilterBar` for filter fields,
   `SuggestionDropdown` for every dropdown and suggestion list, `FilterChip` for
   filter chips, the `AngledButton` styles for buttons.
+- Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
+  section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
+  artifact viewer, the worker chat, Version Control), the tracker and the Quest Log's page draw it; the page passes the
+  parchment ink instead. A message the user needs (the terminal's status, a missing file, an artifact kind the build
+  can't show, an incompatible backend) is a `StatusMessagePane`, which an empty list never is.
+- A list still loading is a skeleton: a ghost of the real thing, in its own shapes and palette (the tracker's is
+  `TrackerNameplateBackground`'s plates with no text, status or portrait, the Settings picker's is `fieldChrome`, the
+  terminal's is `SkeletonBar` lines), breathing in `SkeletonPulse`. That is one Core Animation fade of the layer SwiftUI drew
+  the ghost on, `SkeletonMotion.period` (1.6s) each way, only while in a window, still under Reduce Motion: SwiftUI never
+  animates a skeleton, so nothing redraws while the terminal shares the main thread.
 - Dock titles (Artifacts, Worker Chat, Version Control, an open artifact) are title case in
   `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Version
   Control's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
@@ -397,7 +407,11 @@ frame (`QUESTMASTER_ANIMATION_SLOWDOWN` stretches every step in DEBUG builds so 
   by appending `XxxTests.run()` there. The runner also spawns
   `Questmaster --run-logic-tests` and asserts a non-zero
   `Questmaster self-tests: ... passed` line. **UI is not unit-tested**; verify it
-  by building and by manual/bench checks.
+  by building and by manual/bench checks. `Questmaster --render-preview <dir>` (DEBUG; `RENDER_ONLY=name,...`,
+  `RENDER_SCALE=2`) renders the fixtures off-screen. `RenderPreview.renderView` hosts each in a frame-based container, not
+  as the window's content view: a content view's constraints give the window a minimum size, and a hosting view nested
+  in them (a dock panel's body) reports its content's minimum, wrapped text at zero width, so a render came out taller
+  than asked.
 
 ## Workflow
 
