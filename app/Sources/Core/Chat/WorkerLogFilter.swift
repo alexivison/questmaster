@@ -5,6 +5,8 @@ public enum WorkerLogAction: CaseIterable, Hashable, Sendable {
     /// Tool calls.
     case cast
     case status
+    /// Sub-agents appearing and leaving: summon and dismiss lines.
+    case summon
     /// A worker's free text.
     case message
     /// The item tags: reports and instructions.
@@ -14,6 +16,7 @@ public enum WorkerLogAction: CaseIterable, Hashable, Sendable {
         switch self {
         case .cast: "Cast"
         case .status: "Status"
+        case .summon: "Summon"
         case .message: "Message"
         case .item: "Item"
         }
@@ -25,6 +28,7 @@ extension WorkerChatRecord.Kind {
         switch self {
         case .action: .cast
         case .status: .status
+        case .summon, .dismiss: .summon
         case .say, .message: .message
         case .report, .instructions: .item
         }

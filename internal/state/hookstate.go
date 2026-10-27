@@ -85,18 +85,20 @@ type ClaudeOpenChatAction struct {
 // Agent-specific carry-through fields are populated only by providers that
 // emit structured hook metadata.
 type PaneState struct {
-	Role         string        `json:"role"`
-	Agent        string        `json:"agent"`
-	State        string        `json:"state"`
-	Activity     string        `json:"activity"`
-	Tool         string        `json:"tool,omitempty"`
-	RunningTools []RunningTool `json:"running_tools,omitempty"`
-	Narration    string        `json:"narration,omitempty"`
-	Seq          int64         `json:"seq"`
-	LastEvent    time.Time     `json:"last_event"`
-	LastKind     string        `json:"last_kind"`
-	WorkingSince time.Time     `json:"working_since,omitempty"`
-	LastChatAt   time.Time     `json:"last_chat_at,omitempty"`
+	Role                    string               `json:"role"`
+	Agent                   string               `json:"agent"`
+	State                   string               `json:"state"`
+	Activity                string               `json:"activity"`
+	Tool                    string               `json:"tool,omitempty"`
+	RunningTools            []RunningTool        `json:"running_tools,omitempty"`
+	Narration               string               `json:"narration,omitempty"`
+	Seq                     int64                `json:"seq"`
+	LastEvent               time.Time            `json:"last_event"`
+	LastKind                string               `json:"last_kind"`
+	WorkingSince            time.Time            `json:"working_since,omitempty"`
+	LastChatAt              time.Time            `json:"last_chat_at,omitempty"`
+	ActiveSubagents         map[string]string    `json:"active_subagents,omitempty"`
+	ActiveSubagentStartedAt map[string]time.Time `json:"active_subagent_started_at,omitempty"`
 
 	Recent            []string `json:"recent,omitempty"`
 	SessionFile       string   `json:"session_file,omitempty"`

@@ -16,8 +16,10 @@ process.env.PI_HOME = root;
 
 const { default: extension } = await import(pathToFileURL(extensionPath));
 const handlers = new Map();
+const subagentHandlers = new Map();
 extension({
 	on(event, handler) { handlers.set(event, handler); },
+	events: { on(event, handler) { subagentHandlers.set(event, handler); } },
 	sendUserMessage() {},
 	getThinkingLevel() { return "high"; },
 });
@@ -72,6 +74,10 @@ try {
 	await handlers.get("agent_end")({
 		messages: [{ role: "assistant", content: [], stopReason: "error", errorMessage: errorText }],
 	}, context);
+	await subagentHandlers.get("subagents:started")({ id: "subagent-1", type: "Explore", description: "private task" });
+	await subagentHandlers.get("subagents:completed")({ id: "subagent-1", type: "Explore", description: "private task" });
+	await subagentHandlers.get("subagents:started")({ id: "subagent-2", type: "Plan" });
+	await subagentHandlers.get("subagents:failed")({ id: "subagent-2", type: "Plan" });
 	await handlers.get("session_shutdown")();
 	stopped = true;
 
@@ -80,7 +86,7 @@ try {
 		"session_start", "before_agent_start", "agent_start", "say", "tool_execution_start", "tool_execution_end",
 		"tool_execution_start", "tool_execution_end",
 		"waiting_for_user", "tool_execution_start", "tool_execution_end", "turn_end", "agent_end",
-		"before_agent_start", "agent_start", "agent_end", "session_shutdown",
+		"before_agent_start", "agent_start", "agent_end", "subagent_start", "subagent_stop", "subagent_start", "subagent_stop", "session_shutdown",
 	]);
 	assert.equal(entries[3].payload.message.content, "Checking this now.");
 	assert(entries[3].payload.occurred_at_ms >= narrationEventAt, "say timestamp should come from its text event");
@@ -109,7 +115,11 @@ try {
 	assert(entries[15].payload.errorMessage.startsWith("Your authentication token has expired."));
 	assert.equal(entries[15].payload.message, undefined, "empty error turn should not forward assistant text");
 	assert(!JSON.stringify(entries).includes("private thinking text"));
-	assert.equal(await readFile(join(root, "agent", "extensions", ".questmaster-installed"), "utf8"), "phase2-v2\n");
+	assert.deepEqual(entries.slice(-5, -1).map(({ args }) => args[2]), ["subagent_start", "subagent_stop", "subagent_start", "subagent_stop"]);
+	assert.equal(entries.at(-5).payload.subagent_id, "subagent-1");
+	assert.equal(entries.at(-5).payload.agent_type, "Explore");
+	assert.equal(entries.at(-5).payload.description, undefined, "subagent descriptions should not be forwarded");
+	assert.equal(await readFile(join(root, "agent", "extensions", ".questmaster-installed"), "utf8"), "phase2-v3\n");
 } finally {
 	if (!stopped) await handlers.get("session_shutdown")?.();
 	await rm(runtimeDir, { recursive: true, force: true });

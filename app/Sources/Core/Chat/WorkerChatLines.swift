@@ -21,7 +21,7 @@ public struct WorkerChatSegment: Equatable {
     }
 }
 
-/// The RPG tier a bracketed tag is drawn in. Tool calls are common; item tags carry their own tier.
+/// The RPG tier a bracketed tag is drawn in. Tool calls are common; item tags carry their own tier, and a familiar's tag is epic.
 public enum WorkerChatRarity: Equatable {
     case common
     case rare
@@ -57,6 +57,9 @@ struct WorkerChatRecord: Equatable {
         case message
         case report
         case instructions
+        /// A sub-agent started or finished; `text` is its familiar name.
+        case summon
+        case dismiss
     }
 
     let sequence: Int
@@ -200,12 +203,17 @@ public enum WorkerChatLineBuilder {
             return itemSegments(verb: "Used item", item: "Debriefing Stone", rarity: .rare)
         case .instructions:
             return itemSegments(verb: "Received item", item: "Scroll of Orders", rarity: .epic)
+        case .summon:
+            return itemSegments(verb: "Summoned", item: text, rarity: .epic)
+        case .dismiss:
+            return itemSegments(verb: "Dismissed", item: text, rarity: .epic)
         case .say, .message, .action:
             return [WorkerChatSegment(" " + text, .normal)]
         }
     }
 
-    /// Report and instruction entries show their item tag only; their text is never drawn.
+    /// A muted verb and a bracketed tag. Report and instruction entries show a fixed item name (their text is never
+    /// drawn); summon and dismiss entries show the familiar's name.
     private static func itemSegments(verb: String, item: String, rarity: WorkerChatRarity) -> [WorkerChatSegment] {
         [
             WorkerChatSegment(" \(verb) ", .muted),

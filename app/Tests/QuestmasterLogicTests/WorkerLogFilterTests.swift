@@ -13,6 +13,7 @@ struct WorkerLogFilterTests {
     static func run() {
         defaultShowsEverything()
         feedKindsMapToTheActionBoxes()
+        summonBoxShowsSummonAndDismissLines()
         actionsAreORedWithinTheSection()
         actionAndWorkerAreANDedAcrossSections()
         tickingEveryBoxIsAnOrdinarySelection()
@@ -42,10 +43,10 @@ struct WorkerLogFilterTests {
         expect(store.menu == WorkerLogMenu(), "the dropdown starts closed with its cursor on the first row")
     }
 
-    /// Cast = tool calls; Status = status; Message = say + message; Item = report + instructions.
+    /// Cast = tool calls; Status = status; Summon = summon + dismiss; Message = say + message; Item = report + instructions.
     private static func feedKindsMapToTheActionBoxes() {
         let kinds: [(String, WorkerLogAction)] = [
-            ("action", .cast), ("status", .status), ("say", .message), ("message", .message), ("report", .item), ("instructions", .item),
+            ("action", .cast), ("status", .status), ("summon", .summon), ("dismiss", .summon), ("say", .message), ("message", .message), ("report", .item), ("instructions", .item),
         ]
         for (index, (kind, expected)) in kinds.enumerated() {
             let text = kind == "status" ? "working" : "text"
@@ -53,6 +54,14 @@ struct WorkerLogFilterTests {
             expect(store.lines.first?.action == expected, "\(kind) should file under \(expected), got \(String(describing: store.lines.first?.action))")
             expect(store.lines.first?.workerID == "w1", "a line should carry its worker id")
         }
+    }
+
+    private static func summonBoxShowsSummonAndDismissLines() {
+        let entries = sampleEntries + [entry(300, "w1", "summon", "Explore"), entry(360, "w1", "dismiss", "Explore")]
+        let (store, _) = openStore(entries: entries)
+        store.toggleRow(at: row(.summon))
+        expect(store.lines.map(\.action) == [.summon, .summon], "Summon alone should show the summon and the dismiss line, got \(store.lines.map(\.action))")
+        expect(store.chips == [WorkerLogChip(section: .action, value: .text("Summon"))], "and name itself on the chip, got \(store.chips)")
     }
 
     private static func actionsAreORedWithinTheSection() {
@@ -79,9 +88,9 @@ struct WorkerLogFilterTests {
     private static func tickingEveryBoxIsAnOrdinarySelection() {
         let (store, _) = openStore(entries: sampleEntries, workers: 3)
         WorkerLogAction.allCases.indices.forEach(store.toggleRow)
-        expect(store.filter.actions == Set(WorkerLogAction.allCases) && store.filter.isActive, "every Action box ticked should keep all four ticks, got \(store.filter.actions)")
-        expect(store.chips == [WorkerLogChip(section: .action, value: .text("4"))], "and show the count chip, got \(store.chips)")
-        expect(store.lines.count == 5, "all four Actions still show every line, got \(store.lines.count)")
+        expect(store.filter.actions == Set(WorkerLogAction.allCases) && store.filter.isActive, "every Action box ticked should keep all five ticks, got \(store.filter.actions)")
+        expect(store.chips == [WorkerLogChip(section: .action, value: .text("5"))], "and show the count chip, got \(store.chips)")
+        expect(store.lines.count == 5, "all five Actions still show every line, got \(store.lines.count)")
 
         (0..<3).forEach { store.toggleRow(at: workerRow($0)) }
         expect(store.filter.workerIDs == ["w1", "w2", "w3"], "every worker ticked should keep all three ticks, got \(store.filter.workerIDs)")
@@ -90,7 +99,7 @@ struct WorkerLogFilterTests {
         expect(store.lines.count == 5, "every worker ticked still shows every line, got \(store.lines.count)")
 
         store.toggleRow(at: row(.cast))
-        expect(store.filter.actions.count == 3, "a tick can still come off")
+        expect(store.filter.actions.count == WorkerLogAction.allCases.count - 1, "a tick can still come off")
         store.clearFilter(.action)
         expect(store.chips.map(\.section) == [.worker], "the Action chip's x clears the ticked section")
         store.clearFilter(.worker)
@@ -228,7 +237,7 @@ struct WorkerLogFilterTests {
             case .worker(let worker): worker.name
             }
         }
-        expect(titles == ["Cast", "Status", "Message", "Item", "Worker One", "Worker Two", "Worker Three"], "rows should list the boxes, then the workers in tracker order, got \(titles)")
+        expect(titles == ["Cast", "Status", "Summon", "Message", "Item", "Worker One", "Worker Two", "Worker Three"], "rows should list the boxes, then the workers in tracker order, got \(titles)")
     }
 
     private static func menuCursorMovesAndClamps() {
