@@ -1,0 +1,9 @@
+{
+  "id": "pr-refresh-session-request",
+  "method": "pr.refresh",
+  "data": {
+    "session_id": "qm-demo",
+    "wait": true
+  },
+  "protocol_version": 2
+}

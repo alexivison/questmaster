@@ -226,6 +226,8 @@ func serveContractFixtures() []contractFixture {
 			},
 		}},
 		{name: "pr_refresh_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","keys":["github.com/owner/repo#42"]}`), ProtocolVersion: ServeProtocolVersion}},
+		// What the app sends for r in the Version Control dock: the whole session, and a reply once it has refreshed.
+		{name: "pr_refresh_session_request.json", value: Request{ID: json.RawMessage(`"pr-refresh-session-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","wait":true}`), ProtocolVersion: ServeProtocolVersion}},
 		{name: "pr_refresh_wake_request.json", value: Request{ID: json.RawMessage(`"pr-wake-request"`), Method: "pr.refresh", Data: json.RawMessage(`{"keys":["github.com/owner/repo#42"],"wait":false}`), ProtocolVersion: ServeProtocolVersion}},
 		{name: "pr_refresh_response_envelope.json", value: Envelope{
 			ProtocolVersion: ServeProtocolVersion,
