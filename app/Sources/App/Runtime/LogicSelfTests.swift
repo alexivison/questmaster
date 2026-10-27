@@ -1332,9 +1332,8 @@ enum LogicSelfTests {
     /// The Version Control title bar shows the spinner beside its title exactly while the pull request store refreshes
     /// (`r` until the daemon's reply and one turn), and the other docks never do. It reads the ring's presence, not its
     /// animation: a hosted ring turns or holds still by the host's Reduce Motion setting (`SpinnerRingView` reads the
-    /// environment's), which a CI runner doesn't share with a desk, so the turn is tested on the view itself
-    /// (`testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow`). Every wait lays the hosted views out, as the
-    /// other hosted-view tests do: nothing else is guaranteed to on a host with no display ticking.
+    /// environment's), and CI's macOS runner reduces motion where a desk doesn't, so the turn is tested on the view
+    /// itself (`testRefreshSpinnerIsTheTrackersSpinnerAndTurnsOnlyInAWindow`).
     private static func testVersionControlTitleBarShowsTheSpinnerWhileTheStoreRefreshes() throws {
         let store = PullRequestStore()
         let session = TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", role: "master", pullRequestsRev: "1")
@@ -1365,17 +1364,7 @@ enum LogicSelfTests {
         guard case .refresh(let request)? = store.handle(.refresh, now: now) else {
             throw TestFailure("r should ask for a refresh")
         }
-        // What the host does, for the CI log: whether the ring mounts with nothing laying the views out, and whether the
-        // host holds it still.
-        var mountedWithoutLayout = false
-        let looked = Date()
-        while Date().timeIntervalSince(looked) < 1, !mountedWithoutLayout {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
-            mountedWithoutLayout = descendant(SpinnerRingNSView.self, in: top) != nil
-        }
         try waitForMainQueue("the spinner to appear") { spinner(in: top) != nil }
-        let ring = spinner(in: top)
-        print("note: host Reduce Motion \(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion), hosted ring holds still \(ring?.holdsStill == true), turning \(ring?.spinAnimation != nil), mounted without a forced layout \(mountedWithoutLayout)")
         try expect(spinner(in: bottom) == nil, "the bottom panel's bar never shows it")
 
         store.finishRefresh(request, failed: false, now: now.addingTimeInterval(PullRequestStore.refreshMinimumShown + 1))
