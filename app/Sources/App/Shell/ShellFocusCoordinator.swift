@@ -7,10 +7,14 @@ final class ShellFocusCoordinator {
     private let window: () -> NSWindow?
     private let splitView: () -> MainSplitView?
     private let terminalShell: () -> TerminalShellView?
-    private let dockShell: () -> DockShellView?
+    private let topDockShell: () -> DockShellView?
+    private let bottomDockShell: () -> DockShellView?
+    private let dockColumn: () -> DockColumnView?
+    private let dockPanels: () -> DockPanels
     private let footerShell: () -> ActionBarShellView?
     private let trackerHosting: () -> NSView?
     private let dockView: () -> SwiftUIDockPane?
+    private let versionControlPane: () -> VersionControlDockPane?
     private let terminalHost: () -> TerminalPaneHosting?
     private let modalHost: () -> InWindowModalHost?
     private let updateDockTabs: () -> Void
@@ -20,10 +24,14 @@ final class ShellFocusCoordinator {
         window: @escaping () -> NSWindow?,
         splitView: @escaping () -> MainSplitView?,
         terminalShell: @escaping () -> TerminalShellView?,
-        dockShell: @escaping () -> DockShellView?,
+        topDockShell: @escaping () -> DockShellView?,
+        bottomDockShell: @escaping () -> DockShellView?,
+        dockColumn: @escaping () -> DockColumnView?,
+        dockPanels: @escaping () -> DockPanels,
         footerShell: @escaping () -> ActionBarShellView?,
         trackerHosting: @escaping () -> NSView?,
         dockView: @escaping () -> SwiftUIDockPane?,
+        versionControlPane: @escaping () -> VersionControlDockPane?,
         terminalHost: @escaping () -> TerminalPaneHosting?,
         modalHost: @escaping () -> InWindowModalHost?,
         updateDockTabs: @escaping () -> Void
@@ -32,10 +40,14 @@ final class ShellFocusCoordinator {
         self.window = window
         self.splitView = splitView
         self.terminalShell = terminalShell
-        self.dockShell = dockShell
+        self.topDockShell = topDockShell
+        self.bottomDockShell = bottomDockShell
+        self.dockColumn = dockColumn
+        self.dockPanels = dockPanels
         self.footerShell = footerShell
         self.trackerHosting = trackerHosting
         self.dockView = dockView
+        self.versionControlPane = versionControlPane
         self.terminalHost = terminalHost
         self.modalHost = modalHost
         self.updateDockTabs = updateDockTabs
@@ -44,6 +56,11 @@ final class ShellFocusCoordinator {
     func focus(_ region: FocusRegion) {
         navigation.focus(region)
         focusCurrentRegion()
+    }
+
+    /// The keys go to one panel of the dock; the caller has checked that it shows.
+    func focusDockPanel(_ panel: DockPanel) {
+        applyNavigationOutcome(navigation.focusDockPanel(panel))
     }
 
     func focusTerminal() {
@@ -80,16 +97,21 @@ final class ShellFocusCoordinator {
         case .terminal:
             terminalHost()?.focus(in: window)
         case .dock:
-            dockView()?.focusCurrentRoute(in: window)
+            switch navigation.focusedDockPanel {
+            case .top: versionControlPane()?.focus(in: window)
+            case .bottom: dockView()?.focusCurrentRoute(in: window)
+            }
         }
     }
 
     func applyNavigationState(animateDockVisibility: Bool = true) {
         splitView()?.trackerVisible = navigation.trackerVisible
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
+        dockColumn()?.setPanels(dockPanels(), animated: animateDockVisibility)
         updateRegionKeys()
         footerShell()?.update(
             navigation: navigation.state,
+            dockPanels: dockPanels(),
             dockContentMode: dockView()?.currentMode ?? .artifacts
         )
         updateDockTabs()
@@ -97,13 +119,17 @@ final class ShellFocusCoordinator {
     }
 
     /// A region has the keys while it is the focused region and no modal is drawn (`NavigationStore.hasKeys`): a
-    /// focus request deferred under a modal doesn't light the dock's frame or the tracker's cursor until the modal is
-    /// gone. Runs on every navigation change and whenever a modal starts or stops being drawn.
+    /// focus request deferred under a modal doesn't light a dock panel's frame or the tracker's cursor until the modal is
+    /// gone. Within the dock only the focused panel has them. Runs on every navigation change and whenever a modal
+    /// starts or stops being drawn.
     func updateRegionKeys() {
         navigation.setModalDrawn(modalHost()?.isDrawing == true)
-        let dockHasKeys = navigation.hasKeys(.dock)
-        dockShell()?.setFocused(dockHasKeys)
-        dockView()?.setFocused(dockHasKeys)
+        let topHasKeys = navigation.hasKeys(DockPanel.top)
+        let bottomHasKeys = navigation.hasKeys(DockPanel.bottom)
+        topDockShell()?.setFocused(topHasKeys)
+        versionControlPane()?.setFocused(topHasKeys)
+        bottomDockShell()?.setFocused(bottomHasKeys)
+        dockView()?.setFocused(bottomHasKeys)
     }
 
     @discardableResult

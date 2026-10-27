@@ -11,13 +11,15 @@ public struct PullRequestsRequest: Equatable {
     }
 }
 
-/// Asks the daemon to re-read the session's watched pull requests now; the changed rows come back as a new
-/// `pull_requests_rev`, so the store pulls them as for any other change.
+/// Asks the daemon to re-read the session's watched pull requests now and to reply once it has (`wait`), so the dock can
+/// show the refresh until then. The changed rows come back as a new `pull_requests_rev`, so the store pulls them as for
+/// any other change.
 public struct PullRequestRefreshRequest: Equatable {
     public let sessionID: String
+    let serial: Int
 
     public func jsonObject(id: String) -> [String: Any] {
-        ["id": id, "method": "pr.refresh", "data": ["session_id": sessionID, "wait": false] as [String: Any]]
+        ["id": id, "method": "pr.refresh", "data": ["session_id": sessionID, "wait": true] as [String: Any]]
     }
 }
 
@@ -47,6 +49,9 @@ public final class PullRequestStore {
     public private(set) var cursorKey: String?
     /// Nothing is watched for the selected session (or there is none), so the dock shows how to watch one.
     public private(set) var isUnwatched = true
+    /// A refresh the user asked for (`r`) is under way: from the key until the daemon replies, but for at least one turn
+    /// of the spinner that shows it, and never past `refreshCap`. The daemon's own background polls don't count.
+    public private(set) var isRefreshing = false
 
     @ObservationIgnored private var selectedSessionID: String?
     @ObservationIgnored private var revision = ""
@@ -55,6 +60,14 @@ public final class PullRequestStore {
     @ObservationIgnored private var pullWanted = false
     @ObservationIgnored private var inFlight: PullRequestsRequest?
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var refreshSerial = 0
+    @ObservationIgnored private var refreshStartedAt: Date?
+    @ObservationIgnored private var refreshReplied = false
+
+    /// A quick reply still leaves the spinner up for one full turn, so it doesn't flash.
+    public static let refreshMinimumShown: TimeInterval = WorkingSpinner.period
+    /// The spinner gives up waiting for a reply after this long (the daemon's own wait ends at 28s).
+    public static let refreshCap: TimeInterval = 30
 
     public init() {}
 
@@ -66,6 +79,7 @@ public final class PullRequestStore {
             self.selectedSessionID = nextID
             if !rows.isEmpty { rows = [] }
             if readNotice != nil { readNotice = nil }
+            endRefresh()
             generation += 1
             pullWanted = nextID != nil
         }
@@ -87,8 +101,9 @@ public final class PullRequestStore {
         return nextRequest()
     }
 
-    /// The effect a command asks for, or nil when it only moved the cursor or has nothing to act on.
-    public func handle(_ command: PullRequestCommand) -> PullRequestEffect? {
+    /// The effect a command asks for, or nil when it only moved the cursor or has nothing to act on. A refresh starts
+    /// the spinner; one asked for while another is under way does nothing.
+    public func handle(_ command: PullRequestCommand, now: Date = Date()) -> PullRequestEffect? {
         switch command {
         case .move(let delta):
             moveCursor(by: delta)
@@ -98,7 +113,12 @@ public final class PullRequestStore {
         case .copyURL:
             return selectedRow?.url.map(PullRequestEffect.copy)
         case .refresh:
-            return selectedSessionID.map { .refresh(PullRequestRefreshRequest(sessionID: $0)) }
+            guard let selectedSessionID, !isRefreshing else { return nil }
+            refreshSerial += 1
+            refreshStartedAt = now
+            refreshReplied = false
+            isRefreshing = true
+            return .refresh(PullRequestRefreshRequest(sessionID: selectedSessionID, serial: refreshSerial))
         }
     }
 
@@ -108,9 +128,32 @@ public final class PullRequestStore {
         cursorKey = key
     }
 
-    /// A refresh the daemon refused leaves the rows as they are.
-    public func failRefresh() {
-        if readNotice != "Couldn't refresh pull requests" { readNotice = "Couldn't refresh pull requests" }
+    /// The daemon replied to `request`, or it couldn't be sent. A refresh it refused (`failed`) leaves the rows as they
+    /// are and says so. A reply to a refresh that ended already (another session, or the cap) is ignored. Returns how
+    /// long the spinner has still to show, as `settleRefresh` does.
+    @discardableResult
+    public func finishRefresh(_ request: PullRequestRefreshRequest, failed: Bool, now: Date = Date()) -> TimeInterval? {
+        guard isRefreshing, request.serial == refreshSerial else { return nil }
+        if failed, readNotice != "Couldn't refresh pull requests" { readNotice = "Couldn't refresh pull requests" }
+        refreshReplied = true
+        return settleRefresh(now: now)
+    }
+
+    /// Ends the spinner once its reply is in and it has shown for a turn, or when no reply has come by the cap. Returns
+    /// how long until the caller should ask again, nil once nothing is left to wait for.
+    @discardableResult
+    public func settleRefresh(now: Date = Date()) -> TimeInterval? {
+        guard isRefreshing, let startedAt = refreshStartedAt else { return nil }
+        let shownUntil = startedAt.addingTimeInterval(refreshReplied ? Self.refreshMinimumShown : Self.refreshCap)
+        let remaining = shownUntil.timeIntervalSince(now)
+        guard remaining <= 0 else { return remaining }
+        endRefresh()
+        return nil
+    }
+
+    private func endRefresh() {
+        refreshStartedAt = nil
+        if isRefreshing { isRefreshing = false }
     }
 
     /// Drops an old selection's response and returns a queued follow-up, if the target changed mid-pull.

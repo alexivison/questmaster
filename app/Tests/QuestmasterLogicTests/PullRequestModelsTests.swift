@@ -122,12 +122,14 @@ struct PullRequestModelsTests {
         let fresh = display(row(1, status: status()))
         let stale = display(row(1, status: status(stale: true)))
         let inaccessible = display(row(1, status: status(reason: "saml")))
-        expect(fresh.look(highlighted: false, areaFocused: true) == .rest, "a fresh row rests")
-        expect(fresh.look(highlighted: true, areaFocused: true) == .highlighted, "a fresh cursor row highlights")
-        expect(fresh.look(highlighted: true, areaFocused: false) == .highlightedUnfocused, "an unfocused dock dims the cursor one step")
-        expect(stale.look(highlighted: false, areaFocused: true) == RowLook.rest.dimmed, "a stale row dims")
-        expect(stale.look(highlighted: true, areaFocused: true) == RowLook.highlighted.dimmed, "a stale cursor row dims on its fill")
-        expect(inaccessible.look(highlighted: false, areaFocused: true) == RowLook.rest.dimmed.warned, "an inaccessible row dims and warns")
+        expect(fresh.look(isCursor: false, areaFocused: true) == .rest, "a fresh row rests")
+        expect(fresh.look(isCursor: true, areaFocused: true) == .highlighted, "a fresh cursor row highlights while the panel has the keys")
+        expect(fresh.look(isCursor: true, areaFocused: false) == .rest, "the cursor hides when the panel doesn't have the keys: a pure cursor has no unfocused look")
+        expect(fresh.look(isCursor: true, areaFocused: true) == RowLook.cursor(highlighted: true, areaFocused: true), "the look is the shared pure-cursor one")
+        expect(stale.look(isCursor: false, areaFocused: true) == RowLook.rest.dimmed, "a stale row dims")
+        expect(stale.look(isCursor: true, areaFocused: true) == RowLook.highlighted.dimmed, "a stale cursor row dims on its fill")
+        expect(stale.look(isCursor: true, areaFocused: false) == RowLook.rest.dimmed, "a stale row's hidden cursor leaves it dimmed at rest")
+        expect(inaccessible.look(isCursor: false, areaFocused: true) == RowLook.rest.dimmed.warned, "an inaccessible row dims and warns")
     }
 
     private static func session(_ id: String, title: String = "", role: String, parent: String = "", agent: String = "") -> TrackerSession {

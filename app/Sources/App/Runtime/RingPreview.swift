@@ -211,7 +211,7 @@ enum RingPreview {
         return frames
     }
 
-    private static func writeGIF(_ frames: [CGImage], to path: String) {
+    static func writeGIF(_ frames: [CGImage], to path: String) {
         guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.gif.identifier as CFString, frames.count, nil) else { return }
         CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
         let delay = [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.04]] as CFDictionary
@@ -238,7 +238,7 @@ enum RingPreview {
         return context.makeImage()
     }
 
-    private static func write(_ image: CGImage?, to path: String) {
+    static func write(_ image: CGImage?, to path: String) {
         guard let image, let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
         try? data.write(to: URL(fileURLWithPath: path))
         print("RingPreview: wrote \(path)")

@@ -165,11 +165,13 @@ a cursor the pointer moved, and drops a key scroll still queued
 filled, so tabs have no hover look.
 
 A region has the keys while it's focused and no modal is drawn
-(`NavigationStore.hasKeys`); its focus looks follow that. When the user leaves
-a region, a selection that lasts (a tab row's) and a cursor whose design draws
-an unfocused state (the artifact list's) stay one step dimmer; a pure cursor
-with no lasting selection and no designed unfocused state (the tracker's)
-hides.
+(`NavigationStore.hasKeys`); its focus looks follow that. Inside the dock only
+the focused panel has them (`NavigationStore.hasKeys(_: DockPanel)`). When the
+user leaves a region or panel, a selection that lasts (a tab row's) and a
+cursor whose design draws an unfocused state (the artifact list's) stay one
+step dimmer; a pure cursor with no lasting selection and no designed unfocused
+state (the tracker's, Version Control's: `RowLook.cursor`) hides, and shows
+again where it was when the keys come back.
 
 | Element | State | Look |
 |---|---|---|
@@ -184,7 +186,7 @@ hides.
 | | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
 | Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
-| Dock frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
+| Dock panel frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
 | Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
@@ -214,8 +216,8 @@ hides.
   blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside
   its clip, is a `Recess` token in the same file (`portrait`: 3 deep, blur 1, black 20%, the sheets' portrait discs).
   Panel, dock and toast borders are 2pt
-  `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). The dock's frame lifts to
-  `controlBorder` while the dock has keyboard focus and no modal is drawn
+  `lineSoftSubtle` (`ScoopedRectangle.borderWidth`). A dock panel's frame lifts to
+  `controlBorder` while it has keyboard focus and no modal is drawn, and only the focused panel's does
   (`OutlineLook.frame`, `ShellFocusCoordinator.updateRegionKeys`). Pressed is
   0.8 opacity; disabled is window fill with `item` border and label (the shared
   button styles).
@@ -225,7 +227,23 @@ hides.
   `SuggestionDropdown` for every dropdown and suggestion list, `FilterChip` for
   filter chips, the `AngledButton` styles for buttons.
 - Dock titles (Artifacts, Worker Chat, Version Control, an open artifact) are title case in
-  `accent`, 14pt bold, on the top bar's baseline 35 down.
+  `accent`, 14pt bold, on the top bar's baseline 25 down. While a refresh the user asked for (`r`) is under way, Version
+  Control's title bar shows the working spinner, the tracker's own (`SpinnerRing`, `WorkingSpinner.period`), as a 15pt
+  ring `Space.item` past the title, on the icon line, taking no room so the centred title never moves. Core decides it
+  (`PullRequestStore.isRefreshing`): from the key to the daemon's reply (`pr.refresh` with `wait`), for at least one turn
+  and never past 30s; a second `r` meanwhile sends nothing, and the daemon's background polls never show it. It is Core
+  Animation only, runs only while on screen, and holds still and full under Reduce Motion. No hint or footer text.
+- The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
+  under it the artifacts or the worker chat. Each has its own title and close button, and either shows alone
+  (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them (all
+  navigation is ⇧⌘). They are the dock's own: handled only while the dock has the keys and both panels show
+  (`NavigationStore.dockPanelKeyRoute`; pressing the key of the panel that has them does nothing). From the terminal or
+  tracker, under a modal, or in a dock with one panel, they aren't handled: `MenuController`'s key monitor returns
+  the event untouched (no beep), so the terminal gets ⇧⌘K and Ghostty its own ⇧⌘J (`write_screen_file:paste`), and the
+  View menu items are disabled by the same rule. ⇧⌘H/L and ⇧⌘R stay global, taken by the monitor before the terminal. A panel
+  appearing or going away fades and slides 10pt while the other grows or shrinks, in 0.18s and only once
+  (`DockPanelMotion`; Reduce Motion skips it): never an animation that keeps running, as the terminal shares the main
+  thread.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`

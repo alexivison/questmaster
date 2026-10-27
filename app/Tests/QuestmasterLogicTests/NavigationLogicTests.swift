@@ -11,8 +11,10 @@ struct NavigationLogicTests {
         verticalNativeControlsStayInRegion()
         regionToggleShowFocusesShownRegion()
         showDockPreservingFocusDoesNotMoveFocus()
-        setDockVisiblePreservesFocusAndReappliesInvariant()
+        settleDockPreservesFocusAndReappliesInvariant()
         regionToggleHideFallsBackToTerminal()
+        dockPanelsTakeFocusOneAtATime()
+        settleDockMovesFocusOffAHiddenPanel()
         paneClickFocusesClickedRegion()
         print("NavigationLogicTests: all tests passed")
     }
@@ -110,7 +112,7 @@ struct NavigationLogicTests {
         expect(state.focusedRegion == .tracker, "showing tracker did not focus tracker")
 
         state = AppNavigationState(trackerVisible: false, dockVisible: false)
-        expect(state.toggleDock() == .focused(.dock), "showing dock should focus dock")
+        expect(state.focusDockPanel(.bottom) == .focused(.dock), "showing dock should focus dock")
         expect(state.dockVisible, "dock did not show")
         expect(state.focusedRegion == .dock, "showing dock did not focus dock")
 
@@ -133,44 +135,44 @@ struct NavigationLogicTests {
         expect(state.focusedRegion == .tracker, "showDockPreservingFocus should preserve tracker focus")
     }
 
-    private static func setDockVisiblePreservesFocusAndReappliesInvariant() {
+    private static func settleDockPreservesFocusAndReappliesInvariant() {
         // Hide while focused on dock -> focus falls back to terminal.
         var state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
-        expect(state.setDockVisible(false) == .focused(.terminal), "hiding focused dock should focus terminal")
-        expect(!state.dockVisible, "setDockVisible(false) should hide dock")
+        expect(state.settleDock(DockPanels()) == .focused(.terminal), "hiding focused dock should focus terminal")
+        expect(!state.dockVisible, "settling no panels should hide dock")
         expect(state.focusedRegion == .terminal, "hiding focused dock should fall back to terminal")
 
         // Show does NOT move focus (key difference from focus(.dock)).
         state = AppNavigationState(focusedRegion: .terminal, dockVisible: false)
-        expect(state.setDockVisible(true) == .unchanged, "showing dock should not request focus")
-        expect(state.dockVisible, "setDockVisible(true) should show dock")
+        expect(state.settleDock(DockPanels(bottom: true)) == .unchanged, "showing dock should not request focus")
+        expect(state.dockVisible, "settling a panel should show dock")
         expect(state.focusedRegion == .terminal, "showing dock should preserve terminal focus")
 
         state = AppNavigationState(focusedRegion: .tracker, trackerVisible: true, dockVisible: false)
-        expect(state.setDockVisible(true) == .unchanged, "showing dock from tracker should not request focus")
-        expect(state.dockVisible, "setDockVisible(true) should show dock from tracker")
+        expect(state.settleDock(DockPanels(bottom: true)) == .unchanged, "showing dock from tracker should not request focus")
+        expect(state.dockVisible, "settling a panel should show dock from tracker")
         expect(state.focusedRegion == .tracker, "showing dock should preserve tracker focus")
 
         // Setting to the current value is a no-op for focus.
         state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
-        expect(state.setDockVisible(true) == .unchanged, "no-op show while dock focused should be unchanged")
+        expect(state.settleDock(DockPanels(bottom: true)) == .unchanged, "no-op show while dock focused should be unchanged")
         expect(state.dockVisible, "no-op show should keep dock visible")
         expect(state.focusedRegion == .dock, "no-op show should preserve dock focus")
 
         state = AppNavigationState(focusedRegion: .terminal, dockVisible: false)
-        expect(state.setDockVisible(false) == .unchanged, "no-op hide should be unchanged")
+        expect(state.settleDock(DockPanels()) == .unchanged, "no-op hide should be unchanged")
         expect(!state.dockVisible, "no-op hide should keep dock hidden")
         expect(state.focusedRegion == .terminal, "no-op hide should preserve terminal focus")
 
         // Hide while NOT focused on dock leaves focus unchanged.
         state = AppNavigationState(focusedRegion: .tracker, trackerVisible: true, dockVisible: true)
-        expect(state.setDockVisible(false) == .unchanged, "hiding dock while tracker focused should be unchanged")
-        expect(!state.dockVisible, "setDockVisible(false) should hide dock")
+        expect(state.settleDock(DockPanels()) == .unchanged, "hiding dock while tracker focused should be unchanged")
+        expect(!state.dockVisible, "settling no panels should hide dock")
         expect(state.focusedRegion == .tracker, "hiding non-focused dock should preserve tracker focus")
 
         state = AppNavigationState(focusedRegion: .terminal, dockVisible: true)
-        expect(state.setDockVisible(false) == .unchanged, "hiding dock while terminal focused should be unchanged")
-        expect(!state.dockVisible, "setDockVisible(false) should hide dock from terminal")
+        expect(state.settleDock(DockPanels()) == .unchanged, "hiding dock while terminal focused should be unchanged")
+        expect(!state.dockVisible, "settling no panels should hide dock from terminal")
         expect(state.focusedRegion == .terminal, "hiding non-focused dock should preserve terminal focus")
     }
 
@@ -182,7 +184,7 @@ struct NavigationLogicTests {
         expect(state.focusedRegion == .terminal, "hiding focused tracker did not fall back to terminal")
 
         state = AppNavigationState(focusedRegion: .dock, dockVisible: true)
-        expect(state.toggleDock() == .focused(.terminal), "hiding focused dock should focus terminal")
+        expect(state.settleDock(DockPanels()) == .focused(.terminal), "hiding focused dock should focus terminal")
         expect(!state.dockVisible, "focused dock did not hide")
         expect(state.focusedRegion == .terminal, "hiding focused dock did not fall back to terminal")
 
@@ -197,9 +199,44 @@ struct NavigationLogicTests {
         expect(state.focusedRegion == .terminal, "hiding tracker while dock focused did not focus terminal")
 
         state = AppNavigationState(focusedRegion: .tracker, dockVisible: true)
-        expect(state.toggleDock() == .focused(.terminal), "hiding dock while tracker focused should focus terminal")
+        expect(state.settleDock(DockPanels()) == .unchanged, "hiding dock while tracker focused should leave focus alone")
         expect(!state.dockVisible, "dock did not hide while tracker focused")
-        expect(state.focusedRegion == .terminal, "hiding dock while tracker focused did not focus terminal")
+        expect(state.focusedRegion == .tracker, "hiding dock while tracker focused moved focus")
+    }
+
+    private static func dockPanelsTakeFocusOneAtATime() {
+        var state = AppNavigationState(dockVisible: true)
+        expect(state.focusedDockPanel == .bottom, "the bottom panel is the dock's default")
+        expect(state.focusDockPanel(.top) == .focused(.dock), "focusing the top panel focuses the dock")
+        expect(state.focusedRegion == .dock && state.focusedDockPanel == .top, "the top panel has the keys")
+        expect(state.focus(.terminal) == .focused(.terminal) && state.focusedDockPanel == .top, "leaving the dock remembers its panel")
+        expect(state.focus(.dock) == .focused(.dock) && state.focusedDockPanel == .top, "coming back lands on the remembered panel")
+        expect(state.focusDockPanel(.bottom) == .focused(.dock) && state.focusedDockPanel == .bottom, "the bottom panel takes the keys back")
+
+        state = AppNavigationState()
+        expect(state.focusDockPanel(.top) == .focused(.dock) && state.dockVisible, "focusing a panel shows the dock region")
+        let store = NavigationStore(state: AppNavigationState(focusedRegion: .dock, dockVisible: true, focusedDockPanel: .top))
+        expect(store.hasKeys(.top) && !store.hasKeys(.bottom), "only the focused panel has the keys")
+        store.setModalDrawn(true)
+        expect(!store.hasKeys(.top) && !store.hasKeys(.bottom), "a modal takes the keys from both panels")
+    }
+
+    private static func settleDockMovesFocusOffAHiddenPanel() {
+        var state = AppNavigationState(focusedRegion: .dock, dockVisible: true, focusedDockPanel: .top)
+        expect(state.settleDock(DockPanels(top: true, bottom: true)) == .unchanged, "both panels showing leaves the focused one")
+        expect(state.settleDock(DockPanels(bottom: true)) == .focused(.dock), "hiding the focused top panel hands the keys to the bottom one")
+        expect(state.focusedRegion == .dock && state.focusedDockPanel == .bottom, "focus stays in the dock, on the other panel")
+        expect(state.settleDock(DockPanels(top: true)) == .focused(.dock), "hiding the focused bottom panel hands the keys to the top one")
+        expect(state.focusedDockPanel == .top, "the top panel has the keys")
+        expect(state.settleDock(DockPanels()) == .focused(.terminal), "hiding the last panel falls back to the terminal")
+        expect(!state.dockVisible && state.focusedRegion == .terminal, "the dock region hides with its last panel")
+
+        state = AppNavigationState(focusedRegion: .terminal, dockVisible: false)
+        expect(state.settleDock(DockPanels(top: true)) == .unchanged, "showing a panel does not move focus")
+        expect(state.dockVisible && state.focusedDockPanel == .top && state.focusedRegion == .terminal, "the dock remembers the panel that shows")
+        state = AppNavigationState(focusedRegion: .tracker, dockVisible: true, focusedDockPanel: .top)
+        expect(state.settleDock(DockPanels(bottom: true)) == .unchanged, "a hidden panel off focus changes no focus")
+        expect(state.focusedRegion == .tracker && state.focusedDockPanel == .bottom, "but the remembered panel follows the dock")
     }
 
     private static func paneClickFocusesClickedRegion() {

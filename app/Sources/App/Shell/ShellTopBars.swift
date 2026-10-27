@@ -12,13 +12,20 @@ import SwiftUI
 @Observable
 final class DockChromeModel {
     var topBar: DockTopBarModel
+    /// Whether the panel is refreshing what it lists, shown as the spinner beside its title. A closure, so the bar's body
+    /// tracks the store behind it.
+    let isRefreshing: () -> Bool
 
-    init(topBar: DockTopBarModel = .make(
-        mode: .artifacts,
-        artifactRoute: .list,
-        artifactTitle: nil
-    )) {
+    init(
+        topBar: DockTopBarModel = .make(
+            mode: .artifacts,
+            artifactRoute: .list,
+            artifactTitle: nil
+        ),
+        isRefreshing: @escaping () -> Bool = { false }
+    ) {
         self.topBar = topBar
+        self.isRefreshing = isRefreshing
     }
 }
 
@@ -74,10 +81,22 @@ struct DockTopBar: View {
             .dockTopBarIcons()
             if let title = topBar.title {
                 dockTopBarTitle(title)
+                    .overlay(alignment: .trailing) { refreshSpinner }
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, ChromeMetrics.iconWidth + Space.item)
                     .allowsHitTesting(false)
             }
+        }
+    }
+
+    /// The refresh mark: the working spinner `Space.item` past the title's end, centred on the bar's icon line, where it
+    /// takes no room, so the centred title doesn't move when it comes and goes. Nothing is drawn, or running, otherwise.
+    @ViewBuilder
+    private var refreshSpinner: some View {
+        if model.isRefreshing() {
+            SpinnerRingView(stroke: ShellMetrics.dockTopBarSpinnerStroke)
+                .frame(width: ShellMetrics.dockTopBarSpinnerSize, height: ShellMetrics.dockTopBarSpinnerSize)
+                .offset(x: ShellMetrics.dockTopBarSpinnerSize + Space.item)
         }
     }
 

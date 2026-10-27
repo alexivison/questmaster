@@ -8,11 +8,14 @@ final class ShellWindowController {
         let splitView: MainSplitView
         let trackerShell: TrackerShellView
         let terminalShell: TerminalShellView
-        let dockShell: DockShellView
+        let dockColumn: DockColumnView
+        let topDockShell: DockShellView
+        let bottomDockShell: DockShellView
         let footerShell: ActionBarShellView
         let trackerKeyboardBridge: TrackerKeyboardBridge
         let trackerHosting: NSView
         let dockView: SwiftUIDockPane
+        let versionControlPane: VersionControlDockPane
         let terminalHost: TerminalPaneHosting
         let dockChromeModel: DockChromeModel
         let trackerEffectExecutor: TrackerEffectExecutor
@@ -87,7 +90,8 @@ final class ShellWindowController {
                 trackerEffectExecutor?.execute(effect) ?? false
             }
         ), keyboardBridge: keyboardBridge)
-        let dockView = SwiftUIDockPane(store: runtimeStore, workerChatStore: workerChatStore, pullRequestStore: pullRequestStore, newQuestPresenter: newQuestPresenter, settingsPresenter: settingsPresenter)
+        let versionControlPane = VersionControlDockPane(store: pullRequestStore)
+        let dockView = SwiftUIDockPane(store: runtimeStore, workerChatStore: workerChatStore, newQuestPresenter: newQuestPresenter, settingsPresenter: settingsPresenter)
         let terminalHost = DeferredTerminalHost(
             title: "Terminal starting",
             detail: "Preparing terminal environment.",
@@ -97,12 +101,17 @@ final class ShellWindowController {
         let dockChromeModel = DockChromeModel()
         let trackerShell = TrackerShellView(body: trackerContent)
         let terminalShell = TerminalShellView(body: terminalHost.view, dragHandleHeight: window.titlebarHeight)
-        let dockShell = DockShellView(body: dockView, model: dockChromeModel)
+        let bottomDockShell = DockShellView(body: dockView, model: dockChromeModel)
+        let topDockShell = DockShellView(
+            body: versionControlPane,
+            model: DockChromeModel(topBar: .versionControl, isRefreshing: { [store = pullRequestStore] in store.isRefreshing })
+        )
+        let dockColumn = DockColumnView(top: topDockShell, bottom: bottomDockShell)
         let footerShell = ActionBarShellView()
 
         splitView.addArrangedSubview(trackerShell)
         splitView.addArrangedSubview(terminalShell)
-        splitView.addArrangedSubview(dockShell)
+        splitView.addArrangedSubview(dockColumn)
         splitView.sendTerminalToBack()
         splitView.trackerVisible = navigation.trackerVisible
         splitView.setDockVisible(navigation.dockVisible, animated: false)
@@ -127,11 +136,14 @@ final class ShellWindowController {
             splitView: splitView,
             trackerShell: trackerShell,
             terminalShell: terminalShell,
-            dockShell: dockShell,
+            dockColumn: dockColumn,
+            topDockShell: topDockShell,
+            bottomDockShell: bottomDockShell,
             footerShell: footerShell,
             trackerKeyboardBridge: keyboardBridge,
             trackerHosting: trackerContent,
             dockView: dockView,
+            versionControlPane: versionControlPane,
             terminalHost: terminalHost,
             dockChromeModel: dockChromeModel,
             trackerEffectExecutor: trackerEffectExecutor,

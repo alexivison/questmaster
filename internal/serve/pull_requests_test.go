@@ -49,6 +49,10 @@ func TestPRRefreshScopesAndWaitsForStatus(t *testing.T) {
 	if !bytes.Contains(data, []byte(`"title":"fresh"`)) || bytes.Contains(data, []byte(other.Key)) {
 		t.Fatalf("data=%s", data)
 	}
+	explicit := srv.HandleRequest(context.Background(), Request{Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","wait":true}`)})
+	if explicit.OK == nil || !*explicit.OK {
+		t.Fatalf("the app's own request (session_id, wait: true) refused: %#v", explicit)
+	}
 	denied := srv.HandleRequest(context.Background(), Request{Method: "pr.refresh", Data: json.RawMessage(`{"session_id":"qm-demo","keys":["github.com/owner/repo#43"]}`)})
 	if denied.OK == nil || *denied.OK {
 		t.Fatalf("foreign key accepted: %#v", denied)

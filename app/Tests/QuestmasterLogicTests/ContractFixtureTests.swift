@@ -106,6 +106,23 @@ struct ContractFixtureTests {
         let wake = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_wake_request.json")
         expect(wake.method == "pr.refresh" && wake.data.sessionID == nil && wake.data.wait == false, "pr.refresh wake did not decode")
         expect(wake.data.keys == ["github.com/owner/repo#42"], "pr.refresh wake key did not decode")
+        // The Version Control dock's r: its own request builder must send exactly this payload.
+        let whole = try decodeFixture(PRRefreshRequestFixture.self, "pr_refresh_session_request.json")
+        expect(whole.method == "pr.refresh" && whole.data.sessionID == "qm-demo" && whole.data.keys == nil && whole.data.wait == true, "pr.refresh session request did not decode")
+        let store = PullRequestStore()
+        _ = store.sync(
+            selectedSessionID: "qm-demo",
+            sessions: [TrackerSession(id: "qm-demo", title: "Demo", repoName: "Demo", role: "master", pullRequestsRev: "1")],
+            isVisible: true
+        )
+        guard case .refresh(let built)? = store.handle(.refresh) else {
+            expect(false, "r should ask for a refresh")
+            return
+        }
+        let sent = built.jsonObject(id: "pr-refresh-session-request")
+        let golden = try JSONSerialization.jsonObject(with: fixtureData("pr_refresh_session_request.json")) as? [String: Any]
+        expect(sent["id"] as? String == golden?["id"] as? String && sent["method"] as? String == golden?["method"] as? String, "the app's pr.refresh id and method drifted from the golden")
+        expect((sent["data"] as? NSDictionary)?.isEqual(golden?["data"] as? NSDictionary) == true, "the app's pr.refresh payload drifted from the golden")
         let refresh = try decodeFixture(PRRefreshEnvelopeFixture.self, "pr_refresh_response_envelope.json")
         expect(refresh.data.pullRequests.first?.status?.title == "Ready to merge", "pr.refresh status did not decode")
         expect(refresh.data.hosts["github.com"]?.rateLimit?.remaining == 4999, "pr.refresh host result did not decode")

@@ -36,6 +36,27 @@ public final class NavigationStore {
         focusedRegion == region && !isModalDrawn
     }
 
+    /// Whether one dock panel takes the keys: the dock has them and this panel is the focused one. Only that panel's
+    /// frame lifts.
+    public func hasKeys(_ panel: DockPanel) -> Bool {
+        hasKeys(.dock) && state.focusedDockPanel == panel
+    }
+
+    public var focusedDockPanel: DockPanel {
+        state.focusedDockPanel
+    }
+
+    /// What the chord that focuses `panel` does. The chords move the keys between the dock's two panels, so they are
+    /// the dock's own: handled only while the dock has the keys (`hasKeys`) and both panels show. Anywhere else (the
+    /// terminal, the tracker, under a modal, a dock with one panel) they are not handled and go on to whoever has the
+    /// focus, Ghostty's own ⇧⌘J binding included.
+    public func dockPanelKeyRoute(_ panel: DockPanel, panels: DockPanels) -> DockPanelKeyRoute {
+        guard hasKeys(.dock), panels.top, panels.bottom else {
+            return .passThrough
+        }
+        return state.focusedDockPanel == panel ? .alreadyFocused : .focus
+    }
+
     public var trackerVisible: Bool {
         state.trackerVisible
     }
@@ -55,8 +76,8 @@ public final class NavigationStore {
     }
 
     @discardableResult
-    public func toggleDock() -> NavigationOutcome {
-        mutate { $0.toggleDock() }
+    public func focusDockPanel(_ panel: DockPanel) -> NavigationOutcome {
+        mutate { $0.focusDockPanel(panel) }
     }
 
     @discardableResult
@@ -65,8 +86,8 @@ public final class NavigationStore {
     }
 
     @discardableResult
-    public func setDockVisible(_ visible: Bool) -> NavigationOutcome {
-        mutate { $0.setDockVisible(visible) }
+    public func settleDock(_ panels: DockPanels) -> NavigationOutcome {
+        mutate { $0.settleDock(panels) }
     }
 
     @discardableResult

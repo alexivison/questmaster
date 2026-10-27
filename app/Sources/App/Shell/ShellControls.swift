@@ -6,11 +6,15 @@ import QuestmasterCore
 /// `ShellStatusViews.swift`.
 
 enum ShellMetrics {
-    /// The dock top bar, as artifacts.svg draws it: the title's baseline 35 down, and its icon buttons centred 30
-    /// down, the close button 40 in from the right edge (30 to its 20pt button frame), clear of the scooped corner.
+    /// The dock top bar of every dock panel, as `Session Detail Dock.svg` draws it: the title's baseline 25 down, and its
+    /// icon buttons centred 20 down, the close button 40 in from the right edge (30 to its 20pt button frame), clear of
+    /// the scooped corner.
     static let dockTopBarHeight = ControlHeight.bar
-    static let dockTopBarTitleBaseline: CGFloat = 35
-    static let dockTopBarIconCentre: CGFloat = 30
+    static let dockTopBarTitleBaseline: CGFloat = 25
+    static let dockTopBarIconCentre: CGFloat = 20
+    /// The refresh spinner beside a dock title: a chip's size, on the icon line.
+    static let dockTopBarSpinnerSize = ControlHeight.chip
+    static let dockTopBarSpinnerStroke: CGFloat = 2
     static let dockTopBarHorizontalInset: CGFloat = 30
     /// No extra space above the first tracker header (2026-10-07): `sideCardInset` alone now
     /// provides the window-top-to-tracker gap, matching every other G-rhythm gap in the shell.

@@ -176,9 +176,10 @@ public struct PullRequestDisplayRow: Equatable {
         return pullRequest.status?.stale == true ? .stale : .normal
     }
 
-    /// The row's look: the cursor's or the resting look, dimmed while stale and warned when inaccessible.
-    public func look(highlighted: Bool, areaFocused: Bool) -> RowLook {
-        let base = RowLook.pick(highlighted: highlighted, areaFocused: areaFocused)
+    /// The row's look: the cursor's while the panel has the keys, else the resting look, dimmed while stale and warned when
+    /// inaccessible. The cursor hides with the keys (`RowLook.cursor`); the list remembers where it was.
+    public func look(isCursor: Bool, areaFocused: Bool) -> RowLook {
+        let base = RowLook.cursor(highlighted: isCursor, areaFocused: areaFocused)
         switch rowLook {
         case .normal: return base
         case .stale: return base.dimmed

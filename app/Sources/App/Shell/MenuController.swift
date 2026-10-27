@@ -53,6 +53,8 @@ final class MenuController {
         viewMenu.addItem(NSMenuItem.separator())
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionLeft, action: actions.focusRegionLeft, target: target))
         viewMenu.addItem(commandMenuItem(Keymap.Command.focusRegionRight, action: actions.focusRegionRight, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.focusDockTop, action: actions.focusDockTop, target: target))
+        viewMenu.addItem(commandMenuItem(Keymap.Command.focusDockBottom, action: actions.focusDockBottom, target: target))
         viewItem.submenu = viewMenu
         mainMenu.addItem(viewItem)
 
@@ -68,20 +70,28 @@ final class MenuController {
         NSApp.mainMenu = mainMenu
     }
 
-    func installCommandKeyMonitor(focusRegionLeft: @escaping () -> Void, focusRegionRight: @escaping () -> Void) {
+    /// Runs the commands whose keys the Ghostty terminal would consume as a key equivalent before the menu sees them.
+    /// Their menu items stay for discoverability and the mouse; a key press the monitor handles never reaches the menu,
+    /// so it can't run twice. A held key (a repeat) is swallowed without running again.
+    func installCommandKeyMonitor(_ actions: CommandKeyActions) {
         guard commandKeyMonitor == nil else {
             return
         }
-        commandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if Self.matches(event, binding: Keymap.Command.focusRegionLeft) {
-                focusRegionLeft()
-                return nil
+        commandKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: Self.commandKeyHandler(actions))
+    }
+
+    /// What the monitor does with a key press: nil when a chord of `actions` took it, the event itself otherwise. A chord
+    /// that doesn't handle the press right now (`CommandKeyAction.handles`) is returned like any other key.
+    static func commandKeyHandler(_ actions: CommandKeyActions) -> (NSEvent) -> NSEvent? {
+        let table = actions.table
+        return { event in
+            guard let match = table.first(where: { matches(event, binding: $0.binding) }), match.action.handles() else {
+                return event
             }
-            if Self.matches(event, binding: Keymap.Command.focusRegionRight) {
-                focusRegionRight()
-                return nil
+            if !event.isARepeat {
+                match.action.run()
             }
-            return event
+            return nil
         }
     }
 
@@ -101,7 +111,8 @@ final class MenuController {
 
     private static func matches(_ event: NSEvent, binding: Keymap.CommandBinding) -> Bool {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Caps Lock doesn't change a chord, here or in the menu.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
         return key == binding.keyEquivalent.lowercased()
             && flags == modifierFlags(for: binding.modifiers)
     }
@@ -124,6 +135,38 @@ final class MenuController {
     }
 }
 
+/// One chord of the key monitor. `handles` is its scope, asked on every press (a held key too) and decided in Core: a
+/// chord that doesn't handle the press lets the event go on, untouched, to the focused responder.
+struct CommandKeyAction {
+    let handles: () -> Bool
+    let run: () -> Void
+
+    /// A chord that works from every region.
+    static func anywhere(_ run: @escaping () -> Void) -> CommandKeyAction {
+        CommandKeyAction(handles: { true }, run: run)
+    }
+}
+
+/// What each command-key chord does while the terminal has the keys: the commands that go through
+/// `MenuController.installCommandKeyMonitor`, one entry each so none can be left out.
+struct CommandKeyActions {
+    let focusRegionLeft: CommandKeyAction
+    let focusRegionRight: CommandKeyAction
+    let focusDockTop: CommandKeyAction
+    let focusDockBottom: CommandKeyAction
+    let toggleVersionControlDock: CommandKeyAction
+
+    var table: [(binding: Keymap.CommandBinding, action: CommandKeyAction)] {
+        [
+            (Keymap.Command.focusRegionLeft, focusRegionLeft),
+            (Keymap.Command.focusRegionRight, focusRegionRight),
+            (Keymap.Command.focusDockTop, focusDockTop),
+            (Keymap.Command.focusDockBottom, focusDockBottom),
+            (Keymap.Command.toggleVersionControlDock, toggleVersionControlDock),
+        ]
+    }
+}
+
 struct MenuActions {
     let openNewSession: Selector
     let openNewQuest: Selector
@@ -141,6 +184,8 @@ struct MenuActions {
     let toggleQuestLog: Selector
     let toggleWorkerChatDock: Selector
     let toggleVersionControlDock: Selector
+    let focusDockTop: Selector
+    let focusDockBottom: Selector
     let widenDock: Selector
     let narrowDock: Selector
     let toggleCaffeine: Selector

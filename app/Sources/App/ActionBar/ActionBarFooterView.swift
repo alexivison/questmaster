@@ -14,16 +14,20 @@ private func tooltip(_ label: String, _ binding: Keymap.CommandBinding) -> Strin
 final class ActionBarFooterModel {
     var navigation: AppNavigationState
     var caffeineActive: Bool
+    /// The bottom panel's content: artifacts or the worker chat.
     var dockContentMode: DockContentMode
+    var dockPanels: DockPanels
 
     init(
         navigation: AppNavigationState = AppNavigationState(),
         caffeineActive: Bool = false,
-        dockContentMode: DockContentMode = .artifacts
+        dockContentMode: DockContentMode = .artifacts,
+        dockPanels: DockPanels = DockPanels()
     ) {
         self.navigation = navigation
         self.caffeineActive = caffeineActive
         self.dockContentMode = dockContentMode
+        self.dockPanels = dockPanels
     }
 }
 
@@ -85,13 +89,13 @@ struct ActionBarFooterView: View {
             ActionBarSlotSpec(
                 symbolName: "bubble.left.and.bubble.right",
                 tooltip: tooltip("Open Worker Chat", Keymap.Command.toggleWorkerChatDock),
-                isActive: navState.dockVisible && model.dockContentMode == .workerChat,
+                isActive: model.dockPanels.bottom && model.dockContentMode == .workerChat,
                 action: onOpenWorkerChat
             ),
             ActionBarSlotSpec(
                 symbolName: "arrow.triangle.pull",
                 tooltip: tooltip("Open Version Control", Keymap.Command.toggleVersionControlDock),
-                isActive: navState.dockVisible && model.dockContentMode == .versionControl,
+                isActive: model.dockPanels.top,
                 action: onOpenVersionControl
             ),
             .empty, .empty, .empty,
@@ -110,7 +114,7 @@ struct ActionBarFooterView: View {
             ActionBarSlotSpec(
                 symbolName: "doc.richtext",
                 tooltip: tooltip("Open Artifacts", Keymap.Command.toggleDock),
-                isActive: navState.dockVisible && model.dockContentMode == .artifacts,
+                isActive: model.dockPanels.bottom && model.dockContentMode == .artifacts,
                 action: onOpenArtifacts
             ),
             ActionBarSlotSpec(

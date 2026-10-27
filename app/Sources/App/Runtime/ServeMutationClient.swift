@@ -88,6 +88,9 @@ final class UnixSocketMutationClient: ServeMutationSending {
     /// Pull request pulls and refreshes reach GitHub through the daemon; their own queue keeps them from delaying a
     /// mutation.
     private let pullRequestQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.pullRequests")
+    /// A refresh holds its socket until the daemon has fetched (up to 28s), so the pull its own change asks for must not
+    /// queue behind it.
+    private let pullRequestRefreshQueue = DispatchQueue(label: "Questmaster.UnixSocketMutationClient.pullRequestRefreshes")
     private static let responseTimeoutSeconds = 35
     /// A one-shot request may race daemon startup or an upgrade. Retry only
     /// before writing bytes, so a mutation in flight is never repeated.
@@ -310,7 +313,7 @@ extension UnixSocketMutationClient {
     }
 
     func refreshPullRequests(_ request: PullRequestRefreshRequest, completion: @escaping (Result<Void, Error>) -> Void) {
-        pullRequestQueue.async { [connection] in
+        pullRequestRefreshQueue.async { [connection] in
             do {
                 _ = try Self.sendObject(request.jsonObject(id: UUID().uuidString), connection: connection, userInitiated: false)
                 completion(.success(()))

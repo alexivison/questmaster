@@ -40,6 +40,9 @@ struct InteractionLookTests {
         expect(!PlateBand.showsCursor(highlighted: true, areaFocused: false), "the cursor hides when the tracker loses them")
         expect(PlateBand.color(showsCursor: false, pointerOver: true, recoloring: false) == .controlBorder, "the plate under the pointer shows the hover band")
         expect(PlateBand.color(showsCursor: true, pointerOver: true, recoloring: false) == .textSelected, "the cursor's band wins over hover")
+        expect(RowLook.cursor(highlighted: true, areaFocused: true) == .highlighted, "a pure cursor row shows the highlight while its area has the keys")
+        expect(RowLook.cursor(highlighted: true, areaFocused: false) == .rest, "and hides it (no unfocused look) when they leave")
+        expect(RowLook.cursor(highlighted: false, areaFocused: true) == .rest && RowLook.cursor(highlighted: false, areaFocused: false) == .rest, "a row that isn't the cursor rests")
     }
 
     /// The hover look reads apart from rest, from the cursor and highlight (focused or not) and from a lasting

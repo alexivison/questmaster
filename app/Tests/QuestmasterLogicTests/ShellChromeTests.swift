@@ -47,7 +47,7 @@ struct ShellChromeTests {
     }
 
     private static func dockTopBarVersionControlShowsItsTitle() {
-        let model = DockTopBarModel.make(mode: .versionControl, artifactRoute: .viewer, artifactTitle: "report.html")
+        let model = DockTopBarModel.versionControl
         expect(model.title == "Version Control", "version control should show its own title")
         expect(model.back == nil && !model.showArtifactActions, "version control has no back affordance or artifact actions")
     }
