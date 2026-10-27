@@ -94,12 +94,14 @@ enum UnixSocketIO {
                 }
                 throw ServeClientError.protocolError(String(cString: strerror(errno)))
             }
+            // Only the new bytes can hold the newline; rescanning the whole buffer made a large reply quadratic.
+            let scanStart = pending.endIndex
             pending.append(buffer, count: count)
             if let maxBytes, pending.count > maxBytes {
                 throw ServeClientError.protocolError("socket line exceeded \(maxBytes) bytes")
             }
-            if let newline = pending.firstRange(of: Data([0x0a])) {
-                return pending.subdata(in: pending.startIndex..<newline.lowerBound)
+            if let newline = pending[scanStart...].firstIndex(of: 0x0a) {
+                return pending.subdata(in: pending.startIndex..<newline)
             }
         }
     }
