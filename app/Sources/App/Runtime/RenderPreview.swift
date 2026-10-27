@@ -99,6 +99,11 @@ enum RenderPreview {
         renderView(dockSplitView(bottom: .artifacts, top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-bottom.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
+        // The Worker Log filter in the split: its chips and open dropdown in the bottom panel under Version Control, and
+        // with fifteen workers the dropdown scrolling inside the room that panel has left.
+        renderView(dockSplitView(bottom: .workerLog(), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-open.png")
+        renderView(dockSplitView(bottom: .workerLog(menuOpen: false), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-closed.png")
+        renderView(dockSplitView(bottom: .workerLog(workers: 15, cursor: 18), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-scroll.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         let logDock = CGSize(width: DockWidthPreference.panelWidth + 2, height: 1020)
         renderView(workerLogDockView(menuOpen: true), size: logDock, to: "\(outputDir)/worker-log-filter-open.png")
@@ -466,7 +471,7 @@ enum RenderPreview {
         return canvas
     }
 
-    enum DockSplitBottom { case artifacts, workerChat }
+    enum DockSplitBottom { case artifacts, workerChat, workerLog(menuOpen: Bool = true, workers: Int = 4, cursor: Int = 4) }
 
     /// The dock column as the shell lays it out, 20 in from a window-coloured canvas's edges: Version Control (unless
     /// `top` is false) over the artifact list or the worker chat (unless `bottom` is nil), `focus` giving one panel the keys.
@@ -488,6 +493,8 @@ enum RenderPreview {
                 body: NSHostingView(rootView: workerChatView()),
                 model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
             )
+        case .workerLog(let menuOpen, let workers, let cursor):
+            bottomShell = workerLogDockView(menuOpen: menuOpen, workers: workers, cursor: cursor)
         case .artifacts, nil:
             bottomShell = DockShellView(
                 body: NSHostingView(rootView: artifactListView(focused: focus == .bottom)),
@@ -767,7 +774,7 @@ enum RenderPreview {
 
     /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on row `cursor` (the first worker by default).
     @MainActor
-    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = 4) -> NSView {
+    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = 4) -> DockShellView {
         let store = workerLogStore(workers: workers)
         if menuOpen {
             store.toggleMenu()

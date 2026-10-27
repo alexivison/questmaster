@@ -242,12 +242,16 @@ again where it was when the keys come back.
   raised looks (`RowLook.raisedPick`). A checked box's mark takes the row's text
   colour. Ticking every box is an ordinary selection (the chip reads "Action: 4"
   and only its x clears it), so a worker that spawns later stays hidden until it
-  is ticked. The dropdown is as tall as its rows, up to the dock's height less
+  is ticked. The dropdown is as tall as its rows, up to its panel's height less
   the 5 under the bar and the 20 inset below, and scrolls past that with the
-  cursor kept in view. A click anywhere else on the dock, its top bar included,
-  closes it; the filter icon toggles it and shows only while the log is attached
-  to a master. Its chips hold their values in `textBody` at regular weight (bold
-  means selected).
+  cursor kept in view: with Version Control above, the bottom panel is shorter
+  and it scrolls sooner, never reaching behind it. The filter belongs to the
+  bottom panel: its icon sits in that panel's top bar, shows only while the log
+  is attached to a master and toggles the dropdown; `f` and the dropdown's keys
+  work only while that panel has the keys, and the keys leaving it (to Version
+  Control, the tracker, the terminal or a modal) close it. A click anywhere else
+  on the dock, either top bar included, closes it too. Its chips hold their
+  values in `textBody` at regular weight (bold means selected).
 - Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
   section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
   artifact viewer, the Worker Log, Version Control), the tracker and the Quest Log's page draw it; the page passes the

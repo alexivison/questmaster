@@ -140,6 +140,8 @@ enum LogicSelfTests {
         ("testWorkerLogFilterKeepsItsDesignedSize", testWorkerLogFilterKeepsItsDesignedSize),
         ("testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons", testDockTopBarClicksEndTheLogFilterExceptOnItsOwnButtons),
         ("testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView", testWorkerLogFilterScrollsPastItsMaxHeightAndKeepsTheCursorInView),
+        ("testWorkerLogFilterFollowsTheBottomPanelsKeys", testWorkerLogFilterFollowsTheBottomPanelsKeys),
+        ("testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl", testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -5352,6 +5354,95 @@ enum LogicSelfTests {
         let clip = scrollView.contentView
         try expect(waitUntil { clip.bounds.origin.y > 0 }, "the cursor on the last row should scroll it into view")
         try expect(clip.bounds.maxY >= documentView.bounds.height - 1, "the last row should sit at the bottom of the rows, got \(clip.bounds.maxY) of \(documentView.bounds.height)")
+    }
+
+    /// The split dock with both panels showing: Version Control over the Worker Log, which is attached to a master with
+    /// `workers` workers. The caller closes `window`.
+    private static func splitWorkerLogDock(workers: Int) -> (window: HeadlessWindow, column: DockColumnView, pane: SwiftUIDockPane, chat: WorkerChatStore, coordinator: ShellFocusCoordinator) {
+        let chat = WorkerChatStore()
+        let sessions = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
+            + (1...workers).map { TrackerSession(id: "w\($0)", title: "Worker \($0)", repoName: "Repo", agent: "codex", role: "worker", parentID: "m") }
+        _ = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+        let pane = SwiftUIDockPane(
+            store: RuntimeStore(sourceLabel: "test"),
+            workerChatStore: chat,
+            newQuestPresenter: NewQuestSheetPresenter(),
+            settingsPresenter: SettingsSheetPresenter()
+        )
+        pane.apply(DockState(bottomVisible: true, dockContent: .workerChat), snapshot: RuntimeSnapshot.empty(sourceLabel: "test"))
+        let versionControl = VersionControlDockPane(store: PullRequestStore())
+        let top = DockShellView(body: versionControl, model: DockChromeModel(topBar: .versionControl))
+        let bottom = DockShellView(
+            body: pane,
+            model: DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
+        )
+        let column = DockColumnView(top: top, bottom: bottom)
+        column.frame = NSRect(x: 0, y: 0, width: 480, height: 860)
+        column.setPanels(DockPanels(top: true, bottom: true))
+        let window = HeadlessWindow(size: CGSize(width: 480, height: 860))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 860))
+        content.addSubview(column)
+        window.contentView = content
+        let coordinator = ShellFocusCoordinator(
+            navigation: NavigationStore(),
+            window: { window },
+            splitView: { nil },
+            terminalShell: { nil },
+            topDockShell: { top },
+            bottomDockShell: { bottom },
+            dockColumn: { column },
+            dockPanels: { DockPanels(top: true, bottom: true) },
+            footerShell: { nil },
+            trackerHosting: { nil },
+            dockView: { pane },
+            versionControlPane: { versionControl },
+            terminalHost: { nil },
+            modalHost: { nil },
+            updateDockTabs: {}
+        )
+        window.show(key: true)
+        column.layoutSubtreeIfNeeded()
+        return (window, column, pane, chat, coordinator)
+    }
+
+    /// In the split dock the filter belongs to the bottom panel: `f` opens it while that panel has the keys, the keys
+    /// moving to Version Control close it, and while they are there `f` is not the filter's.
+    private static func testWorkerLogFilterFollowsTheBottomPanelsKeys() throws {
+        let dock = splitWorkerLogDock(workers: 2)
+        defer { dock.window.close() }
+        dock.coordinator.focusDockPanel(.bottom)
+        let opened = try dock.pane.performKeyEquivalent(with: keyEvent("f", keyCode: 3))
+        try expect(opened && dock.chat.menu.isOpen, "f should open the filter while the bottom panel has the keys")
+        dock.coordinator.focusDockPanel(.top)
+        try expect(!dock.chat.menu.isOpen, "the keys moving to Version Control should close the filter")
+        let stolen = try dock.pane.performKeyEquivalent(with: keyEvent("f", keyCode: 3))
+        try expect(!stolen && !dock.chat.menu.isOpen, "f should not open the filter while Version Control has the keys")
+    }
+
+    /// Under Version Control the bottom panel is shorter, and the dropdown scrolls inside what it has: 5 under the top
+    /// bar and 20 above the panel's edge, never reaching behind Version Control.
+    private static func testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl() throws {
+        let dock = splitWorkerLogDock(workers: 15)
+        defer { dock.window.close() }
+        dock.coordinator.focusDockPanel(.bottom)
+        _ = dock.chat.handle(.toggleMenu)
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        // The feed scrolls too: the dropdown is the narrow one.
+        func dropdown() -> NSScrollView? {
+            scrollViews(in: dock.pane).first { $0.convert($0.bounds, to: dock.pane).width < dock.pane.bounds.width / 2 }
+        }
+        try expect(waitUntil { dropdown() != nil }, "the dropdown should scroll under Version Control, with 19 rows in the room left")
+        guard let list = dropdown() else {
+            throw TestFailure("the dropdown should host a scroll view")
+        }
+        let paneFrame = dock.column.convert(dock.pane.bounds, from: dock.pane)
+        let listFrame = dock.column.convert(list.bounds, from: list)
+        let topGap = paneFrame.maxY - listFrame.maxY
+        let bottomGap = listFrame.minY - paneFrame.minY
+        try expect(topGap >= Space.row, "the dropdown should hang 5 under the top bar, got \(topGap)")
+        try expect(bottomGap >= Space.section, "the dropdown should stop 20 above the panel's edge, got \(bottomGap)")
     }
 
     private static func fittingSize<V: View>(of view: V) throws -> CGSize {

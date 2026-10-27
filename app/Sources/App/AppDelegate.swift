@@ -265,6 +265,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
         handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
         handles.topDockShell.onHideDock = { [weak self] in self?.hideVersionControl() }
+        handles.topDockShell.onDismissLogFilter = { [weak self] in self?.workerChatStore.closeMenu() }
         handles.bottomDockShell.onHideDock = { [weak self] in self?.hideBottomDock() }
         handles.bottomDockShell.onToggleLogFilter = { [weak self] in
             self?.focusCoordinator.focusDockPanel(.bottom)
