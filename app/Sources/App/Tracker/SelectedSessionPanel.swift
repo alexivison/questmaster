@@ -187,9 +187,10 @@ enum IconFadeMotion {
 /// SwiftUI draws the content in a hosting view whose layer Core Animation fades, so the render server runs the fade and
 /// the main thread, which the terminal shares, redraws nothing for it. The new content is in place when the fade starts, so
 /// the old goes at once. An empty key is nothing to show and never fades; the first key, a change while no window shows the
-/// view, and Reduce Motion (read where every animation does, `Motion.reducesMotion`, on every update, so it drops a fade
-/// still running) show no fade, and leaving the window ends one. The animation ends on its own: nothing is left running.
-/// It fills the space it is given and takes no clicks.
+/// view, and Reduce Motion (read where every animation does, `Motion.reducesMotion`, on every update) show no fade. A fade
+/// ends with the icon it brings in: a new key (an empty one too), leaving the window, or any update under Reduce Motion
+/// drops one still running. The animation ends on its own: nothing is left running. It fills the space it is given and
+/// takes no clicks.
 struct IconFade<Content: View>: NSViewRepresentable {
     let key: String
     @ViewBuilder let content: Content
@@ -243,11 +244,12 @@ final class IconFadeView: NSView {
         guard let layer else {
             return
         }
-        guard !Motion.reducesMotion() else {
+        // A fade belongs to the icon it brings in: a new key ends the one running, whether or not it starts another, and so
+        // does any update under Reduce Motion.
+        if previous != key || Motion.reducesMotion() {
             layer.removeAnimation(forKey: IconFadeMotion.animationKey)
-            return
         }
-        guard let previous, previous != key, !key.isEmpty, window != nil else {
+        guard let previous, previous != key, !key.isEmpty, window != nil, !Motion.reducesMotion() else {
             return
         }
         let fade = CABasicAnimation(keyPath: "opacity")

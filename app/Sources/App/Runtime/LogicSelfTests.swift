@@ -1109,6 +1109,12 @@ enum LogicSelfTests {
         try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "no switch should re-create the icon's views")
         try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "the class's portrait should end as drawn fresh")
 
+        // An icon still fading in when the disc goes empty: the fade goes with the icon. Nothing is cleared by hand after the
+        // switch (`expectNoFade` would), so only the view can have dropped it.
+        try expect(try fadeCount(after: paladin, "a class before an empty disc") == 1, "a class after a class should fade one icon")
+        model.content = empty
+        try expect(waitUntil { fades(in: view).isEmpty }, "a switch to an empty disc should drop the fade still running")
+
         // Reduce Motion: the new icon is there at once, with nothing to run.
         icons(in: view).forEach { $0.layer?.removeAllAnimations() }
         Motion.reducesMotion = { true }
@@ -1140,8 +1146,12 @@ enum LogicSelfTests {
         try expect(loose.fadeAnimation == nil, "and a remount shouldn't bring one back")
         loose.configure(rootView: AnyView(Color.clear), key: "d")
         try expect(loose.fadeAnimation != nil, "a new key after the remount should fade again")
+        loose.configure(rootView: AnyView(Color.clear), key: "")
+        try expect(loose.fadeAnimation == nil, "a switch to an empty key mid-fade should drop the fade, though it starts none")
+        loose.configure(rootView: AnyView(Color.clear), key: "e")
+        try expect(loose.fadeAnimation != nil, "a key after an empty one should fade")
         Motion.reducesMotion = { true }
-        loose.configure(rootView: AnyView(Color.clear), key: "d")
+        loose.configure(rootView: AnyView(Color.clear), key: "e")
         try expect(loose.fadeAnimation == nil, "an update with the same key under Reduce Motion should drop a fade still running")
     }
 

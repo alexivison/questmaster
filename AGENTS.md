@@ -382,8 +382,9 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   (`IconFade`, a hosting view like `SkeletonPulse`'s; no `.id`/`.transition` re-creation per switch). The disc is drawn in
   layers so only the icon fades: the base (with the strips, one Canvas), the icon's one `IconFade` layer, and the
   overlay (a Canvas). The icon key is empty when the disc has none, and an empty key never fades, so a switch fades only
-  an icon coming in: one fade a switch, none to or from an empty disc. A change with no window or the same key adds no
-  fade, leaving the window ends one, and any update under Reduce Motion drops one still running.
+  an icon coming in: one fade a switch that brings an icon in (from an empty disc too), none to an empty disc. A change
+  with no window or the same key adds no fade; a new key (an empty one too), leaving the window, or any update under
+  Reduce Motion drops one still running.
 
 `MotionRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and fails on a break:
 
@@ -404,10 +405,10 @@ The scan reads lines, so a duration passed through a helper's parameter isn't se
 hosts the panel in an off-screen window and asserts the fade is a Core Animation opacity animation on the icon's layer
 (from clear to full, `standard`, `Motion.timingFunction`, once), that its presentation layer starts clear and reaches full
 opacity, that exactly one fade runs when an icon comes in (class to class, class to shell, shell to class, empty disc to
-class), that no view is re-created, that the disc ends as drawn fresh, and that the first icon, an unrelated edit, a switch
-to or between empty discs, a view outside a window, one that left it and Reduce Motion show none. `cacheDisplay` draws the
-model layers, so it cannot see a Core
-Animation fade; the test reads the presentation layer's opacity, and
+class), that no view is re-created, that the disc ends as drawn fresh, that a switch to an empty disc drops a fade still
+running, and that the first icon, an unrelated edit, a switch to or between empty discs, a view outside a window, one that
+left it and Reduce Motion show none. `cacheDisplay` draws the model layers, so it cannot see a Core Animation fade; the
+test reads the presentation layer's opacity, and
 `RENDER_ONLY=selected-session-fade-gif QUESTMASTER_ANIMATION_SLOWDOWN=6 … --render-preview <dir>` records it frame by
 frame from the presentation layers (`recordAnimation(…, capturesLayers: true)`; `QUESTMASTER_ANIMATION_SLOWDOWN` stretches
 every step in DEBUG builds so the recorder can sample it).
