@@ -2,18 +2,27 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// What the selected-session panel shows: the attached session's title, id, project and class portrait. With no
-/// attached session, the panel reads "Terminal" with no id and a neutral bar.
+/// What the selected-session panel shows: the attached session's title, id, project and disc icon. With no
+/// attached session, the panel reads "Terminal" with no id, a neutral bar and an empty disc.
 struct SelectedSessionPanelContent {
     let title: String
     let id: String
     let projectName: String
     let projectColor: NSColor
-    /// The attached master's class portrait or worker's familiar; nil (a shell, no class, nothing attached) keeps the Q.
+    /// The attached master's class portrait or worker's familiar; nil (a shell, no class, nothing attached) draws none.
     var portrait: SessionPortrait? = nil
+    /// The attached session is a shell, tmux or orphan row: with no portrait, its disc shows the shell row's terminal glyph.
+    /// A disc with neither is empty.
+    var isShell = false
 
-    /// Names the icon on show: the attached session and its portrait. The panel fades the icon in when it changes.
-    var iconKey: String { "\(id)|\(portrait?.resourceName ?? "")" }
+    /// Names the icon on show: the attached session and its portrait or glyph; empty when the disc shows none. The panel fades
+    /// the icon in when it changes, and an empty key never fades.
+    var iconKey: String {
+        if let portrait {
+            return "\(id)|\(portrait.resourceName)"
+        }
+        return isShell ? "\(id)|shell" : ""
+    }
 
     static func make(currentTerminalSessionID: String?, tracker: TrackerRenderedTracker) -> SelectedSessionPanelContent {
         let id = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID) ?? ""
@@ -26,7 +35,8 @@ struct SelectedSessionPanelContent {
             id: match.rendered.session.id,
             projectName: match.repoName.isEmpty ? "ungrouped" : match.repoName,
             projectColor: TrackerNameplateColor.barLightness(match.rendered.groupColor),
-            portrait: SessionPortrait(session: match.rendered.session)
+            portrait: SessionPortrait(session: match.rendered.session),
+            isShell: TrackerShellSection.isShellRow(match.rendered.session)
         )
     }
 
@@ -39,27 +49,20 @@ struct SelectedSessionPanelContent {
     }
 }
 
-/// The attached session, pinned above the tracker list: its class portrait (the Questmaster Q when it has none), the
-/// session id in the tab above the plate, the title on its strip, and the project on its bar. A click copies the id.
+/// The attached session, pinned above the tracker list: its disc icon (the class portrait, a shell's terminal glyph, or
+/// nothing), the session id in the tab above the plate, the title on its strip, and the project on its bar. A click copies
+/// the id.
 struct SelectedSessionPanel: View {
     let content: SelectedSessionPanelContent
     let onCopyID: (String) -> Void
 
     /// The SVG's 299 x 76 cut to 260 (2026-10-21), so the panel's right edge lines up with the master plates', and to 75
-    /// (2026-10-23): the bottom diamond's tip still draws past it, pixel for pixel as before.
+    /// (2026-10-23). Every Canvas draws at this size, so the bottom diamond's tip is cut at it.
     static let canvasSize = CGSize(width: 260, height: 75)
-    /// The logo's own canvas, drawn at that size so it is never stretched. Past the panel's edge it is clear.
-    private static let logoSize = CGSize(width: 289, height: 76)
-    private static let logo = AppSymbolStyle.resourceImage(
-        name: "questmaster-q-logo",
-        fileExtension: "svg",
-        subdirectory: "Brand",
-        canvasSize: NSSize(width: logoSize.width, height: logoSize.height)
-    )
     /// Where each line's first glyph cell starts, past the portrait like a plate's text (`TrackerPlateDesign.textX`),
     /// and its baseline. Every line stops at `textRightEdge`, so a long title truncates instead of running under the
     /// plate's right edge.
-    /// `Space.item` past the disc, not a plate's `Space.row`, so the title clears the Q's right spike (it reaches 76).
+    /// `Space.item` past the disc, not a plate's `Space.row`.
     static let textX = TrackerPlateDesign.textX(afterDisc: PanelDesign.disc, gap: Space.item)
     private static let idX = textX
     private static let textRightEdge: CGFloat = 250
@@ -68,11 +71,7 @@ struct SelectedSessionPanel: View {
     private static let projectBaseline: CGFloat = 64.5
 
     var body: some View {
-        let logo = content.portrait == nil ? Self.logo : nil
-        // The Q's own canvas is the biggest thing in the stack, so it sets the size the Canvases draw at: 289 x 76 with
-        // the Q, 260 x 75 with a portrait, as it always was.
-        let logoSlot = logo == nil ? Self.canvasSize : Self.logoSize
-        return ZStack(alignment: .topLeading) {
+        ZStack(alignment: .topLeading) {
             Canvas { context, _ in
                 drawStrips(&context)
                 drawDiscBase(&context)
@@ -101,12 +100,11 @@ struct SelectedSessionPanel: View {
                 width: Self.textRightEdge - Self.textX,
                 baseline: Self.projectBaseline
             )
-            // The portrait sits between the disc's base and its overlay, the Q over all of it, so each is its own fading
-            // layer. Both stay mounted so a switch between a class and the Q fades the new icon in; the one with
-            // nothing to show fades nothing visible.
+            // The icon sits between the disc's base and its overlay, so it is its own fading layer. A disc with no icon has
+            // an empty key, which never fades: only an icon coming in does.
             IconFade(key: content.iconKey) {
                 Canvas { context, _ in
-                    drawPortrait(&context)
+                    drawIcon(&context)
                 }
             }
             .frame(width: Self.canvasSize.width, height: Self.canvasSize.height)
@@ -114,15 +112,6 @@ struct SelectedSessionPanel: View {
             Canvas { context, _ in
                 drawDiscOverlay(&context)
             }
-            IconFade(key: content.iconKey) {
-                if let logo {
-                    Image(nsImage: logo)
-                        .resizable()
-                        .frame(width: Self.logoSize.width, height: Self.logoSize.height)
-                }
-            }
-            .frame(width: logoSlot.width, height: logoSlot.height)
-            .allowsHitTesting(false)
         }
         .frame(width: Self.canvasSize.width, height: Self.canvasSize.height, alignment: .topLeading)
         .contentShape(Rectangle())
@@ -151,17 +140,27 @@ struct SelectedSessionPanel: View {
         context.fillInnerShadow(PanelDesign.projectBar, PanelDesign.barRimShadow(content.projectColor))
     }
 
-    /// The disc and its shadow, then the class portrait, its inner shadow and the ornaments over it, in the SVG's order,
-    /// as three layers so the portrait fades in on its own (`IconFade`): the base, with the strips it draws over, the
-    /// portrait's layer, and the overlay. Without a portrait the logo draws over all of them.
+    /// The disc and its shadow, then the icon, its inner shadow and the ornaments over it, in the SVG's order, as three
+    /// layers so the icon fades in on its own (`IconFade`): the base, with the strips it draws over, the icon's layer, and
+    /// the overlay.
     private func drawDiscBase(_ context: inout GraphicsContext) {
         context.fillOuterShadow(PanelDesign.disc, PanelDesign.discOuterShadow)
         context.fill(PanelDesign.disc, with: .color(AppPalette.panel.swiftUI))
     }
 
-    private func drawPortrait(_ context: inout GraphicsContext) {
-        guard let portrait = content.portrait else { return }
-        context.drawPortrait(portrait, in: PanelDesign.disc, strength: PanelDesign.portraitStrength)
+    /// The class portrait; else, for a shell, tmux or orphan, the shell row's terminal glyph in its resting colour, scaled
+    /// up from the row's disc to this one; else nothing.
+    private func drawIcon(_ context: inout GraphicsContext) {
+        if let portrait = content.portrait {
+            context.drawPortrait(portrait, in: PanelDesign.disc, strength: PanelDesign.portraitStrength)
+            return
+        }
+        guard content.isShell else { return }
+        let scale = PanelDesign.disc.boundingRect.width / TrackerShellMetrics.discDiameter
+        let glyph = TrackerShellMetrics.svgGlyphSize
+        context.translateBy(x: PanelDesign.discCenter.x - glyph.width * scale / 2, y: PanelDesign.discCenter.y - glyph.height * scale / 2)
+        context.scaleBy(x: scale, y: scale)
+        context.fill(ShellTerminalGlyph.path, with: .color(AppPalette.textMeta.swiftUI))
     }
 
     private func drawDiscOverlay(_ context: inout GraphicsContext) {
@@ -187,9 +186,10 @@ enum IconFadeMotion {
 /// Fades `content` in from clear each time `key` changes, once, over the standard motion step, in Core Animation only.
 /// SwiftUI draws the content in a hosting view whose layer Core Animation fades, so the render server runs the fade and
 /// the main thread, which the terminal shares, redraws nothing for it. The new content is in place when the fade starts, so
-/// the old goes at once. The first key, a change while no window shows the view, and Reduce Motion (read where every
-/// animation does, `Motion.reducesMotion`) show no fade. The animation ends on its own: nothing is left running. It
-/// fills the space it is given and takes no clicks.
+/// the old goes at once. An empty key is nothing to show and never fades; the first key, a change while no window shows the
+/// view, and Reduce Motion (read where every animation does, `Motion.reducesMotion`, on every update, so it drops a fade
+/// still running) show no fade, and leaving the window ends one. The animation ends on its own: nothing is left running.
+/// It fills the space it is given and takes no clicks.
 struct IconFade<Content: View>: NSViewRepresentable {
     let key: String
     @ViewBuilder let content: Content
@@ -228,15 +228,26 @@ final class IconFadeView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    /// A fade belongs to the window it started in: leaving it ends the fade, so a remount never carries a stale one.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            layer?.removeAnimation(forKey: IconFadeMotion.animationKey)
+        }
+    }
+
     func configure(rootView: AnyView, key: String) {
         host.rootView = rootView
         let previous = self.key
         self.key = key
-        guard let layer, let previous, previous != key else {
+        guard let layer else {
             return
         }
-        layer.removeAnimation(forKey: IconFadeMotion.animationKey)
-        guard window != nil, !Motion.reducesMotion() else {
+        guard !Motion.reducesMotion() else {
+            layer.removeAnimation(forKey: IconFadeMotion.animationKey)
+            return
+        }
+        guard let previous, previous != key, !key.isEmpty, window != nil else {
             return
         }
         let fade = CABasicAnimation(keyPath: "opacity")

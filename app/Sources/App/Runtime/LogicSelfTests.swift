@@ -273,6 +273,13 @@ enum LogicSelfTests {
 
         let panel = SelectedSessionPanelContent.make(currentTerminalSessionID: "shell-second", tracker: tracker)
         try expect(panel.id == "shell-second" && panel.projectName == "Repo", "the panel should name an attached shell's repo, got \(panel.id) / \(panel.projectName)")
+
+        // The disc's icon: a shell shows its terminal glyph, a master with no class and nothing attached leave it empty.
+        try expect(panel.isShell && panel.portrait == nil && panel.iconKey == "shell-second|shell", "an attached shell's disc should show the shell glyph, keyed by the session")
+        let unclassed = SelectedSessionPanelContent.make(currentTerminalSessionID: "master", tracker: tracker)
+        try expect(!unclassed.isShell && unclassed.portrait == nil && unclassed.iconKey.isEmpty, "a master with no class should leave the disc empty, with an empty icon key")
+        let nothing = SelectedSessionPanelContent.make(currentTerminalSessionID: nil, tracker: tracker)
+        try expect(!nothing.isShell && nothing.portrait == nil && nothing.iconKey.isEmpty, "nothing attached should leave the disc empty, with an empty icon key")
     }
 
     /// An attached shell's panel bar is its own display colour when it has one; without, the shell grey, never its repo's
@@ -682,7 +689,7 @@ enum LogicSelfTests {
         )
 
         // The discs sit on the 5pt grid, and plate text starts 5 past the disc's round edge: the master's disc spans
-        // 0-50, the worker's 20-60; the panel's ends at 70, and its text sits 10 past it to clear the Q's spike.
+        // 0-50, the worker's 20-60; the panel's ends at 70, and its text sits 10 past it.
         try expectRect(master.discEdge.offsetBy(dx: 0, dy: -TrackerPlateDesign.svgDiscInset), 0, 0, 50, 50, "master disc in its row")
         try expectRect(worker.discEdge.offsetBy(dx: 0, dy: -TrackerPlateDesign.svgDiscInset), 20, 0, 60, 40, "worker disc in its row")
         try expectClose(TrackerNameplateRole.topLevelTextX, 55, "master text column")
@@ -966,16 +973,18 @@ enum LogicSelfTests {
         }
     }
 
-    /// The class icon fades in when the attached session (or its portrait) changes, in Core Animation: one opacity animation on
-    /// the icon's own layer, from clear to full over the standard step on the shared easing, run once by the render server with
-    /// the views left in place (the icon is neither re-created nor redrawn for it). The first icon, an edit that leaves the
-    /// session and its portrait alone, a view outside a window and Reduce Motion show no fade. The disc's pixels are the model
-    /// layers', which the fade leaves alone: the new icon is in them when the fade starts and they end as drawn fresh.
+    /// The disc's icon (a class portrait, or a shell's glyph) fades in when the attached session (or its portrait) changes, in
+    /// Core Animation: one opacity animation on the icon's own layer, from clear to full over the standard step on the shared
+    /// easing, run once by the render server with the views left in place (the icon is neither re-created nor redrawn for it).
+    /// Exactly one fade runs when an icon comes in; none when the disc goes to, or stays, empty. The first icon, an edit that
+    /// leaves the session and its portrait alone, a view outside a window and Reduce Motion show no fade. The disc's pixels
+    /// are the model layers', which the fade leaves alone: the new icon is in them when the fade starts and they end as drawn
+    /// fresh.
     private static func testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges() throws {
         defer { Motion.reducesMotion = { false } }
         Motion.reducesMotion = { false }
-        func content(id: String, title: String = "Fix bug", portrait: SessionPortrait?) -> SelectedSessionPanelContent {
-            SelectedSessionPanelContent(title: title, id: id, projectName: "Preview", projectColor: AppPalette.accent, portrait: portrait)
+        func content(id: String, title: String = "Fix bug", portrait: SessionPortrait? = nil, isShell: Bool = false) -> SelectedSessionPanelContent {
+            SelectedSessionPanelContent(title: title, id: id, projectName: "Preview", projectColor: AppPalette.accent, portrait: portrait, isShell: isShell)
         }
         func views(under view: NSView) -> [NSView] { [view] + view.subviews.flatMap { views(under: $0) } }
         func icons(in view: NSView) -> [IconFadeView] { views(under: view).compactMap { $0 as? IconFadeView } }
@@ -992,7 +1001,7 @@ enum LogicSelfTests {
             view.frame = NSRect(origin: .zero, size: size)
             window.contentView = view
             window.show()
-            try expect(waitUntil { icons(in: view).count == 2 }, "the panel should mount its two icon layers, the portrait's and the Q's")
+            try expect(waitUntil { icons(in: view).count == 1 }, "the panel should mount its one icon layer")
             return (model, view, window)
         }
         /// The bytes of the disc's square, 64 across, from the panel's top left.
@@ -1030,7 +1039,10 @@ enum LogicSelfTests {
 
         let paladin = content(id: "qm-a", portrait: .master(.paladin))
         let wizard = content(id: "qm-b", portrait: .master(.wizard))
-        let shell = content(id: "qm-c", portrait: nil)
+        let shell = content(id: "qm-c", isShell: true)
+        let otherShell = content(id: "qm-d", isShell: true)
+        let empty = content(id: "qm-e")
+        let otherEmpty = content(id: "qm-f")
         let fresh = try host(wizard)
         defer { fresh.window.close() }
         let wizardSettled = try drawnDisc(fresh.view)
@@ -1042,12 +1054,28 @@ enum LogicSelfTests {
         try expect(fades(in: view).isEmpty, "the first icon should not fade in")
         let mounted = views(under: view).map(ObjectIdentifier.init)
 
-        // A new session's icon starts clear and comes in on the layer.
-        model.content = wizard
-        try expect(waitUntil { shownOpacity(in: view) < 1 }, "a new session's icon should start clear and fade in on its layer")
+        /// Switches to `next` from a clean slate (a finished fade stays on its layer until Core Animation's next commit) and
+        /// returns how many icon layers fade, once the first shows.
+        func fadeCount(after next: SelectedSessionPanelContent, _ what: String) throws -> Int {
+            icons(in: view).forEach { $0.layer?.removeAllAnimations() }
+            model.content = next
+            try expect(waitUntil { shownOpacity(in: view) < 1 }, "\(what) should start clear and fade in on its layer")
+            return fades(in: view).count
+        }
+        /// Switches to `next` from a clean slate and, once `landed`, expects nothing to fade.
+        func expectNoFade(after next: SelectedSessionPanelContent, landed: () -> Bool, _ what: String) throws {
+            icons(in: view).forEach { $0.layer?.removeAllAnimations() }
+            model.content = next
+            try expect(waitUntil(landed), "\(what) should land")
+            pump(0.1)
+            try expect(fades(in: view).isEmpty, "\(what) shouldn't fade")
+        }
+
+        // A new session's class: its portrait, and only that, comes in from clear on its layer.
+        try expect(try fadeCount(after: wizard, "a class after a class") == 1, "a class-to-class switch should fade one icon")
         let running = fades(in: view)
         try expect(
-            !running.isEmpty && running.allSatisfy {
+            running.allSatisfy {
                 $0.keyPath == "opacity" && $0.fromValue as? Double == 0 && $0.toValue as? Double == 1
                     && $0.duration == Motion.duration(.standard) && $0.repeatCount == 0 && !$0.autoreverses
                     && $0.timingFunction === Motion.timingFunction
@@ -1055,36 +1083,41 @@ enum LogicSelfTests {
             "it is one Core Animation opacity fade from clear to full over the standard step, once, on the shared easing"
         )
         try expect(waitUntil { shownOpacity(in: view) == 1 }, "the fade should end on its own, on full opacity")
-        try expect(icons(in: view).allSatisfy { $0.layer?.opacity == 1 }, "and leave every icon layer fully opaque")
+        try expect(icons(in: view).allSatisfy { $0.layer?.opacity == 1 }, "and leave the icon layer fully opaque")
         try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "the icon's views should be the same ones, not re-created")
         try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "the fade should end on the new icon as drawn fresh")
 
-        // The same session and portrait with a new title: no fade. (A finished fade stays on its layer until Core Animation's
-        // next commit, so the ones above go first and a new one would show.)
-        icons(in: view).forEach { $0.layer?.removeAllAnimations() }
-        model.content = content(id: "qm-b", title: "Another title", portrait: .master(.wizard))
-        pump(0.1)
-        try expect(fades(in: view).isEmpty, "an edit to the same session shouldn't fade its icon")
+        // The same session and portrait with a new title: no fade.
+        try expectNoFade(after: content(id: "qm-b", title: "Another title", portrait: .master(.wizard)), landed: { true }, "an edit to the same session")
 
-        // A session with no class fades the Q in, and the class fades its portrait back in.
-        model.content = shell
-        try expect(waitUntil { shownOpacity(in: view) < 1 }, "a session with no class should fade its Q in")
-        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the Q's fade should end on its own")
-        model.content = paladin
-        try expect(waitUntil { shownOpacity(in: view) < 1 }, "a class after a Q should fade its portrait in")
+        // A shell's glyph fades in as a class's portrait does, one fade a switch; so does the portrait after it.
+        try expect(try fadeCount(after: shell, "a shell after a class") == 1, "a class-to-shell switch should fade one icon")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the glyph's fade should end on its own")
+        try expect(waitUntil { !isDrawnAs(view, wizardSettled) }, "the glyph should replace the portrait")
+        try expect(try fadeCount(after: otherShell, "another shell") == 1, "a shell-to-shell switch should fade one icon")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the second glyph's fade should end on its own")
+        try expect(try fadeCount(after: paladin, "a class after a shell") == 1, "a shell-to-class switch should fade one icon")
         try expect(waitUntil { shownOpacity(in: view) == 1 }, "the portrait's fade should end on its own")
-        try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "switching between a class and the Q should not re-create the icon's views")
         try expect(waitUntil { isDrawnAs(view, paladinSettled) }, "the class's portrait should end as drawn fresh")
+
+        // An empty disc (no class, or nothing attached) has no icon to fade: going to it drops the old icon at once, and
+        // going from it to another empty disc changes nothing. A class after it fades in.
+        try expectNoFade(after: empty, landed: { !isDrawnAs(view, paladinSettled) }, "a class-to-empty-disc switch")
+        try expectNoFade(after: otherEmpty, landed: { true }, "an empty-disc-to-empty-disc switch")
+        try expect(try fadeCount(after: wizard, "a class after an empty disc") == 1, "an empty-disc-to-class switch should fade one icon")
+        try expect(waitUntil { shownOpacity(in: view) == 1 }, "the portrait's fade should end on its own")
+        try expect(views(under: view).map(ObjectIdentifier.init) == mounted, "no switch should re-create the icon's views")
+        try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "the class's portrait should end as drawn fresh")
 
         // Reduce Motion: the new icon is there at once, with nothing to run.
         icons(in: view).forEach { $0.layer?.removeAllAnimations() }
         Motion.reducesMotion = { true }
-        model.content = wizard
-        try expect(waitUntil { isDrawnAs(view, wizardSettled) }, "under Reduce Motion the icon should land")
+        model.content = paladin
+        try expect(waitUntil { isDrawnAs(view, paladinSettled) }, "under Reduce Motion the icon should land")
         try expect(fades(in: view).isEmpty, "under Reduce Motion the icon should land with no fade")
 
-        // The view itself: nothing to fade outside a window, on the first key or the same key; a fade still running goes when
-        // Reduce Motion lands the next icon.
+        // The view itself: nothing to fade outside a window, on the first key, the same key or an empty key (nothing to show);
+        // leaving the window ends a fade, and any update under Reduce Motion drops one still running.
         Motion.reducesMotion = { false }
         let loose = IconFadeView(rootView: AnyView(Color.clear))
         loose.configure(rootView: AnyView(Color.clear), key: "a")
@@ -1097,11 +1130,19 @@ enum LogicSelfTests {
         container.addSubview(loose)
         loose.configure(rootView: AnyView(Color.clear), key: "b")
         try expect(loose.fadeAnimation == nil, "the same key shouldn't fade")
+        loose.configure(rootView: AnyView(Color.clear), key: "")
+        try expect(loose.fadeAnimation == nil, "an empty key is nothing to show and shouldn't fade")
         loose.configure(rootView: AnyView(Color.clear), key: "c")
-        try expect(loose.fadeAnimation != nil, "a new key in a window should fade")
+        try expect(loose.fadeAnimation != nil, "a new key in a window, after an empty one, should fade")
+        loose.removeFromSuperview()
+        try expect(loose.fadeAnimation == nil, "a view removed from its window mid-fade should have no fade left")
+        container.addSubview(loose)
+        try expect(loose.fadeAnimation == nil, "and a remount shouldn't bring one back")
+        loose.configure(rootView: AnyView(Color.clear), key: "d")
+        try expect(loose.fadeAnimation != nil, "a new key after the remount should fade again")
         Motion.reducesMotion = { true }
         loose.configure(rootView: AnyView(Color.clear), key: "d")
-        try expect(loose.fadeAnimation == nil, "Reduce Motion should drop a fade still running")
+        try expect(loose.fadeAnimation == nil, "an update with the same key under Reduce Motion should drop a fade still running")
     }
 
     private static func testMotionTokensShareOneEasingAndFollowReduceMotion() throws {
