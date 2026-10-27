@@ -309,7 +309,7 @@ struct WorkerLogFilterTests {
         expect(tools == ["[Bash](x2)", "[Edit]"], "the message still cuts the run while hidden, got \(tools)")
     }
 
-    /// The 600/500 trim counts every built line, shown or not, so a filter never changes what history is kept, and a
+    /// The line trim counts every built line, shown or not, so a filter never changes what history is kept, and a
     /// trim of hidden lines changes nothing on screen.
     private static func hiddenLinesStillCountTowardsTheLineTrim() {
         let entries = (0...WorkerChatStore.maxLines).map { entry(TimeInterval($0 * 60), "w1", "action", "Bash") }
@@ -323,7 +323,8 @@ struct WorkerLogFilterTests {
 
         store.clearFilter(.action)
         expect(store.lines.count == WorkerChatStore.trimTarget, "the history was trimmed as if unfiltered: \(store.lines.count) lines")
-        expect(store.lines.first?.time == "10:41", "the oldest kept line should be 10:41, got \(String(describing: store.lines.first?.time))")
+        let oldestKept = WorkerChatTests.clock(minutes: WorkerChatStore.maxLines + 1 - WorkerChatStore.trimTarget)
+        expect(store.lines.first?.time == oldestKept, "the oldest kept line should be \(oldestKept), got \(String(describing: store.lines.first?.time))")
     }
 
     private static func filterChangesAreNeitherAppendsNorArrivals() {

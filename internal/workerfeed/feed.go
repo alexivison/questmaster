@@ -26,8 +26,11 @@ const (
 	historyChunkBytes       = 64 * 1024
 	maxIncrementalLineBytes = 64 * 1024
 	maxHistoryLineSize      = 2 * 1024 * 1024
-	DefaultLimit            = 50
-	MaxLimit                = 200
+	// InitialEntryLimit caps a worker's first read: the app keeps at most this many records
+	// (WorkerChatStore.maxRecords), so older ones would only be parsed and dropped.
+	InitialEntryLimit = 400
+	DefaultLimit      = 50
+	MaxLimit          = 200
 )
 
 type Entry struct {
@@ -151,6 +154,9 @@ func ReadSince(root, masterID string, cursors map[string]Cursor) (Response, erro
 			}
 			result.Errors[worker.id] = err.Error()
 			continue
+		}
+		if cursors[worker.id].FileID == "" && len(entries) > InitialEntryLimit {
+			entries = entries[len(entries)-InitialEntryLimit:]
 		}
 		result.Entries = append(result.Entries, entries...)
 		result.Cursors[worker.id] = cursor
