@@ -155,8 +155,9 @@ func TestSessionPromptsDescribeQuestCommands(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
 				"questmaster quest --help",
+				"questmaster quest ls <id>...",
 				"questmaster quest start <id>...",
-				"requires selected quests to share one project",
+				"Selected quests must share one project",
 			} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("%s prompt missing quest guidance %q:\n%s", name, want, got)

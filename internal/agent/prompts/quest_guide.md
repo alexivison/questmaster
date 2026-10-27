@@ -1,1 +1,1 @@
-Project quests: run questmaster quest --help for the full command list. questmaster quest start <id>... requires selected quests to share one project.
+Project quests: run questmaster quest --help for the full command list. Use questmaster quest ls <id>... to read only the selected quests; --project and --search can further filter them. questmaster quest start <id>... starts a session whose prompt tells the agent to read those quest IDs. Selected quests must share one project.
