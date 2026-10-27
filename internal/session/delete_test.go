@@ -23,7 +23,7 @@ func TestDelete_PropagatesDeleteError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sessionID := "qm-deltest"
+	sessionID := uniqueRuntimeSessionID(t, "qm-deltest")
 
 	manifestPath := filepath.Join(storeDir, sessionID+".json")
 	if err := os.MkdirAll(filepath.Join(manifestPath, "blocker"), 0o755); err != nil {
@@ -55,8 +55,8 @@ func TestDeleteCleansWorkerSessionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	masterID := "qm-master"
-	workerID := "qm-worker"
+	masterID := uniqueRuntimeSessionID(t, "qm-master")
+	workerID := uniqueRuntimeSessionID(t, "qm-worker")
 	if err := store.Create(state.Manifest{SessionID: masterID, Agents: []state.AgentManifest{{Name: "claude", Role: "agent"}}, Workers: []string{workerID}}); err != nil {
 		t.Fatalf("create master manifest: %v", err)
 	}

@@ -16,10 +16,8 @@ import (
 )
 
 func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
-	sessionID := "qm-opencode-hook-fixture"
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-hook-fixture")
 	runtimeDir := filepath.Join("/tmp", sessionID)
-	_ = os.RemoveAll(runtimeDir)
-	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
 
 	r, rec := newTestRunner(t)
 	store := newManifestStoreStub(sessionID, nil)
@@ -62,8 +60,7 @@ func TestHookOpenCodeSessionCreatedFixtureCapturesResumeID(t *testing.T) {
 
 func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing.T) {
 	r, _ := newTestRunner(t)
-	sessionID := "qm-opencode-adopt"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-adopt")
 	t.Setenv("TMUX_PANE", "%9")
 	store := newManifestStoreStub(sessionID, nil)
 	store.manifest.Cwd = "/old"
@@ -106,8 +103,7 @@ func TestHookOpenCodeSessionCreatedAdoptsAgentlessManifestAndTagsPane(t *testing
 
 func TestHookOpenCodeAdoptsAgentlessManifestWithoutPaneTagOutsideTmux(t *testing.T) {
 	r, _ := newTestRunner(t)
-	sessionID := "qm-opencode-adopt-no-pane"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-adopt-no-pane")
 	t.Setenv("TMUX_PANE", "")
 	store := newManifestStoreStub(sessionID, nil)
 	tmuxStub := &tmuxEnvStub{}
@@ -129,8 +125,7 @@ func TestHookOpenCodeAdoptsAgentlessManifestWithoutPaneTagOutsideTmux(t *testing
 
 func TestHookOpenCodeLeavesPersistedAgentManifestUntouched(t *testing.T) {
 	r, _ := newTestRunner(t)
-	sessionID := "qm-opencode-existing"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-existing")
 	t.Setenv("TMUX_PANE", "%9")
 	store := newManifestStoreStub(sessionID, map[string]string{"opencode_session_id": "ses_existing"})
 	store.manifest.Agents = []state.AgentManifest{{
@@ -163,8 +158,7 @@ func TestHookOpenCodeLeavesPersistedAgentManifestUntouched(t *testing.T) {
 
 func TestHookOpenCodeLeavesDifferentAgentManifestUntouched(t *testing.T) {
 	r, _ := newTestRunner(t)
-	sessionID := "qm-opencode-existing-other"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-existing-other")
 	t.Setenv("TMUX_PANE", "%9")
 	store := newManifestStoreStub(sessionID, nil)
 	store.manifest.Agents = []state.AgentManifest{{
@@ -197,8 +191,7 @@ func TestHookOpenCodeLeavesDifferentAgentManifestUntouched(t *testing.T) {
 
 func TestHookOpenCodeSamePaneSuccession(t *testing.T) {
 	r, _ := newTestRunner(t)
-	sessionID := "qm-opencode-succession"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-succession")
 	t.Setenv("TMUX_PANE", "%9")
 	store := newManifestStoreStub(sessionID, map[string]string{
 		"adopted_pane":    "%9",
@@ -247,8 +240,7 @@ func TestHookOpenCodeSamePaneSuccession(t *testing.T) {
 
 func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-map"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-map")
 	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_mapping"}})
 	openCodeHookEvent(t, r, sessionID, "session.status", map[string]interface{}{
 		"sessionID": "ses_mapping",
@@ -345,8 +337,7 @@ func TestHookOpenCodeMapsStatusToolPermissionAndDone(t *testing.T) {
 
 func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-feed"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-feed")
 	const ocSession = "ses_feed"
 
 	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": ocSession}})
@@ -407,8 +398,7 @@ func TestHookOpenCodeFeedEntriesAndRejectedEvents(t *testing.T) {
 
 func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-one-session"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-one-session")
 	store := newManifestStoreStub(sessionID, nil)
 	store.manifest.Agents = []state.AgentManifest{{Name: "opencode", Role: "agent", CLI: "opencode", Window: 1}}
 	tmuxStub := &tmuxEnvStub{}
@@ -458,7 +448,7 @@ func TestHookOpenCodeIgnoresOtherSessionIDsAfterAdoption(t *testing.T) {
 func TestHookOpenCodeNeverRoutesChildEventsThroughParentPane(t *testing.T) {
 	t.Parallel()
 	r, rec := newParallelHookRunner()
-	sessionID := "qm-opencode-child-events"
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-child-events")
 	rec.lastState = &state.SessionState{
 		SessionID: sessionID, Version: state.SchemaVersion,
 		Panes: map[string]state.PaneState{"agent": {Role: "agent", Agent: "opencode", State: "done", OpenCodeSessionID: "ses_root"}},
@@ -494,7 +484,7 @@ func TestHookOpenCodeNeverRoutesChildEventsThroughParentPane(t *testing.T) {
 func TestHookOpenCodeIgnoresUnknownChildIdleBeforeCreated(t *testing.T) {
 	t.Parallel()
 	r, rec := newParallelHookRunner()
-	sessionID := "qm-opencode-unknown-child"
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-unknown-child")
 	rec.lastState = &state.SessionState{
 		SessionID: sessionID, Version: state.SchemaVersion,
 		Panes: map[string]state.PaneState{"agent": {Role: "agent", Agent: "opencode", State: "working", OpenCodeSessionID: "ses_root"}},
@@ -510,7 +500,7 @@ func TestHookOpenCodeIgnoresUnknownChildIdleBeforeCreated(t *testing.T) {
 func TestHookOpenCodeDoesNotAdoptChildBeforeRootCreated(t *testing.T) {
 	t.Parallel()
 	r, rec := newParallelHookRunner()
-	sessionID := "qm-opencode-root-order"
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-root-order")
 	rec.lastState = &state.SessionState{
 		SessionID: sessionID, Version: state.SchemaVersion,
 		Panes: map[string]state.PaneState{"agent": {Role: "agent", Agent: "opencode", State: "idle"}},
@@ -539,7 +529,7 @@ func TestHookOpenCodeDoesNotAdoptChildBeforeRootCreated(t *testing.T) {
 func TestHookOpenCodeRootChangeClearsActiveChildren(t *testing.T) {
 	t.Parallel()
 	r, rec := newParallelHookRunner()
-	sessionID := "qm-opencode-root-change"
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-root-change")
 	now := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
 	rec.lastState = &state.SessionState{
 		SessionID: sessionID, Version: state.SchemaVersion,
@@ -632,7 +622,7 @@ func TestOpenCodeTaskFinishCorrelation(t *testing.T) {
 func TestHookOpenCodeDismissesBackgroundChildOnSessionDeleted(t *testing.T) {
 	t.Parallel()
 	r, rec := newParallelHookRunner()
-	sessionID := "qm-opencode-background-finish"
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-background-finish")
 	rec.lastState = &state.SessionState{
 		SessionID: sessionID, Version: state.SchemaVersion,
 		Panes: map[string]state.PaneState{"agent": {Role: "agent", Agent: "opencode", State: "working", OpenCodeSessionID: "ses_root"}},
@@ -672,8 +662,7 @@ func TestHookOpenCodeDismissesBackgroundChildOnSessionDeleted(t *testing.T) {
 
 func TestHookOpenCodeMapsReasoningAndToolParts(t *testing.T) {
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-parts"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-parts")
 	const ocSession = "ses_parts"
 	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": ocSession}})
 
@@ -830,8 +819,7 @@ func TestHookOpenCodeOutOfOrderAfterBeforeNeedsPluginSerialization(t *testing.T)
 func TestHookOpenCodeDoneUsesSharedDoneToIdleGrace(t *testing.T) {
 	t.Setenv(state.StateRootEnv, t.TempDir())
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-done-grace"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-done-grace")
 
 	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_done_grace"}})
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{
@@ -871,8 +859,7 @@ func TestHookOpenCodeDoneUsesSharedDoneToIdleGrace(t *testing.T) {
 
 func TestHookOpenCodeMapsSessionErrorToBlocked(t *testing.T) {
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-error"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-error")
 	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_error"}})
 	openCodeHookEvent(t, r, sessionID, "session.error", map[string]interface{}{
 		"sessionID": "ses_error",
@@ -897,8 +884,7 @@ func TestHookOpenCodeMalformedPayloadIsNoOp(t *testing.T) {
 
 func TestHookOpenCodeToolAfterDoesNotRegressIdleState(t *testing.T) {
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-out-of-order"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-out-of-order")
 	openCodeHookEvent(t, r, sessionID, "session.created", map[string]interface{}{"info": map[string]interface{}{"id": "ses_ooo"}})
 	openCodeHookEvent(t, r, sessionID, "session.idle", map[string]interface{}{
 		"sessionID": "ses_ooo",
@@ -968,8 +954,7 @@ func TestHookOpenCodeUserPromptLeavesActivityUnchanged(t *testing.T) {
 
 func TestHookOpenCodeFixtureIgnoresUserPromptRecordsAssistantText(t *testing.T) {
 	r, rec := newTestRunner(t)
-	sessionID := "qm-opencode-role-fixture"
-	cleanupRuntimeDir(t, sessionID)
+	sessionID := uniqueOpenCodeRuntimeID(t, "qm-opencode-role-fixture")
 
 	const userPromptPrefix = "Remember token QM_SPIKE_OK"
 	for _, raw := range openCodeFixtureEventLines(t, "initial-events.ndjson") {
@@ -1062,9 +1047,12 @@ func openCodeFixtureEvent(t *testing.T, eventType string) []byte {
 	return nil
 }
 
-func cleanupRuntimeDir(t *testing.T, sessionID string) {
+func uniqueOpenCodeRuntimeID(t *testing.T, prefix string) string {
 	t.Helper()
-	runtimeDir := filepath.Join("/tmp", sessionID)
-	_ = os.RemoveAll(runtimeDir)
-	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	dir, err := os.MkdirTemp("/tmp", prefix+"-")
+	if err != nil {
+		t.Fatalf("create runtime dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Base(dir)
 }
