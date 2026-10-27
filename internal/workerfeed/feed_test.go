@@ -4,6 +4,7 @@ package workerfeed
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +109,33 @@ func TestReadSinceRotationAndBoundedTail(t *testing.T) {
 		}
 		if got.Cursors["qm-w1"].Offset < int64(len(body)-InitialTailBytes-2) {
 			t.Fatalf("cursor offset = %d, did not start near bounded tail", got.Cursors["qm-w1"].Offset)
+		}
+	})
+
+	t.Run("first load keeps only the newest entries", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		createMasterAndWorkers(t, root, "qm-master", "qm-w1")
+		path := state.SessionStateLogPath(root, "qm-w1")
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		var body []byte
+		for i := 0; i <= InitialEntryLimit; i++ {
+			body = append(body, mustMarshalEvent(chatEvent("status", fmt.Sprintf("line %d", i), time.Unix(int64(i), 0)))...)
+		}
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ReadSince(root, "qm-master", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Entries) != InitialEntryLimit || got.Entries[0].Text != "line 1" {
+			t.Fatalf("got %d entries starting %q, want the newest %d from line 1", len(got.Entries), got.Entries[0].Text, InitialEntryLimit)
+		}
+		if got.Cursors["qm-w1"].Offset != int64(len(body)) {
+			t.Fatalf("cursor offset = %d, want the end of the log %d", got.Cursors["qm-w1"].Offset, len(body))
 		}
 	})
 

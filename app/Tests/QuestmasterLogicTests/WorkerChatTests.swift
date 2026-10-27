@@ -617,8 +617,10 @@ struct WorkerChatTests {
     private static func removeAndReAddDuringPullKeepsHistory() {
         let store = makeStore()
         let first = open(store)
+        // B's run fits what a hidden worker keeps (`trimTarget`), so all of it should come back.
+        let hiddenRun = WorkerChatStore.trimTarget
         let initialEntries = (0..<100).map { _ in entry(0, "w1", "action", "Bash") }
-            + (0..<400).map { _ in entry(0, "w2", "action", "Read") }
+            + (0..<hiddenRun).map { _ in entry(0, "w2", "action", "Read") }
         _ = store.receive(WorkerFeedPayload(entries: initialEntries), for: first)
 
         let remainingGroup = group().filter { $0.id != "w2" }
@@ -634,7 +636,7 @@ struct WorkerChatTests {
         rejoinedGroup[2].title = ""
         expect(store.sync(selectedSessionID: "m", sessions: rejoinedGroup, isVisible: true) == nil, "re-adding should keep the existing pull")
         let bLines = store.lines.filter { $0.agent == "claude" }
-        expect(bLines.count == 1 && bLines[0].segments.last?.text == "[Read](x400)", "re-adding B should restore its retained hidden history")
+        expect(bLines.count == 1 && bLines[0].segments.last?.text == "[Read](x\(hiddenRun))", "re-adding B should restore its retained hidden history")
         expect(bLines[0].segments.first?.text == "Worker Two:", "the cached feed name should survive the omission")
     }
 
@@ -656,7 +658,7 @@ struct WorkerChatTests {
         _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
         expect(store.lines.count == WorkerChatStore.trimTarget, "an overflowing history should trim to \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
         expect(store.trimCount == 1, "one overflowing payload should trim once, got \(store.trimCount)")
-        expect(store.lines.first.map(lastText) == " line 200", "the kept lines should start at the oldest of the newest \(WorkerChatStore.trimTarget), got \(store.lines.first.map(lastText) ?? "")")
+        expect(store.lines.first.map(lastText) == " line \(WorkerChatStore.maxLines + 100 - WorkerChatStore.trimTarget)", "the kept lines should start at the oldest of the newest \(WorkerChatStore.trimTarget), got \(store.lines.first.map(lastText) ?? "")")
         expect(store.lines.last.map(lastText) == " line \(WorkerChatStore.maxLines + 99)", "the newest line should be kept")
         expect(!store.lines.contains { lastText($0) == " line 0" }, "the oldest lines should be dropped")
     }
@@ -694,20 +696,23 @@ struct WorkerChatTests {
         expect(!store.lastUpdateAppended, "a line that sorts above the newest should not be an append")
     }
 
-    /// 400 entries in one minute, then 201 in the next: 601 lines, so the trim keeps the newest 500,
-    /// which starts 100 entries into the first minute.
+    /// Entries in one minute, then 51 in the next: one line over `maxLines`, so the trim keeps the newest
+    /// `trimTarget`, which start partway into the first minute.
     private static func trimKeepsTheNewestLines() {
         let store = makeStore()
         let first = open(store)
-        let early = (0..<400).map { entry(0, "w1", "say", "a \($0)") }
-        let late = (0..<201).map { entry(60, "w1", "say", "b \($0)") }
+        let lateCount = 51
+        let earlyCount = WorkerChatStore.maxLines + 1 - lateCount
+        let firstKept = earlyCount - (WorkerChatStore.trimTarget - lateCount)
+        let early = (0..<earlyCount).map { entry(0, "w1", "say", "a \($0)") }
+        let late = (0..<lateCount).map { entry(60, "w1", "say", "b \($0)") }
         _ = store.receive(WorkerFeedPayload(entries: early + late), for: first)
 
         expect(store.trimCount == 1, "the overflow should trim once, got \(store.trimCount)")
         expect(store.lines.count == WorkerChatStore.trimTarget, "a trim should keep exactly \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
-        expect(store.lines.first.map(lastText) == " a 101", "the kept lines should start at the oldest of the newest entries, got \(store.lines.first.map(lastText) ?? "")")
-        expect(store.lines.last.map(lastText) == " b 200", "the newest line should be kept")
-        expect(!store.lines.contains { lastText($0) == " a 100" }, "the entry before the cut should be dropped")
+        expect(store.lines.first.map(lastText) == " a \(firstKept)", "the kept lines should start at the oldest of the newest entries, got \(store.lines.first.map(lastText) ?? "")")
+        expect(store.lines.last.map(lastText) == " b \(lateCount - 1)", "the newest line should be kept")
+        expect(!store.lines.contains { lastText($0) == " a \(firstKept - 1)" }, "the entry before the cut should be dropped")
     }
 
     /// A line keeps its id when the trim leaves it first, so the feed's row identity doesn't churn on
@@ -717,7 +722,7 @@ struct WorkerChatTests {
         let entries = (0...WorkerChatStore.maxLines).map { entry(0, "w\($0)", "action", "Bash") }
         feed(store, entries, tracker: false)
         let firstID = store.lines.first?.id
-        expect(firstID == "e101", "the trimmed feed should open with the oldest kept line, got \(String(describing: firstID))")
+        expect(firstID == "e\(WorkerChatStore.maxLines + 1 - WorkerChatStore.trimTarget)", "the trimmed feed should open with the oldest kept line, got \(String(describing: firstID))")
 
         var renamed = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
         renamed += (0...WorkerChatStore.maxLines).map { index in
@@ -743,7 +748,7 @@ struct WorkerChatTests {
         expect(store.trimCount == 1, "a rebuild with no new records should not trim again, got \(store.trimCount)")
     }
 
-    /// Worker One casts at 09:00:00 and 09:00:59, and Worker Two's 600 messages arrive later, timestamped
+    /// Worker One casts at 09:00:00 and 09:00:59, and Worker Two's `maxLines` messages arrive later, timestamped
     /// between them. The Cast run folds both actions into its first line, the trim drops that line, and the
     /// 09:00:59 action must not come back when the feed is rebuilt.
     private static func droppedCastRunDoesNotComeBackOnRebuild() {
@@ -755,7 +760,7 @@ struct WorkerChatTests {
         ) else {
             fail("has_more should request the next page")
         }
-        _ = store.receive(WorkerFeedPayload(entries: (0..<600).map { entry(TimeInterval(1 + $0 % 58), "w2", "say", "b \($0)") }), for: followUp)
+        _ = store.receive(WorkerFeedPayload(entries: (0..<WorkerChatStore.maxLines).map { entry(TimeInterval(1 + $0 % 58), "w2", "say", "b \($0)") }), for: followUp)
         expect(store.trimCount == 1, "the overflow should trim once, got \(store.trimCount)")
         expect(store.lines.count == WorkerChatStore.trimTarget, "the trim should keep \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
 
@@ -779,13 +784,13 @@ struct WorkerChatTests {
         ) else {
             fail("has_more should request the next page")
         }
-        _ = store.receive(WorkerFeedPayload(entries: (0..<500).map { _ in entry(0, "w1", "action", "Bash") }), for: followUp)
+        _ = store.receive(WorkerFeedPayload(entries: (0..<WorkerChatStore.maxRecords / 2).map { _ in entry(0, "w1", "action", "Bash") }), for: followUp)
         expect(store.lines.count == 1, "one worker's run in one minute should stay one line, got \(store.lines.count)")
         expect(store.lines.last?.segments.last?.text == "[Bash](x\(WorkerChatStore.maxRecords))", "the run should count only the \(WorkerChatStore.maxRecords) newest records, got \(store.lines.last?.segments.last?.text ?? "")")
         expect(store.trimCount == 0, "a folded run should not trim, got \(store.trimCount)")
     }
 
-    /// A message, then 1,199 same-minute actions (two rows, 1,200 records). The next action makes the cap drop
+    /// A message, then same-minute actions up to `maxRecords` (two rows). The next action makes the cap drop
     /// the message, which leaves one row and no line trim. That still counts as a trim, so the follower doesn't
     /// glide the surviving row.
     private static func capEvictingAShownLineCountsAsTrim() {
@@ -793,7 +798,7 @@ struct WorkerChatTests {
         let first = open(store)
         guard let followUp = store.receive(
             WorkerFeedPayload(
-                entries: [entry(0, "w1", "say", "old message")] + (0..<1199).map { _ in entry(0, "w1", "action", "Bash") },
+                entries: [entry(0, "w1", "say", "old message")] + (0..<WorkerChatStore.maxRecords - 1).map { _ in entry(0, "w1", "action", "Bash") },
                 hasMore: ["w1": true]
             ),
             for: first
@@ -808,7 +813,7 @@ struct WorkerChatTests {
         expect(store.trimCount == 1, "evicting a line that was on screen should count as a trim, got \(store.trimCount)")
     }
 
-    /// One action per minute for 601 minutes: the trim keeps the newest 500, from 10:41 to 19:00.
+    /// One action per minute for `maxLines` + 1 minutes from 09:00: the trim keeps the newest `trimTarget`.
     private static func historyKeepsNewestLinesAtLineCap() {
         let store = makeStore()
         let first = open(store)
@@ -816,12 +821,19 @@ struct WorkerChatTests {
         _ = store.receive(WorkerFeedPayload(entries: entries), for: first)
 
         expect(store.lines.count == WorkerChatStore.trimTarget, "rendered history should trim to \(WorkerChatStore.trimTarget) lines, got \(store.lines.count)")
-        expect(store.lines.first?.time == "10:41", "the oldest kept line should be 10:41, got \(String(describing: store.lines.first?.time))")
-        expect(store.lines.last?.time == "19:00", "the newest line should keep its time, got \(String(describing: store.lines.last?.time))")
+        let oldestKept = clock(minutes: WorkerChatStore.maxLines + 1 - WorkerChatStore.trimTarget)
+        let newest = clock(minutes: WorkerChatStore.maxLines)
+        expect(store.lines.first?.time == oldestKept, "the oldest kept line should be \(oldestKept), got \(String(describing: store.lines.first?.time))")
+        expect(store.lines.last?.time == newest, "the newest line should keep its time, got \(String(describing: store.lines.last?.time))")
         expect(store.lines.last?.segments.last?.text == "[Bash]", "the newest action should remain visible, got \(String(describing: store.lines.last?.segments))")
     }
 
     // MARK: - Helpers
+
+    /// The HH:mm a line shows `minutes` after the 09:00 base.
+    static func clock(minutes: Int) -> String {
+        String(format: "%02d:%02d", 9 + minutes / 60, minutes % 60)
+    }
 
     private static func makeStore() -> WorkerChatStore {
         WorkerChatStore(calendar: calendar)
