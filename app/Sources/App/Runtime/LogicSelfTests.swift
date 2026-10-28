@@ -5871,7 +5871,14 @@ enum LogicSelfTests {
         let line = (font.ascender - font.descender + font.leading).rounded(.up)
         try expect(WorkerLogTabMetrics.height >= line, "the row should hold a line of its text (\(line)), got \(WorkerLogTabMetrics.height) high")
         try expect(WorkerLogTabMetrics.labelBaseline - font.ascender >= 0 && WorkerLogTabMetrics.labelBaseline - font.descender <= WorkerLogTabMetrics.height, "and the baseline should keep the whole line inside it")
+        try expect(WorkerLogTabMetrics.separatorGap == Space.row, "a tab should sit a `Space.row` from its diamond")
 
+        // The ink measurements need the design font: a fallback's advance is fractional (the system monospaced face's is
+        // 7.418), so the text's edges land between pixels and the ink gaps read up to a point short (CI has no JetBrains Mono).
+        // Matched by prefix, since the same face patched is "JetBrainsMono Nerd Font".
+        guard font.familyName?.hasPrefix("JetBrains") == true else {
+            return
+        }
         let blocks = String(repeating: "\u{2588}", count: 6)
         let workers = (1...2).map { WorkerLogWorker(id: "w\($0)", name: blocks) }
         let host = tabRowHost(workers: workers, selected: nil)
@@ -5899,7 +5906,6 @@ enum LogicSelfTests {
         try expect(runs.count >= 4, "the diamonds and blocks should draw four runs at the end of the row, got \(runs)")
         let (firstDiamond, firstBlock, secondDiamond, secondBlock) = (runs[runs.count - 4], runs[runs.count - 3], runs[runs.count - 2], runs[runs.count - 1])
         let gap = WorkerLogTabMetrics.separatorGap
-        try expect(gap == Space.row, "a tab should sit a `Space.row` from its diamond")
         for (label, measured) in [("tab to its diamond", firstBlock.start - firstDiamond.end), ("first tab to the next diamond", secondDiamond.start - firstBlock.end), ("diamond to the next tab", secondBlock.start - secondDiamond.end)] {
             try expect(abs(measured - gap) <= 0.75, "\(label) should be \(gap) apart, got \(measured)")
         }
