@@ -4,6 +4,7 @@ import QuestmasterCore
 struct TrackerCommandStateTests {
     static func run() {
         selectionMovementRecoversFromMissingSelection()
+        selectionJumpsToTheEdges()
         selectedSessionUsesRenderedSelection()
         activeSessionBelongsToEachStore()
         staleSelectionRecoversToPreviousActiveRowAfterDelete()
@@ -30,6 +31,22 @@ struct TrackerCommandStateTests {
         expect(state.selectedID == "three", "move down from current row should select three")
         expect(state.moveSelection(delta: 1, rows: rows, currentTerminalSessionID: "two"), "wrapped move should succeed")
         expect(state.selectedID == "one", "move down from last row should wrap to one")
+    }
+
+    /// gg and G select the first and last row, and an empty list has no edge to select.
+    private static func selectionJumpsToTheEdges() {
+        let rows = [
+            trackerSession(id: "one"),
+            trackerSession(id: "two"),
+            trackerSession(id: "three"),
+        ]
+        var state = TrackerCommandState(selectedID: "two")
+
+        expect(state.moveSelectionToEdge(last: true, rows: rows), "G should select the last row")
+        expect(state.selectedID == "three", "G should select three, got \(String(describing: state.selectedID))")
+        expect(state.moveSelectionToEdge(last: false, rows: rows), "gg should select the first row")
+        expect(state.selectedID == "one", "gg should select one, got \(String(describing: state.selectedID))")
+        expect(!state.moveSelectionToEdge(last: true, rows: []), "an empty list has no last row")
     }
 
     private static func selectedSessionUsesRenderedSelection() {

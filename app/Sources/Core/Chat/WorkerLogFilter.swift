@@ -167,32 +167,32 @@ public enum WorkerLogFilterKey: Equatable, Sendable {
     case previousTab
     case nextTab
 
-    /// Only `toggleMenu` and the tab keys mean anything while the dropdown is closed.
-    public static func resolve(_ press: Keymap.KeyPress, menuIsOpen: Bool) -> WorkerLogFilterKey? {
+    /// `command` is the press as the Worker Log's list resolved it (`ListKeyResolver`, with `ListCapabilities.workerLogMenu`
+    /// or `.workerLogFeed`). Only `toggleMenu` and the tab keys mean anything while the dropdown is closed.
+    public static func resolve(_ press: Keymap.KeyPress, command: ListCommand?, menuIsOpen: Bool) -> WorkerLogFilterKey? {
         if Keymap.matches(press, .toggleFilterMenu) {
             return .toggleMenu
         }
-        if Keymap.matches(press, .previousTab) {
+        switch command {
+        case .previousTab?:
             return .previousTab
-        }
-        if Keymap.matches(press, .nextTab) {
+        case .nextTab?:
             return .nextTab
+        default:
+            break
         }
         guard menuIsOpen else {
             return nil
         }
-        if Keymap.matches(press, .cancel) {
+        switch command {
+        case .close?:
             return .close
-        }
-        if Keymap.matches(press, .moveUp) {
-            return .moveUp
-        }
-        if Keymap.matches(press, .moveDown) {
-            return .moveDown
-        }
-        if Keymap.matches(press, .toggleRow) {
+        case .move(let delta)?:
+            return delta < 0 ? .moveUp : .moveDown
+        case .open?, .toggleMark?:
             return .toggleRow
+        default:
+            return nil
         }
-        return nil
     }
 }

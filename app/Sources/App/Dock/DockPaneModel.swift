@@ -55,7 +55,6 @@ final class DockPaneModel: ObservableObject {
     private var lastSnapshot: RuntimeSnapshot?
     @Published private(set) var currentDockContent: DockContent = .artifactList
     private var artifactScrollNonce = 0
-    private var listGTracker = GPrefixTracker()
 
     var currentMode: DockContentMode {
         switch currentDockContent {
@@ -88,9 +87,6 @@ final class DockPaneModel: ObservableObject {
         if artifactScope != desired.artifactScope {
             artifactScope = desired.artifactScope
         }
-        if currentDockContent != desired.dockContent {
-            listGTracker.reset()
-        }
         currentDockContent = desired.dockContent
         let route: ArtifactDockRoute = desired.dockContent == .artifactViewer ? .viewer : .list
         var artifactUpdate = artifactDisplayState.update(
@@ -116,14 +112,10 @@ final class DockPaneModel: ObservableObject {
         return artifactUpdate
     }
 
-    func handleKeyDown(_ event: NSEvent, snapshot: RuntimeSnapshot) -> Bool {
+    /// The dock's model keys for the content it shows. `command` is the press as the dock's list resolver read it
+    /// (`DockPane` resolves it once per press), so the artifact list and the viewer share one `gg`.
+    func handleKeyDown(_ event: NSEvent, command: ListCommand?, snapshot: RuntimeSnapshot) -> Bool {
         let press = event.keymapPress
-        // Reset before dispatch, not inside whichever branch happens to handle the event: a lone
-        // `g` must not survive `G` (a complete action, not the chord's second half) or any other
-        // key some earlier branch (filter focus, `y`, an arrow) consumes first.
-        if !Keymap.matches(press, .jumpToTop) {
-            listGTracker.reset()
-        }
         if currentMode == .workerChat {
             guard let direction = focusDirection(from: event) else {
                 return false
@@ -147,48 +139,44 @@ final class DockPaneModel: ObservableObject {
             return false
         }
 
-        if Keymap.matches(press, .focusFilter) {
-            return focusArtifactFilter()
-        }
-        if Keymap.matches(press, .jumpToBottom) {
-            return moveArtifactSelectionToEdge(last: true, snapshot: snapshot)
-        }
-        if Keymap.matches(press, .jumpToTop) {
-            if listGTracker.handleG() == .jumpToTop {
-                return moveArtifactSelectionToEdge(last: false, snapshot: snapshot)
-            }
+        if isNativeRegionTabEvent(event) {
             return true
         }
-        if let direction = Self.listDirection(for: press) {
-            return handleArtifactListDirection(direction, snapshot: snapshot)
+        guard let command else {
+            guard let direction = focusDirection(from: event) else {
+                return false
+            }
+            return onControlDirection?(direction) == true
         }
-        if Keymap.matches(press, .copy) {
-            return copySelectedArtifactPaths()
-        }
-        if Keymap.matches(press, .toggleMark) {
-            return toggleSelectedArtifact()
-        }
+        return handleArtifactListCommand(command, snapshot: snapshot)
+    }
 
-        guard let action = TrackerEventCommandResolver.action(for: event) else {
-            return false
-        }
-        switch action {
-        case .nativeRegionTab:
-            return true
-        case .focusDirection(let direction):
-            switch direction {
-            case .up, .down:
-                return handleArtifactListDirection(direction, snapshot: snapshot)
-            case .left, .right:
-                return onControlDirection?(direction) == true
-            }
-        case .moveSelection(let delta):
+    private func handleArtifactListCommand(_ command: ListCommand, snapshot: RuntimeSnapshot) -> Bool {
+        switch command {
+        case .move(let delta):
             return moveArtifactSelection(delta: delta, snapshot: snapshot)
-        case .openSelection:
+        case .jumpToTopPrefix:
+            return true
+        case .jumpToTop:
+            return moveArtifactSelectionToEdge(last: false, snapshot: snapshot)
+        case .jumpToBottom:
+            return moveArtifactSelectionToEdge(last: true, snapshot: snapshot)
+        case .previousTab:
+            return moveArtifactScope(delta: -1)
+        case .nextTab:
+            return moveArtifactScope(delta: 1)
+        case .open:
             return openSelectedArtifact()
-        case .listCommand(.delete):
+        case .copy:
+            return copySelectedArtifactPaths()
+        case .toggleMark:
+            return toggleSelectedArtifact()
+        case .focusFilter:
+            return focusArtifactFilter()
+        case .delete:
             return deleteSelectedArtifacts()
-        case .listCommand:
+        case .page, .halfPage, .refresh, .edit, .editRepo, .toggleWorkersCollapsed,
+             .toggleAllWorkersCollapsed, .start, .close:
             return false
         }
     }
@@ -462,19 +450,6 @@ final class DockPaneModel: ObservableObject {
         }
         onSetArtifactScope?(nextScope)
         return true
-    }
-
-    private func handleArtifactListDirection(_ direction: NavigationDirection, snapshot: RuntimeSnapshot) -> Bool {
-        switch direction {
-        case .up:
-            return moveArtifactSelection(delta: -1, snapshot: snapshot)
-        case .down:
-            return moveArtifactSelection(delta: 1, snapshot: snapshot)
-        case .left:
-            return moveArtifactScope(delta: -1)
-        case .right:
-            return moveArtifactScope(delta: 1)
-        }
     }
 
     private func openSelectedArtifact() -> Bool {
@@ -997,15 +972,6 @@ final class DockPaneModel: ObservableObject {
         case .noCurrentSession, .empty:
             return nil
         }
-    }
-
-    /// The list's direction keys: ↑ and k, ↓ and j, and ← and h, → and l. The last two move the scope, as they always have.
-    static func listDirection(for press: Keymap.KeyPress) -> NavigationDirection? {
-        if Keymap.matches(press, .moveUp) { return .up }
-        if Keymap.matches(press, .moveDown) { return .down }
-        if Keymap.matches(press, .cycleLeft) { return .left }
-        if Keymap.matches(press, .cycleRight) { return .right }
-        return nil
     }
 
     /// Shared with the Quest Log's filter (`QuestLogFilter`), like the helpers that parse and match it.

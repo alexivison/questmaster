@@ -79,7 +79,7 @@ struct QuestLogView: View {
     var pageScroll = QuestLogPageScroll()
     /// Offscreen renders can't focus the field; this draws it as focused (its border, its suggestions).
     var previewFocused = false
-    var onCommand: (QuestLogCommand) -> Void
+    var onCommand: (ListCommand) -> Void
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -136,7 +136,7 @@ struct QuestLogModal: View {
     let store: QuestLogStore
     let filter: QuestLogFilter
     let pageScroll: QuestLogPageScroll
-    var onCommand: (QuestLogCommand) -> Void
+    var onCommand: (ListCommand) -> Void
 
     var body: some View {
         // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
@@ -146,7 +146,7 @@ struct QuestLogModal: View {
     }
 
     private func handleNavigation(_ direction: NavigationDirection) {
-        if let command = QuestLogCommand.navigation(for: direction) {
+        if let command = ListCommand.navigation(for: direction) {
             onCommand(command)
         }
     }
@@ -165,7 +165,7 @@ struct QuestLogModal: View {
         if event.window?.firstResponder is NSTextView {
             return false
         }
-        if let command = QuestLogCommand.from(event.keymapPress) {
+        if let command = store.command(for: event.keymapPress) {
             onCommand(command)
         }
         return true

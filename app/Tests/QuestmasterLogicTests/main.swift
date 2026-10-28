@@ -28,6 +28,7 @@ enum QuestmasterLogicTests {
         timed("NewTerminalLogicTests") { NewTerminalLogicTests.run() }
         timed("DestructiveConfirmationTests") { DestructiveConfirmationTests.run() }
         timed("KeymapTests") { KeymapTests.run() }
+        timed("ListKeysTests") { ListKeysTests.run() }
         timed("ModalKeysTests") { ModalKeysTests.run() }
         timed("TrackerSessionShortcutsTests") { TrackerSessionShortcutsTests.run() }
         timed("RuntimeDecoderTests") { RuntimeDecoderTests.run() }

@@ -86,6 +86,8 @@ enum LogicSelfTests {
         ("testKeymapPressIgnoresCapsLock", testKeymapPressIgnoresCapsLock),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
         ("testListGChordPendingGResetsOnGAndOnInterveningKey", testListGChordPendingGResetsOnGAndOnInterveningKey),
+        ("testArtifactListTabsStepWithBrackets", testArtifactListTabsStepWithBrackets),
+        ("testTrackerListKeysMoveTheCursor", testTrackerListKeysMoveTheCursor),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
         ("testArtifactDockCopiesMultipleSelectedArtifactPathsWithY", testArtifactDockCopiesMultipleSelectedArtifactPathsWithY),
         ("testArtifactDockDeletesSelectedArtifactsWithD", testArtifactDockDeletesSelectedArtifactsWithD),
@@ -1444,6 +1446,7 @@ enum LogicSelfTests {
         try expect(try pressed(.moveUp, "k", 40), "list k should move up")
         try expect(try pressed(.open, "\r", 36), "list Enter should open selection")
         try expect(!(try pressed(.open, "\u{1c}", 124)), "list right arrow should not open selection")
+        try expect(!(try pressed(.open, "l", 37)), "list l should not open selection")
         try expect(try pressed(.delete, "d", 2), "list delete should be d")
         try expect(!(try pressed(.delete, "x", 7)), "x should not delete list items")
         try expect(Keymap.Command.deleteFocusedSession.keyEquivalent == "d", "focused session delete should use d")
@@ -2118,7 +2121,8 @@ enum LogicSelfTests {
             snapshot: snapshot,
             preferredArtifactSessionID: "qm-a"
         )
-        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should select the next artifact")
+        var keys = ListKeyResolver()
+        try expect(dockKey(try keyEvent("j", keyCode: 38), &keys, model, snapshot), "j should select the next artifact")
         try expect(coordinator.state.selectedArtifactID == second.id, "artifact selection should persist before the next render")
 
         _ = model.apply(
@@ -2147,7 +2151,7 @@ enum LogicSelfTests {
         try expect(try press("G", 5, [.capsLock]) == Keymap.KeyPress(keyCode: 5, character: "g"), "caps-lock alone should press the lowercase g")
         try expect(try press("1", 18, [.capsLock]) == Keymap.KeyPress(keyCode: 18, character: "1"), "caps-lock leaves digits alone")
         try expect(Keymap.matches(try press("D", 2, [.capsLock]), .delete), "caps-lock d should delete, as d does")
-        try expect(Keymap.matches(try press("E", 14, [.capsLock]), .editSession), "caps-lock e should edit the session, not the repo")
+        try expect(Keymap.matches(try press("E", 14, [.capsLock]), .edit), "caps-lock e should edit the session, not the repo")
         try expect(!Keymap.matches(try press("E", 14, [.capsLock]), .editRepo), "caps-lock e must not edit the repo")
         try expect(Keymap.matches(try press("C", 8, [.capsLock]), .toggleWorkersCollapsed), "caps-lock c should collapse the workers, as c does")
         try expect(Keymap.matches(try press("g", 5, [.capsLock, .shift]), .jumpToBottom), "caps-lock+shift g should jump to bottom")
@@ -2195,17 +2199,18 @@ enum LogicSelfTests {
             preferredArtifactSessionID: "qm-a"
         )
 
+        var keys = ListKeyResolver()
         let shiftG = try keyEvent("G", keyCode: 5, modifierFlags: [.shift])
-        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should be handled")
+        try expect(dockKey(shiftG, &keys, model, snapshot), "G should be handled")
         try expect(model.artifactModel.selectedArtifactID == third.id, "G should select the last artifact")
         let nonceAfterFirstJump = model.artifactModel.scrollNonce
 
-        try expect(model.handleKeyDown(shiftG, snapshot: snapshot), "G should still be handled when already at the last artifact")
+        try expect(dockKey(shiftG, &keys, model, snapshot), "G should still be handled when already at the last artifact")
         try expect(model.artifactModel.scrollNonce != nonceAfterFirstJump, "repeating G at the edge should still force a rescroll")
 
         let g = try keyEvent("g", keyCode: 5)
-        try expect(model.handleKeyDown(g, snapshot: snapshot), "first g should arm the gg chord")
-        try expect(model.handleKeyDown(g, snapshot: snapshot), "second g within the window should jump to the first artifact")
+        try expect(dockKey(g, &keys, model, snapshot), "first g should arm the gg chord")
+        try expect(dockKey(g, &keys, model, snapshot), "second g within the window should jump to the first artifact")
         try expect(model.artifactModel.selectedArtifactID == first.id, "gg should select the first artifact")
     }
 
@@ -2232,19 +2237,106 @@ enum LogicSelfTests {
         }
 
         let afterG = listModel()
+        var afterGKeys = ListKeyResolver()
         let last = afterG.artifactModel.artifacts.last?.id
-        try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
-        try expect(afterG.handleKeyDown(shiftG, snapshot: snapshot), "G should jump to the last artifact, not continue the chord")
+        try expect(dockKey(g, &afterGKeys, afterG, snapshot), "g should arm the chord")
+        try expect(dockKey(shiftG, &afterGKeys, afterG, snapshot), "G should jump to the last artifact, not continue the chord")
         try expect(afterG.artifactModel.selectedArtifactID == last, "G should select the last artifact")
-        try expect(afterG.handleKeyDown(g, snapshot: snapshot), "g right after G should re-arm rather than resolve")
+        try expect(dockKey(g, &afterGKeys, afterG, snapshot), "g right after G should re-arm rather than resolve")
         try expect(afterG.artifactModel.selectedArtifactID == last, "a freshly re-armed g alone should not move the selection")
 
         let afterOtherKey = listModel()
+        var otherKeys = ListKeyResolver()
         let selected = afterOtherKey.artifactModel.selectedArtifactID
-        try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g should arm the chord")
-        _ = afterOtherKey.handleKeyDown(try keyEvent("x", keyCode: 7), snapshot: snapshot)
-        try expect(afterOtherKey.handleKeyDown(g, snapshot: snapshot), "g after an unrelated key should re-arm rather than resolve")
+        try expect(dockKey(g, &otherKeys, afterOtherKey, snapshot), "g should arm the chord")
+        _ = dockKey(try keyEvent("x", keyCode: 7), &otherKeys, afterOtherKey, snapshot)
+        try expect(dockKey(g, &otherKeys, afterOtherKey, snapshot), "g after an unrelated key should re-arm rather than resolve")
         try expect(afterOtherKey.artifactModel.selectedArtifactID == selected, "a freshly re-armed g alone should not move the selection")
+    }
+
+    /// `[` and `]` step the artifact list's scope tabs, Session and All. h, l and the arrows leave the scope alone.
+    private static func testArtifactListTabsStepWithBrackets() throws {
+        let artifact = ArtifactReference(kind: "html", path: "/tmp/first.html", label: "First", sessionID: "qm-a", addedAt: "")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+                TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", workerCount: 0, artifacts: [artifact]),
+            ]),
+        ])
+        let model = DockPaneModel()
+        var scopes: [ArtifactScope] = []
+        model.onSetArtifactScope = { scopes.append($0) }
+        _ = model.apply(DockState(dockContent: .artifactList), snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        var keys = ListKeyResolver()
+
+        try expect(dockKey(try keyEvent("]", keyCode: 30), &keys, model, snapshot), "] should step the artifact tabs forward")
+        try expect(scopes == [ArtifactDisplayState.movedScope(current: .session, delta: 1)], "] should step from Session to the next tab, got \(scopes)")
+        try expect(!dockKey(try keyEvent("l", keyCode: 37), &keys, model, snapshot), "l should not step the tabs")
+        try expect(!dockKey(try keyEvent("h", keyCode: 4), &keys, model, snapshot), "h should not step the tabs")
+        try expect(!dockKey(try keyEvent("", keyCode: 124), &keys, model, snapshot), "→ should not step the tabs")
+        try expect(!dockKey(try keyEvent("", keyCode: 123), &keys, model, snapshot), "← should not step the tabs")
+        try expect(scopes.count == 1, "h, l and the arrows should leave the scope alone, got \(scopes)")
+        try expect(dockKey(try keyEvent("[", keyCode: 33), &keys, model, snapshot), "[ should step the artifact tabs back")
+        try expect(scopes.last == ArtifactDisplayState.movedScope(current: .session, delta: -1), "[ should step back from Session, got \(scopes)")
+    }
+
+    /// The tracker takes ↓ and ↑ as j and k do, and gg and G go to its first and last session. Each check reads the cursor
+    /// back with `y`, which copies the selected session's ID.
+    private static func testTrackerListKeysMoveTheCursor() throws {
+        let size = CGSize(width: 340, height: 400)
+        let store = RuntimeStore(sourceLabel: "test")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: [
+                TrackerSession(id: "one", title: "One", repoName: "Repo", role: "master"),
+                TrackerSession(id: "two", title: "Two", repoName: "Repo", role: "master"),
+                TrackerSession(id: "three", title: "Three", repoName: "Repo", role: "master"),
+            ]),
+        ])))
+        var copied: [String] = []
+        let bridge = TrackerKeyboardBridge()
+        let root = TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .tracker)),
+            keyboardBridge: bridge,
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter(),
+            onEffect: { effect in
+                if case .copySessionID(let sessionID) = effect {
+                    copied.append(sessionID)
+                }
+                return true
+            }
+        )
+        .frame(width: size.width, height: size.height)
+        .background(AppPalette.window.swiftUI)
+        let view = NSHostingView(rootView: root)
+        view.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size, scale: 1)
+        window.contentView = view
+        window.show()
+        defer { window.close() }
+        try expect(waitUntil { bridge.handler != nil }, "the tracker should install its key handler")
+
+        func cursor() throws -> String? {
+            copied.removeAll()
+            _ = bridge.handle(try keyEvent("y", keyCode: 16))
+            return copied.last
+        }
+        try expect(try cursor() == "one", "the cursor should start on the first session")
+        try expect(bridge.handle(try keyEvent("", keyCode: 125)), "↓ should move the tracker's cursor")
+        try expect(try cursor() == "two", "↓ should move to the second session, got \(String(describing: copied.last))")
+        try expect(bridge.handle(try keyEvent("j", keyCode: 38)), "j should move down")
+        try expect(try cursor() == "three", "j should move to the third session")
+        try expect(bridge.handle(try keyEvent("k", keyCode: 40)), "k should move up")
+        try expect(try cursor() == "two", "k should move back to the second session")
+        try expect(bridge.handle(try keyEvent("G", keyCode: 5, modifierFlags: [.shift])), "G should jump to the last session")
+        try expect(try cursor() == "three", "G should select the last session")
+        try expect(bridge.handle(try keyEvent("g", keyCode: 5)), "one g should arm gg")
+        try expect(bridge.handle(try keyEvent("g", keyCode: 5)), "a second g should jump to the first session")
+        try expect(try cursor() == "one", "gg should select the first session")
+        try expect(!bridge.handle(try keyEvent("l", keyCode: 37)), "l should not move or open the tracker")
+        try expect(try cursor() == "one", "l should leave the cursor alone")
+        try expect(!bridge.handle(try keyEvent("[", keyCode: 33)), "the tracker has no tabs, so [ passes through")
     }
 
     private static func testArtifactDockCopiesSelectedArtifactPathWithY() throws {
@@ -2295,7 +2387,8 @@ enum LogicSelfTests {
             throw TestFailure("could not create y key event")
         }
 
-        try expect(model.handleKeyDown(event, snapshot: snapshot), "y should copy the selected artifact")
+        var keys = ListKeyResolver()
+        try expect(dockKey(event, &keys, model, snapshot), "y should copy the selected artifact")
         try expect(
             pasteboard.string(forType: .string) == artifact.path,
             "pasteboard should contain selected artifact path"
@@ -2340,10 +2433,11 @@ enum LogicSelfTests {
             }
         }
 
-        try expect(model.handleKeyDown(try keyEvent(" ", keyCode: 49), snapshot: snapshot), "Space should select the current artifact")
-        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should select the next artifact")
-        try expect(model.handleKeyDown(try keyEvent(" ", keyCode: 49), snapshot: snapshot), "Space should select another artifact")
-        try expect(model.handleKeyDown(try keyEvent("y", keyCode: 16), snapshot: snapshot), "y should copy the selected artifacts")
+        var keys = ListKeyResolver()
+        try expect(dockKey(try keyEvent(" ", keyCode: 49), &keys, model, snapshot), "Space should select the current artifact")
+        try expect(dockKey(try keyEvent("j", keyCode: 38), &keys, model, snapshot), "j should select the next artifact")
+        try expect(dockKey(try keyEvent(" ", keyCode: 49), &keys, model, snapshot), "Space should select another artifact")
+        try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot), "y should copy the selected artifacts")
         try expect(
             pasteboard.string(forType: .string) == "\(artifact.path)\n\(secondArtifact.path)",
             "pasteboard should contain both selected artifact paths joined by newline"
@@ -2380,10 +2474,11 @@ enum LogicSelfTests {
             preferredArtifactSessionID: "qm-a"
         )
 
-        try expect(model.handleKeyDown(try keyEvent(" ", keyCode: 49), snapshot: snapshot), "Space should select the current artifact")
-        try expect(model.handleKeyDown(try keyEvent("j", keyCode: 38), snapshot: snapshot), "j should select the next artifact")
-        try expect(model.handleKeyDown(try keyEvent(" ", keyCode: 49), snapshot: snapshot), "Space should select another artifact")
-        try expect(model.handleKeyDown(try keyEvent("d", keyCode: 2), snapshot: snapshot), "d should delete the selected artifacts")
+        var keys = ListKeyResolver()
+        try expect(dockKey(try keyEvent(" ", keyCode: 49), &keys, model, snapshot), "Space should select the current artifact")
+        try expect(dockKey(try keyEvent("j", keyCode: 38), &keys, model, snapshot), "j should select the next artifact")
+        try expect(dockKey(try keyEvent(" ", keyCode: 49), &keys, model, snapshot), "Space should select another artifact")
+        try expect(dockKey(try keyEvent("d", keyCode: 2), &keys, model, snapshot), "d should delete the selected artifacts")
         try expect(deleted == [artifact, secondArtifact], "d should request deletion of selected artifacts")
         try expect(model.artifactModel.selectedArtifactIDs == Set([artifact.id, secondArtifact.id]), "deletion request should retain selection until the runtime updates")
     }
@@ -2404,6 +2499,7 @@ enum LogicSelfTests {
         ])
 
         let model = DockPaneModel()
+        var keys = ListKeyResolver()
         var backCount = 0
         model.onShowArtifactListIntent = { backCount += 1 }
         _ = model.apply(
@@ -2428,7 +2524,7 @@ enum LogicSelfTests {
             ) else {
                 throw TestFailure("could not create artifact viewer back event")
             }
-            try expect(model.handleKeyDown(event, snapshot: snapshot), "artifact viewer back key should be handled")
+            try expect(dockKey(event, &keys, model, snapshot, in: []), "artifact viewer back key should be handled")
         }
         try expect(backCount == events.count, "artifact viewer back keys should request the artifact list")
     }
@@ -2465,12 +2561,13 @@ enum LogicSelfTests {
             }
         }
 
-        try expect(model.handleKeyDown(try keyEvent("y", keyCode: 16), snapshot: snapshot), "viewer y should copy artifact path")
+        var keys = ListKeyResolver()
+        try expect(dockKey(try keyEvent("y", keyCode: 16), &keys, model, snapshot, in: []), "viewer y should copy artifact path")
         try expect(pasteboard.string(forType: .string) == artifact.path, "viewer y should copy selected artifact path")
         try expect(copied, "viewer y should report copied artifact path")
 
         let beforeReload = model.artifactModel.reloadNonce
-        try expect(model.handleKeyDown(try keyEvent("r", keyCode: 15), snapshot: snapshot), "viewer r should refresh")
+        try expect(dockKey(try keyEvent("r", keyCode: 15), &keys, model, snapshot, in: []), "viewer r should refresh")
         try expect(model.artifactModel.reloadNonce == beforeReload + 1, "viewer r should increment reload nonce")
     }
 
@@ -2931,7 +3028,7 @@ enum LogicSelfTests {
         ]
         let store = QuestLogStore()
         let filter = QuestLogFilter()
-        var sent: [QuestLogCommand] = []
+        var sent: [ListCommand] = []
         var leaves = 0
         filter.onChange = { store.sync(quests: quests, repos: [], query: filter.textQuery, projectIDs: filter.projectIDs) }
         filter.onMoveSelection = { command in
@@ -2946,7 +3043,7 @@ enum LogicSelfTests {
 
         try expect(filter.handleCommand(.plain(36)), "Return should be the filter's when no suggestion shows")
         try expect(store.selectedID == "q1", "Return should put the cursor on the first match, got \(String(describing: store.selectedID))")
-        try expect(sent == [.jumpToFirst] && leaves == 1, "Return should only move the cursor and hand the keys back, sent \(sent)")
+        try expect(sent == [.jumpToTop] && leaves == 1, "Return should only move the cursor and hand the keys back, sent \(sent)")
         try expect(filter.query == "write", "Return should keep the filter applied, got \(filter.query)")
 
         try expect(filter.handleCommand(.plain(125)), "↓ should move the list when no suggestion shows")
@@ -3071,7 +3168,7 @@ enum LogicSelfTests {
         }
         let store = QuestLogStore()
         store.sync(quests: (1...40).map { QuestItem(id: "q\($0)", content: "Quest \($0)", projectID: "p", projectName: "p") }, repos: [])
-        _ = store.handle(.jumpToLast)
+        _ = store.handle(.jumpToBottom)
         let window = HeadlessWindow(size: CGSize(width: 1000, height: 860))
         let stack = InWindowModalStack()
         let host = InWindowModalHost(stack: stack)
@@ -6974,6 +7071,18 @@ enum LogicSelfTests {
         var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
         snapshot.apply(.serveUnavailable(observedLabel))
         return isBackendStartingMessage(snapshot.serviceStateMessage)
+    }
+
+    /// A press at the dock's model, resolved as `SwiftUIDockPane` resolves it for the content shown (`in:`, the artifact
+    /// list's by default, none in the viewer). `keys` is the dock's resolver, kept across presses so a `gg` carries over.
+    private static func dockKey(
+        _ event: NSEvent,
+        _ keys: inout ListKeyResolver,
+        _ model: DockPaneModel,
+        _ snapshot: RuntimeSnapshot,
+        in capabilities: ListCapabilities = .artifacts
+    ) -> Bool {
+        model.handleKeyDown(event, command: keys.command(for: event.keymapPress, in: capabilities), snapshot: snapshot)
     }
 
     private static func keyEvent(_ characters: String, keyCode: UInt16) throws -> NSEvent {

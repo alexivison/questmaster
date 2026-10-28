@@ -22,7 +22,7 @@ final class QuestLogFilter {
     /// The filter changed: re-sync the list.
     @ObservationIgnored var onChange: (() -> Void)?
     /// The list's cursor moves: ↑/↓ with no suggestion open, and Return, which moves it to the first quest.
-    @ObservationIgnored var onMoveSelection: ((QuestLogCommand) -> Void)?
+    @ObservationIgnored var onMoveSelection: ((ListCommand) -> Void)?
     /// The keys go back to the list: Esc or Return with no suggestion open. The filter stays; the next Esc closes the log.
     @ObservationIgnored var onLeave: (() -> Void)?
 
@@ -102,11 +102,11 @@ final class QuestLogFilter {
         case .moveSuggestion(let delta):
             moveSuggestion(delta: delta)
         case .moveList(let delta):
-            onMoveSelection?(delta > 0 ? .moveDown : .moveUp)
+            onMoveSelection?(.move(delta > 0 ? 1 : -1))
         case .acceptSuggestion:
             acceptSuggestion()
         case .returnToList:
-            onMoveSelection?(.jumpToFirst)
+            onMoveSelection?(.jumpToTop)
             onLeave?()
         case .removeLastChip:
             tokens.removeLast()

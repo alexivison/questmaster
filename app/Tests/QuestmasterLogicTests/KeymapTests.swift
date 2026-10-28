@@ -13,6 +13,7 @@ struct KeymapTests {
         shiftIsPartOfThePrintableCharacter()
         listKeysAreArrowsAndLetters()
         openAndEditUseReturnAndLetters()
+controlPageAndHalfPageChords()
         submitTakesPlainReturnAndCommandReturn()
         controlBracketIsEscape()
         tabAndBackTabAreDistinct()
@@ -56,7 +57,7 @@ struct KeymapTests {
         expect(matches(press("G", [.shift]), .jumpToBottom), "shift-g should jump to bottom")
         expect(!matches(press("G", [.shift]), .jumpToTop), "shift-g must not arm the gg chord")
         expect(matches(press("g"), .jumpToTop), "g should arm the gg chord")
-        expect(!matches(press("E", [.shift]), .editSession), "shift-e must not edit the session")
+        expect(!matches(press("E", [.shift]), .edit), "shift-e must not edit the session")
         expect(matches(press("E", [.shift]), .editRepo), "shift-e should edit the repo")
         expect(matches(press("C", [.shift]), .toggleAllWorkersCollapsed), "shift-c should collapse every worker")
         expect(!matches(press("K", [.shift]), .moveUp), "shift-k must not move the list up")
@@ -90,13 +91,20 @@ struct KeymapTests {
     private static func openAndEditUseReturnAndLetters() {
         expect(matches(press("\r", keyCode: 36), .open), "Return should open the selection")
         expect(matches(press(nil, keyCode: 76), .open), "keypad Enter should open the selection")
-        expect(matches(press("l"), .open), "l should open the selection in the tracker")
+        expect(!matches(press("l"), .open), "l should not open the selection")
         expect(!matches(press(nil, keyCode: 124), .open), "right arrow should not open the selection")
         expect(!matches(press("\r", [.shift], keyCode: 36), .open), "shift-Return should not open the selection")
-        expect(matches(press("e"), .editSession), "e should edit the session")
-        expect(matches(press("e"), .editQuest), "e should edit a quest")
-        expect(matches(press("\r", keyCode: 36), .editQuest), "Return should edit a quest, as the Quest Log always has")
-        expect(!matches(press("\r", keyCode: 36), .editSession), "Return should not edit a session: it opens")
+        expect(matches(press("e"), .edit), "e should edit the selection: a session or a quest")
+        expect(!matches(press("\r", keyCode: 36), .edit), "Return should not edit: it opens, or does nothing in the Quest Log")
+    }
+
+    private static func controlPageAndHalfPageChords() {
+        expect(matches(press("b", [.control]), .pageUp), "⌃b should page up")
+        expect(matches(press(nil, keyCode: 116), .pageUp), "PageUp should page up")
+        expect(matches(press("f", [.control]), .pageDown), "⌃f should page down")
+        expect(matches(press(nil, keyCode: 121), .pageDown), "PageDown should page down")
+        expect(!matches(press("f"), .pageDown), "plain f must not page down")
+        expect(!matches(press("b", [.command]), .pageUp), "⌘b must not page up")
     }
 
     private static func submitTakesPlainReturnAndCommandReturn() {

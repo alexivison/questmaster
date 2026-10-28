@@ -237,6 +237,7 @@ struct TrackerRootView: View {
     @ObservedObject private var headerAlignment: TrackerHeaderAlignmentModel
 
     @State private var commandState = TrackerCommandState()
+    @State private var listKeys = ListKeyResolver()
     @State private var commandLongPressIsActive = false
     @State private var editSession: TrackerEditSession?
     @State private var editRepo: TrackerEditRepo?
@@ -471,49 +472,44 @@ struct TrackerRootView: View {
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
-        guard let action = TrackerEventCommandResolver.action(for: event) else {
-            return false
+        if isNativeRegionTabEvent(event) {
+            return true
+        }
+        guard let command = listKeys.command(for: event.keymapPress, in: .tracker) else {
+            return handoffFocus(event)
         }
 
         let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
-        switch action {
-        case .nativeRegionTab:
-            return true
-        case .focusDirection(let direction):
-            if dispatchEffect(.focusDirection(direction)) {
-                return true
-            }
-            switch direction {
-            case .up:
-                return moveSelection(delta: -1, rows: rows)
-            case .down:
-                return moveSelection(delta: 1, rows: rows)
-            case .left, .right:
-                return false
-            }
-        case .moveSelection(let delta):
+        switch command {
+        case .move(let delta):
             return moveSelection(delta: delta, rows: rows)
-        case .openSelection:
+        case .jumpToTopPrefix:
+            return true
+        case .jumpToTop:
+            return moveSelectionToEdge(last: false, rows: rows)
+        case .jumpToBottom:
+            return moveSelectionToEdge(last: true, rows: rows)
+        case .open:
             return dispatch(.activate(openedID: nil), rows: rows)
-        case .listCommand(.copySessionID):
+        case .copy:
             guard let sessionID = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID)?.id else {
                 return false
             }
             return dispatchEffect(.copySessionID(sessionID))
-        case .listCommand(.editSession):
+        case .edit:
             guard let session = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID) else {
                 return false
             }
             presentEditSession(session)
             return true
-        case .listCommand(.editRepo):
+        case .editRepo:
             guard let session = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID) else {
                 return false
             }
             return presentEditRepo(session)
-        case .listCommand(.delete):
+        case .delete:
             return dispatch(.deleteSelected, rows: rows)
-        case .listCommand(.toggleWorkersCollapsed):
+        case .toggleWorkersCollapsed:
             guard let session = commandState.selectedSession(in: rows, currentTerminalSessionID: store.currentTerminalSessionID),
                   SessionRoleKind(role: session.role) == .master,
                   hasWorkers(session.id) else {
@@ -521,16 +517,28 @@ struct TrackerRootView: View {
             }
             toggleWorkersCollapsed(for: session.id)
             return true
-        case .listCommand(.toggleAllWorkersCollapsed):
+        case .toggleAllWorkersCollapsed:
             toggleAllWorkersCollapsed()
             return true
-        case .listCommand:
+        default:
             return false
         }
     }
 
+    /// ⌃h and ⌃l hand focus to the next region. The tracker takes no other ⌃ chord.
+    private func handoffFocus(_ event: NSEvent) -> Bool {
+        guard let direction = focusDirection(from: event) else {
+            return false
+        }
+        return dispatchEffect(.focusDirection(direction))
+    }
+
     private func moveSelection(delta: Int, rows: [TrackerSession]) -> Bool {
         commandState.moveSelection(delta: delta, rows: rows, currentTerminalSessionID: store.currentTerminalSessionID)
+    }
+
+    private func moveSelectionToEdge(last: Bool, rows: [TrackerSession]) -> Bool {
+        commandState.moveSelectionToEdge(last: last, rows: rows)
     }
 
     private func activate(_ session: TrackerSession) {

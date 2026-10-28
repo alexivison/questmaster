@@ -9,7 +9,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
     private let newQuestPresenter: NewQuestSheetPresenter
     private let settingsPresenter: SettingsSheetPresenter
     private let workerChatStore: WorkerChatStore
-    private var readSurfaceGTracker = GPrefixTracker()
+    private var keys = ListKeyResolver()
 
     init(
         store: RuntimeStore,
@@ -72,19 +72,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 
     override func keyDown(with event: NSEvent) {
         guard !textInputOwnsFocus else {
+            keys.reset()
             super.keyDown(with: event)
             return
         }
-        // Reset before dispatch, not inside `handleReadSurfaceScroll`: a lone `g` must not survive
-        // `G` (a complete action, not the chord's second half), nor a key `model.handleKeyDown`
-        // consumes first and that skips `handleReadSurfaceScroll` entirely.
-        if !Keymap.matches(event.keymapPress, .jumpToTop) {
-            readSurfaceGTracker.reset()
-        }
-        if handleWorkerLogFilter(event) || model.handleKeyDown(event, snapshot: store.snapshot) {
-            return
-        }
-        if handleReadSurfaceScroll(event) {
+        if handleDockKey(event) {
             return
         }
         super.keyDown(with: event)
@@ -100,22 +92,36 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         if focusDirection(from: event, includeHorizontal: true) != nil {
             return super.performKeyEquivalent(with: event)
         }
-        if !Keymap.matches(event.keymapPress, .jumpToTop) {
-            readSurfaceGTracker.reset()
+        return handleDockKey(event) || super.performKeyEquivalent(with: event)
+    }
+
+    /// The dock's keys, one press at a time. The list resolver reads the press once here, for the content the dock shows, so
+    /// one `g` is one step of `gg` however many of the handlers below take the press.
+    private func handleDockKey(_ event: NSEvent) -> Bool {
+        let command = keys.command(for: event.keymapPress, in: listCapabilities)
+        return handleWorkerLogFilter(event, command: command)
+            || model.handleKeyDown(event, command: command, snapshot: store.snapshot)
+            || handleReadSurfaceScroll(command)
+    }
+
+    /// The keys the current content takes as list keys: the Worker Log's dropdown while it is open, its feed otherwise, and
+    /// the artifact list. The viewer takes none (its own keys are the model's).
+    private var listCapabilities: ListCapabilities {
+        switch model.currentMode {
+        case .workerChat:
+            return workerChatStore.menu.isOpen ? .workerLogMenu : .workerLogFeed
+        case .artifacts:
+            return model.currentArtifactRoute == .list ? .artifacts : []
         }
-        return handleWorkerLogFilter(event)
-            || model.handleKeyDown(event, snapshot: store.snapshot)
-            || handleReadSurfaceScroll(event)
-            || super.performKeyEquivalent(with: event)
     }
 
     /// The Worker Log's own keys, ahead of the feed's: while the filter's dropdown is open j/k and the arrows move its
     /// cursor instead of scrolling, and `[` and `]` step the worker tabs whether it is open or not.
-    private func handleWorkerLogFilter(_ event: NSEvent) -> Bool {
+    private func handleWorkerLogFilter(_ event: NSEvent, command: ListCommand?) -> Bool {
         guard model.currentMode == .workerChat else {
             return false
         }
-        guard let key = WorkerLogFilterKey.resolve(event.keymapPress, menuIsOpen: workerChatStore.menu.isOpen) else {
+        guard let key = WorkerLogFilterKey.resolve(event.keymapPress, command: command, menuIsOpen: workerChatStore.menu.isOpen) else {
             return false
         }
         return workerChatStore.handle(key)
@@ -130,24 +136,25 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
 
     private static let artifactViewerLineStep: CGFloat = 54
     private static let workerChatLineStep = WorkerChatMetrics.lineHeight * 3
+    private static let readSurfacePageFraction: CGFloat = 0.82
 
-    private func handleReadSurfaceScroll(_ event: NSEvent) -> Bool {
+    private func handleReadSurfaceScroll(_ command: ListCommand?) -> Bool {
         let isArtifactViewer = model.currentMode == .artifacts && model.currentArtifactRoute == .viewer
-        guard isArtifactViewer || model.currentMode == .workerChat else {
+        guard isArtifactViewer || model.currentMode == .workerChat, let command else {
             return false
         }
-        let press = event.keymapPress
-        if Keymap.matches(press, .jumpToBottom) {
-            return jumpReadSurface(toBottom: true, isArtifactViewer: isArtifactViewer)
-        }
-        if Keymap.matches(press, .jumpToTop) {
-            if readSurfaceGTracker.handleG() == .jumpToTop {
-                return jumpReadSurface(toBottom: false, isArtifactViewer: isArtifactViewer)
-            }
+        switch command {
+        case .jumpToTopPrefix:
             return true
+        case .jumpToTop:
+            return jumpReadSurface(toBottom: false, isArtifactViewer: isArtifactViewer)
+        case .jumpToBottom:
+            return jumpReadSurface(toBottom: true, isArtifactViewer: isArtifactViewer)
+        default:
+            break
         }
         let lineStep = isArtifactViewer ? Self.artifactViewerLineStep : Self.workerChatLineStep
-        guard let points = Self.readSurfaceScrollPoints(for: press, lineStep: lineStep, viewportHeight: bounds.height) else {
+        guard let points = Self.readSurfaceScrollPoints(for: command, lineStep: lineStep, viewportHeight: bounds.height) else {
             return false
         }
         if isArtifactViewer, let webView = firstDescendant(WKWebView.self) {
@@ -182,20 +189,20 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         return true
     }
 
-    private static func readSurfaceScrollPoints(for press: Keymap.KeyPress, lineStep: CGFloat, viewportHeight: CGFloat) -> CGFloat? {
-        if Keymap.matches(press, .moveUp) {
-            return -lineStep
+    /// How far a read surface scrolls for a command, in points: a line, a page, or half a page. Nil for a command that
+    /// doesn't scroll.
+    private static func readSurfaceScrollPoints(for command: ListCommand, lineStep: CGFloat, viewportHeight: CGFloat) -> CGFloat? {
+        let pageStep = max(60, viewportHeight * Self.readSurfacePageFraction)
+        switch command {
+        case .move(let direction):
+            return CGFloat(direction) * lineStep
+        case .page(let direction):
+            return CGFloat(direction) * pageStep
+        case .halfPage(let direction):
+            return CGFloat(direction) * pageStep / 2
+        default:
+            return nil
         }
-        if Keymap.matches(press, .moveDown) {
-            return lineStep
-        }
-        if Keymap.matches(press, .pageUp) {
-            return -max(60, viewportHeight * 0.82)
-        }
-        if Keymap.matches(press, .pageDown) {
-            return max(60, viewportHeight * 0.82)
-        }
-        return nil
     }
 
     private func firstDescendant<T: NSView>(_ type: T.Type) -> T? {
@@ -269,37 +276,21 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onControlDirection = newValue }
     }
 
-    private enum ReadSurface: Equatable {
-        case workerChat
-        case artifactViewer
-    }
-
-    private var currentReadSurface: ReadSurface? {
-        if model.currentMode == .workerChat {
-            return .workerChat
-        }
-        if model.currentMode == .artifacts && model.currentArtifactRoute == .viewer {
-            return .artifactViewer
-        }
-        return nil
-    }
-
     @discardableResult
     func apply(
         _ desired: DockState,
         snapshot: RuntimeSnapshot,
         preferredArtifactSessionID: String? = nil
     ) -> ArtifactDisplayUpdate {
-        let previousSurface = currentReadSurface
+        let previousContent = model.currentDockContent
         let update = model.apply(
             desired,
             snapshot: snapshot,
             preferredArtifactSessionID: preferredArtifactSessionID
         )
-        // A pending `g` from the worker chat must not resolve against the artifact viewer (or vice
-        // versa) after a switch between the two.
-        if currentReadSurface != previousSurface {
-            readSurfaceGTracker.reset()
+        // A pending `g` must not resolve against another content (the list, the viewer, the worker log) after a switch.
+        if model.currentDockContent != previousContent {
+            keys.reset()
         }
         // The filter's dropdown belongs to the worker log: leaving it closes the dropdown.
         if model.currentMode != .workerChat {
