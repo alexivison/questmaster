@@ -166,6 +166,11 @@ private final class ModalPromptEditorTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         let press = event.keymapPress
+        // ⌃s creates from the prompt. The modal keys don't take it, so the prompt's own key does.
+        if Keymap.matches(press, .createFromPrompt) {
+            onCreate?()
+            return
+        }
         // Return, with or without Shift (⇧Return is a newline). A ⌘, ⌃ or ⌥ Return goes to the text system.
         let unshifted = Keymap.KeyPress(keyCode: press.keyCode, character: press.character, modifiers: press.modifiers.subtracting([.shift]))
         guard Keymap.matches(unshifted, .submit), unshifted.modifiers.isEmpty else {
