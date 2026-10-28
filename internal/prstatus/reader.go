@@ -34,6 +34,7 @@ type HostResult struct {
 	RateLimit    *RateLimit `json:"rate_limit,omitempty"`
 	Error        string     `json:"error,omitempty"`
 	BackoffUntil string     `json:"backoff_until,omitempty"`
+	CheckedAt    string     `json:"checked_at,omitempty"`
 }
 
 type Result struct {
@@ -54,6 +55,7 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 		for start := 0; start < len(group); start += 50 {
 			end := min(start+50, len(group))
 			batch := group[start:end]
+			hostResult.CheckedAt = now.UTC().Format(time.RFC3339)
 			stdout, stderr, runErr := run(ctx, host, query(batch))
 			body, retryAfter, headerReset := responseBody(stdout)
 			var response graphResponse
@@ -136,7 +138,7 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 						break
 					}
 				}
-				result.Statuses[pr.Key] = state.PullRequestStatus{InaccessibleReason: reason, FetchedAt: now.UTC().Format(time.RFC3339), Stale: false}
+				result.Statuses[pr.Key] = state.PullRequestStatus{InaccessibleReason: reason, ChangedAt: now.UTC().Format(time.RFC3339), Stale: false}
 			}
 			if hostResult.Error != "" {
 				break
@@ -258,7 +260,7 @@ func (pr graphPR) status(now time.Time) state.PullRequestStatus {
 			ci = "pending"
 		}
 	}
-	return state.PullRequestStatus{Title: pr.Title, URL: pr.URL, State: stateName, Draft: pr.Draft, HeadSHA: pr.HeadSHA, UpdatedAt: pr.UpdatedAt, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments, Review: review, CI: ci, FetchedAt: now.UTC().Format(time.RFC3339)}
+	return state.PullRequestStatus{Title: pr.Title, URL: pr.URL, State: stateName, Draft: pr.Draft, HeadSHA: pr.HeadSHA, UpdatedAt: pr.UpdatedAt, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments, Review: review, CI: ci, ChangedAt: now.UTC().Format(time.RFC3339)}
 }
 
 func reviewState(value string) string {

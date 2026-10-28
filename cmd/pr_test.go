@@ -219,18 +219,19 @@ func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
 		refreshed = append(refreshed, append([]string(nil), keys...))
 		updates := map[string]state.PullRequestStatus{}
 		for _, key := range keys {
-			updates[key] = state.PullRequestStatus{Title: "From fake daemon", State: "open", FetchedAt: time.Now().UTC().Format(time.RFC3339)}
+			updates[key] = state.PullRequestStatus{Title: "From fake daemon", State: "open", ChangedAt: time.Now().UTC().Format(time.RFC3339)}
 		}
 		if err := state.SavePullRequestStatuses(config.Root, updates, nil); err != nil {
 			return nil, err
 		}
-		return map[string]prstatus.HostResult{"github.com": {RateLimit: &prstatus.RateLimit{Cost: 1}}}, nil
+		return map[string]prstatus.HostResult{"github.com": {RateLimit: &prstatus.RateLimit{Cost: 1}, CheckedAt: "2026-10-28T00:00:00Z"}}, nil
 	}
 	runCmd(t, store, sessionsRunner(), "pr", "watch", "o/r#1")
 	runCmd(t, store, sessionsRunner(), "pr", "watch", "o/r#2", "--session", "qm-other")
 	var result struct {
 		PullRequests []state.PullRequest `json:"pull_requests"`
 		Hosts        map[string]struct {
+			CheckedAt string `json:"checked_at"`
 			RateLimit struct {
 				Cost int `json:"cost"`
 			} `json:"rate_limit"`
@@ -239,7 +240,7 @@ func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
 	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "refresh")), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.PullRequests) != 1 || result.PullRequests[0].Status.Title != "From fake daemon" || result.Hosts["github.com"].RateLimit.Cost != 1 {
+	if len(result.PullRequests) != 1 || result.PullRequests[0].Status.Title != "From fake daemon" || result.Hosts["github.com"].RateLimit.Cost != 1 || result.Hosts["github.com"].CheckedAt != "2026-10-28T00:00:00Z" {
 		t.Fatalf("refresh=%#v", result)
 	}
 	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "refresh", "--all")), &result); err != nil {

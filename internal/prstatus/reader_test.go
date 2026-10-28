@@ -55,6 +55,11 @@ func TestFetchBatchesReposAndHosts(t *testing.T) {
 	if got.Hosts["github.com"].RateLimit.Cost != 2 {
 		t.Fatal("rate limit missing")
 	}
+	for _, host := range []string{"github.com", "enterprise.example"} {
+		if got.Hosts[host].CheckedAt != now.Format(time.RFC3339) {
+			t.Fatalf("%s checked_at = %q", host, got.Hosts[host].CheckedAt)
+		}
+	}
 }
 
 func TestResponseBodyKeepsBlankLinesInJSON(t *testing.T) {
@@ -91,7 +96,7 @@ func TestLaterBatchFailureKeepsFreshEarlierStatuses(t *testing.T) {
 		}
 		prs = append(prs, ref)
 	}
-	if err := state.SavePullRequestStatuses(store.Root(), map[string]state.PullRequestStatus{prs[50].Key: {Title: "last good", FetchedAt: "2026-10-25T00:00:00Z"}}, nil); err != nil {
+	if err := state.SavePullRequestStatuses(store.Root(), map[string]state.PullRequestStatus{prs[50].Key: {Title: "last good", ChangedAt: "2026-10-25T00:00:00Z"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	run := func(_ context.Context, _ string, query string) ([]byte, []byte, error) {

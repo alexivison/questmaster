@@ -2,9 +2,40 @@ package state
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestPullRequestStatusMigratesLegacyTimestampOnUnchangedPoll(t *testing.T) {
+	t.Parallel()
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(Manifest{SessionID: "qm-one"}); err != nil {
+		t.Fatal(err)
+	}
+	pr, _ := ParsePullRequestRef("o/r#1")
+	if _, err := WatchPullRequest(store.Root(), "qm-one", pr, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	path := PullRequestStatusPath(store.Root())
+	if err := os.WriteFile(path, []byte(`{"github.com/o/r#1":{"title":"same","fetched_at":"2026-01-01T00:00:00Z"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SavePullRequestStatuses(store.Root(), map[string]PullRequestStatus{pr.Key: {Title: "same", ChangedAt: "2026-01-02T00:00:00Z"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	status, err := LoadPullRequestStatuses(store.Root())
+	if err != nil || status[pr.Key].ChangedAt != "2026-01-02T00:00:00Z" {
+		t.Fatalf("migrated status=%#v err=%v", status[pr.Key], err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || strings.Contains(string(data), "fetched_at") {
+		t.Fatalf("legacy field remained: %s err=%v", data, err)
+	}
+}
 
 func TestPullRequestStatusPersistence(t *testing.T) {
 	t.Parallel()
@@ -27,7 +58,7 @@ func TestPullRequestStatusPersistence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first := PullRequestStatus{Title: "first", FetchedAt: "2026-01-01T00:00:00Z"}
+	first := PullRequestStatus{Title: "first", ChangedAt: "2026-01-01T00:00:00Z"}
 	if err := SavePullRequestStatuses(store.Root(), map[string]PullRequestStatus{one.Key: first, two.Key: {Title: "second"}}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +66,7 @@ func TestPullRequestStatusPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first.FetchedAt = "2026-01-02T00:00:00Z"
+	first.ChangedAt = "2026-01-02T00:00:00Z"
 	if err := SavePullRequestStatuses(store.Root(), map[string]PullRequestStatus{one.Key: first, two.Key: {Title: "second"}}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +84,7 @@ func TestPullRequestStatusPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !statuses[one.Key].Stale || statuses[one.Key].Title != "first" || statuses[one.Key].FetchedAt != "2026-01-01T00:00:00Z" {
+	if !statuses[one.Key].Stale || statuses[one.Key].Title != "first" || statuses[one.Key].ChangedAt != "2026-01-01T00:00:00Z" {
 		t.Fatalf("last good status lost: %#v", statuses[one.Key])
 	}
 	if _, err := UnwatchPullRequest(store.Root(), "qm-two", two.Key); err != nil {

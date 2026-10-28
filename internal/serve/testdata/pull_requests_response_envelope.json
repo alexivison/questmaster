@@ -29,7 +29,7 @@
         "comments": 0,
         "review": "approved",
         "ci": "success",
-        "fetched_at": "2026-06-19T04:20:00Z",
+        "changed_at": "2026-06-19T04:20:00Z",
         "stale": false
       }
     },
@@ -50,7 +50,7 @@
         "additions": 0,
         "deletions": 0,
         "comments": 0,
-        "fetched_at": "2026-06-19T04:20:00Z",
+        "changed_at": "2026-06-19T04:20:00Z",
         "inaccessible_reason": "saml",
         "stale": false
       }

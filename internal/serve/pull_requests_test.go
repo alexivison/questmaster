@@ -181,7 +181,7 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	if stable.Sessions[trackerSessionIndex(stable.Sessions, "qm-demo")].PullRequestsRev != initial.Sessions[masterIndex].PullRequestsRev {
 		t.Fatal("unchanged set changed rev")
 	}
-	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref1.Key: {Title: "Updated", State: "open", FetchedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
+	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref1.Key: {Title: "Updated", State: "open", ChangedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	withStatus, err := snapshotter.TrackerForChange(Change{Topics: []string{topicTracker}, BroadTracker: true})
@@ -281,7 +281,7 @@ func TestPullRequestStatusRewritePushesTracker(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldRev := baseline.Sessions[trackerSessionIndex(baseline.Sessions, "qm-demo")].PullRequestsRev
-	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref.Key: {Title: "New status", FetchedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
+	if err := state.SavePullRequestStatuses(env.store.Root(), map[string]state.PullRequestStatus{ref.Key: {Title: "New status", ChangedAt: env.now.Format(time.RFC3339)}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	select {

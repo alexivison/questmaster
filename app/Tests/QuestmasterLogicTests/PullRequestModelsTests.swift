@@ -159,7 +159,7 @@ struct PullRequestModelsTests {
     ) -> [String: Any] {
         var result: [String: Any] = [
             "draft": draft, "additions": additions, "deletions": deletions, "comments": comments,
-            "fetched_at": "2026-06-19T00:00:00Z", "stale": stale,
+            "changed_at": "2026-06-19T00:00:00Z", "stale": stale,
         ]
         if let state { result["state"] = state }
         if let review { result["review"] = review }

@@ -50,14 +50,15 @@ func SavePullRequestStatuses(root string, updates map[string]PullRequestStatus, 
 			}
 			if status, ok := updates[pr.Key]; ok {
 				prior := old[pr.Key]
-				fetchedAt := status.FetchedAt
-				status.FetchedAt = ""
+				changedAt := status.ChangedAt
+				status.ChangedAt = ""
 				comparable := prior
-				comparable.FetchedAt = ""
-				if !reflect.DeepEqual(status, comparable) {
-					status.FetchedAt = fetchedAt
+				comparable.ChangedAt = ""
+				// An unknown previous change time is established on this successful poll.
+				if prior.ChangedAt == "" || !reflect.DeepEqual(status, comparable) {
+					status.ChangedAt = changedAt
 				} else {
-					status.FetchedAt = prior.FetchedAt
+					status.ChangedAt = prior.ChangedAt
 				}
 				next[pr.Key] = status
 			} else if prior, ok := old[pr.Key]; ok {
