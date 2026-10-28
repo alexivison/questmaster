@@ -31,6 +31,8 @@ final class DockPaneModel: ObservableObject {
     var onSelectedArtifactChange: ((String?) -> Void)?
     var onDeleteArtifacts: (([ArtifactReference]) -> Void)?
     var onArtifactFilterChange: ((String, [ArtifactFilterToken]) -> Void)?
+    /// The keys go back to the artifact list from the filter: Esc or Return with no suggestion open.
+    var onArtifactFilterLeave: (() -> Void)?
     var onCopyArtifactPath: (() -> Void)?
     var onFocusRequested: (() -> Void)?
     var onOpenURL: ((URL) -> Void)?
@@ -306,40 +308,55 @@ final class DockPaneModel: ObservableObject {
         return true
     }
 
+    /// The filter field's own keys (`FilterFieldKey`). True when the filter took the press.
     func handleArtifactFilterCommand(_ press: Keymap.KeyPress) -> Bool {
-        guard artifactScope == .all else {
+        guard artifactScope == .all,
+              let command = FilterFieldKey.command(
+                press,
+                showsSuggestions: !artifactModel.filterSuggestions.isEmpty,
+                queryIsEmpty: artifactFilterQuery.isEmpty,
+                hasChips: !artifactFilterTokens.isEmpty
+              ) else {
             return false
         }
-        let suggestions = artifactModel.filterSuggestions
-        if Keymap.matches(press, .suggestionDown), !suggestions.isEmpty {
-            moveArtifactFilterSuggestion(delta: 1)
-            return true
-        }
-        if Keymap.matches(press, .suggestionUp), !suggestions.isEmpty {
-            moveArtifactFilterSuggestion(delta: -1)
-            return true
-        }
-        if Keymap.matches(press, .tab), !suggestions.isEmpty {
-            return acceptArtifactFilterSuggestion()
-        }
-        if Keymap.matches(press, .submit) {
-            if !suggestions.isEmpty {
-                return acceptArtifactFilterSuggestion()
+        applyArtifactFilterCommand(command)
+        return true
+    }
+
+    private func applyArtifactFilterCommand(_ command: FilterFieldCommand) {
+        switch command {
+        case .moveSuggestion(let delta):
+            moveArtifactFilterSuggestion(delta: delta)
+        case .moveList(let delta):
+            guard let snapshot = lastSnapshot else {
+                return
             }
-            return openSelectedArtifact()
-        }
-        if Keymap.matches(press, .backspace), artifactFilterQuery.isEmpty, !artifactFilterTokens.isEmpty {
+            _ = moveArtifactSelection(delta: delta, snapshot: snapshot)
+        case .acceptSuggestion:
+            acceptArtifactFilterSuggestion()
+        case .returnToList:
+            if let snapshot = lastSnapshot {
+                _ = moveArtifactSelectionToEdge(last: false, snapshot: snapshot)
+            }
+            onArtifactFilterLeave?()
+        case .removeLastChip:
             artifactFilterTokens.removeLast()
             syncArtifactFilterSetsFromTokens()
             refreshArtifactFilters()
-            return true
+        case .hideSuggestions:
+            hideArtifactFilterSuggestions()
+        case .leave:
+            onArtifactFilterLeave?()
         }
-        if Keymap.matches(press, .cancel), !suggestions.isEmpty {
-            artifactFilterSuggestionsHidden = true
-            refreshArtifactFilters()
-            return true
+    }
+
+    /// Hides the suggestions. The field calls it as it gives up focus, so this never moves focus itself.
+    func hideArtifactFilterSuggestions() {
+        guard !artifactModel.filterSuggestions.isEmpty else {
+            return
         }
-        return false
+        artifactFilterSuggestionsHidden = true
+        refreshArtifactFilters()
     }
 
     private func refreshArtifactFilters() {
