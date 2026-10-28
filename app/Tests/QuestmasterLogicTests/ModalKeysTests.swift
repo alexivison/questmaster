@@ -10,7 +10,7 @@ struct ModalKeysTests {
         submitInFlightHoldsEveryKeyButEsc()
         tabAndBackTabMoveBetweenFields()
         tabWithOneFieldOrNoFieldDoesNothing()
-        promptKeepsTabOnlyWhereItSaysSo()
+        promptKeepsTabAsText()
         arrowsAndHLCycleASelect()
         cyclingIsOnlyForSelects()
         plainLettersBelongToTheText()
@@ -53,12 +53,10 @@ struct ModalKeysTests {
 
     private static func returnIsThePromptsOwnAndCommandReturnSubmitsFromAnywhere() {
         let enter = press("\r", keyCode: 36)
-        for keepsTab in [true, false] {
-            let prompt = context(.prompt(keepsTab: keepsTab))
-            expect(ModalKeys.command(for: enter, in: prompt) == nil, "the prompt's editor creates on Return, so the modal passes it")
-            expect(ModalKeys.command(for: press("\r", [.shift], keyCode: 36), in: prompt) == nil, "⇧Return is the prompt's newline")
-            expect(ModalKeys.command(for: press("\r", [.command], keyCode: 36), in: prompt) == .submit, "⌘Return should submit from the prompt")
-        }
+        let prompt = context(.prompt)
+        expect(ModalKeys.command(for: enter, in: prompt) == nil, "the prompt's editor creates on Return, so the modal passes it")
+        expect(ModalKeys.command(for: press("\r", [.shift], keyCode: 36), in: prompt) == nil, "⇧Return is the prompt's newline")
+        expect(ModalKeys.command(for: press("\r", [.command], keyCode: 36), in: prompt) == .submit, "⌘Return should submit from the prompt")
         expect(ModalKeys.command(for: press("\r", [.command], keyCode: 36), in: context(.line)) == .submit, "⌘Return should submit from a line")
         expect(ModalKeys.command(for: press("\r", [.command], keyCode: 36), in: context(.select)) == .submit, "⌘Return should submit from a select")
         expect(ModalKeys.command(for: press("\r", [.command], keyCode: 36), in: context(nil, fields: 0)) == .submit, "⌘Return should confirm with no field")
@@ -73,7 +71,7 @@ struct ModalKeysTests {
 
     private static func escAndControlBracketCancel() {
         let controlBracket = press("[", [.control], keyCode: 33)
-        for focus in [ModalKeyContext.Focus.line, .select, .prompt(keepsTab: true), nil] {
+        for focus in [ModalKeyContext.Focus.line, .select, .prompt, nil] {
             let modal = context(focus, fields: focus == nil ? 0 : 3)
             expect(ModalKeys.command(for: press(nil, keyCode: 53), in: modal) == .cancel, "Esc should cancel \(String(describing: focus))")
             expect(ModalKeys.command(for: controlBracket, in: modal) == .cancel, "⌃[ should cancel \(String(describing: focus))")
@@ -112,12 +110,10 @@ struct ModalKeysTests {
         expect(ModalKeys.command(for: press(nil, keyCode: 48), in: confirmation) == .consume, "Tab with no field should be taken and do nothing")
     }
 
-    private static func promptKeepsTabOnlyWhereItSaysSo() {
-        let keeps = context(.prompt(keepsTab: true))
-        expect(ModalKeys.command(for: press(nil, keyCode: 48), in: keeps) == nil, "a prompt that keeps Tab should type it")
-        expect(ModalKeys.command(for: press(nil, [.shift], keyCode: 48), in: keeps) == .previousField, "⇧Tab should move back from a prompt that keeps Tab")
-        let moves = context(.prompt(keepsTab: false))
-        expect(ModalKeys.command(for: press(nil, keyCode: 48), in: moves) == .nextField, "a prompt that doesn't keep Tab should move on with it")
+    private static func promptKeepsTabAsText() {
+        let prompt = context(.prompt)
+        expect(ModalKeys.command(for: press(nil, keyCode: 48), in: prompt) == nil, "Tab should type a tab in the prompt")
+        expect(ModalKeys.command(for: press(nil, [.shift], keyCode: 48), in: prompt) == .previousField, "⇧Tab should move back from the prompt")
     }
 
     private static func arrowsAndHLCycleASelect() {
@@ -133,7 +129,7 @@ struct ModalKeysTests {
     }
 
     private static func cyclingIsOnlyForSelects() {
-        for focus in [ModalKeyContext.Focus.line, .prompt(keepsTab: true)] {
+        for focus in [ModalKeyContext.Focus.line, .prompt] {
             let modal = context(focus)
             expect(ModalKeys.command(for: press(nil, keyCode: 123), in: modal) == nil, "← should not cycle \(focus): the text takes the caret")
             expect(ModalKeys.command(for: press("h", keyCode: 4), in: modal) == nil, "h should be typed into \(focus)")

@@ -21,9 +21,8 @@ public struct ModalKeyContext: Equatable {
         case select
         /// A single-line field: Return submits, and the text takes the other keys.
         case line
-        /// The multi-line prompt. Its editor takes Return (creates; ⇧Return adds a line) and ⌃s. Tab moves on,
-        /// unless `keepsTab`: then the prompt types it.
-        case prompt(keepsTab: Bool)
+        /// The multi-line prompt. Its editor takes Return (creates; ⇧Return adds a line), ⌃s, and Tab (types a tab).
+        case prompt
     }
 
     public var focus: Focus?
@@ -66,7 +65,7 @@ public enum ModalKeys {
             return moveFocus(-1, in: context)
         }
         if Keymap.matches(press, .tab) {
-            return keepsTab(context.focus) ? nil : moveFocus(1, in: context)
+            return isPrompt(context.focus) ? nil : moveFocus(1, in: context)
         }
         if Keymap.matches(press, .backTab) {
             return moveFocus(-1, in: context)
@@ -133,12 +132,5 @@ public enum ModalKeys {
             return false
         }
         return true
-    }
-
-    private static func keepsTab(_ focus: ModalKeyContext.Focus?) -> Bool {
-        guard case .prompt(let keepsTab)? = focus else {
-            return false
-        }
-        return keepsTab
     }
 }

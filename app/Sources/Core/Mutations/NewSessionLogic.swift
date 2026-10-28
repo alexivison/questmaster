@@ -406,7 +406,7 @@ public struct NewSessionFormModel: Equatable {
         if focusedField.isSelect {
             return .select
         }
-        return focusedField == .prompt ? .prompt(keepsTab: true) : .line
+        return focusedField == .prompt ? .prompt : .line
     }
 
     public mutating func submitPayload() -> NewSessionSubmitPayload? {

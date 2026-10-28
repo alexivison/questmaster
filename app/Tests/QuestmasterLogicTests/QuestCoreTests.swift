@@ -388,7 +388,7 @@ struct QuestCoreTests {
         var model = NewQuestFormModel(projects: projects, home: home)
         expect(model.modalFocus == .line, "the project field should be a line, where Tab moves on")
         model.focusedField = .content
-        expect(model.modalFocus == .prompt(keepsTab: true), "the content should keep Tab as text, as the New Session prompt does")
+        expect(model.modalFocus == .prompt, "the content should keep Tab as text, as the New Session prompt does")
     }
 
     private static func projectSearchRanksByNameThenPath() {

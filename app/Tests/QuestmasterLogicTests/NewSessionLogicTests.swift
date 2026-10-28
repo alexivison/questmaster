@@ -453,7 +453,7 @@ struct NewSessionLogicTests {
         model.focusedField = .title
         expect(model.modalFocus == .line, "a title is a line: Return submits")
         model.focusedField = .prompt
-        expect(model.modalFocus == .prompt(keepsTab: true), "the prompt keeps Tab as text, and its editor takes Return")
+        expect(model.modalFocus == .prompt, "the prompt keeps Tab as text, and its editor takes Return")
         model.focusedField = .agent
         expect(model.modalFocus == .select, "the agent is a select")
     }

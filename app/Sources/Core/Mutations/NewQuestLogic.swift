@@ -314,7 +314,7 @@ public struct NewQuestFormModel: Equatable {
     /// What the focused field is, for the shared modal keys (`ModalKeys`). The content is a prompt, which keeps Tab as
     /// text, as New Session's prompt does.
     public var modalFocus: ModalKeyContext.Focus {
-        focusedField == .content ? .prompt(keepsTab: true) : .line
+        focusedField == .content ? .prompt : .line
     }
 
     public mutating func moveFocus(_ delta: Int) {
