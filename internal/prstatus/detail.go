@@ -73,7 +73,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 				cursor = ",before:" + strconv.Quote(before)
 			}
 			reopenedQuery := ""
-			if source == "comments" && before == "" && current.State == "open" && (old.State == "closed" || old.FetchedAt == "") {
+			if source == "comments" && before == "" && current.State == "open" && (old.State == "closed" || old.ChangedAt == "") {
 				reopenedQuery = " timelineItems(last:1,itemTypes:[REOPENED_EVENT]) { nodes { ... on ReopenedEvent { createdAt } } }"
 			}
 			query := fmt.Sprintf("query { rateLimit { cost remaining resetAt } repository(owner:%s,name:%s) { pullRequest(number:%d) { %s(last:100%s) { nodes { %s } pageInfo { hasPreviousPage startCursor } }%s } } }", strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number, source, cursor, field, reopenedQuery)
@@ -203,7 +203,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 		stateAt = reopenedAt
 	}
 	if old.State != current.State && (current.State == "merged" || current.State == "closed" || current.State == "open") {
-		if stateAt == "" && old.FetchedAt != "" {
+		if stateAt == "" && old.ChangedAt != "" {
 			stateAt = current.UpdatedAt
 		}
 		if at, err := time.Parse(time.RFC3339Nano, stateAt); err == nil && !at.Before(baseline) {

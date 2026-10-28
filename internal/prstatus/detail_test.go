@@ -153,7 +153,7 @@ func TestReopenEventUsesTimelineTimeForWatcherBaseline(t *testing.T) {
 				return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":[],"pageInfo":{"hasPreviousPage":false}},"timelineItems":{"nodes":[{"createdAt":%q}]}}}}}`, source, reopenedAt)), nil, nil
 			}
 			rest := func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
-			events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "closed", FetchedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}, state.PullRequestStatus{State: "open", UpdatedAt: now.Format(time.RFC3339Nano)}, "", state.PullRequestEventLog{}, graph, rest, now)
+			events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "closed", ChangedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}, state.PullRequestStatus{State: "open", UpdatedAt: now.Format(time.RFC3339Nano)}, "", state.PullRequestEventLog{}, graph, rest, now)
 			if host.Error != "" || len(events) != tc.want {
 				t.Fatalf("reopen events = %#v, %#v", events, host)
 			}

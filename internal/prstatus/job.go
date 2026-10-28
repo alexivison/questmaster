@@ -321,7 +321,7 @@ func (j *Job) step(ctx context.Context) error {
 			if baseline.After(now) {
 				continue
 			}
-			if prior.FetchedAt == "" && !baseline.IsZero() && updated.Before(baseline) && stateAt.Before(baseline) && current.CI != "success" && current.CI != "failure" {
+			if prior.ChangedAt == "" && !baseline.IsZero() && updated.Before(baseline) && stateAt.Before(baseline) && current.CI != "success" && current.CI != "failure" {
 				continue
 			}
 			log, err := state.LoadPullRequestEventLog(j.Root, pr.Key)
@@ -330,6 +330,7 @@ func (j *Job) step(ctx context.Context) error {
 			}
 			events, ids, detail := fetchDetails(ctx, pr, prior, current, result.StateAt[pr.Key], log, j.RunGH, j.RunREST, now)
 			if detail.Error != "" {
+				detail.CheckedAt = result.Hosts[pr.Host].CheckedAt
 				result.Hosts[pr.Host] = detail
 				failed[pr.Host] = true
 				delete(result.Statuses, pr.Key)
@@ -400,6 +401,7 @@ func (j *Job) step(ctx context.Context) error {
 			j.forced[host] = true
 			if now.Before(j.blocked[host]) {
 				item := j.last[host]
+				item.CheckedAt = ""
 				item.BackoffUntil = j.blocked[host].UTC().Format(time.RFC3339)
 				for _, reply := range waiters[host] {
 					if reply.ctx.Err() == nil {

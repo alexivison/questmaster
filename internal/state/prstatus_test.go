@@ -27,7 +27,7 @@ func TestPullRequestStatusPersistence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first := PullRequestStatus{Title: "first", FetchedAt: "2026-01-01T00:00:00Z"}
+	first := PullRequestStatus{Title: "first", ChangedAt: "2026-01-01T00:00:00Z"}
 	if err := SavePullRequestStatuses(store.Root(), map[string]PullRequestStatus{one.Key: first, two.Key: {Title: "second"}}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestPullRequestStatusPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first.FetchedAt = "2026-01-02T00:00:00Z"
+	first.ChangedAt = "2026-01-02T00:00:00Z"
 	if err := SavePullRequestStatuses(store.Root(), map[string]PullRequestStatus{one.Key: first, two.Key: {Title: "second"}}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestPullRequestStatusPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !statuses[one.Key].Stale || statuses[one.Key].Title != "first" || statuses[one.Key].FetchedAt != "2026-01-01T00:00:00Z" {
+	if !statuses[one.Key].Stale || statuses[one.Key].Title != "first" || statuses[one.Key].ChangedAt != "2026-01-01T00:00:00Z" {
 		t.Fatalf("last good status lost: %#v", statuses[one.Key])
 	}
 	if _, err := UnwatchPullRequest(store.Root(), "qm-two", two.Key); err != nil {

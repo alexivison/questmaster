@@ -535,7 +535,7 @@ func TestJobRefreshInsideBackoffReturnsCurrentHostState(t *testing.T) {
 	select {
 	case hosts := <-result:
 		item := hosts["github.com"]
-		if calls != 1 || item.Error == "" || item.BackoffUntil != now.Add(90*time.Second).Format(time.RFC3339) {
+		if calls != 1 || item.Error == "" || item.BackoffUntil != now.Add(90*time.Second).Format(time.RFC3339) || item.CheckedAt != "" {
 			t.Fatalf("calls=%d host=%#v", calls, item)
 		}
 	case <-time.After(5 * time.Second):

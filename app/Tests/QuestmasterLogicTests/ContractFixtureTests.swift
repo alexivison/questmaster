@@ -108,7 +108,7 @@ struct ContractFixtureTests {
         let status = pulls.data.first?.status
         expect(status?.title == "Ready to merge" && status?.url == "https://github.com/owner/repo/pull/42", "pull_requests title/url did not decode")
         expect(status?.state == .open && status?.draft == false && status?.headSHA == "abc123", "pull_requests state/draft/head did not decode")
-        expect(status?.updatedAt == "2026-06-19T04:20:00Z" && status?.fetchedAt == "2026-06-19T04:20:00Z", "pull_requests timestamps did not decode")
+        expect(status?.updatedAt == "2026-06-19T04:20:00Z" && status?.changedAt == "2026-06-19T04:20:00Z", "pull_requests timestamps did not decode")
         expect(status?.additions == 0 && status?.deletions == 0 && status?.comments == 0, "pull_requests counters did not decode")
         expect(status?.review == .approved && status?.ci == .success && status?.stale == false, "pull_requests looks did not decode")
         expect(pulls.data.last?.status?.inaccessibleReason == .saml && pulls.data.last?.status?.state == nil, "pull_requests inaccessible status did not decode")
@@ -139,6 +139,7 @@ struct ContractFixtureTests {
         let refresh = try decodeFixture(PRRefreshEnvelopeFixture.self, "pr_refresh_response_envelope.json")
         expect(refresh.data.pullRequests.first?.status?.title == "Ready to merge", "pr.refresh status did not decode")
         expect(refresh.data.hosts["github.com"]?.rateLimit?.remaining == 4999, "pr.refresh host result did not decode")
+        expect(refresh.data.hosts["github.com"]?.checkedAt == "2026-06-19T04:20:00Z", "pr.refresh checked_at did not decode")
     }
 
     private static func decodeFixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {
@@ -243,7 +244,8 @@ private struct PRRefreshEnvelopeFixture: Decodable {
                 var remaining: Int
             }
             var rateLimit: RateLimit?
-            enum CodingKeys: String, CodingKey { case rateLimit = "rate_limit" }
+            var checkedAt: String?
+            enum CodingKeys: String, CodingKey { case rateLimit = "rate_limit", checkedAt = "checked_at" }
         }
         var pullRequests: [PullRequestRow]
         var hosts: [String: Host]
