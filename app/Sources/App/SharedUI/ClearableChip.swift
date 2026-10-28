@@ -3,7 +3,8 @@ import QuestmasterCore
 import SwiftUI
 
 /// A chip for a selection that can be cleared (the Worker Log's filter), measured from Selected Filter Item.svg: 25
-/// high in the field chrome's `item` fill and `line` border, a muted label, its value, a divider and an x. The x clears;
+/// high in the field chrome's `item` fill and `line` border, a muted label (`textMetaHighlighted`), its value, a divider
+/// and an x. The value is the current selection, so it is bold `textBody`. The x clears;
 /// the chip itself is no button. Unlike the 15-high `FilterChip`, which a click removes whole, it holds any content.
 struct ClearableChip<Value: View>: View {
     let label: String
@@ -18,7 +19,7 @@ struct ClearableChip<Value: View>: View {
             HStack(spacing: ClearableChipMetrics.labelGap) {
                 Text(label)
                     .font(AppFonts.questLogBody.swiftUI)
-                    .foregroundStyle(AppPalette.textMeta.swiftUI)
+                    .foregroundStyle(AppPalette.muted.swiftUI)
                 value()
             }
             .padding(.trailing, Space.item)
@@ -74,43 +75,5 @@ private struct CrossShape: Shape {
         path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
         return path
-    }
-}
-
-/// Lays its views out left to right, starting a new line when the next one doesn't fit.
-struct WrappingStack: Layout {
-    let spacing: CGFloat
-    let lineSpacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(subviews, width: proposal.width ?? .infinity).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let frames = arrange(subviews, width: bounds.width).frames
-        for (subview, frame) in zip(subviews, frames) {
-            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: .unspecified)
-        }
-    }
-
-    private func arrange(_ subviews: Subviews, width: CGFloat) -> (frames: [CGRect], size: CGSize) {
-        var frames: [CGRect] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var usedWidth: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0 && x + size.width > width {
-                x = 0
-                y += lineHeight + lineSpacing
-                lineHeight = 0
-            }
-            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-            usedWidth = max(usedWidth, x - spacing)
-        }
-        return (frames, CGSize(width: usedWidth, height: y + lineHeight))
     }
 }

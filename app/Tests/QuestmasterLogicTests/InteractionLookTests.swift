@@ -13,6 +13,7 @@ struct InteractionLookTests {
         aRegionHasTheKeysOnlyWithoutAModal()
         missingFilesAndMarksKeepTheirColours()
         rowsOnARaisedSurfaceStepUpFromItsFill()
+        textTabsFollowThePillTabsAndLightUnderThePointer()
         print("InteractionLookTests: all tests passed")
     }
 
@@ -125,6 +126,27 @@ struct InteractionLookTests {
         expect(!RowLook.raisedRest.bold && !RowLook.raisedHighlighted.bold, "raised rows are never bold")
         expect(RowLook.rest.hoverOutline == .line && RowLook.hovered.outline == .line, "the other rows keep the line hover outline")
         expect(RowLook.raisedRest.missingFile.underPointer(true).outline == .controlBorder, "a look's hover outline survives the missing-file variant")
+    }
+
+    /// The Worker Log's text tabs: meta text at rest, body text under the pointer, and the selected tab bold in a selected pill
+    /// tab's label colour, which dims while the panel has no keys. The pointer adds nothing to the selected tab.
+    private static func textTabsFollowThePillTabsAndLightUnderThePointer() {
+        let rest = TextTabLook.tab(selected: false, areaFocused: true, underPointer: false)
+        let hovered = TextTabLook.tab(selected: false, areaFocused: true, underPointer: true)
+        let selected = TextTabLook.tab(selected: true, areaFocused: true, underPointer: false)
+        let unfocused = TextTabLook.tab(selected: true, areaFocused: false, underPointer: false)
+        expect(rest == .rest && rest.label == .textMeta && !rest.bold, "an unselected tab is regular meta text")
+        expect(hovered == .hovered && hovered.label == .textBody && !hovered.bold, "the pointer lights an unselected tab to body text, still regular")
+        expect(TextTabLook.tab(selected: false, areaFocused: false, underPointer: false) == rest, "an unselected tab looks the same in an unfocused panel")
+        expect(selected.bold && selected.label == OutlineLook.tabSelected.label, "the selected tab is bold in a selected pill tab's label colour")
+        expect(unfocused.bold && unfocused.label == OutlineLook.tabSelectedUnfocused.label, "and one step dimmer without the keys")
+        expect(TextTabLook.tab(selected: true, areaFocused: true, underPointer: true) == selected, "the pointer adds nothing to the selected tab")
+        expect(TextTabLook.tab(selected: true, areaFocused: false, underPointer: true) == unfocused, "nor to the unfocused selected tab")
+        expectBrighter([rest, hovered, selected].map { [$0.label.luminance] }, "text tabs: rest, under the pointer, selected")
+        expect(unfocused.label == hovered.label && unfocused.bold != hovered.bold, "the unfocused selected tab differs from a hovered one by its weight")
+        for look in [rest, hovered, selected, unfocused] {
+            expect(look.label != .accent && look.label != .brassActive, "tabs carry no gold or brass")
+        }
     }
 
     private static func missingFilesAndMarksKeepTheirColours() {

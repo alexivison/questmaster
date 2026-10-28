@@ -177,6 +177,25 @@ public struct OutlineLook: Equatable, Sendable {
     }
 }
 
+/// A text tab (the Worker Log's worker tabs): no outline or fill, only its label changes. At rest the label is meta
+/// text; the pointer lights it to body text; the selected tab is bold in the label colour of a selected pill tab, which
+/// dims one step while its area has no keys. The pointer adds nothing to the selected tab.
+public struct TextTabLook: Equatable, Sendable {
+    public let label: StateColor
+    /// Bold means selected.
+    public let bold: Bool
+
+    public static let rest = TextTabLook(label: .textMeta, bold: false)
+    public static let hovered = TextTabLook(label: .textBody, bold: false)
+
+    public static func tab(selected: Bool, areaFocused: Bool, underPointer: Bool) -> TextTabLook {
+        guard selected else {
+            return underPointer ? .hovered : .rest
+        }
+        return TextTabLook(label: OutlineLook.tab(selected: true, areaFocused: areaFocused).label, bold: true)
+    }
+}
+
 /// A multi-selection mark (the artifacts' delete selection): the one gold when marked.
 public enum MarkLook {
     public static func color(marked: Bool) -> StateColor {

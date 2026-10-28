@@ -22,9 +22,10 @@ public struct WorkerFeedRequest: Equatable {
 /// The worker chat feed for an attached master and its workers. It owns the cursors, the bounded
 /// history and the rendered `lines`; the app only executes requests and feeds responses back.
 ///
-/// The log filter narrows `lines` after they are built, so folding and trimming never see it: a Cast run folds
-/// across entries the filter hides, and the 600/500 line trim counts hidden lines too. Each master keeps its own
-/// filter in memory; switching away and back restores it.
+/// The log filter (the Action boxes and the selected worker tab) narrows `lines` after they are built, so folding and
+/// trimming never see it: a Cast run folds across entries the filter hides, and the line trim counts hidden lines too.
+/// The Action ticks are app-wide: one selection shared by every master, kept when the attached master changes. The
+/// selected worker tab names that master's workers, so each master remembers its own. Both live in memory only.
 ///
 /// Pull policy: a request is handed out when the dock is visible and the attached master changed,
 /// the dock just opened, a worker changed, or the last response said `has_more`. At most one
@@ -54,8 +55,10 @@ public final class WorkerChatStore {
     public var isKnownEmpty: Bool { lines.isEmpty && (hasLoaded || !allLines.isEmpty) }
     public private(set) var filter = WorkerLogFilter()
     public private(set) var menu = WorkerLogMenu()
-    /// The attached master's workers, in the order the tracker shows them.
+    /// The attached master's workers, in the order the tracker shows them: the tab row's tabs after All.
     public private(set) var workers: [WorkerLogWorker] = []
+    /// Whether the tab row shows: from two workers on. The view, the dropdown's room and the tab keys all follow this.
+    public var showsTabs: Bool { WorkerLogFilter.showsTabs(for: workers) }
     /// A single muted notice naming the workers whose log the last pull couldn't read; cleared by a clean pull.
     public private(set) var readNotice: String?
     /// Changes with every replacement of `lines`, so a view can tell one update from the next.
@@ -76,7 +79,8 @@ public final class WorkerChatStore {
     @ObservationIgnored private var lineSources: [[Int]] = []
     /// Every built line, before the filter; `lineSources` runs parallel to it. Tracked, since `isKnownEmpty` reads it.
     private var allLines: [WorkerChatLine] = []
-    @ObservationIgnored private var savedFilters: [String: WorkerLogFilter] = [:]
+    /// Each master's selected worker tab, by master id; a master on the All tab has no entry.
+    @ObservationIgnored private var savedWorkerTabs: [String: String] = [:]
     @ObservationIgnored private var workerOrder: [String] = []
     @ObservationIgnored private var nextSequence = 0
     @ObservationIgnored private var trackerNames: [String: String] = [:]
@@ -89,14 +93,6 @@ public final class WorkerChatStore {
 
     public init(calendar: Calendar = .autoupdatingCurrent) {
         self.calendar = calendar
-    }
-
-    public var chips: [WorkerLogChip] {
-        filter.chips(workers: workers)
-    }
-
-    public var menuRows: [WorkerLogMenuRow] {
-        WorkerLogMenuRow.rows(workers: workers)
     }
 
     public func toggleMenu() {
@@ -113,43 +109,73 @@ public final class WorkerChatStore {
         menu.close()
     }
 
-    /// Toggles the row at `index` and puts the cursor on it.
-    public func toggleRow(at index: Int) {
-        let rows = menuRows
-        guard isAttached, rows.indices.contains(index) else {
+    /// Toggles the Action box at `index` and puts the cursor on it.
+    public func toggleAction(at index: Int) {
+        let actions = WorkerLogAction.allCases
+        guard isAttached, actions.indices.contains(index) else {
             return
         }
-        menu.setCursor(index, rowCount: rows.count)
-        switch rows[index] {
-        case .action(let action): filter.toggle(action)
-        case .worker(let worker): filter.toggle(worker)
+        menu.setCursor(index, rowCount: actions.count)
+        filter.toggle(actions[index])
+        refilter()
+    }
+
+    public func clearActions() {
+        filter.clearActions()
+        refilter()
+    }
+
+    /// Selects a worker's tab, or All with nil. Without a tab row, or for a worker that isn't the master's, a worker
+    /// selects nothing.
+    public func selectWorker(_ id: String?) {
+        guard isAttached, id == nil || (showsTabs && workers.contains(where: { $0.id == id })) else {
+            return
         }
+        filter.selectWorker(id)
         refilter()
     }
 
-    public func clearFilter(_ section: WorkerLogSection) {
-        filter.clear(section)
+    /// Moves the selected tab by `delta`, wrapping. Without a tab row there is nothing to move.
+    public func moveTab(by delta: Int) {
+        guard isAttached, showsTabs else {
+            return
+        }
+        filter.moveTab(delta, in: workers)
         refilter()
     }
 
-    /// Whether the key was the filter's: only `toggleMenu` is while the dropdown is closed.
+    /// Whether the key was the Worker Log's: the dropdown's keys are only while it is open, and the tab keys only while
+    /// there is a tab row, so they pass through otherwise (the dropdown stays open when they switch the tab).
     public func handle(_ key: WorkerLogFilterKey) -> Bool {
-        guard isAttached, key == .toggleMenu || menu.isOpen else {
+        guard isAttached else {
             return false
         }
         switch key {
         case .toggleMenu:
             toggleMenu()
-        case .close:
-            closeMenu()
-        case .moveUp:
-            menu.moveCursor(by: -1, rowCount: menuRows.count)
-        case .moveDown:
-            menu.moveCursor(by: 1, rowCount: menuRows.count)
-        case .toggleRow:
-            toggleRow(at: menu.cursor)
+        case .previousTab, .nextTab:
+            guard showsTabs else {
+                return false
+            }
+            moveTab(by: key == .nextTab ? 1 : -1)
+        case .close, .moveUp, .moveDown, .toggleRow:
+            guard menu.isOpen else {
+                return false
+            }
+            handleMenuKey(key)
         }
         return true
+    }
+
+    private func handleMenuKey(_ key: WorkerLogFilterKey) {
+        let rowCount = WorkerLogAction.allCases.count
+        switch key {
+        case .close: closeMenu()
+        case .moveUp: menu.moveCursor(by: -1, rowCount: rowCount)
+        case .moveDown: menu.moveCursor(by: 1, rowCount: rowCount)
+        case .toggleRow: toggleAction(at: menu.cursor)
+        case .toggleMenu, .previousTab, .nextTab: break
+        }
     }
 
     /// Call on every runtime update and dock change. Returns the pull to run now, if any.
@@ -227,12 +253,12 @@ public final class WorkerChatStore {
 
     private func reset(to nextMasterID: String?) {
         if let masterID {
-            savedFilters[masterID] = filter.isActive ? filter : nil
+            savedWorkerTabs[masterID] = filter.workerID
         }
         masterID = nextMasterID
         isAttached = nextMasterID != nil
         hasLoaded = false
-        filter = nextMasterID.flatMap { savedFilters[$0] } ?? WorkerLogFilter()
+        filter.selectWorker(nextMasterID.flatMap { savedWorkerTabs[$0] })
         menu = WorkerLogMenu()
         workers = []
         workerOrder = []
@@ -319,15 +345,14 @@ public final class WorkerChatStore {
         updateReadNotice()
     }
 
-    /// Brings `workers` up to date with the tracker and drops selections of workers that are gone. Returns whether
-    /// that changed the filter.
+    /// Brings `workers` up to date with the tracker and falls back to All when the selected worker is gone. Returns
+    /// whether that changed the filter.
     private func refreshWorkers(names: [String: String]) -> Bool {
         let nextWorkers = workerOrder.map { id in
-            WorkerLogWorker(id: id, name: WorkerChatLineBuilder.displayName(names[id] ?? id), agent: agents[id] ?? "")
+            WorkerLogWorker(id: id, name: WorkerChatLineBuilder.displayName(names[id] ?? id))
         }
         if nextWorkers != workers {
             workers = nextWorkers
-            menu.clampCursor(rowCount: menuRows.count)
         }
         let before = filter
         filter.reconcile(with: workers)

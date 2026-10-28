@@ -106,8 +106,8 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
             || super.performKeyEquivalent(with: event)
     }
 
-    /// The Worker Log filter's keys, ahead of the feed's own: while the dropdown is open j/k and the arrows move its
-    /// cursor instead of scrolling.
+    /// The Worker Log's own keys, ahead of the feed's: while the filter's dropdown is open j/k and the arrows move its
+    /// cursor instead of scrolling, and `[` and `]` step the worker tabs whether it is open or not.
     private func handleWorkerLogFilter(_ event: NSEvent) -> Bool {
         guard model.currentMode == .workerChat else {
             return false
@@ -392,7 +392,7 @@ struct DockRootView: View {
                     areaFocused: model.isFocused
                 )
             case .workerChat:
-                WorkerChatDockView(store: workerChatStore)
+                WorkerChatDockView(store: workerChatStore, areaFocused: model.isFocused)
             }
         }
         .background(AppPalette.panel.swiftUI)
