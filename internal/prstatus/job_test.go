@@ -70,6 +70,58 @@ func jobGH(t *testing.T, j *Job, calls *[]string, stateByHost map[string]string,
 	}
 }
 
+func TestJobPollsExistingWatchAfterLegacyTimestamp(t *testing.T) {
+	t.Parallel()
+	j, store, now, _ := jobFixture(t)
+	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	updated := now.Add(-2 * time.Hour).Format(time.RFC3339)
+	legacy := fmt.Sprintf(`{%q:{"title":"PR","state":"open","updated_at":%q,"comments":1,"review":"none","ci":"none","fetched_at":%q}}`, pr.Key, updated, now.Add(-time.Hour).Format(time.RFC3339))
+	if err := os.WriteFile(state.PullRequestStatusPath(store.Root()), []byte(legacy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldAt := now.Add(-45 * time.Minute).Format(time.RFC3339)
+	newAt := now.Add(-30 * time.Minute).Format(time.RFC3339)
+	if _, err := state.RecordPullRequestEvents(store.Root(), pr.Key, []state.PullRequestEvent{{ID: "old-comment", Kind: "comment", OccurredAt: oldAt}}, map[string]string{"comments": "old-comment"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.ReadPullRequestEvents(store.Root(), pr.Key, "qm-live", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.AdvancePullRequestAlert(store.Root(), pr.Key, "qm-live", 1); err != nil {
+		t.Fatal(err)
+	}
+	j.RunGH = func(_ context.Context, _, query string) ([]byte, []byte, error) {
+		if strings.Contains(query, "p0: repository") {
+			return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100},"p0":{"pullRequest":{"title":"PR","state":"OPEN","updatedAt":%q,"totalCommentsCount":2}}}}`, updated)), nil, nil
+		}
+		if strings.Contains(query, "timelineItems") {
+			t.Fatal("existing status was mistaken for a first fetch")
+		}
+		source, nodes := "reviews", `[]`
+		if strings.Contains(query, "comments(last:") {
+			source = "comments"
+			nodes = fmt.Sprintf(`[{"id":"old-comment","createdAt":%q},{"id":"new-comment","createdAt":%q}]`, oldAt, newAt)
+		}
+		return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":%s,"pageInfo":{"hasPreviousPage":false}}}}}}`, source, nodes)), nil, nil
+	}
+	j.RunREST = func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
+	j.SendAlert = func(context.Context, string, string) (bool, error) { return false, nil }
+	if err := j.step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	status, err := state.LoadPullRequestStatuses(store.Root())
+	if err != nil || status[pr.Key].ChangedAt != now.Format(time.RFC3339) {
+		t.Fatalf("status=%#v err=%v", status[pr.Key], err)
+	}
+	log, err := state.LoadPullRequestEventLog(store.Root(), pr.Key)
+	if err != nil || log.Seq != 2 || len(log.Events) != 2 || log.Events[1].ID != "new-comment" || log.LastIDs["comments"] != "new-comment" || log.Cursors["qm-live"] != (state.PullRequestEventCursor{AlertedSeq: 1, ReadSeq: 1}) {
+		t.Fatalf("event log=%#v err=%v", log, err)
+	}
+}
+
 func TestJobHoldsThenCoalescesPendingAlert(t *testing.T) {
 	t.Parallel()
 	j, store, now, _ := jobFixture(t)

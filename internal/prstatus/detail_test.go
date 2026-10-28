@@ -43,7 +43,7 @@ func TestFetchDetailsPaginatesToLastIDAndKeepsPendingReviewsOpen(t *testing.T) {
 		}
 		return []byte(`[{"node_id":"new-line","body":"line","created_at":"2026-10-27T01:07:00Z","updated_at":"2026-10-27T01:07:00Z","user":{"login":"claude[bot]","type":"Bot"}},{"node_id":"old-line","created_at":"2026-10-27T00:01:00Z","updated_at":"2026-10-27T00:01:00Z"}]`), nil, nil
 	}
-	events, ids, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{}, "", log, graph, rest, now)
+	events, ids, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{}, false, "", log, graph, rest, now)
 	if host.Error != "" || len(events) != 3 || ids["reviews"] != "new-review" || ids["comments"] != "new-comment" || ids["review_comments"] != "new-line" || len(queries) != 3 {
 		t.Fatalf("events=%#v ids=%#v host=%#v queries=%d", events, ids, host, len(queries))
 	}
@@ -123,9 +123,29 @@ func TestInitialMergeAfterWatchBecomesEvent(t *testing.T) {
 	}
 	rest := func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
 	mergedAt := now.Add(-time.Minute).Format(time.RFC3339Nano)
-	events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{State: "merged"}, mergedAt, state.PullRequestEventLog{}, graph, rest, now)
+	events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{State: "merged"}, false, mergedAt, state.PullRequestEventLog{}, graph, rest, now)
 	if host.Error != "" || len(events) != 1 || events[0].Kind != "state" || events[0].OccurredAt != mergedAt {
 		t.Fatalf("merge event = %#v, %#v", events, host)
+	}
+}
+
+func TestLegacyStatusUsesFallbackStateTime(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 27, 2, 0, 0, 0, time.UTC)
+	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	pr.Watchers = []state.PullRequestWatcher{{SessionID: "qm-one", AddedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}}
+	graph := func(_ context.Context, _, query string) ([]byte, []byte, error) {
+		source := "comments"
+		if strings.Contains(query, "reviews(last:") {
+			source = "reviews"
+		}
+		return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":[],"pageInfo":{"hasPreviousPage":false}}}}}}`, source)), nil, nil
+	}
+	rest := func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
+	updated := now.Add(-time.Minute).Format(time.RFC3339)
+	events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "open"}, state.PullRequestStatus{State: "closed", UpdatedAt: updated}, true, "", state.PullRequestEventLog{}, graph, rest, now)
+	if host.Error != "" || len(events) != 1 || events[0].Kind != "state" || events[0].OccurredAt != updated {
+		t.Fatalf("fallback state event = %#v, %#v", events, host)
 	}
 }
 
@@ -153,7 +173,7 @@ func TestReopenEventUsesTimelineTimeForWatcherBaseline(t *testing.T) {
 				return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":[],"pageInfo":{"hasPreviousPage":false}},"timelineItems":{"nodes":[{"createdAt":%q}]}}}}}`, source, reopenedAt)), nil, nil
 			}
 			rest := func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
-			events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "closed", ChangedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}, state.PullRequestStatus{State: "open", UpdatedAt: now.Format(time.RFC3339Nano)}, "", state.PullRequestEventLog{}, graph, rest, now)
+			events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "closed", ChangedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}, state.PullRequestStatus{State: "open", UpdatedAt: now.Format(time.RFC3339Nano)}, true, "", state.PullRequestEventLog{}, graph, rest, now)
 			if host.Error != "" || len(events) != tc.want {
 				t.Fatalf("reopen events = %#v, %#v", events, host)
 			}

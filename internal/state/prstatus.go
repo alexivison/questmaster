@@ -54,7 +54,8 @@ func SavePullRequestStatuses(root string, updates map[string]PullRequestStatus, 
 				status.ChangedAt = ""
 				comparable := prior
 				comparable.ChangedAt = ""
-				if !reflect.DeepEqual(status, comparable) {
+				// An unknown previous change time is established on this successful poll.
+				if prior.ChangedAt == "" || !reflect.DeepEqual(status, comparable) {
 					status.ChangedAt = changedAt
 				} else {
 					status.ChangedAt = prior.ChangedAt
