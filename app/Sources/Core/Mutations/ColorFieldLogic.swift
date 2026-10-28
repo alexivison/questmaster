@@ -145,7 +145,7 @@ public struct ColorFieldModel: Equatable {
         select(index)
     }
 
-    /// ←/→ in SELECT, ⌥←/⌥→ in either state: the next or previous colour, wrapping, without the list.
+    /// ←/→ in SELECT (`ModalKeys`) and ⌥←/⌥→ in either state: the next or previous colour, wrapping, without the list.
     public mutating func cycle(_ delta: Int) {
         select((selectedIndex + delta + colors.count) % colors.count)
     }
@@ -180,15 +180,11 @@ public extension ColorFieldModel {
         }
     }
 
-    /// The direction ⌥←/⌥→ (both states) and ←/→ (SELECT) cycle the colours in, or nil for another key.
-    static func cycleDelta(_ press: Keymap.KeyPress, mode: PickerFieldMode) -> Int? {
+    /// The direction ⌥←/⌥→ cycle the colours in, in either state, or nil for another key. ←/→ in SELECT are the modal's
+    /// shared select keys (`ModalKeys`), not the colour's.
+    static func optionCycleDelta(_ press: Keymap.KeyPress) -> Int? {
         if Keymap.matches(press, .optionCycleLeft) { return -1 }
         if Keymap.matches(press, .optionCycleRight) { return 1 }
-        guard mode == .select else {
-            return nil
-        }
-        if Keymap.matches(press, .cycleLeft) { return -1 }
-        if Keymap.matches(press, .cycleRight) { return 1 }
         return nil
     }
 }

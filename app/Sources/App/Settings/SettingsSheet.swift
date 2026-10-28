@@ -107,7 +107,7 @@ struct SettingsSheetView: View {
         }
         .frame(width: SettingsSheetModel.sheetSize.width, height: SettingsSheetModel.sheetSize.height)
         .scoopedPanel()
-        .background(SheetKeyEventMonitor(onKeyDown: { model.handle($0) }, onNavigation: { model.navigate($0) }))
+        .background(SheetKeyEventMonitor(onKeyDown: model.handle))
         .onAppear { model.present() }
         .onDisappear { model.disappear() }
     }
@@ -329,44 +329,25 @@ final class SettingsSheetModel: ObservableObject {
         state.selectTab(index)
     }
 
-    func navigate(_ direction: NavigationDirection) {
-        switch direction {
-        case .up:
-            state.moveFocus(-1)
-        case .down:
-            state.moveFocus(1)
-        case .left:
-            cycleFocusedValue(-1)
-        case .right:
-            cycleFocusedValue(1)
-        }
+    /// The sheet's keys: the `[` and `]` tabs (its own), then the shared modal keys (`ModalKeys`). The rows are selects,
+    /// so ←/→ cycle a value and Tab moves between them. Nothing submits: each change applies as it is made.
+    func handle(_ event: NSEvent) -> Bool {
+        ModalKeyActions(
+            context: { self.modalKeyContext },
+            fieldKey: { self.handleFieldKey($0) },
+            submit: {},
+            cancel: { self.close() },
+            moveFocus: { self.state.moveFocus($0) },
+            cycle: { self.cycleFocusedValue($0) }
+        ).handle(event)
     }
 
-    func handle(_ event: NSEvent) -> Bool {
+    private var modalKeyContext: ModalKeyContext {
+        ModalKeyContext(focus: .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, submitting: false, submits: false)
+    }
+
+    private func handleFieldKey(_ event: NSEvent) -> Bool {
         let press = event.keymapPress
-        if Keymap.matches(press, .cancel) {
-            close()
-            return true
-        }
-        if press.modifiers.contains(.command) {
-            return false
-        }
-        if Keymap.matches(press, .nextField) {
-            state.moveFocus(1)
-            return true
-        }
-        if Keymap.matches(press, .previousField) {
-            state.moveFocus(-1)
-            return true
-        }
-        if Keymap.matches(press, .cycleLeft) {
-            cycleFocusedValue(-1)
-            return true
-        }
-        if Keymap.matches(press, .cycleRight) {
-            cycleFocusedValue(1)
-            return true
-        }
         if Keymap.matches(press, .previousTab) {
             state.moveTab(-1)
             return true

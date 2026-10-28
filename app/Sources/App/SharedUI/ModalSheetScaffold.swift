@@ -56,7 +56,6 @@ struct ModalSheetScaffold<Content: View>: View {
                     if destructivePrimary {
                         Button(primaryLabel, action: onPrimary)
                             .buttonStyle(DangerButtonStyle())
-                            .keyboardShortcut(.defaultAction)
                     } else {
                         Button(primaryLabel, action: onPrimary)
                             .buttonStyle(GoldButtonStyle())

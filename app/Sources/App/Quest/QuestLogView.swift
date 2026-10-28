@@ -142,7 +142,7 @@ struct QuestLogModal: View {
         // A fresh page per opening, so the parchment unrolls when the log opens and not on later changes.
         QuestLogView(store: store, filter: filter, pageScroll: pageScroll, onCommand: onCommand)
             .id(store.openGeneration)
-            .background(SheetKeyEventMonitor(onKeyDown: handle, onNavigation: handleNavigation))
+            .background(SheetKeyEventMonitor(onKeyDown: handle))
     }
 
     private func handleNavigation(_ direction: NavigationDirection) {
@@ -152,6 +152,11 @@ struct QuestLogModal: View {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
+        // ⇧⌘H/J/K/L move the list before the command check and before the filter's text sees the press.
+        if let direction = Keymap.NavigationChord.direction(for: event.keymapPress) {
+            handleNavigation(direction)
+            return true
+        }
         if event.modifierFlags.contains(.command) {
             return false
         }

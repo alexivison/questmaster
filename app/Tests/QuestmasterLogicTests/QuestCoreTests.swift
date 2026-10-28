@@ -25,6 +25,7 @@ struct QuestCoreTests {
         displayEdgeSelectionJumpsToFirstAndLastAcrossSections()
         newQuestFormBuildsPayload()
         newQuestFormNeedsAProjectAndContent()
+        newQuestContentKeepsTabAsText()
         projectSearchRanksByNameThenPath()
         projectSearchSwitchesToDirectoriesForAPath()
         projectOptionsDeduplicateAndAbbreviate()
@@ -379,6 +380,15 @@ struct QuestCoreTests {
         expect(model.canSubmit && model.destination == .project(projects[1]), "a project's exact name is enough")
         model.content = "  "
         expect(!model.canSubmit && model.submitPayload() == nil && model.errorMessage == "content is required", "blank content should say so")
+    }
+
+    /// The content is a prompt: Tab stays text there, as in New Session's prompt. The project field is a line, where Tab
+    /// moves on.
+    private static func newQuestContentKeepsTabAsText() {
+        var model = NewQuestFormModel(projects: projects, home: home)
+        expect(model.modalFocus == .line, "the project field should be a line, where Tab moves on")
+        model.focusedField = .content
+        expect(model.modalFocus == .prompt, "the content should keep Tab as text, as the New Session prompt does")
     }
 
     private static func projectSearchRanksByNameThenPath() {

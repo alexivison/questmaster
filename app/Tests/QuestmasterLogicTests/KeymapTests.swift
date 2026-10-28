@@ -14,6 +14,7 @@ struct KeymapTests {
         listKeysAreArrowsAndLetters()
         openAndEditUseReturnAndLetters()
         submitTakesPlainReturnAndCommandReturn()
+        controlBracketIsEscape()
         tabAndBackTabAreDistinct()
         fieldKeysUseControlAndOption()
         pickerKeysUseArrowsAndControlPN()
@@ -108,6 +109,13 @@ struct KeymapTests {
         expect(matches(press("s", [.control]), .createFromPrompt), "⌃s should create from the prompt")
         expect(matches(press(nil, keyCode: 53), .cancel), "Esc should cancel")
         expect(!matches(press(nil, [.command], keyCode: 53), .cancel), "command-Esc is not cancel")
+    }
+
+    private static func controlBracketIsEscape() {
+        expect(matches(press("[", [.control], keyCode: 33), .cancel), "⌃[ should cancel, as Esc does")
+        expect(!matches(press("[", keyCode: 33), .cancel), "plain [ must not cancel")
+        expect(matches(press("[", [.control], keyCode: 33), .back), "⌃[ should go back, as Esc does")
+        expect(!matches(press("[", [.command, .control], keyCode: 33), .cancel), "⌘⌃[ is not cancel")
     }
 
     private static func tabAndBackTabAreDistinct() {

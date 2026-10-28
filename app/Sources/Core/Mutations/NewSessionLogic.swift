@@ -70,15 +70,6 @@ public enum NewSessionModelRefreshKey {
     }
 }
 
-public enum NewSessionFormKey: Equatable {
-    case controlJ
-    case controlK
-    case left
-    case right
-    case enter
-    case controlS
-}
-
 public enum NewSessionPromptReturnAction: Equatable {
     case create
     case newline
@@ -410,37 +401,12 @@ public struct NewSessionFormModel: Equatable {
         selectedEffortIndex = cycleOptionalIndex(selectedEffortIndex, delta: delta, count: effortOptions.count)
     }
 
-    public mutating func handle(_ key: NewSessionFormKey) {
-        guard !submitting else {
-            return
+    /// What the focused field is, for the shared modal keys (`ModalKeys`): a select cycles, and the prompt keeps Tab.
+    public var modalFocus: ModalKeyContext.Focus {
+        if focusedField.isSelect {
+            return .select
         }
-        switch key {
-        case .controlJ:
-            moveFocus(1)
-        case .controlK:
-            moveFocus(-1)
-        case .left:
-            cycleSelection(-1)
-        case .right:
-            cycleSelection(1)
-        case .enter, .controlS:
-            break
-        }
-    }
-
-    public var isSelectFocused: Bool {
-        focusedField.isSelect
-    }
-
-    public func creationRequested(by key: NewSessionFormKey) -> Bool {
-        switch key {
-        case .enter:
-            return focusedField != .prompt
-        case .controlS:
-            return focusedField == .prompt
-        default:
-            return false
-        }
+        return focusedField == .prompt ? .prompt : .line
     }
 
     public mutating func submitPayload() -> NewSessionSubmitPayload? {
@@ -491,7 +457,8 @@ public struct NewSessionFormModel: Equatable {
         return "none"
     }
 
-    private mutating func moveFocus(_ delta: Int) {
+    /// Moves focus one field through the form (`formOrder`), wrapping.
+    public mutating func moveFocus(_ delta: Int) {
         let fields = NewSessionField.formOrder
         guard let index = fields.firstIndex(of: focusedField) else {
             focusedField = .path
@@ -500,7 +467,8 @@ public struct NewSessionFormModel: Equatable {
         focusedField = fields[wrapped(index + delta, count: fields.count)]
     }
 
-    private mutating func cycleSelection(_ delta: Int) {
+    /// ← / → on the focused select (the agent or colour), wrapping. Other fields have nothing to cycle.
+    public mutating func cycleSelection(_ delta: Int) {
         switch focusedField {
         case .agent:
             let previousAgent = selectedAgent

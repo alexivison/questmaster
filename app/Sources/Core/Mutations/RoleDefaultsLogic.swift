@@ -163,6 +163,8 @@ public enum RoleDefaultField: Equatable {
 public struct RoleDefaultsSettingsModel: Equatable {
     public static let defaultAgents = NewSessionFormModel.defaultAgents
     public static let roles = ["master", "worker"]
+    /// Each role's model and effort: the fields Tab moves between on a tab.
+    public static var focusableFieldCount: Int { roles.count * 2 }
 
     public let agents: [String]
     public private(set) var rows: [RoleDefaultRow]
@@ -224,9 +226,8 @@ public struct RoleDefaultsSettingsModel: Equatable {
     /// effort for each role in `roles`, in order) — wraps within the tab.
     /// Switching tabs is `moveTab`'s job, not this one's.
     public mutating func moveFocus(_ delta: Int) {
-        let totalFields = Self.roles.count * 2
         let current = focusedRoleIndex * 2 + (focusedField == .model ? 0 : 1)
-        let next = roleDefaultsWrapped(current + delta, count: totalFields)
+        let next = roleDefaultsWrapped(current + delta, count: Self.focusableFieldCount)
         focusedRoleIndex = next / 2
         focusedField = next.isMultiple(of: 2) ? .model : .effort
     }

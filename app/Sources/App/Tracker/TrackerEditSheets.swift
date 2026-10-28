@@ -94,7 +94,7 @@ struct TrackerEditSessionSheet: View {
         }
         .scoopedPanel()
         .floatingDropdownHost()
-        .background(SheetKeyEventMonitor(onKeyDown: handle, onNavigation: navigate))
+        .background(SheetKeyEventMonitor(onKeyDown: handle))
         .onAppear {
             if focus == .title {
                 titleNonce += 1
@@ -175,56 +175,41 @@ struct TrackerEditSessionSheet: View {
         }
     }
 
-    private func navigate(_ direction: NavigationDirection) {
-        switch direction {
-        case .up, .down:
-            guard allowsColor else {
-                return
-            }
-            moveFocus(to: focus == .title ? .color : .title)
-        case .left, .right:
-            guard focus == .color else {
-                return
-            }
-            let before = color.mode
-            color.cycle(direction == .left ? -1 : 1)
-            colorFocus.follow(from: before, to: color.mode)
-        }
+    /// The sheet's keys: the focused field's own (`handleFieldKey`), then the shared modal keys (`ModalKeys`).
+    private func handle(_ event: NSEvent) -> Bool {
+        ModalKeyActions(
+            context: { modalKeyContext },
+            fieldKey: { handleFieldKey($0) },
+            submit: { submit() },
+            cancel: { dismiss() },
+            moveFocus: { _ in moveFocus(to: focus == .title ? .color : .title) },
+            cycle: { cycleColor($0) }
+        ).handle(event)
     }
 
-    private func handle(_ event: NSEvent) -> Bool {
-        let press = event.keymapPress
-        if press.modifiers.contains(.command) {
-            guard Keymap.matches(press, .submit) else {
-                return false
-            }
-            submit()
-            return true
-        }
+    private var modalKeyContext: ModalKeyContext {
+        ModalKeyContext(focus: keyFocus, fieldCount: allowsColor ? 2 : 1, submitting: false, submits: true)
+    }
+
+    /// The colour input takes ←/→ to cycle only in SELECT; while it searches they move the caret.
+    private var keyFocus: ModalKeyContext.Focus {
+        focus == .color && color.mode == .select ? .select : .line
+    }
+
+    /// The colour input's keys, then the class key (⌃e in the title, for a master).
+    private func handleFieldKey(_ event: NSEvent) -> Bool {
         if focus == .color, TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
             return true
         }
-        if portrait.isEditable, SessionClassKey.cycles(press, titleFocused: focus == .title) {
-            portrait.cycle()
-            return true
+        guard portrait.isEditable, SessionClassKey.cycles(event.keymapPress, titleFocused: focus == .title) else {
+            return false
         }
-        if Keymap.matches(press, .cancel) {
-            dismiss()
-            return true
-        }
-        if Keymap.matches(press, .tab) || Keymap.matches(press, .backTab) || Keymap.matches(press, .nextField) {
-            navigate(.down)
-            return true
-        }
-        if Keymap.matches(press, .previousField) {
-            navigate(.up)
-            return true
-        }
-        if Keymap.matches(press, .submit) {
-            submit()
-            return true
-        }
-        return false
+        portrait.cycle()
+        return true
+    }
+
+    private func cycleColor(_ step: Int) {
+        TrackerColorInput.cycle(step, color: &color, colorFocus: &colorFocus)
     }
 }
 
@@ -278,17 +263,8 @@ struct TrackerEditRepoSheet: View {
         }
         .scoopedPanel()
         .floatingDropdownHost()
-        .background(SheetKeyEventMonitor(onKeyDown: handle, onNavigation: navigate))
+        .background(SheetKeyEventMonitor(onKeyDown: handle))
         .onAppear { colorFocus.sinkNonce += 1 }
-    }
-
-    private func navigate(_ direction: NavigationDirection) {
-        guard direction == .left || direction == .right else {
-            return
-        }
-        let before = color.mode
-        color.cycle(direction == .left ? -1 : 1)
-        colorFocus.follow(from: before, to: color.mode)
     }
 
     private func submit() {
@@ -309,24 +285,28 @@ struct TrackerEditRepoSheet: View {
         dismiss()
     }
 
+    /// The sheet's keys: the colour input's own, then the shared modal keys (`ModalKeys`). The colour is the only
+    /// field, so Tab does nothing.
     private func handle(_ event: NSEvent) -> Bool {
-        let press = event.keymapPress
-        if press.modifiers.contains(.command) {
-            guard Keymap.matches(press, .submit) else {
-                return false
-            }
-            submit()
-            return true
-        }
-        if TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
-            return true
-        }
-        if Keymap.matches(press, .cancel) {
-            dismiss()
-            return true
-        }
-        // The colour input is the only stop: Tab and vertical navigation have nowhere else to go.
-        return Keymap.matches(press, .tab) || Keymap.matches(press, .backTab)
+        ModalKeyActions(
+            context: { modalKeyContext },
+            fieldKey: { handleFieldKey($0) },
+            submit: { submit() },
+            cancel: { dismiss() },
+            cycle: { cycleColor($0) }
+        ).handle(event)
+    }
+
+    private var modalKeyContext: ModalKeyContext {
+        ModalKeyContext(focus: color.mode == .select ? .select : .line, fieldCount: 1, submitting: false, submits: true)
+    }
+
+    private func handleFieldKey(_ event: NSEvent) -> Bool {
+        TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus)
+    }
+
+    private func cycleColor(_ step: Int) {
+        TrackerColorInput.cycle(step, color: &color, colorFocus: &colorFocus)
     }
 }
 
@@ -357,13 +337,16 @@ private struct TrackerColorInput: View {
         )
     }
 
-    /// Runs the key the focused colour input takes: its own cycling (`ColorFieldModel.cycleDelta`), then the shared
-    /// picker keys (`PickerFieldKey`). The caret follows the mode.
+    /// Runs the key the focused colour input takes: its own ⌥←/⌥→ (`ColorFieldModel.optionCycleDelta`), then the shared
+    /// picker keys (`PickerFieldKey`). In SELECT, ←/→ and h/l are the modal's select keys, so they pass: a search
+    /// must not start on h or l. The caret follows the mode.
     static func handle(_ event: NSEvent, color: inout ColorFieldModel, colorFocus: inout TrackerColorFocus) -> Bool {
         let before = color.mode
         let press = event.keymapPress
-        if let delta = ColorFieldModel.cycleDelta(press, mode: before) {
+        if let delta = ColorFieldModel.optionCycleDelta(press) {
             color.cycle(delta)
+        } else if before == .select, ModalKeys.cycleStep(press) != nil {
+            return false
         } else if let command = PickerFieldKey.command(press, mode: before, showsSuggestions: color.showsSuggestions) {
             color.apply(command)
         } else {
@@ -371,5 +354,12 @@ private struct TrackerColorInput: View {
         }
         colorFocus.follow(from: before, to: color.mode)
         return true
+    }
+
+    /// The modal's cycle for the colour, ←/→ in SELECT: the next or previous colour, without a search.
+    static func cycle(_ step: Int, color: inout ColorFieldModel, colorFocus: inout TrackerColorFocus) {
+        let before = color.mode
+        color.cycle(step)
+        colorFocus.follow(from: before, to: color.mode)
     }
 }
