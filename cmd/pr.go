@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/prstatus"
@@ -104,7 +105,7 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	})
 	var all bool
 	ls := &cobra.Command{
-		Use: "ls", Short: "List watched pull requests", Args: cobra.NoArgs,
+		Use: "ls", Short: "List watched pull requests", Long: "List this session's watches. Use --all to see all sessions' watches, or --session <id> for one session.", Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			var scope map[string]bool
 			if !all || sessionFlag != "" {
@@ -130,9 +131,9 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	}
 	ls.Flags().BoolVar(&all, "all", false, "list all watched pull requests")
 	cmd.AddCommand(ls)
-	var unread bool
+	var unread, full bool
 	events := &cobra.Command{
-		Use: "events <ref>", Short: "Read watched pull-request activity", Args: cobra.ExactArgs(1),
+		Use: "events <ref>", Short: "Read watched pull-request activity", Long: "Read a watched PR's activity, including watches from other sessions. Use pr ls --all to find them. --unread needs a watch; use --session <watcher-id> to read its cursor.", Args: cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			id, err := resolve(c.Context())
 			if err != nil {
@@ -146,10 +147,36 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeJSON(c.OutOrStdout(), items)
+			if full {
+				return writeJSON(c.OutOrStdout(), items)
+			}
+			type previewEvent struct {
+				state.PullRequestEvent
+				BodyTruncated bool `json:"body_truncated,omitempty"`
+				BodyBytes     int  `json:"body_bytes,omitempty"`
+			}
+			previews := make([]previewEvent, 0, len(items))
+			for _, item := range items {
+				preview := previewEvent{PullRequestEvent: item}
+				limit := 400
+				if item.Bot {
+					limit = 200
+				}
+				if len(item.Body) > limit {
+					for !utf8.RuneStart(item.Body[limit]) {
+						limit--
+					}
+					preview.Body = item.Body[:limit]
+					preview.BodyTruncated = true
+					preview.BodyBytes = item.BodyBytes
+				}
+				previews = append(previews, preview)
+			}
+			return writeJSON(c.OutOrStdout(), previews)
 		},
 	}
 	events.Flags().BoolVar(&unread, "unread", false, "show unread events and mark them read")
+	events.Flags().BoolVar(&full, "full", false, "show full comment and review bodies")
 	cmd.AddCommand(events)
 	var refreshAll bool
 	refresh := &cobra.Command{

@@ -99,3 +99,39 @@ func TestPullRequestUnreadHistoryIsNeverEvicted(t *testing.T) {
 		t.Fatalf("evicted ID duplicated: %#v, %v", added, err)
 	}
 }
+
+func TestPullRequestEventsAreReadableWithoutAWatch(t *testing.T) {
+	t.Parallel()
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Create(Manifest{SessionID: "qm-watcher"}); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := ParsePullRequestRef("owner/repo#12")
+	baseline := time.Date(2026, 10, 27, 1, 0, 0, 0, time.UTC)
+	if _, err := WatchPullRequest(store.Root(), "qm-watcher", ref, baseline); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecordPullRequestEvents(store.Root(), ref.Key, []PullRequestEvent{{ID: "one", Kind: "comment", OccurredAt: baseline.Add(time.Minute).Format(time.RFC3339Nano), Body: "```hello```"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadPullRequestEvents(store.Root(), ref.Key, "qm-reader", false)
+	if err != nil || len(got) != 1 || got[0].Body != "\\`\\`\\`hello\\`\\`\\`" {
+		t.Fatalf("read without watch = %#v, %v", got, err)
+	}
+	log, err := LoadPullRequestEventLog(store.Root(), ref.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := log.Cursors["qm-reader"]; ok {
+		t.Fatal("read-only session gained a cursor")
+	}
+	if _, err := ReadPullRequestEvents(store.Root(), ref.Key, "qm-reader", true); err == nil || !strings.Contains(err.Error(), "--session") {
+		t.Fatalf("unread without watch: %v", err)
+	}
+	if _, err := ReadPullRequestEvents(store.Root(), "github.com/nobody/repo#1", "qm-reader", false); err == nil || !strings.Contains(err.Error(), "no one watches") {
+		t.Fatalf("unwatched PR: %v", err)
+	}
+}
