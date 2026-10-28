@@ -70,6 +70,59 @@ func jobGH(t *testing.T, j *Job, calls *[]string, stateByHost map[string]string,
 	}
 }
 
+func TestJobIgnoresViewerDiscussionButAlertsForOtherComment(t *testing.T) {
+	t.Parallel()
+	j, store, now, _ := jobFixture(t)
+	pr, _ := state.ParsePullRequestRef("owner/repo#42")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	firstAt := now.Add(-time.Second).Format(time.RFC3339Nano)
+	second := false
+	j.RunGH = func(_ context.Context, _, query string) ([]byte, []byte, error) {
+		if strings.Contains(query, "p0: repository") {
+			count := 1
+			if second {
+				count = 2
+			}
+			return []byte(fmt.Sprintf(`{"data":{"viewer":{"login":"viewer"},"rateLimit":{"cost":1,"remaining":100},"p0":{"pullRequest":{"title":"PR","state":"OPEN","updatedAt":%q,"totalCommentsCount":%d}}}}`, now.Format(time.RFC3339), count)), nil, nil
+		}
+		source, nodes := "reviews", fmt.Sprintf(`[{"id":"own-review","submittedAt":%q,"state":"COMMENTED","author":{"login":"viewer"}}]`, firstAt)
+		if strings.Contains(query, "comments(last:") {
+			source = "comments"
+			nodes = fmt.Sprintf(`[{"id":"own-comment","createdAt":%q,"author":{"login":"viewer"}}]`, firstAt)
+			if second {
+				nodes = fmt.Sprintf(`[{"id":"own-comment","createdAt":%q,"author":{"login":"viewer"}},{"id":"other-comment","createdAt":%q,"author":{"login":"other"}}]`, firstAt, now.Format(time.RFC3339Nano))
+			}
+		}
+		return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":%s,"pageInfo":{"hasPreviousPage":false}}}}}}`, source, nodes)), nil, nil
+	}
+	j.RunREST = func(context.Context, string, string) ([]byte, []byte, error) {
+		return []byte(fmt.Sprintf(`[{"node_id":"own-line","created_at":%q,"user":{"login":"viewer"}}]`, firstAt)), nil, nil
+	}
+	var alerts []string
+	j.SendAlert = func(_ context.Context, _ string, text string) (bool, error) {
+		alerts = append(alerts, text)
+		return true, nil
+	}
+	if err := j.step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	log, err := state.LoadPullRequestEventLog(store.Root(), pr.Key)
+	if err != nil || len(log.Events) != 0 || len(alerts) != 0 || !log.SeenIDs["own-comment"] || !log.SeenIDs["own-review"] || !log.SeenIDs["own-line"] {
+		t.Fatalf("own-only log=%+v alerts=%v err=%v", log, alerts, err)
+	}
+	*now = now.Add(time.Minute)
+	second = true
+	if err := j.step(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	log, err = state.LoadPullRequestEventLog(store.Root(), pr.Key)
+	if err != nil || len(log.Events) != 1 || log.Events[0].ID != "other-comment" || len(alerts) != 1 || !strings.Contains(alerts[0], "1 comment") {
+		t.Fatalf("mixed log=%+v alerts=%v err=%v", log, alerts, err)
+	}
+}
+
 func TestJobPollsExistingWatchAfterLegacyTimestamp(t *testing.T) {
 	t.Parallel()
 	j, store, now, _ := jobFixture(t)

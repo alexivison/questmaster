@@ -135,3 +135,23 @@ func TestPullRequestEventsAreReadableWithoutAWatch(t *testing.T) {
 		t.Fatalf("unwatched PR: %v", err)
 	}
 }
+
+func TestRecordPullRequestEventsMarksFilteredIDsSeen(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store := OpenStore(root)
+	if err := store.Create(Manifest{SessionID: "qm-one"}); err != nil {
+		t.Fatal(err)
+	}
+	pr, _ := ParsePullRequestRef("owner/repo#42")
+	if _, err := WatchPullRequest(root, "qm-one", pr, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecordPullRequestEvents(root, pr.Key, nil, map[string]string{"comments": "own"}, "own"); err != nil {
+		t.Fatal(err)
+	}
+	log, err := LoadPullRequestEventLog(root, pr.Key)
+	if err != nil || !log.SeenIDs["own"] || log.LastIDs["comments"] != "own" || len(log.Events) != 0 {
+		t.Fatalf("log=%+v err=%v", log, err)
+	}
+}

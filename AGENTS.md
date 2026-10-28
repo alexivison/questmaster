@@ -85,6 +85,8 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
   state changes. `pull_requests.json` stores watches, event history and each
   watcher's read/alert cursors under one lock. `message.Service.Notify` gates
   background alerts on live, idle or done sessions and recent tmux input.
+  The status query also reads the authenticated viewer login; this one-way
+  personal setup ignores that author's discussion before recording events.
 
 Invariants that aren't obvious from the code:
 

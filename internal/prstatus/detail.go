@@ -50,7 +50,7 @@ func normalizeBotLogin(login string, bot bool) string {
 	return login
 }
 
-func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.PullRequestStatus, hadPrior bool, stateAt string, log state.PullRequestEventLog, run, rest Runner, now time.Time) ([]state.PullRequestEvent, map[string]string, HostResult) {
+func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.PullRequestStatus, hadPrior bool, stateAt string, log state.PullRequestEventLog, run, rest Runner, now time.Time, viewer string) ([]state.PullRequestEvent, map[string]string, []string, HostResult) {
 	var baseline time.Time
 	for _, watcher := range pr.Watchers {
 		if added, err := time.Parse(time.RFC3339Nano, watcher.AddedAt); err == nil && (baseline.IsZero() || added.Before(baseline)) {
@@ -58,6 +58,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 		}
 	}
 	lastIDs := map[string]string{}
+	var seenOnly []string
 	events := []state.PullRequestEvent{}
 	hostResult := HostResult{}
 	reopenedAt := ""
@@ -81,7 +82,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 			body, retry, reset := responseBody(stdout)
 			var response graphResponse
 			if err := json.Unmarshal(body, &response); err != nil || runErr != nil || len(response.Errors) > 0 {
-				return nil, nil, detailFailure(now, retry, reset, response.Data.RateLimit, stderr, runErr)
+				return nil, nil, nil, detailFailure(now, retry, reset, response.Data.RateLimit, stderr, runErr)
 			}
 			hostResult.RateLimit = mergeRateLimit(hostResult.RateLimit, response.Data.RateLimit)
 			if reset != "" {
@@ -91,7 +92,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 				PullRequest map[string]json.RawMessage `json:"pullRequest"`
 			}
 			if err := json.Unmarshal(response.Data.Aliases["repository"], &repo); err != nil {
-				return nil, nil, HostResult{Error: "invalid PR detail response"}
+				return nil, nil, nil, HostResult{Error: "invalid PR detail response"}
 			}
 			if reopenedQuery != "" {
 				var timeline struct {
@@ -101,7 +102,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 				}
 				if raw := repo.PullRequest["timelineItems"]; len(raw) > 0 {
 					if err := json.Unmarshal(raw, &timeline); err != nil {
-						return nil, nil, HostResult{Error: "invalid PR reopen timeline"}
+						return nil, nil, nil, HostResult{Error: "invalid PR reopen timeline"}
 					}
 				}
 				if len(timeline.Nodes) > 0 {
@@ -110,7 +111,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 			}
 			var connection detailConnection
 			if err := json.Unmarshal(repo.PullRequest[source], &connection); err != nil {
-				return nil, nil, HostResult{Error: "invalid PR detail connection"}
+				return nil, nil, nil, HostResult{Error: "invalid PR detail connection"}
 			}
 			if before == "" {
 				for i := len(connection.Nodes) - 1; i >= 0; i-- {
@@ -141,17 +142,21 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 					stop = true
 					break
 				}
+				if viewer != "" && strings.EqualFold(node.Author.Login, viewer) {
+					seenOnly = append(seenOnly, node.ID)
+					continue
+				}
 				bot := node.Author.TypeName == "Bot"
 				events = append(events, state.PullRequestEvent{ID: node.ID, Kind: kind, OccurredAt: occurred, Author: normalizeBotLogin(node.Author.Login, bot), Bot: bot, Body: node.Body, State: strings.ToLower(node.State)})
 			}
 			if response.Data.RateLimit != nil && response.Data.RateLimit.Remaining == 0 {
-				return nil, nil, HostResult{Error: "GitHub rate limit exhausted", BackoffUntil: response.Data.RateLimit.ResetAt}
+				return nil, nil, nil, HostResult{Error: "GitHub rate limit exhausted", BackoffUntil: response.Data.RateLimit.ResetAt}
 			}
 			if stop || !connection.PageInfo.HasPreviousPage {
 				break
 			}
 			if connection.PageInfo.StartCursor == "" || connection.PageInfo.StartCursor == before {
-				return nil, nil, HostResult{Error: "PR detail pagination did not advance"}
+				return nil, nil, nil, HostResult{Error: "PR detail pagination did not advance"}
 			}
 			before = connection.PageInfo.StartCursor
 		}
@@ -170,7 +175,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 			} `json:"user"`
 		}
 		if err := json.Unmarshal(body, &nodes); err != nil || runErr != nil {
-			return nil, nil, detailFailure(now, retry, reset, nil, stderr, runErr)
+			return nil, nil, nil, detailFailure(now, retry, reset, nil, stderr, runErr)
 		}
 		if page == 1 && len(nodes) > 0 {
 			lastIDs["review_comments"] = nodes[0].NodeID
@@ -186,6 +191,10 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 				stop = true
 				break
 			}
+			if viewer != "" && strings.EqualFold(node.User.Login, viewer) {
+				seenOnly = append(seenOnly, node.NodeID)
+				continue
+			}
 			bot := node.User.Type == "Bot"
 			events = append(events, state.PullRequestEvent{ID: node.NodeID, Kind: "review_comment", OccurredAt: node.CreatedAt, Author: normalizeBotLogin(node.User.Login, bot), Bot: bot, Body: node.Body})
 		}
@@ -196,7 +205,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 			break
 		}
 		if reset != "" {
-			return nil, nil, HostResult{Error: "GitHub rate limit exhausted", BackoffUntil: reset}
+			return nil, nil, nil, HostResult{Error: "GitHub rate limit exhausted", BackoffUntil: reset}
 		}
 	}
 	if current.State == "open" && reopenedAt != "" {
@@ -213,7 +222,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 	if (old.CI != current.CI || old.HeadSHA != current.HeadSHA) && (current.CI == "success" || current.CI == "failure") {
 		completedAt, problem := fetchCICompletion(ctx, pr, run, now)
 		if problem.Error != "" {
-			return nil, nil, problem
+			return nil, nil, nil, problem
 		}
 		if problem.RateLimit != nil {
 			hostResult.RateLimit = mergeRateLimit(hostResult.RateLimit, problem.RateLimit)
@@ -231,7 +240,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 		}
 		return events[i].OccurredAt < events[j].OccurredAt
 	})
-	return events, lastIDs, hostResult
+	return events, lastIDs, seenOnly, hostResult
 }
 
 func fetchCICompletion(ctx context.Context, pr state.PullRequest, run Runner, now time.Time) (string, HostResult) {

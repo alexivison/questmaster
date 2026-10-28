@@ -21,6 +21,31 @@ func pr(t *testing.T, ref string) state.PullRequest {
 	return value
 }
 
+func TestFetchViewerLoginPerHost(t *testing.T) {
+	t.Parallel()
+	prs := []state.PullRequest{pr(t, "owner/repo#1"), pr(t, "https://enterprise.example/owner/repo/pull/2")}
+	run := func(_ context.Context, host, query string) ([]byte, []byte, error) {
+		if !strings.Contains(query, "viewer { login }") {
+			t.Fatalf("viewer omitted from %s query: %s", host, query)
+		}
+		login := "alice"
+		if host == "enterprise.example" {
+			login = "bob"
+		}
+		return []byte(fmt.Sprintf(`{"data":{"viewer":{"login":%q},"p0":{"pullRequest":{"title":"PR","state":"OPEN"}}}}`, login)), nil, nil
+	}
+	got := Fetch(context.Background(), prs, run, time.Now())
+	if got.Viewers["github.com"] != "alice" || got.Viewers["enterprise.example"] != "bob" {
+		t.Fatalf("viewers=%v", got.Viewers)
+	}
+	missing := Fetch(context.Background(), prs[:1], func(context.Context, string, string) ([]byte, []byte, error) {
+		return []byte(`{"data":{"p0":{"pullRequest":{"title":"PR","state":"OPEN"}}}}`), nil, nil
+	}, time.Now())
+	if missing.Viewers["github.com"] != "" || len(missing.Statuses) != 1 {
+		t.Fatalf("missing viewer result=%+v", missing)
+	}
+}
+
 func TestFetchBatchesReposAndHosts(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)

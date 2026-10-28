@@ -328,7 +328,7 @@ func (j *Job) step(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			events, ids, detail := fetchDetails(ctx, pr, prior, current, hadPrior, result.StateAt[pr.Key], log, j.RunGH, j.RunREST, now)
+			events, ids, seenOnly, detail := fetchDetails(ctx, pr, prior, current, hadPrior, result.StateAt[pr.Key], log, j.RunGH, j.RunREST, now, result.Viewers[pr.Host])
 			if detail.Error != "" {
 				detail.CheckedAt = result.Hosts[pr.Host].CheckedAt
 				result.Hosts[pr.Host] = detail
@@ -347,7 +347,7 @@ func (j *Job) step(ctx context.Context) error {
 				result.Hosts[pr.Host] = host
 				limited[pr.Host] = host.BackoffUntil != ""
 			}
-			if _, err := state.RecordPullRequestEvents(j.Root, pr.Key, events, ids); err != nil {
+			if _, err := state.RecordPullRequestEvents(j.Root, pr.Key, events, ids, seenOnly...); err != nil {
 				return err
 			}
 		}
