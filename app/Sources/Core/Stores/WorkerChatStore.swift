@@ -24,7 +24,8 @@ public struct WorkerFeedRequest: Equatable {
 ///
 /// The log filter (the Action boxes and the selected worker tab) narrows `lines` after they are built, so folding and
 /// trimming never see it: a Cast run folds across entries the filter hides, and the line trim counts hidden lines too.
-/// Each master keeps its own filter in memory; switching away and back restores it.
+/// The Action ticks are app-wide: one selection shared by every master, kept when the attached master changes. The
+/// selected worker tab names that master's workers, so each master remembers its own. Both live in memory only.
 ///
 /// Pull policy: a request is handed out when the dock is visible and the attached master changed,
 /// the dock just opened, a worker changed, or the last response said `has_more`. At most one
@@ -76,7 +77,8 @@ public final class WorkerChatStore {
     @ObservationIgnored private var lineSources: [[Int]] = []
     /// Every built line, before the filter; `lineSources` runs parallel to it. Tracked, since `isKnownEmpty` reads it.
     private var allLines: [WorkerChatLine] = []
-    @ObservationIgnored private var savedFilters: [String: WorkerLogFilter] = [:]
+    /// Each master's selected worker tab, by master id; a master on the All tab has no entry.
+    @ObservationIgnored private var savedWorkerTabs: [String: String] = [:]
     @ObservationIgnored private var workerOrder: [String] = []
     @ObservationIgnored private var nextSequence = 0
     @ObservationIgnored private var trackerNames: [String: String] = [:]
@@ -248,12 +250,12 @@ public final class WorkerChatStore {
 
     private func reset(to nextMasterID: String?) {
         if let masterID {
-            savedFilters[masterID] = filter.isActive ? filter : nil
+            savedWorkerTabs[masterID] = filter.workerID
         }
         masterID = nextMasterID
         isAttached = nextMasterID != nil
         hasLoaded = false
-        filter = nextMasterID.flatMap { savedFilters[$0] } ?? WorkerLogFilter()
+        filter.selectWorker(nextMasterID.flatMap { savedWorkerTabs[$0] })
         menu = WorkerLogMenu()
         workers = []
         workerOrder = []

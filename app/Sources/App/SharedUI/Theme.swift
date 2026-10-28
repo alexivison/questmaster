@@ -303,6 +303,8 @@ enum AppFonts {
     static let questLogRowSelected = monospaced(size: 12, weight: .bold)
     static let questLogTitle = monospaced(size: 14, weight: .bold)
     static let questLogButton = monospaced(size: 12, weight: .bold)
+    /// A selection chip's value: the current selection, in bold.
+    static let chipValue = monospaced(size: 12, weight: .bold)
     /// The pill tabs' labels.
     static let pillTab = monospaced(size: 10)
     /// The Worker Log's worker tabs at the design's 10pt; bold when selected, which keeps the 6pt advance.

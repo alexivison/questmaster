@@ -47,10 +47,12 @@ public struct WorkerLogWorker: Equatable, Identifiable, Sendable {
     }
 }
 
-/// What the Worker Log shows for one master. No Action ticked lets every action through; a tick narrows the log to the
-/// actions it names. That holds when every box is ticked too: it is an ordinary selection, and only the chip's x clears
-/// it. A line needs to match one ticked Action, and the selected worker tab if there is one. The tab row picks one
-/// worker or, with `workerID` nil, All; a worker that spawns later shows under All and under its own tab.
+/// What the Worker Log shows. No Action ticked lets every action through; a tick narrows the log to the actions it
+/// names. That holds when every box is ticked too: it is an ordinary selection, and only the chip's x clears it. A line
+/// needs to match one ticked Action, and the selected worker tab if there is one. The Action ticks are app-wide, shared
+/// by every master; the tab row picks one of the attached master's workers or, with `workerID` nil, All, and a worker
+/// that spawns later shows under All and under its own tab. `WorkerChatStore` keeps the ticks across masters and each
+/// master's tab.
 public struct WorkerLogFilter: Equatable, Sendable {
     public private(set) var actions: Set<WorkerLogAction> = []
     /// The selected worker tab; nil is the All tab.
@@ -58,22 +60,19 @@ public struct WorkerLogFilter: Equatable, Sendable {
 
     public init() {}
 
-    public var isActive: Bool {
-        !actions.isEmpty || workerID != nil
-    }
-
     public func allows(_ line: WorkerChatLine) -> Bool {
         let allowsAction = actions.isEmpty || actions.contains(line.action)
         let allowsWorker = workerID == nil || workerID == line.workerID
         return allowsAction && allowsWorker
     }
 
-    /// The Action chip's value: one action's name, or the number of actions ticked. Nil with none ticked.
+    /// The Action chip's value: the names of the ticked actions, comma-separated in the dropdown's order. Nil with none
+    /// ticked.
     public var actionSummary: String? {
-        if let only = actions.first, actions.count == 1 {
-            return only.title
+        guard !actions.isEmpty else {
+            return nil
         }
-        return actions.isEmpty ? nil : String(actions.count)
+        return WorkerLogAction.allCases.filter(actions.contains).map(\.title).joined(separator: ", ")
     }
 
     public mutating func toggle(_ action: WorkerLogAction) {

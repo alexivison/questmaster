@@ -122,7 +122,7 @@ enum RenderPreview {
         render(workerLogPanelDesignView(), size: CGSize(width: 172, height: 220), to: "\(outputDir)/worker-log-filter-panel.png")
         // The pointer over "Summon" (row 2) while the cursor is on the first row, on the dock's own fill.
         render(workerLogPanelDesignView(hovering: 2).background(AppPalette.panel.swiftUI), size: CGSize(width: 172, height: 220), to: "\(outputDir)/worker-log-filter-hover.png")
-        render(workerLogChipsDesignView(), size: CGSize(width: 230, height: 72), to: "\(outputDir)/worker-log-filter-chips.png")
+        render(workerLogChipsDesignView(), size: CGSize(width: 420, height: 72), to: "\(outputDir)/worker-log-filter-chips.png")
         // The worker tabs against Tabs (Simple).svg (386 x 11, drawn at 20 in and 2 down): few tabs that fit, the selected
         // one bold and lit while the panel has the keys and a step dimmer without them, the pointer lighting an unselected
         // one, and tabs too many for the panel scrolling with a fade on each side that has some hidden.
@@ -866,11 +866,12 @@ enum RenderPreview {
             .background(AppPalette.window.swiftUI)
     }
 
-    /// The Action chip of `Selected Filter Item.svg` at its coordinates, with one action ticked and with three.
+    /// The Action chip of `Selected Filter Item.svg` at its coordinates, with one action ticked and with four, worded as the
+    /// design words them (the dropdown's order today is Message before Item).
     @MainActor
     private static func workerLogChipsDesignView() -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(["Status", "3"], id: \.self) { summary in
+            ForEach(["Status", "Status, Summon, Item, Message"], id: \.self) { summary in
                 WorkerLogChipRow(summary: summary, onClear: {})
             }
         }

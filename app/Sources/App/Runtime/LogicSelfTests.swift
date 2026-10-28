@@ -145,6 +145,8 @@ enum LogicSelfTests {
         ("testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl", testWorkerLogFilterStaysInsideTheBottomPanelBelowVersionControl),
         ("testWorkerLogChipsStayUnderTheTopBarInEveryState", testWorkerLogChipsStayUnderTheTopBarInEveryState),
         ("testWorkerChatFeedFadesInUnderItsHeader", testWorkerChatFeedFadesInUnderItsHeader),
+        ("testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem", testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem),
+        ("testWorkerLogChipShowsOnlyWhileAMasterIsAttached", testWorkerLogChipShowsOnlyWhileAMasterIsAttached),
         ("testWorkerLogTabsScrollToTheSelection", testWorkerLogTabsScrollToTheSelection),
         ("testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs", testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs),
         ("testWorkerLogTabsSitUnderTheFeedAndNeedWorkers", testWorkerLogTabsSitUnderTheFeedAndNeedWorkers),
@@ -5451,7 +5453,7 @@ enum LogicSelfTests {
         try dock.keyDown(with: keyEvent("k", keyCode: 40, modifierFlags: .control))
         try expect(chat.menu.cursor == 1, "a ⌃ chord is not the filter's")
         try dock.keyDown(with: keyEvent("\u{1b}", keyCode: 53))
-        try expect(!chat.menu.isOpen && chat.filter.isActive, "Esc should close the filter and keep what it selected")
+        try expect(!chat.menu.isOpen && chat.filter.actions == [.status], "Esc should close the filter and keep what it selected")
 
         // [ and ] step the worker tabs, All first, with the dropdown closed or open.
         try dock.keyDown(with: keyEvent("]", keyCode: 30))
@@ -5754,6 +5756,93 @@ enum LogicSelfTests {
             let allowed = (CGFloat(row) + 1) / CGFloat(fade) + 0.1
             try expect(value <= allowed, "ink at y \(CGFloat(row) / 2) should be at most \(allowed) of full under the fade, got \(value)")
         }
+    }
+
+    /// Selected Filter Item.svg's chip: the label "Action:" in regular `textMetaHighlighted`, then the ticked names in bold
+    /// `textBody`, and the chip grows with its text by exactly the characters it gains.
+    private static func testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem() throws {
+        func chip(_ summary: String) -> some View {
+            WorkerLogChipRow(summary: summary, onClear: {}).fixedSize(horizontal: true, vertical: false)
+        }
+        let one = try fittingSize(of: chip("Status"))
+        let several = try fittingSize(of: chip("Status, Summon, Message, Item"))
+        let advance = ("A" as NSString).size(withAttributes: [.font: AppFonts.chipValue]).width
+        let gained = CGFloat("Status, Summon, Message, Item".count - "Status".count) * advance
+        try expect(abs(several.width - one.width - gained) <= 1, "the chip should grow by its extra characters (\(gained)), got \(several.width - one.width)")
+        try expect(several.height == one.height, "and stay one line high")
+        let manager = NSFontManager.shared
+        try expect(manager.weight(of: AppFonts.chipValue) > manager.weight(of: AppFonts.questLogBody), "the value should be bolder than the label")
+
+        let size = CGSize(width: 400, height: Space.row + ControlHeight.compact)
+        let hosting = NSHostingView(rootView: AnyView(chip("Status").frame(width: size.width, height: size.height, alignment: .topLeading).background(AppPalette.panel.swiftUI)))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        pump(0.3)
+        hosting.layoutSubtreeIfNeeded()
+        let scale: CGFloat = 2
+        let bitmap = try snapshot(hosting, size: size, scale: scale)
+        /// The brightest pixel in the points `from..<to`: a glyph's stem reaches the text colour, whatever the font.
+        func brightest(_ from: CGFloat, _ to: CGFloat) -> NSColor? {
+            var best: (sum: CGFloat, color: NSColor)?
+            for x in Int(from * scale)..<Int(to * scale) {
+                for y in 0..<Int(size.height * scale) {
+                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                        continue
+                    }
+                    let sum = color.redComponent + color.greenComponent + color.blueComponent
+                    if sum > (best?.sum ?? 0) {
+                        best = (sum, color)
+                    }
+                }
+            }
+            return best?.color
+        }
+        func expectColor(_ actual: NSColor?, _ expected: NSColor, _ label: String) throws {
+            guard let actual, let expected = expected.usingColorSpace(.deviceRGB) else {
+                throw TestFailure("\(label) should draw")
+            }
+            let distance = abs(actual.redComponent - expected.redComponent) + abs(actual.greenComponent - expected.greenComponent) + abs(actual.blueComponent - expected.blueComponent)
+            try expect(distance < 0.03, "\(label) should be \(expected), got \(actual)")
+        }
+        // The chip's text starts past the row's inset, its border and `Space.item`.
+        let labelStart = WorkerChatMetrics.inset + Token.Size.divider + Space.item
+        let labelAdvance = ("A" as NSString).size(withAttributes: [.font: AppFonts.questLogBody]).width
+        let valueStart = labelStart + 7 * labelAdvance + ClearableChipMetrics.labelGap
+        try expectColor(brightest(labelStart, labelStart + 7 * labelAdvance), AppPalette.muted, "the label")
+        try expectColor(brightest(valueStart, valueStart + 6 * advance), AppPalette.textBody, "the value")
+    }
+
+    /// The ticks outlive the attached master, but a log with nothing attached stays blank, chip and all.
+    private static func testWorkerLogChipShowsOnlyWhileAMasterIsAttached() throws {
+        let chat = WorkerChatStore()
+        let sessions = [
+            TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master"),
+            TrackerSession(id: "w1", title: "Worker 1", repoName: "Repo", agent: "codex", role: "worker", parentID: "m"),
+            TrackerSession(id: "sh", title: "Shell", repoName: "Repo", role: "shell"),
+        ]
+        _ = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+        chat.toggleAction(at: 1)
+        let size = CGSize(width: DockWidthPreference.panelWidth, height: 200)
+        let hosting = NSHostingView(rootView: AnyView(WorkerChatDockView(store: chat, areaFocused: true).frame(maxWidth: .infinity, maxHeight: .infinity).background(AppPalette.panel.swiftUI)))
+        hosting.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = hosting
+        window.show()
+        defer { window.close() }
+        func ink() throws -> (top: CGFloat, bottom: CGFloat)? {
+            pump(0.3)
+            hosting.layoutSubtreeIfNeeded()
+            return inkEdges(try snapshot(hosting, size: size, scale: 2), scale: 2, columns: 0..<Int(size.width), rows: 0..<Int(size.height), over: AppPalette.panel)
+        }
+        try expect(try ink() != nil, "the chip should show with a master attached")
+        _ = chat.sync(selectedSessionID: "sh", sessions: sessions, isVisible: true)
+        try expect(chat.filter.actions == [.status], "the ticks should survive the master going")
+        try expect(try ink() == nil, "a log with nothing attached should be blank, without the chip")
+        _ = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
+        try expect(try ink() != nil, "the chip should come back with the master")
     }
 
     /// The tab row alone at the panel's width, over the panel fill, selecting `selected`. Assign `rootView` to change it.

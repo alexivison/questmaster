@@ -16,7 +16,7 @@ enum WorkerLogFilterMetrics {
     static let checkRight = CGPoint(x: 0.74, y: 0.32)
 }
 
-/// The Action chip under the dock's top bar: what is ticked, and its x clears the ticks.
+/// The Action chip under the dock's top bar: the ticked names in bold, and its x clears the ticks. It grows with them.
 struct WorkerLogChipRow: View {
     let summary: String
     let onClear: () -> Void
@@ -24,7 +24,7 @@ struct WorkerLogChipRow: View {
     var body: some View {
         ClearableChip(label: "Action:", accessibilityLabel: "Clear Action filter", onClear: onClear) {
             Text(summary)
-                .font(AppFonts.questLogBody.swiftUI)
+                .font(AppFonts.chipValue.swiftUI)
                 .foregroundStyle(AppPalette.textBody.swiftUI)
                 .lineLimit(1)
         }

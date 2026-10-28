@@ -22,7 +22,7 @@ struct WorkerLogFilterTests {
         aGoneWorkerFallsBackToAll()
         selectingAnUnknownWorkerDoesNothing()
         filtersAreKeptPerMaster()
-        actionSummaryShowsOneNameOrACount()
+        actionSummaryNamesTheTicksInTheDropdownsOrder()
         clearingTheActionsKeepsTheWorkerTab()
         workersListInTrackerOrder()
         tabsMoveAndWrapLikeTheSettingsTabs()
@@ -42,7 +42,7 @@ struct WorkerLogFilterTests {
     private static func defaultShowsEverything() {
         let (store, _) = openStore(entries: sampleEntries)
         expect(store.lines.count == 5, "an empty filter should show every line, got \(store.lines.count)")
-        expect(!store.filter.isActive && store.filter.actionSummary == nil && store.filter.workerID == nil, "no selection means no filter, no chip and the All tab")
+        expect(!narrows(store.filter) && store.filter.actionSummary == nil && store.filter.workerID == nil, "no selection means no filter, no chip and the All tab")
         expect(store.menu == WorkerLogMenu(), "the dropdown starts closed with its cursor on the first row")
     }
 
@@ -94,26 +94,26 @@ struct WorkerLogFilterTests {
     private static func tickingEveryBoxIsAnOrdinarySelection() {
         let (store, _) = openStore(entries: sampleEntries, workers: 3)
         WorkerLogAction.allCases.indices.forEach(store.toggleAction)
-        expect(store.filter.actions == Set(WorkerLogAction.allCases) && store.filter.isActive, "every Action box ticked should keep all five ticks, got \(store.filter.actions)")
-        expect(store.filter.actionSummary == "5", "and show the count chip, got \(String(describing: store.filter.actionSummary))")
+        expect(store.filter.actions == Set(WorkerLogAction.allCases) && narrows(store.filter), "every Action box ticked should keep all five ticks, got \(store.filter.actions)")
+        expect(store.filter.actionSummary == "Cast, Status, Summon, Message, Item", "and name them all on the chip, got \(String(describing: store.filter.actionSummary))")
         expect(store.lines.count == 5, "all five Actions still show every line, got \(store.lines.count)")
 
         store.toggleAction(at: row(.cast))
         expect(store.filter.actions.count == WorkerLogAction.allCases.count - 1, "a tick can still come off")
         store.clearActions()
-        expect(!store.filter.isActive && store.filter.actionSummary == nil, "the chip's x clears the ticks")
+        expect(!narrows(store.filter) && store.filter.actionSummary == nil, "the chip's x clears the ticks")
     }
 
     /// One tab at a time: a worker's tab shows only that worker's lines, a second selection replaces the first, All shows everyone.
     private static func aWorkerTabShowsOnlyItsLines() {
         let (store, _) = openStore(entries: sampleEntries)
         store.selectWorker("w1")
-        expect(store.filter.workerID == "w1" && store.filter.isActive, "Worker One's tab should be selected")
+        expect(store.filter.workerID == "w1" && narrows(store.filter), "Worker One's tab should be selected")
         expect(store.lines.map(\.workerID) == ["w1", "w1", "w1"], "Worker One's tab shows its three lines, got \(store.lines.map(\.workerID))")
         store.selectWorker("w2")
         expect(store.filter.workerID == "w2" && store.lines.map(\.workerID) == ["w2", "w2"], "Worker Two's tab replaces the first and shows its two lines")
         store.selectWorker(nil)
-        expect(store.filter.workerID == nil && !store.filter.isActive && store.lines.count == 5, "the All tab shows every line and is no filter")
+        expect(store.filter.workerID == nil && !narrows(store.filter) && store.lines.count == 5, "the All tab shows every line and is no filter")
     }
 
     /// A tab selects one worker, so a worker that spawns later is under All and its own tab, and not under another's.
@@ -137,7 +137,7 @@ struct WorkerLogFilterTests {
         _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 3).filter { $0.id != "w3" }, isVisible: true)
         expect(store.filter.workerID == "w2", "another worker going away should leave the selected tab, got \(String(describing: store.filter.workerID))")
         _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 3).filter { $0.id == "m" || $0.id == "w1" }, isVisible: true)
-        expect(store.filter.workerID == nil && !store.filter.isActive, "the selected worker going away should fall back to All, got \(String(describing: store.filter.workerID))")
+        expect(store.filter.workerID == nil && !narrows(store.filter), "the selected worker going away should fall back to All, got \(String(describing: store.filter.workerID))")
         expect(store.lines.map(\.workerID).allSatisfy { $0 == "w1" } && store.lines.count == 3, "and show what is left, got \(store.lines.map(\.workerID))")
 
         let (ticked, _) = openStore(entries: sampleEntries, workers: 2)
@@ -155,55 +155,84 @@ struct WorkerLogFilterTests {
         let detached = makeStore()
         detached.selectWorker("w1")
         detached.moveTab(by: 1)
-        expect(!detached.filter.isActive, "nothing attached has no tab to select")
+        expect(!narrows(detached.filter), "nothing attached has no tab to select")
     }
 
+    /// The Action ticks are app-wide: every master shares one selection, and switching masters keeps it. The worker tab names
+    /// one master's workers, so each master has its own.
     private static func filtersAreKeptPerMaster() {
         let store = makeStore()
         let both = tracker(workers: 2) + [
             TrackerSession(id: "m2", title: "Master Two", repoName: "Repo", role: "master"),
             TrackerSession(id: "x1", title: "Other One", repoName: "Repo", agent: "codex", role: "worker", parentID: "m2"),
             TrackerSession(id: "x2", title: "Other Two", repoName: "Repo", agent: "claude", role: "worker", parentID: "m2"),
+            TrackerSession(id: "sh", title: "Shell", repoName: "Repo", role: "shell"),
         ]
         _ = store.sync(selectedSessionID: "m", sessions: both, isVisible: true)
         store.toggleAction(at: row(.status))
         store.selectWorker("w2")
-        let first = store.filter
 
         _ = store.sync(selectedSessionID: "m2", sessions: both, isVisible: true)
-        expect(!store.filter.isActive, "another master starts unfiltered, got \(store.filter)")
+        expect(store.filter.actions == [.status], "another master keeps the Action ticks, got \(store.filter.actions)")
+        expect(store.filter.workerID == nil, "but starts on the All tab, got \(String(describing: store.filter.workerID))")
         store.toggleAction(at: row(.item))
         store.selectWorker("x1")
-        expect(store.filter.actions == [.item] && store.filter.workerID == "x1", "the second master keeps its own filter and tab")
+        expect(store.filter.actions == [.status, .item] && store.filter.workerID == "x1", "the second master adds to the shared ticks and picks its own tab")
 
         _ = store.sync(selectedSessionID: "m", sessions: both, isVisible: true)
-        expect(store.filter == first && store.filter.workerID == "w2", "switching back should restore the first master's filter and tab, got \(store.filter)")
-        _ = store.sync(selectedSessionID: "m-w", sessions: both + [TrackerSession(id: "m-w", title: "Shell", repoName: "Repo", role: "shell")], isVisible: true)
-        _ = store.sync(selectedSessionID: "m", sessions: both, isVisible: true)
-        expect(store.filter == first, "attaching to a non-master in between should not lose it")
+        expect(store.filter.actions == [.status, .item], "switching back keeps the ticks made meanwhile, got \(store.filter.actions)")
+        expect(store.filter.workerID == "w2", "and restores the first master's tab, got \(String(describing: store.filter.workerID))")
+        store.clearActions()
         _ = store.sync(selectedSessionID: "m2", sessions: both, isVisible: true)
-        expect(store.filter.actions == [.item] && store.filter.workerID == "x1", "and the second master's filter should still be there")
+        expect(store.filter.actions.isEmpty && store.filter.workerID == "x1", "clearing the ticks clears them for every master, and the second master's tab is still there")
+
+        store.toggleAction(at: row(.cast))
+        _ = store.sync(selectedSessionID: "sh", sessions: both, isVisible: true)
+        expect(!store.isAttached && store.filter.actions == [.cast] && store.filter.workerID == nil, "attaching to a non-master keeps the ticks and has no tab")
+        _ = store.sync(selectedSessionID: "m", sessions: both, isVisible: true)
+        expect(store.filter.actions == [.cast] && store.filter.workerID == "w2", "coming back restores the master's tab with the ticks as they are")
+        _ = store.sync(selectedSessionID: "m2", sessions: both, isVisible: true)
+        expect(store.filter.actions == [.cast] && store.filter.workerID == "x1", "and the other master's tab too")
 
         let tabOnly = makeStore()
         _ = tabOnly.sync(selectedSessionID: "m", sessions: both, isVisible: true)
         tabOnly.selectWorker("w1")
         _ = tabOnly.sync(selectedSessionID: "m2", sessions: both, isVisible: true)
         _ = tabOnly.sync(selectedSessionID: "m", sessions: both, isVisible: true)
-        expect(tabOnly.filter.workerID == "w1", "a selected tab alone is a filter worth keeping")
+        expect(tabOnly.filter.workerID == "w1", "a selected tab alone is remembered")
+
+        let fresh = makeStore()
+        _ = fresh.sync(selectedSessionID: "m", sessions: both, isVisible: true)
+        expect(fresh.filter.actions.isEmpty, "a new store has no ticks: nothing is kept past the store")
     }
 
     // MARK: - Chip and tabs
 
-    private static func actionSummaryShowsOneNameOrACount() {
+    /// The chip names the ticked actions, comma-separated in `WorkerLogAction.allCases` order, whatever order they were ticked in.
+    private static func actionSummaryNamesTheTicksInTheDropdownsOrder() {
         var filter = WorkerLogFilter()
         expect(filter.actionSummary == nil, "no ticks, no chip")
         filter.toggle(.status)
         expect(filter.actionSummary == "Status", "one action shows its name")
-        filter.toggle(.message)
         filter.toggle(.item)
-        expect(filter.actionSummary == "3", "several actions show their count")
+        filter.toggle(.message)
+        let ticked: Set<WorkerLogAction> = [.status, .item, .message]
+        let inDropdownOrder = WorkerLogAction.allCases.filter(ticked.contains).map(\.title).joined(separator: ", ")
+        expect(filter.actionSummary == inDropdownOrder, "several actions list their names in the dropdown's order, got \(String(describing: filter.actionSummary))")
+        expect(filter.actionSummary == "Status, Message, Item", "which is today Status, Message, Item")
+        filter.toggle(.status)
+        expect(filter.actionSummary == "Message, Item", "unticking one drops its name")
+        WorkerLogAction.allCases.forEach { action in
+            if !filter.actions.contains(action) {
+                filter.toggle(action)
+            }
+        }
+        expect(filter.actionSummary == WorkerLogAction.allCases.map(\.title).joined(separator: ", "), "every action ticked lists all five")
+        filter.clearActions()
+        expect(filter.actionSummary == nil, "clearing the ticks takes the chip away")
+        filter.toggle(.cast)
         filter.selectWorker("w1")
-        expect(filter.actionSummary == "3", "the worker tab is no part of the chip")
+        expect(filter.actionSummary == "Cast", "the worker tab is no part of the chip")
     }
 
     private static func clearingTheActionsKeepsTheWorkerTab() {
@@ -212,9 +241,9 @@ struct WorkerLogFilterTests {
         store.selectWorker("w1")
         store.clearActions()
         expect(store.filter.actions.isEmpty && store.filter.workerID == "w1", "the chip's x clears only the Action ticks")
-        expect(store.filter.isActive && store.lines.count == 3, "the tab still narrows the log, got \(store.lines.count) lines")
+        expect(narrows(store.filter) && store.lines.count == 3, "the tab still narrows the log, got \(store.lines.count) lines")
         store.selectWorker(nil)
-        expect(!store.filter.isActive && store.lines.count == 5, "the All tab ends the filter")
+        expect(!narrows(store.filter) && store.lines.count == 5, "the All tab ends the filter")
     }
 
     private static func workersListInTrackerOrder() {
@@ -285,7 +314,7 @@ struct WorkerLogFilterTests {
         (0..<10).forEach { _ in _ = store.handle(.moveDown) }
         expect(store.menu.cursor == WorkerLogAction.allCases.count - 1, "the cursor stops at the last Action row, got \(store.menu.cursor)")
         expect(store.handle(.close) && !store.menu.isOpen, "Esc closes")
-        expect(store.filter.isActive, "closing keeps the filter")
+        expect(narrows(store.filter), "closing keeps the filter")
         expect(store.handle(.toggleMenu) && store.menu.isOpen && store.menu.cursor == 0, "f reopens with the cursor on the first row")
         expect(store.handle(.toggleMenu) && !store.menu.isOpen, "f closes it again")
 
@@ -413,11 +442,11 @@ struct WorkerLogFilterTests {
         let pending = makeStore()
         _ = pending.sync(selectedSessionID: "m", sessions: tracker(workers: 2), isVisible: true)
         pending.toggleAction(at: row(.status))
-        expect(pending.filter.isActive && !pending.isKnownEmpty, "a filter set while the first read is pending is blank, not empty")
+        expect(narrows(pending.filter) && !pending.isKnownEmpty, "a filter set while the first read is pending is blank, not empty")
         let pendingTab = makeStore()
         _ = pendingTab.sync(selectedSessionID: "m", sessions: tracker(workers: 2), isVisible: true)
         pendingTab.selectWorker("w2")
-        expect(pendingTab.filter.isActive && !pendingTab.isKnownEmpty, "so is a tab picked while the first read is pending")
+        expect(narrows(pendingTab.filter) && !pendingTab.isKnownEmpty, "so is a tab picked while the first read is pending")
     }
 
     // MARK: - Helpers
@@ -432,6 +461,11 @@ struct WorkerLogFilterTests {
             entry(180, "w2", "report", "done"),
             entry(240, "w2", "status", "done"),
         ]
+    }
+
+    /// Whether the filter narrows the log at all: an Action ticked or a worker tab selected.
+    private static func narrows(_ filter: WorkerLogFilter) -> Bool {
+        !filter.actions.isEmpty || filter.workerID != nil
     }
 
     /// The row index of an Action box.

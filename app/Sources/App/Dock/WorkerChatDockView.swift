@@ -83,7 +83,8 @@ struct WorkerChatDockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let summary = store.filter.actionSummary {
+            // The ticks outlive the attached master, but a log with nothing attached is blank.
+            if store.isAttached, let summary = store.filter.actionSummary {
                 WorkerLogChipRow(summary: summary, onClear: store.clearActions)
             }
             // Greedy, so the chip stays under the top bar when nothing under it is (a first read still pending or

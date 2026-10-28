@@ -212,7 +212,7 @@ again where it was when the keys come back.
   plate carries it; a worker shown only as a collapsed circle puts it on its master's plate; a shell carries none (its
   filled, bold row marks it), and neither does nothing attached. It sits in the list's leading gutter (a master's reaches
   12.5 left of its row), drawn outside the plate's silhouette layers, which clip at their margin.
-- Bold means selected and appears only in a lasting-selection list or a text tab row's selected tab. Artifacts
+- Bold means selected and appears only in a lasting-selection list, a text tab row's selected tab or a selection chip's value. Artifacts
   have no selected state: picking one opens it.
 - Shells are not plates: every shell, tmux and orphan row leaves its repo group for the shell section pinned under all
   the plates (`TrackerShellSection`, drawn by `TrackerShellRow`). A shell's own display colour tints its title in every
@@ -243,8 +243,10 @@ again where it was when the keys come back.
   checkbox rows on `dropdownChrome(.raised)`: it stands in front of the dock, so it is
   lighter than it (`item` fill, `line` border, radius 4.5), and its rows take the
   raised looks (`RowLook.raisedPick`). A checked box's mark takes the row's text
-  colour. Ticking every box is an ordinary selection (the chip reads "Action: 5"
-  and only its x clears it). The dropdown is as tall as its rows, up to its panel's height less
+  colour. Ticking every box is an ordinary selection (the chip names all five
+  and only its x clears it). The Action ticks are app-wide: one selection shared by
+  every master, kept when the attached master changes (`WorkerChatStore`, in
+  memory only, so not across restarts). The dropdown is as tall as its rows, up to its panel's height less
   the 5 under the bar and the 20 inset below (the tab row's room when there is one), and scrolls past that with the
   cursor kept in view: with Version Control above, the bottom panel is shorter
   and it scrolls sooner, never reaching behind it. The filter belongs to the
@@ -252,8 +254,11 @@ again where it was when the keys come back.
   is attached to a master and toggles the dropdown; `f` and the dropdown's keys
   work only while that panel has the keys, and the keys leaving it (to Version
   Control, the tracker, the terminal or a modal) close it. A click anywhere else
-  on the dock, either top bar included, closes it too. Its one chip, "Action", holds its
-  value in `textBody` at regular weight (bold means selected). It sits 5 under
+  on the dock, either top bar included, closes it too. Its one chip reads "Action:" in
+  `textMetaHighlighted` at regular weight, then the ticked names in `textBody` **bold** (the
+  current selection is what bold means), comma-separated in the dropdown's order
+  (`WorkerLogFilter.actionSummary`), and grows with them; with nothing attached the log is
+  blank, chip included. It sits 5 under
   the top bar and stays there whatever the feed is doing (first read pending or
   failed, empty, lines). The feed fades in under its header, the bar and the
   chip when there is one, over its top 20 (`WorkerChatMetrics.topFadeHeight`,
@@ -264,8 +269,8 @@ again where it was when the keys come back.
   one text tab per worker of the attached master in tracker order (`WorkerChatStore.workers`), JetBrains Mono 10pt, a
   diamond (the `line` colour) between them with `Space.item` on each side. They take a `TextTabLook`. One tab is
   selected (`WorkerLogFilter.workerID`, nil for All): All shows every worker's lines, a worker's tab only that worker's,
-  and it ANDs with the Action ticks. It is kept per master with the rest of the filter, and falls back to All when its
-  worker goes away. There is no row for a master with no workers. A click selects a tab; `[` and `]` step to the previous
+  and it ANDs with the Action ticks. The tab is kept per master (it names that master's workers; in memory only), unlike
+  the Action ticks, and falls back to All when its worker goes away. There is no row for a master with no workers. A click selects a tab; `[` and `]` step to the previous
   and next, wrapping as the Settings tabs do (`Keymap.WorkerLog`, handled where `f` is), with the dropdown open or closed,
   and work only while the bottom panel has the keys and the log has workers. The feed ends `WorkerLogTabMetrics.topGap` above
   the row, which is 15 high and ends 15 above the panel's bottom edge (measured from the user's mock). Tabs too many for the
