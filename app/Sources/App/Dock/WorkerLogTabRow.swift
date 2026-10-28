@@ -2,27 +2,28 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Geometry measured from `Tabs (Simple).svg`: JetBrains Mono 10pt (6pt advance, 7.3 cap height) with its baseline 9
-/// down in an 11-high canvas, a 2 x 2 square turned 45° between the tabs and `Space.item` on each side of it. The row
-/// is `ControlHeight.chip` high, the canvas centred in it. The feed ends `topGap` above the row (its own 20 inset below
-/// its last line, then this), and the row ends `bottomInset` above the panel's bottom edge: measured from the user's
-/// mock, the last line's ink is 32 over the tabs' and the tabs' baseline 20 over the edge.
+/// Geometry from `Tabs (Simple).svg`, as the user then set it: JetBrains Mono 12pt, the feed's chat font (7.2 advance,
+/// 8.8 cap height), and `Space.row` on each side of the 2 x 2 square turned 45° between the tabs. A 12pt line is 16 high,
+/// more than `ControlHeight.chip` holds, so the row is `ControlHeight.compact` high with the line centred: its baseline 17
+/// down. The feed ends where the row begins, and the row ends `bottomInset` above the panel's bottom edge. Measured from the
+/// user's mock (at 10pt), the last feed line's ink was 32 over the tabs' and their baseline 20 over the edge; this lands on
+/// 30.5 and 18.
 enum WorkerLogTabMetrics {
-    static let height = ControlHeight.chip
-    static let topGap = Space.row
-    static let bottomInset = Space.item + Space.row
-    /// What the row takes from the panel's bottom: the gap over it, the row and the inset under it.
-    static let reserved = topGap + height + bottomInset
-    static let separatorGap = Space.item
+    static let height = ControlHeight.compact
+    static let bottomInset = Space.item
+    /// What the row takes from the panel's bottom: the row and the inset under it.
+    static let reserved = height + bottomInset
+    static let separatorGap = Space.row
     /// The tabs' end margins: the feed's own. A row that fits is centred between them.
     static let edgeInset = WorkerChatMetrics.inset
     /// How far a clipped side fades out, as the feed's top does.
     static let fadeWidth = WorkerChatMetrics.topFadeHeight
-    /// The design's baseline 9, plus the 2 that centre its 11-high canvas in the row.
-    static let labelBaseline: CGFloat = 11
-    /// The separator's 2 x 2 square is 2.83 across once turned, its centre on the design's y 5 (7 in the row).
+    static let labelBaseline: CGFloat = 17
+    /// The separator's 2 x 2 square is 2.83 across once turned, its centre 4.8 over the baseline: the design's 4 at 10pt,
+    /// scaled to 12.
     static let svgDiamondDiagonal: CGFloat = 2.83
-    static let svgDiamondTop: CGFloat = 7 - svgDiamondDiagonal / 2
+    static let svgDiamondRaise: CGFloat = 4.8
+    static let svgDiamondTop = labelBaseline - svgDiamondRaise - svgDiamondDiagonal / 2
     /// Tabs hang past a side by more than this, in points, before that side counts as clipped.
     static let hiddenTolerance: CGFloat = 0.5
 }

@@ -307,9 +307,9 @@ enum AppFonts {
     static let chipValue = monospaced(size: 12, weight: .bold)
     /// The pill tabs' labels.
     static let pillTab = monospaced(size: 10)
-    /// The Worker Log's worker tabs at the design's 10pt; bold when selected, which keeps the 6pt advance.
-    static let workerTab = monospaced(size: 10)
-    static let workerTabSelected = monospaced(size: 10, weight: .bold)
+    /// The Worker Log's worker tabs in the feed's own chat font, 12pt; bold when selected, which keeps the advance.
+    static let workerTab = chat
+    static let workerTabSelected = chatName
 }
 
 extension StateColor {

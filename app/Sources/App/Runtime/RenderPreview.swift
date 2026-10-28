@@ -123,10 +123,10 @@ enum RenderPreview {
         // The pointer over "Summon" (row 2) while the cursor is on the first row, on the dock's own fill.
         render(workerLogPanelDesignView(hovering: 2).background(AppPalette.panel.swiftUI), size: CGSize(width: 172, height: 220), to: "\(outputDir)/worker-log-filter-hover.png")
         render(workerLogChipsDesignView(), size: CGSize(width: 420, height: 72), to: "\(outputDir)/worker-log-filter-chips.png")
-        // The worker tabs against Tabs (Simple).svg (386 x 11, drawn at 20 in and 2 down): few tabs that fit, the selected
-        // one bold and lit while the panel has the keys and a step dimmer without them, the pointer lighting an unselected
-        // one, and tabs too many for the panel scrolling with a fade on each side that has some hidden.
-        render(workerLogTabsDesignView(), size: CGSize(width: 386 + 2 * WorkerLogTabMetrics.edgeInset, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-design.png")
+        // The worker tabs (Tabs (Simple).svg at the user's 12pt and 5pt gaps): few tabs that fit, the selected one bold and
+        // lit while the panel has the keys and a step dimmer without them, the pointer lighting an unselected one, and tabs
+        // too many for the panel scrolling with a fade on each side that has some hidden.
+        render(workerLogTabsView(workers: 4, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-few.png")
         render(workerLogTabsView(workers: 4, selected: "w2", focused: false), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-unfocused.png")
         render(workerLogTabsView(workers: 4, selected: nil, hovered: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-hover.png")
         render(workerLogTabsView(workers: 9, selected: "w5"), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-middle.png")
@@ -892,17 +892,6 @@ enum RenderPreview {
         let names = ["Implement ABC-123", "Fix UI Bug", "Review API", "Add Tests", "Update Docs", "Audit Security", "Write Changelog", "Check Migrations", "Triage Reports"]
         let list = (1...workers).map { WorkerLogWorker(id: "w\($0)", name: names[($0 - 1) % names.count]) }
         return WorkerLogTabRow(workers: list, selectedID: selected, areaFocused: focused, previewHoveredIndex: hovered, onSelect: { _ in })
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(AppPalette.panel.swiftUI)
-    }
-
-    /// Tabs (Simple).svg's tabs: All selected, then four workers, in a row exactly as wide as the design plus the two edge
-    /// insets, so the tabs sit where the design draws them, 20 in and 2 down.
-    @MainActor
-    private static func workerLogTabsDesignView() -> some View {
-        let names = ["Implement ABC-123", "Fix UI Bug", "Review API", "Add Tests"]
-        let list = names.enumerated().map { WorkerLogWorker(id: "w\($0.offset + 1)", name: $0.element) }
-        return WorkerLogTabRow(workers: list, selectedID: nil, areaFocused: true, onSelect: { _ in })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppPalette.panel.swiftUI)
     }

@@ -147,6 +147,7 @@ enum LogicSelfTests {
         ("testWorkerChatFeedFadesInUnderItsHeader", testWorkerChatFeedFadesInUnderItsHeader),
         ("testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem", testWorkerLogChipNamesTheTicksInTheDesignsColoursAndGrowsWithThem),
         ("testWorkerLogChipShowsOnlyWhileAMasterIsAttached", testWorkerLogChipShowsOnlyWhileAMasterIsAttached),
+        ("testWorkerLogTabsUseTheChatFontAndFiveAroundEachDiamond", testWorkerLogTabsUseTheChatFontAndFiveAroundEachDiamond),
         ("testWorkerLogTabsScrollToTheSelection", testWorkerLogTabsScrollToTheSelection),
         ("testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs", testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs),
         ("testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers", testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers),
@@ -5862,6 +5863,53 @@ enum LogicSelfTests {
         AnyView(WorkerLogTabRow(workers: workers, selectedID: selected, areaFocused: true, onSelect: { _ in }).background(AppPalette.panel.swiftUI))
     }
 
+    /// The tabs are set in the feed's 12pt chat font, the row holds a line of it, and a tab sits 5 from its diamond on each
+    /// side. Solid blocks as the names fill their advance cell, so their ink ends where the text does.
+    private static func testWorkerLogTabsUseTheChatFontAndFiveAroundEachDiamond() throws {
+        try expect(AppFonts.workerTab.pointSize == 12 && AppFonts.workerTabSelected.pointSize == 12, "the tabs should be 12pt, got \(AppFonts.workerTab.pointSize)")
+        let font = AppFonts.workerTab
+        let line = (font.ascender - font.descender + font.leading).rounded(.up)
+        try expect(WorkerLogTabMetrics.height >= line, "the row should hold a line of its text (\(line)), got \(WorkerLogTabMetrics.height) high")
+        try expect(WorkerLogTabMetrics.labelBaseline - font.ascender >= 0 && WorkerLogTabMetrics.labelBaseline - font.descender <= WorkerLogTabMetrics.height, "and the baseline should keep the whole line inside it")
+
+        let blocks = String(repeating: "\u{2588}", count: 6)
+        let workers = (1...2).map { WorkerLogWorker(id: "w\($0)", name: blocks) }
+        let host = tabRowHost(workers: workers, selected: nil)
+        defer { host.window.close() }
+        pump(0.2)
+        let scale: CGFloat = 2
+        let bitmap = try snapshot(host.hosting, size: host.size, scale: scale)
+        guard let base = AppPalette.panel.usingColorSpace(.deviceRGB) else {
+            throw TestFailure("the panel colour should convert")
+        }
+        // The row of pixels through the diamonds' centres: the blocks and the diamonds are the ink on it, and the text of All.
+        let row = Int((WorkerLogTabMetrics.labelBaseline - WorkerLogTabMetrics.svgDiamondRaise) * scale)
+        var runs: [(start: CGFloat, end: CGFloat)] = []
+        var start: Int?
+        for column in 0..<Int(host.size.width * scale) {
+            let color = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB)
+            let distance = color.map { abs($0.redComponent - base.redComponent) + abs($0.greenComponent - base.greenComponent) + abs($0.blueComponent - base.blueComponent) } ?? 0
+            if distance > 0.1, start == nil {
+                start = column
+            } else if distance <= 0.1, let from = start {
+                runs.append((CGFloat(from) / scale, CGFloat(column) / scale))
+                start = nil
+            }
+        }
+        try expect(runs.count >= 4, "the diamonds and blocks should draw four runs at the end of the row, got \(runs)")
+        let (firstDiamond, firstBlock, secondDiamond, secondBlock) = (runs[runs.count - 4], runs[runs.count - 3], runs[runs.count - 2], runs[runs.count - 1])
+        let gap = WorkerLogTabMetrics.separatorGap
+        try expect(gap == Space.row, "a tab should sit a `Space.row` from its diamond")
+        for (label, measured) in [("tab to its diamond", firstBlock.start - firstDiamond.end), ("first tab to the next diamond", secondDiamond.start - firstBlock.end), ("diamond to the next tab", secondBlock.start - secondDiamond.end)] {
+            try expect(abs(measured - gap) <= 0.75, "\(label) should be \(gap) apart, got \(measured)")
+        }
+        let diamondWidth = secondDiamond.end - secondDiamond.start
+        try expect(abs(diamondWidth - WorkerLogTabMetrics.svgDiamondDiagonal) <= 0.75, "the diamond should be \(WorkerLogTabMetrics.svgDiamondDiagonal) across, got \(diamondWidth)")
+        let blockWidth = firstBlock.end - firstBlock.start
+        let advance = ("\u{2588}" as NSString).size(withAttributes: [.font: font]).width
+        try expect(abs(blockWidth - 6 * advance) <= 1.25, "six blocks should be six 12pt advances (\(6 * advance)) wide, got \(blockWidth)")
+    }
+
     /// A row too wide for the panel scrolls sideways, and the selection comes to the middle when it changes: the first tab
     /// and the last stop at the row's ends, one between sits where the row can centre it.
     private static func testWorkerLogTabsScrollToTheSelection() throws {
@@ -5911,7 +5959,7 @@ enum LogicSelfTests {
         /// The block's coverage in the column at `x` points: its distance from the panel fill, as a share of `full`.
         func coverage(_ bitmap: NSBitmapImageRep, atX x: CGFloat, full: CGFloat) -> CGFloat {
             let column = Int(x * scale)
-            let distance = (Int(5 * scale)..<Int(9 * scale)).map { row -> CGFloat in
+            let distance = (Int(11 * scale)..<Int(15 * scale)).map { row -> CGFloat in
                 guard let pixel = bitmap.colorAt(x: column, y: row)?.usingColorSpace(.deviceRGB) else {
                     return 0
                 }
@@ -5945,7 +5993,7 @@ enum LogicSelfTests {
         try expectFade(middle, edge: { $0 }, "leading")
     }
 
-    /// The feed ends where the row begins, `topGap` above it, and the row ends `bottomInset` above the panel's edge. The row
+    /// The feed ends where the row begins, and the row ends `bottomInset` above the panel's edge. The row
     /// shows from two workers on: a master with none or one has no row at all, and the feed fills the panel.
     private static func testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers() throws {
         func host(workers: Int) throws -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>) {
@@ -5998,7 +6046,7 @@ enum LogicSelfTests {
         let (row, feed) = (frames[0], frames[1])
         try expect(row.height == WorkerLogTabMetrics.height, "the tab row should be \(WorkerLogTabMetrics.height) high, got \(row.height)")
         try expect(abs(row.minY - WorkerLogTabMetrics.bottomInset) < 0.5, "the row should end \(WorkerLogTabMetrics.bottomInset) above the panel's bottom, got \(row.minY)")
-        try expect(abs(feed.minY - (row.maxY + WorkerLogTabMetrics.topGap)) < 0.5, "the feed should end \(WorkerLogTabMetrics.topGap) above the row, got its bottom at \(feed.minY) over the row's top at \(row.maxY)")
+        try expect(abs(feed.minY - row.maxY) < 0.5, "the feed should end where the row begins, got its bottom at \(feed.minY) over the row's top at \(row.maxY)")
         try expect(row.width == DockWidthPreference.panelWidth && feed.width == DockWidthPreference.panelWidth, "both should span the panel")
     }
 

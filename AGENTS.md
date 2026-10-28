@@ -266,16 +266,18 @@ again where it was when the keys come back.
   hard, and a feed at its top starts its first line 20 under the header, where
   the fade ends, with or without the chip.
 - The Worker Log's worker tabs (`WorkerLogTabRow`, from `Tabs (Simple).svg`) are pinned to the bottom of the panel: All, then
-  one text tab per worker of the attached master in tracker order (`WorkerChatStore.workers`), JetBrains Mono 10pt, a
-  diamond (the `line` colour) between them with `Space.item` on each side. They take a `TextTabLook`. One tab is
+  one text tab per worker of the attached master in tracker order (`WorkerChatStore.workers`), JetBrains Mono 12pt (the feed's chat
+  font, `AppFonts.workerTab`), a diamond (the `line` colour) between them with `Space.row` on each side: tab, 5, diamond, 5, tab. They take a `TextTabLook`. One tab is
   selected (`WorkerLogFilter.workerID`, nil for All): All shows every worker's lines, a worker's tab only that worker's,
   and it ANDs with the Action ticks. The tab is kept per master (it names that master's workers; in memory only), unlike
   the Action ticks, and falls back to All when its worker goes away. Hidden while the master has fewer than two workers (All plus one tab adds nothing;
   `WorkerChatStore.showsTabs` is the one predicate for the view, the dropdown's room and the keys), and when the row
   goes away the selection falls back to All, a remembered tab included. A click selects a tab; `[` and `]` step to the previous
   and next, wrapping as the Settings tabs do (`Keymap.WorkerLog`, handled where `f` is), with the dropdown open or closed,
-  and work only while the bottom panel has the keys and the row shows (otherwise they pass through). The feed ends `WorkerLogTabMetrics.topGap` above
-  the row, which is 15 high and ends 15 above the panel's bottom edge (measured from the user's mock). Tabs too many for the
+  and work only while the bottom panel has the keys and the row shows (otherwise they pass through). The feed ends where
+  the row begins; the row is `ControlHeight.compact` (25) high, the line of text centred in it (baseline 17 down, a 12pt line
+  being too tall for the 15-high chip), and ends 10 above the panel's bottom edge, which puts the tabs' baseline 18 over it
+  and the last feed line's ink 30.5 over their caps (the user's mock, at 10pt, had 20 and 32). Tabs too many for the
   panel scroll sideways with no scroller; the row's ends are 20 in, and a side with hidden tabs fades out over 20, as the
   feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.
 - Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
