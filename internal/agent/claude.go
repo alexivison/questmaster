@@ -12,7 +12,6 @@ const claudeDisableTipsSettings = `{"spinnerTipsEnabled":false,"crossSessionInbo
 var claudeSpec = Spec{
 	Name:           "claude",
 	DisplayName:    "Claude",
-	Description:    "general-purpose coding and multi-step orchestration; a strong default",
 	DefaultCLI:     "claude",
 	ResumeKey:      "claude_session_id",
 	ResumeFileName: "claude-session-id",

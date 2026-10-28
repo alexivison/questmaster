@@ -122,7 +122,7 @@ func TestClaudeBuildCmd(t *testing.T) {
 		AgentPath: "/tmp/bin:/usr/bin",
 		Role:      RoleWorker,
 	})
-	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --append-system-prompt '" + claude.WorkerPrompt() + "'"
+	want := "export PATH='/tmp/bin:/usr/bin'; unset CLAUDECODE; exec '/usr/local/bin/claude' --permission-mode bypassPermissions " + wantClaudeDisableTipsArg + " --append-system-prompt " + configShellQuote(claude.WorkerPrompt())
 	if got != want {
 		t.Fatalf("BuildCmd() = %q, want %q", got, want)
 	}
@@ -416,7 +416,7 @@ func TestClaudeBuildCmd_WorkerPromptAndSystemBrief(t *testing.T) {
 		SystemBrief: brief,
 		Role:        RoleWorker,
 	})
-	want := "--append-system-prompt '" + claude.WorkerPrompt() + "\n\n" + brief + "'"
+	want := "--append-system-prompt " + configShellQuote(claude.WorkerPrompt()+"\n\n"+brief)
 	if !strings.Contains(got, want) {
 		t.Fatalf("BuildCmd() missing %q in %q", want, got)
 	}
