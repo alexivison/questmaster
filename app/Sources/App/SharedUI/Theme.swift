@@ -303,8 +303,13 @@ enum AppFonts {
     static let questLogRowSelected = monospaced(size: 12, weight: .bold)
     static let questLogTitle = monospaced(size: 14, weight: .bold)
     static let questLogButton = monospaced(size: 12, weight: .bold)
+    /// A selection chip's value: the current selection, in bold.
+    static let chipValue = monospaced(size: 12, weight: .bold)
     /// The pill tabs' labels.
     static let pillTab = monospaced(size: 10)
+    /// The Worker Log's worker tabs in the feed's own chat font, 12pt; bold when selected, which keeps the advance.
+    static let workerTab = chat
+    static let workerTabSelected = chatName
 }
 
 extension StateColor {

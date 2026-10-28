@@ -80,8 +80,8 @@ struct ShellSplitLayoutTests {
         )
 
         expect(layout.dockWidth == DockWidthPreference.panelWidth, "a panel dock should ignore the preferred width, got \(layout.dockWidth)")
-        expect(layout.dockFrame.width == 480, "the Chat Item and Session Detail Dock artboards are 480 wide")
-        expect(layout.terminalFrame.width == 722, "panel dock terminal width mismatch")
+        expect(layout.dockFrame.width == 530, "the panel dock is the artboards' 480 plus the Worker Log tab row's 50")
+        expect(layout.terminalFrame.width == 672, "panel dock terminal width mismatch")
     }
 
     private static func panelDockKeepsTheMinimumTerminalWidth() {

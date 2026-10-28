@@ -178,9 +178,12 @@ public enum Keymap {
         public static let lineDownCharacter = CharacterBinding(keys: ["j"])
     }
 
-    /// The Worker Log's filter. `f` opens it while the dock has the keys, and the rest act inside the open dropdown.
+    /// The Worker Log's keys while the dock has them. `f` opens the filter and the rest of its keys act inside the open
+    /// dropdown; `[` and `]` move the worker tabs, open or closed, as they do the Settings tabs.
     public enum WorkerLog {
         public static let toggleMenu = CharacterBinding(keys: ["f"])
+        public static let previousTab = CharacterBinding(keys: ["["])
+        public static let nextTab = CharacterBinding(keys: ["]"])
         public static let close = KeyCodeBinding(keyCodes: [53])
         public static let moveUpKeyCodes = KeyCodeBinding(keyCodes: [126])
         public static let moveDownKeyCodes = KeyCodeBinding(keyCodes: [125])

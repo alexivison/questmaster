@@ -6,8 +6,8 @@ public enum DockWidthPreference {
     public static let defaultWindowFraction = 0.45
     public static let minWidth = 360.0
     /// The dock's one fixed width, for everything but the artifact viewer: the Chat Item and Session Detail Dock
-    /// artboards are 480pt wide.
-    public static let panelWidth = 480.0
+    /// artboards are 480pt wide, and the Worker Log's tab row takes 50 more (2026-10-28).
+    public static let panelWidth = 530.0
     public static let resizeStep = 80.0
     public static let minTerminalWidth = 360.0
 
