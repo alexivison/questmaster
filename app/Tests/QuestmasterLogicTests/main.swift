@@ -23,6 +23,7 @@ enum QuestmasterLogicTests {
         timed("SessionClassLogicTests") { SessionClassLogicTests.run() }
         timed("ColorFieldTests") { ColorFieldTests.run() }
         timed("PickerFieldKeyTests") { PickerFieldKeyTests.run() }
+        timed("FilterFieldKeyTests") { FilterFieldKeyTests.run() }
         timed("RoleDefaultsLogicTests") { RoleDefaultsLogicTests.run() }
         timed("NewTerminalLogicTests") { NewTerminalLogicTests.run() }
         timed("DestructiveConfirmationTests") { DestructiveConfirmationTests.run() }

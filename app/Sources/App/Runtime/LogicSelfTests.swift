@@ -67,6 +67,7 @@ enum LogicSelfTests {
         ("testTheShellSectionIsPinnedToTheTrackersBottom", testTheShellSectionIsPinnedToTheTrackersBottom),
         ("testTheShellSectionScrollsInsideItselfPastItsMaxHeight", testTheShellSectionScrollsInsideItselfPastItsMaxHeight),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
+        ("testQuestLogFilterReturnAndEscHandBackToTheList", testQuestLogFilterReturnAndEscHandBackToTheList),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
         ("testNewArtifactsOpenFromBehindTheWorkerChat", testNewArtifactsOpenFromBehindTheWorkerChat),
         ("testDockPanePublishesModeChanges", testDockPanePublishesModeChanges),
@@ -2920,6 +2921,42 @@ enum LogicSelfTests {
         try expect(dock.isFocused, "the deferred dock focus should light the frame once the modal has faded")
     }
 
+    /// With no suggestion open, Return moves the cursor to the filter's first match and hands the keys back to the
+    /// list; the quest isn't edited and the filter keeps its text. Esc does the handing back without moving the cursor.
+    private static func testQuestLogFilterReturnAndEscHandBackToTheList() throws {
+        let quests = [
+            QuestItem(id: "q1", content: "Write the plan", projectID: "p", projectName: "p"),
+            QuestItem(id: "q2", content: "Fix the bug", projectID: "p", projectName: "p"),
+            QuestItem(id: "q3", content: "Write the report", projectID: "p", projectName: "p"),
+        ]
+        let store = QuestLogStore()
+        let filter = QuestLogFilter()
+        var sent: [QuestLogCommand] = []
+        var leaves = 0
+        filter.onChange = { store.sync(quests: quests, repos: [], query: filter.textQuery, projectIDs: filter.projectIDs) }
+        filter.onMoveSelection = { command in
+            sent.append(command)
+            _ = store.handle(command)
+        }
+        filter.onLeave = { leaves += 1 }
+        store.sync(quests: quests, repos: [])
+        filter.setQuery("write")
+        try expect(filter.suggestions.isEmpty, "a text query should show no suggestions")
+        store.select("q3")
+
+        try expect(filter.handleCommand(.plain(36)), "Return should be the filter's when no suggestion shows")
+        try expect(store.selectedID == "q1", "Return should put the cursor on the first match, got \(String(describing: store.selectedID))")
+        try expect(sent == [.jumpToFirst] && leaves == 1, "Return should only move the cursor and hand the keys back, sent \(sent)")
+        try expect(filter.query == "write", "Return should keep the filter applied, got \(filter.query)")
+
+        try expect(filter.handleCommand(.plain(125)), "↓ should move the list when no suggestion shows")
+        try expect(store.selectedID == "q3", "↓ should move the cursor to the next match, got \(String(describing: store.selectedID))")
+        try expect(!filter.handleCommand(Keymap.KeyPress(keyCode: 38, character: "j")), "j should type into the filter, not move the list")
+
+        try expect(filter.handleCommand(.plain(53)), "Esc should be the filter's when no suggestion shows")
+        try expect(leaves == 2 && store.selectedID == "q3" && filter.query == "write", "Esc should hand the keys back and keep the cursor and the filter")
+    }
+
     /// A child (⌘T's New Quest over the Quest Log) closing hands the keys back to what had them in the modal it
     /// uncovers: the filter's field editor, caret where it was, so typing goes on into the filter.
     private static func testClosingAChildRefocusesTheModalItUncovers() throws {
@@ -4269,10 +4306,27 @@ enum LogicSelfTests {
             "empty-tail Backspace should remove the previous token"
         )
         try expect(commandModel.artifactModel.artifacts == [report, screenshot], "Backspace should clear the last token filter")
+        var leaves = 0
+        commandModel.onArtifactFilterLeave = { leaves += 1 }
         commandModel.setArtifactFilterQuery("@")
         try expect(commandModel.handleArtifactFilterCommand(.plain(53)), "Esc should close visible suggestions")
         try expect(!commandModel.artifactModel.filterSuggestionsVisible, "Esc should hide suggestions")
-        try expect(!commandModel.handleArtifactFilterCommand(.plain(53)), "second Esc should fall through for input blur")
+        try expect(leaves == 0, "the Esc that hides suggestions should keep the keys in the filter")
+        try expect(commandModel.handleArtifactFilterCommand(.plain(53)), "second Esc should be the filter's and hand the keys back")
+        try expect(leaves == 1, "second Esc should hand the keys back to the list, got \(leaves)")
+
+        commandModel.setArtifactFilterQuery("")
+        let matches = commandModel.artifactModel.artifacts
+        try expect(matches == [report, screenshot], "precondition: the project token leaves two rows")
+        try expect(commandModel.handleArtifactFilterCommand(.plain(36)), "Return should be the filter's when no suggestion shows")
+        try expect(commandModel.artifactModel.selectedArtifactID == matches[0].id, "Return should put the cursor on the first match")
+        try expect(commandModel.handleArtifactFilterCommand(.plain(125)), "↓ should move the list when no suggestion shows")
+        try expect(commandModel.artifactModel.selectedArtifactID == matches[1].id, "↓ should move the cursor to the next match")
+        var opened: [String] = []
+        commandModel.onOpenArtifactIntent = { opened.append($0) }
+        try expect(commandModel.handleArtifactFilterCommand(.plain(36)), "Return should be the filter's again")
+        try expect(commandModel.artifactModel.selectedArtifactID == matches[0].id && opened.isEmpty, "Return should go back to the first match and open nothing")
+        try expect(leaves == 3, "each Return should hand the keys back to the list, got \(leaves)")
 
         model.setArtifactTypeFilter("markdown", isSelected: true)
         model.setArtifactTypeFilter("image", isSelected: true)

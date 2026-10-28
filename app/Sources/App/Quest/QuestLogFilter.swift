@@ -21,11 +21,9 @@ final class QuestLogFilter {
 
     /// The filter changed: re-sync the list.
     @ObservationIgnored var onChange: (() -> Void)?
-    /// Return with no suggestion open edits the selected quest, as the dock did.
-    @ObservationIgnored var onEdit: (() -> Void)?
-    /// Up and down with no suggestion open move the list selection.
+    /// The list's cursor moves: ↑/↓ with no suggestion open, and Return, which moves it to the first quest.
     @ObservationIgnored var onMoveSelection: ((QuestLogCommand) -> Void)?
-    /// Esc with no suggestion open leaves the field; the next Esc closes the log.
+    /// The keys go back to the list: Esc or Return with no suggestion open. The filter stays; the next Esc closes the log.
     @ObservationIgnored var onLeave: (() -> Void)?
 
     var isActive: Bool { !textQuery.isEmpty || !projectIDs.isEmpty }
@@ -85,51 +83,41 @@ final class QuestLogFilter {
         return true
     }
 
-    /// The field's own keys (each press from `CommandTextField`).
+    /// The field's own keys (each press from `CommandTextField`). True when the filter took the press.
     func handleCommand(_ press: Keymap.KeyPress) -> Bool {
-        if Keymap.matches(press, .suggestionDown) {
-            moveSuggestionOrSelection(delta: 1)
-            return true
+        guard let command = FilterFieldKey.command(
+            press,
+            showsSuggestions: !suggestions.isEmpty,
+            queryIsEmpty: query.isEmpty,
+            hasChips: !tokens.isEmpty
+        ) else {
+            return false
         }
-        if Keymap.matches(press, .suggestionUp) {
-            moveSuggestionOrSelection(delta: -1)
-            return true
-        }
-        if Keymap.matches(press, .tab), !suggestions.isEmpty {
-            return acceptSuggestion()
-        }
-        if Keymap.matches(press, .submit) {
-            if !suggestions.isEmpty {
-                return acceptSuggestion()
-            }
-            onEdit?()
-            return true
-        }
-        if Keymap.matches(press, .backspace), query.isEmpty, !tokens.isEmpty {
+        apply(command)
+        return true
+    }
+
+    private func apply(_ command: FilterFieldCommand) {
+        switch command {
+        case .moveSuggestion(let delta):
+            moveSuggestion(delta: delta)
+        case .moveList(let delta):
+            onMoveSelection?(delta > 0 ? .moveDown : .moveUp)
+        case .acceptSuggestion:
+            acceptSuggestion()
+        case .returnToList:
+            onMoveSelection?(.jumpToFirst)
+            onLeave?()
+        case .removeLastChip:
             tokens.removeLast()
             syncProjectIDs()
             changed()
-            return true
-        }
-        if Keymap.matches(press, .cancel) {
-            guard !suggestions.isEmpty else {
-                onLeave?()
-                return true
-            }
+        case .hideSuggestions:
             suggestionsHidden = true
             refreshSuggestions()
-            return true
+        case .leave:
+            onLeave?()
         }
-        return false
-    }
-
-    /// ↑ and ↓ move the suggestions while there are any, and the quest list otherwise.
-    private func moveSuggestionOrSelection(delta: Int) {
-        guard !suggestions.isEmpty else {
-            onMoveSelection?(delta > 0 ? .moveDown : .moveUp)
-            return
-        }
-        moveSuggestion(delta: delta)
     }
 
     private func changed() {

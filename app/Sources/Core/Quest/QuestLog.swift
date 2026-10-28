@@ -130,6 +130,8 @@ public enum QuestLogCommand: Equatable {
     case focusFilter
     /// A `g`: a second one within `GPrefixTracker`'s window jumps to the first quest.
     case jumpToFirstPrefix
+    /// The first quest with no chord: the filter's Return moves the cursor there.
+    case jumpToFirst
     case jumpToLast
     case pageUp
     case pageDown
@@ -278,6 +280,9 @@ public final class QuestLogStore {
             if jumpToFirstChord.handleG() == .jumpToTop {
                 jump(atStart: true)
             }
+            return nil
+        case .jumpToFirst:
+            jump(atStart: true)
             return nil
         case .jumpToLast:
             jump(atStart: false)

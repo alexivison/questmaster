@@ -254,7 +254,6 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.footerShell.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
         questLogFilter.onChange = { [weak self] in self?.syncQuestLog() }
-        questLogFilter.onEdit = { [weak self] in self?.handleQuestLogCommand(.edit) }
         questLogFilter.onMoveSelection = { [weak self] command in _ = self?.questLogStore.handle(command) }
         questLogFilter.onLeave = { [weak window = handles.window] in window?.makeFirstResponder(nil) }
         handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
