@@ -11,6 +11,7 @@ struct PullRequestStoreTests {
         unchangedSyncKeepsDisplayRowsBuffer()
         emptyRevisionSkipsPullAndClearsRows()
         cursorStartsFirstMovesAndClamps()
+        cursorJumpsToTheEdges()
         cursorFollowsItsRowAndFallsBack()
         commandsBuildEffects()
         unwatchedFollowsTheRevision()
@@ -131,6 +132,18 @@ struct PullRequestStoreTests {
         let empty = PullRequestStore()
         _ = empty.handle(.move(1))
         expect(empty.cursorKey == nil, "no rows, no cursor")
+    }
+
+    /// gg and G go to the first and last row, the same as the lists' keys.
+    private static func cursorJumpsToTheEdges() {
+        let store = loadedStore([1, 2, 3])
+        _ = store.handle(.jumpToBottom)
+        expect(store.cursorKey?.hasSuffix("#1") == true, "G should go to the last row")
+        _ = store.handle(.jumpToTop)
+        expect(store.cursorKey?.hasSuffix("#3") == true, "gg should go to the first row")
+        let empty = PullRequestStore()
+        _ = empty.handle(.jumpToBottom)
+        expect(empty.cursorKey == nil, "no rows, no cursor to jump")
     }
 
     private static func cursorFollowsItsRowAndFallsBack() {

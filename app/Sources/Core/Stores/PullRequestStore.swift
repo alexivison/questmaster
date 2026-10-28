@@ -26,6 +26,8 @@ public struct PullRequestRefreshRequest: Equatable {
 /// What a key or a click asks of the dock's pull requests.
 public enum PullRequestCommand: Equatable {
     case move(Int)
+    case jumpToTop
+    case jumpToBottom
     case open
     case copyURL
     case refresh
@@ -107,6 +109,12 @@ public final class PullRequestStore {
         switch command {
         case .move(let delta):
             moveCursor(by: delta)
+            return nil
+        case .jumpToTop:
+            cursorKey = displayRows.first?.pullRequest.key ?? cursorKey
+            return nil
+        case .jumpToBottom:
+            cursorKey = displayRows.last?.pullRequest.key ?? cursorKey
             return nil
         case .open:
             return selectedRow?.url.map(PullRequestEffect.open)

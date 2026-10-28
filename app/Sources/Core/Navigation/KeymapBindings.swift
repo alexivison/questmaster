@@ -4,7 +4,7 @@ extension Keymap {
     /// What a key does, named for the action rather than the screen it is on. A surface asks `matches(_:_:)` for
     /// the action it takes. The chords for each action are in `chords(for:)`, the only place a key is named.
     public enum Action: CaseIterable, Hashable {
-        // Lists and read surfaces
+        // Lists and read surfaces (`ListKeyResolver` turns these into a `ListCommand`)
         case moveUp
         case moveDown
         case pageUp
@@ -23,15 +23,13 @@ extension Keymap {
         case delete
         case previousTab
         case nextTab
+        case edit
 
         // Screen-specific: no meaning shared with another screen
-        case editSession
         case editRepo
-        case editQuest
         case startQuest
         case toggleWorkersCollapsed
         case toggleAllWorkersCollapsed
-        case toggleRow
         case toggleFilterMenu
 
         // Focus: ⇧⌘H/J/K/L move between regions and dock panels; ⌃h/j/k/l hand focus across to the list
@@ -72,13 +70,13 @@ extension Keymap {
         switch action {
         case .moveUp: return [.code(126), .character("k")]
         case .moveDown: return [.code(125), .character("j")]
-        case .pageUp: return [.code(116)]
-        case .pageDown: return [.code(121)]
+        case .pageUp: return [.code(116), .character("b", [.control])]
+        case .pageDown: return [.code(121), .character("f", [.control])]
         case .halfPageUp: return [.character("u", [.control])]
         case .halfPageDown: return [.character("d", [.control])]
         case .jumpToTop: return [.character("g")]
         case .jumpToBottom: return [.character("G")]
-        case .open: return [.code(36), .code(76), .character("l")]
+        case .open: return [.code(36), .code(76)]
         case .back: return [.character("h"), .code(53), .code(123), .character("[", [.control])]
         case .toggleMark: return [.character(" ")]
         case .focusFilter: return [.character("/")]
@@ -87,14 +85,12 @@ extension Keymap {
         case .delete: return [.character("d")]
         case .previousTab: return [.code(33), .character("[")]
         case .nextTab: return [.code(30), .character("]")]
+        case .edit: return [.character("e")]
 
-        case .editSession: return [.character("e")]
         case .editRepo: return [.character("E")]
-        case .editQuest: return [.character("e"), .code(36)]
         case .startQuest: return [.character("s")]
         case .toggleWorkersCollapsed: return [.character("c")]
         case .toggleAllWorkersCollapsed: return [.character("C")]
-        case .toggleRow: return [.code(36), .code(76), .character(" ")]
         case .toggleFilterMenu: return [.character("f")]
 
         case .focusLeft: return [.character("H", [.command])]

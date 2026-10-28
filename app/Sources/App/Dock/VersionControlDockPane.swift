@@ -21,12 +21,13 @@ struct VersionControlPaneRoot: View {
     }
 }
 
-/// The dock's top panel body: the watched pull requests, with the keys while the panel is the dock's focused one. The
-/// arrows, j/k and Return move and open as in the artifact list; y copies the page's URL, r refreshes; a click picks a row
-/// and opens it. What a key asks for goes to `PullRequestStore.handle`, and the App runs the effect it returns.
+/// The dock's top panel body: the watched pull requests, with the keys while the panel is the dock's focused one. The list
+/// keys move and open as in the artifact list; y copies the page's URL, r refreshes; a click picks a row and opens it.
+/// What a key asks for goes to `PullRequestStore.handle`, and the App runs the effect it returns.
 final class VersionControlDockPane: NSHostingView<VersionControlPaneRoot> {
     private let store: PullRequestStore
     private let model: VersionControlPaneModel
+    private var keys = ListKeyResolver()
 
     /// Runs what a key or a click asked for: opening or copying a pull request's page, a refresh.
     var onPullRequestEffect: ((PullRequestEffect) -> Void)?
@@ -97,33 +98,31 @@ final class VersionControlDockPane: NSHostingView<VersionControlPaneRoot> {
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
-        let press = event.keymapPress
-        if let direction = DockPaneModel.listDirection(for: press) {
-            switch direction {
-            case .up: return perform(.move(-1))
-            case .down: return perform(.move(1))
-            case .left, .right: break
-            }
-        }
-        if Keymap.matches(press, .copy) {
-            return perform(.copyURL)
-        }
-        if Keymap.matches(press, .refresh) {
-            return perform(.refresh)
-        }
-        guard let action = TrackerEventCommandResolver.action(for: event) else {
-            return false
-        }
-        switch action {
-        case .nativeRegionTab:
+        if isNativeRegionTabEvent(event) {
             return true
-        case .focusDirection(let direction):
+        }
+        guard let command = keys.command(for: event.keymapPress, in: .versionControl) else {
+            guard let direction = focusDirection(from: event) else {
+                return false
+            }
             return onControlDirection?(direction) == true
-        case .moveSelection(let delta):
+        }
+        switch command {
+        case .move(let delta):
             return perform(.move(delta))
-        case .openSelection:
+        case .jumpToTopPrefix:
+            return true
+        case .jumpToTop:
+            return perform(.jumpToTop)
+        case .jumpToBottom:
+            return perform(.jumpToBottom)
+        case .open:
             return perform(.open)
-        case .listCommand:
+        case .copy:
+            return perform(.copyURL)
+        case .refresh:
+            return perform(.refresh)
+        default:
             return false
         }
     }

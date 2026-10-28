@@ -602,7 +602,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Edit, Abandon's confirmation and Send forth's New Session open as modals over the Quest Log, which
     /// stays open underneath; a started session closes it.
-    private func handleQuestLogCommand(_ command: QuestLogCommand) {
+    private func handleQuestLogCommand(_ command: ListCommand) {
         guard let effect = questLogStore.handle(command) else {
             return
         }
