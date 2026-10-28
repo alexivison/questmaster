@@ -46,6 +46,17 @@ func TestFetchViewerLoginPerHost(t *testing.T) {
 	}
 }
 
+func TestFetchKeepsStatusWhenViewerFieldFails(t *testing.T) {
+	t.Parallel()
+	pr := pr(t, "owner/repo#1")
+	got := Fetch(context.Background(), []state.PullRequest{pr}, func(context.Context, string, string) ([]byte, []byte, error) {
+		return []byte(`{"data":{"viewer":null,"p0":{"pullRequest":{"title":"PR","state":"OPEN"}}},"errors":[{"path":["viewer"],"message":"viewer unavailable"}]}`), nil, nil
+	}, time.Now())
+	if got.Hosts["github.com"].Error != "" || got.Statuses[pr.Key].Title != "PR" || got.Viewers["github.com"] != "" {
+		t.Fatalf("viewer field error lost PR status or enabled filtering: %+v", got)
+	}
+}
+
 func TestFetchBatchesReposAndHosts(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)

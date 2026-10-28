@@ -75,7 +75,7 @@ func LoadPullRequestEventLog(root, key string) (PullRequestEventLog, error) {
 }
 
 // RecordPullRequestEvents deduplicates IDs and commits source cursors with events.
-func RecordPullRequestEvents(root, key string, incoming []PullRequestEvent, lastIDs map[string]string, seenOnly ...string) ([]PullRequestEvent, error) {
+func RecordPullRequestEvents(root, key string, incoming []PullRequestEvent, lastIDs map[string]string) ([]PullRequestEvent, error) {
 	var added []PullRequestEvent
 	_, err := mutatePullRequestRegistry(root, func(registry *pullRequestRegistry) (int, error) {
 		var pr *PullRequest
@@ -106,12 +106,6 @@ func RecordPullRequestEvents(root, key string, incoming []PullRequestEvent, last
 		for source, id := range lastIDs {
 			if id != "" && log.LastIDs[source] != id {
 				log.LastIDs[source] = id
-				changed++
-			}
-		}
-		for _, id := range seenOnly {
-			if id != "" && !log.SeenIDs[id] {
-				log.SeenIDs[id] = true
 				changed++
 			}
 		}
