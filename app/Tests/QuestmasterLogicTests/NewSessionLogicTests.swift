@@ -27,7 +27,7 @@ struct NewSessionLogicTests {
         defaultColorSelectIncludesNone()
         initialColorUsesTheSameColorCycle()
         colorSelectCyclesDirectly()
-        enterCreatesOutsidePromptWherePromptViewHandlesReturn()
+        promptKeepsTabAndOtherFieldsTakeReturnAsSubmit()
         promptReturnKeyCreatesUnlessShiftIsHeld()
         submitPayloadTrimsFieldsAndRequiresPath()
         resolvedColorForSaveKeepsRealColorSelections()
@@ -41,24 +41,24 @@ struct NewSessionLogicTests {
         expect(model.focusedField == .path, "initial focus should be path")
         model.setEffortOptions(["low", "high"])
 
-        model.handle(.controlJ)
+        model.moveFocus(1)
         expect(model.focusedField == .title, "control-j should move to title")
-        model.handle(.controlJ)
+        model.moveFocus(1)
         expect(model.focusedField == .agent, "control-j should move to agent")
-        model.handle(.controlJ)
+        model.moveFocus(1)
         expect(model.focusedField == .model, "control-j should move to model")
-        model.handle(.controlJ)
+        model.moveFocus(1)
         expect(model.focusedField == .prompt, "control-j should move from the model to the prompt: the effort segment is no stop")
-        model.handle(.controlK)
+        model.moveFocus(-1)
         expect(model.focusedField == .model, "control-k should move back to model")
         expect(NewSessionField.formOrder == [.path, .title, .agent, .model, .prompt], "the visible inputs, top to bottom")
     }
 
     private static func focusCycleWrapsThroughFields() {
         var model = NewSessionFormModel(initialPath: "/tmp/project")
-        model.handle(.controlK)
+        model.moveFocus(-1)
         expect(model.focusedField == .prompt, "control-k from path should wrap to prompt")
-        model.handle(.controlK)
+        model.moveFocus(-1)
         expect(model.focusedField == .model, "control-k from prompt should move to model")
         expect(!NewSessionField.formOrder.contains(.color), "New Session's fields should not include a colour")
     }
@@ -197,7 +197,7 @@ struct NewSessionLogicTests {
         model.typeModel("opus")
 
         model.focusedField = .agent
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedAgent == "codex", "precondition: agent cycled")
         expect(model.selectedModel.isEmpty, "a claude model must not launch on codex, typed or not")
         expect(model.modelOptions.isEmpty, "the stale list should be dropped with the agent")
@@ -236,7 +236,7 @@ struct NewSessionLogicTests {
         model.typeModel("opus")
 
         model.focusedField = .agent
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedAgent == "claude", "precondition: cycling a single-agent list is a no-op")
         expect(model.selectedModel == "opus", "a no-op agent cycle must not drop the typed model")
         expect(model.modelOptions.count == 1, "a no-op agent cycle must not drop the resolved model list")
@@ -280,7 +280,7 @@ struct NewSessionLogicTests {
         expect(model.selectedReasoningEffort == "low", "precondition: low selected")
 
         model.focusedField = .agent
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedAgent == "codex", "precondition: agent cycled")
         expect(model.selectedReasoningEffort.isEmpty, "a claude effort level must not launch on codex")
         expect(model.effortOptions.isEmpty, "the stale list should be dropped with the agent")
@@ -357,19 +357,19 @@ struct NewSessionLogicTests {
             colors: ["blue", "violet"]
         )
         model.focusedField = .path
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedAgent == "claude", "path right arrow should not cycle agent")
 
         model.focusedField = .agent
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedAgent == "codex", "agent right arrow should cycle forward")
-        model.handle(.left)
+        model.cycleSelection(-1)
         expect(model.selectedAgent == "claude", "agent left arrow should cycle backward")
 
         model.focusedField = .color
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedColor == "violet", "color right arrow should cycle forward")
-        model.handle(.left)
+        model.cycleSelection(-1)
         expect(model.selectedColor == "blue", "color left arrow should cycle backward")
 
     }
@@ -382,23 +382,23 @@ struct NewSessionLogicTests {
         )
 
         model.focusedField = .title
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedAgent == "claude", "text field shortcut should not cycle agent")
 
         model.focusedField = .agent
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedAgent == "codex", "right should cycle select field right")
-        model.handle(.left)
+        model.cycleSelection(-1)
         expect(model.selectedAgent == "claude", "left should cycle select field left")
 
         model.focusedField = .color
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedColor == "violet", "right should cycle color right")
-        model.handle(.left)
+        model.cycleSelection(-1)
         expect(model.selectedColor == "blue", "left should cycle color left")
 
         model.focusedField = .prompt
-        model.handle(.left)
+        model.cycleSelection(-1)
         expect(model.selectedAgent == "claude", "prompt shortcut should not cycle agent")
     }
 
@@ -411,9 +411,9 @@ struct NewSessionLogicTests {
         expect(payload?.color == NewSessionFormModel.noColor, "no-color payload should use empty color")
 
         model.focusedField = .color
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedColor == "blue", "right from no color should select blue")
-        model.handle(.left)
+        model.cycleSelection(-1)
         expect(model.selectedColor == NewSessionFormModel.noColor, "left from blue should return to no color")
     }
 
@@ -425,9 +425,9 @@ struct NewSessionLogicTests {
         model.focusedField = .color
 
         expect(model.selectedColor == "green", "initial color should be selected")
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedColor == "yellow", "right should continue from the initial color")
-        model.handle(.left)
+        model.cycleSelection(-1)
         expect(model.selectedColor == "green", "left should return to the initial color")
     }
 
@@ -437,26 +437,25 @@ struct NewSessionLogicTests {
             colors: ["blue", "green", "violet"]
         )
         model.focusedField = .color
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedColor == "green", "right should select next color")
-        model.handle(.right)
+        model.cycleSelection(1)
         expect(model.selectedColor == "violet", "right should select the next color again")
-        model.handle(.left)
+        model.cycleSelection(-1)
         expect(model.selectedColor == "green", "left should select previous color")
-        expect(model.creationRequested(by: .enter), "enter should create after direct color selection")
+        expect(model.modalFocus == .select, "the colour is a select: Return creates from it, and ←/→ cycle it")
         model.focusedField = .title
         expect(model.selectedColor == "green", "focus change should preserve selected color")
     }
 
-    private static func enterCreatesOutsidePromptWherePromptViewHandlesReturn() {
+    private static func promptKeepsTabAndOtherFieldsTakeReturnAsSubmit() {
         var model = NewSessionFormModel(initialPath: "/tmp/project")
         model.focusedField = .title
-        expect(model.creationRequested(by: .enter), "enter outside prompt should create")
-        expect(!model.creationRequested(by: .controlS), "control-s outside prompt should not create")
-
+        expect(model.modalFocus == .line, "a title is a line: Return submits")
         model.focusedField = .prompt
-        expect(!model.creationRequested(by: .enter), "prompt return should be handled by the prompt text view")
-        expect(model.creationRequested(by: .controlS), "control-s in prompt should create")
+        expect(model.modalFocus == .prompt(keepsTab: true), "the prompt keeps Tab as text, and its editor takes Return")
+        model.focusedField = .agent
+        expect(model.modalFocus == .select, "the agent is a select")
     }
 
     private static func promptReturnKeyCreatesUnlessShiftIsHeld() {

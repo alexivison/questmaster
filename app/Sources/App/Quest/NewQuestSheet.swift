@@ -78,7 +78,7 @@ struct NewQuestSheetView: View {
         }
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
         .scoopedPanel()
-        .background(SheetKeyEventMonitor(onKeyDown: { model.handle($0) }, onNavigation: { model.navigate($0) }))
+        .background(SheetKeyEventMonitor(onKeyDown: model.handle))
         .onAppear { model.present() }
         .onDisappear { model.disappear() }
     }
@@ -265,57 +265,31 @@ final class NewQuestSheetModel: ObservableObject {
         }
     }
 
+    /// The sheet's keys: the project field's own (`handleFieldKey`), then the shared modal keys (`ModalKeys`).
     func handle(_ event: NSEvent) -> Bool {
-        let press = event.keymapPress
-        if press.modifiers.contains(.command) {
-            guard Keymap.matches(press, .submit) else {
-                return false
-            }
-            submit()
-            return true
-        }
-        if form.submitting {
-            // Esc still closes while a submit is in flight, as in New Session.
-            if Keymap.matches(press, .cancel) {
-                cancel()
-            }
-            return true
-        }
-        if form.focusedField == .project, handleProjectFieldKey(event) {
-            return true
-        }
-        if Keymap.matches(press, .cancel) {
-            cancel()
-            return true
-        }
-        let tabOutOfProject = form.focusedField == .project && (Keymap.matches(press, .tab) || Keymap.matches(press, .backTab))
-        if tabOutOfProject || Keymap.matches(press, .nextField) {
-            navigate(.down)
-            return true
-        }
-        if Keymap.matches(press, .previousField) {
-            navigate(.up)
-            return true
-        }
-        if Keymap.matches(press, .createFromPrompt), form.focusedField == .content {
-            submit()
-            return true
-        }
-        return false
+        ModalKeyActions(
+            context: { self.modalKeyContext },
+            fieldKey: { self.handleFieldKey($0) },
+            submit: { self.submit() },
+            cancel: { self.cancel() },
+            moveFocus: { self.moveFocus($0) }
+        ).handle(event)
     }
 
-    func navigate(_ direction: NavigationDirection) {
-        guard !form.submitting else {
-            return
+    private var modalKeyContext: ModalKeyContext {
+        ModalKeyContext(
+            focus: form.modalFocus,
+            fieldCount: NewQuestField.allCases.count,
+            submitting: form.submitting,
+            submits: true
+        )
+    }
+
+    private func handleFieldKey(_ event: NSEvent) -> Bool {
+        guard form.focusedField == .project else {
+            return false
         }
-        switch direction {
-        case .up:
-            moveFocus(-1)
-        case .down:
-            moveFocus(1)
-        case .left, .right:
-            break
-        }
+        return handleProjectFieldKey(event)
     }
 
     /// The project field's keys, before the sheet's: the shared picker keys (`PickerFieldKey`) for the project

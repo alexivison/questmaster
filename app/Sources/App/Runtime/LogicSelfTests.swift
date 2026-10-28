@@ -57,6 +57,8 @@ enum LogicSelfTests {
         ("testQuestLogPageScrollsWithTheWheel", testQuestLogPageScrollsWithTheWheel),
         ("testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges", testTheTitleFieldsTextStaysPutWhenTheClassSegmentChanges),
         ("testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass", testEditSessionKeepsItsTitleTextStillWhenControlECyclesTheClass),
+        ("testEditRepoReturnSavesTheColour", testEditRepoReturnSavesTheColour),
+        ("testDeleteConfirmationReturnConfirmsAndControlBracketCancels", testDeleteConfirmationReturnConfirmsAndControlBracketCancels),
         ("testFilterBarTextSitsOnOneBaselineRestingAndFocused", testFilterBarTextSitsOnOneBaselineRestingAndFocused),
         ("testTextFieldsFitTheirWholeLine", testTextFieldsFitTheirWholeLine),
         ("testRenderedSpacingStaysOnTheScale", testRenderedSpacingStaysOnTheScale),
@@ -3716,6 +3718,59 @@ enum LogicSelfTests {
             }
         }
         try expect(failures.isEmpty, failures.joined(separator: "; "))
+    }
+
+    /// Edit Repo's Return saves the colour and closes, as Return submits in every other sheet. The colour is the sheet's
+    /// only field, so the press reaches the sheet's keys with nothing of its own to take it first.
+    private static func testEditRepoReturnSavesTheColour() throws {
+        var saved: [String] = []
+        var dismissals = 0
+        let sheet = TrackerEditRepoSheet(
+            repo: TrackerEditRepo(identity: "repo-1", name: "questmaster", color: "orange"),
+            dismiss: { dismissals += 1 },
+            save: { color in
+                saved.append(color)
+                return true
+            }
+        )
+        let size = CGSize(width: 460, height: 260)
+        let view = NSHostingView(rootView: sheet.frame(width: size.width, height: size.height))
+        view.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = view
+        window.show(key: true)
+        defer { window.close() }
+        guard waitUntil({ sheetKeyMonitor(in: view) != nil }), let monitor = sheetKeyMonitor(in: view) else {
+            throw TestFailure("the Edit Repo sheet should mount its key monitor")
+        }
+        try expect(monitor.onKeyDown(try keyEvent("\r", keyCode: 36)), "Return should be taken by the Edit Repo sheet")
+        try expect(saved == ["orange"], "Return should save the repo's colour, got \(saved)")
+        try expect(dismissals == 1, "saving with Return should close the sheet, got \(dismissals) dismissals")
+    }
+
+    /// The delete confirmation's Return confirms, through the shared modal keys rather than a SwiftUI default button,
+    /// and ⌃[ cancels as Esc does.
+    private static func testDeleteConfirmationReturnConfirmsAndControlBracketCancels() throws {
+        var decisions: [Bool] = []
+        let sheet = DestructiveConfirmationSheetView(spec: .deleteSession(sessionID: "qm-1"), onDecision: { decisions.append($0) })
+        let size = CGSize(width: DestructiveConfirmationSheetView.width, height: 240)
+        let view = NSHostingView(rootView: sheet)
+        view.frame = NSRect(origin: .zero, size: size)
+        let window = HeadlessWindow(size: size)
+        window.contentView = view
+        window.show(key: true)
+        defer { window.close() }
+        guard waitUntil({ sheetKeyMonitor(in: view) != nil }), let monitor = sheetKeyMonitor(in: view) else {
+            throw TestFailure("the delete confirmation should mount its key monitor")
+        }
+        try expect(monitor.onKeyDown(try keyEvent("\r", keyCode: 36)), "Return should be taken by the delete confirmation")
+        try expect(decisions == [true], "Return should confirm the delete, got \(decisions)")
+        try expect(monitor.onKeyDown(try keyEvent("[", keyCode: 33, modifierFlags: [.control])), "⌃[ should be taken by the delete confirmation")
+        try expect(decisions == [true, false], "⌃[ should cancel the delete, got \(decisions)")
+    }
+
+    private static func sheetKeyMonitor(in view: NSView) -> SheetKeyEventMonitor.MonitorView? {
+        subviews(of: view).compactMap { $0 as? SheetKeyEventMonitor.MonitorView }.first
     }
 
     /// The real Edit Session sheet: ⌃e in its focused title cycles a classless master from Random to paladin, the segment

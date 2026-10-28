@@ -51,12 +51,10 @@ struct DestructiveConfirmationSheetView: View {
         }
         .frame(width: Self.width)
         .scoopedPanel()
-        .background(SheetKeyEventMonitor { event in
-            if Keymap.matches(event.keymapPress, .cancel) {
-                onDecision(false)
-                return true
-            }
-            return false
-        })
+        .background(SheetKeyEventMonitor(onKeyDown: ModalKeyActions(
+            context: { ModalKeyContext(focus: nil, fieldCount: 0, submitting: false, submits: true) },
+            submit: { onDecision(true) },
+            cancel: { onDecision(false) }
+        ).handle))
     }
 }

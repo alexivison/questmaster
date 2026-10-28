@@ -79,7 +79,7 @@ extension Keymap {
         case .jumpToTop: return [.character("g")]
         case .jumpToBottom: return [.character("G")]
         case .open: return [.code(36), .code(76), .character("l")]
-        case .back: return [.character("h"), .code(53), .code(123)]
+        case .back: return [.character("h"), .code(53), .code(123), .character("[", [.control])]
         case .toggleMark: return [.character(" ")]
         case .focusFilter: return [.character("/")]
         case .copy: return [.character("y")]
@@ -108,7 +108,7 @@ extension Keymap {
 
         case .submit: return [.code(36), .code(76), .code(36, [.command]), .code(76, [.command])]
         case .createFromPrompt: return [.character("s", [.control])]
-        case .cancel: return [.code(53)]
+        case .cancel: return [.code(53), .character("[", [.control])]
         case .tab: return [.code(48)]
         case .backTab: return [.code(48, [.shift])]
         case .nextField: return [.character("j", [.control]), .code(40, [.option])]

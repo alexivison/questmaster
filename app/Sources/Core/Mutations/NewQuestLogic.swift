@@ -311,6 +311,12 @@ public struct NewQuestFormModel: Equatable {
         return nil
     }
 
+    /// What the focused field is, for the shared modal keys (`ModalKeys`). Tab moves on from the content too, so Tab is a
+    /// field move in every field.
+    public var modalFocus: ModalKeyContext.Focus {
+        focusedField == .content ? .prompt(keepsTab: false) : .line
+    }
+
     public mutating func moveFocus(_ delta: Int) {
         let fields = NewQuestField.allCases
         guard let index = fields.firstIndex(of: focusedField) else {

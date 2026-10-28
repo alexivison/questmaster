@@ -77,10 +77,7 @@ struct NewSessionSheetView: View {
         )
         .frame(width: NewSessionSheetModel.sheetSize.width, height: NewSessionSheetModel.sheetSize.height)
         .scoopedPanel()
-        .background(SheetKeyEventMonitor(
-            onKeyDown: { model.handle($0) },
-            onNavigation: { model.navigate($0) }
-        ))
+        .background(SheetKeyEventMonitor(onKeyDown: model.handle))
         .onAppear {
             model.present()
         }
@@ -161,95 +158,41 @@ final class NewSessionSheetModel: ObservableObject {
         state.paths.clear()
     }
 
-    func navigate(_ direction: NavigationDirection) {
-        guard !state.model.submitting else {
-            return
-        }
-        switch direction {
-        case .up:
-            moveFocus(.controlK)
-        case .down:
-            moveFocus(.controlJ)
-        case .left:
-            if state.model.isSelectFocused { cycleSelection(.left) }
-        case .right:
-            if state.model.isSelectFocused { cycleSelection(.right) }
-        }
-    }
-
+    /// The sheet's keys: the focused field's own (`handleFieldKey`), then the shared modal keys (`ModalKeys`).
     func handle(_ event: NSEvent) -> Bool {
-        let press = event.keymapPress
-        let field = state.model.focusedField
-
-        if field == .model, !state.model.submitting, handleModelFieldKey(event) {
-            return true
-        }
-        if field == .path, !state.model.submitting, handlePathFieldKey(event) {
-            return true
-        }
-        if SessionClassKey.cycles(press, titleFocused: field == .title) {
-            cycleClass()
-            return true
-        }
-        if Keymap.matches(press, .cancel) {
-            close()
-            return true
-        }
-        if press.modifiers.contains(.command) {
-            guard Keymap.matches(press, .submit) else {
-                return false
-            }
-            submit()
-            return true
-        }
-        if state.model.submitting {
-            return true
-        }
-        if Keymap.matches(press, .nextField) {
-            moveFocus(.controlJ)
-            return true
-        }
-        if Keymap.matches(press, .previousField) {
-            moveFocus(.controlK)
-            return true
-        }
-        if Keymap.matches(press, .createFromPrompt) {
-            guard state.model.creationRequested(by: .controlS) else {
-                return false
-            }
-            submit()
-            return true
-        }
-        if Keymap.matches(press, .tab) || Keymap.matches(press, .backTab) {
-            return handleTab(shift: press.modifiers.contains(.shift))
-        }
-        if state.model.isSelectFocused {
-            if Keymap.matches(press, .cycleLeft) {
-                cycleSelection(.left)
-                return true
-            }
-            if Keymap.matches(press, .cycleRight) {
-                cycleSelection(.right)
-                return true
-            }
-        }
-        if Keymap.matches(press, .submit) {
-            guard state.model.creationRequested(by: .enter) else {
-                return false
-            }
-            submit()
-            return true
-        }
-        return false
+        ModalKeyActions(
+            context: { self.modalKeyContext },
+            fieldKey: { self.handleFieldKey($0) },
+            submit: { self.submit() },
+            cancel: { self.close() },
+            moveFocus: { self.moveFocus($0) },
+            cycle: { self.cycleSelection($0) }
+        ).handle(event)
     }
 
-    /// Tab moves to the next field, and ⇧Tab to the previous. The prompt keeps Tab; the path field takes its
-    /// own Tab first (`handlePathFieldKey`).
-    private func handleTab(shift: Bool) -> Bool {
-        guard state.model.focusedField != .prompt else {
+    private var modalKeyContext: ModalKeyContext {
+        ModalKeyContext(
+            focus: state.model.modalFocus,
+            fieldCount: NewSessionField.formOrder.count,
+            submitting: state.model.submitting,
+            submits: true
+        )
+    }
+
+    /// The focused field's own keys, before the shared ones: the model's and the path's, then the class key (⌃e in the
+    /// title). The prompt's keys (Return, ⌃s) are its editor's (`ModalPromptEditor`).
+    private func handleFieldKey(_ event: NSEvent) -> Bool {
+        let field = state.model.focusedField
+        if field == .model, handleModelFieldKey(event) {
+            return true
+        }
+        if field == .path, handlePathFieldKey(event) {
+            return true
+        }
+        guard SessionClassKey.cycles(event.keymapPress, titleFocused: field == .title) else {
             return false
         }
-        moveFocus(shift ? .controlK : .controlJ)
+        cycleClass()
         return true
     }
 
@@ -291,7 +234,7 @@ final class NewSessionSheetModel: ObservableObject {
             }
             state.paths.dismiss()
         case .startSearch, .endSearch:
-            // Return with no row chosen: the sheet submits.
+            // Return with no row chosen: the shared keys submit.
             return false
         }
         return true
@@ -302,7 +245,7 @@ final class NewSessionSheetModel: ObservableObject {
         case .choose(let path):
             takePath(path)
         case .moveOn:
-            moveFocus(.controlJ)
+            moveFocus(1)
         }
     }
 
@@ -393,7 +336,7 @@ final class NewSessionSheetModel: ObservableObject {
         }
         state.requestFocus(.agent)
         while state.model.selectedAgent != agent, state.model.agents.contains(agent) {
-            cycleSelection(.right)
+            cycleSelection(1)
         }
     }
 
@@ -539,9 +482,9 @@ final class NewSessionSheetModel: ObservableObject {
         }
     }
 
-    private func moveFocus(_ key: NewSessionFormKey) {
+    private func moveFocus(_ delta: Int) {
         let before = state.model.modelMode
-        state.model.handle(key)
+        state.model.moveFocus(delta)
         if before == .search, state.model.modelMode == .select {
             // Leaving mid-search kept the typed model; its levels may differ.
             modelChanged()
@@ -552,9 +495,9 @@ final class NewSessionSheetModel: ObservableObject {
     /// Cycles the focused select, re-resolving models and reasoning efforts
     /// when the change moved them: model ids are per harness, effort levels
     /// are per harness and (for Codex/OpenCode) per model.
-    private func cycleSelection(_ key: NewSessionFormKey) {
+    private func cycleSelection(_ delta: Int) {
         let before = state.model.selectedAgent
-        state.model.handle(key)
+        state.model.cycleSelection(delta)
         if state.model.selectedAgent != before {
             requestModelSuggestions()
             requestReasoningEffortSuggestions()

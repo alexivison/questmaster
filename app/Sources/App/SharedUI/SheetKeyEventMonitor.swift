@@ -3,27 +3,25 @@ import QuestmasterCore
 import SwiftUI
 
 /// A modal's key handler. Inside the in-window modal stack it only sees keys while its modal is the top one,
-/// whatever order the monitors were installed in (AppKit calls local monitors oldest first).
+/// whatever order the monitors were installed in (AppKit calls local monitors oldest first). Every key goes to
+/// `onKeyDown`, which answers true when the modal took it.
 struct SheetKeyEventMonitor: NSViewRepresentable {
     let onKeyDown: (NSEvent) -> Bool
-    let onNavigation: (NavigationDirection) -> Void
     @Environment(\.inWindowModalStack) private var stack
     @Environment(\.inWindowModalEntryID) private var entryID
 
-    init(onKeyDown: @escaping (NSEvent) -> Bool, onNavigation: @escaping (NavigationDirection) -> Void = { _ in }) {
+    init(onKeyDown: @escaping (NSEvent) -> Bool) {
         self.onKeyDown = onKeyDown
-        self.onNavigation = onNavigation
     }
 
     func makeNSView(context: Context) -> MonitorView {
-        let view = MonitorView(onKeyDown: onKeyDown, onNavigation: onNavigation)
+        let view = MonitorView(onKeyDown: onKeyDown)
         view.isTop = isTop
         return view
     }
 
     func updateNSView(_ view: MonitorView, context: Context) {
         view.onKeyDown = onKeyDown
-        view.onNavigation = onNavigation
         view.isTop = isTop
     }
 
@@ -33,13 +31,11 @@ struct SheetKeyEventMonitor: NSViewRepresentable {
 
     final class MonitorView: NSView {
         var onKeyDown: (NSEvent) -> Bool
-        var onNavigation: (NavigationDirection) -> Void
         var isTop: () -> Bool = { true }
         private var eventMonitor: Any?
 
-        init(onKeyDown: @escaping (NSEvent) -> Bool, onNavigation: @escaping (NavigationDirection) -> Void) {
+        init(onKeyDown: @escaping (NSEvent) -> Bool) {
             self.onKeyDown = onKeyDown
-            self.onNavigation = onNavigation
             super.init(frame: .zero)
         }
 
@@ -66,13 +62,8 @@ struct SheetKeyEventMonitor: NSViewRepresentable {
                 guard let self, let window = self.window, event.window === window, self.isTop() else {
                     return event
                 }
-                switch Keymap.NavigationChord.route(for: event.keymapPress, isRepeat: event.isARepeat) {
-                case .passThrough:
-                    break
-                case .consume:
-                    return nil
-                case .navigate(let direction):
-                    self.onNavigation(direction)
+                // A held ⇧⌘H/J/K/L moves once: its repeats are swallowed here, and the first press reaches the modal.
+                if Keymap.NavigationChord.route(for: event.keymapPress, isRepeat: event.isARepeat) == .consume {
                     return nil
                 }
                 return self.onKeyDown(event) ? nil : event

@@ -1974,22 +1974,22 @@ enum RenderPreview {
         case .openCodeResting:
             model.path = "/Users/aleksi.tuominen/Code/questmaster"
             model.focusedField = .agent
-            model.handle(.right)
-            model.handle(.right)
+            model.cycleSelection(1)
+            model.cycleSelection(1)
             model.setModelOptions([SessionModelOption(id: "openai/gpt-6-sol", label: "openai/gpt-6-sol")], defaultModel: "openai/gpt-6-sol")
             model.setEffortOptions(["low", "medium", "high"], defaultLevel: "high")
             model.focusedField = .prompt
         case .openCode:
             model.path = "/Users/aleksi.tuominen/Code/questmaster"
             model.focusedField = .agent
-            model.handle(.right)
-            model.handle(.right)
+            model.cycleSelection(1)
+            model.cycleSelection(1)
             model.setModelOptions([SessionModelOption(id: "openai/gpt-6-sol", label: "openai/gpt-6-sol")], defaultModel: "openai/gpt-6-sol")
             model.setEffortOptions(["low", "medium", "high"], defaultLevel: "high")
         case .noEffort:
             model.path = "/Users/aleksi.tuominen/Code/questmaster"
             model.focusedField = .agent
-            model.handle(.left)
+            model.cycleSelection(-1)
             model.setModelOptions([SessionModelOption(id: "local-model", label: "local-model")], defaultModel: "local-model")
             model.setEffortOptions([])
             model.focusedField = .model
