@@ -97,6 +97,14 @@ public struct TrackerCommandState: Equatable {
         return true
     }
 
+    public mutating func moveSelectionToEdge(last: Bool, rows: [TrackerSession]) -> Bool {
+        guard let edge = last ? rows.last : rows.first else {
+            return false
+        }
+        select(edge.id)
+        return true
+    }
+
     public func selectedSession(in rows: [TrackerSession], currentTerminalSessionID: String?) -> TrackerSession? {
         TrackerActivationTarget.session(
             openedID: nil,

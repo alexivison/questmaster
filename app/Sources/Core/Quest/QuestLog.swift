@@ -119,57 +119,6 @@ public struct QuestLogPage: Equatable {
     }
 }
 
-public enum QuestLogCommand: Equatable {
-    case moveUp
-    case moveDown
-    case start
-    case edit
-    case delete
-    case copy
-    case toggleMark
-    case focusFilter
-    /// A `g`: a second one within `GPrefixTracker`'s window jumps to the first quest.
-    case jumpToFirstPrefix
-    /// The first quest with no chord: the filter's Return moves the cursor there.
-    case jumpToFirst
-    case jumpToLast
-    case pageUp
-    case pageDown
-    case halfPageUp
-    case halfPageDown
-    case close
-
-    public static func navigation(for direction: NavigationDirection) -> QuestLogCommand? {
-        switch direction {
-        case .up: return .moveUp
-        case .down: return .moveDown
-        case .left, .right: return nil
-        }
-    }
-
-    /// The keys mean their command only with exactly the modifiers the chord names, so ⌃d or ⌥d never reads as d
-    /// (Abandon). Shift types `G`; ⌃u and ⌃d page by half. Caps Lock is not a modifier: Caps Lock + d types `D`, which
-    /// is no command.
-    public static func from(_ press: Keymap.KeyPress) -> QuestLogCommand? {
-        if Keymap.matches(press, .jumpToBottom) { return .jumpToLast }
-        if Keymap.matches(press, .halfPageUp) { return .halfPageUp }
-        if Keymap.matches(press, .halfPageDown) { return .halfPageDown }
-        if Keymap.matches(press, .cancel) { return .close }
-        if Keymap.matches(press, .pageUp) { return .pageUp }
-        if Keymap.matches(press, .pageDown) { return .pageDown }
-        if Keymap.matches(press, .focusFilter) { return .focusFilter }
-        if Keymap.matches(press, .moveUp) { return .moveUp }
-        if Keymap.matches(press, .moveDown) { return .moveDown }
-        if Keymap.matches(press, .startQuest) { return .start }
-        if Keymap.matches(press, .editQuest) { return .edit }
-        if Keymap.matches(press, .delete) { return .delete }
-        if Keymap.matches(press, .copy) { return .copy }
-        if Keymap.matches(press, .toggleMark) { return .toggleMark }
-        if Keymap.matches(press, .jumpToTop) { return .jumpToFirstPrefix }
-        return nil
-    }
-}
-
 /// Work the app carries out for a command: the quests are the marked ones, or the selected one.
 public enum QuestLogEffect: Equatable {
     case start([QuestItem])
@@ -208,13 +157,18 @@ public final class QuestLogStore {
     public private(set) var markedIDs: Set<String> = []
     /// Bumped when a jump asks the list to scroll to the selection even if it didn't change (`gg` / `G`).
     public private(set) var scrollNonce = 0
-    @ObservationIgnored private var jumpToFirstChord = GPrefixTracker()
+    @ObservationIgnored private var keys = ListKeyResolver()
 
     /// A page step keeps a line of overlap; a half page is vim's.
     static let pageStep = 0.9
     static let halfPageStep = 0.5
 
     public init() {}
+
+    /// The command a press asks of the Quest Log, with its capabilities (`ListCapabilities.questLog`).
+    public func command(for press: Keymap.KeyPress) -> ListCommand? {
+        keys.command(for: press, in: .questLog)
+    }
 
     public func open() {
         guard !isOpen else {
@@ -269,26 +223,18 @@ public final class QuestLogStore {
         return QuestDisplayState.flatQuests(in: sections).filter { ids.contains($0.id) }
     }
 
-    /// Applies list commands here and returns the rest for the app to carry out (nil when there is nothing to act on).
-    public func handle(_ command: QuestLogCommand) -> QuestLogEffect? {
-        // ponytail: only commands reset the chord, so g, an unbound key, g still jumps; reset on every key if that bites.
-        if command != .jumpToFirstPrefix {
-            jumpToFirstChord.reset()
-        }
+    /// Applies a list command here and returns the rest for the app to carry out (nil when there is nothing to act on).
+    /// A command the Quest Log doesn't take (Return, the tabs, the workers' keys) does nothing.
+    public func handle(_ command: ListCommand) -> QuestLogEffect? {
         switch command {
-        case .jumpToFirstPrefix:
-            if jumpToFirstChord.handleG() == .jumpToTop {
-                jump(atStart: true)
-            }
+        case .move(let delta):
+            selectedID = QuestDisplayState.movedSelection(current: selectedID, delta: delta, in: sections)
             return nil
-        case .jumpToFirst:
+        case .jumpToTop:
             jump(atStart: true)
             return nil
-        case .jumpToLast:
+        case .jumpToBottom:
             jump(atStart: false)
-            return nil
-        case .moveUp, .moveDown:
-            selectedID = QuestDisplayState.movedSelection(current: selectedID, delta: command == .moveUp ? -1 : 1, in: sections)
             return nil
         case .toggleMark:
             if let selectedID, !markedIDs.insert(selectedID).inserted {
@@ -299,12 +245,10 @@ public final class QuestLogStore {
             return .close
         case .focusFilter:
             return .focusFilter
-        case .pageUp, .pageDown, .halfPageUp, .halfPageDown:
-            guard selectedID != nil else {
-                return nil
-            }
-            let pages = (command == .pageUp || command == .pageDown) ? Self.pageStep : Self.halfPageStep
-            return .scrollPage(command == .pageUp || command == .halfPageUp ? -pages : pages)
+        case .page(let direction):
+            return scrollPage(direction, step: Self.pageStep)
+        case .halfPage(let direction):
+            return scrollPage(direction, step: Self.halfPageStep)
         case .start:
             return targets.isEmpty ? nil : .start(targets)
         case .edit:
@@ -313,7 +257,17 @@ public final class QuestLogStore {
             return targets.isEmpty ? nil : .delete(targets)
         case .copy:
             return targets.isEmpty ? nil : .copy(targets)
+        case .jumpToTopPrefix, .open, .previousTab, .nextTab, .refresh, .editRepo,
+             .toggleWorkersCollapsed, .toggleAllWorkersCollapsed:
+            return nil
         }
+    }
+
+    private func scrollPage(_ direction: Int, step: Double) -> QuestLogEffect? {
+        guard selectedID != nil else {
+            return nil
+        }
+        return .scrollPage(Double(direction) * step)
     }
 
     private func jump(atStart: Bool) {
