@@ -106,6 +106,12 @@ enum LogicSelfTests {
         ("testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch", testNewQuestLeavingAndReturningToTheProjectFieldEndsItsSearch),
         ("testNewQuestEscapeClosesWhileSubmitting", testNewQuestEscapeClosesWhileSubmitting),
         ("testNewSessionControlRRefreshesModelsFromTheModelField", testNewSessionControlRRefreshesModelsFromTheModelField),
+        ("testNewSessionPathTabTakesTheRowAndDoesNotDrillDown", testNewSessionPathTabTakesTheRowAndDoesNotDrillDown),
+        ("testNewSessionPathReturnTakesARowOnlyOnceAnArrowChoseIt", testNewSessionPathReturnTakesARowOnlyOnceAnArrowChoseIt),
+        ("testNewSessionPathControlNAndControlPMoveTheRows", testNewSessionPathControlNAndControlPMoveTheRows),
+        ("testNewSessionTypingAfterATakeRefreshesTheRows", testNewSessionTypingAfterATakeRefreshesTheRows),
+        ("testNewQuestPathTabTakesTheDirectoryAndTheSearchGoesOn", testNewQuestPathTabTakesTheDirectoryAndTheSearchGoesOn),
+        ("testNewQuestPathTabMovesOnWhenNothingCompletes", testNewQuestPathTabMovesOnWhenNothingCompletes),
         ("testConnectWithRetryRetriesUntilConnectSucceeds", testConnectWithRetryRetriesUntilConnectSucceeds),
         ("testConnectWithRetryGivesUpAfterExhaustingTheSchedule", testConnectWithRetryGivesUpAfterExhaustingTheSchedule),
         ("testOneShotServeClientsRejectIncompatibleEnvelopes", testOneShotServeClientsRejectIncompatibleEnvelopes),
@@ -5067,6 +5073,97 @@ enum LogicSelfTests {
         try expect(closed, "Esc should close while a submit is in flight")
     }
 
+    /// Tab takes the highlighted directory and closes the rows; the next Tab moves on. Tab never lists the
+    /// directory's contents: typing does that (`testNewSessionTypingAfterATakeRefreshesTheRows`).
+    private static func testNewSessionPathTabTakesTheRowAndDoesNotDrillDown() throws {
+        let model = newSessionSheetModel(modelClient: nil, initialFocus: .path)
+        model.state.paths.show(["/nonexistent-qm/a", "/nonexistent-qm/b"])
+        model.state.paths.moveHighlight(1)
+        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should be consumed")
+        try expect(model.state.model.path == "/nonexistent-qm/b", "Tab should take the highlighted directory")
+        try expect(!model.state.showsPathSuggestions, "Tab should close the rows rather than list the directory's contents")
+        try expect(model.state.model.focusedField == .path, "Tab should stay in the path")
+        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "the next Tab should be consumed")
+        try expect(model.state.model.focusedField == .title, "the next Tab should move on: there is nothing to complete")
+    }
+
+    /// Return submits the sheet while rows show, unless ↑/↓ chose one: then it takes that row and stays.
+    private static func testNewSessionPathReturnTakesARowOnlyOnceAnArrowChoseIt() throws {
+        let typed = newSessionSheetModel(modelClient: nil, initialFocus: .path)
+        typed.state.paths.show(["/nonexistent-qm/a", "/nonexistent-qm/b"])
+        try expect(typed.handle(try keyEvent("\r", keyCode: 36)), "Return should be consumed by the submit")
+        try expect(typed.state.model.path == "/tmp/project", "Return should keep the typed path while no arrow chose a row")
+        try expect(typed.state.model.submitting, "Return should submit the sheet")
+
+        let chosen = newSessionSheetModel(modelClient: nil, initialFocus: .path)
+        chosen.state.paths.show(["/nonexistent-qm/a", "/nonexistent-qm/b"])
+        try expect(chosen.handle(try keyEvent("", keyCode: 125)), "↓ should move in the rows")
+        try expect(chosen.handle(try keyEvent("\r", keyCode: 36)), "Return should be consumed once ↓ chose a row")
+        try expect(chosen.state.model.path == "/nonexistent-qm/b" && !chosen.state.showsPathSuggestions, "Return should take the chosen row and close the rows")
+        try expect(!chosen.state.model.submitting, "taking a row should not submit")
+    }
+
+    /// ⌃n and ⌃p move the rows' highlight, as ↓ and ↑ do.
+    private static func testNewSessionPathControlNAndControlPMoveTheRows() throws {
+        let model = newSessionSheetModel(modelClient: nil, initialFocus: .path)
+        model.state.paths.show(["/nonexistent-qm/a", "/nonexistent-qm/b"])
+        try expect(model.handle(try keyEvent("n", keyCode: 45, modifierFlags: .control)), "⌃n should be consumed")
+        try expect(model.state.paths.highlightedIndex == 1, "⌃n should move the highlight down")
+        try expect(model.handle(try keyEvent("p", keyCode: 35, modifierFlags: .control)), "⌃p should be consumed")
+        try expect(model.state.paths.highlightedIndex == 0, "⌃p should move the highlight up")
+    }
+
+    /// Typing after a take asks for the rows of the path as it now reads: that is how a `/` drills down.
+    private static func testNewSessionTypingAfterATakeRefreshesTheRows() throws {
+        let directories = StubDirectoryClient(suggestions: ["/nonexistent-qm/a/child"])
+        let model = NewSessionSheetModel(
+            presentation: NewSessionSheetPresentation(
+                initialPath: "",
+                initialTitle: "",
+                initialPrompt: "",
+                initialFocus: .path,
+                mutationClient: StubMutationClient(result: .failure(StubMutationError())),
+                directoryClient: directories,
+                modelClient: nil,
+                effortClient: nil,
+                onSuccess: { _ in }
+            ),
+            dismiss: {}
+        )
+        model.state.paths.show(["/nonexistent-qm/a"])
+        try expect(model.handle(try keyEvent("\t", keyCode: 48)), "Tab should take the row")
+        try expect(!model.state.showsPathSuggestions, "precondition: the rows closed")
+        // What the text field's binding does: it sets the path, then asks for its rows.
+        model.state.model.path = "/nonexistent-qm/a/"
+        model.pathChanged()
+        try waitForMainQueue("the rows for the typed folder", until: { model.state.showsPathSuggestions })
+        try expect(directories.queries.last == "/nonexistent-qm/a/", "typing should ask for the folder as it now reads")
+        try expect(model.state.paths.items == ["/nonexistent-qm/a/child"], "the folder's contents should show")
+    }
+
+    /// Tab takes the highlighted directory and the search goes on, so typing still appends to the path.
+    private static func testNewQuestPathTabTakesTheDirectoryAndTheSearchGoesOn() throws {
+        let sheet = newQuestSheet()
+        try expect(sheet.handle(try keyEvent("/", keyCode: 44)), "a / should start a path search")
+        sheet.projectTyped("/nonexistent-qm")
+        sheet.paths.show(["/nonexistent-qm/a", "/nonexistent-qm/b"])
+        sheet.paths.moveHighlight(1)
+        try expect(sheet.handle(try keyEvent("\t", keyCode: 48)), "Tab should be consumed")
+        try expect(sheet.form.projectText == "/nonexistent-qm/b" && sheet.form.projectMode == .search, "Tab should take the directory and keep the search")
+        try expect(!sheet.paths.isVisible, "Tab should close the rows")
+        sheet.projectTyped(sheet.form.projectText + "/")
+        try expect(sheet.form.projectMode == .search && sheet.form.projectText == "/nonexistent-qm/b/", "typing should go on at the end of the path")
+    }
+
+    /// Tab with no rows completes the typed path from disk, or moves on when there is nothing to complete.
+    private static func testNewQuestPathTabMovesOnWhenNothingCompletes() throws {
+        let sheet = newQuestSheet()
+        try expect(sheet.handle(try keyEvent("/", keyCode: 44)), "a / should start a path search")
+        sheet.projectTyped("/nonexistent-qm/zz")
+        try expect(sheet.handle(try keyEvent("\t", keyCode: 48)), "Tab should be consumed")
+        try expect(sheet.form.focusedField == .content, "Tab with nothing to complete should move on")
+    }
+
     private static func testNewSessionControlRRefreshesModelsFromTheModelField() throws {
         let client = StubModelClient(models: ["claude": [SessionModelOption(id: "opus", label: "opus")]], defaults: ["claude": "sonnet"])
         let model = newSessionSheetModel(modelClient: client, initialFocus: .model)
@@ -6836,6 +6933,20 @@ enum LogicSelfTests {
     }
 
     private struct StubMutationError: Error {}
+
+    private final class StubDirectoryClient: ServeDirectorySuggesting {
+        private let suggestions: [String]
+        private(set) var queries: [String] = []
+
+        init(suggestions: [String]) {
+            self.suggestions = suggestions
+        }
+
+        func suggestDirectories(query: String, completion: @escaping (Result<DirectorySuggestionResponse, Error>) -> Void) {
+            queries.append(query)
+            completion(.success(DirectorySuggestionResponse(suggestions: suggestions, recents: [])))
+        }
+    }
 
     private final class StubModelClient: ServeModelSuggesting {
         private let models: [String: [SessionModelOption]]

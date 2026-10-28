@@ -235,9 +235,11 @@ final class NewQuestSheetModel: ObservableObject {
         follow(from: before)
     }
 
+    /// A directory taken from the rows or completed from disk: the rows close, and the next keystroke refreshes them.
     func selectDirectory(_ path: String) {
+        pathSuggester.cancel()
         form.setProjectPath(path)
-        requestDirectoriesIfPath()
+        paths.dismiss()
     }
 
     private func requestDirectoriesIfPath() {
@@ -321,76 +323,63 @@ final class NewQuestSheetModel: ObservableObject {
         }
     }
 
-    /// The project field's own keys and its SELECT / SEARCH states (`PickerFieldMode`). In SEARCH, Tab
-    /// or Return takes the highlighted project (Tab completes a typed path), ↑/↓ move, and Esc restores
-    /// the text; picking or Esc returns to SELECT.
+    /// The project field's keys, before the sheet's: the shared picker keys (`PickerFieldKey`) for the project
+    /// names, and a typed path's own (`handleProjectPathKey`). The caret follows the mode (`follow`).
     private func handleProjectFieldKey(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let command = flags.contains(.command)
-        let control = flags.contains(.control)
-        let option = flags.contains(.option)
         let before = form.projectMode
         defer {
             follow(from: before)
         }
-        switch before {
-        case .select:
-            guard let start = PickerFieldMode.searchStart(characters: event.characters, keyCode: event.keyCode, command: command, control: control, option: option) else {
-                return false
-            }
-            form.startProjectSearch(start)
-            if case .seed(let text) = start {
-                projectTyped(text)
-            } else {
-                requestDirectoriesIfPath()
-            }
-            return true
-        case .search:
-            if command || control || option {
-                return false
-            }
-            if Keymap.NewSession.cancel.matches(event.keyCode) {
-                form.endProjectSearch(keepingText: false)
-                return true
-            }
-            let tab = Keymap.NewSession.completePath.matches(event.keyCode) && !flags.contains(.shift)
-            let up = Keymap.NewSession.suggestionUp.matches(event.keyCode)
-            if up || Keymap.NewSession.suggestionDown.matches(event.keyCode) {
-                if showsDirectorySuggestions {
-                    paths.moveHighlight(up ? -1 : 1)
-                } else {
-                    form.moveProjectHighlight(up ? -1 : 1)
-                }
-                return true
-            }
-            if form.isPathText {
-                if tab {
-                    completePath()
-                    return true
-                }
-                guard Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) else {
-                    return false
-                }
-                // Return keeps the typed path unless ↑/↓ moved the highlight to a row (the pointer never does: it
-                // only shows the hover look); Tab completes from the highlighted row (completePath).
-                if showsDirectorySuggestions, paths.moved, let highlighted = paths.highlighted {
-                    form.setProjectPath(highlighted)
-                }
-                form.endProjectSearch(keepingText: true)
-                return true
-            }
-            if tab || Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) {
-                if form.acceptHighlightedProject() {
-                    return true
-                }
-                guard !tab else {
-                    return false
-                }
-                form.endProjectSearch(keepingText: true)
-                return true
-            }
+        if before == .search, form.isPathText {
+            return handleProjectPathKey(event)
+        }
+        guard let command = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: event.keymapModifiers, mode: before, showsSuggestions: form.showsProjectSuggestions) else {
             return false
         }
+        form.applyProjectCommand(command)
+        switch command {
+        case .startSearch(.seed(let text)):
+            projectTyped(text)
+        case .startSearch:
+            requestDirectoriesIfPath()
+        default:
+            break
+        }
+        return true
+    }
+
+    /// A typed path in SEARCH, whose rows are directories. The text is typed into in place, so Tab takes a
+    /// directory and the search goes on (`handlePathTab`): typing a `/` drills down. Return keeps the typed path
+    /// unless ↑/↓ chose a row (the pointer never does: it only shows the hover look).
+    private func handleProjectPathKey(_ event: NSEvent) -> Bool {
+        let modifiers = event.keymapModifiers
+        guard !modifiers.contains(.command) else {
+            return false
+        }
+        if Keymap.NewSession.completePath.matches(event.keyCode), !modifiers.contains(.shift) {
+            handlePathTab()
+            return true
+        }
+        let rowsShowing = showsDirectorySuggestions
+        guard let command = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: modifiers, mode: .search, showsSuggestions: rowsShowing && paths.moved) else {
+            return false
+        }
+        switch command {
+        case .moveHighlight(let delta):
+            guard rowsShowing else {
+                return false
+            }
+            paths.moveHighlight(delta)
+        case .pick:
+            if let row = paths.highlighted {
+                selectDirectory(row)
+            }
+        case .restore, .endSearch:
+            form.applyProjectCommand(command)
+        case .startSearch:
+            return false
+        }
+        return true
     }
 
     private func moveFocus(_ delta: Int = 1) {
@@ -402,17 +391,14 @@ final class NewQuestSheetModel: ObservableObject {
         }
     }
 
-    /// Tab on a typed path: the highlighted directory, or the path completed from disk.
-    private func completePath() {
-        if showsDirectorySuggestions, let highlighted = paths.highlighted {
-            selectDirectory(highlighted)
-            return
+    /// Tab on a typed path: takes the highlighted directory or completes from disk; with neither, moves on.
+    private func handlePathTab() {
+        switch paths.tabOutcome(path: form.projectText, completion: PathSuggester.localCompletion) {
+        case .choose(let path):
+            selectDirectory(path)
+        case .moveOn:
+            moveFocus()
         }
-        let completed = PathSuggester.localCompletion(form.projectText)
-        guard completed != form.projectText else {
-            return
-        }
-        selectDirectory(completed)
     }
 
     func submit() {

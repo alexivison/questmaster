@@ -243,6 +243,7 @@ public enum Keymap {
         public static let nextFieldOption = KeyCodeBinding(keyCodes: [40], modifiers: [.option])
         public static let recentPaths = CharacterBinding(keys: ["r"], modifiers: [.control])
         public static let createFromPrompt = CharacterBinding(keys: ["s"], modifiers: [.control])
+        /// Tab. A picker field takes it first (`PickerFieldKey`); otherwise it moves to the next field.
         public static let completePath = KeyCodeBinding(keyCodes: [48])
         public static let selectLeft = KeyCodeBinding(keyCodes: [123])
         public static let selectRight = KeyCodeBinding(keyCodes: [124])
@@ -257,8 +258,6 @@ public enum Keymap {
         public static let cycleClass = KeyCodeBinding(keyCodes: [14], modifiers: [.control])
         /// ⌃r in the model field: refetch the models past the catalog cache.
         public static let refreshModels = KeyCodeBinding(keyCodes: [15], modifiers: [.control])
-        public static let suggestionUp = KeyCodeBinding(keyCodes: [126])
-        public static let suggestionDown = KeyCodeBinding(keyCodes: [125])
         public static let create = CharacterBinding(keys: ["\r", "\u{3}"])
     }
 
@@ -286,11 +285,18 @@ public enum Keymap {
         public static let halfPageDown = CharacterBinding(keys: ["d"], modifiers: [.control])
     }
 
-    /// The picker fields' SELECT state (`PickerFieldMode`): Backspace starts editing the current text; Return
-    /// is the sheet's (it submits); Tab, Esc and the arrows are never text.
+    /// The picker fields' keys (`PickerFieldKey`). SELECT: Backspace starts editing the current text; Return
+    /// is the sheet's (it submits); Tab, Esc and the arrows are never text. SEARCH: ↑/↓ and ⌃p/⌃n move the
+    /// highlight, the way they do in most pickers and editors.
     public enum PickerField {
         public static let editCurrent = KeyCodeBinding(keyCodes: [51])
         public static let notText = KeyCodeBinding(keyCodes: [48, 53, 123, 124, 125, 126])
+        public static let suggestionUp = KeyCodeBinding(keyCodes: [126])
+        public static let suggestionDown = KeyCodeBinding(keyCodes: [125])
+        /// ⌃p: the row above (p is key code 35).
+        public static let suggestionUpControl = KeyCodeBinding(keyCodes: [35], modifiers: [.control])
+        /// ⌃n: the row below (n is key code 45).
+        public static let suggestionDownControl = KeyCodeBinding(keyCodes: [45], modifiers: [.control])
     }
 
     /// The colour input: ⌥←/⌥→ cycle the colours in both states (while searching they take over the text

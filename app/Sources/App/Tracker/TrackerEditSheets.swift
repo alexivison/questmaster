@@ -359,22 +359,18 @@ private struct TrackerColorInput: View {
         )
     }
 
-    /// Runs the key the focused colour input takes (`ColorFieldModel.command`), moving the caret with the mode.
+    /// Runs the key the focused colour input takes: its own cycling (`ColorFieldModel.cycleDelta`), then the shared
+    /// picker keys (`PickerFieldKey`). The caret follows the mode.
     static func handle(_ event: NSEvent, color: inout ColorFieldModel, colorFocus: inout TrackerColorFocus) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard let command = ColorFieldModel.command(
-            keyCode: event.keyCode,
-            characters: event.characters,
-            command: flags.contains(.command),
-            control: flags.contains(.control),
-            option: flags.contains(.option),
-            mode: color.mode,
-            showsSuggestions: color.showsSuggestions
-        ) else {
+        let before = color.mode
+        let modifiers = event.keymapModifiers
+        if let delta = ColorFieldModel.cycleDelta(keyCode: event.keyCode, modifiers: modifiers, mode: before) {
+            color.cycle(delta)
+        } else if let command = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: modifiers, mode: before, showsSuggestions: color.showsSuggestions) {
+            color.apply(command)
+        } else {
             return false
         }
-        let before = color.mode
-        color.apply(command)
         colorFocus.follow(from: before, to: color.mode)
         return true
     }

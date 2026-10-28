@@ -1,9 +1,11 @@
 import Foundation
 
-/// The model and colour fields are pickers until you type into them. SELECT (on focus): no caret; the
-/// field takes its picker keys (e for effort, ←/→ for colours), and any printable key or Backspace
-/// starts SEARCH; Return stays the sheet's and submits. SEARCH is a plain text field; picking a
-/// suggestion, Esc, or leaving the field returns to SELECT.
+/// The colour, model, project and path fields are pickers. SELECT (on focus): no caret; the field takes its
+/// own keys (e for effort, ←/→ for colours), and any printable key or Backspace starts SEARCH, which
+/// replaces the text with what was typed; Return stays the sheet's and submits. SEARCH is a plain text
+/// field with a list of suggestions; Tab or Return picks, Esc or leaving the field returns to SELECT. The
+/// keys each state takes are `PickerFieldKey`. The path field is the exception: its text is always being
+/// typed into, so it never returns to SELECT (see `SuggestionList.tabOutcome`).
 public enum PickerFieldMode: Equatable {
     case select
     case search
@@ -16,10 +18,10 @@ public enum PickerFieldMode: Equatable {
         case editCurrent
     }
 
-    /// The search a key starts from SELECT, or nil when it isn't one (a modified key, Tab, Esc, an arrow,
+    /// The search a key starts from SELECT, or nil when it isn't one (a ⌘, ⌃ or ⌥ key, Tab, Esc, an arrow,
     /// or anything else without printable text). The field takes its own picker keys before asking.
-    public static func searchStart(characters: String?, keyCode: UInt16, command: Bool, control: Bool, option: Bool) -> SearchStart? {
-        guard !command, !control, !option else {
+    public static func searchStart(characters: String?, keyCode: UInt16, modifiers: Set<Keymap.Modifier>) -> SearchStart? {
+        guard modifiers.isDisjoint(with: [.command, .control, .option]) else {
             return nil
         }
         if Keymap.PickerField.editCurrent.matches(keyCode) {
