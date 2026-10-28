@@ -47,6 +47,9 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         model.onOpenURL = { url in
             NSWorkspace.shared.open(url)
         }
+        model.onArtifactFilterLeave = { [weak self] in
+            self?.focusCurrentRoute(in: self?.window)
+        }
     }
 
     @available(*, unavailable)
@@ -374,7 +377,7 @@ struct DockRootView: View {
                     onRemoveFilterToken: model.removeArtifactFilterToken(_:),
                     onSelectFilterSuggestion: { _ = model.acceptArtifactFilterSuggestion($0) },
                     onFilterCommand: model.handleArtifactFilterCommand,
-                    onFilterEndEditing: { _ = model.handleArtifactFilterCommand(.plain(53)) },
+                    onFilterEndEditing: model.hideArtifactFilterSuggestions,
                     onOpenExternal: model.openURL(_:),
                     areaFocused: model.isFocused
                 )

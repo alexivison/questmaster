@@ -252,6 +252,8 @@ struct QuestCoreTests {
         _ = store.handle(.moveDown)
         _ = store.handle(.jumpToFirstPrefix)
         expect(store.selectedID == ids.dropFirst().first, "a command between the g's cancels gg")
+        _ = store.handle(.jumpToFirst)
+        expect(store.selectedID == ids.first, "jumpToFirst should select the first quest without the g chord")
     }
 
     private static func displayEdgeSelectionJumpsToFirstAndLastAcrossSections() {
