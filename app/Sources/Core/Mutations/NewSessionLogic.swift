@@ -302,6 +302,22 @@ public struct NewSessionFormModel: Equatable {
         return true
     }
 
+    /// The shared picker keys (`PickerFieldKey`) applied to the model field.
+    public mutating func applyModelCommand(_ command: PickerFieldCommand) {
+        switch command {
+        case .startSearch(let start):
+            startModelSearch(start)
+        case .moveHighlight(let delta):
+            moveModelHighlight(delta)
+        case .pick:
+            acceptHighlightedModel()
+        case .endSearch:
+            endModelSearch(keepingText: true)
+        case .restore:
+            endModelSearch(keepingText: false)
+        }
+    }
+
     /// The title field's trailing segment: the chosen class's name, or "Random".
     public var classLabel: String {
         sessionClass?.displayName ?? SessionClass.randomLabel

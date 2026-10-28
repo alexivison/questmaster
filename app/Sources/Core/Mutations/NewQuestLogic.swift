@@ -251,6 +251,23 @@ public struct NewQuestFormModel: Equatable {
         projectSuggestionsDismissed = true
     }
 
+    /// The shared picker keys (`PickerFieldKey`) applied to the project field's names. A typed path is the
+    /// sheet's: its rows are directories, and Tab there doesn't end the search (`SuggestionList.tabOutcome`).
+    public mutating func applyProjectCommand(_ command: PickerFieldCommand) {
+        switch command {
+        case .startSearch(let start):
+            startProjectSearch(start)
+        case .moveHighlight(let delta):
+            moveProjectHighlight(delta)
+        case .pick:
+            acceptHighlightedProject()
+        case .endSearch:
+            endProjectSearch(keepingText: true)
+        case .restore:
+            endProjectSearch(keepingText: false)
+        }
+    }
+
     public mutating func dismissProjectSuggestions() {
         projectSuggestionsDismissed = true
     }

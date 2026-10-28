@@ -188,15 +188,14 @@ final class NewSessionSheetModel: ObservableObject {
         if field == .model, !state.model.submitting, handleModelFieldKey(event) {
             return true
         }
+        if field == .path, !state.model.submitting, handlePathFieldKey(event) {
+            return true
+        }
         if SessionClassKey.cycles(keyCode: event.keyCode, command: flags.contains(.command), control: control, option: option, titleFocused: field == .title) {
             cycleClass()
             return true
         }
         if Keymap.NewSession.cancel.matches(event.keyCode) {
-            if state.showsPathSuggestions {
-                state.paths.dismiss()
-                return true
-            }
             close()
             return true
         }
@@ -222,10 +221,6 @@ final class NewSessionSheetModel: ObservableObject {
             moveFocus(.controlK)
             return true
         }
-        if control, Keymap.NewSession.recentPaths.matches(chars), field == .path {
-            requestPathSuggestions(recentsOnly: true)
-            return true
-        }
         if control, Keymap.NewSession.createFromPrompt.matches(chars) {
             guard state.model.creationRequested(by: .controlS) else {
                 return false
@@ -235,9 +230,6 @@ final class NewSessionSheetModel: ObservableObject {
         }
         if Keymap.NewSession.completePath.matches(event.keyCode) {
             return handleTab(shift: shift)
-        }
-        if Keymap.NewSession.suggestionUp.matches(event.keyCode) || Keymap.NewSession.suggestionDown.matches(event.keyCode) {
-            return moveSuggestionHighlight(Keymap.NewSession.suggestionUp.matches(event.keyCode) ? -1 : 1)
         }
         if state.model.isSelectFocused, flags.subtracting(.shift).isEmpty {
             if Keymap.NewSession.selectLeft.matches(event.keyCode) || Keymap.NewSession.selectLeftCharacter.matches(chars) {
@@ -259,33 +251,80 @@ final class NewSessionSheetModel: ObservableObject {
         return false
     }
 
-    /// Tab completes the path from the highlighted row (or from disk); otherwise it moves to the next
-    /// field, and ⇧Tab to the previous. The prompt keeps Tab.
+    /// Tab moves to the next field, and ⇧Tab to the previous. The prompt keeps Tab; the path field takes its
+    /// own Tab first (`handlePathFieldKey`).
     private func handleTab(shift: Bool) -> Bool {
-        switch state.model.focusedField {
-        case .prompt:
-            return false
-        case .path where !shift:
-            completePath()
-            return true
-        default:
-            moveFocus(shift ? .controlK : .controlJ)
-            return true
-        }
-    }
-
-    private func moveSuggestionHighlight(_ delta: Int) -> Bool {
-        guard state.showsPathSuggestions else {
+        guard state.model.focusedField != .prompt else {
             return false
         }
-        state.paths.moveHighlight(delta)
+        moveFocus(shift ? .controlK : .controlJ)
         return true
     }
 
-    /// The model field's own keys, taken while it has focus and before the text system sees them: the
-    /// effort keys (`NewSessionEffortKey`), and its SELECT / SEARCH states (`PickerFieldMode`). In SEARCH,
-    /// Tab or Return takes the highlighted suggestion and Esc restores the text; both return to SELECT.
-    /// Tab with nothing to take moves on, which ends the search too.
+    /// The path field's keys, before the sheet's. Its text is typed into in place, so the caret stays in it and
+    /// typing edits the path, refreshing its rows. Tab takes the highlighted row or completes from disk, and the
+    /// rows close (`handlePathTab`); the next Tab moves on. Return takes a row only once ↑/↓ moved to it, and
+    /// otherwise submits.
+    private func handlePathFieldKey(_ event: NSEvent) -> Bool {
+        let modifiers = event.keymapModifiers
+        guard !modifiers.contains(.command) else {
+            return false
+        }
+        let chars = event.charactersIgnoringModifiers?.lowercased()
+        if modifiers.contains(.control), Keymap.NewSession.recentPaths.matches(chars) {
+            requestPathSuggestions(recentsOnly: true)
+            return true
+        }
+        if Keymap.NewSession.completePath.matches(event.keyCode), !modifiers.contains(.shift) {
+            handlePathTab()
+            return true
+        }
+        let rowsShowing = state.showsPathSuggestions
+        guard let command = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: modifiers, mode: .search, showsSuggestions: rowsShowing && state.paths.moved) else {
+            return false
+        }
+        switch command {
+        case .moveHighlight(let delta):
+            guard rowsShowing else {
+                return false
+            }
+            state.paths.moveHighlight(delta)
+        case .pick:
+            if let row = state.paths.highlighted {
+                takePath(row)
+            }
+        case .restore:
+            // Esc puts the rows away; with none showing it closes the sheet.
+            guard rowsShowing else {
+                return false
+            }
+            state.paths.dismiss()
+        case .startSearch, .endSearch:
+            // Return with no row chosen: the sheet submits.
+            return false
+        }
+        return true
+    }
+
+    private func handlePathTab() {
+        switch state.paths.tabOutcome(path: state.model.path, completion: PathSuggester.localCompletion) {
+        case .choose(let path):
+            takePath(path)
+        case .moveOn:
+            moveFocus(.controlJ)
+        }
+    }
+
+    /// A path taken from the rows or completed from disk: the rows close, and the next keystroke refreshes them.
+    private func takePath(_ path: String) {
+        pathSuggester.cancel()
+        state.model.path = path
+        state.paths.dismiss()
+    }
+
+    /// The model field's own keys, taken while it has focus and before the text system sees them: the effort
+    /// keys (`NewSessionEffortKey`) and ⌃r (`NewSessionModelRefreshKey`), then the shared picker keys
+    /// (`PickerFieldKey`). The effort re-resolves only when the text changes.
     private func handleModelFieldKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let command = flags.contains(.command)
@@ -303,41 +342,15 @@ final class NewSessionSheetModel: ObservableObject {
             refreshModels()
             return true
         }
-        switch before {
-        case .select:
-            guard let start = PickerFieldMode.searchStart(characters: event.characters, keyCode: event.keyCode, command: command, control: control, option: option) else {
-                return false
-            }
-            state.model.startModelSearch(start)
-            modelChanged()
-            return true
-        case .search:
-            if command || control || option {
-                return false
-            }
-            if Keymap.NewSession.cancel.matches(event.keyCode) {
-                state.model.endModelSearch(keepingText: false)
-                modelChanged()
-                return true
-            }
-            let tab = Keymap.NewSession.completePath.matches(event.keyCode) && !flags.contains(.shift)
-            if tab || Keymap.NewSession.create.matches(event.charactersIgnoringModifiers) {
-                if state.model.acceptHighlightedModel() {
-                    modelChanged()
-                    return true
-                }
-                guard !tab else {
-                    return false
-                }
-                state.model.endModelSearch(keepingText: true)
-                return true
-            }
-            if Keymap.NewSession.suggestionUp.matches(event.keyCode) || Keymap.NewSession.suggestionDown.matches(event.keyCode) {
-                state.model.moveModelHighlight(Keymap.NewSession.suggestionUp.matches(event.keyCode) ? -1 : 1)
-                return true
-            }
+        guard let pickerCommand = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: event.keymapModifiers, mode: before, showsSuggestions: state.model.showsModelSuggestions) else {
             return false
         }
+        let textBefore = state.model.modelText
+        state.model.applyModelCommand(pickerCommand)
+        if state.model.modelText != textBefore {
+            modelChanged()
+        }
+        return true
     }
 
     func handleViewFocus(_ field: NewSessionField) {
@@ -353,10 +366,10 @@ final class NewSessionSheetModel: ObservableObject {
         }
     }
 
+    /// A row clicked: taken like Tab takes one, and focus goes back to the path.
     func selectPath(_ path: String) {
-        state.model.path = path
+        takePath(path)
         state.requestFocus(.path)
-        requestPathSuggestions()
     }
 
     /// Typing a model re-resolves its effort levels once typing pauses.
@@ -566,21 +579,6 @@ final class NewSessionSheetModel: ObservableObject {
         if field == .path {
             requestPathSuggestions()
         }
-    }
-
-    private func completePath() {
-        if state.showsPathSuggestions, let highlighted = state.paths.highlighted {
-            state.model.path = highlighted
-            requestPathSuggestions()
-            return
-        }
-        let completed = PathSuggester.localCompletion(state.model.path)
-        guard completed != state.model.path else {
-            moveFocus(.controlJ)
-            return
-        }
-        state.model.path = completed
-        requestPathSuggestions()
     }
 
     func close() {

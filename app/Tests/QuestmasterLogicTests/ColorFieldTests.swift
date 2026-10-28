@@ -11,9 +11,8 @@ struct ColorFieldTests {
         pickingSelectsAndReturnsToSelect()
         cyclingWrapsWithoutTheList()
         endingASearchRestoresTheName()
-        selectKeysCycleAndPrintableKeysSearch()
-        searchKeysMoveAndPick()
-        searchStartIsPrintableTextOrBackspace()
+        cycleKeysAreTheColoursOwn()
+        sharedPickerCommandsApplyToTheColour()
         savingMidSearchTakesTheHighlightedColour()
         pickerListWindowFollowsTheHighlight()
         caretFollowsTheModeOnlyWhileFocused()
@@ -119,42 +118,27 @@ struct ColorFieldTests {
         expect(model.text == "gold" && model.mode == .select && model.selectedColor == "gold", "Esc should restore the name and keep the colour")
     }
 
-    private static func selectKeysCycleAndPrintableKeysSearch() {
-        func command(_ characters: String, _ keyCode: UInt16, option: Bool = false, mode: PickerFieldMode = .select, list: Bool = false) -> ColorFieldCommand? {
-            ColorFieldModel.command(keyCode: keyCode, characters: characters, command: false, control: false, option: option, mode: mode, showsSuggestions: list)
-        }
-        expect(command("", 123) == .cycle(-1) && command("", 124) == .cycle(1), "←/→ should cycle in SELECT")
-        expect(command("h", 4) == .startSearch(.seed("h")), "h should start a search in SELECT")
-        expect(command("", 123, option: true) == .cycle(-1) && command("", 124, option: true, mode: .search) == .cycle(1), "⌥←/⌥→ should cycle in both states")
-        expect(command("", 123, mode: .search) == nil, "plain ← should move the caret while searching")
-        expect(command("", 51) == .startSearch(.editCurrent), "Backspace should edit the name")
-        expect(command("\r", 36) == nil && command("\u{3}", 76) == nil, "Return in SELECT should stay the sheet's, to submit")
-        expect(command("\t", 48) == nil && command("\u{1b}", 53) == nil, "Tab and Esc in SELECT should stay the sheet's")
-        expect(ColorFieldModel.command(keyCode: 1, characters: "s", command: false, control: true, option: false, mode: .select, showsSuggestions: false) == nil, "⌃ keys should stay the sheet's")
+    /// ←/→ cycle in SELECT, ⌥←/⌥→ in both states; the rest of the colour's keys are the shared picker's.
+    private static func cycleKeysAreTheColoursOwn() {
+        expect(ColorFieldModel.cycleDelta(keyCode: 123, modifiers: [], mode: .select) == -1 && ColorFieldModel.cycleDelta(keyCode: 124, modifiers: [], mode: .select) == 1, "←/→ should cycle in SELECT")
+        expect(ColorFieldModel.cycleDelta(keyCode: 123, modifiers: [.option], mode: .select) == -1 && ColorFieldModel.cycleDelta(keyCode: 124, modifiers: [.option], mode: .search) == 1, "⌥←/⌥→ should cycle in both states")
+        expect(ColorFieldModel.cycleDelta(keyCode: 123, modifiers: [], mode: .search) == nil, "plain ← should move the caret while searching")
+        expect(ColorFieldModel.cycleDelta(keyCode: 124, modifiers: [.command], mode: .select) == nil, "⌘ keys should not cycle")
     }
 
-    private static func searchKeysMoveAndPick() {
-        func command(_ characters: String, _ keyCode: UInt16, list: Bool) -> ColorFieldCommand? {
-            ColorFieldModel.command(keyCode: keyCode, characters: characters, command: false, control: false, option: false, mode: .search, showsSuggestions: list)
-        }
-        expect(command("", 126, list: true) == .moveHighlight(-1) && command("", 125, list: false) == .moveHighlight(1), "↑/↓ should move while searching")
-        expect(command("\t", 48, list: true) == .pick && command("\r", 36, list: true) == .pick, "Tab and Return should pick from the list")
-        expect(command("\t", 48, list: false) == .endSearch, "Tab with no list should end the search")
-        expect(command("\u{1b}", 53, list: true) == .endSearch, "Esc should end the search before the sheet closes")
-        expect(command("a", 0, list: true) == nil, "letters should type while searching")
-    }
-
-    private static func searchStartIsPrintableTextOrBackspace() {
-        func start(_ characters: String?, _ keyCode: UInt16, command: Bool = false, control: Bool = false, option: Bool = false) -> PickerFieldMode.SearchStart? {
-            PickerFieldMode.searchStart(characters: characters, keyCode: keyCode, command: command, control: control, option: option)
-        }
-        expect(start("o", 31) == .seed("o") && start("O", 31) == .seed("O") && start(" ", 49) == .seed(" "), "printable keys should seed the search")
-        expect(start(nil, 51) == .editCurrent, "Backspace should edit the current text")
-        for (characters, keyCode) in [("\r", UInt16(36)), ("\u{3}", 76), ("\t", 48), ("\u{1b}", 53), ("\u{F702}", 123), ("\u{F701}", 125)] {
-            expect(start(characters, keyCode) == nil, "key \(keyCode) is not text")
-        }
-        expect(start("o", 31, command: true) == nil && start("o", 31, control: true) == nil && start("ø", 31, option: true) == nil, "modified keys should not search")
-        expect(start("\u{F728}", 117) == nil, "function keys should not search")
+    /// The shared commands move the colour through its own model: a search previews the highlight, Tab or
+    /// Return picks it, and Esc shows the selected colour again.
+    private static func sharedPickerCommandsApplyToTheColour() {
+        var model = ColorFieldModel(colors: ["", "blue", "green", "yellow", "red"], selected: "blue")
+        model.apply(.startSearch(.editCurrent))
+        expect(model.showsSuggestions && model.highlightedColor == "blue", "startSearch should open the list on the selection")
+        model.apply(.moveHighlight(1))
+        expect(model.highlightedColor == "green" && model.swatchColor == "green", "moveHighlight should move and preview the highlight")
+        model.apply(.pick)
+        expect(model.selectedColor == "green" && model.mode == .select, "pick should select the highlighted colour")
+        model.apply(.startSearch(.seed("y")))
+        model.apply(.restore)
+        expect(model.selectedColor == "green" && model.text == "green" && model.mode == .select, "restore should show the selected colour again")
     }
 
     private static func savingMidSearchTakesTheHighlightedColour() {
