@@ -485,6 +485,10 @@ every step in DEBUG builds so the recorder can sample it).
 
 ## Workflow
 
+- Keep `internal/agent/prompts/` to Questmaster role identity, session mechanics,
+  and CLI behavior. Delegation thresholds, reviewer cadence, model preferences,
+  and general writing or repository practices belong to the user or applicable
+  project instructions, not the injected session prompt.
 - Branch from `main`. App work and backend work both ship as PRs **direct to
   `main`** (there is no long-lived integration branch). Open **draft** PRs by
   default. Prefer separate PRs for backend vs app when the change is separable.

@@ -9,7 +9,6 @@ import (
 var piSpec = Spec{
 	Name:           "pi",
 	DisplayName:    "Pi",
-	Description:    "lightweight and fast; good for small, well-scoped tasks",
 	DefaultCLI:     "pi",
 	ResumeKey:      "pi_session_id",
 	ResumeFileName: "pi-session-id",

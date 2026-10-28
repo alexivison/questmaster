@@ -24,7 +24,6 @@ const (
 var openCodeSpec = Spec{
 	Name:           "opencode",
 	DisplayName:    "OpenCode",
-	Description:    "OpenCode TUI harness with plugin-backed state tracking once the OpenCode bridge is installed",
 	DefaultCLI:     "opencode",
 	ResumeKey:      "opencode_session_id",
 	ResumeFileName: "opencode-session-id",
