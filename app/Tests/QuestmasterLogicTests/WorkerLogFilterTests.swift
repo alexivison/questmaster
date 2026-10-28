@@ -12,6 +12,7 @@ struct WorkerLogFilterTests {
 
     static func run() {
         defaultShowsEverything()
+        actionBoxesAreAlphabetical()
         feedKindsMapToTheActionBoxes()
         summonBoxShowsSummonAndDismissLines()
         actionsAreORedWithinTheSection()
@@ -47,6 +48,13 @@ struct WorkerLogFilterTests {
     }
 
     /// Cast = tool calls; Status = status; Summon = summon + dismiss; Message = say + message; Item = report + instructions.
+    /// The boxes are alphabetical, in the dropdown and so on the chip.
+    private static func actionBoxesAreAlphabetical() {
+        let titles = WorkerLogAction.allCases.map(\.title)
+        expect(titles == ["Cast", "Item", "Message", "Status", "Summon"], "the boxes should be listed Cast, Item, Message, Status, Summon, got \(titles)")
+        expect(titles == titles.sorted(), "and in alphabetical order")
+    }
+
     private static func feedKindsMapToTheActionBoxes() {
         let kinds: [(String, WorkerLogAction)] = [
             ("action", .cast), ("status", .status), ("summon", .summon), ("dismiss", .summon), ("say", .message), ("message", .message), ("report", .item), ("instructions", .item),
@@ -95,7 +103,7 @@ struct WorkerLogFilterTests {
         let (store, _) = openStore(entries: sampleEntries, workers: 3)
         WorkerLogAction.allCases.indices.forEach(store.toggleAction)
         expect(store.filter.actions == Set(WorkerLogAction.allCases) && narrows(store.filter), "every Action box ticked should keep all five ticks, got \(store.filter.actions)")
-        expect(store.filter.actionSummary == "Cast, Status, Summon, Message, Item", "and name them all on the chip, got \(String(describing: store.filter.actionSummary))")
+        expect(store.filter.actionSummary == "Cast, Item, Message, Status, Summon", "and name them all on the chip, got \(String(describing: store.filter.actionSummary))")
         expect(store.lines.count == 5, "all five Actions still show every line, got \(store.lines.count)")
 
         store.toggleAction(at: row(.cast))
@@ -219,9 +227,9 @@ struct WorkerLogFilterTests {
         let ticked: Set<WorkerLogAction> = [.status, .item, .message]
         let inDropdownOrder = WorkerLogAction.allCases.filter(ticked.contains).map(\.title).joined(separator: ", ")
         expect(filter.actionSummary == inDropdownOrder, "several actions list their names in the dropdown's order, got \(String(describing: filter.actionSummary))")
-        expect(filter.actionSummary == "Status, Message, Item", "which is today Status, Message, Item")
+        expect(filter.actionSummary == "Item, Message, Status", "which is alphabetical: Item, Message, Status")
         filter.toggle(.status)
-        expect(filter.actionSummary == "Message, Item", "unticking one drops its name")
+        expect(filter.actionSummary == "Item, Message", "unticking one drops its name")
         WorkerLogAction.allCases.forEach { action in
             if !filter.actions.contains(action) {
                 filter.toggle(action)
@@ -304,13 +312,13 @@ struct WorkerLogFilterTests {
         expect(store.handle(.toggleMenu) && store.menu.isOpen, "f opens the dropdown")
         expect(store.handle(.moveDown) && store.menu.cursor == 1, "j moves the cursor down")
         expect(store.handle(.toggleRow), "Space toggles")
-        expect(store.filter.actions == [.status], "the row under the cursor toggled, got \(store.filter.actions)")
+        expect(store.filter.actions == [.item], "the row under the cursor toggled, got \(store.filter.actions)")
         expect(store.menu.isOpen, "the dropdown stays open while toggling")
         expect(store.handle(.moveUp) && store.menu.cursor == 0, "k moves the cursor up")
-        expect(store.handle(.toggleRow) && store.filter.actions == [.status, .cast], "Return toggles the next row too, got \(store.filter.actions)")
-        store.toggleAction(at: row(.item))
-        expect(store.menu.cursor == row(.item), "a click puts the cursor on its row")
-        expect(store.filter.actions == [.status, .cast, .item], "and toggles it")
+        expect(store.handle(.toggleRow) && store.filter.actions == [.item, .cast], "Return toggles the next row too, got \(store.filter.actions)")
+        store.toggleAction(at: row(.status))
+        expect(store.menu.cursor == row(.status), "a click puts the cursor on its row")
+        expect(store.filter.actions == [.item, .cast, .status], "and toggles it")
         (0..<10).forEach { _ in _ = store.handle(.moveDown) }
         expect(store.menu.cursor == WorkerLogAction.allCases.count - 1, "the cursor stops at the last Action row, got \(store.menu.cursor)")
         expect(store.handle(.close) && !store.menu.isOpen, "Esc closes")

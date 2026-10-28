@@ -755,8 +755,8 @@ enum RenderPreview {
         WorkerFeedEntry(timestamp: String(format: "2026-10-07T08:%02d:%02dZ", minute, second), workerID: worker, kind: kind, text: text)
     }
 
-    /// The worker log as `Worker Chat.png` draws it: four workers under one master, the Action filter on Status, Summon,
-    /// Message and Item, and the All tab selected. With more `workers` the extra ones are named "Worker 06" on.
+    /// The worker log as `Worker Chat.png` draws it: four workers under one master, the Action filter on Item, Message,
+    /// Status and Summon, and the All tab selected. With more `workers` the extra ones are named "Worker 06" on.
     @MainActor
     private static func workerLogStore(workers: Int = 4, filtered: Bool = true) -> WorkerChatStore {
         let store = WorkerChatStore()
@@ -791,7 +791,7 @@ enum RenderPreview {
             entry(26, 30, "w4", "say", "The regression suite passes. Both the UI fix and the previous patch are covered."),
         ]
         _ = store.receive(WorkerFeedPayload(entries: entries), for: request)
-        // Rows: Cast, Status, Summon, Message, Item.
+        // Rows: Cast, Item, Message, Status, Summon.
         if filtered {
             [1, 2, 3, 4].forEach(store.toggleAction)
         }
@@ -866,12 +866,16 @@ enum RenderPreview {
             .background(AppPalette.window.swiftUI)
     }
 
-    /// The Action chip of `Selected Filter Item.svg` at its coordinates, with one action ticked and with four, worded as the
-    /// design words them (the dropdown's order today is Message before Item).
+    /// The Action chip of `Selected Filter Item.svg` at its coordinates, with one action ticked and with four, worded as Core
+    /// words them.
     @MainActor
     private static func workerLogChipsDesignView() -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(["Status", "Status, Summon, Item, Message"], id: \.self) { summary in
+        var one = WorkerLogFilter()
+        one.toggle(.status)
+        var four = WorkerLogFilter()
+        [WorkerLogAction.status, .summon, .item, .message].forEach { four.toggle($0) }
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach([one, four].compactMap(\.actionSummary), id: \.self) { summary in
                 WorkerLogChipRow(summary: summary, onClear: {})
             }
         }

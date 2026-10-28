@@ -256,8 +256,8 @@ again where it was when the keys come back.
   Control, the tracker, the terminal or a modal) close it. A click anywhere else
   on the dock, either top bar included, closes it too. Its one chip reads "Action:" in
   `textMetaHighlighted` at regular weight, then the ticked names in `textBody` **bold** (the
-  current selection is what bold means), comma-separated in the dropdown's order
-  (`WorkerLogFilter.actionSummary`), and grows with them; with nothing attached the log is
+  current selection is what bold means), comma-separated in the dropdown's order, which is
+  alphabetical (Cast, Item, Message, Status, Summon; `WorkerLogAction`, `WorkerLogFilter.actionSummary`), and grows with them; with nothing attached the log is
   blank, chip included. It sits 5 under
   the top bar and stays there whatever the feed is doing (first read pending or
   failed, empty, lines). The feed fades in under its header, the bar and the

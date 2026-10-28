@@ -1,24 +1,25 @@
 import Foundation
 
-/// The Worker Log filter's Action boxes, in the order the dropdown lists them. Each groups the feed entries it names.
+/// The Worker Log filter's Action boxes, in the order the dropdown lists them and the chip names them: alphabetical.
+/// Each groups the feed entries it names.
 public enum WorkerLogAction: CaseIterable, Hashable, Sendable {
     /// Tool calls.
     case cast
+    /// The item tags: reports and instructions.
+    case item
+    /// A worker's free text.
+    case message
     case status
     /// Sub-agents appearing and leaving: summon and dismiss lines.
     case summon
-    /// A worker's free text.
-    case message
-    /// The item tags: reports and instructions.
-    case item
 
     public var title: String {
         switch self {
         case .cast: "Cast"
+        case .item: "Item"
+        case .message: "Message"
         case .status: "Status"
         case .summon: "Summon"
-        case .message: "Message"
-        case .item: "Item"
         }
     }
 }

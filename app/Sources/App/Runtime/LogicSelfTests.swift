@@ -5449,11 +5449,11 @@ enum LogicSelfTests {
         try dock.keyDown(with: keyEvent("j", keyCode: 38))
         try expect(chat.menu.cursor == 1, "j should move the cursor, got \(chat.menu.cursor)")
         try dock.keyDown(with: keyEvent(" ", keyCode: 49))
-        try expect(chat.filter.actions == [.status], "Space should toggle the row under the cursor, got \(chat.filter.actions)")
+        try expect(chat.filter.actions == [.item], "Space should toggle the row under the cursor, got \(chat.filter.actions)")
         try dock.keyDown(with: keyEvent("k", keyCode: 40, modifierFlags: .control))
         try expect(chat.menu.cursor == 1, "a ⌃ chord is not the filter's")
         try dock.keyDown(with: keyEvent("\u{1b}", keyCode: 53))
-        try expect(!chat.menu.isOpen && chat.filter.actions == [.status], "Esc should close the filter and keep what it selected")
+        try expect(!chat.menu.isOpen && chat.filter.actions == [.item], "Esc should close the filter and keep what it selected")
 
         // [ and ] step the worker tabs, All first, with the dropdown closed or open.
         try dock.keyDown(with: keyEvent("]", keyCode: 30))
@@ -5765,9 +5765,9 @@ enum LogicSelfTests {
             WorkerLogChipRow(summary: summary, onClear: {}).fixedSize(horizontal: true, vertical: false)
         }
         let one = try fittingSize(of: chip("Status"))
-        let several = try fittingSize(of: chip("Status, Summon, Message, Item"))
+        let several = try fittingSize(of: chip("Item, Message, Status, Summon"))
         let advance = ("A" as NSString).size(withAttributes: [.font: AppFonts.chipValue]).width
-        let gained = CGFloat("Status, Summon, Message, Item".count - "Status".count) * advance
+        let gained = CGFloat("Item, Message, Status, Summon".count - "Status".count) * advance
         try expect(abs(several.width - one.width - gained) <= 1, "the chip should grow by its extra characters (\(gained)), got \(several.width - one.width)")
         try expect(several.height == one.height, "and stay one line high")
         let manager = NSFontManager.shared
@@ -5839,7 +5839,7 @@ enum LogicSelfTests {
         }
         try expect(try ink() != nil, "the chip should show with a master attached")
         _ = chat.sync(selectedSessionID: "sh", sessions: sessions, isVisible: true)
-        try expect(chat.filter.actions == [.status], "the ticks should survive the master going")
+        try expect(chat.filter.actions == [.item], "the ticks should survive the master going")
         try expect(try ink() == nil, "a log with nothing attached should be blank, without the chip")
         _ = chat.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
         try expect(try ink() != nil, "the chip should come back with the master")
