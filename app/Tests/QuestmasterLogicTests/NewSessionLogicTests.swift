@@ -141,14 +141,17 @@ struct NewSessionLogicTests {
 
     private static func modelRefreshKeyIsTheModelFieldsOwn() {
         func refreshes(control: Bool = true, option: Bool = false, _ field: NewSessionField) -> Bool {
-            NewSessionModelRefreshKey.refreshes(keyCode: 15, command: false, control: control, option: option, field: field)
+            var modifiers: Set<Keymap.Modifier> = []
+            if control { modifiers.insert(.control) }
+            if option { modifiers.insert(.option) }
+            return NewSessionModelRefreshKey.refreshes(Keymap.KeyPress(keyCode: 15, character: nil, modifiers: modifiers), field: field)
         }
         expect(refreshes(.model), "⌃r should refresh the models in the model field")
         expect(!refreshes(control: false, .model) && !refreshes(option: true, .model), "plain r and ⌥⌃r are not the refresh key")
         for field in [NewSessionField.path, .title, .agent, .prompt] {
             expect(!refreshes(field), "⌃r refreshes nothing with \(field) focused")
         }
-        expect(Keymap.NewSession.refreshModels.keyCodes == [15] && Keymap.NewSession.refreshModels.modifiers == [.control], "⌃r is the r key with control")
+        expect(Keymap.chords(for: .refreshModels) == [.code(15, [.control])], "⌃r is the r key with control")
     }
 
     private static func acceptingAModelSuggestionPutsTheDropdownAway() {
@@ -307,7 +310,10 @@ struct NewSessionLogicTests {
 
     private static func effortKeysCycleOnlyWhereAnECannotBeTyped() {
         func cycles(_ characters: String, control: Bool = false, option: Bool = false, _ field: NewSessionField, _ mode: PickerFieldMode = .select) -> Bool {
-            NewSessionEffortKey.cycles(characters: characters, keyCode: 14, command: false, control: control, option: option, field: field, mode: mode)
+            var modifiers: Set<Keymap.Modifier> = []
+            if control { modifiers.insert(.control) }
+            if option { modifiers.insert(.option) }
+            return NewSessionEffortKey.cycles(Keymap.KeyPress(keyCode: 14, character: characters, modifiers: modifiers), field: field, mode: mode)
         }
         expect(cycles("e", .model, .select), "e should cycle in the model field's SELECT state")
         expect(!cycles("e", .model, .search), "e should type while searching")
@@ -316,8 +322,8 @@ struct NewSessionLogicTests {
         for field in [NewSessionField.path, .title, .agent, .color, .prompt] {
             expect(!cycles("e", field) && !cycles("e", control: true, field), "no effort key with \(field) focused")
         }
-        expect(!NewSessionEffortKey.cycles(characters: "E", keyCode: 14, command: false, control: false, option: false, field: .model, mode: .select), "E (shift) is not the effort key")
-        expect(Keymap.NewSession.cycleReasoningEffortInModel.keyCodes == [14] && Keymap.NewSession.cycleReasoningEffortInModel.modifiers == [.control], "⌃e is the e key with control")
+        expect(!NewSessionEffortKey.cycles(Keymap.KeyPress(keyCode: 14, character: "E"), field: .model, mode: .select), "E (shift) is not the effort key")
+        expect(Keymap.chords(for: .cycleEffort).contains(.code(14, [.control])), "⌃e is the e key with control")
     }
 
     private static func submittingNeedsOnlyAPath() {
@@ -376,23 +382,23 @@ struct NewSessionLogicTests {
         )
 
         model.focusedField = .title
-        expect(!model.handleSelectShortcut("l"), "title field should not consume l")
+        model.handle(.right)
         expect(model.selectedAgent == "claude", "text field shortcut should not cycle agent")
 
         model.focusedField = .agent
-        expect(model.handleSelectShortcut("l"), "agent field should consume l")
-        expect(model.selectedAgent == "codex", "l should cycle select field right")
-        expect(model.handleSelectShortcut("h"), "agent field should consume h")
-        expect(model.selectedAgent == "claude", "h should cycle select field left")
+        model.handle(.right)
+        expect(model.selectedAgent == "codex", "right should cycle select field right")
+        model.handle(.left)
+        expect(model.selectedAgent == "claude", "left should cycle select field left")
 
         model.focusedField = .color
-        expect(model.handleSelectShortcut("l"), "color field should consume l directly")
-        expect(model.selectedColor == "violet", "l should cycle color right")
-        expect(model.handleSelectShortcut("h"), "color field should consume h directly")
-        expect(model.selectedColor == "blue", "h should cycle color left")
+        model.handle(.right)
+        expect(model.selectedColor == "violet", "right should cycle color right")
+        model.handle(.left)
+        expect(model.selectedColor == "blue", "left should cycle color left")
 
         model.focusedField = .prompt
-        expect(!model.handleSelectShortcut("h"), "prompt field should not consume h")
+        model.handle(.left)
         expect(model.selectedAgent == "claude", "prompt shortcut should not cycle agent")
     }
 
@@ -421,8 +427,8 @@ struct NewSessionLogicTests {
         expect(model.selectedColor == "green", "initial color should be selected")
         model.handle(.right)
         expect(model.selectedColor == "yellow", "right should continue from the initial color")
-        expect(model.handleSelectShortcut("h"), "h should use the same color cycle")
-        expect(model.selectedColor == "green", "h should return to the initial color")
+        model.handle(.left)
+        expect(model.selectedColor == "green", "left should return to the initial color")
     }
 
     private static func colorSelectCyclesDirectly() {

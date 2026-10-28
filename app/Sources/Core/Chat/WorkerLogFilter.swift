@@ -157,7 +157,7 @@ public struct WorkerLogMenu: Equatable, Sendable {
     }
 }
 
-/// What a key does to the Worker Log filter and its tabs. The caller screens out the ⌘, ⌃, ⌥ and ⇧ chords.
+/// What a key does to the Worker Log filter and its tabs. Only the exact chords in `Keymap` match, so a ⌘, ⌃, ⌥ or ⇧ press passes through.
 public enum WorkerLogFilterKey: Equatable, Sendable {
     case toggleMenu
     case close
@@ -168,29 +168,29 @@ public enum WorkerLogFilterKey: Equatable, Sendable {
     case nextTab
 
     /// Only `toggleMenu` and the tab keys mean anything while the dropdown is closed.
-    public static func resolve(keyCode: UInt16, character: String?, menuIsOpen: Bool) -> WorkerLogFilterKey? {
-        if Keymap.WorkerLog.toggleMenu.matches(character) {
+    public static func resolve(_ press: Keymap.KeyPress, menuIsOpen: Bool) -> WorkerLogFilterKey? {
+        if Keymap.matches(press, .toggleFilterMenu) {
             return .toggleMenu
         }
-        if Keymap.WorkerLog.previousTab.matches(character) {
+        if Keymap.matches(press, .previousTab) {
             return .previousTab
         }
-        if Keymap.WorkerLog.nextTab.matches(character) {
+        if Keymap.matches(press, .nextTab) {
             return .nextTab
         }
         guard menuIsOpen else {
             return nil
         }
-        if Keymap.WorkerLog.close.matches(keyCode) {
+        if Keymap.matches(press, .cancel) {
             return .close
         }
-        if Keymap.WorkerLog.moveUpKeyCodes.matches(keyCode) || Keymap.WorkerLog.moveUpCharacters.matches(character) {
+        if Keymap.matches(press, .moveUp) {
             return .moveUp
         }
-        if Keymap.WorkerLog.moveDownKeyCodes.matches(keyCode) || Keymap.WorkerLog.moveDownCharacters.matches(character) {
+        if Keymap.matches(press, .moveDown) {
             return .moveDown
         }
-        if Keymap.WorkerLog.toggleRowKeyCodes.matches(keyCode) || Keymap.WorkerLog.toggleRowCharacters.matches(character) {
+        if Keymap.matches(press, .toggleRow) {
             return .toggleRow
         }
         return nil

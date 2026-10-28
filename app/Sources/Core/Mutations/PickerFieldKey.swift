@@ -20,50 +20,38 @@ public enum PickerFieldCommand: Equatable {
 /// while searching. A field checks its own keys (colour cycling, effort, ⌃r) before asking.
 public enum PickerFieldKey {
     /// `showsSuggestions`: a row is showing, so Tab or Return takes the highlighted one rather than ending the search.
-    public static func command(keyCode: UInt16, characters: String?, modifiers: Set<Keymap.Modifier>, mode: PickerFieldMode, showsSuggestions: Bool) -> PickerFieldCommand? {
-        guard !modifiers.contains(.command) else {
+    public static func command(_ press: Keymap.KeyPress, mode: PickerFieldMode, showsSuggestions: Bool) -> PickerFieldCommand? {
+        guard !press.modifiers.contains(.command) else {
             return nil
         }
         switch mode {
         case .select:
-            return PickerFieldMode.searchStart(characters: characters, keyCode: keyCode, modifiers: modifiers).map(PickerFieldCommand.startSearch)
+            return PickerFieldMode.searchStart(press).map(PickerFieldCommand.startSearch)
         case .search:
-            return searchCommand(keyCode: keyCode, characters: characters, modifiers: modifiers, showsSuggestions: showsSuggestions)
+            return searchCommand(press, showsSuggestions: showsSuggestions)
         }
     }
 
-    private static func searchCommand(keyCode: UInt16, characters: String?, modifiers: Set<Keymap.Modifier>, showsSuggestions: Bool) -> PickerFieldCommand? {
-        if modifiers.contains(.control) {
-            return controlCommand(keyCode: keyCode)
-        }
-        guard !modifiers.contains(.option) else {
-            return nil
-        }
-        if Keymap.PickerField.suggestionUp.matches(keyCode) {
+    private static func searchCommand(_ press: Keymap.KeyPress, showsSuggestions: Bool) -> PickerFieldCommand? {
+        if Keymap.matches(press, .suggestionPrevious) {
             return .moveHighlight(-1)
         }
-        if Keymap.PickerField.suggestionDown.matches(keyCode) {
+        if Keymap.matches(press, .suggestionNext) {
             return .moveHighlight(1)
         }
-        if Keymap.NewSession.cancel.matches(keyCode) {
+        if Keymap.matches(press, .suggestionUp) {
+            return .moveHighlight(-1)
+        }
+        if Keymap.matches(press, .suggestionDown) {
+            return .moveHighlight(1)
+        }
+        if Keymap.matches(press, .cancel) {
             return .restore
         }
-        let tab = Keymap.NewSession.completePath.matches(keyCode) && !modifiers.contains(.shift)
-        guard tab || Keymap.NewSession.create.matches(characters) else {
+        guard Keymap.matches(press, .tab) || Keymap.matches(press, .submit) else {
             return nil
         }
         return showsSuggestions ? .pick : .endSearch
-    }
-
-    /// ⌃p and ⌃n while searching; the field's other ⌃ keys (⌃e, ⌃r, ⌃j, ⌃k) are not the picker's.
-    private static func controlCommand(keyCode: UInt16) -> PickerFieldCommand? {
-        if Keymap.PickerField.suggestionUpControl.matches(keyCode) {
-            return .moveHighlight(-1)
-        }
-        if Keymap.PickerField.suggestionDownControl.matches(keyCode) {
-            return .moveHighlight(1)
-        }
-        return nil
     }
 }
 

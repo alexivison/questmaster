@@ -115,10 +115,11 @@ final class DockPaneModel: ObservableObject {
     }
 
     func handleKeyDown(_ event: NSEvent, snapshot: RuntimeSnapshot) -> Bool {
+        let press = event.keymapPress
         // Reset before dispatch, not inside whichever branch happens to handle the event: a lone
         // `g` must not survive `G` (a complete action, not the chord's second half) or any other
         // key some earlier branch (filter focus, `y`, an arrow) consumes first.
-        if !GChordShortcut.isPrefix(event) {
+        if !Keymap.matches(press, .jumpToTop) {
             listGTracker.reset()
         }
         if currentMode == .workerChat {
@@ -128,17 +129,15 @@ final class DockPaneModel: ObservableObject {
             return onControlDirection?(direction) == true
         }
         guard currentArtifactRoute == .list else {
-            if Self.isArtifactViewerBack(event) {
+            if Keymap.matches(press, .back) {
                 onShowArtifactListIntent?()
                 return true
             }
-            switch Self.plainShortcutCharacter(from: event) {
-            case "y":
+            if Keymap.matches(press, .copy) {
                 return copySelectedArtifactPaths()
-            case "r":
+            }
+            if Keymap.matches(press, .refresh) {
                 return refreshCurrentArtifact()
-            default:
-                break
             }
             if let direction = focusDirection(from: event), onControlDirection?(direction) == true {
                 return true
@@ -146,31 +145,26 @@ final class DockPaneModel: ObservableObject {
             return false
         }
 
-        if Self.isFilterFocusShortcut(event) {
+        if Keymap.matches(press, .focusFilter) {
             return focusArtifactFilter()
         }
-
-        if GChordShortcut.isJumpToBottom(event) {
+        if Keymap.matches(press, .jumpToBottom) {
             return moveArtifactSelectionToEdge(last: true, snapshot: snapshot)
         }
-        if GChordShortcut.isPrefix(event) {
+        if Keymap.matches(press, .jumpToTop) {
             if listGTracker.handleG() == .jumpToTop {
                 return moveArtifactSelectionToEdge(last: false, snapshot: snapshot)
             }
             return true
         }
-
-        if let direction = Self.plainListDirection(from: event) {
+        if let direction = Self.listDirection(for: press) {
             return handleArtifactListDirection(direction, snapshot: snapshot)
         }
-
-        switch Self.plainShortcutCharacter(from: event) {
-        case "y":
+        if Keymap.matches(press, .copy) {
             return copySelectedArtifactPaths()
-        case " ":
+        }
+        if Keymap.matches(press, .toggleMark) {
             return toggleSelectedArtifact()
-        default:
-            break
         }
 
         guard let action = TrackerEventCommandResolver.action(for: event) else {
@@ -312,37 +306,40 @@ final class DockPaneModel: ObservableObject {
         return true
     }
 
-    func handleArtifactFilterCommand(keyCode: UInt16) -> Bool {
+    func handleArtifactFilterCommand(_ press: Keymap.KeyPress) -> Bool {
         guard artifactScope == .all else {
             return false
         }
         let suggestions = artifactModel.filterSuggestions
-        switch keyCode {
-        case 125 where !suggestions.isEmpty:
+        if Keymap.matches(press, .suggestionDown), !suggestions.isEmpty {
             moveArtifactFilterSuggestion(delta: 1)
             return true
-        case 126 where !suggestions.isEmpty:
+        }
+        if Keymap.matches(press, .suggestionUp), !suggestions.isEmpty {
             moveArtifactFilterSuggestion(delta: -1)
             return true
-        case 48 where !suggestions.isEmpty:
+        }
+        if Keymap.matches(press, .tab), !suggestions.isEmpty {
             return acceptArtifactFilterSuggestion()
-        case 36, 76:
+        }
+        if Keymap.matches(press, .submit) {
             if !suggestions.isEmpty {
                 return acceptArtifactFilterSuggestion()
             }
             return openSelectedArtifact()
-        case 51 where artifactFilterQuery.isEmpty && !artifactFilterTokens.isEmpty:
+        }
+        if Keymap.matches(press, .backspace), artifactFilterQuery.isEmpty, !artifactFilterTokens.isEmpty {
             artifactFilterTokens.removeLast()
             syncArtifactFilterSetsFromTokens()
             refreshArtifactFilters()
             return true
-        case 53 where !suggestions.isEmpty:
+        }
+        if Keymap.matches(press, .cancel), !suggestions.isEmpty {
             artifactFilterSuggestionsHidden = true
             refreshArtifactFilters()
             return true
-        default:
-            return false
         }
+        return false
     }
 
     private func refreshArtifactFilters() {
@@ -985,73 +982,13 @@ final class DockPaneModel: ObservableObject {
         }
     }
 
-    private static func isFilterFocusShortcut(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option),
-              !flags.contains(.shift) else {
-            return false
-        }
-        return event.charactersIgnoringModifiers == "/"
-    }
-
-    static func plainListDirection(from event: NSEvent) -> NavigationDirection? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option) else {
-            return nil
-        }
-        switch event.keyCode {
-        case 123:
-            return .left
-        case 124:
-            return .right
-        case 125:
-            return .down
-        case 126:
-            return .up
-        default:
-            break
-        }
-        guard !flags.contains(.shift) else {
-            return nil
-        }
-        switch event.charactersIgnoringModifiers?.lowercased() {
-        case "h":
-            return .left
-        case "j":
-            return .down
-        case "k":
-            return .up
-        case "l":
-            return .right
-        default:
-            return nil
-        }
-    }
-
-    static func plainShortcutCharacter(from event: NSEvent) -> String? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option) else {
-            return nil
-        }
-        return event.charactersIgnoringModifiers?.lowercased()
-    }
-
-    private static func isArtifactViewerBack(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option),
-              !flags.contains(.shift) else {
-            return false
-        }
-        return Keymap.Viewer.backKeyCodes.matches(event.keyCode)
-            || Keymap.Viewer.back.matches(event.charactersIgnoringModifiers)
+    /// The list's direction keys: ↑ and k, ↓ and j, and ← and h, → and l. The last two move the scope, as they always have.
+    static func listDirection(for press: Keymap.KeyPress) -> NavigationDirection? {
+        if Keymap.matches(press, .moveUp) { return .up }
+        if Keymap.matches(press, .moveDown) { return .down }
+        if Keymap.matches(press, .cycleLeft) { return .left }
+        if Keymap.matches(press, .cycleRight) { return .right }
+        return nil
     }
 
     /// Shared with the Quest Log's filter (`QuestLogFilter`), like the helpers that parse and match it.

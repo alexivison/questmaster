@@ -53,7 +53,7 @@ struct ArtifactDockView: View {
     var onSetFilterQuery: (String) -> Void
     var onRemoveFilterToken: (ArtifactFilterToken) -> Void
     var onSelectFilterSuggestion: (ArtifactFilterSuggestion) -> Void
-    var onFilterCommand: (UInt16) -> Bool
+    var onFilterCommand: (Keymap.KeyPress) -> Bool
     var onFilterEndEditing: () -> Void
     var onOpenExternal: (URL) -> Void
     /// Whether the dock has keyboard focus: an unfocused dock shows its selection one step dimmer.

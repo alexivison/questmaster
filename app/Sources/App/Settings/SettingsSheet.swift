@@ -343,42 +343,35 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     func handle(_ event: NSEvent) -> Bool {
-        let chars = event.charactersIgnoringModifiers?.lowercased()
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let control = flags.contains(.control)
-        let option = flags.contains(.option)
-        if Keymap.NewSession.cancel.matches(event.keyCode) {
+        let press = event.keymapPress
+        if Keymap.matches(press, .cancel) {
             close()
             return true
         }
-        if event.modifierFlags.contains(.command) {
+        if press.modifiers.contains(.command) {
             return false
         }
-        if option, Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
+        if Keymap.matches(press, .nextField) {
             state.moveFocus(1)
             return true
         }
-        if control, Keymap.NewSession.nextField.matches(chars) {
-            state.moveFocus(1)
-            return true
-        }
-        if control, Keymap.NewSession.previousField.matches(chars) {
+        if Keymap.matches(press, .previousField) {
             state.moveFocus(-1)
             return true
         }
-        if Keymap.NewSession.selectLeft.matches(event.keyCode) || Keymap.NewSession.selectLeftCharacter.matches(chars) {
+        if Keymap.matches(press, .cycleLeft) {
             cycleFocusedValue(-1)
             return true
         }
-        if Keymap.NewSession.selectRight.matches(event.keyCode) || Keymap.NewSession.selectRightCharacter.matches(chars) {
+        if Keymap.matches(press, .cycleRight) {
             cycleFocusedValue(1)
             return true
         }
-        if Keymap.Settings.previousTab.matches(chars) {
+        if Keymap.matches(press, .previousTab) {
             state.moveTab(-1)
             return true
         }
-        if Keymap.Settings.nextTab.matches(chars) {
+        if Keymap.matches(press, .nextTab) {
             state.moveTab(1)
             return true
         }

@@ -20,20 +20,17 @@ public enum PickerFieldMode: Equatable {
 
     /// The search a key starts from SELECT, or nil when it isn't one (a ⌘, ⌃ or ⌥ key, Tab, Esc, an arrow,
     /// or anything else without printable text). The field takes its own picker keys before asking.
-    public static func searchStart(characters: String?, keyCode: UInt16, modifiers: Set<Keymap.Modifier>) -> SearchStart? {
-        guard modifiers.isDisjoint(with: [.command, .control, .option]) else {
+    public static func searchStart(_ press: Keymap.KeyPress) -> SearchStart? {
+        guard press.modifiers.isDisjoint(with: [.command, .control, .option]) else {
             return nil
         }
-        if Keymap.PickerField.editCurrent.matches(keyCode) {
+        if Keymap.matches(press, .backspace) {
             return .editCurrent
         }
-        guard !Keymap.PickerField.notText.matches(keyCode), let characters, !characters.isEmpty else {
+        guard !Keymap.nonTextKeyCodes.contains(press.keyCode), Keymap.KeyPress.isPrintable(press.character), let characters = press.character else {
             return nil
         }
-        let printable = characters.unicodeScalars.allSatisfy { scalar in
-            !CharacterSet.controlCharacters.contains(scalar) && !(0xF700...0xF8FF).contains(scalar.value)
-        }
-        return printable ? .seed(characters) : nil
+        return .seed(characters)
     }
 
     /// The items matching a search, best first: an exact match, then those starting with the query,

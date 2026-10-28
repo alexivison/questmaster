@@ -13,13 +13,7 @@ func viewOwnsKeyFocus(_ view: NSView) -> Bool {
 }
 
 func focusDirection(from event: NSEvent, includeHorizontal: Bool = true) -> NavigationDirection? {
-    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-    guard flags.contains(.control),
-          !flags.contains(.command),
-          !flags.contains(.option) else {
-        return nil
-    }
-    guard let direction = Keymap.ControlHandoff.direction(forKeyCode: event.keyCode) else {
+    guard let direction = handoffDirection(for: event.keymapPress) else {
         return nil
     }
     switch direction {
@@ -30,11 +24,15 @@ func focusDirection(from event: NSEvent, includeHorizontal: Bool = true) -> Navi
     }
 }
 
+private func handoffDirection(for press: Keymap.KeyPress) -> NavigationDirection? {
+    if Keymap.matches(press, .handoffLeft) { return .left }
+    if Keymap.matches(press, .handoffDown) { return .down }
+    if Keymap.matches(press, .handoffUp) { return .up }
+    if Keymap.matches(press, .handoffRight) { return .right }
+    return nil
+}
+
+/// Tab and ⇧Tab, which a native region takes and does nothing with.
 func isNativeRegionTabEvent(_ event: NSEvent) -> Bool {
-    guard Keymap.NativeRegion.tabNoOp.matches(event.keyCode) else {
-        return false
-    }
-    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-    let disallowed: NSEvent.ModifierFlags = [.command, .control, .option]
-    return flags.intersection(disallowed).isEmpty && flags.subtracting(.shift).isEmpty
+    Keymap.matches(event.keymapPress, .tab) || Keymap.matches(event.keymapPress, .backTab)
 }

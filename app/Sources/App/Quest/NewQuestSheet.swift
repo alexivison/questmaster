@@ -126,7 +126,6 @@ struct NewQuestSheetView: View {
             placeholder: "The contents of the quest",
             isEditable: !model.form.submitting,
             isFocused: model.form.focusedField == .content,
-            createKey: Keymap.NewSession.create,
             onFocus: { model.focusedByClick(.content) },
             onCreate: { model.submit() }
         )
@@ -267,12 +266,9 @@ final class NewQuestSheetModel: ObservableObject {
     }
 
     func handle(_ event: NSEvent) -> Bool {
-        let chars = event.charactersIgnoringModifiers?.lowercased()
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let control = flags.contains(.control)
-        let option = flags.contains(.option)
-        if flags.contains(.command) {
-            guard Keymap.NewSession.create.matches(chars) else {
+        let press = event.keymapPress
+        if press.modifiers.contains(.command) {
+            guard Keymap.matches(press, .submit) else {
                 return false
             }
             submit()
@@ -280,7 +276,7 @@ final class NewQuestSheetModel: ObservableObject {
         }
         if form.submitting {
             // Esc still closes while a submit is in flight, as in New Session.
-            if Keymap.NewSession.cancel.matches(event.keyCode) {
+            if Keymap.matches(press, .cancel) {
                 cancel()
             }
             return true
@@ -288,21 +284,20 @@ final class NewQuestSheetModel: ObservableObject {
         if form.focusedField == .project, handleProjectFieldKey(event) {
             return true
         }
-        if Keymap.NewSession.cancel.matches(event.keyCode) {
+        if Keymap.matches(press, .cancel) {
             cancel()
             return true
         }
-        let tabOutOfProject = form.focusedField == .project && Keymap.NewSession.completePath.matches(event.keyCode)
-        if tabOutOfProject
-            || (option && Keymap.NewSession.nextFieldOption.matches(event.keyCode)) {
+        let tabOutOfProject = form.focusedField == .project && (Keymap.matches(press, .tab) || Keymap.matches(press, .backTab))
+        if tabOutOfProject || Keymap.matches(press, .nextField) {
             navigate(.down)
             return true
         }
-        if control, let direction = Keymap.NewSession.controlFieldDirection(chars) {
-            navigate(direction)
+        if Keymap.matches(press, .previousField) {
+            navigate(.up)
             return true
         }
-        if control, Keymap.NewSession.createFromPrompt.matches(chars), form.focusedField == .content {
+        if Keymap.matches(press, .createFromPrompt), form.focusedField == .content {
             submit()
             return true
         }
@@ -333,7 +328,7 @@ final class NewQuestSheetModel: ObservableObject {
         if before == .search, form.isPathText {
             return handleProjectPathKey(event)
         }
-        guard let command = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: event.keymapModifiers, mode: before, showsSuggestions: form.showsProjectSuggestions) else {
+        guard let command = PickerFieldKey.command(event.keymapPress, mode: before, showsSuggestions: form.showsProjectSuggestions) else {
             return false
         }
         form.applyProjectCommand(command)
@@ -352,16 +347,16 @@ final class NewQuestSheetModel: ObservableObject {
     /// directory and the search goes on (`handlePathTab`): typing a `/` drills down. Return keeps the typed path
     /// unless ↑/↓ chose a row (the pointer never does: it only shows the hover look).
     private func handleProjectPathKey(_ event: NSEvent) -> Bool {
-        let modifiers = event.keymapModifiers
-        guard !modifiers.contains(.command) else {
+        let press = event.keymapPress
+        guard !press.modifiers.contains(.command) else {
             return false
         }
-        if Keymap.NewSession.completePath.matches(event.keyCode), !modifiers.contains(.shift) {
+        if Keymap.matches(press, .tab) {
             handlePathTab()
             return true
         }
         let rowsShowing = showsDirectorySuggestions
-        guard let command = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: modifiers, mode: .search, showsSuggestions: rowsShowing && paths.moved) else {
+        guard let command = PickerFieldKey.command(press, mode: .search, showsSuggestions: rowsShowing && paths.moved) else {
             return false
         }
         switch command {

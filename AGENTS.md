@@ -275,7 +275,7 @@ again where it was when the keys come back.
   the Action ticks, and falls back to All when its worker goes away. Hidden while the master has fewer than two workers (All plus one tab adds nothing;
   `WorkerChatStore.showsTabs` is the one predicate for the view, the dropdown's room and the keys), and when the row
   goes away the selection falls back to All, a remembered tab included. A click selects a tab; `[` and `]` step to the previous
-  and next, wrapping as the Settings tabs do (`Keymap.WorkerLog`, handled where `f` is), with the dropdown open or closed,
+  and next, wrapping as the Settings tabs do (`Keymap.Action.previousTab` and `nextTab`, handled where `f` is), with the dropdown open or closed,
   and work only while the bottom panel has the keys and the row shows (otherwise they pass through). The feed ends where
   the row begins; the row is `ControlHeight.compact` (25) high, the line of text centred in it (baseline 17 down, a 12pt line
   being too tall for the 15-high chip), and ends 10 above the panel's bottom edge, which puts the tabs' baseline 18 over it

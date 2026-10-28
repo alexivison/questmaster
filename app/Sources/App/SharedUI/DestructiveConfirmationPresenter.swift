@@ -52,7 +52,7 @@ struct DestructiveConfirmationSheetView: View {
         .frame(width: Self.width)
         .scoopedPanel()
         .background(SheetKeyEventMonitor { event in
-            if Keymap.NewSession.cancel.matches(event.keyCode) {
+            if Keymap.matches(event.keymapPress, .cancel) {
                 onDecision(false)
                 return true
             }

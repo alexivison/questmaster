@@ -75,7 +75,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         // Reset before dispatch, not inside `handleReadSurfaceScroll`: a lone `g` must not survive
         // `G` (a complete action, not the chord's second half), nor a key `model.handleKeyDown`
         // consumes first and that skips `handleReadSurfaceScroll` entirely.
-        if !GChordShortcut.isPrefix(event) {
+        if !Keymap.matches(event.keymapPress, .jumpToTop) {
             readSurfaceGTracker.reset()
         }
         if handleWorkerLogFilter(event) || model.handleKeyDown(event, snapshot: store.snapshot) {
@@ -97,7 +97,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         if focusDirection(from: event, includeHorizontal: true) != nil {
             return super.performKeyEquivalent(with: event)
         }
-        if !GChordShortcut.isPrefix(event) {
+        if !Keymap.matches(event.keymapPress, .jumpToTop) {
             readSurfaceGTracker.reset()
         }
         return handleWorkerLogFilter(event)
@@ -112,12 +112,7 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         guard model.currentMode == .workerChat else {
             return false
         }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.isDisjoint(with: [.command, .control, .option, .shift]) else {
-            return false
-        }
-        let key = WorkerLogFilterKey.resolve(keyCode: event.keyCode, character: event.charactersIgnoringModifiers, menuIsOpen: workerChatStore.menu.isOpen)
-        guard let key else {
+        guard let key = WorkerLogFilterKey.resolve(event.keymapPress, menuIsOpen: workerChatStore.menu.isOpen) else {
             return false
         }
         return workerChatStore.handle(key)
@@ -138,17 +133,18 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         guard isArtifactViewer || model.currentMode == .workerChat else {
             return false
         }
-        if GChordShortcut.isJumpToBottom(event) {
+        let press = event.keymapPress
+        if Keymap.matches(press, .jumpToBottom) {
             return jumpReadSurface(toBottom: true, isArtifactViewer: isArtifactViewer)
         }
-        if GChordShortcut.isPrefix(event) {
+        if Keymap.matches(press, .jumpToTop) {
             if readSurfaceGTracker.handleG() == .jumpToTop {
                 return jumpReadSurface(toBottom: false, isArtifactViewer: isArtifactViewer)
             }
             return true
         }
         let lineStep = isArtifactViewer ? Self.artifactViewerLineStep : Self.workerChatLineStep
-        guard let points = Self.readSurfaceScrollPoints(for: event, lineStep: lineStep, viewportHeight: bounds.height) else {
+        guard let points = Self.readSurfaceScrollPoints(for: press, lineStep: lineStep, viewportHeight: bounds.height) else {
             return false
         }
         if isArtifactViewer, let webView = firstDescendant(WKWebView.self) {
@@ -183,26 +179,17 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         return true
     }
 
-    private static func readSurfaceScrollPoints(for event: NSEvent, lineStep: CGFloat, viewportHeight: CGFloat) -> CGFloat? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option),
-              !flags.contains(.shift) else {
-            return nil
-        }
-        if Keymap.Viewer.moveUpKeyCodes.matches(event.keyCode)
-            || Keymap.Viewer.moveUpCharacters.matches(event.charactersIgnoringModifiers) {
+    private static func readSurfaceScrollPoints(for press: Keymap.KeyPress, lineStep: CGFloat, viewportHeight: CGFloat) -> CGFloat? {
+        if Keymap.matches(press, .moveUp) {
             return -lineStep
         }
-        if Keymap.Viewer.moveDownKeyCodes.matches(event.keyCode)
-            || Keymap.Viewer.moveDownCharacters.matches(event.charactersIgnoringModifiers) {
+        if Keymap.matches(press, .moveDown) {
             return lineStep
         }
-        if Keymap.Viewer.pageUp.matches(event.keyCode) {
+        if Keymap.matches(press, .pageUp) {
             return -max(60, viewportHeight * 0.82)
         }
-        if Keymap.Viewer.pageDown.matches(event.keyCode) {
+        if Keymap.matches(press, .pageDown) {
             return max(60, viewportHeight * 0.82)
         }
         return nil
@@ -386,8 +373,8 @@ struct DockRootView: View {
                     onSetFilterQuery: model.setArtifactFilterQuery(_:),
                     onRemoveFilterToken: model.removeArtifactFilterToken(_:),
                     onSelectFilterSuggestion: { _ = model.acceptArtifactFilterSuggestion($0) },
-                    onFilterCommand: model.handleArtifactFilterCommand(keyCode:),
-                    onFilterEndEditing: { _ = model.handleArtifactFilterCommand(keyCode: 53) },
+                    onFilterCommand: model.handleArtifactFilterCommand,
+                    onFilterEndEditing: { _ = model.handleArtifactFilterCommand(.plain(53)) },
                     onOpenExternal: model.openURL(_:),
                     areaFocused: model.isFocused
                 )
