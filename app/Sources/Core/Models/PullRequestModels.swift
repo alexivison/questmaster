@@ -35,13 +35,13 @@ public struct PullRequestStatus: Decodable, Equatable {
     public let comments: Int
     public let review: PullRequestReview?
     public let ci: PullRequestCI?
-    public let fetchedAt: String?
+    public let changedAt: String?
     public let inaccessibleReason: PullRequestInaccessibleReason?
     public let stale: Bool
 
     private enum CodingKeys: String, CodingKey {
         case title, url, state, draft, additions, deletions, comments, review, ci, stale
-        case headSHA = "head_sha", updatedAt = "updated_at", fetchedAt = "fetched_at"
+        case headSHA = "head_sha", updatedAt = "updated_at", changedAt = "changed_at"
         case inaccessibleReason = "inaccessible_reason"
     }
 }

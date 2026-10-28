@@ -25,7 +25,7 @@
           "additions": 0,
           "deletions": 0,
           "comments": 0,
-          "fetched_at": "2026-06-19T04:20:00Z",
+          "changed_at": "2026-06-19T04:20:00Z",
           "stale": false
         }
       }
@@ -36,7 +36,8 @@
           "cost": 1,
           "remaining": 4999,
           "reset_at": "2026-06-19T04:20:00Z"
-        }
+        },
+        "checked_at": "2026-06-19T04:20:00Z"
       }
     }
   }

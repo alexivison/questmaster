@@ -44,7 +44,7 @@ type PullRequestStatus struct {
 	Comments           int    `json:"comments"`
 	Review             string `json:"review,omitempty"`
 	CI                 string `json:"ci,omitempty"`
-	FetchedAt          string `json:"fetched_at,omitempty"`
+	ChangedAt          string `json:"changed_at,omitempty"`
 	InaccessibleReason string `json:"inaccessible_reason,omitempty"`
 	Stale              bool   `json:"stale"`
 }
