@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/prstatus"
@@ -113,6 +114,47 @@ func TestPRWatchRejectsPlainSession(t *testing.T) {
 	prs, err := state.LoadPullRequests(store.Root())
 	if err != nil || len(prs) != 0 {
 		t.Fatalf("plain watch registry=%v err=%v", prs, err)
+	}
+}
+
+func TestPREventsPreviewAndFull(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-reader")
+	for _, id := range []string{"qm-reader", "qm-watcher"} {
+		if err := store.Create(state.Manifest{SessionID: id, Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ref, _ := state.ParsePullRequestRef("owner/repo#7")
+	if _, err := state.WatchPullRequest(store.Root(), "qm-watcher", ref, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	body := "```" + strings.Repeat("🎯", 120) + "```"
+	humanBody := strings.Repeat("h", 500)
+	if _, err := state.RecordPullRequestEvents(store.Root(), ref.Key, []state.PullRequestEvent{
+		{ID: "comment-1", Kind: "comment", OccurredAt: time.Now().UTC().Format(time.RFC3339Nano), Body: body, Bot: true},
+		{ID: "comment-2", Kind: "comment", OccurredAt: time.Now().UTC().Format(time.RFC3339Nano), Body: humanBody},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	var preview []struct {
+		Body          string `json:"body"`
+		BodyTruncated bool   `json:"body_truncated"`
+		BodyBytes     int    `json:"body_bytes"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7")), &preview); err != nil || len(preview) != 2 || !preview[0].BodyTruncated || preview[0].BodyBytes != len(body) || len(preview[0].Body) > 200 || !utf8.ValidString(preview[0].Body) || strings.Contains(preview[0].Body, "```") || !preview[1].BodyTruncated || preview[1].BodyBytes != len(humanBody) || len(preview[1].Body) != 400 {
+		t.Fatalf("preview = %#v, %v", preview, err)
+	}
+	var full []state.PullRequestEvent
+	fullJSON := runCmd(t, store, sessionsRunner(), "pr", "events", "owner/repo#7", "--full")
+	if err := json.Unmarshal([]byte(fullJSON), &full); err != nil || len(full) != 2 || full[0].Body != strings.ReplaceAll(body, "```", "\\`\\`\\`") || full[1].Body != humanBody || strings.Contains(fullJSON, "body_truncated") {
+		t.Fatalf("full = %#v, %v", full, err)
+	}
+	log, err := state.LoadPullRequestEventLog(store.Root(), ref.Key)
+	if err != nil || len(log.Events) != 2 || log.Events[0].Body != body || log.Events[1].Body != humanBody {
+		t.Fatalf("stored body = %#v, %v", log.Events, err)
 	}
 }
 

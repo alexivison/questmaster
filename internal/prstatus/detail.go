@@ -30,7 +30,8 @@ type detailNode struct {
 	SubmittedAt string `json:"submittedAt"`
 	State       string `json:"state"`
 	Author      struct {
-		Login string `json:"login"`
+		Login    string `json:"login"`
+		TypeName string `json:"__typename"`
 	} `json:"author"`
 }
 
@@ -40,6 +41,13 @@ type detailConnection struct {
 		HasPreviousPage bool   `json:"hasPreviousPage"`
 		StartCursor     string `json:"startCursor"`
 	} `json:"pageInfo"`
+}
+
+func normalizeBotLogin(login string, bot bool) string {
+	if bot && login != "" {
+		return strings.TrimSuffix(login, "[bot]") + "[bot]"
+	}
+	return login
 }
 
 func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.PullRequestStatus, stateAt string, log state.PullRequestEventLog, run, rest Runner, now time.Time) ([]state.PullRequestEvent, map[string]string, HostResult) {
@@ -56,9 +64,9 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 	for _, source := range []string{"comments", "reviews"} {
 		var before string
 		for {
-			field := "id body createdAt author { login }"
+			field := "id body createdAt author { login __typename }"
 			if source == "reviews" {
-				field = "id body submittedAt state author { login }"
+				field = "id body submittedAt state author { login __typename }"
 			}
 			cursor := ""
 			if before != "" {
@@ -133,7 +141,8 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 					stop = true
 					break
 				}
-				events = append(events, state.PullRequestEvent{ID: node.ID, Kind: kind, OccurredAt: occurred, Author: node.Author.Login, Body: node.Body, State: strings.ToLower(node.State)})
+				bot := node.Author.TypeName == "Bot"
+				events = append(events, state.PullRequestEvent{ID: node.ID, Kind: kind, OccurredAt: occurred, Author: normalizeBotLogin(node.Author.Login, bot), Bot: bot, Body: node.Body, State: strings.ToLower(node.State)})
 			}
 			if response.Data.RateLimit != nil && response.Data.RateLimit.Remaining == 0 {
 				return nil, nil, HostResult{Error: "GitHub rate limit exhausted", BackoffUntil: response.Data.RateLimit.ResetAt}
@@ -157,6 +166,7 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 			CreatedAt string `json:"created_at"`
 			User      struct {
 				Login string `json:"login"`
+				Type  string `json:"type"`
 			} `json:"user"`
 		}
 		if err := json.Unmarshal(body, &nodes); err != nil || runErr != nil {
@@ -176,7 +186,8 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 				stop = true
 				break
 			}
-			events = append(events, state.PullRequestEvent{ID: node.NodeID, Kind: "review_comment", OccurredAt: node.CreatedAt, Author: node.User.Login, Body: node.Body})
+			bot := node.User.Type == "Bot"
+			events = append(events, state.PullRequestEvent{ID: node.NodeID, Kind: "review_comment", OccurredAt: node.CreatedAt, Author: normalizeBotLogin(node.User.Login, bot), Bot: bot, Body: node.Body})
 		}
 		if stop || len(nodes) < 100 {
 			if reset != "" {

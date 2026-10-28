@@ -70,10 +70,11 @@ questmaster pr ls --session qm-worker123
 questmaster pr ls --all
 questmaster pr unwatch owner/repo#42 --session qm-worker123
 questmaster pr events owner/repo#42 --unread --session qm-worker123
+questmaster pr events owner/repo#42 --full
 questmaster pr refresh owner/repo#42 --session qm-worker123
 ```
 
-`pr` accepts `owner/repo#number` or an HTTPS pull request URL on any host. Watches belong to sessions and disappear when their session is deleted or pruned. PR activity is polled by the daemon and delivered to watching agents when they are idle or done; stopped sessions keep their alerts until they resume. `pr events --unread` returns new activity as JSON and marks it read. Delivery is at least once, so an alert can repeat after a daemon restart. `pr refresh` requests an immediate status check within GitHub rate limits. All `pr` commands emit JSON.
+`pr` accepts `owner/repo#number` or an HTTPS pull request URL on any host. Watches belong to sessions and disappear when their session is deleted or pruned. PR activity is polled by the daemon and delivered to watching agents when they are idle or done; stopped sessions keep their alerts until they resume. Use `pr ls --all` to find another session's watches. `pr events <ref>` can read any watched PR without changing a cursor; by default it previews long bodies (400 bytes, or 200 for bots) and reports `body_truncated` and the original `body_bytes` when cut. `--full` returns whole bodies. `--unread` returns new activity and marks it read, so it requires a watch; use `--session <watcher-id>` for another session's cursor. Delivery is at least once, so an alert can repeat after a daemon restart. `pr refresh` requests an immediate status check within GitHub rate limits. All `pr` commands emit JSON.
 
 Session roles use `agent` for the session's main agent. The CLI accepts
 `--agent`; `--primary` has been removed. Existing manifests with role
