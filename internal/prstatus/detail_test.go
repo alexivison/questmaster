@@ -43,7 +43,7 @@ func TestFetchDetailsPaginatesToLastIDAndKeepsPendingReviewsOpen(t *testing.T) {
 		}
 		return []byte(`[{"node_id":"new-line","body":"line","created_at":"2026-10-27T01:07:00Z","updated_at":"2026-10-27T01:07:00Z","user":{"login":"claude[bot]","type":"Bot"}},{"node_id":"old-line","created_at":"2026-10-27T00:01:00Z","updated_at":"2026-10-27T00:01:00Z"}]`), nil, nil
 	}
-	events, ids, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{}, false, "", log, graph, rest, now)
+	events, ids, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{}, false, "", log, graph, rest, now, "")
 	if host.Error != "" || len(events) != 3 || ids["reviews"] != "new-review" || ids["comments"] != "new-comment" || ids["review_comments"] != "new-line" || len(queries) != 3 {
 		t.Fatalf("events=%#v ids=%#v host=%#v queries=%d", events, ids, host, len(queries))
 	}
@@ -57,6 +57,73 @@ func TestFetchDetailsPaginatesToLastIDAndKeepsPendingReviewsOpen(t *testing.T) {
 		if !strings.Contains(query, "author { login __typename }") {
 			t.Fatalf("missing author type in query: %s", query)
 		}
+	}
+}
+
+func TestFetchDetailsFiltersViewerDiscussionAndKeepsSourceIDs(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC)
+	pr, _ := state.ParsePullRequestRef("owner/repo#42")
+	pr.Watchers = []state.PullRequestWatcher{{SessionID: "qm-one", AddedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}}
+	at := now.Add(-time.Minute).Format(time.RFC3339Nano)
+	graph := func(_ context.Context, _, query string) ([]byte, []byte, error) {
+		source, nodes := "reviews", fmt.Sprintf(`[{"id":"own-review","submittedAt":%q,"state":"COMMENTED","author":{"login":"VIEWER"}}]`, at)
+		if strings.Contains(query, "comments(last:") {
+			source = "comments"
+			nodes = fmt.Sprintf(`[{"id":"other-comment","createdAt":%q,"author":{"login":"other"}},{"id":"own-comment","createdAt":%q,"author":{"login":"viewer","__typename":"User"}},{"id":"bot-comment","createdAt":%q,"author":{"login":"viewer","__typename":"Bot"}}]`, at, at, at)
+		}
+		return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":%s,"pageInfo":{"hasPreviousPage":false}}}}}}`, source, nodes)), nil, nil
+	}
+	rest := func(context.Context, string, string) ([]byte, []byte, error) {
+		return []byte(fmt.Sprintf(`[{"node_id":"own-line","created_at":%q,"user":{"login":"Viewer","type":"User"}},{"node_id":"bot-line","created_at":%q,"user":{"login":"viewer","type":"Bot"}}]`, at, at)), nil, nil
+	}
+	events, ids, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{}, false, "", state.PullRequestEventLog{}, graph, rest, now, "viewer")
+	if host.Error != "" || len(events) != 3 {
+		t.Fatalf("events=%+v host=%+v", events, host)
+	}
+	byID := map[string]state.PullRequestEvent{}
+	for _, event := range events {
+		byID[event.ID] = event
+	}
+	if byID["other-comment"].Author != "other" || byID["bot-comment"].Author != "viewer[bot]" || !byID["bot-comment"].Bot || byID["bot-line"].Author != "viewer[bot]" || !byID["bot-line"].Bot {
+		t.Fatalf("bot author filtered or misidentified: %+v", events)
+	}
+	if ids["comments"] != "bot-comment" || ids["reviews"] != "own-review" || ids["review_comments"] != "own-line" {
+		t.Fatalf("last IDs=%v", ids)
+	}
+	withoutViewer, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{}, false, "", state.PullRequestEventLog{}, graph, rest, now, "")
+	if host.Error != "" || len(withoutViewer) != 6 {
+		t.Fatalf("missing-viewer events=%+v host=%+v", withoutViewer, host)
+	}
+}
+
+func TestFetchDetailsPaginatesPastViewerOnlyPage(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 28, 2, 0, 0, 0, time.UTC)
+	pr, _ := state.ParsePullRequestRef("owner/repo#42")
+	pr.Watchers = []state.PullRequestWatcher{{SessionID: "qm-one", AddedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}}
+	log := state.PullRequestEventLog{LastIDs: map[string]string{"comments": "old"}}
+	at := now.Add(-time.Minute).Format(time.RFC3339Nano)
+	commentPages := 0
+	graph := func(_ context.Context, _, query string) ([]byte, []byte, error) {
+		source, nodes, page := "reviews", `[]`, `false`
+		if strings.Contains(query, "comments(last:") {
+			source = "comments"
+			commentPages++
+			if commentPages == 1 {
+				nodes = fmt.Sprintf(`[{"id":"own","createdAt":%q,"author":{"login":"viewer"}}]`, at)
+				page = `true`
+			}
+			if commentPages == 2 {
+				nodes = fmt.Sprintf(`[{"id":"old","createdAt":%q,"author":{"login":"other"}}]`, at)
+			}
+		}
+		return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":%s,"pageInfo":{"hasPreviousPage":%s,"startCursor":"older"}}}}}}`, source, nodes, page)), nil, nil
+	}
+	rest := func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
+	events, ids, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{}, false, "", log, graph, rest, now, "viewer")
+	if host.Error != "" || len(events) != 0 || commentPages != 2 || ids["comments"] != "own" {
+		t.Fatalf("events=%+v ids=%v pages=%d host=%+v", events, ids, commentPages, host)
 	}
 }
 
@@ -123,7 +190,7 @@ func TestInitialMergeAfterWatchBecomesEvent(t *testing.T) {
 	}
 	rest := func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
 	mergedAt := now.Add(-time.Minute).Format(time.RFC3339Nano)
-	events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{State: "merged"}, false, mergedAt, state.PullRequestEventLog{}, graph, rest, now)
+	events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{State: "merged"}, false, mergedAt, state.PullRequestEventLog{}, graph, rest, now, "viewer")
 	if host.Error != "" || len(events) != 1 || events[0].Kind != "state" || events[0].OccurredAt != mergedAt {
 		t.Fatalf("merge event = %#v, %#v", events, host)
 	}
@@ -143,7 +210,7 @@ func TestLegacyStatusUsesFallbackStateTime(t *testing.T) {
 	}
 	rest := func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
 	updated := now.Add(-time.Minute).Format(time.RFC3339)
-	events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "open"}, state.PullRequestStatus{State: "closed", UpdatedAt: updated}, true, "", state.PullRequestEventLog{}, graph, rest, now)
+	events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "open"}, state.PullRequestStatus{State: "closed", UpdatedAt: updated}, true, "", state.PullRequestEventLog{}, graph, rest, now, "")
 	if host.Error != "" || len(events) != 1 || events[0].Kind != "state" || events[0].OccurredAt != updated {
 		t.Fatalf("fallback state event = %#v, %#v", events, host)
 	}
@@ -173,7 +240,7 @@ func TestReopenEventUsesTimelineTimeForWatcherBaseline(t *testing.T) {
 				return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":[],"pageInfo":{"hasPreviousPage":false}},"timelineItems":{"nodes":[{"createdAt":%q}]}}}}}`, source, reopenedAt)), nil, nil
 			}
 			rest := func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
-			events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "closed", ChangedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}, state.PullRequestStatus{State: "open", UpdatedAt: now.Format(time.RFC3339Nano)}, true, "", state.PullRequestEventLog{}, graph, rest, now)
+			events, _, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{State: "closed", ChangedAt: now.Add(-time.Hour).Format(time.RFC3339Nano)}, state.PullRequestStatus{State: "open", UpdatedAt: now.Format(time.RFC3339Nano)}, true, "", state.PullRequestEventLog{}, graph, rest, now, "")
 			if host.Error != "" || len(events) != tc.want {
 				t.Fatalf("reopen events = %#v, %#v", events, host)
 			}

@@ -50,7 +50,7 @@ func normalizeBotLogin(login string, bot bool) string {
 	return login
 }
 
-func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.PullRequestStatus, hadPrior bool, stateAt string, log state.PullRequestEventLog, run, rest Runner, now time.Time) ([]state.PullRequestEvent, map[string]string, HostResult) {
+func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.PullRequestStatus, hadPrior bool, stateAt string, log state.PullRequestEventLog, run, rest Runner, now time.Time, viewer string) ([]state.PullRequestEvent, map[string]string, HostResult) {
 	var baseline time.Time
 	for _, watcher := range pr.Watchers {
 		if added, err := time.Parse(time.RFC3339Nano, watcher.AddedAt); err == nil && (baseline.IsZero() || added.Before(baseline)) {
@@ -142,6 +142,9 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 					break
 				}
 				bot := node.Author.TypeName == "Bot"
+				if !bot && viewer != "" && strings.EqualFold(node.Author.Login, viewer) {
+					continue
+				}
 				events = append(events, state.PullRequestEvent{ID: node.ID, Kind: kind, OccurredAt: occurred, Author: normalizeBotLogin(node.Author.Login, bot), Bot: bot, Body: node.Body, State: strings.ToLower(node.State)})
 			}
 			if response.Data.RateLimit != nil && response.Data.RateLimit.Remaining == 0 {
@@ -187,6 +190,9 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 				break
 			}
 			bot := node.User.Type == "Bot"
+			if !bot && viewer != "" && strings.EqualFold(node.User.Login, viewer) {
+				continue
+			}
 			events = append(events, state.PullRequestEvent{ID: node.NodeID, Kind: "review_comment", OccurredAt: node.CreatedAt, Author: normalizeBotLogin(node.User.Login, bot), Bot: bot, Body: node.Body})
 		}
 		if stop || len(nodes) < 100 {
