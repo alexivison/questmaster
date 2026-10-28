@@ -40,12 +40,13 @@ type HostResult struct {
 type Result struct {
 	Statuses map[string]state.PullRequestStatus `json:"-"`
 	StateAt  map[string]string                  `json:"-"`
+	Viewers  map[string]string                  `json:"-"`
 	Hosts    map[string]HostResult              `json:"hosts"`
 }
 
 // Fetch groups by host and caps each GraphQL query at 50 PRs.
 func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Time) Result {
-	result := Result{Statuses: map[string]state.PullRequestStatus{}, StateAt: map[string]string{}, Hosts: map[string]HostResult{}}
+	result := Result{Statuses: map[string]state.PullRequestStatus{}, StateAt: map[string]string{}, Viewers: map[string]string{}, Hosts: map[string]HostResult{}}
 	byHost := map[string][]state.PullRequest{}
 	for _, pr := range prs {
 		byHost[pr.Host] = append(byHost[pr.Host], pr)
@@ -101,6 +102,12 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 				hostResult.BackoffUntil = backoff(now, retryAfter, hostResult.RateLimit, hostResult.Error)
 				break
 			}
+			var viewer struct {
+				Login string `json:"login"`
+			}
+			if json.Unmarshal(response.Data.Aliases["viewer"], &viewer) == nil && viewer.Login != "" {
+				result.Viewers[host] = viewer.Login
+			}
 			for i, pr := range batch {
 				alias := fmt.Sprintf("p%d", i)
 				raw, exists := response.Data.Aliases[alias]
@@ -155,7 +162,7 @@ func Fetch(ctx context.Context, prs []state.PullRequest, run Runner, now time.Ti
 
 func query(prs []state.PullRequest) string {
 	var b strings.Builder
-	b.WriteString("query { rateLimit { cost remaining resetAt } ")
+	b.WriteString("query { rateLimit { cost remaining resetAt } viewer { login } ")
 	// shortcut: review pagination stops at 100 reviewers per PR; paginate if a PR reaches that count.
 	for i, pr := range prs {
 		fmt.Fprintf(&b, "p%d: repository(owner:%s,name:%s) { pullRequest(number:%d) { title url state closedAt mergedAt isDraft headRefOid updatedAt additions deletions totalCommentsCount reviewDecision latestOpinionatedReviews(last:100) { nodes { state } } commits(last:1) { nodes { commit { statusCheckRollup { state } } } } } } ", i, strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
