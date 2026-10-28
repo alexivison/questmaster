@@ -109,7 +109,7 @@ struct ContractFixtureTests {
         expect(status?.title == "Ready to merge" && status?.url == "https://github.com/owner/repo/pull/42", "pull_requests title/url did not decode")
         expect(status?.state == .open && status?.draft == false && status?.headSHA == "abc123", "pull_requests state/draft/head did not decode")
         expect(status?.updatedAt == "2026-06-19T04:20:00Z" && status?.changedAt == "2026-06-19T04:20:00Z", "pull_requests timestamps did not decode")
-        expect(status?.additions == 0 && status?.deletions == 0 && status?.comments == 0, "pull_requests counters did not decode")
+        expect(status?.additions == 0 && status?.deletions == 0, "pull_requests counters did not decode")
         expect(status?.review == .approved && status?.ci == .success && status?.stale == false, "pull_requests looks did not decode")
         expect(pulls.data.last?.status?.inaccessibleReason == .saml && pulls.data.last?.status?.state == nil, "pull_requests inaccessible status did not decode")
 

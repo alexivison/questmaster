@@ -76,23 +76,21 @@ struct PullRequestModelsTests {
     }
 
     private static func labelsFormatEveryField() {
-        let value = display(row(324, status: status(title: " Ready ", additions: 1065, deletions: 100, comments: 42)))
+        let value = display(row(324, status: status(title: " Ready ", additions: 1065, deletions: 100)))
         expect(value.numberLabel == "#324", "number label")
         expect(value.repoLabel == "Owner/Repo", "GitHub repo label")
         expect(value.title == "Ready", "title label")
         expect(value.additionsLabel == "+1065" && value.deletionsLabel == "-100", "plain-digit additions and deletions labels, as the design sets them")
-        expect(value.commentsLabel == "42", "comments label")
         expect(value.inaccessibleLabel == nil, "accessible row has no error label")
 
         let enterprise = display(row(42, host: "github.example.com"))
         expect(enterprise.repoLabel == "github.example.com/Owner/Repo", "enterprise host label")
         expect(enterprise.title == enterprise.pullRequest.key, "missing title falls back to ref")
-        expect(enterprise.commentsLabel == nil, "missing status has no comment count")
         expect(enterprise.additionsLabel == nil && enterprise.deletionsLabel == nil, "missing status has no diff counter")
         for (reason, label) in [("not_found", "Not found"), ("forbidden", "No access"), ("saml", "SSO required"), ("future", "Unavailable")] {
             let unavailable = display(row(1, status: status(reason: reason)))
             expect(unavailable.inaccessibleLabel == label, "inaccessible label for \(reason)")
-            expect(unavailable.additionsLabel == nil && unavailable.deletionsLabel == nil && unavailable.commentsLabel == nil, "inaccessible row hides counters")
+            expect(unavailable.additionsLabel == nil && unavailable.deletionsLabel == nil, "inaccessible row hides counters")
         }
     }
 
@@ -154,11 +152,11 @@ struct PullRequestModelsTests {
     static func status(
         state: String? = "open", review: String? = "none", ci: String? = "none",
         reason: String? = nil, updated: String? = "2026-06-19T00:00:00Z", draft: Bool = false,
-        title: String? = "Title", additions: Int = 0, deletions: Int = 0, comments: Int = 0,
+        title: String? = "Title", additions: Int = 0, deletions: Int = 0,
         stale: Bool = false, url: String? = nil
     ) -> [String: Any] {
         var result: [String: Any] = [
-            "draft": draft, "additions": additions, "deletions": deletions, "comments": comments,
+            "draft": draft, "additions": additions, "deletions": deletions,
             "changed_at": "2026-06-19T00:00:00Z", "stale": stale,
         ]
         if let state { result["state"] = state }

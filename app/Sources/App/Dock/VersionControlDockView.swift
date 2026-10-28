@@ -121,8 +121,8 @@ private extension CILook {
     }
 }
 
-/// `#number title` over the git state, the review ring, the `CI` label, the diff counter, the comment bubble and count
-/// and, for a master, the worker's tag at the right edge.
+/// `#number title` over the git state, the review ring, the `CI` label, the diff counter and, for a master, the worker's
+/// tag at the right edge.
 struct VersionControlRow: View {
     let row: PullRequestDisplayRow
     let look: RowLook
@@ -166,14 +166,14 @@ struct VersionControlRow: View {
         .frame(height: Metrics.lineHeight, alignment: .top)
     }
 
-    /// The review ring under the git icon, then the `CI` label under the number, the diff counter and the comment count with
-    /// a divider between each, and the worker tag at the right edge. An inaccessible row's label sits under the number.
+    /// The review ring under the git icon, then the `CI` label under the number and the diff counter with a divider between
+    /// them, and the worker tag at the right edge. An inaccessible row's label sits under the number.
     private var detailLine: some View {
         HStack(alignment: .top, spacing: Space.item) {
             if let inaccessibleLabel = row.inaccessibleLabel {
                 emptySlot
                 text(inaccessibleLabel, color: look.icon.color)
-            } else if let additions = row.additionsLabel, let deletions = row.deletionsLabel, let comments = row.commentsLabel {
+            } else if let additions = row.additionsLabel, let deletions = row.deletionsLabel {
                 slot(row.reviewLook.ring)
                 text("CI", color: tint(row.ciLook.color, dim: row.ciLook == .none))
                     .fixedSize()
@@ -184,12 +184,6 @@ struct VersionControlRow: View {
                 }
                 .fixedSize()
                 .opacity(Token.Opacity.dimmed)
-                divider
-                HStack(alignment: .top, spacing: Space.row) {
-                    PullRequestIconView(icon: .bubble, color: AppPalette.controlBorder)
-                    text(comments, color: AppPalette.controlBorder)
-                }
-                .fixedSize()
             }
             Spacer(minLength: 0)
             if let tag = row.watcherTags.first {
