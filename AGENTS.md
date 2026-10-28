@@ -193,6 +193,9 @@ again where it was when the keys come back.
 | Tab (agent tabs, Session/All, Settings sidebar) | rest (`OutlineLook.tabRest`) | `line` outline, `textBody` |
 | | selected (`.tabSelected`) | `controlBorder` outline, `textSelected` |
 | | selected, area unfocused (`.tabSelectedUnfocused`) | `controlBorder` outline, `textBody` |
+| Text tab (the Worker Log's worker tabs) | rest (`TextTabLook.rest`) | no outline or fill, `textMeta`, regular |
+| | under the pointer (`.hovered`) | `textBody`, regular |
+| | selected (`TextTabLook.tab`) | **bold**, the selected pill tab's label colour: `textSelected` while the panel has the keys, `textBody` without them; the pointer adds nothing |
 | Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
 | Dock panel frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
 | Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
@@ -209,7 +212,7 @@ again where it was when the keys come back.
   plate carries it; a worker shown only as a collapsed circle puts it on its master's plate; a shell carries none (its
   filled, bold row marks it), and neither does nothing attached. It sits in the list's leading gutter (a master's reaches
   12.5 left of its row), drawn outside the plate's silhouette layers, which clip at their margin.
-- Bold means selected and appears only in a lasting-selection list. Artifacts
+- Bold means selected and appears only in a lasting-selection list or a text tab row's selected tab. Artifacts
   have no selected state: picking one opens it.
 - Shells are not plates: every shell, tmux and orphan row leaves its repo group for the shell section pinned under all
   the plates (`TrackerShellSection`, drawn by `TrackerShellRow`). A shell's own display colour tints its title in every
@@ -236,33 +239,43 @@ again where it was when the keys come back.
   is its box, for a dropdown that isn't a list of suggestions), `FilterChip` for
   filter chips (`ClearableChip` for a selection with an x), the `AngledButton`
   styles for buttons.
-- The Worker Log's filter (`WorkerLogFilterPanel`) is a dropdown of checkbox
-  rows on `dropdownChrome(.raised)`: it stands in front of the dock, so it is
+- The Worker Log's filter (`WorkerLogFilterPanel`) is a dropdown of the Action
+  checkbox rows on `dropdownChrome(.raised)`: it stands in front of the dock, so it is
   lighter than it (`item` fill, `line` border, radius 4.5), and its rows take the
   raised looks (`RowLook.raisedPick`). A checked box's mark takes the row's text
   colour. Ticking every box is an ordinary selection (the chip reads "Action: 5"
-  and only its x clears it), so a worker that spawns later stays hidden until it
-  is ticked. The dropdown is as tall as its rows, up to its panel's height less
-  the 5 under the bar and the 20 inset below, and scrolls past that with the
+  and only its x clears it). The dropdown is as tall as its rows, up to its panel's height less
+  the 5 under the bar and the 20 inset below (the tab row's room when there is one), and scrolls past that with the
   cursor kept in view: with Version Control above, the bottom panel is shorter
   and it scrolls sooner, never reaching behind it. The filter belongs to the
   bottom panel: its icon sits in that panel's top bar, shows only while the log
   is attached to a master and toggles the dropdown; `f` and the dropdown's keys
   work only while that panel has the keys, and the keys leaving it (to Version
   Control, the tracker, the terminal or a modal) close it. A click anywhere else
-  on the dock, either top bar included, closes it too. Its chips hold their
-  values in `textBody` at regular weight (bold means selected). They sit 5 under
-  the top bar and stay there whatever the feed is doing (first read pending or
+  on the dock, either top bar included, closes it too. Its one chip, "Action", holds its
+  value in `textBody` at regular weight (bold means selected). It sits 5 under
+  the top bar and stays there whatever the feed is doing (first read pending or
   failed, empty, lines). The feed fades in under its header, the bar and the
-  chips when there are any, over its top 20 (`WorkerChatMetrics.topFadeHeight`,
+  chip when there is one, over its top 20 (`WorkerChatMetrics.topFadeHeight`,
   the Quest Log's overflow mask), so lines scrolled up under it are never cut
   hard, and a feed at its top starts its first line 20 under the header, where
-  the fade ends, with or without chips.
+  the fade ends, with or without the chip.
+- The Worker Log's worker tabs (`WorkerLogTabRow`, from `Tabs (Simple).svg`) are pinned to the bottom of the panel: All, then
+  one text tab per worker of the attached master in tracker order (`WorkerChatStore.workers`), JetBrains Mono 10pt, a
+  diamond (the `line` colour) between them with `Space.item` on each side. They take a `TextTabLook`. One tab is
+  selected (`WorkerLogFilter.workerID`, nil for All): All shows every worker's lines, a worker's tab only that worker's,
+  and it ANDs with the Action ticks. It is kept per master with the rest of the filter, and falls back to All when its
+  worker goes away. There is no row for a master with no workers. A click selects a tab; `[` and `]` step to the previous
+  and next, wrapping as the Settings tabs do (`Keymap.WorkerLog`, handled where `f` is), with the dropdown open or closed,
+  and work only while the bottom panel has the keys and the log has workers. The feed ends `WorkerLogTabMetrics.topGap` above
+  the row, which is 15 high and ends 15 above the panel's bottom edge (measured from the user's mock). Tabs too many for the
+  panel scroll sideways with no scroller; the row's ends are 20 in, and a side with hidden tabs fades out over 20, as the
+  feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.
 - Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
   section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
   artifact viewer, the Worker Log, Version Control), the tracker and the Quest Log's page draw it; the page passes the
   parchment ink instead. The Worker Log draws it only once its first read came back whole and empty, or when
-  its filter hides every line (`WorkerChatStore.isKnownEmpty`, decided in Core; the chips above it stay, with their x);
+  its filter or worker tab hides every line (`WorkerChatStore.isKnownEmpty`, decided in Core; the chip above it stays, with its x, and the tabs under it);
   while that read is pending, failed or partial it is blank, and its `readNotice` says what failed. So does the terminal pane once its session has ended (`TerminalShellView.showEnded`, only
   after the viewed session is deleted with nowhere to switch to); every attach clears it first, and while a session attaches
   the pane shows the skeleton veil. A message the user needs (a missing file, an artifact kind the build can't show, an

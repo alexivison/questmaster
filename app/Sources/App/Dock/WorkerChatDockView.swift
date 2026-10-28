@@ -73,18 +73,21 @@ enum WorkerChatMetrics {
     }
 }
 
-/// The worker log dock: the filter's chips, then a chronological feed, newest at the bottom. The filter's dropdown
-/// hangs `Space.row` under the top bar at the right, over the chips and the feed; a click on either closes it.
+/// The worker log dock: the filter's chip, then a chronological feed, newest at the bottom, then the worker tabs. The
+/// filter's dropdown hangs `Space.row` under the top bar at the right, over the chip and the feed; a click on either
+/// closes it.
 struct WorkerChatDockView: View {
     let store: WorkerChatStore
+    /// Whether the panel has the keys, which the selected tab follows.
+    let areaFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !store.chips.isEmpty {
-                WorkerLogChipRow(chips: store.chips, onClear: store.clearFilter)
+            if let summary = store.filter.actionSummary {
+                WorkerLogChipRow(summary: summary, onClear: store.clearActions)
             }
-            // Greedy, so the chips stay under the top bar when nothing under them is (a first read still pending or
-            // failed): a lone notice sits in the middle of what is left, as it does with no chips.
+            // Greedy, so the chip stays under the top bar when nothing under it is (a first read still pending or
+            // failed): a lone notice sits in the middle of what is left, as it does with no chip.
             VStack(alignment: .leading, spacing: 0) {
                 if store.isKnownEmpty {
                     EmptyState()
@@ -94,32 +97,43 @@ struct WorkerChatDockView: View {
                 readNotice
             }
             .frame(maxHeight: .infinity)
+            tabRow
         }
         .overlay { filterMenu }
     }
 
     /// The dropdown can be as tall as the dock leaves it: below its `Space.row` under the bar, and above the dock's
-    /// bottom inset. Past that its rows scroll.
+    /// bottom inset, or above the tab row when there is one. Past that its rows scroll.
     @ViewBuilder
     private var filterMenu: some View {
         if store.menu.isOpen {
             GeometryReader { dock in
+                let bottomReserve = store.workers.isEmpty ? WorkerChatMetrics.inset : WorkerLogTabMetrics.reserved
                 ZStack(alignment: .topTrailing) {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture { store.closeMenu() }
                     WorkerLogFilterPanel(
-                        rows: store.menuRows,
                         filter: store.filter,
                         cursor: store.menu.cursor,
-                        maxHeight: max(dock.size.height - Space.row - WorkerChatMetrics.inset, 0),
-                        onToggle: store.toggleRow
+                        maxHeight: max(dock.size.height - Space.row - bottomReserve, 0),
+                        onToggle: store.toggleAction
                     )
                     .padding(.top, Space.row)
                     .padding(.trailing, WorkerChatMetrics.inset)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             }
+        }
+    }
+
+    /// Pinned under the feed, which ends above it. A master with no workers has no tabs to show.
+    @ViewBuilder
+    private var tabRow: some View {
+        if !store.workers.isEmpty {
+            WorkerLogTabRow(workers: store.workers, selectedID: store.filter.workerID, areaFocused: areaFocused, onSelect: store.selectWorker)
+                .padding(.top, WorkerLogTabMetrics.topGap)
+                .padding(.bottom, WorkerLogTabMetrics.bottomInset)
         }
     }
 

@@ -305,6 +305,9 @@ enum AppFonts {
     static let questLogButton = monospaced(size: 12, weight: .bold)
     /// The pill tabs' labels.
     static let pillTab = monospaced(size: 10)
+    /// The Worker Log's worker tabs at the design's 10pt; bold when selected, which keeps the 6pt advance.
+    static let workerTab = monospaced(size: 10)
+    static let workerTabSelected = monospaced(size: 10, weight: .bold)
 }
 
 extension StateColor {

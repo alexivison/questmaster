@@ -92,42 +92,47 @@ enum RenderPreview {
         render(versionControlRowsView(highlight: nil), size: CGSize(width: 480, height: 270), to: "\(outputDir)/version-control-rows-design-rest.png")
         render(pullRequestItemView(), size: CGSize(width: 686, height: 156), to: "\(outputDir)/pull-request-item.png")
         // The dock split: Version Control over the artifacts or the worker chat, each alone, and either panel with the keys.
-        let splitCanvas = CGSize(width: 520, height: 900)
+        let splitCanvas = CGSize(width: DockWidthPreference.panelWidth + 2 * Space.section, height: 900)
         renderView(dockSplitView(bottom: .artifacts, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-artifacts.png")
         renderView(dockSplitView(bottom: .workerChat, focus: nil), size: splitCanvas, to: "\(outputDir)/dock-split-worker-chat.png")
         renderView(dockSplitView(bottom: nil, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-only-version-control.png")
         renderView(dockSplitView(bottom: .artifacts, top: false, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-only-bottom.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .top), size: splitCanvas, to: "\(outputDir)/dock-split-focused-top.png")
         renderView(dockSplitView(bottom: .artifacts, focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-focused-bottom.png")
-        // The Worker Log filter in the split: its chips and open dropdown in the bottom panel under Version Control, and
-        // with fifteen workers the dropdown scrolling inside the room that panel has left.
+        // The Worker Log filter in the split: its chip, open dropdown and worker tabs in the bottom panel under Version Control.
         renderView(dockSplitView(bottom: .workerLog(), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-open.png")
         renderView(dockSplitView(bottom: .workerLog(menuOpen: false), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-closed.png")
-        renderView(dockSplitView(bottom: .workerLog(workers: 15, cursor: 18), focus: .bottom), size: splitCanvas, to: "\(outputDir)/dock-split-worker-log-filter-scroll.png")
         render(workerChatView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 640), to: "\(outputDir)/worker-chat.png")
         let logDock = CGSize(width: DockWidthPreference.panelWidth + 2, height: 1020)
         renderView(workerLogDockView(menuOpen: true), size: logDock, to: "\(outputDir)/worker-log-filter-open.png")
         renderView(workerLogDockView(menuOpen: false), size: logDock, to: "\(outputDir)/worker-log-filter-closed.png")
-        renderView(workerLogDockView(menuOpen: false), size: CGSize(width: 300, height: 480), to: "\(outputDir)/worker-log-filter-wrapped.png")
         renderView(workerLogNothingMatchesView(), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-nothing-matches.png")
-        // The feed's top edge under the header: with chips, with none, and with chips wrapped onto two lines; the lines
-        // scrolled up under the fade (the follower's usual place) and the feed scrolled to its top.
+        // The feed's top edge under the header: with the chip and with none; the lines scrolled up under the fade (the
+        // follower's usual place) and the feed scrolled to its top.
         let headerFade = CGSize(width: logDock.width, height: 400)
-        let headerFadeWrapped = CGSize(width: 300, height: 400)
         renderView(workerLogDockView(menuOpen: false), size: headerFade, to: "\(outputDir)/header-fade-chips.png")
         renderView(workerLogDockView(menuOpen: false), size: headerFade, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-chips-top.png")
         renderView(workerLogDockView(menuOpen: false, filtered: false), size: headerFade, to: "\(outputDir)/header-fade-no-chips.png")
         renderView(workerLogDockView(menuOpen: false, filtered: false), size: headerFade, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-no-chips-top.png")
         renderView(workerLogPendingView(), size: headerFade, to: "\(outputDir)/header-fade-pending.png")
-        renderView(workerLogDockView(menuOpen: false), size: headerFadeWrapped, to: "\(outputDir)/header-fade-wrapped.png")
-        renderView(workerLogDockView(menuOpen: false), size: headerFadeWrapped, afterSettle: scrollFeedToTop, to: "\(outputDir)/header-fade-wrapped-top.png")
-        // Fifteen workers in a 480 high dock: the dropdown stops 20 above the bottom and scrolls, the cursor on the last row.
-        renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: WorkerLogAction.allCases.count + 14), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll.png")
-        renderView(workerLogDockView(menuOpen: true, workers: 15, cursor: 0), size: CGSize(width: logDock.width, height: 480), to: "\(outputDir)/worker-log-filter-scroll-top.png")
-        render(workerLogPanelDesignView(), size: CGSize(width: 172, height: 360), to: "\(outputDir)/worker-log-filter-panel.png")
-        // The pointer over "Summon" (row 2) while the cursor is on the first worker, on the dock's own fill.
-        render(workerLogPanelDesignView(hovering: 2).background(AppPalette.panel.swiftUI), size: CGSize(width: 172, height: 360), to: "\(outputDir)/worker-log-filter-hover.png")
-        render(workerLogChipsDesignView(), size: CGSize(width: 230, height: 152), to: "\(outputDir)/worker-log-filter-chips.png")
+        // A dock too short for the dropdown's rows: it stops 20 above the bottom and scrolls, the cursor on the last row.
+        let shortDock = CGSize(width: logDock.width, height: 260)
+        renderView(workerLogDockView(menuOpen: true, cursor: WorkerLogAction.allCases.count - 1), size: shortDock, to: "\(outputDir)/worker-log-filter-scroll.png")
+        renderView(workerLogDockView(menuOpen: true, cursor: 0), size: shortDock, to: "\(outputDir)/worker-log-filter-scroll-top.png")
+        render(workerLogPanelDesignView(), size: CGSize(width: 172, height: 220), to: "\(outputDir)/worker-log-filter-panel.png")
+        // The pointer over "Summon" (row 2) while the cursor is on the first row, on the dock's own fill.
+        render(workerLogPanelDesignView(hovering: 2).background(AppPalette.panel.swiftUI), size: CGSize(width: 172, height: 220), to: "\(outputDir)/worker-log-filter-hover.png")
+        render(workerLogChipsDesignView(), size: CGSize(width: 230, height: 72), to: "\(outputDir)/worker-log-filter-chips.png")
+        // The worker tabs against Tabs (Simple).svg (386 x 11, drawn at 20 in and 2 down): few tabs that fit, the selected
+        // one bold and lit while the panel has the keys and a step dimmer without them, the pointer lighting an unselected
+        // one, and tabs too many for the panel scrolling with a fade on each side that has some hidden.
+        render(workerLogTabsDesignView(), size: CGSize(width: 386 + 2 * WorkerLogTabMetrics.edgeInset, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-design.png")
+        render(workerLogTabsView(workers: 4, selected: "w2", focused: false), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-unfocused.png")
+        render(workerLogTabsView(workers: 4, selected: nil, hovered: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-hover.png")
+        render(workerLogTabsView(workers: 9, selected: "w5"), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-middle.png")
+        render(workerLogTabsView(workers: 9, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-start.png")
+        render(workerLogTabsView(workers: 9, selected: "w9"), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-end.png")
+        renderView(workerLogDockView(menuOpen: false, selected: "w2"), size: logDock, to: "\(outputDir)/worker-log-tabs-dock.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
         render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
@@ -364,7 +369,7 @@ enum RenderPreview {
                 _ = store.receive(WorkerFeedPayload(), for: request)
             }
             let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
-            return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store).background(AppPalette.panel.swiftUI)), model: model)
+            return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store, areaFocused: true).background(AppPalette.panel.swiftUI)), model: model)
         }
     }
 
@@ -517,8 +522,8 @@ enum RenderPreview {
         bottomShell.setFocused(focus == .bottom)
         let column = DockColumnView(top: topShell, bottom: bottomShell)
         column.setPanels(DockPanels(top: top, bottom: bottom != nil))
-        column.frame = NSRect(x: 20, y: 20, width: 480, height: 860)
-        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 900))
+        column.frame = NSRect(x: 20, y: 20, width: DockWidthPreference.panelWidth, height: 860)
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: DockWidthPreference.panelWidth + 2 * Space.section, height: 900))
         canvas.wantsLayer = true
         canvas.layer?.backgroundColor = AppPalette.window.cgColor
         canvas.addSubview(column)
@@ -751,8 +756,7 @@ enum RenderPreview {
     }
 
     /// The worker log as `Worker Chat.png` draws it: four workers under one master, the Action filter on Status, Summon,
-    /// Message and Item, and every worker ticked (a selection like any other, so the Worker chip counts them: 2 and 2). With more
-    /// `workers` the first four are ticked and the extra ones are named "Worker 06" on.
+    /// Message and Item, and the All tab selected. With more `workers` the extra ones are named "Worker 06" on.
     @MainActor
     private static func workerLogStore(workers: Int = 4, filtered: Bool = true) -> WorkerChatStore {
         let store = WorkerChatStore()
@@ -787,26 +791,28 @@ enum RenderPreview {
             entry(26, 30, "w4", "say", "The regression suite passes. Both the UI fix and the previous patch are covered."),
         ]
         _ = store.receive(WorkerFeedPayload(entries: entries), for: request)
-        // Rows: Cast, Status, Summon, Message, Item, then the workers.
+        // Rows: Cast, Status, Summon, Message, Item.
         if filtered {
-            [1, 2, 3, 4, 5, 6, 7, 8].forEach(store.toggleRow)
+            [1, 2, 3, 4].forEach(store.toggleAction)
         }
         return store
     }
 
-    /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on row `cursor` (the first worker by default).
+    /// The dock under its top bar; `menuOpen` adds the dropdown with its cursor on row `cursor`, and `selected` picks a
+    /// worker's tab.
     @MainActor
-    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = WorkerLogAction.allCases.count, filtered: Bool = true) -> DockShellView {
+    private static func workerLogDockView(menuOpen: Bool, workers: Int = 4, cursor: Int = 0, filtered: Bool = true, selected: String? = nil) -> DockShellView {
         let store = workerLogStore(workers: workers, filtered: filtered)
+        store.selectWorker(selected)
         if menuOpen {
             store.toggleMenu()
             (0..<cursor).forEach { _ in _ = store.handle(.moveDown) }
         }
         let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
-        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store, areaFocused: true)), model: model)
     }
 
-    /// A master whose first read is still on its way, with the filter's chips: nothing is under them yet, and they stay
+    /// A master whose first read is still on its way, with the filter's chip: nothing is under it yet, and it stays
     /// under the top bar.
     @MainActor
     private static func workerLogPendingView() -> DockShellView {
@@ -814,9 +820,9 @@ enum RenderPreview {
         let sessions = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
             + (1...2).map { TrackerSession(id: "w\($0)", title: "Worker \($0)", repoName: "Repo", agent: "codex", role: "worker", parentID: "m") }
         _ = store.sync(selectedSessionID: "m", sessions: sessions, isVisible: true)
-        [1, 2, 3].forEach(store.toggleRow)
+        [1, 2, 3].forEach(store.toggleAction)
         let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
-        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store, areaFocused: true)), model: model)
     }
 
     /// Scrolls the first scroll view under `root` to its top, as a user who scrolled all the way up leaves it.
@@ -837,50 +843,63 @@ enum RenderPreview {
         return view.subviews.lazy.compactMap { firstScrollView(in: $0) }.first
     }
 
-    /// A filter that hides every line of a feed that has some: Cast from the one worker that never ran a tool. The chips
-    /// stay over the empty icon, so their x can clear it.
+    /// A filter that hides every line of a feed that has some: Cast on the tab of the one worker that never ran a tool.
+    /// The chip stays over the empty icon, so its x can clear it, and the tabs stay under it.
     @MainActor
     private static func workerLogNothingMatchesView() -> DockShellView {
         let store = workerLogStore(workers: 5)
-        store.clearFilter(.action)
-        store.clearFilter(.worker)
-        store.toggleRow(at: 0)
-        store.toggleRow(at: WorkerLogAction.allCases.count + 4)
+        store.clearActions()
+        store.toggleAction(at: 0)
+        store.selectWorker("w5")
         let model = DockChromeModel(topBar: .make(mode: .workerChat, artifactRoute: .list, artifactTitle: nil, logAttached: true))
-        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store)), model: model)
+        return DockShellView(body: NSHostingView(rootView: WorkerChatDockView(store: store, areaFocused: true)), model: model)
     }
 
-    /// The dropdown of `Chat Filter.svg`: four workers named "worker-name", the keyboard cursor on the first, every Action
-    /// box checked but Cast. Its width hugs the names, as the design's 172 does.
+    /// The dropdown of `Chat Filter.svg` without its worker section: the keyboard cursor on the first row, every Action
+    /// box checked but Cast.
     @MainActor
     private static func workerLogPanelDesignView(hovering: Int? = nil) -> some View {
-        let workers = (1...4).map { WorkerLogWorker(id: "w\($0)", name: "worker-name", agent: "codex") }
         var filter = WorkerLogFilter()
         [WorkerLogAction.status, .summon, .message, .item].forEach { filter.toggle($0) }
-        workers.forEach { filter.toggle($0) }
-        return WorkerLogFilterPanel(rows: WorkerLogMenuRow.rows(workers: workers), filter: filter, cursor: WorkerLogAction.allCases.count, previewHoveredRow: hovering, onToggle: { _ in })
+        return WorkerLogFilterPanel(filter: filter, cursor: 0, previewHoveredRow: hovering, onToggle: { _ in })
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(AppPalette.window.swiftUI)
     }
 
-    /// The four chips of `Selected Filter Item.svg` at its coordinates: each 11 in, 35 apart.
+    /// The Action chip of `Selected Filter Item.svg` at its coordinates, with one action ticked and with three.
     @MainActor
     private static func workerLogChipsDesignView() -> some View {
-        let chips: [(WorkerLogChip.Value, String)] = [
-            (.text("Status"), "Action"),
-            (.text("3"), "Action"),
-            (.worker(name: "worker-name", agent: "codex"), "Worker"),
-            (.agentCounts([.init(agent: "codex", count: 2), .init(agent: "claude", count: 2)]), "Worker"),
-        ]
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(chips.enumerated()), id: \.offset) { _, item in
-                WorkerLogChipRow(chips: [WorkerLogChip(section: item.1 == "Action" ? .action : .worker, value: item.0)], onClear: { _ in })
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(["Status", "3"], id: \.self) { summary in
+                WorkerLogChipRow(summary: summary, onClear: {})
             }
         }
-        // Each row pads 20 in and 10 down; the design's chips sit 11 in and start 11 down.
+        // Each row pads 20 in and 5 down; the design's chips sit 11 in and start 11 down.
         .offset(x: 11 - WorkerChatMetrics.inset, y: 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AppPalette.window.swiftUI)
+    }
+
+    /// The tab row alone on the dock's fill: `workers` tabs after All, `selected` (a worker id, or nil for All) bold, and
+    /// `hovered` (a tab's index) under the pointer.
+    @MainActor
+    private static func workerLogTabsView(workers: Int, selected: String?, focused: Bool = true, hovered: Int? = nil) -> some View {
+        let names = ["Implement ABC-123", "Fix UI Bug", "Review API", "Add Tests", "Update Docs", "Audit Security", "Write Changelog", "Check Migrations", "Triage Reports"]
+        let list = (1...workers).map { WorkerLogWorker(id: "w\($0)", name: names[($0 - 1) % names.count]) }
+        return WorkerLogTabRow(workers: list, selectedID: selected, areaFocused: focused, previewHoveredIndex: hovered, onSelect: { _ in })
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppPalette.panel.swiftUI)
+    }
+
+    /// Tabs (Simple).svg's tabs: All selected, then four workers, in a row exactly as wide as the design plus the two edge
+    /// insets, so the tabs sit where the design draws them, 20 in and 2 down.
+    @MainActor
+    private static func workerLogTabsDesignView() -> some View {
+        let names = ["Implement ABC-123", "Fix UI Bug", "Review API", "Add Tests"]
+        let list = names.enumerated().map { WorkerLogWorker(id: "w\($0.offset + 1)", name: $0.element) }
+        return WorkerLogTabRow(workers: list, selectedID: nil, areaFocused: true, onSelect: { _ in })
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppPalette.panel.swiftUI)
     }
 
     /// The chat feed's rows (static, so the off-screen renderer sees them all) over the dock's panel fill.
