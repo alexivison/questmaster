@@ -72,7 +72,32 @@ func newPRCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 				return err
 			}
 			if added {
-				_, _ = prRequest(c.Context(), config, []string{ref.Key}, false)
+				refreshCtx, cancel := context.WithTimeout(c.Context(), 10*time.Second)
+				hosts, refreshErr := prRequest(refreshCtx, config, []string{ref.Key}, true)
+				cancel()
+				if refreshErr == nil {
+					host := hosts[ref.Host]
+					if host.CheckedAt != "" && host.Error == "" && host.BackoffUntil == "" {
+						statuses, err := state.LoadPullRequestStatuses(store.Root())
+						if err == nil && !statuses[ref.Key].Stale {
+							var detail string
+							switch statuses[ref.Key].InaccessibleReason {
+							case "not_found":
+								detail = "not found; check the owner, repo and number"
+							case "forbidden":
+								detail = "is inaccessible (forbidden); check repository access"
+							case "saml":
+								detail = "is inaccessible (saml); authorize SSO access"
+							}
+							if detail != "" {
+								if _, err := state.UnwatchPullRequest(store.Root(), id, ref.Key); err != nil {
+									return fmt.Errorf("PR %s is inaccessible; could not remove watch: %w", ref.Key, err)
+								}
+								return fmt.Errorf("PR %s %s", ref.Key, detail)
+							}
+						}
+					}
+				}
 			}
 			return writeJSON(c.OutOrStdout(), struct {
 				Key       string `json:"key"`

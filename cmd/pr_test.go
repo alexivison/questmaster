@@ -38,8 +38,8 @@ func TestPRCommands(t *testing.T) {
 	}
 	prRequest = func(_ context.Context, _ daemon.Config, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
 		wakeCalls++
-		if wait {
-			t.Fatal("watch waited for GitHub")
+		if !wait {
+			t.Fatal("watch did not wait for verification")
 		}
 		prs, err := state.LoadPullRequests(store.Root())
 		if err != nil || len(prs) == 0 {
@@ -48,7 +48,7 @@ func TestPRCommands(t *testing.T) {
 		if len(keys) != 1 || keys[0] != "github.com/owner/repo#7" && keys[0] != "github.com/other/repo#8" {
 			t.Fatalf("wake keys=%v", keys)
 		}
-		return map[string]prstatus.HostResult{}, nil
+		return map[string]prstatus.HostResult{"github.com": {CheckedAt: "2026-10-28T00:00:00Z"}}, nil
 	}
 	t.Setenv(state.StateRootEnv, store.Root())
 	t.Setenv(state.SessionEnv, "qm-pr")
@@ -98,6 +98,74 @@ func TestPRCommands(t *testing.T) {
 	}
 	if got := runCmd(t, store, sessionsRunner(), "pr", "ls"); strings.TrimSpace(got) != "[]" {
 		t.Fatalf("ls after unwatch = %q", got)
+	}
+}
+
+func TestPRWatchVerifiesNewWatch(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     state.PullRequestStatus
+		host       prstatus.HostResult
+		requestErr error
+		wantError  string
+		wantWatch  bool
+	}{
+		{name: "not found", status: state.PullRequestStatus{InaccessibleReason: "not_found"}, host: prstatus.HostResult{CheckedAt: "2026-10-28T00:00:00Z"}, wantError: "github.com/owner/repo#7 not found; check the owner, repo and number"},
+		{name: "accessible", status: state.PullRequestStatus{State: "open"}, host: prstatus.HostResult{CheckedAt: "2026-10-28T00:00:00Z"}, wantWatch: true},
+		{name: "forbidden", status: state.PullRequestStatus{InaccessibleReason: "forbidden"}, host: prstatus.HostResult{CheckedAt: "2026-10-28T00:00:00Z"}, wantError: "github.com/owner/repo#7 is inaccessible (forbidden)"},
+		{name: "saml", status: state.PullRequestStatus{InaccessibleReason: "saml"}, host: prstatus.HostResult{CheckedAt: "2026-10-28T00:00:00Z"}, wantError: "github.com/owner/repo#7 is inaccessible (saml)"},
+		{name: "unknown", status: state.PullRequestStatus{InaccessibleReason: "unknown"}, host: prstatus.HostResult{CheckedAt: "2026-10-28T00:00:00Z"}, wantWatch: true},
+		{name: "daemon error", requestErr: fmt.Errorf("daemon unavailable"), wantWatch: true},
+		{name: "timeout", requestErr: context.DeadlineExceeded, wantWatch: true},
+		{name: "backoff", status: state.PullRequestStatus{InaccessibleReason: "not_found"}, host: prstatus.HostResult{BackoffUntil: "2026-10-28T00:01:00Z"}, wantWatch: true},
+		{name: "host error", status: state.PullRequestStatus{InaccessibleReason: "not_found"}, host: prstatus.HostResult{CheckedAt: "2026-10-28T00:00:00Z", Error: "rate limit"}, wantWatch: true},
+		{name: "stale status", status: state.PullRequestStatus{InaccessibleReason: "not_found", Stale: true}, host: prstatus.HostResult{CheckedAt: "2026-10-28T00:00:00Z"}, wantWatch: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubPRDaemon(t)
+			store := setupStore(t)
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv(state.StateRootEnv, store.Root())
+			t.Setenv(state.SessionEnv, "qm-pr")
+			if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			prRequest = func(ctx context.Context, config daemon.Config, keys []string, wait bool) (map[string]prstatus.HostResult, error) {
+				calls++
+				deadline, ok := ctx.Deadline()
+				if !wait || !ok || time.Until(deadline) > 15*time.Second || len(keys) != 1 || keys[0] != "github.com/owner/repo#7" {
+					t.Fatalf("verification request: wait=%v deadline=%v keys=%v", wait, deadline, keys)
+				}
+				if tc.requestErr != nil {
+					return nil, tc.requestErr
+				}
+				if tc.status != (state.PullRequestStatus{}) {
+					if err := state.SavePullRequestStatuses(config.Root, map[string]state.PullRequestStatus{keys[0]: tc.status}, nil); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return map[string]prstatus.HostResult{"github.com": tc.host}, nil
+			}
+			out, err := runCmdErr(t, store, sessionsRunner(), "pr", "watch", "owner/repo#7")
+			if tc.wantError == "" {
+				if err != nil || !strings.Contains(out, `"added": true`) {
+					t.Fatalf("watch output=%q error=%v", out, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("watch output=%q error=%v", out, err)
+			}
+			prs, loadErr := state.LoadPullRequests(store.Root())
+			if loadErr != nil || (len(prs) == 1) != tc.wantWatch || calls != 1 {
+				t.Fatalf("registry=%v loadErr=%v requests=%d", prs, loadErr, calls)
+			}
+			if tc.wantWatch {
+				out, err = runCmdErr(t, store, sessionsRunner(), "pr", "watch", "owner/repo#7")
+				if err != nil || !strings.Contains(out, `"added": false`) || calls != 1 {
+					t.Fatalf("rewatch output=%q error=%v requests=%d", out, err, calls)
+				}
+			}
+		})
 	}
 }
 
@@ -249,7 +317,7 @@ func TestPRRefreshUsesWatchedScopeAndPersistsStatus(t *testing.T) {
 	if len(result.PullRequests) != 2 {
 		t.Fatalf("all=%#v", result.PullRequests)
 	}
-	if len(refreshed) != 2 || len(refreshed[0]) != 1 || len(refreshed[1]) != 2 {
+	if len(refreshed) != 4 || len(refreshed[0]) != 1 || len(refreshed[1]) != 1 || len(refreshed[2]) != 1 || len(refreshed[3]) != 2 {
 		t.Fatalf("refresh scopes=%v", refreshed)
 	}
 	var listed []state.PullRequest
