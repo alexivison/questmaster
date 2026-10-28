@@ -11,7 +11,6 @@ struct KeymapTests {
         chordMatchesTheKeyAndTheExactModifiers()
         everyActionHasChords()
         shiftIsPartOfThePrintableCharacter()
-        capsLockIsNotAModifier()
         listKeysAreArrowsAndLetters()
         openAndEditUseReturnAndLetters()
         submitTakesPlainReturnAndCommandReturn()
@@ -65,14 +64,6 @@ struct KeymapTests {
         expect(!matches(press("h", [.command]), .focusLeft), "⌘h must not focus left")
         expect(!matches(press("?", [.shift]), .focusFilter), "shift-/ types ? and is not the filter key")
         expect(matches(press("/"), .focusFilter), "/ should focus the filter")
-    }
-
-    private static func capsLockIsNotAModifier() {
-        // Caps Lock types the capital, with no modifier held: the same character as Shift-g.
-        expect(matches(press("G"), .jumpToBottom), "caps-lock g types G and should jump to bottom")
-        expect(!matches(press("G"), .jumpToTop), "caps-lock g must not arm the gg chord")
-        // Caps Lock with Shift types the lowercase letter, so the gg chord still arms.
-        expect(matches(press("g", [.shift]), .jumpToTop), "caps-lock with shift types g, which arms the gg chord")
     }
 
     private static func listKeysAreArrowsAndLetters() {

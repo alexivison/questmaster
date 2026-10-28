@@ -78,8 +78,9 @@ enum LogicSelfTests {
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
         ("testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents", testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
-        ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
+        ("testGChordShortcutIgnoresCapsLock", testGChordShortcutIgnoresCapsLock),
         ("testKeymapPressReadsEventsAsTheKeymapDoes", testKeymapPressReadsEventsAsTheKeymapDoes),
+        ("testKeymapPressIgnoresCapsLock", testKeymapPressIgnoresCapsLock),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
         ("testListGChordPendingGResetsOnGAndOnInterveningKey", testListGChordPendingGResetsOnGAndOnInterveningKey),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
@@ -2126,13 +2127,32 @@ enum LogicSelfTests {
     }
 
     private static func testKeymapPressReadsEventsAsTheKeymapDoes() throws {
-        try expect(try keyEvent("G", keyCode: 5, modifierFlags: [.capsLock]).keymapPress == Keymap.KeyPress(keyCode: 5, character: "G"), "caps-lock g should press G with no modifiers")
+        try expect(try keyEvent("g", keyCode: 5).keymapPress == Keymap.KeyPress(keyCode: 5, character: "g"), "a plain g should press g")
         try expect(try keyEvent("G", keyCode: 5, modifierFlags: [.shift]).keymapPress == Keymap.KeyPress(keyCode: 5, character: "G"), "shift-g should press G, with shift folded into the character")
         try expect(try keyEvent("\r", keyCode: 36, modifierFlags: [.shift]).keymapPress == Keymap.KeyPress(keyCode: 36, character: "\r", modifiers: [.shift]), "shift-Return keeps shift, since it types no character")
         try expect(try keyEvent("j", keyCode: 38, modifierFlags: [.control]).keymapPress == Keymap.KeyPress(keyCode: 38, character: "j", modifiers: [.control]), "control-j keeps control")
     }
 
-    private static func testGChordShortcutDecidesFromCharacterIgnoringCapsLock() throws {
+    /// Caps Lock is transparent: a letter's case comes from Shift alone, so caps+j is j, caps+shift+g is G, and the
+    /// keys behave as they do without Caps Lock. The event's own case is not trusted: the OS gives the reverse with Shift.
+    private static func testKeymapPressIgnoresCapsLock() throws {
+        func press(_ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws -> Keymap.KeyPress {
+            try keyEvent(characters, keyCode: keyCode, modifierFlags: flags).keymapPress
+        }
+        try expect(try press("J", 38, [.capsLock]) == Keymap.KeyPress(keyCode: 38, character: "j"), "caps-lock j should press j")
+        try expect(try press("g", 5, [.capsLock, .shift]) == Keymap.KeyPress(keyCode: 5, character: "G"), "caps-lock with shift should press the capital G")
+        try expect(try press("G", 5, [.capsLock]) == Keymap.KeyPress(keyCode: 5, character: "g"), "caps-lock alone should press the lowercase g")
+        try expect(try press("1", 18, [.capsLock]) == Keymap.KeyPress(keyCode: 18, character: "1"), "caps-lock leaves digits alone")
+        try expect(Keymap.matches(try press("D", 2, [.capsLock]), .delete), "caps-lock d should delete, as d does")
+        try expect(Keymap.matches(try press("E", 14, [.capsLock]), .editSession), "caps-lock e should edit the session, not the repo")
+        try expect(!Keymap.matches(try press("E", 14, [.capsLock]), .editRepo), "caps-lock e must not edit the repo")
+        try expect(Keymap.matches(try press("C", 8, [.capsLock]), .toggleWorkersCollapsed), "caps-lock c should collapse the workers, as c does")
+        try expect(Keymap.matches(try press("g", 5, [.capsLock, .shift]), .jumpToBottom), "caps-lock+shift g should jump to bottom")
+        try expect(Keymap.matches(try press("G", 5, [.capsLock]), .jumpToTop), "caps-lock g should arm the gg chord")
+        try expect(Keymap.matches(try press("h", 4, [.command, .shift, .capsLock]), .focusLeft), "⇧⌘H with caps-lock should still focus left")
+    }
+
+    private static func testGChordShortcutIgnoresCapsLock() throws {
         func pressed(_ action: Keymap.Action, _ characters: String, _ flags: NSEvent.ModifierFlags = []) throws -> Bool {
             Keymap.matches(try keyEvent(characters, keyCode: 5, modifierFlags: flags).keymapPress, action)
         }
@@ -2142,14 +2162,13 @@ enum LogicSelfTests {
         try expect(try pressed(.jumpToBottom, "G", [.shift]), "shift-G should jump to bottom")
         try expect(!(try pressed(.jumpToTop, "G", [.shift])), "shift-G should not arm the chord")
 
-        // Caps Lock alone types "G" without Shift being held; the decision must follow the
-        // resulting character, not a `flags == [.shift]` match.
-        try expect(try pressed(.jumpToBottom, "G", [.capsLock]), "caps-lock G should jump to bottom")
-        try expect(!(try pressed(.jumpToTop, "G", [.capsLock])), "caps-lock G should not arm the chord")
+        // Caps Lock is transparent: caps-lock g is g, so it arms the chord, as it does without Caps Lock.
+        try expect(try pressed(.jumpToTop, "G", [.capsLock]), "caps-lock g should arm the chord")
+        try expect(!(try pressed(.jumpToBottom, "G", [.capsLock])), "caps-lock g should not jump to bottom")
 
-        // Caps Lock plus Shift cancel out back to lowercase "g".
-        try expect(try pressed(.jumpToTop, "g", [.capsLock, .shift]), "caps-lock+shift g should arm the chord")
-        try expect(!(try pressed(.jumpToBottom, "g", [.capsLock, .shift])), "caps-lock+shift g should not jump to bottom")
+        // Caps Lock with Shift is G, the same as Shift alone.
+        try expect(try pressed(.jumpToBottom, "g", [.capsLock, .shift]), "caps-lock+shift g should jump to bottom")
+        try expect(!(try pressed(.jumpToTop, "g", [.capsLock, .shift])), "caps-lock+shift g should not arm the chord")
 
         try expect(!(try pressed(.jumpToTop, "g", [.command])), "command-g should not arm the chord")
         try expect(!(try pressed(.jumpToBottom, "G", [.command, .shift])), "command-shift-G should not jump to bottom")

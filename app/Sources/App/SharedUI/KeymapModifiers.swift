@@ -13,9 +13,18 @@ extension NSEvent {
         return modifiers
     }
 
-    /// The press the keymap matches (`Keymap.matches`): the key code, the character with Shift applied, and `keymapModifiers`.
+    /// The press the keymap matches (`Keymap.matches`): the key code, the character and `keymapModifiers`. Caps Lock is
+    /// transparent: with it on, a letter's case comes from Shift alone, so Caps Lock never changes a chord.
     var keymapPress: Keymap.KeyPress {
-        Keymap.KeyPress(keyCode: keyCode, character: charactersIgnoringModifiers, modifiers: keymapModifiers)
+        Keymap.KeyPress(keyCode: keyCode, character: keymapCharacter, modifiers: keymapModifiers)
+    }
+
+    private var keymapCharacter: String? {
+        guard let character = charactersIgnoringModifiers, modifierFlags.contains(.capsLock),
+              character.count == 1, character.first?.isLetter == true else {
+            return charactersIgnoringModifiers
+        }
+        return keymapModifiers.contains(.shift) ? character.uppercased() : character.lowercased()
     }
 }
 

@@ -8,10 +8,10 @@ public enum Keymap {
         case shift
     }
 
-    /// One key press as the keymap reads it: the physical key, the key's character (`charactersIgnoringModifiers`,
-    /// so Shift shows as `G` and `?`), and the modifiers held. Caps Lock is never a modifier: it changes only the
-    /// character. Shift is part of a printable character, so it is dropped from the modifiers: Shift-g is `G`, and so
-    /// is Caps Lock-g. Shift stays for keys that type no character (⇧Return, ⇧Tab, ⇧↑).
+    /// One key press as the keymap reads it: the physical key, the key's character (Shift shows as `G` and `?`), and
+    /// the modifiers held. The App builds it from an `NSEvent` (`NSEvent.keymapPress`), which keeps Caps Lock out:
+    /// Caps Lock never reaches a press. Shift is part of a printable character, so it is dropped from the modifiers:
+    /// Shift-g is `G`. Shift stays for keys that type no character (⇧Return, ⇧Tab, ⇧↑).
     public struct KeyPress: Equatable {
         public let keyCode: UInt16
         public let character: String?
@@ -36,7 +36,7 @@ public enum Keymap {
 
     /// A key and the exact modifiers it takes. It matches a press only when the key is the same and the modifier
     /// sets are equal, so ⌃j is not j, ⌥k is not k, and ⇧j is not j. A letter is written as the character typed:
-    /// `G` for Shift-g, and `G` with no modifier for Caps Lock.
+    /// `G` for Shift-g.
     public struct Chord: Equatable {
         public enum Key: Equatable {
             /// The physical key, for keys named by position (arrows, Return, Esc, ⌥k, which types ˚).
