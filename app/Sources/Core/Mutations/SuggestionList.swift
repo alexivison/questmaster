@@ -44,6 +44,16 @@ public struct SuggestionList: Equatable {
         moved = true
     }
 
+    /// Tab in a typed path: takes the highlighted row while rows show, else completes the path from disk
+    /// (`completion`) when that changes it, else moves on. Tab never drills down: typing a `/` does that.
+    public func tabOutcome(path: String, completion: (String) -> String) -> PathTabOutcome {
+        if isVisible, let row = highlighted {
+            return .choose(row)
+        }
+        let completed = completion(path)
+        return completed == path ? .moveOn : .choose(completed)
+    }
+
     /// A path field's rows from dir_suggest's answer: its suggestions, or the recents for an empty query
     /// (or ⌃r). A typed path with no suggestions offers itself rather than unrelated recent directories.
     public static func pathRows(suggestions: [String], recents: [String], query: String, recentsOnly: Bool, maxRows: Int) -> [String] {

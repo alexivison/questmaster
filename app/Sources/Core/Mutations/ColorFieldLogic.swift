@@ -150,7 +150,8 @@ public struct ColorFieldModel: Equatable {
         select((selectedIndex + delta + colors.count) % colors.count)
     }
 
-    /// Esc, or focus leaving the field: back to SELECT, the text back to the selected colour's name.
+    /// Esc, Tab or Return with no row to take, or focus leaving the field: back to SELECT, the text back to the
+    /// selected colour's name.
     public mutating func endSearch() {
         mode = .select
         text = Self.label(selectedColor)
@@ -163,53 +164,37 @@ public struct ColorFieldModel: Equatable {
     }
 }
 
-public enum ColorFieldCommand: Equatable {
-    case cycle(Int)
-    case moveHighlight(Int)
-    case pick
-    case startSearch(PickerFieldMode.SearchStart)
-    case endSearch
-}
-
 public extension ColorFieldModel {
-    mutating func apply(_ command: ColorFieldCommand) {
+    /// The shared picker keys (`PickerFieldKey`) applied to the colour. A colour's text is its name, so
+    /// nothing typed is kept: ending a search, by Tab or Return or Esc, shows the selected colour again.
+    mutating func apply(_ command: PickerFieldCommand) {
         switch command {
-        case .cycle(let delta):
-            cycle(delta)
+        case .startSearch(let start):
+            startSearch(start)
         case .moveHighlight(let delta):
             moveHighlight(delta)
         case .pick:
             pick()
-        case .startSearch(let start):
-            startSearch(start)
-        case .endSearch:
+        case .endSearch, .restore:
             endSearch()
         }
     }
 
-    /// The keys the focused colour input takes; the rest (Tab in SELECT, ⌘ keys) stay the sheet's.
-    static func command(keyCode: UInt16, characters: String?, command: Bool, control: Bool, option: Bool, mode: PickerFieldMode, showsSuggestions: Bool) -> ColorFieldCommand? {
-        if command || control {
+    /// The direction ⌥←/⌥→ (both states) and ←/→ (SELECT) cycle the colours in, or nil for another key.
+    static func cycleDelta(keyCode: UInt16, modifiers: Set<Keymap.Modifier>, mode: PickerFieldMode) -> Int? {
+        guard modifiers.isDisjoint(with: [.command, .control]) else {
             return nil
         }
-        if option {
-            if Keymap.ColorField.cyclePrevious.matches(keyCode) { return .cycle(-1) }
-            if Keymap.ColorField.cycleNext.matches(keyCode) { return .cycle(1) }
+        if modifiers.contains(.option) {
+            if Keymap.ColorField.cyclePrevious.matches(keyCode) { return -1 }
+            if Keymap.ColorField.cycleNext.matches(keyCode) { return 1 }
             return nil
         }
-        switch mode {
-        case .select:
-            if Keymap.NewSession.selectLeft.matches(keyCode) { return .cycle(-1) }
-            if Keymap.NewSession.selectRight.matches(keyCode) { return .cycle(1) }
-            return PickerFieldMode.searchStart(characters: characters, keyCode: keyCode, command: command, control: control, option: option).map(ColorFieldCommand.startSearch)
-        case .search:
-            if Keymap.NewSession.suggestionUp.matches(keyCode) { return .moveHighlight(-1) }
-            if Keymap.NewSession.suggestionDown.matches(keyCode) { return .moveHighlight(1) }
-            if Keymap.NewSession.cancel.matches(keyCode) { return .endSearch }
-            if Keymap.NewSession.completePath.matches(keyCode) || Keymap.NewSession.create.matches(characters) {
-                return showsSuggestions ? .pick : .endSearch
-            }
+        guard mode == .select else {
             return nil
         }
+        if Keymap.NewSession.selectLeft.matches(keyCode) { return -1 }
+        if Keymap.NewSession.selectRight.matches(keyCode) { return 1 }
+        return nil
     }
 }
