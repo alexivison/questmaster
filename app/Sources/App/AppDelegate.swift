@@ -523,7 +523,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         shellHandles?.splitView.nudgeDockWidth(by: -DockWidthPreference.resizeStep)
     }
 
-    /// Shows `content` in the bottom panel without moving focus to it.
+    /// Shows `content` in the bottom panel and moves the keys to it.
     private func showDockContent(_ content: DockContent) {
         guard DockContentRouting.canShow(content, sessionID: runtimeStore.currentTerminalSessionID) else {
             if content == .workerChat {
@@ -533,8 +533,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         dockCoordinator.state.show(content)
-        navigation.showDockPreservingFocus()
+        let outcome = navigation.focusDockPanel(.bottom)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
+        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     private func showArtifactListFromDock() {
@@ -642,7 +643,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         showDockContent(.workerChat)
     }
 
-    /// Shows or hides the top panel without touching the bottom one. Showing it leaves the keys where they are.
+    /// Shows or hides the top panel without touching the bottom one. Showing it takes the keys.
     @objc private func toggleVersionControlDock() {
         // Also reached from MenuController's key monitor, which runs before menu validation.
         guard navigation.appCommandRoute(.app) == .allowed else {
@@ -657,8 +658,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         dockCoordinator.state.topVisible = true
-        navigation.showDockPreservingFocus()
+        let outcome = navigation.focusDockPanel(.top)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
+        focusCoordinator.applyNavigationOutcome(outcome)
     }
 
     @objc private func focusDockTopPanel() {
