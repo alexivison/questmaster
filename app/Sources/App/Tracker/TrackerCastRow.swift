@@ -187,7 +187,7 @@ final class TrackerCastFillNSView: NSView {
     static let edgeLight = amber.blended(withFraction: 0.5, of: AppPalette.light) ?? amber
     static let flashOpacity: Float = 0.5
     /// The overrun pulse's peak: the light overlay's opacity at the top of each breath.
-    static let pulsePeak: Float = 0.2
+    static let pulsePeak: Float = 0.6
     static let shimmerWash: CGFloat = 0.35
     static let shimmerBand: CGFloat = 40
     static let shimmerPeriod: CFTimeInterval = 1.2
