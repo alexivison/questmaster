@@ -29,56 +29,39 @@ enum TrackerEventCommandResolver {
             return .focusDirection(direction)
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.contains(.command),
-              !flags.contains(.control),
-              !flags.contains(.option) else {
-            return nil
-        }
-        let shifted = flags.contains(.shift)
-
-        if !shifted, Keymap.List.previousTab.matches(event.keyCode) {
+        let press = event.keymapPress
+        if Keymap.matches(press, .previousTab) {
             return .listCommand(.previousTab)
         }
-        if !shifted, Keymap.List.nextTab.matches(event.keyCode) {
+        if Keymap.matches(press, .nextTab) {
             return .listCommand(.nextTab)
         }
-        if !shifted, Keymap.List.open.matches(event.keyCode) {
+        if Keymap.matches(press, .open) {
             return .openSelection
         }
-        if !shifted, Keymap.List.moveUpKeyCodes.matches(event.keyCode) {
+        // The tracker takes no arrow keys yet: ↑ and ↓ move the list only from a dock, which reads them first.
+        if Keymap.matches(press, .moveUp), !Keymap.arrowKeyCodes.contains(press.keyCode) {
             return .moveSelection(delta: -1)
         }
-        if !shifted, Keymap.List.moveDownKeyCodes.matches(event.keyCode) {
+        if Keymap.matches(press, .moveDown), !Keymap.arrowKeyCodes.contains(press.keyCode) {
             return .moveSelection(delta: 1)
         }
-
-        let key = event.charactersIgnoringModifiers?.lowercased()
-        if !shifted, Keymap.List.moveUpCharacters.matches(key) {
-            return .moveSelection(delta: -1)
-        }
-        if !shifted, Keymap.List.openCharacters.matches(key) {
-            return .openSelection
-        }
-        if !shifted, Keymap.List.moveDownCharacters.matches(key) {
-            return .moveSelection(delta: 1)
-        }
-        if !shifted, Keymap.List.copySessionID.matches(key) {
+        if Keymap.matches(press, .copy) {
             return .listCommand(.copySessionID)
         }
-        if !shifted, Keymap.List.editSession.matches(key) {
+        if Keymap.matches(press, .editSession) {
             return .listCommand(.editSession)
         }
-        if !shifted, Keymap.List.delete.matches(key) {
+        if Keymap.matches(press, .delete) {
             return .listCommand(.delete)
         }
-        if !shifted, Keymap.List.toggleWorkersCollapsed.matches(key) {
+        if Keymap.matches(press, .toggleWorkersCollapsed) {
             return .listCommand(.toggleWorkersCollapsed)
         }
-        if shifted, Keymap.List.editRepo.matchesExactly(event.characters) {
+        if Keymap.matches(press, .editRepo) {
             return .listCommand(.editRepo)
         }
-        if shifted, Keymap.List.toggleAllWorkersCollapsed.matchesExactly(event.characters) {
+        if Keymap.matches(press, .toggleAllWorkersCollapsed) {
             return .listCommand(.toggleAllWorkersCollapsed)
         }
         return nil

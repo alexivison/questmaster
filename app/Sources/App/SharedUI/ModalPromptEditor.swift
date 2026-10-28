@@ -15,7 +15,6 @@ struct ModalPromptEditor: NSViewRepresentable {
     var placeholder: String = ""
     let isEditable: Bool
     let isFocused: Bool
-    var createKey: Keymap.CharacterBinding = Keymap.NewSession.create
     var onFocus: () -> Void
     var onCreate: () -> Void
 
@@ -35,7 +34,6 @@ struct ModalPromptEditor: NSViewRepresentable {
         let textView = ModalPromptEditorTextView()
         textView.delegate = context.coordinator
         textView.onCreate = onCreate
-        textView.createKey = createKey
         textView.placeholder = placeholder
         textView.isRichText = false
         textView.importsGraphics = false
@@ -62,7 +60,6 @@ struct ModalPromptEditor: NSViewRepresentable {
             return
         }
         textView.onCreate = onCreate
-        textView.createKey = createKey
         textView.placeholder = placeholder
         textView.isEditable = isEditable
         textView.insertionPointColor = AppPalette.accent
@@ -133,7 +130,6 @@ struct ModalPromptEditor: NSViewRepresentable {
 }
 
 private final class ModalPromptEditorTextView: NSTextView {
-    var createKey: Keymap.CharacterBinding = Keymap.NewSession.create
     var onCreate: (() -> Void)?
     /// The view joined a window: a focus request made before it had one can go through now.
     var onWindow: (() -> Void)?
@@ -169,19 +165,15 @@ private final class ModalPromptEditorTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
-        let chars = event.charactersIgnoringModifiers?.lowercased()
-        guard createKey.matches(chars) else {
+        let press = event.keymapPress
+        // Return, with or without Shift (⇧Return is a newline). A ⌘, ⌃ or ⌥ Return goes to the text system.
+        let unshifted = Keymap.KeyPress(keyCode: press.keyCode, character: press.character, modifiers: press.modifiers.subtracting([.shift]))
+        guard Keymap.matches(unshifted, .submit), unshifted.modifiers.isEmpty else {
             super.keyDown(with: event)
             return
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) || flags.contains(.control) || flags.contains(.option) {
-            super.keyDown(with: event)
-            return
-        }
-
-        switch NewSessionPromptReturnAction.forReturn(shiftHeld: flags.contains(.shift)) {
+        switch NewSessionPromptReturnAction.forReturn(shiftHeld: press.modifiers.contains(.shift)) {
         case .create:
             onCreate?()
         case .newline:

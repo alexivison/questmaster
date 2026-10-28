@@ -75,8 +75,8 @@ public enum SessionPortrait: Equatable, Sendable {
 /// ⌃e in the title field cycles the class, as it does the effort in the model field (`NewSessionEffortKey`). It takes
 /// over the field's move-to-end-of-line; End and ⌘→ still do that.
 public enum SessionClassKey {
-    public static func cycles(keyCode: UInt16, command: Bool, control: Bool, option: Bool, titleFocused: Bool) -> Bool {
-        titleFocused && control && !command && !option && Keymap.NewSession.cycleClass.matches(keyCode)
+    public static func cycles(_ press: Keymap.KeyPress, titleFocused: Bool) -> Bool {
+        titleFocused && Keymap.matches(press, .cycleClass)
     }
 }
 

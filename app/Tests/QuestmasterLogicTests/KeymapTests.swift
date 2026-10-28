@@ -4,23 +4,143 @@ import QuestmasterCore
 struct KeymapTests {
     static func run() {
         commandChordsAreUnique()
-        repoEditBindingUsesCapitalE()
         editModalCommandsFollowDeleteShortcutPattern()
-        viewerBindingsUseArtifactKeys()
-        listBindingsUseVimIntoForOpen()
-        newSessionSelectBindingsIncludeVimKeys()
-        unifiedDeleteBindingsUseD()
         regionToggleCommandsUseRedesignChords()
-        controlHandoffMapsListControlDirections()
         trackerSessionSelectBindingsUsePlainCommandDigits()
+        displayGlyphOrdersModifiersAndUppercasesTheKey()
+        chordMatchesTheKeyAndTheExactModifiers()
+        everyActionHasChords()
+        shiftIsPartOfThePrintableCharacter()
+        listKeysAreArrowsAndLetters()
+        openAndEditUseReturnAndLetters()
+        submitTakesPlainReturnAndCommandReturn()
+        tabAndBackTabAreDistinct()
+        fieldKeysUseControlAndOption()
+        pickerKeysUseArrowsAndControlPN()
         navigationChordMatchesOnlyShiftCommandHJKL()
         navigationChordRepeatsAreConsumedWithoutDispatch()
-        controlFieldAliasesKeepTheirDirections()
-        displayGlyphOrdersModifiersAndUppercasesTheKey()
+        controlHandoffMapsListControlDirections()
         gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter()
         gPrefixTrackerResetClearsPendingState()
         print("KeymapTests: all tests passed")
     }
+
+    private static func press(_ character: String?, _ modifiers: Set<Keymap.Modifier> = [], keyCode: UInt16 = 0) -> Keymap.KeyPress {
+        Keymap.KeyPress(keyCode: keyCode, character: character, modifiers: modifiers)
+    }
+
+    private static func matches(_ press: Keymap.KeyPress, _ action: Keymap.Action) -> Bool {
+        Keymap.matches(press, action)
+    }
+
+    private static func chordMatchesTheKeyAndTheExactModifiers() {
+        expect(matches(press("j"), .moveDown), "plain j should move down")
+        expect(!matches(press("j", [.control]), .moveDown), "⌃j must not be plain j")
+        expect(!matches(press("j", [.command]), .moveDown), "⌘j must not be plain j")
+        expect(!matches(press("j", [.option]), .moveDown), "⌥j must not be plain j")
+        expect(!matches(press("j", [.control, .option]), .moveDown), "⌃⌥j must not be plain j")
+        expect(matches(press("j", [.control]), .nextField), "⌃j should move to the next field")
+        expect(!matches(press("j"), .nextField), "plain j must not move to the next field")
+        expect(matches(press(nil, [.option], keyCode: 40), .nextField), "⌥k should move to the next field by key code, since it types ˚")
+        expect(!matches(press("k"), .nextField), "plain k must not move to the next field")
+        expect(!matches(press("˚", keyCode: 40), .nextField), "⌥k without its modifier must not match")
+    }
+
+    private static func everyActionHasChords() {
+        let empty = Keymap.Action.allCases.filter { Keymap.chords(for: $0).isEmpty }
+        expect(empty.isEmpty, "actions without chords: \(empty)")
+    }
+
+    private static func shiftIsPartOfThePrintableCharacter() {
+        expect(matches(press("G", [.shift]), .jumpToBottom), "shift-g should jump to bottom")
+        expect(!matches(press("G", [.shift]), .jumpToTop), "shift-g must not arm the gg chord")
+        expect(matches(press("g"), .jumpToTop), "g should arm the gg chord")
+        expect(!matches(press("E", [.shift]), .editSession), "shift-e must not edit the session")
+        expect(matches(press("E", [.shift]), .editRepo), "shift-e should edit the repo")
+        expect(matches(press("C", [.shift]), .toggleAllWorkersCollapsed), "shift-c should collapse every worker")
+        expect(!matches(press("K", [.shift]), .moveUp), "shift-k must not move the list up")
+        expect(matches(press("H", [.command, .shift]), .focusLeft), "⇧⌘H should focus left")
+        expect(!matches(press("h", [.command, .shift]), .focusLeft), "⇧⌘h is not the focus chord: the chord types H")
+        expect(!matches(press("h", [.command]), .focusLeft), "⌘h must not focus left")
+        expect(!matches(press("?", [.shift]), .focusFilter), "shift-/ types ? and is not the filter key")
+        expect(matches(press("/"), .focusFilter), "/ should focus the filter")
+    }
+
+    private static func listKeysAreArrowsAndLetters() {
+        expect(matches(press(nil, keyCode: 126), .moveUp), "up arrow should move up")
+        expect(matches(press(nil, keyCode: 125), .moveDown), "down arrow should move down")
+        expect(matches(press("k"), .moveUp), "k should move up")
+        expect(!matches(press(nil, [.shift], keyCode: 126), .moveUp), "shift-up is not a list move")
+        expect(!matches(press("h"), .moveUp), "h should not move the list up")
+        expect(!matches(press("l"), .moveDown), "l should not move the list down")
+        expect(matches(press(nil, keyCode: 123), .cycleLeft), "left arrow cycles left")
+        expect(matches(press("h"), .cycleLeft), "h cycles left")
+        expect(!matches(press("H"), .cycleLeft), "shift-h is not cycle-left")
+        expect(matches(press(nil, keyCode: 124), .cycleRight), "right arrow cycles right")
+        expect(matches(press("u", [.control]), .halfPageUp), "⌃u should page up by half")
+        expect(!matches(press("u"), .halfPageUp), "plain u should not page up")
+        expect(matches(press("d", [.control]), .halfPageDown), "⌃d should page down by half")
+        expect(!matches(press("d", [.control]), .delete), "⌃d must not delete")
+        expect(matches(press("d"), .delete), "plain d should delete")
+        expect(!matches(press("x"), .delete), "x should not delete list items")
+        expect(!matches(press("y", [.option]), .copy), "⌥y must not copy")
+    }
+
+    private static func openAndEditUseReturnAndLetters() {
+        expect(matches(press("\r", keyCode: 36), .open), "Return should open the selection")
+        expect(matches(press(nil, keyCode: 76), .open), "keypad Enter should open the selection")
+        expect(matches(press("l"), .open), "l should open the selection in the tracker")
+        expect(!matches(press(nil, keyCode: 124), .open), "right arrow should not open the selection")
+        expect(!matches(press("\r", [.shift], keyCode: 36), .open), "shift-Return should not open the selection")
+        expect(matches(press("e"), .editSession), "e should edit the session")
+        expect(matches(press("e"), .editQuest), "e should edit a quest")
+        expect(matches(press("\r", keyCode: 36), .editQuest), "Return should edit a quest, as the Quest Log always has")
+        expect(!matches(press("\r", keyCode: 36), .editSession), "Return should not edit a session: it opens")
+    }
+
+    private static func submitTakesPlainReturnAndCommandReturn() {
+        expect(matches(press("\r", keyCode: 36), .submit), "Return should submit")
+        expect(matches(press(nil, keyCode: 76), .submit), "keypad Enter should submit")
+        expect(matches(press("\r", [.command], keyCode: 36), .submit), "command-Return should submit")
+        expect(!matches(press("\r", [.shift], keyCode: 36), .submit), "shift-Return is a newline, not submit")
+        expect(!matches(press("\r", [.control], keyCode: 36), .submit), "control-Return should not submit")
+        expect(!matches(press("\r", [.option], keyCode: 36), .submit), "option-Return should not submit")
+        expect(matches(press("s", [.control]), .createFromPrompt), "⌃s should create from the prompt")
+        expect(matches(press(nil, keyCode: 53), .cancel), "Esc should cancel")
+        expect(!matches(press(nil, [.command], keyCode: 53), .cancel), "command-Esc is not cancel")
+    }
+
+    private static func tabAndBackTabAreDistinct() {
+        expect(matches(press(nil, keyCode: 48), .tab), "Tab should be tab")
+        expect(!matches(press(nil, keyCode: 48), .backTab), "Tab must not be back-tab")
+        expect(matches(press(nil, [.shift], keyCode: 48), .backTab), "⇧Tab should be back-tab")
+        expect(!matches(press(nil, [.shift], keyCode: 48), .tab), "⇧Tab must not be tab")
+        expect(!matches(press(nil, [.control], keyCode: 48), .tab), "⌃Tab must not be tab")
+    }
+
+    private static func fieldKeysUseControlAndOption() {
+        expect(matches(press("k", [.control]), .previousField), "⌃k should move to the previous field")
+        expect(!matches(press("k"), .previousField), "plain k must not move to the previous field")
+        expect(matches(press(nil, [.control], keyCode: 14), .cycleClass), "⌃e is the class key")
+        expect(matches(press(nil, [.control], keyCode: 14), .cycleEffort), "⌃e cycles the effort")
+        expect(matches(press("e"), .cycleEffort), "e cycles the effort in SELECT")
+        expect(matches(press(nil, [.control], keyCode: 15), .refreshModels), "⌃r refreshes the models")
+        expect(matches(press("r", [.control]), .recentPaths), "⌃r lists recent paths in the path field")
+        expect(matches(press(nil, [.option], keyCode: 123), .optionCycleLeft), "⌥← cycles the colour back")
+        expect(!matches(press(nil, keyCode: 123), .optionCycleLeft), "plain ← is not the option cycle")
+        expect(matches(press(nil, keyCode: 51), .backspace), "Backspace should be backspace")
+    }
+
+    private static func pickerKeysUseArrowsAndControlPN() {
+        expect(matches(press(nil, keyCode: 126), .suggestionUp), "↑ should highlight the row above")
+        expect(matches(press(nil, keyCode: 125), .suggestionDown), "↓ should highlight the row below")
+        expect(matches(press(nil, [.control], keyCode: 35), .suggestionPrevious), "⌃p should highlight the row above, by key code")
+        expect(matches(press(nil, [.control], keyCode: 45), .suggestionNext), "⌃n should highlight the row below, by key code")
+        expect(!matches(press("p"), .suggestionPrevious), "plain p must not highlight")
+        expect(!matches(press(nil, [.control], keyCode: 35), .suggestionUp), "⌃p is not the arrow")
+        expect(!matches(press(nil, keyCode: 126), .suggestionPrevious), "↑ is not ⌃p")
+    }
+
 
     private static func commandChordsAreUnique() {
         var seen: [String: String] = [:]
@@ -38,59 +158,11 @@ struct KeymapTests {
         expect(duplicates.isEmpty, "duplicate command chords: \(duplicates.joined(separator: "; "))")
     }
 
-    private static func repoEditBindingUsesCapitalE() {
-        expect(Keymap.List.editSession.keys == ["e"], "session edit key mismatch")
-        expect(Keymap.List.editRepo.keys == ["E"], "repo edit key mismatch")
-        expect(Keymap.List.editRepo.matchesExactly("E"), "repo edit should match uppercase E exactly")
-        expect(!Keymap.List.editRepo.matchesExactly("C"), "repo edit should not match uppercase C")
-    }
-
     private static func editModalCommandsFollowDeleteShortcutPattern() {
         expect(Keymap.Command.editFocusedSession.keyEquivalent == "e", "session edit command key mismatch")
         expect(Keymap.Command.editFocusedSession.modifiers == [.command], "session edit command should use command")
         expect(Keymap.Command.editFocusedRepo.keyEquivalent == "e", "repo edit command key mismatch")
         expect(Keymap.Command.editFocusedRepo.modifiers == [.command, .shift], "repo edit command should use command-shift")
-    }
-
-    private static func viewerBindingsUseArtifactKeys() {
-        expect(Keymap.Viewer.moveUpCharacters.keys == ["k"], "viewer move up key mismatch")
-        expect(Keymap.Viewer.moveDownCharacters.keys == ["j"], "viewer move down key mismatch")
-        expect(Keymap.Viewer.moveUpKeyCodes.keyCodes == [126], "viewer up arrow key mismatch")
-        expect(Keymap.Viewer.moveDownKeyCodes.keyCodes == [125], "viewer down arrow key mismatch")
-        expect(Keymap.Viewer.openRelated.keys == ["o"], "open related key mismatch")
-        expect(Keymap.Viewer.back.keys == ["h", "\u{1b}"], "viewer back key mismatch")
-        expect(Keymap.Viewer.backKeyCodes.keyCodes == [123], "viewer back left arrow mismatch")
-    }
-
-    private static func listBindingsUseVimIntoForOpen() {
-        expect(Keymap.List.moveUpCharacters.keys == ["k"], "list move up key mismatch")
-        expect(Keymap.List.moveDownCharacters.keys == ["j"], "list move down key mismatch")
-        expect(Keymap.List.openCharacters.keys == ["l"], "list open character mismatch")
-        expect(Keymap.List.moveUpKeyCodes.keyCodes.isEmpty, "up arrow should not move list selection")
-        expect(Keymap.List.moveDownKeyCodes.keyCodes.isEmpty, "down arrow should not move list selection")
-        expect(!Keymap.List.moveUpCharacters.matches("h"), "h should not move list selection up")
-        expect(!Keymap.List.moveUpKeyCodes.matches(123), "left arrow should not move list selection up")
-        expect(!Keymap.List.moveUpKeyCodes.matches(126), "up arrow should not move list selection up")
-        expect(!Keymap.List.moveDownKeyCodes.matches(125), "down arrow should not move list selection down")
-        expect(!Keymap.List.moveDownKeyCodes.matches(124), "right arrow should not move list selection down")
-        expect(!Keymap.List.moveDownCharacters.matches("l"), "l should not move list selection down")
-        expect(Keymap.List.openCharacters.matches("l"), "l should open list selection")
-        expect(Keymap.List.open.keyCodes == [36, 76], "enter should open list selection")
-        expect(!Keymap.List.open.matches(124), "right arrow should not open list selection")
-    }
-
-    private static func newSessionSelectBindingsIncludeVimKeys() {
-        expect(Keymap.NewSession.selectLeft.keyCodes == [123], "new session left arrow mismatch")
-        expect(Keymap.NewSession.selectRight.keyCodes == [124], "new session right arrow mismatch")
-        expect(Keymap.NewSession.selectLeftCharacter.keys == ["h"], "new session h select-left mismatch")
-        expect(Keymap.NewSession.selectRightCharacter.keys == ["l"], "new session l select-right mismatch")
-        expect(Keymap.NewSession.nextFieldOption.keyCodes == [40], "new session option-k field mismatch")
-    }
-
-    private static func unifiedDeleteBindingsUseD() {
-        expect(Keymap.List.delete.keys == ["d"], "tracker delete key mismatch")
-        expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
-        expect(Keymap.List.editSession.keys == ["e"], "tracker edit key mismatch")
     }
 
     private static func regionToggleCommandsUseRedesignChords() {
@@ -144,27 +216,6 @@ struct KeymapTests {
         expect(commandBindings.contains(Keymap.Command.selectSession[0]), "session-select bindings missing from command list")
     }
 
-    private static func navigationChordMatchesOnlyShiftCommandHJKL() {
-        for (key, direction) in [("h", NavigationDirection.left), ("j", .down), ("k", .up), ("l", .right)] {
-            expect(Keymap.NavigationChord.direction(characters: key, modifiers: [.command, .shift]) == direction, "⇧⌘\(key) direction mismatch")
-        }
-        expect(Keymap.NavigationChord.direction(characters: "j", modifiers: [.command]) == nil, "⌘J must not be a navigation chord")
-        expect(Keymap.NavigationChord.direction(characters: "j", modifiers: [.command, .shift, .option]) == nil, "⇧⌘⌥J must not be a navigation chord")
-        expect(Keymap.NavigationChord.direction(characters: "x", modifiers: [.command, .shift]) == nil, "⇧⌘X must not be a navigation chord")
-    }
-
-    private static func navigationChordRepeatsAreConsumedWithoutDispatch() {
-        expect(Keymap.NavigationChord.route(characters: "j", modifiers: [.command, .shift], isRepeat: false) == .navigate(.down), "the initial ⇧⌘J should navigate down")
-        expect(Keymap.NavigationChord.route(characters: "j", modifiers: [.command, .shift], isRepeat: true) == .consume, "a repeated ⇧⌘J should be consumed without navigating")
-        expect(Keymap.NavigationChord.route(characters: "j", modifiers: [.command], isRepeat: true) == .passThrough, "a non-navigation repeat should pass through")
-    }
-
-    private static func controlFieldAliasesKeepTheirDirections() {
-        expect(Keymap.NewSession.controlFieldDirection("j") == .down, "⌃J should move to the next field")
-        expect(Keymap.NewSession.controlFieldDirection("k") == .up, "⌃K should move to the previous field")
-        expect(Keymap.NewSession.controlFieldDirection("x") == nil, "an unbound control character should not navigate fields")
-    }
-
     private static func displayGlyphOrdersModifiersAndUppercasesTheKey() {
         expect(Keymap.Command.toggleTracker.displayGlyph == "⌘\\", "toggle tracker glyph was \(Keymap.Command.toggleTracker.displayGlyph)")
         expect(Keymap.Command.toggleDock.displayGlyph == "⇧⌘A", "toggle dock glyph was \(Keymap.Command.toggleDock.displayGlyph)")
@@ -178,11 +229,26 @@ struct KeymapTests {
         expect(Keymap.Command.selectSession[8].displayGlyph == "⌘9", "session 9 glyph was \(Keymap.Command.selectSession[8].displayGlyph)")
     }
 
+    private static func navigationChordMatchesOnlyShiftCommandHJKL() {
+        for (key, direction) in [("H", NavigationDirection.left), ("J", .down), ("K", .up), ("L", .right)] {
+            expect(Keymap.NavigationChord.direction(for: press(key, [.command, .shift])) == direction, "⇧⌘\(key) direction mismatch")
+        }
+        expect(Keymap.NavigationChord.direction(for: press("j", [.command])) == nil, "⌘j without shift must not be a navigation chord")
+        expect(Keymap.NavigationChord.direction(for: press("J", [.command, .shift, .option])) == nil, "⇧⌘⌥J must not be a navigation chord")
+        expect(Keymap.NavigationChord.direction(for: press("X", [.command, .shift])) == nil, "⇧⌘X must not be a navigation chord")
+    }
+
+    private static func navigationChordRepeatsAreConsumedWithoutDispatch() {
+        expect(Keymap.NavigationChord.route(for: press("J", [.command, .shift]), isRepeat: false) == .navigate(.down), "the initial ⇧⌘J should navigate down")
+        expect(Keymap.NavigationChord.route(for: press("J", [.command, .shift]), isRepeat: true) == .consume, "a repeated ⇧⌘J should be consumed without navigating")
+        expect(Keymap.NavigationChord.route(for: press("j", [.command]), isRepeat: true) == .passThrough, "a non-navigation repeat should pass through")
+    }
+
     private static func controlHandoffMapsListControlDirections() {
-        expect(Keymap.ControlHandoff.direction(forKeyCode: 4) == .left, "plain ctrl-h should become list-left handoff")
-        expect(Keymap.ControlHandoff.direction(forKeyCode: 37) == .right, "plain ctrl-l should become list-right handoff")
-        expect(Keymap.ControlHandoff.direction(forKeyCode: 38) == .down, "plain ctrl-j should stay list down")
-        expect(Keymap.ControlHandoff.direction(forKeyCode: 40) == .up, "plain ctrl-k should stay list up")
+        expect(Keymap.chords(for: .handoffLeft) == [.code(4, [.control])], "⌃h should hand focus left")
+        expect(Keymap.chords(for: .handoffDown) == [.code(38, [.control])], "⌃j should hand focus down")
+        expect(Keymap.chords(for: .handoffUp) == [.code(40, [.control])], "⌃k should hand focus up")
+        expect(Keymap.chords(for: .handoffRight) == [.code(37, [.control])], "⌃l should hand focus right")
     }
 
     private static func gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter() {

@@ -102,7 +102,7 @@ struct QuestLogView: View {
                 highlightedSuggestionID: filter.selectedSuggestionID,
                 accessibilityLabel: "Filter quests",
                 previewFocused: previewFocused,
-                onCommand: { filter.handleCommand(keyCode: $0) },
+                onCommand: { filter.handleCommand($0) },
                 onRemoveToken: { filter.removeToken($0) },
                 onSelectSuggestion: { filter.acceptSuggestion($0) }
             )
@@ -160,11 +160,7 @@ struct QuestLogModal: View {
         if event.window?.firstResponder is NSTextView {
             return false
         }
-        var modifiers: Set<Keymap.Modifier> = []
-        if event.modifierFlags.contains(.control) { modifiers.insert(.control) }
-        if event.modifierFlags.contains(.option) { modifiers.insert(.option) }
-        if event.modifierFlags.contains(.shift) { modifiers.insert(.shift) }
-        if let command = QuestLogCommand.from(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, modifiers: modifiers) {
+        if let command = QuestLogCommand.from(event.keymapPress) {
             onCommand(command)
         }
         return true

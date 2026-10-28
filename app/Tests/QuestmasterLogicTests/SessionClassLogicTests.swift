@@ -119,14 +119,18 @@ struct SessionClassLogicTests {
 
     private static func classKeyIsControlEInTheTitleFieldOnly() {
         func cycles(control: Bool = true, command: Bool = false, option: Bool = false, keyCode: UInt16 = 14, titleFocused: Bool = true) -> Bool {
-            SessionClassKey.cycles(keyCode: keyCode, command: command, control: control, option: option, titleFocused: titleFocused)
+            var modifiers: Set<Keymap.Modifier> = []
+            if control { modifiers.insert(.control) }
+            if command { modifiers.insert(.command) }
+            if option { modifiers.insert(.option) }
+            return SessionClassKey.cycles(Keymap.KeyPress(keyCode: keyCode, character: nil, modifiers: modifiers), titleFocused: titleFocused)
         }
         expect(cycles(), "⌃e cycles in the title field")
         expect(!cycles(titleFocused: false), "no class key outside the title field")
         expect(!cycles(control: false), "plain e types")
         expect(!cycles(command: true) && !cycles(option: true), "⌘⌃e and ⌥⌃e are other keys")
         expect(!cycles(keyCode: 15), "⌃r is not the class key")
-        expect(Keymap.NewSession.cycleClass.keyCodes == [14] && Keymap.NewSession.cycleClass.modifiers == [.control], "⌃e is the e key with control")
+        expect(Keymap.chords(for: .cycleClass) == [.code(14, [.control])], "⌃e is the e key with control")
     }
 
     private static func editPortraitIsEditableForMastersOnly() {

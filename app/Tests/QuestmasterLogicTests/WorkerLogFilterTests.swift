@@ -424,7 +424,7 @@ struct WorkerLogFilterTests {
 
     private static func filterKeysResolveOnlyWhatTheMenuStateAllows() {
         func resolve(_ keyCode: UInt16, _ character: String?, open: Bool) -> WorkerLogFilterKey? {
-            WorkerLogFilterKey.resolve(keyCode: keyCode, character: character, menuIsOpen: open)
+            WorkerLogFilterKey.resolve(Keymap.KeyPress(keyCode: keyCode, character: character), menuIsOpen: open)
         }
         expect(resolve(3, "f", open: false) == .toggleMenu && resolve(3, "f", open: true) == .toggleMenu, "f toggles in both states")
         expect(resolve(33, "[", open: false) == .previousTab && resolve(33, "[", open: true) == .previousTab, "[ steps back in both states")

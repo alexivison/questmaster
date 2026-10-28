@@ -86,7 +86,7 @@ struct DockTopBar: View {
                     ChromeIconButton(
                         symbolName: "line.3.horizontal.decrease",
                         accessibilityLabel: "Filter Worker Log",
-                        tooltip: "Filter Worker Log (\(Keymap.WorkerLog.toggleMenu.keys[0].uppercased()))",
+                        tooltip: "Filter Worker Log (\(Keymap.badgeCharacter(for: .toggleFilterMenu) ?? ""))",
                         action: onToggleLogFilter
                     )
                 }

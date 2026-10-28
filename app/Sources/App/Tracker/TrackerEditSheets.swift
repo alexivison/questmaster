@@ -193,10 +193,9 @@ struct TrackerEditSessionSheet: View {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
-        let chars = event.charactersIgnoringModifiers?.lowercased()
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) {
-            guard Keymap.NewSession.create.matches(chars) else {
+        let press = event.keymapPress
+        if press.modifiers.contains(.command) {
+            guard Keymap.matches(press, .submit) else {
                 return false
             }
             submit()
@@ -205,24 +204,23 @@ struct TrackerEditSessionSheet: View {
         if focus == .color, TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
             return true
         }
-        if portrait.isEditable, SessionClassKey.cycles(keyCode: event.keyCode, command: flags.contains(.command), control: flags.contains(.control), option: flags.contains(.option), titleFocused: focus == .title) {
+        if portrait.isEditable, SessionClassKey.cycles(press, titleFocused: focus == .title) {
             portrait.cycle()
             return true
         }
-        if Keymap.NewSession.cancel.matches(event.keyCode) {
+        if Keymap.matches(press, .cancel) {
             dismiss()
             return true
         }
-        if Keymap.NewSession.completePath.matches(event.keyCode)
-            || (flags.contains(.option) && Keymap.NewSession.nextFieldOption.matches(event.keyCode)) {
+        if Keymap.matches(press, .tab) || Keymap.matches(press, .backTab) || Keymap.matches(press, .nextField) {
             navigate(.down)
             return true
         }
-        if flags.contains(.control), let direction = Keymap.NewSession.controlFieldDirection(chars) {
-            navigate(direction)
+        if Keymap.matches(press, .previousField) {
+            navigate(.up)
             return true
         }
-        if Keymap.NewSession.create.matches(chars) {
+        if Keymap.matches(press, .submit) {
             submit()
             return true
         }
@@ -312,9 +310,9 @@ struct TrackerEditRepoSheet: View {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
-        let chars = event.charactersIgnoringModifiers?.lowercased()
-        if event.modifierFlags.contains(.command) {
-            guard Keymap.NewSession.create.matches(chars) else {
+        let press = event.keymapPress
+        if press.modifiers.contains(.command) {
+            guard Keymap.matches(press, .submit) else {
                 return false
             }
             submit()
@@ -323,12 +321,12 @@ struct TrackerEditRepoSheet: View {
         if TrackerColorInput.handle(event, color: &color, colorFocus: &colorFocus) {
             return true
         }
-        if Keymap.NewSession.cancel.matches(event.keyCode) {
+        if Keymap.matches(press, .cancel) {
             dismiss()
             return true
         }
         // The colour input is the only stop: Tab and vertical navigation have nowhere else to go.
-        return Keymap.NewSession.completePath.matches(event.keyCode)
+        return Keymap.matches(press, .tab) || Keymap.matches(press, .backTab)
     }
 }
 
@@ -363,10 +361,10 @@ private struct TrackerColorInput: View {
     /// picker keys (`PickerFieldKey`). The caret follows the mode.
     static func handle(_ event: NSEvent, color: inout ColorFieldModel, colorFocus: inout TrackerColorFocus) -> Bool {
         let before = color.mode
-        let modifiers = event.keymapModifiers
-        if let delta = ColorFieldModel.cycleDelta(keyCode: event.keyCode, modifiers: modifiers, mode: before) {
+        let press = event.keymapPress
+        if let delta = ColorFieldModel.cycleDelta(press, mode: before) {
             color.cycle(delta)
-        } else if let command = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: modifiers, mode: before, showsSuggestions: color.showsSuggestions) {
+        } else if let command = PickerFieldKey.command(press, mode: before, showsSuggestions: color.showsSuggestions) {
             color.apply(command)
         } else {
             return false

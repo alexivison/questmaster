@@ -54,22 +54,19 @@ public struct SessionReasoningEffortOption: Equatable {
 /// The keys that cycle the reasoning effort, the model field's alone: ⌃e in both of its states, and plain
 /// e in SELECT, where an e can't be typed. With focus anywhere else neither does anything effort-related.
 public enum NewSessionEffortKey {
-    public static func cycles(characters: String?, keyCode: UInt16, command: Bool, control: Bool, option: Bool, field: NewSessionField, mode: PickerFieldMode) -> Bool {
-        guard field == .model, !command, !option else {
+    public static func cycles(_ press: Keymap.KeyPress, field: NewSessionField, mode: PickerFieldMode) -> Bool {
+        guard field == .model, Keymap.matches(press, .cycleEffort) else {
             return false
         }
-        if control {
-            return Keymap.NewSession.cycleReasoningEffortInModel.matches(keyCode)
-        }
-        return mode == .select && Keymap.NewSession.cycleReasoningEffort.matchesExactly(characters)
+        return press.modifiers.contains(.control) || mode == .select
     }
 }
 
 /// ⌃r refetches the models past the backend's catalog cache, while the model field has focus (the path
 /// field's own ⌃r lists its recent directories).
 public enum NewSessionModelRefreshKey {
-    public static func refreshes(keyCode: UInt16, command: Bool, control: Bool, option: Bool, field: NewSessionField) -> Bool {
-        field == .model && control && !command && !option && Keymap.NewSession.refreshModels.matches(keyCode)
+    public static func refreshes(_ press: Keymap.KeyPress, field: NewSessionField) -> Bool {
+        field == .model && Keymap.matches(press, .refreshModels)
     }
 }
 
@@ -433,22 +430,6 @@ public struct NewSessionFormModel: Equatable {
 
     public var isSelectFocused: Bool {
         focusedField.isSelect
-    }
-
-    @discardableResult
-    public mutating func handleSelectShortcut(_ key: String?) -> Bool {
-        guard isSelectFocused else {
-            return false
-        }
-        if Keymap.NewSession.selectLeftCharacter.matches(key) {
-            handle(.left)
-            return true
-        }
-        if Keymap.NewSession.selectRightCharacter.matches(key) {
-            handle(.right)
-            return true
-        }
-        return false
     }
 
     public func creationRequested(by key: NewSessionFormKey) -> Bool {

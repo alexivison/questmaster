@@ -181,20 +181,14 @@ public extension ColorFieldModel {
     }
 
     /// The direction ⌥←/⌥→ (both states) and ←/→ (SELECT) cycle the colours in, or nil for another key.
-    static func cycleDelta(keyCode: UInt16, modifiers: Set<Keymap.Modifier>, mode: PickerFieldMode) -> Int? {
-        guard modifiers.isDisjoint(with: [.command, .control]) else {
-            return nil
-        }
-        if modifiers.contains(.option) {
-            if Keymap.ColorField.cyclePrevious.matches(keyCode) { return -1 }
-            if Keymap.ColorField.cycleNext.matches(keyCode) { return 1 }
-            return nil
-        }
+    static func cycleDelta(_ press: Keymap.KeyPress, mode: PickerFieldMode) -> Int? {
+        if Keymap.matches(press, .optionCycleLeft) { return -1 }
+        if Keymap.matches(press, .optionCycleRight) { return 1 }
         guard mode == .select else {
             return nil
         }
-        if Keymap.NewSession.selectLeft.matches(keyCode) { return -1 }
-        if Keymap.NewSession.selectRight.matches(keyCode) { return 1 }
+        if Keymap.matches(press, .cycleLeft) { return -1 }
+        if Keymap.matches(press, .cycleRight) { return 1 }
         return nil
     }
 }

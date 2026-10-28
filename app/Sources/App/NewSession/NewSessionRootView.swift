@@ -185,7 +185,6 @@ struct NewSessionRootView: View {
             placeholder: "Starting prompt for the agent...",
             isEditable: !state.model.submitting,
             isFocused: state.model.focusedField == .prompt,
-            createKey: Keymap.NewSession.create,
             onFocus: { focusedByClick(.prompt, true) },
             onCreate: onCreate
         )

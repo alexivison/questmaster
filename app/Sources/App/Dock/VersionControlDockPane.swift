@@ -97,18 +97,18 @@ final class VersionControlDockPane: NSHostingView<VersionControlPaneRoot> {
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
-        if let direction = DockPaneModel.plainListDirection(from: event) {
+        let press = event.keymapPress
+        if let direction = DockPaneModel.listDirection(for: press) {
             switch direction {
             case .up: return perform(.move(-1))
             case .down: return perform(.move(1))
             case .left, .right: break
             }
         }
-        let key = DockPaneModel.plainShortcutCharacter(from: event)
-        if Keymap.VersionControl.copyURL.matches(key) {
+        if Keymap.matches(press, .copy) {
             return perform(.copyURL)
         }
-        if Keymap.VersionControl.refresh.matches(key) {
+        if Keymap.matches(press, .refresh) {
             return perform(.refresh)
         }
         guard let action = TrackerEventCommandResolver.action(for: event) else {

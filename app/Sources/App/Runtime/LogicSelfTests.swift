@@ -78,7 +78,9 @@ enum LogicSelfTests {
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
         ("testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents", testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
-        ("testGChordShortcutDecidesFromCharacterIgnoringCapsLock", testGChordShortcutDecidesFromCharacterIgnoringCapsLock),
+        ("testGChordShortcutIgnoresCapsLock", testGChordShortcutIgnoresCapsLock),
+        ("testKeymapPressReadsEventsAsTheKeymapDoes", testKeymapPressReadsEventsAsTheKeymapDoes),
+        ("testKeymapPressIgnoresCapsLock", testKeymapPressIgnoresCapsLock),
         ("testArtifactListGChordJumpsToEdgesAndForcesRescroll", testArtifactListGChordJumpsToEdgesAndForcesRescroll),
         ("testListGChordPendingGResetsOnGAndOnInterveningKey", testListGChordPendingGResetsOnGAndOnInterveningKey),
         ("testArtifactDockCopiesSelectedArtifactPathWithY", testArtifactDockCopiesSelectedArtifactPathWithY),
@@ -1433,17 +1435,18 @@ enum LogicSelfTests {
     }
 
     private static func testKeymapErgonomicsBindings() throws {
-        try expect(Keymap.List.moveUpCharacters.keys == ["k"], "list k should move up")
-        try expect(Keymap.List.moveUpKeyCodes.keyCodes.isEmpty, "list should not bind up arrow")
-        try expect(Keymap.List.moveDownKeyCodes.keyCodes.isEmpty, "list should not bind down arrow")
-        try expect(Keymap.List.open.keyCodes == [36, 76], "list Enter should open selection")
-        try expect(!Keymap.List.open.matches(124), "list right arrow should not open selection")
-        try expect(Keymap.List.delete.keys == ["d"], "list delete should be d")
-        try expect(!Keymap.List.delete.matches("x"), "x should not delete list items")
+        func pressed(_ action: Keymap.Action, _ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws -> Bool {
+            Keymap.matches(try keyEvent(characters, keyCode: keyCode, modifierFlags: flags).keymapPress, action)
+        }
+        try expect(try pressed(.moveUp, "k", 40), "list k should move up")
+        try expect(try pressed(.open, "\r", 36), "list Enter should open selection")
+        try expect(!(try pressed(.open, "\u{1c}", 124)), "list right arrow should not open selection")
+        try expect(try pressed(.delete, "d", 2), "list delete should be d")
+        try expect(!(try pressed(.delete, "x", 7)), "x should not delete list items")
         try expect(Keymap.Command.deleteFocusedSession.keyEquivalent == "d", "focused session delete should use d")
         try expect(Keymap.Command.deleteFocusedSession.modifiers == [.command, .shift], "focused session delete should use command-shift-d")
-        try expect(Keymap.Viewer.backKeyCodes.keyCodes == [123], "viewer back should include left arrow")
-        try expect(Keymap.Viewer.back.keys.contains("h"), "viewer h should go back")
+        try expect(try pressed(.back, "\u{1c}", 123), "viewer back should include left arrow")
+        try expect(try pressed(.back, "h", 4), "viewer h should go back")
     }
 
     private static func testArtifactNavigationPolicy() throws {
@@ -2123,24 +2126,52 @@ enum LogicSelfTests {
         try expect(model.artifactModel.selectedArtifactID == second.id, "render should retain the selected artifact")
     }
 
-    private static func testGChordShortcutDecidesFromCharacterIgnoringCapsLock() throws {
-        try expect(GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5)), "plain g should arm the chord")
-        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("g", keyCode: 5)), "plain g should not jump to bottom")
+    private static func testKeymapPressReadsEventsAsTheKeymapDoes() throws {
+        try expect(try keyEvent("g", keyCode: 5).keymapPress == Keymap.KeyPress(keyCode: 5, character: "g"), "a plain g should press g")
+        try expect(try keyEvent("G", keyCode: 5, modifierFlags: [.shift]).keymapPress == Keymap.KeyPress(keyCode: 5, character: "G"), "shift-g should press G, with shift folded into the character")
+        try expect(try keyEvent("\r", keyCode: 36, modifierFlags: [.shift]).keymapPress == Keymap.KeyPress(keyCode: 36, character: "\r", modifiers: [.shift]), "shift-Return keeps shift, since it types no character")
+        try expect(try keyEvent("j", keyCode: 38, modifierFlags: [.control]).keymapPress == Keymap.KeyPress(keyCode: 38, character: "j", modifiers: [.control]), "control-j keeps control")
+    }
 
-        try expect(GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.shift])), "shift-G should jump to bottom")
-        try expect(!GChordShortcut.isPrefix(try keyEvent("G", keyCode: 5, modifierFlags: [.shift])), "shift-G should not arm the chord")
+    /// Caps Lock is transparent: a letter's case comes from Shift alone, so caps+j is j, caps+shift+g is G, and the
+    /// keys behave as they do without Caps Lock. The event's own case is not trusted: the OS gives the reverse with Shift.
+    private static func testKeymapPressIgnoresCapsLock() throws {
+        func press(_ characters: String, _ keyCode: UInt16, _ flags: NSEvent.ModifierFlags = []) throws -> Keymap.KeyPress {
+            try keyEvent(characters, keyCode: keyCode, modifierFlags: flags).keymapPress
+        }
+        try expect(try press("J", 38, [.capsLock]) == Keymap.KeyPress(keyCode: 38, character: "j"), "caps-lock j should press j")
+        try expect(try press("g", 5, [.capsLock, .shift]) == Keymap.KeyPress(keyCode: 5, character: "G"), "caps-lock with shift should press the capital G")
+        try expect(try press("G", 5, [.capsLock]) == Keymap.KeyPress(keyCode: 5, character: "g"), "caps-lock alone should press the lowercase g")
+        try expect(try press("1", 18, [.capsLock]) == Keymap.KeyPress(keyCode: 18, character: "1"), "caps-lock leaves digits alone")
+        try expect(Keymap.matches(try press("D", 2, [.capsLock]), .delete), "caps-lock d should delete, as d does")
+        try expect(Keymap.matches(try press("E", 14, [.capsLock]), .editSession), "caps-lock e should edit the session, not the repo")
+        try expect(!Keymap.matches(try press("E", 14, [.capsLock]), .editRepo), "caps-lock e must not edit the repo")
+        try expect(Keymap.matches(try press("C", 8, [.capsLock]), .toggleWorkersCollapsed), "caps-lock c should collapse the workers, as c does")
+        try expect(Keymap.matches(try press("g", 5, [.capsLock, .shift]), .jumpToBottom), "caps-lock+shift g should jump to bottom")
+        try expect(Keymap.matches(try press("G", 5, [.capsLock]), .jumpToTop), "caps-lock g should arm the gg chord")
+        try expect(Keymap.matches(try press("h", 4, [.command, .shift, .capsLock]), .focusLeft), "⇧⌘H with caps-lock should still focus left")
+    }
 
-        // Caps Lock alone types "G" without Shift being held; the decision must follow the
-        // resulting character, not a `flags == [.shift]` match.
-        try expect(GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.capsLock])), "caps-lock G should jump to bottom")
-        try expect(!GChordShortcut.isPrefix(try keyEvent("G", keyCode: 5, modifierFlags: [.capsLock])), "caps-lock G should not arm the chord")
+    private static func testGChordShortcutIgnoresCapsLock() throws {
+        func pressed(_ action: Keymap.Action, _ characters: String, _ flags: NSEvent.ModifierFlags = []) throws -> Bool {
+            Keymap.matches(try keyEvent(characters, keyCode: 5, modifierFlags: flags).keymapPress, action)
+        }
+        try expect(try pressed(.jumpToTop, "g"), "plain g should arm the chord")
+        try expect(!(try pressed(.jumpToBottom, "g")), "plain g should not jump to bottom")
 
-        // Caps Lock plus Shift cancel out back to lowercase "g".
-        try expect(GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5, modifierFlags: [.capsLock, .shift])), "caps-lock+shift g should arm the chord")
-        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("g", keyCode: 5, modifierFlags: [.capsLock, .shift])), "caps-lock+shift g should not jump to bottom")
+        try expect(try pressed(.jumpToBottom, "G", [.shift]), "shift-G should jump to bottom")
+        try expect(!(try pressed(.jumpToTop, "G", [.shift])), "shift-G should not arm the chord")
 
-        try expect(!GChordShortcut.isPrefix(try keyEvent("g", keyCode: 5, modifierFlags: [.command])), "command-g should not arm the chord")
-        try expect(!GChordShortcut.isJumpToBottom(try keyEvent("G", keyCode: 5, modifierFlags: [.command, .shift])), "command-shift-G should not jump to bottom")
+        // Caps Lock is transparent: caps-lock g is g, so it arms the chord, as it does without Caps Lock.
+        try expect(try pressed(.jumpToTop, "G", [.capsLock]), "caps-lock g should arm the chord")
+        try expect(!(try pressed(.jumpToBottom, "G", [.capsLock])), "caps-lock g should not jump to bottom")
+
+        // Caps Lock with Shift is G, the same as Shift alone.
+        try expect(try pressed(.jumpToBottom, "g", [.capsLock, .shift]), "caps-lock+shift g should jump to bottom")
+        try expect(!(try pressed(.jumpToTop, "g", [.capsLock, .shift])), "caps-lock+shift g should not arm the chord")
+
+        try expect(!(try pressed(.jumpToTop, "g", [.command])), "command-g should not arm the chord")
+        try expect(!(try pressed(.jumpToBottom, "G", [.command, .shift])), "command-shift-G should not jump to bottom")
     }
 
     private static func testArtifactListGChordJumpsToEdgesAndForcesRescroll() throws {
@@ -4161,7 +4192,7 @@ enum LogicSelfTests {
             commandModel.artifactModel.filterSuggestions.map(\.title) == ["@project:"],
             "@p should fuzzy-match the project command"
         )
-        try expect(commandModel.handleArtifactFilterCommand(keyCode: 48), "Tab should accept the command suggestion")
+        try expect(commandModel.handleArtifactFilterCommand(.plain(48)), "Tab should accept the command suggestion")
         try expect(commandModel.artifactModel.artifactFilterQuery == "@project:", "command accept should keep editing values")
         try expect(commandModel.artifactModel.artifactFilterTokens.isEmpty, "command accept should not create a token")
 
@@ -4179,14 +4210,14 @@ enum LogicSelfTests {
         try expect(commandModel.acceptArtifactFilterSuggestion(), "accepting a type value should succeed")
         try expect(commandModel.artifactModel.artifacts == [screenshot], "project and type tokens should combine")
         try expect(
-            commandModel.handleArtifactFilterCommand(keyCode: 51),
+            commandModel.handleArtifactFilterCommand(.plain(51)),
             "empty-tail Backspace should remove the previous token"
         )
         try expect(commandModel.artifactModel.artifacts == [report, screenshot], "Backspace should clear the last token filter")
         commandModel.setArtifactFilterQuery("@")
-        try expect(commandModel.handleArtifactFilterCommand(keyCode: 53), "Esc should close visible suggestions")
+        try expect(commandModel.handleArtifactFilterCommand(.plain(53)), "Esc should close visible suggestions")
         try expect(!commandModel.artifactModel.filterSuggestionsVisible, "Esc should hide suggestions")
-        try expect(!commandModel.handleArtifactFilterCommand(keyCode: 53), "second Esc should fall through for input blur")
+        try expect(!commandModel.handleArtifactFilterCommand(.plain(53)), "second Esc should fall through for input blur")
 
         model.setArtifactTypeFilter("markdown", isSelected: true)
         model.setArtifactTypeFilter("image", isSelected: true)
