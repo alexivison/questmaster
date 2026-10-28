@@ -32,7 +32,6 @@ public struct PullRequestStatus: Decodable, Equatable {
     public let updatedAt: String?
     public let additions: Int
     public let deletions: Int
-    public let comments: Int
     public let review: PullRequestReview?
     public let ci: PullRequestCI?
     public let changedAt: String?
@@ -40,7 +39,7 @@ public struct PullRequestStatus: Decodable, Equatable {
     public let stale: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case title, url, state, draft, additions, deletions, comments, review, ci, stale
+        case title, url, state, draft, additions, deletions, review, ci, stale
         case headSHA = "head_sha", updatedAt = "updated_at", changedAt = "changed_at"
         case inaccessibleReason = "inaccessible_reason"
     }
@@ -120,15 +119,12 @@ public struct PullRequestDisplayRow: Equatable {
         let value = pullRequest.status?.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? pullRequest.key : value
     }
-    /// Plain digits, as the design sets them: "+1250", "-540" and "20".
+    /// Plain digits, as the design sets them: "+1250" and "-540".
     public var additionsLabel: String? {
         accessibleStatus.map { "+\($0.additions)" }
     }
     public var deletionsLabel: String? {
         accessibleStatus.map { "-\($0.deletions)" }
-    }
-    public var commentsLabel: String? {
-        accessibleStatus.map { String($0.comments) }
     }
     /// A master's row names the first worker watching it; the others count behind it as "+N".
     public var extraWatcherCount: Int { max(0, watcherTags.count - 1) }

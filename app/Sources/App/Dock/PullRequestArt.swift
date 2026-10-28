@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// Path data copied from `Session Detail Dock.svg` (the Version Control panel) in its own coordinates, one icon per
-/// design glyph: the four git states, the three review rings and the comment bubble. Each icon's `origin` is its 15 x 15
-/// box's top-left corner in the SVG, so the paths parse shifted into the box. The git icons are 1pt round-capped
-/// strokes; the rings and the bubble are fills. Colours stay with the view: each icon is one colour in the design.
+/// design glyph: the four git states and the three review rings. Each icon's `origin` is its 15 x 15 box's top-left
+/// corner in the SVG, so the paths parse shifted into the box. The git icons are 1pt round-capped strokes; the rings are
+/// fills. Colours stay with the view: each icon is one colour in the design.
 struct PullRequestIcon {
     typealias Piece = (origin: CGPoint, d: String)
 
@@ -57,9 +57,6 @@ struct PullRequestIcon {
     static let ringApproved = PullRequestIcon(isStroked: false, origin: CGPoint(x: 51, y: 146), [
         "M58.3664 160.993C62.4324 160.993 65.7328 157.634 65.7328 153.496C65.7328 149.359 62.4324 146 58.3664 146C54.3004 146 51 149.359 51 153.496C51 157.634 54.3004 160.993 58.3664 160.993ZM58.3664 159.743C54.9721 159.743 52.2277 156.951 52.2277 153.496C52.2277 150.042 54.9721 147.249 58.3664 147.249C61.7607 147.249 64.505 150.042 64.505 153.496C64.505 156.951 61.7607 159.743 58.3664 159.743Z",
         "M57.572 156.987C57.8104 156.987 58.0126 156.87 58.157 156.642L61.4574 151.358C61.5369 151.211 61.6308 151.049 61.6308 150.887C61.6308 150.557 61.3419 150.344 61.0386 150.344C60.858 150.344 60.6774 150.461 60.5403 150.674L57.5431 155.569L56.1204 153.695C55.9471 153.46 55.7882 153.401 55.586 153.401C55.2755 153.401 55.0299 153.658 55.0299 153.981C55.0299 154.143 55.0949 154.297 55.196 154.437L56.9582 156.642C57.1387 156.884 57.3337 156.987 57.572 156.987Z",
-    ])
-    static let bubble = PullRequestIcon(isStroked: false, origin: CGPoint(x: 181, y: 62), [
-        "M185.116 77C185.444 77 185.672 76.8225 186.08 76.4538L188.39 74.3577H192.687C194.681 74.3577 195.752 73.2312 195.752 71.2307V66.0009C195.752 64.0004 194.681 62.8739 192.687 62.8739H184.066C182.071 62.8739 181 63.9936 181 66.0009V71.2307C181 73.238 182.071 74.3577 184.066 74.3577H184.387V76.1328C184.387 76.6586 184.648 77 185.116 77ZM185.391 75.7506V73.7705C185.391 73.4019 185.25 73.2585 184.889 73.2585H184.066C182.714 73.2585 182.078 72.5553 182.078 71.2239V66.0009C182.078 64.6695 182.714 63.9731 184.066 63.9731H192.687C194.032 63.9731 194.675 64.6695 194.675 66.0009V71.2239C194.675 72.5553 194.032 73.2585 192.687 73.2585H188.349C187.975 73.2585 187.787 73.3131 187.533 73.5794L185.391 75.7506Z",
     ])
 }
 
