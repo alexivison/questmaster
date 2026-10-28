@@ -12,4 +12,16 @@ extension NSEvent {
         if flags.contains(.shift) { modifiers.insert(.shift) }
         return modifiers
     }
+
+    /// The press the keymap matches (`Keymap.matches`): the key code, the character with Shift applied, and `keymapModifiers`.
+    var keymapPress: Keymap.KeyPress {
+        Keymap.KeyPress(keyCode: keyCode, character: charactersIgnoringModifiers, modifiers: keymapModifiers)
+    }
+}
+
+extension Keymap.KeyPress {
+    /// A key with no modifiers, for the text system's commands, which arrive without them.
+    static func plain(_ keyCode: UInt16) -> Keymap.KeyPress {
+        Keymap.KeyPress(keyCode: keyCode, character: nil)
+    }
 }

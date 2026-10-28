@@ -85,41 +85,51 @@ final class QuestLogFilter {
         return true
     }
 
-    /// The field's own keys (key codes from `CommandTextField`).
-    func handleCommand(keyCode: UInt16) -> Bool {
-        switch keyCode {
-        case 125 where !suggestions.isEmpty:
-            moveSuggestion(delta: 1)
+    /// The field's own keys (each press from `CommandTextField`).
+    func handleCommand(_ press: Keymap.KeyPress) -> Bool {
+        if Keymap.matches(press, .suggestionDown) {
+            moveSuggestionOrSelection(delta: 1)
             return true
-        case 126 where !suggestions.isEmpty:
-            moveSuggestion(delta: -1)
+        }
+        if Keymap.matches(press, .suggestionUp) {
+            moveSuggestionOrSelection(delta: -1)
             return true
-        case 125, 126:
-            onMoveSelection?(keyCode == 125 ? .moveDown : .moveUp)
-            return true
-        case 48 where !suggestions.isEmpty:
+        }
+        if Keymap.matches(press, .tab), !suggestions.isEmpty {
             return acceptSuggestion()
-        case 36, 76:
+        }
+        if Keymap.matches(press, .submit) {
             if !suggestions.isEmpty {
                 return acceptSuggestion()
             }
             onEdit?()
             return true
-        case 51 where query.isEmpty && !tokens.isEmpty:
+        }
+        if Keymap.matches(press, .backspace), query.isEmpty, !tokens.isEmpty {
             tokens.removeLast()
             syncProjectIDs()
             changed()
             return true
-        case 53 where !suggestions.isEmpty:
+        }
+        if Keymap.matches(press, .cancel) {
+            guard !suggestions.isEmpty else {
+                onLeave?()
+                return true
+            }
             suggestionsHidden = true
             refreshSuggestions()
             return true
-        case 53:
-            onLeave?()
-            return true
-        default:
-            return false
         }
+        return false
+    }
+
+    /// ↑ and ↓ move the suggestions while there are any, and the quest list otherwise.
+    private func moveSuggestionOrSelection(delta: Int) {
+        guard !suggestions.isEmpty else {
+            onMoveSelection?(delta > 0 ? .moveDown : .moveUp)
+            return
+        }
+        moveSuggestion(delta: delta)
     }
 
     private func changed() {

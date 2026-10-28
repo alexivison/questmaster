@@ -48,7 +48,7 @@ struct FilterBar: View {
     let accessibilityLabel: String
     /// Renders the field as focused (RenderPreview).
     var previewFocused = false
-    var onCommand: (UInt16) -> Bool
+    var onCommand: (Keymap.KeyPress) -> Bool
     var onEndEditing: () -> Void = {}
     var onRemoveToken: (ArtifactFilterToken) -> Void
     var onSelectSuggestion: (ArtifactFilterSuggestion) -> Void
@@ -121,7 +121,7 @@ struct CommandTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var focusNonce: Int
-    var onCommand: (UInt16) -> Bool
+    var onCommand: (Keymap.KeyPress) -> Bool
     var onEndEditing: () -> Void
     var onFocusChanged: (Bool) -> Void
     var font: NSFont = AppFonts.body
@@ -182,7 +182,7 @@ struct CommandTextField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var text: Binding<String>
-        var onCommand: (UInt16) -> Bool
+        var onCommand: (Keymap.KeyPress) -> Bool
         var onEndEditing: () -> Void
         var onFocusChanged: (Bool) -> Void
         private var lastFocusNonce: Int?
@@ -190,7 +190,7 @@ struct CommandTextField: NSViewRepresentable {
 
         init(
             text: Binding<String>,
-            onCommand: @escaping (UInt16) -> Bool,
+            onCommand: @escaping (Keymap.KeyPress) -> Bool,
             onEndEditing: @escaping () -> Void,
             onFocusChanged: @escaping (Bool) -> Void
         ) {
@@ -220,19 +220,20 @@ struct CommandTextField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // The text system names these commands without their modifiers, so each is the plain key.
             switch commandSelector {
             case #selector(NSResponder.insertTab(_:)):
-                return onCommand(48)
+                return onCommand(.plain(48))
             case #selector(NSResponder.insertNewline(_:)):
-                return onCommand(36)
+                return onCommand(.plain(36))
             case #selector(NSResponder.moveDown(_:)):
-                return onCommand(125)
+                return onCommand(.plain(125))
             case #selector(NSResponder.moveUp(_:)):
-                return onCommand(126)
+                return onCommand(.plain(126))
             case #selector(NSResponder.deleteBackward(_:)):
-                return textView.string.isEmpty && onCommand(51)
+                return textView.string.isEmpty && onCommand(.plain(51))
             case #selector(NSResponder.cancelOperation(_:)):
-                if onCommand(53) {
+                if onCommand(.plain(53)) {
                     return true
                 }
                 (control as? KeyTextField)?.focusOwningPane()
@@ -252,7 +253,7 @@ struct CommandTextField: NSViewRepresentable {
     }
 
     final class KeyTextField: NSTextField {
-        var onCommand: (UInt16) -> Bool = { _ in false }
+        var onCommand: (Keymap.KeyPress) -> Bool = { _ in false }
         /// Whether this field's editor is the window's first responder, reported on every change: on a
         /// click, on "/", and when Esc or a click elsewhere takes focus away.
         var onFirstResponderChange: ((Bool) -> Void)?
@@ -290,10 +291,11 @@ struct CommandTextField: NSViewRepresentable {
         }
 
         override func keyDown(with event: NSEvent) {
-            if onCommand(event.keyCode) {
+            let press = event.keymapPress
+            if onCommand(press) {
                 return
             }
-            if event.keyCode == 53 {
+            if Keymap.matches(press, .cancel) {
                 focusOwningPane()
                 return
             }

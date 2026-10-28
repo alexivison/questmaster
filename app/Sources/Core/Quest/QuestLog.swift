@@ -145,33 +145,25 @@ public enum QuestLogCommand: Equatable {
         }
     }
 
-    /// The keys mean their command only with no modifier held, so ⌃d or ⌥d never reads as d (Abandon). The
-    /// exceptions: ⌃u / ⌃d page, and Shift types `G`. Caps Lock isn't a modifier here; it only changes the letter.
-    public static func from(characters: String?, keyCode: UInt16, modifiers: Set<Keymap.Modifier> = []) -> QuestLogCommand? {
-        typealias Keys = Keymap.QuestLog
-        if modifiers == [.control] {
-            if Keys.halfPageUp.matches(characters) { return .halfPageUp }
-            if Keys.halfPageDown.matches(characters) { return .halfPageDown }
-            return nil
-        }
-        if Keys.jumpToLast.matchesExactly(characters), modifiers.isSubset(of: [.shift]) { return .jumpToLast }
-        guard modifiers.isEmpty else {
-            return nil
-        }
-        if Keys.close.matches(keyCode) { return .close }
-        if Keys.pageUp.matches(keyCode) { return .pageUp }
-        if Keys.pageDown.matches(keyCode) { return .pageDown }
-        if Keys.focusFilter.matchesExactly(characters) { return .focusFilter }
-        if Keys.moveUpKeyCodes.matches(keyCode) { return .moveUp }
-        if Keys.moveDownKeyCodes.matches(keyCode) { return .moveDown }
-        if Keys.moveUpCharacters.matchesExactly(characters) { return .moveUp }
-        if Keys.moveDownCharacters.matchesExactly(characters) { return .moveDown }
-        if Keys.start.matchesExactly(characters) { return .start }
-        if Keys.edit.matchesExactly(characters) { return .edit }
-        if Keys.delete.matchesExactly(characters) { return .delete }
-        if Keys.copy.matchesExactly(characters) { return .copy }
-        if Keys.toggleMark.matchesExactly(characters) { return .toggleMark }
-        if Keys.jumpToFirstPrefix.matchesExactly(characters) { return .jumpToFirstPrefix }
+    /// The keys mean their command only with exactly the modifiers the chord names, so ⌃d or ⌥d never reads as d
+    /// (Abandon). Shift types `G`; ⌃u and ⌃d page by half. Caps Lock is not a modifier: Caps Lock + d types `D`, which
+    /// is no command.
+    public static func from(_ press: Keymap.KeyPress) -> QuestLogCommand? {
+        if Keymap.matches(press, .jumpToBottom) { return .jumpToLast }
+        if Keymap.matches(press, .halfPageUp) { return .halfPageUp }
+        if Keymap.matches(press, .halfPageDown) { return .halfPageDown }
+        if Keymap.matches(press, .cancel) { return .close }
+        if Keymap.matches(press, .pageUp) { return .pageUp }
+        if Keymap.matches(press, .pageDown) { return .pageDown }
+        if Keymap.matches(press, .focusFilter) { return .focusFilter }
+        if Keymap.matches(press, .moveUp) { return .moveUp }
+        if Keymap.matches(press, .moveDown) { return .moveDown }
+        if Keymap.matches(press, .startQuest) { return .start }
+        if Keymap.matches(press, .editQuest) { return .edit }
+        if Keymap.matches(press, .delete) { return .delete }
+        if Keymap.matches(press, .copy) { return .copy }
+        if Keymap.matches(press, .toggleMark) { return .toggleMark }
+        if Keymap.matches(press, .jumpToTop) { return .jumpToFirstPrefix }
         return nil
     }
 }

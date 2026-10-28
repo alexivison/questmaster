@@ -120,10 +120,10 @@ struct ColorFieldTests {
 
     /// ←/→ cycle in SELECT, ⌥←/⌥→ in both states; the rest of the colour's keys are the shared picker's.
     private static func cycleKeysAreTheColoursOwn() {
-        expect(ColorFieldModel.cycleDelta(keyCode: 123, modifiers: [], mode: .select) == -1 && ColorFieldModel.cycleDelta(keyCode: 124, modifiers: [], mode: .select) == 1, "←/→ should cycle in SELECT")
-        expect(ColorFieldModel.cycleDelta(keyCode: 123, modifiers: [.option], mode: .select) == -1 && ColorFieldModel.cycleDelta(keyCode: 124, modifiers: [.option], mode: .search) == 1, "⌥←/⌥→ should cycle in both states")
-        expect(ColorFieldModel.cycleDelta(keyCode: 123, modifiers: [], mode: .search) == nil, "plain ← should move the caret while searching")
-        expect(ColorFieldModel.cycleDelta(keyCode: 124, modifiers: [.command], mode: .select) == nil, "⌘ keys should not cycle")
+        expect(ColorFieldModel.cycleDelta(Keymap.KeyPress(keyCode: 123, character: nil, modifiers: []), mode: .select) == -1 && ColorFieldModel.cycleDelta(Keymap.KeyPress(keyCode: 124, character: nil, modifiers: []), mode: .select) == 1, "←/→ should cycle in SELECT")
+        expect(ColorFieldModel.cycleDelta(Keymap.KeyPress(keyCode: 123, character: nil, modifiers: [.option]), mode: .select) == -1 && ColorFieldModel.cycleDelta(Keymap.KeyPress(keyCode: 124, character: nil, modifiers: [.option]), mode: .search) == 1, "⌥←/⌥→ should cycle in both states")
+        expect(ColorFieldModel.cycleDelta(Keymap.KeyPress(keyCode: 123, character: nil, modifiers: []), mode: .search) == nil, "plain ← should move the caret while searching")
+        expect(ColorFieldModel.cycleDelta(Keymap.KeyPress(keyCode: 124, character: nil, modifiers: [.command]), mode: .select) == nil, "⌘ keys should not cycle")
     }
 
     /// The shared commands move the colour through its own model: a search previews the highlight, Tab or

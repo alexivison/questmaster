@@ -178,11 +178,7 @@ final class NewSessionSheetModel: ObservableObject {
     }
 
     func handle(_ event: NSEvent) -> Bool {
-        let chars = event.charactersIgnoringModifiers?.lowercased()
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let control = flags.contains(.control)
-        let option = flags.contains(.option)
-        let shift = flags.contains(.shift)
+        let press = event.keymapPress
         let field = state.model.focusedField
 
         if field == .model, !state.model.submitting, handleModelFieldKey(event) {
@@ -191,16 +187,16 @@ final class NewSessionSheetModel: ObservableObject {
         if field == .path, !state.model.submitting, handlePathFieldKey(event) {
             return true
         }
-        if SessionClassKey.cycles(keyCode: event.keyCode, command: flags.contains(.command), control: control, option: option, titleFocused: field == .title) {
+        if SessionClassKey.cycles(press, titleFocused: field == .title) {
             cycleClass()
             return true
         }
-        if Keymap.NewSession.cancel.matches(event.keyCode) {
+        if Keymap.matches(press, .cancel) {
             close()
             return true
         }
-        if flags.contains(.command) {
-            guard Keymap.NewSession.create.matches(chars) else {
+        if press.modifiers.contains(.command) {
+            guard Keymap.matches(press, .submit) else {
                 return false
             }
             submit()
@@ -209,39 +205,35 @@ final class NewSessionSheetModel: ObservableObject {
         if state.model.submitting {
             return true
         }
-        if option, Keymap.NewSession.nextFieldOption.matches(event.keyCode) {
+        if Keymap.matches(press, .nextField) {
             moveFocus(.controlJ)
             return true
         }
-        if control, Keymap.NewSession.nextField.matches(chars) {
-            moveFocus(.controlJ)
-            return true
-        }
-        if control, Keymap.NewSession.previousField.matches(chars) {
+        if Keymap.matches(press, .previousField) {
             moveFocus(.controlK)
             return true
         }
-        if control, Keymap.NewSession.createFromPrompt.matches(chars) {
+        if Keymap.matches(press, .createFromPrompt) {
             guard state.model.creationRequested(by: .controlS) else {
                 return false
             }
             submit()
             return true
         }
-        if Keymap.NewSession.completePath.matches(event.keyCode) {
-            return handleTab(shift: shift)
+        if Keymap.matches(press, .tab) || Keymap.matches(press, .backTab) {
+            return handleTab(shift: press.modifiers.contains(.shift))
         }
-        if state.model.isSelectFocused, flags.subtracting(.shift).isEmpty {
-            if Keymap.NewSession.selectLeft.matches(event.keyCode) || Keymap.NewSession.selectLeftCharacter.matches(chars) {
+        if state.model.isSelectFocused {
+            if Keymap.matches(press, .cycleLeft) {
                 cycleSelection(.left)
                 return true
             }
-            if Keymap.NewSession.selectRight.matches(event.keyCode) || Keymap.NewSession.selectRightCharacter.matches(chars) {
+            if Keymap.matches(press, .cycleRight) {
                 cycleSelection(.right)
                 return true
             }
         }
-        if Keymap.NewSession.create.matches(chars) {
+        if Keymap.matches(press, .submit) {
             guard state.model.creationRequested(by: .enter) else {
                 return false
             }
@@ -266,21 +258,20 @@ final class NewSessionSheetModel: ObservableObject {
     /// rows close (`handlePathTab`); the next Tab moves on. Return takes a row only once ↑/↓ moved to it, and
     /// otherwise submits.
     private func handlePathFieldKey(_ event: NSEvent) -> Bool {
-        let modifiers = event.keymapModifiers
-        guard !modifiers.contains(.command) else {
+        let press = event.keymapPress
+        guard !press.modifiers.contains(.command) else {
             return false
         }
-        let chars = event.charactersIgnoringModifiers?.lowercased()
-        if modifiers.contains(.control), Keymap.NewSession.recentPaths.matches(chars) {
+        if Keymap.matches(press, .recentPaths) {
             requestPathSuggestions(recentsOnly: true)
             return true
         }
-        if Keymap.NewSession.completePath.matches(event.keyCode), !modifiers.contains(.shift) {
+        if Keymap.matches(press, .tab) {
             handlePathTab()
             return true
         }
         let rowsShowing = state.showsPathSuggestions
-        guard let command = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: modifiers, mode: .search, showsSuggestions: rowsShowing && state.paths.moved) else {
+        guard let command = PickerFieldKey.command(press, mode: .search, showsSuggestions: rowsShowing && state.paths.moved) else {
             return false
         }
         switch command {
@@ -326,23 +317,20 @@ final class NewSessionSheetModel: ObservableObject {
     /// keys (`NewSessionEffortKey`) and ⌃r (`NewSessionModelRefreshKey`), then the shared picker keys
     /// (`PickerFieldKey`). The effort re-resolves only when the text changes.
     private func handleModelFieldKey(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let command = flags.contains(.command)
-        let control = flags.contains(.control)
-        let option = flags.contains(.option)
+        let press = event.keymapPress
         let before = state.model.modelMode
         defer {
             state.followModelMode(from: before)
         }
-        if NewSessionEffortKey.cycles(characters: event.charactersIgnoringModifiers, keyCode: event.keyCode, command: command, control: control, option: option, field: .model, mode: before) {
+        if NewSessionEffortKey.cycles(press, field: .model, mode: before) {
             cycleEffort(1)
             return true
         }
-        if NewSessionModelRefreshKey.refreshes(keyCode: event.keyCode, command: command, control: control, option: option, field: .model) {
+        if NewSessionModelRefreshKey.refreshes(press, field: .model) {
             refreshModels()
             return true
         }
-        guard let pickerCommand = PickerFieldKey.command(keyCode: event.keyCode, characters: event.characters, modifiers: event.keymapModifiers, mode: before, showsSuggestions: state.model.showsModelSuggestions) else {
+        guard let pickerCommand = PickerFieldKey.command(press, mode: before, showsSuggestions: state.model.showsModelSuggestions) else {
             return false
         }
         let textBefore = state.model.modelText

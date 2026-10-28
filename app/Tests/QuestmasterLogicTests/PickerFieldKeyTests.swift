@@ -75,12 +75,12 @@ struct PickerFieldKeyTests {
         model.typeModel("opus")
         expect(model.showsModelSuggestions, "precondition: a match shows while searching")
 
-        let firstTab = PickerFieldKey.command(keyCode: 48, characters: "\t", modifiers: [], mode: model.modelMode, showsSuggestions: model.showsModelSuggestions)
+        let firstTab = PickerFieldKey.command(Keymap.KeyPress(keyCode: 48, character: "\t", modifiers: []), mode: model.modelMode, showsSuggestions: model.showsModelSuggestions)
         expect(firstTab == .pick, "the first Tab should pick")
         model.applyModelCommand(firstTab!)
         expect(model.selectedModel == "claude-opus-5-5" && model.modelMode == .select, "picking should take the row and return to SELECT")
 
-        let secondTab = PickerFieldKey.command(keyCode: 48, characters: "\t", modifiers: [], mode: model.modelMode, showsSuggestions: model.showsModelSuggestions)
+        let secondTab = PickerFieldKey.command(Keymap.KeyPress(keyCode: 48, character: "\t", modifiers: []), mode: model.modelMode, showsSuggestions: model.showsModelSuggestions)
         expect(secondTab == nil, "the second Tab should be the sheet's, moving on")
     }
 
@@ -91,11 +91,11 @@ struct PickerFieldKeyTests {
         form.startProjectSearch(.seed("a"))
         expect(form.showsProjectSuggestions && form.highlightedProject?.displayName == "a", "precondition: the name shows and is highlighted")
 
-        let firstTab = PickerFieldKey.command(keyCode: 48, characters: "\t", modifiers: [], mode: form.projectMode, showsSuggestions: form.showsProjectSuggestions)
+        let firstTab = PickerFieldKey.command(Keymap.KeyPress(keyCode: 48, character: "\t", modifiers: []), mode: form.projectMode, showsSuggestions: form.showsProjectSuggestions)
         expect(firstTab == .pick, "the first Tab should pick the name")
         form.applyProjectCommand(firstTab!)
         expect(form.projectText == "a" && form.projectMode == .select, "picking should show the name and return to SELECT")
-        expect(PickerFieldKey.command(keyCode: 48, characters: "\t", modifiers: [], mode: form.projectMode, showsSuggestions: form.showsProjectSuggestions) == nil, "the second Tab should move on")
+        expect(PickerFieldKey.command(Keymap.KeyPress(keyCode: 48, character: "\t", modifiers: []), mode: form.projectMode, showsSuggestions: form.showsProjectSuggestions) == nil, "the second Tab should move on")
     }
 
     /// A path's Tab takes the highlighted directory and leaves the path's own text to the field: it never
@@ -124,7 +124,7 @@ struct PickerFieldKeyTests {
         mode: PickerFieldMode,
         showsSuggestions: Bool = false
     ) -> PickerFieldCommand? {
-        PickerFieldKey.command(keyCode: keyCode, characters: characters, modifiers: modifiers, mode: mode, showsSuggestions: showsSuggestions)
+        PickerFieldKey.command(Keymap.KeyPress(keyCode: keyCode, character: characters, modifiers: modifiers), mode: mode, showsSuggestions: showsSuggestions)
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
