@@ -27,12 +27,12 @@ func TestFetchDetailsPaginatesToLastIDAndKeepsPendingReviewsOpen(t *testing.T) {
 				nodes = `[{"id":"old-comment","body":"old","createdAt":"2026-10-27T00:01:00Z","author":{"login":"old"}}]`
 				page = `false`
 			} else {
-				nodes = `[{"id":"new-comment","body":"hello","createdAt":"2026-10-27T01:05:00Z","author":{"login":"alice"}}]`
+				nodes = `[{"id":"new-comment","body":"hello","createdAt":"2026-10-27T01:05:00Z","author":{"login":"claude","__typename":"Bot"}}]`
 				page = `true`
 			}
 		case strings.Contains(query, "reviews(last:"):
 			source = "reviews"
-			nodes = `[{"id":"old-review","body":"old","submittedAt":"2026-10-27T00:01:00Z","state":"APPROVED"},{"id":"new-review","body":"fix","submittedAt":"2026-10-27T01:06:00Z","state":"CHANGES_REQUESTED","author":{"login":"bob"}},{"id":"pending-review","state":"PENDING"}]`
+			nodes = `[{"id":"old-review","body":"old","submittedAt":"2026-10-27T00:01:00Z","state":"APPROVED"},{"id":"new-review","body":"fix","submittedAt":"2026-10-27T01:06:00Z","state":"CHANGES_REQUESTED","author":{"login":"bob","__typename":"User"}},{"id":"pending-review","state":"PENDING"}]`
 			page = `false`
 		}
 		return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100,"resetAt":"2026-10-28T00:00:00Z"},"repository":{"pullRequest":{"%s":{"nodes":%s,"pageInfo":{"hasPreviousPage":%s,"startCursor":"cursor"}}}}}}`, source, nodes, page)), nil, nil
@@ -41,7 +41,7 @@ func TestFetchDetailsPaginatesToLastIDAndKeepsPendingReviewsOpen(t *testing.T) {
 		if !strings.Contains(endpoint, "sort=created&direction=desc") {
 			t.Fatalf("review comments must be sorted by creation: %s", endpoint)
 		}
-		return []byte(`[{"node_id":"new-line","body":"line","created_at":"2026-10-27T01:07:00Z","updated_at":"2026-10-27T01:07:00Z","user":{"login":"carol"}},{"node_id":"old-line","created_at":"2026-10-27T00:01:00Z","updated_at":"2026-10-27T00:01:00Z"}]`), nil, nil
+		return []byte(`[{"node_id":"new-line","body":"line","created_at":"2026-10-27T01:07:00Z","updated_at":"2026-10-27T01:07:00Z","user":{"login":"claude[bot]","type":"Bot"}},{"node_id":"old-line","created_at":"2026-10-27T00:01:00Z","updated_at":"2026-10-27T00:01:00Z"}]`), nil, nil
 	}
 	events, ids, host := fetchDetails(context.Background(), pr, state.PullRequestStatus{}, state.PullRequestStatus{}, "", log, graph, rest, now)
 	if host.Error != "" || len(events) != 3 || ids["reviews"] != "new-review" || ids["comments"] != "new-comment" || ids["review_comments"] != "new-line" || len(queries) != 3 {
@@ -49,6 +49,14 @@ func TestFetchDetailsPaginatesToLastIDAndKeepsPendingReviewsOpen(t *testing.T) {
 	}
 	if events[0].Kind != "comment" || events[1].Kind != "review" || events[2].Kind != "review_comment" || events[1].State != "changes_requested" {
 		t.Fatalf("ordered events=%#v", events)
+	}
+	if events[0].Author != "claude[bot]" || !events[0].Bot || events[1].Author != "bob" || events[1].Bot || events[2].Author != "claude[bot]" || !events[2].Bot {
+		t.Fatalf("bot authors=%#v", events)
+	}
+	for _, query := range queries {
+		if !strings.Contains(query, "author { login __typename }") {
+			t.Fatalf("missing author type in query: %s", query)
+		}
 	}
 }
 

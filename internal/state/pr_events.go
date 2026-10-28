@@ -14,10 +14,12 @@ type PullRequestEvent struct {
 	Kind       string `json:"kind"`
 	OccurredAt string `json:"occurred_at"`
 	Author     string `json:"author,omitempty"`
+	Bot        bool   `json:"bot,omitempty"`
 	Body       string `json:"body,omitempty"`
 	State      string `json:"state,omitempty"`
 	HeadSHA    string `json:"head_sha,omitempty"`
 	Result     string `json:"result,omitempty"`
+	BodyBytes  int    `json:"-"`
 }
 
 type PullRequestEventCursor struct {
@@ -181,10 +183,12 @@ func ReadPullRequestEvents(root, key, sessionID string, unread bool) ([]PullRequ
 
 func selectPullRequestEvents(registry pullRequestRegistry, key, sessionID string, alerts, unread bool) ([]PullRequestEvent, int64, error) {
 	var watcher *PullRequestWatcher
+	found := false
 	for _, pr := range registry.PullRequests {
 		if pr.Key != key {
 			continue
 		}
+		found = true
 		for i := range pr.Watchers {
 			if pr.Watchers[i].SessionID == sessionID {
 				watcher = &pr.Watchers[i]
@@ -192,12 +196,18 @@ func selectPullRequestEvents(registry pullRequestRegistry, key, sessionID string
 			}
 		}
 	}
-	if watcher == nil {
-		return nil, 0, fmt.Errorf("session %s does not watch %s", sessionID, key)
+	if !found {
+		return nil, 0, fmt.Errorf("no one watches %s", key)
+	}
+	if watcher == nil && (alerts || unread) {
+		return nil, 0, fmt.Errorf("session %s does not watch %s; use --session <watcher-id> for --unread", sessionID, key)
 	}
 	log := registry.EventLogs[key]
 	if log == nil {
 		return []PullRequestEvent{}, 0, nil
+	}
+	if watcher == nil {
+		watcher = &PullRequestWatcher{}
 	}
 	events, seq := selectEvents(log, *watcher, alerts, unread)
 	return events, seq, nil
@@ -223,6 +233,7 @@ func selectEvents(log *PullRequestEventLog, watcher PullRequestWatcher, alerts, 
 		if !baseline.IsZero() && occurred.Before(baseline) {
 			continue
 		}
+		event.BodyBytes = len(event.Body)
 		event.Body = strings.ReplaceAll(event.Body, "```", "\\`\\`\\`")
 		events = append(events, event)
 	}
