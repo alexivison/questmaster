@@ -1,3 +1,4 @@
 The questmaster CLI is available in this shell; run questmaster help (or questmaster <command> --help) for commands and flags. Use questmaster list for a session overview and questmaster read <session-id> to inspect a session.
 Send messages with questmaster send <session-id> "message"; workers use questmaster send master to report, and masters use questmaster send all to broadcast.
-questmaster pr watch <url> registers this session for PR alerts. Alerts start [PR owner/repo#N] and reach the watcher only while idle or done; a blocking monitor delays them. Use questmaster pr events <ref> --unread to read new activity. Repeating pr watch is safe.
+OpenCode message targets must be idle or done; a blocking wait loop keeps the target working and makes send fail.
+questmaster pr watch <url> registers this session for PR alerts. Alerts start [PR owner/repo#N] and reach the watcher only while idle or done; a blocking monitor delays them. Use questmaster pr events <ref> --unread to read new activity. Repeating pr watch is safe. A watch ends when its session is deleted or pruned.

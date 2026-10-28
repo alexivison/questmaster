@@ -44,7 +44,6 @@ const (
 type Spec struct {
 	Name           string
 	DisplayName    string
-	Description    string
 	DefaultCLI     string
 	ResumeKey      string
 	ResumeFileName string
@@ -66,7 +65,7 @@ type Spec struct {
 
 // base implements the boilerplate half of the Agent interface from a Spec.
 // Providers embed it and override only what genuinely differs (BuildCmd is
-// required; Claude additionally overrides PreLaunchSetup). The three role
+// required; Claude additionally overrides PreLaunchSetup). The two role
 // prompts are shared verbatim across every real harness, so they live here.
 type base struct {
 	spec Spec
@@ -85,7 +84,6 @@ func newBase(spec Spec, cfg AgentConfig) base {
 
 func (b base) Name() string        { return b.spec.Name }
 func (b base) DisplayName() string { return b.spec.DisplayName }
-func (b base) Description() string { return b.spec.Description }
 func (b base) Binary() string      { return b.cli }
 
 func (b base) ResumeKey() string      { return b.spec.ResumeKey }

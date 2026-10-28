@@ -21,6 +21,7 @@ func TestMasterPromptDescribesSpawnCWD(t *testing.T) {
 		"questmaster spawn --cwd <worktree> <title>",
 		"16 Unicode characters (runes)",
 		"fixes the worker cwd at launch",
+		"Without --cwd",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("master prompt missing worker workflow hint %q:\n%s", want, got)
@@ -55,11 +56,19 @@ func TestWorkerPromptKeepsOrchestrationWithMaster(t *testing.T) {
 
 func TestSessionPromptsUseSendForMessaging(t *testing.T) {
 	if !strings.Contains(masterPrompt, `questmaster send <session-id> "message"`) ||
-		!strings.Contains(masterPrompt, "masters use questmaster send all to broadcast") {
+		!strings.Contains(masterPrompt, "masters use questmaster send all to broadcast") ||
+		!strings.Contains(masterPrompt, "[WORKER:<worker-id>]") ||
+		!strings.Contains(masterPrompt, "[FROM:<sender-id>]") {
 		t.Fatal("master prompt must use send for direct and broadcast messages")
 	}
-	if !strings.Contains(workerPrompt, `questmaster send master "<result>"`) {
+	if !strings.Contains(workerPrompt, `questmaster send master "<result>"`) ||
+		!strings.Contains(workerPrompt, `"submitted": true`) {
 		t.Fatal("worker prompt must use send master for reports")
+	}
+	for name, prompt := range map[string]string{"master": masterPrompt, "worker": workerPrompt} {
+		if !strings.Contains(prompt, "OpenCode message targets must be idle or done") {
+			t.Fatalf("%s prompt omits the OpenCode send constraint", name)
+		}
 	}
 }
 
@@ -87,7 +96,7 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 func TestSessionPromptsDescribeQuestmasterPRAlerts(t *testing.T) {
 	for name, prompt := range map[string]string{"master": masterPrompt, "worker": workerPrompt} {
 		t.Run(name, func(t *testing.T) {
-			for _, phrase := range []string{"questmaster pr watch <url>", "[PR owner/repo#N]", "idle or done", "questmaster pr events <ref> --unread"} {
+			for _, phrase := range []string{"questmaster pr watch <url>", "[PR owner/repo#N]", "idle or done", "questmaster pr events <ref> --unread", "deleted or pruned"} {
 				if !strings.Contains(prompt, phrase) {
 					t.Fatalf("%s prompt missing PR alert rule %q", name, phrase)
 				}

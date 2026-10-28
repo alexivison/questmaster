@@ -51,7 +51,7 @@ These commands are intended for scripts, agents, and backend debugging. For norm
 ```sh
 questmaster start "fix-login-flow"
 questmaster start --agent codex "release-triage"
-questmaster spawn qm-master123 "smoke-test-worker" --prompt "Investigate the failing smoke test"
+questmaster spawn qm-master123 "smoke-worker" --prompt "Investigate the failing smoke test"
 questmaster send qm-worker123 "Try a smaller test case."
 questmaster send master "done: fixed parser edge case; regression test passes"
 questmaster send all "Please report your current status."
