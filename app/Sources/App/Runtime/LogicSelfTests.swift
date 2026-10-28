@@ -149,7 +149,7 @@ enum LogicSelfTests {
         ("testWorkerLogChipShowsOnlyWhileAMasterIsAttached", testWorkerLogChipShowsOnlyWhileAMasterIsAttached),
         ("testWorkerLogTabsScrollToTheSelection", testWorkerLogTabsScrollToTheSelection),
         ("testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs", testWorkerLogTabsFadeOnlyTheSidesWithHiddenTabs),
-        ("testWorkerLogTabsSitUnderTheFeedAndNeedWorkers", testWorkerLogTabsSitUnderTheFeedAndNeedWorkers),
+        ("testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers", testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers),
         ("testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace", testGhosttyFamilyWithoutSemiboldOrItalicFallsBackToSystemFace),
         ("testMenloSemiboldIsNotSubstitutedWithBold", testMenloSemiboldIsNotSubstitutedWithBold),
         ("testAppFontsUseGhosttyFamilyWhenItHasTheFace", testAppFontsUseGhosttyFamilyWhenItHasTheFace),
@@ -5945,9 +5945,9 @@ enum LogicSelfTests {
         try expectFade(middle, edge: { $0 }, "leading")
     }
 
-    /// The feed ends where the row begins, `topGap` above it, and the row ends `bottomInset` above the panel's edge. A master
-    /// with no workers has no row at all.
-    private static func testWorkerLogTabsSitUnderTheFeedAndNeedWorkers() throws {
+    /// The feed ends where the row begins, `topGap` above it, and the row ends `bottomInset` above the panel's edge. The row
+    /// shows from two workers on: a master with none or one has no row at all, and the feed fills the panel.
+    private static func testWorkerLogTabsSitUnderTheFeedAndNeedTwoWorkers() throws {
         func host(workers: Int) throws -> (window: HeadlessWindow, hosting: NSHostingView<AnyView>) {
             let chat = WorkerChatStore()
             let sessions = [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")]
@@ -5974,6 +5974,16 @@ enum LogicSelfTests {
         let alone = try host(workers: 0)
         defer { alone.window.close() }
         try expect(scrollViews(in: alone.hosting).isEmpty, "a master with no workers should have no tab row")
+
+        let single = try host(workers: 1)
+        defer { single.window.close() }
+        let singleScrolls = scrollViews(in: single.hosting)
+        try expect(singleScrolls.count == 1, "a master with one worker should have only the feed's scroll view, got \(singleScrolls.count)")
+        if let feed = singleScrolls.first {
+            let rect = feed.convert(feed.bounds, to: single.hosting)
+            let fromBottom = single.hosting.isFlipped ? single.hosting.bounds.height - rect.maxY : rect.minY
+            try expect(abs(fromBottom) < 0.5, "and the feed should fill the panel to its bottom edge, got \(fromBottom) above it")
+        }
 
         let tabs = try host(workers: 2)
         defer { tabs.window.close() }

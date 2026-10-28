@@ -270,9 +270,11 @@ again where it was when the keys come back.
   diamond (the `line` colour) between them with `Space.item` on each side. They take a `TextTabLook`. One tab is
   selected (`WorkerLogFilter.workerID`, nil for All): All shows every worker's lines, a worker's tab only that worker's,
   and it ANDs with the Action ticks. The tab is kept per master (it names that master's workers; in memory only), unlike
-  the Action ticks, and falls back to All when its worker goes away. There is no row for a master with no workers. A click selects a tab; `[` and `]` step to the previous
+  the Action ticks, and falls back to All when its worker goes away. Hidden while the master has fewer than two workers (All plus one tab adds nothing;
+  `WorkerChatStore.showsTabs` is the one predicate for the view, the dropdown's room and the keys), and when the row
+  goes away the selection falls back to All, a remembered tab included. A click selects a tab; `[` and `]` step to the previous
   and next, wrapping as the Settings tabs do (`Keymap.WorkerLog`, handled where `f` is), with the dropdown open or closed,
-  and work only while the bottom panel has the keys and the log has workers. The feed ends `WorkerLogTabMetrics.topGap` above
+  and work only while the bottom panel has the keys and the row shows (otherwise they pass through). The feed ends `WorkerLogTabMetrics.topGap` above
   the row, which is 15 high and ends 15 above the panel's bottom edge (measured from the user's mock). Tabs too many for the
   panel scroll sideways with no scroller; the row's ends are 20 in, and a side with hidden tabs fades out over 20, as the
   feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.
@@ -280,7 +282,7 @@ again where it was when the keys come back.
   section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
   artifact viewer, the Worker Log, Version Control), the tracker and the Quest Log's page draw it; the page passes the
   parchment ink instead. The Worker Log draws it only once its first read came back whole and empty, or when
-  its filter or worker tab hides every line (`WorkerChatStore.isKnownEmpty`, decided in Core; the chip above it stays, with its x, and the tabs under it);
+  its filter or worker tab hides every line (`WorkerChatStore.isKnownEmpty`, decided in Core; the chip above it stays, with its x, and the tabs under it when they show);
   while that read is pending, failed or partial it is blank, and its `readNotice` says what failed. So does the terminal pane once its session has ended (`TerminalShellView.showEnded`, only
   after the viewed session is deleted with nowhere to switch to); every attach clears it first, and while a session attaches
   the pane shows the skeleton veil. A message the user needs (a missing file, an artifact kind the build can't show, an

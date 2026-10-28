@@ -89,12 +89,21 @@ public struct WorkerLogFilter: Equatable, Sendable {
         workerID = id
     }
 
-    /// Falls back to All when the selected worker is gone.
+    /// Whether the tab row shows for these workers: from two on. All plus one worker's tab adds nothing.
+    public static func showsTabs(for workers: [WorkerLogWorker]) -> Bool {
+        workers.count > 1
+    }
+
+    /// Falls back to All when the selected worker is gone, or when there are too few workers to show a tab row, so the
+    /// log never stays narrowed to a worker with no tab to say so.
     public mutating func reconcile(with workers: [WorkerLogWorker]) {
-        guard let workerID, !workers.contains(where: { $0.id == workerID }) else {
+        guard let workerID else {
             return
         }
-        self.workerID = nil
+        guard Self.showsTabs(for: workers), workers.contains(where: { $0.id == workerID }) else {
+            self.workerID = nil
+            return
+        }
     }
 
     /// The selected tab's position in the tab row: All, then one per worker.
@@ -107,7 +116,7 @@ public struct WorkerLogFilter: Equatable, Sendable {
 
     /// Moves the selection by `delta` tabs, wrapping at both ends as the Settings tabs do.
     public mutating func moveTab(_ delta: Int, in workers: [WorkerLogWorker]) {
-        guard !workers.isEmpty else {
+        guard Self.showsTabs(for: workers) else {
             return
         }
         let count = workers.count + 1

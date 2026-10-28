@@ -109,7 +109,7 @@ struct WorkerChatDockView: View {
     private var filterMenu: some View {
         if store.menu.isOpen {
             GeometryReader { dock in
-                let bottomReserve = store.workers.isEmpty ? WorkerChatMetrics.inset : WorkerLogTabMetrics.reserved
+                let bottomReserve = store.showsTabs ? WorkerLogTabMetrics.reserved : WorkerChatMetrics.inset
                 ZStack(alignment: .topTrailing) {
                     Color.clear
                         .contentShape(Rectangle())
@@ -128,10 +128,10 @@ struct WorkerChatDockView: View {
         }
     }
 
-    /// Pinned under the feed, which ends above it. A master with no workers has no tabs to show.
+    /// Pinned under the feed, which ends above it. Fewer than two workers have no tabs worth showing.
     @ViewBuilder
     private var tabRow: some View {
-        if !store.workers.isEmpty {
+        if store.showsTabs {
             WorkerLogTabRow(workers: store.workers, selectedID: store.filter.workerID, areaFocused: areaFocused, onSelect: store.selectWorker)
                 .padding(.top, WorkerLogTabMetrics.topGap)
                 .padding(.bottom, WorkerLogTabMetrics.bottomInset)

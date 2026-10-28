@@ -26,6 +26,8 @@ struct WorkerLogFilterTests {
         actionSummaryNamesTheTicksInTheDropdownsOrder()
         clearingTheActionsKeepsTheWorkerTab()
         workersListInTrackerOrder()
+        tabsShowFromTwoWorkersOn()
+        theSelectionFallsBackToAllWhenTheRowGoesAway()
         tabsMoveAndWrapLikeTheSettingsTabs()
         menuCursorMovesAndClamps()
         keysDriveTheMenu()
@@ -260,7 +262,71 @@ struct WorkerLogFilterTests {
         expect(store.workers.map(\.id) == ["w1", "w2", "w3"], "with their ids")
         let alone = makeStore()
         _ = alone.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true)
-        expect(alone.workers.isEmpty, "a master with no workers has no tabs")
+        expect(alone.workers.isEmpty && !alone.showsTabs, "a master with no workers has no tabs")
+    }
+
+    /// All plus one worker's tab adds nothing, so the row shows from two workers on. Below that there is no tab to select or step,
+    /// and the keys are not the log's.
+    private static func tabsShowFromTwoWorkersOn() {
+        for (workers, shows) in [(0, false), (1, false), (2, true), (3, true)] {
+            let (store, _) = openStore(entries: sampleEntries, workers: workers)
+            expect(store.showsTabs == shows, "\(workers) workers should \(shows ? "show" : "not show") the tab row")
+        }
+        let (one, _) = openStore(entries: sampleEntries, workers: 1)
+        let lines = one.lines
+        one.selectWorker("w1")
+        expect(one.filter.workerID == nil && one.lines == lines, "the one worker's tab can't be selected: there is no row for it")
+        one.moveTab(by: 1)
+        expect(one.filter.workerID == nil, "and the tabs don't move")
+        expect(!one.handle(.nextTab) && !one.handle(.previousTab), "[ and ] are not the log's with one worker, so they pass through")
+        expect(one.handle(.toggleMenu) && one.menu.isOpen, "the filter's own keys are unaffected")
+
+        let (two, _) = openStore(entries: sampleEntries, workers: 2)
+        expect(two.handle(.nextTab) && two.filter.workerID == "w1", "with two workers the keys step the tabs")
+        expect(two.workers.map(\.id) == ["w1", "w2"], "and the row lists both")
+
+        var filter = WorkerLogFilter()
+        let a = WorkerLogWorker(id: "a", name: "Alpha")
+        let b = WorkerLogWorker(id: "b", name: "Beta")
+        filter.selectWorker("a")
+        filter.reconcile(with: [a, b])
+        expect(filter.workerID == "a", "a selected worker stays selected while the row shows")
+        filter.reconcile(with: [a])
+        expect(filter.workerID == nil, "and falls back to All once it is the only worker, though it is still there")
+        filter.moveTab(1, in: [a])
+        expect(filter.workerID == nil, "a lone worker is no tab to step to")
+    }
+
+    /// When the row goes away (the workers drop to one) the log is back on All, so it never stays narrowed to a worker with no
+    /// tab to say so; a master's remembered tab is dropped the same way, and the row coming back doesn't bring it back.
+    private static func theSelectionFallsBackToAllWhenTheRowGoesAway() {
+        let (store, request) = openStore(entries: sampleEntries, workers: 2)
+        store.toggleAction(at: row(.status))
+        store.selectWorker("w1")
+        expect(store.lines.count == 1, "Worker One's status line is all the tab shows")
+        _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 2).filter { $0.id != "w2" }, isVisible: true)
+        expect(!store.showsTabs && store.filter.workerID == nil, "the row going away should put the log back on All, got \(String(describing: store.filter.workerID))")
+        expect(store.filter.actions == [.status], "the Action ticks stay")
+        expect(store.lines.map(\.workerID) == ["w1"], "and the log shows what is left of Worker One's status, got \(store.lines.map(\.workerID))")
+        _ = store.sync(selectedSessionID: "m", sessions: tracker(workers: 2), isVisible: true)
+        _ = store.receive(WorkerFeedPayload(entries: [entry(300, "w2", "status", "working")]), for: request)
+        expect(store.showsTabs && store.filter.workerID == nil, "the row coming back starts on All")
+        expect(Set(store.lines.map(\.workerID)) == ["w1", "w2"], "showing both workers' status lines")
+
+        let both = tracker(workers: 2) + [
+            TrackerSession(id: "m2", title: "Master Two", repoName: "Repo", role: "master"),
+            TrackerSession(id: "x1", title: "Other One", repoName: "Repo", agent: "codex", role: "worker", parentID: "m2"),
+            TrackerSession(id: "x2", title: "Other Two", repoName: "Repo", agent: "claude", role: "worker", parentID: "m2"),
+        ]
+        let kept = makeStore()
+        _ = kept.sync(selectedSessionID: "m", sessions: both, isVisible: true)
+        kept.selectWorker("w2")
+        _ = kept.sync(selectedSessionID: "m2", sessions: both, isVisible: true)
+        _ = kept.sync(selectedSessionID: "m", sessions: both.filter { $0.id != "w1" }, isVisible: true)
+        expect(!kept.showsTabs && kept.filter.workerID == nil, "a remembered tab on a master that now has one worker is dropped, got \(String(describing: kept.filter.workerID))")
+        _ = kept.sync(selectedSessionID: "m2", sessions: both, isVisible: true)
+        _ = kept.sync(selectedSessionID: "m", sessions: both, isVisible: true)
+        expect(kept.showsTabs && kept.filter.workerID == nil, "and is not back when the master has two workers again, got \(String(describing: kept.filter.workerID))")
     }
 
     /// The Settings tabs' `moveTab`: one step, wrapping past either end. All is the first tab.
@@ -331,8 +397,8 @@ struct WorkerLogFilterTests {
         expect(!detached.handle(.toggleMenu) && !detached.menu.isOpen, "a session with no workers to log has no filter to open")
     }
 
-    /// `[` and `]` step the tabs whether the dropdown is open or not, leaving it as it is; with no workers there is no tab row,
-    /// so they are not the log's keys.
+    /// `[` and `]` step the tabs whether the dropdown is open or not, leaving it as it is; with fewer than two workers there is
+    /// no tab row, so they are not the log's keys.
     private static func tabKeysSwitchTabsWithTheMenuOpenOrClosed() {
         let (store, _) = openStore(entries: sampleEntries)
         expect(store.handle(.nextTab) && store.filter.workerID == "w1", "] selects the first worker with the dropdown closed")
@@ -349,6 +415,9 @@ struct WorkerLogFilterTests {
         let alone = makeStore()
         _ = alone.sync(selectedSessionID: "m", sessions: [TrackerSession(id: "m", title: "Master", repoName: "Repo", role: "master")], isVisible: true)
         expect(!alone.handle(.nextTab) && !alone.handle(.previousTab), "a master with no workers has no tabs to step")
+        let single = makeStore()
+        _ = single.sync(selectedSessionID: "m", sessions: tracker(workers: 1), isVisible: true)
+        expect(!single.handle(.nextTab) && !single.handle(.previousTab), "nor has a master with one worker")
         let detached = makeStore()
         expect(!detached.handle(.nextTab), "nothing attached has none either")
     }

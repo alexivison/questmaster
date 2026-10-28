@@ -57,6 +57,8 @@ public final class WorkerChatStore {
     public private(set) var menu = WorkerLogMenu()
     /// The attached master's workers, in the order the tracker shows them: the tab row's tabs after All.
     public private(set) var workers: [WorkerLogWorker] = []
+    /// Whether the tab row shows: from two workers on. The view, the dropdown's room and the tab keys all follow this.
+    public var showsTabs: Bool { WorkerLogFilter.showsTabs(for: workers) }
     /// A single muted notice naming the workers whose log the last pull couldn't read; cleared by a clean pull.
     public private(set) var readNotice: String?
     /// Changes with every replacement of `lines`, so a view can tell one update from the next.
@@ -123,18 +125,19 @@ public final class WorkerChatStore {
         refilter()
     }
 
-    /// Selects a worker's tab, or All with nil. A worker that isn't the master's selects nothing.
+    /// Selects a worker's tab, or All with nil. Without a tab row, or for a worker that isn't the master's, a worker
+    /// selects nothing.
     public func selectWorker(_ id: String?) {
-        guard isAttached, id == nil || workers.contains(where: { $0.id == id }) else {
+        guard isAttached, id == nil || (showsTabs && workers.contains(where: { $0.id == id })) else {
             return
         }
         filter.selectWorker(id)
         refilter()
     }
 
-    /// Moves the selected tab by `delta`, wrapping. Without workers there is no tab row to move.
+    /// Moves the selected tab by `delta`, wrapping. Without a tab row there is nothing to move.
     public func moveTab(by delta: Int) {
-        guard isAttached, !workers.isEmpty else {
+        guard isAttached, showsTabs else {
             return
         }
         filter.moveTab(delta, in: workers)
@@ -142,7 +145,7 @@ public final class WorkerChatStore {
     }
 
     /// Whether the key was the Worker Log's: the dropdown's keys are only while it is open, and the tab keys only while
-    /// there is a tab row (the dropdown stays open when they switch the tab).
+    /// there is a tab row, so they pass through otherwise (the dropdown stays open when they switch the tab).
     public func handle(_ key: WorkerLogFilterKey) -> Bool {
         guard isAttached else {
             return false
@@ -151,7 +154,7 @@ public final class WorkerChatStore {
         case .toggleMenu:
             toggleMenu()
         case .previousTab, .nextTab:
-            guard !workers.isEmpty else {
+            guard showsTabs else {
                 return false
             }
             moveTab(by: key == .nextTab ? 1 : -1)
