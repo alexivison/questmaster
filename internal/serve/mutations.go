@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -319,6 +320,15 @@ func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any
 			return
 		}
 		pane, err := client.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
+		if errors.Is(err, tmux.ErrRoleNotFound) {
+			// Continue briefly has one untagged pane before launch assigns its role.
+			panes, listErr := client.ListPanes(ctx, sessionID)
+			if listErr != nil {
+				err = listErr
+			} else if len(panes) == 1 && panes[0].WindowIndex == tmux.WindowWorkspace && panes[0].PaneIndex == 0 && panes[0].Role == "" {
+				pane, err = panes[0].Target(), nil
+			}
+		}
 		if err != nil {
 			paneTitleErr = fmt.Errorf("resolve renamed session pane: %w", err)
 			return
