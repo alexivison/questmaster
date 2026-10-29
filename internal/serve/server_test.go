@@ -2392,6 +2392,34 @@ func TestRenameMutationTargetsAdoptedAgentPane(t *testing.T) {
 	t.Fatalf("agent pane title was not set on 0.1: %v", runner.calls)
 }
 
+func TestRenameMutationDuringContinueBeforeRoleTag(t *testing.T) {
+	env := seedServeFixture(t)
+	runner := &untaggedPaneTmuxRunner{}
+	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Renamed during continue"}); err != nil {
+		t.Fatalf("rename while the new pane has no role tag: %v", err)
+	}
+	for _, args := range runner.calls {
+		if slices.Equal(args, []string{"set-option", "-p", "-t", "qm-demo:0.0", "@questmaster_title", "Renamed during continue"}) {
+			return
+		}
+	}
+	t.Fatalf("new agent pane title was not set: %v", runner.calls)
+}
+
+type untaggedPaneTmuxRunner struct{ calls [][]string }
+
+func (r *untaggedPaneTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	switch args[0] {
+	case "list-panes":
+		return "0 0", nil
+	case "display-message":
+		return "#{pane_title}", nil
+	}
+	return "", nil
+}
+
 type adoptedPaneTmuxRunner struct{ calls [][]string }
 
 func (r *adoptedPaneTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
