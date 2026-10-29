@@ -87,7 +87,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
-	if err := s.launchAppWorkspace(ctx, lc.sessionID, lc.cwd, lc.master, lc.worker, lc.agentCmds); err != nil {
+	if err := s.launchAppWorkspace(ctx, lc.sessionID, lc.cwd, lc.title, lc.master, lc.worker, lc.agentCmds); err != nil {
 		return err
 	}
 

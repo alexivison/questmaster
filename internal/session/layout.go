@@ -21,7 +21,7 @@ func (s *Service) setRemainOnExit(ctx context.Context, target string) error {
 }
 
 // launchAppWorkspace sets up the session layout: a single agent pane.
-func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd string, isMaster, isWorker bool, cmds map[agent.Role]string) error {
+func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd, title string, isMaster, isWorker bool, cmds map[agent.Role]string) error {
 	label := "session"
 	if isMaster {
 		label = "master"
@@ -51,6 +51,11 @@ func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd string, i
 
 	if err := s.Client.RespawnPane(ctx, agentPane, cwd, agentCmd); err != nil {
 		return fmt.Errorf("%s agent pane: %w", label, err)
+	}
+	if title != "" {
+		if err := s.Client.SelectPaneTitle(ctx, agentPane, title); err != nil {
+			return fmt.Errorf("%s agent pane title: %w", label, err)
+		}
 	}
 
 	return nil

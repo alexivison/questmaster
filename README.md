@@ -165,7 +165,7 @@ questmaster daemon stop    # cleanly stop it
 Running `questmaster` with no subcommand prints help. Lifecycle operations such as `start`, `continue`, `spawn`, and `delete` are available as backend commands for clients and automation.
 The daemon accepts runtime requests, mutations, and subscriptions after its ready handshake on a socket under `<state-root>/daemon/`. The app gets the socket from `daemon start`'s JSON record. The daemon captures a clean login environment and writes identity-owned `qm` and `questmaster` shims under `<state-root>/daemon/bin/<identity>/`. Quitting the app leaves it running until its idle exit. `daemon check-upgrade` is connect-only: when it verifies a replacement binary, the running daemon re-execs in place with the same PID and socket.
 
-When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook can rename the tmux window after the first message. An explicit title is always kept as-is.
+When starting a session, leave the title blank and questmaster derives one from the initial prompt when provided; otherwise the first agent hook fills it after the first message. An explicit title is always kept as-is. Agent pane headers show the session title, including after a rename.
 
 ## Model selection
 

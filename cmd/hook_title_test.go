@@ -1,6 +1,10 @@
 package cmd
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/alexivison/questmaster/internal/state"
+)
 
 // startThenPrompt drives the SessionStart → first-prompt sequence that the
 // title heuristic keys off of. rec.lastState persists between the two calls,
@@ -8,6 +12,7 @@ import "testing"
 func TestHookClaudeDerivesTitleOnFirstPrompt(t *testing.T) {
 	r, _ := newTestRunner(t)
 	store := newManifestStoreStub("qm-t", nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "claude", Role: "agent"}}
 	tmuxStub := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxStub
@@ -20,6 +25,9 @@ func TestHookClaudeDerivesTitleOnFirstPrompt(t *testing.T) {
 	}
 	if len(tmuxStub.renameCalls) != 0 {
 		t.Fatalf("rename calls = %d, want 0", len(tmuxStub.renameCalls))
+	}
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "investigate the flaky test" {
+		t.Fatalf("pane title calls = %+v", tmuxStub.paneTitleCalls)
 	}
 }
 
@@ -107,14 +115,19 @@ func TestHookRespectsLockedTitle(t *testing.T) {
 func TestHookCodexDerivesTitleOnFirstPrompt(t *testing.T) {
 	r, _ := newTestRunner(t)
 	store := newManifestStoreStub("qm-t", nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "agent"}}
 	r.Store = store
-	r.TmuxClient = &tmuxEnvStub{}
+	tmuxStub := &tmuxEnvStub{}
+	r.TmuxClient = tmuxStub
 
 	runHookWithStdin(r, "codex", "starting", "qm-t", nil)
 	runHookWithStdin(r, "codex", "working", "qm-t", map[string]interface{}{"prompt": "add a retry to the uploader"})
 
 	if store.manifest.Title != "add a retry to the uploader" {
 		t.Fatalf("title = %q, want %q", store.manifest.Title, "add a retry to the uploader")
+	}
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "add a retry to the uploader" {
+		t.Fatalf("pane title calls = %+v", tmuxStub.paneTitleCalls)
 	}
 }
 

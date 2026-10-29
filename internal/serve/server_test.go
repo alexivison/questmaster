@@ -2344,6 +2344,58 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	}
 }
 
+func TestRenameMutationUpdatesAgentPaneTitle(t *testing.T) {
+	for _, agentName := range []string{"claude", "codex"} {
+		t.Run(agentName, func(t *testing.T) {
+			env := seedServeFixture(t)
+			if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+				m.Agents[0].Name = agentName
+			}); err != nil {
+				t.Fatal(err)
+			}
+			runner := &recordingTmuxRunner{}
+			srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+			if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "New session title"}); err != nil {
+				t.Fatalf("rename: %v", err)
+			}
+			want := [][]string{
+				{"has-session", "-t", "qm-demo"},
+				{"select-pane", "-t", "qm-demo:0.0", "-T", "New session title"},
+			}
+			if got := runner.Calls(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("tmux calls = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestRenameMutationKeepsStoppedSessionTitle(t *testing.T) {
+	env := seedServeFixture(t)
+	client := tmux.NewClient(stoppedTmuxRunner{})
+	// A stopped session has no pane to title, but its manifest still takes the rename.
+	srv := &Server{Snapshotter: NewSnapshotter(env.store, client, nil)}
+	_, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Next title"})
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	m, err := env.store.Read("qm-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Title != "Next title" {
+		t.Fatalf("stored title = %q", m.Title)
+	}
+}
+
+type stoppedTmuxRunner struct{}
+
+func (stoppedTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	if len(args) > 0 && args[0] == "has-session" {
+		return "", &tmux.ExitError{Code: 1}
+	}
+	return "", fmt.Errorf("unexpected tmux call: %v", args)
+}
+
 func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
 	env := seedServeFixture(t)
 	socketPath := tempSocketPath(t)
