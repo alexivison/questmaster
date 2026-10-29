@@ -51,7 +51,8 @@ public struct DockState: Equatable {
     public var dockContent: DockContent
     /// The viewer's open artifact, and the list's cursor.
     public var selectedArtifactID: String?
-    public var dockPreferredWidth: Double?
+    /// The artifact viewer's share of the window, once the user resized it.
+    public var dockPreferredFraction: Double?
     public var artifactScope: ArtifactScope
     public var artifactFilterQuery: String
     public var artifactFilterTokens: [ArtifactFilterToken]
@@ -61,7 +62,7 @@ public struct DockState: Equatable {
         bottomVisible: Bool = false,
         dockContent: DockContent = .artifactList,
         selectedArtifactID: String? = nil,
-        dockPreferredWidth: Double? = nil,
+        dockPreferredFraction: Double? = nil,
         artifactScope: ArtifactScope = .session,
         artifactFilterQuery: String = "",
         artifactFilterTokens: [ArtifactFilterToken] = []
@@ -70,7 +71,7 @@ public struct DockState: Equatable {
         self.bottomVisible = bottomVisible
         self.dockContent = dockContent
         self.selectedArtifactID = selectedArtifactID
-        self.dockPreferredWidth = dockPreferredWidth
+        self.dockPreferredFraction = dockPreferredFraction
         self.artifactScope = artifactScope
         self.artifactFilterQuery = artifactFilterQuery
         self.artifactFilterTokens = artifactFilterTokens

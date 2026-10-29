@@ -16,6 +16,7 @@ struct ShellSplitLayoutTests {
         hiddenTrackerKeepsTerminalAtWindowEdge()
         panelDockUsesThePanelWidth()
         panelDockKeepsTheMinimumTerminalWidth()
+        dockWidthsAreShareOfTheWindow()
         dockResizeClampsFromDragDelta()
         zeroWidthDoesNotProduceLayout()
         headerSitsLevelWithTheSideCardsOverTheTerminal()
@@ -29,7 +30,7 @@ struct ShellSplitLayoutTests {
             size: ShellSplitSize(width: 1520, height: 900),
             trackerVisible: true,
             dockVisible: true,
-            preferredDockWidth: 640.5,
+            preferredDockFraction: 641.0 / 1520,
             dockWidthMode: .standard
         )
 
@@ -45,7 +46,7 @@ struct ShellSplitLayoutTests {
             size: ShellSplitSize(width: 1520, height: 900),
             trackerVisible: true,
             dockVisible: false,
-            preferredDockWidth: 640,
+            preferredDockFraction: 640.0 / 1520,
             dockWidthMode: .standard
         )
 
@@ -60,13 +61,13 @@ struct ShellSplitLayoutTests {
             size: ShellSplitSize(width: 1520, height: 900),
             trackerVisible: false,
             dockVisible: true,
-            preferredDockWidth: nil,
+            preferredDockFraction: nil,
             dockWidthMode: .standard
         )
 
         expect(layout.trackerFrame == ShellSplitRect(x: 0, y: 8, width: 0, height: 884), "hidden tracker frame mismatch")
-        expect(layout.terminalFrame == ShellSplitRect(x: 0, y: 0, width: 752, height: 892), "hidden-tracker terminal mismatch")
-        expect(layout.dockFrame == ShellSplitRect(x: 752, y: 8, width: 760, height: 884), "hidden-tracker dock mismatch")
+        expect(layout.terminalFrame == ShellSplitRect(x: 0, y: 0, width: 982, height: 892), "hidden-tracker terminal mismatch")
+        expect(layout.dockFrame == ShellSplitRect(x: 982, y: 8, width: 530, height: 884), "hidden-tracker dock mismatch: 30% is under the panels' 530")
     }
 
     private static func panelDockUsesThePanelWidth() {
@@ -74,11 +75,11 @@ struct ShellSplitLayoutTests {
             size: ShellSplitSize(width: 1520, height: 900),
             trackerVisible: true,
             dockVisible: true,
-            preferredDockWidth: 900,
+            preferredDockFraction: 0.6,
             dockWidthMode: .panel
         )
 
-        expect(layout.dockWidth == DockWidthPreference.panelWidth, "a panel dock should ignore the preferred width, got \(layout.dockWidth)")
+        expect(layout.dockWidth == DockWidthPreference.panelWidth, "a panel dock should ignore the preferred share, got \(layout.dockWidth)")
         expect(layout.dockFrame.width == 530, "the panel dock is the artboards' 480 plus the Worker Log tab row's 50")
         expect(layout.terminalFrame.width == 672, "panel dock terminal width mismatch")
     }
@@ -88,7 +89,7 @@ struct ShellSplitLayoutTests {
             size: ShellSplitSize(width: 1000, height: 900),
             trackerVisible: true,
             dockVisible: true,
-            preferredDockWidth: nil,
+            preferredDockFraction: nil,
             dockWidthMode: .panel
         )
 
@@ -96,26 +97,40 @@ struct ShellSplitLayoutTests {
         expect(layout.terminalFrame.width == DockWidthPreference.minTerminalWidth, "a narrow window should keep the terminal at its minimum, got \(layout.terminalFrame.width)")
     }
 
-    private static func dockResizeClampsFromDragDelta() {
-        let narrower = ShellSplitLayoutPlanner.resizedDockWidth(
-            startWidth: 641,
-            deltaX: 80,
-            windowWidth: 1520,
-            metrics: metrics,
-            trackerVisible: true,
-            dockVisible: true
-        )
-        expect(narrower == 561, "positive delta should narrow dock, got \(narrower)")
+    private static func dockWidthsAreShareOfTheWindow() {
+        func dockWidth(windowWidth: Double, fraction: Double?, mode: RightDockWidthMode) -> Double {
+            requireLayout(
+                size: ShellSplitSize(width: windowWidth, height: 900),
+                trackerVisible: true,
+                dockVisible: true,
+                preferredDockFraction: fraction,
+                dockWidthMode: mode
+            ).dockWidth
+        }
 
-        let clamped = ShellSplitLayoutPlanner.resizedDockWidth(
-            startWidth: 641,
-            deltaX: -1000,
-            windowWidth: 1520,
-            metrics: metrics,
-            trackerVisible: true,
-            dockVisible: true
-        )
-        expect(clamped == 842, "negative delta should clamp to max dock width, got \(clamped)")
+        expect(dockWidth(windowWidth: 3000, fraction: nil, mode: .panel) == 600, "panels should take 20% of a wide window")
+        expect(dockWidth(windowWidth: 3000, fraction: nil, mode: .standard) == 900, "the viewer should take 30% until resized")
+        expect(dockWidth(windowWidth: 3000, fraction: 0.4, mode: .standard) == 1200, "the viewer should take the user's share")
+        expect(dockWidth(windowWidth: 2000, fraction: nil, mode: .panel) == 530, "panels should stay at their 530 minimum")
+        expect(dockWidth(windowWidth: 2000, fraction: 0.1, mode: .standard) == 530, "the viewer should never be narrower than the panels")
+    }
+
+    private static func dockResizeClampsFromDragDelta() {
+        func resized(startWidth: Double, deltaX: Double, dockVisible: Bool = true) -> Double? {
+            ShellSplitLayoutPlanner.resizedDockFraction(
+                startWidth: startWidth,
+                deltaX: deltaX,
+                windowWidth: 1520,
+                metrics: metrics,
+                trackerVisible: true,
+                dockVisible: dockVisible
+            )
+        }
+
+        expect(resized(startWidth: 641, deltaX: 80) == 561.0 / 1520, "positive delta should narrow the dock")
+        expect(resized(startWidth: 641, deltaX: -1000) == 842.0 / 1520, "negative delta should clamp to the max dock width")
+        expect(resized(startWidth: 641, deltaX: 300) == 530.0 / 1520, "the viewer should not narrow past the panels")
+        expect(resized(startWidth: 641, deltaX: 80, dockVisible: false) == nil, "a hidden dock has no share to resize")
     }
 
     private static func zeroWidthDoesNotProduceLayout() {
@@ -124,7 +139,7 @@ struct ShellSplitLayoutTests {
             metrics: metrics,
             trackerVisible: true,
             dockVisible: true,
-            preferredDockWidth: nil,
+            preferredDockFraction: nil,
             dockWidthMode: .standard
         )
         expect(layout == nil, "zero-width split should not produce a layout")
@@ -153,7 +168,7 @@ struct ShellSplitLayoutTests {
                 metrics: metricsWithHeader,
                 trackerVisible: trackerVisible,
                 dockVisible: dockVisible,
-                preferredDockWidth: 640,
+                preferredDockFraction: 640.0 / 1520,
                 dockWidthMode: .standard
             ) else {
                 fputs("ShellSplitLayoutTests failed: expected layout\n", stderr)
@@ -195,7 +210,7 @@ struct ShellSplitLayoutTests {
             metrics: metricsWithGap,
             trackerVisible: true,
             dockVisible: true,
-            preferredDockWidth: 640.5,
+            preferredDockFraction: 641.0 / 1520,
             dockWidthMode: .standard
         ) else {
             fputs("ShellSplitLayoutTests failed: expected layout\n", stderr)
@@ -224,7 +239,7 @@ struct ShellSplitLayoutTests {
             metrics: metricsWithGap,
             trackerVisible: true,
             dockVisible: false,
-            preferredDockWidth: nil,
+            preferredDockFraction: nil,
             dockWidthMode: .standard
         ) else {
             fputs("ShellSplitLayoutTests failed: expected layout\n", stderr)
@@ -238,7 +253,7 @@ struct ShellSplitLayoutTests {
         size: ShellSplitSize,
         trackerVisible: Bool,
         dockVisible: Bool,
-        preferredDockWidth: Double?,
+        preferredDockFraction: Double?,
         dockWidthMode: RightDockWidthMode
     ) -> ShellSplitLayout {
         guard let layout = ShellSplitLayoutPlanner.layout(
@@ -246,7 +261,7 @@ struct ShellSplitLayoutTests {
             metrics: metrics,
             trackerVisible: trackerVisible,
             dockVisible: dockVisible,
-            preferredDockWidth: preferredDockWidth,
+            preferredDockFraction: preferredDockFraction,
             dockWidthMode: dockWidthMode
         ) else {
             fputs("ShellSplitLayoutTests failed: expected layout\n", stderr)

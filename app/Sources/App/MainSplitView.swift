@@ -49,14 +49,14 @@ final class MainSplitView: NSView {
     private var panes: [NSView] = []
     /// The action bar header over the terminal column, laid out and animated with the panes.
     private var header: NSView?
-    private let defaultPreferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
-    private var preferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
+    private let defaultPreferredDockFraction = DockWidthPreference.storedFraction()
+    private var preferredDockFraction = DockWidthPreference.storedFraction()
     private var dockWidthMode: RightDockWidthMode = .standard
     private var dockDragStartWidth: CGFloat = 0
     private var currentDockWidth: CGFloat = 0
     private var isAnimatingCanonicalLayout = false
     private var layoutAnimationGeneration = 0
-    var onDockWidthCommitted: ((Double) -> Void)?
+    var onDockFractionCommitted: ((Double) -> Void)?
     /// Reports the terminal surface's current cell size so the canonical layout can snap the
     /// terminal pane to whole columns/rows — `nil`, or `.unavailable`, before any surface has
     /// reported one, in which case the layout is used exactly as planned.
@@ -159,31 +159,32 @@ final class MainSplitView: NSView {
         applyCanonicalLayout(animated: animated)
     }
 
-    func setDockPreferredWidth(_ width: Double?, animated: Bool = false) {
-        let nextWidth = width.map { CGFloat($0) } ?? defaultPreferredDockWidth
-        guard preferredDockWidth != nextWidth else {
+    func setDockPreferredFraction(_ fraction: Double?, animated: Bool = false) {
+        let nextFraction = fraction ?? defaultPreferredDockFraction
+        guard preferredDockFraction != nextFraction else {
             return
         }
-        preferredDockWidth = nextWidth
+        preferredDockFraction = nextFraction
         if dockWidthMode == .standard {
             applyCanonicalLayout(animated: animated)
         }
     }
 
+    /// Widens (or, negative, narrows) the viewer by `step`, a share of the window.
     func nudgeDockWidth(by step: Double) {
         guard dockVisible, dockWidthMode == .standard else {
             return
         }
-        preferredDockWidth = CGFloat(ShellSplitLayoutPlanner.resizedDockWidth(
+        preferredDockFraction = ShellSplitLayoutPlanner.resizedDockFraction(
             startWidth: Double(currentDockWidth),
-            deltaX: -step,
+            deltaX: -step * Double(bounds.width),
             windowWidth: Double(bounds.width),
             metrics: ShellMetrics.splitLayoutMetrics,
             trackerVisible: trackerVisible,
             dockVisible: dockVisible
-        ))
+        )
         applyCanonicalLayout(animated: true)
-        onDockWidthCommitted?(Double(currentDockWidth))
+        commitDockFraction()
     }
 
     func setDockWidthMode(_ mode: RightDockWidthMode, animated: Bool = true) {
@@ -201,7 +202,7 @@ final class MainSplitView: NSView {
                 metrics: ShellMetrics.splitLayoutMetrics,
                 trackerVisible: trackerVisible,
                 dockVisible: dockVisible,
-                preferredDockWidth: preferredDockWidth.map(Double.init),
+                preferredDockFraction: preferredDockFraction,
                 dockWidthMode: dockWidthMode
               ) else {
             return nil
@@ -343,14 +344,14 @@ final class MainSplitView: NSView {
         guard dockVisible, dockWidthMode == .standard else {
             return
         }
-        preferredDockWidth = CGFloat(ShellSplitLayoutPlanner.resizedDockWidth(
+        preferredDockFraction = ShellSplitLayoutPlanner.resizedDockFraction(
             startWidth: Double(dockDragStartWidth),
             deltaX: Double(deltaX),
             windowWidth: Double(bounds.width),
             metrics: ShellMetrics.splitLayoutMetrics,
             trackerVisible: trackerVisible,
             dockVisible: dockVisible
-        ))
+        )
         applyCanonicalLayout()
     }
 
@@ -358,6 +359,13 @@ final class MainSplitView: NSView {
         guard dockVisible, dockWidthMode == .standard else {
             return
         }
-        onDockWidthCommitted?(Double(currentDockWidth))
+        commitDockFraction()
+    }
+
+    private func commitDockFraction() {
+        guard let preferredDockFraction else {
+            return
+        }
+        onDockFractionCommitted?(preferredDockFraction)
     }
 }
