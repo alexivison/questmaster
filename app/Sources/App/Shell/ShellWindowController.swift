@@ -11,7 +11,7 @@ final class ShellWindowController {
         let dockColumn: DockColumnView
         let topDockShell: DockShellView
         let bottomDockShell: DockShellView
-        let footerShell: ActionBarShellView
+        let actionBar: ActionBarShellView
         let trackerKeyboardBridge: TrackerKeyboardBridge
         let trackerHosting: NSView
         let dockView: SwiftUIDockPane
@@ -100,14 +100,14 @@ final class ShellWindowController {
 
         let dockChromeModel = DockChromeModel()
         let trackerShell = TrackerShellView(body: trackerContent)
-        let terminalShell = TerminalShellView(body: terminalHost.view, dragHandleHeight: window.titlebarHeight)
+        let terminalShell = TerminalShellView(body: terminalHost.view)
         let bottomDockShell = DockShellView(body: dockView, model: dockChromeModel)
         let topDockShell = DockShellView(
             body: versionControlPane,
             model: DockChromeModel(topBar: .versionControl, isRefreshing: { [store = pullRequestStore] in store.isRefreshing })
         )
         let dockColumn = DockColumnView(top: topDockShell, bottom: bottomDockShell)
-        let footerShell = ActionBarShellView()
+        let actionBar = ActionBarShellView()
 
         splitView.addArrangedSubview(trackerShell)
         splitView.addArrangedSubview(terminalShell)
@@ -116,7 +116,9 @@ final class ShellWindowController {
         splitView.trackerVisible = navigation.trackerVisible
         splitView.setDockVisible(navigation.dockVisible, animated: false)
 
-        let root = ShellRootContainerView(splitView: splitView, footer: footerShell)
+        splitView.setHeader(actionBar)
+
+        let root = ShellRootContainerView(splitView: splitView)
         let modalHost = InWindowModalHost(stack: .shared)
         root.addOverlay(modalHost)
         window.contentView = root
@@ -129,7 +131,6 @@ final class ShellWindowController {
             headerAlignment.cellHeight = cell.cellHeight
             splitView?.applyCanonicalLayout()
         }
-        splitView.onFooterBottomInsetChanged = { [weak root] inset in root?.setFooterBottomInset(inset) }
 
         let handles = Handles(
             window: window,
@@ -139,7 +140,7 @@ final class ShellWindowController {
             dockColumn: dockColumn,
             topDockShell: topDockShell,
             bottomDockShell: bottomDockShell,
-            footerShell: footerShell,
+            actionBar: actionBar,
             trackerKeyboardBridge: keyboardBridge,
             trackerHosting: trackerContent,
             dockView: dockView,
@@ -162,15 +163,15 @@ final class ShellWindowController {
     }
 
     func updateCaffeine(_ active: Bool) {
-        handles?.footerShell.updateCaffeine(active)
+        handles?.actionBar.updateCaffeine(active)
     }
 
     /// Sets the window's row-height resize increment from a zero-leftover baseline, so ordinary
-    /// interactive resizing itself keeps the gap under the footer at a constant `G` instead of
+    /// interactive resizing itself keeps the gap under the terminal at a constant `G` instead of
     /// drifting up to a whole row's worth of slack. The one-time nudge only runs if the baseline
     /// isn't already snapped, so it doesn't fight whatever the user is actively doing with the
     /// window. Fullscreen/zoom/tiling ignore resize increments entirely — `MainSplitView`'s own
-    /// `TerminalCellSnapping.applying` fallback (leftover parked below the footer) still covers
+    /// `TerminalCellSnapping.applying` fallback (leftover parked below the terminal) still covers
     /// those, unaffected by this.
     private func applyResizeIncrements(cell: TerminalCellMetrics) {
         guard let window = handles?.window else {
@@ -183,7 +184,7 @@ final class ShellWindowController {
         guard let contentView = window.contentView else {
             return
         }
-        let constantReservedHeight = ShellMetrics.splitLayoutMetrics.footerReservedHeight + ShellMetrics.splitLayoutMetrics.terminalTopInset
+        let constantReservedHeight = ShellMetrics.splitLayoutMetrics.terminalReservedHeight
         let currentHeight = Double(contentView.bounds.height)
         let snappedHeight = TerminalCellSnapping.snappedContentHeight(
             contentHeight: currentHeight,

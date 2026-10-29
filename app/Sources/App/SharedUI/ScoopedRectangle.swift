@@ -53,9 +53,17 @@ final class ScoopedLayerChrome {
     private let view: NSView
     private let maskLayer = CAShapeLayer()
     private let borderView: ScoopedBorderView
+    private let radius: CGFloat
 
-    init(view: NSView, content: NSView, fill: NSColor = AppPalette.panel, border: NSColor = AppPalette.lineSoftSubtle) {
+    init(
+        view: NSView,
+        content: NSView,
+        fill: NSColor = AppPalette.panel,
+        border: NSColor = AppPalette.lineSoftSubtle,
+        radius: CGFloat = ScoopedRectangle.radius
+    ) {
         self.view = view
+        self.radius = radius
         content.wantsLayer = true
         content.layer?.backgroundColor = fill.cgColor
         content.layer?.mask = maskLayer
@@ -65,7 +73,7 @@ final class ScoopedLayerChrome {
         view.layer?.shadowOpacity = Float(elevation.opacity)
         view.layer?.shadowRadius = elevation.sigma
         view.layer?.shadowOffset = CGSize(width: 0, height: -elevation.drop)
-        borderView = ScoopedBorderView(color: border)
+        borderView = ScoopedBorderView(color: border, radius: radius)
         borderView.autoresizingMask = [.width, .height]
         borderView.frame = view.bounds
         view.addSubview(borderView)
@@ -76,7 +84,7 @@ final class ScoopedLayerChrome {
     }
 
     func layout(bounds: CGRect) {
-        let path = ScoopedRectangle.cgPath(in: bounds)
+        let path = ScoopedRectangle.cgPath(in: bounds, radius: radius)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         maskLayer.frame = bounds
@@ -96,8 +104,11 @@ private final class ScoopedBorderView: NSView {
         }
     }
 
-    init(color: NSColor) {
+    private let radius: CGFloat
+
+    init(color: NSColor, radius: CGFloat) {
         self.color = color
+        self.radius = radius
         super.init(frame: .zero)
         layerContentsRedrawPolicy = .onSetNeedsDisplay
     }
@@ -120,7 +131,7 @@ private final class ScoopedBorderView: NSView {
         guard let context = NSGraphicsContext.current?.cgContext else {
             return
         }
-        let path = ScoopedRectangle.cgPath(in: bounds)
+        let path = ScoopedRectangle.cgPath(in: bounds, radius: radius)
         context.addPath(path)
         context.clip()
         context.addPath(path)

@@ -4,19 +4,17 @@ import SwiftUI
 @MainActor
 final class ToastPresentationController {
     private let window: () -> NSWindow?
-    private let footer: () -> NSView?
     private var toastView: ToastHostingView?
     private var dismissWorkItem: DispatchWorkItem?
     private var presentationID = 0
 
-    init(window: @escaping () -> NSWindow?, footer: @escaping () -> NSView?) {
+    init(window: @escaping () -> NSWindow?) {
         self.window = window
-        self.footer = footer
     }
 
     func show(_ message: String) {
         let cleanMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanMessage.isEmpty, let contentView = window()?.contentView, let footer = footer() else {
+        guard !cleanMessage.isEmpty, let contentView = window()?.contentView else {
             return
         }
 
@@ -31,11 +29,9 @@ final class ToastPresentationController {
             contentView.addSubview(view)
             NSLayoutConstraint.activate([
                 view.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-                // The footer's top edge is the same as the terminal pane's own bottom edge — this
-                // follows the footer's height and the row-snap leftover automatically, instead of
-                // a window-bottom-relative constant that predates the footer. The hosting view reaches
-                // `shadowMargin` past the card, so the card is what keeps the gap.
-                view.bottomAnchor.constraint(equalTo: footer.topAnchor, constant: ToastBanner.shadowMargin - ShellMetrics.gap),
+                // The hosting view reaches `shadowMargin` past the card, so the card is what keeps
+                // the shell gap above the window's bottom edge.
+                view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: ToastBanner.shadowMargin - ShellMetrics.gap),
                 view.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Space.section - ToastBanner.shadowMargin),
                 view.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: ToastBanner.shadowMargin - Space.section),
             ])

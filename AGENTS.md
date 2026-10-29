@@ -153,7 +153,7 @@ Core.
 ## Interaction states
 
 One set of state rules covers the whole app. A view asks for a state's look
-(`RowLook`, `OutlineLook`, `ToggleLook`, `PlateBand` in
+(`RowLook`, `OutlineLook`, `ActionBarButtonLook`, `PlateBand` in
 `Core/Rendering/InteractionLook.swift`) and draws it; it never picks a palette
 colour by state itself. The colours are `StateColor` cases, which `AppPalette`
 builds its matching entries from (`SharedUI/Theme.swift`).
@@ -200,8 +200,9 @@ again where it was when the keys come back.
 | | selected (`TextTabLook.tab`) | **bold**, the selected pill tab's label colour: `textSelected` while the panel has the keys, `textBody` without them; the pointer adds nothing |
 | Field | rest / focused (`.fieldRest` / `.fieldFocused`) | `line` / `controlBorder` border (`fieldChrome`) |
 | Dock panel frame | rest / focused (`.frameRest` / `.frameFocused`) | 2pt `lineSoftSubtle` / `controlBorder` |
-| Icon button (top bar, action bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
-| Toggle (action bar) | on (`ToggleLook.on`) | `brassActive` border and inner glow |
+| Icon button (dock top bar) | rest / under the pointer | `RowLook` icon: `textMeta` / `textSelected` |
+| Action bar button (`ActionBarButtonLook`) | rest / active (the tracker or the dock panel it opens shows) / under the pointer | `item` fill and `line` border in every state; icon `textMeta` / `textBody` / `textSelected` |
+| | toggle on (caffeinate) | icon unchanged; a 2pt `brassActive` inner glow at 15% and the tracker's working spinner (`SpinnerRingView`) turning round the 1pt border |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
 | | attached: the session open in the terminal (`TrackerAttachedDot`) | a 5pt dot (`Space.row`) in the project colour (`TrackerNameplateColor.barLightness`, the project name's and side diamonds'), its centre `Space.item` left of the disc's left edge and level with the disc's centre; no shadow, no band, hit shape, layout or number change |
 | Shell row (the tracker's shell section) | rest (`RowLook.shellRest`) | no fill, title and glyph `textMeta`, glyph disc `item` rim (a filled row's disc takes the look's own rim) |
@@ -225,7 +226,7 @@ again where it was when the keys come back.
 - Shadows come only from an elevation token (`Elevation` in `SharedUI/Theme.swift`), never numbers at the call site;
   each is a black drop shadow, and a shadow drawn inside a clip is a bug (draw it outside, as `scoopedPanel` and
   `ScoopedLayerChrome` do). `raised` (black 35%, blur 4, 1.5 down): tracker plates and their discs, and every
-  dropdown (`SuggestionDropdown`). `panel` (30%, blur 12, 4 down): the dock's panels and the toast. `modal` (45%,
+  dropdown (`SuggestionDropdown`). `panel` (30%, blur 12, 4 down): the dock's panels, the action bar header and the toast. `modal` (45%,
   blur 30, 10 down): every in-window modal, the Quest Log included. An inner shadow, the one kind that belongs inside
   its clip, is a `Recess` token in the same file (`portrait`: 3 deep, blur 1, black 20%, the sheets' portrait discs).
   Panel, dock and toast borders are 2pt
@@ -304,6 +305,15 @@ again where it was when the keys come back.
   (`PullRequestStore.isRefreshing`): from the key to the daemon's reply (`pr.refresh` with `wait`), for at least one turn
   and never past 30s; a second `r` meanwhile sends nothing, and the daemon's background polls never show it. It is Core
   Animation only, runs only while on screen, and holds still and full under Reduce Motion. No hint or footer text.
+- The action bar is a header over the terminal column (`Main Chat Header.svg`): a 50pt (`ControlHeight.row`) scooped
+  panel at radius 13, its top level with the tracker's and the dock's (`sideCardInset` down), `Space.section` from the
+  tracker's plates and the dock, or from the window's edges when they're hidden, with the terminal's text starting
+  `Space.section` under it. `ShellSplitLayoutPlanner` gives its frame (`headerFrame`) and `MainSplitView` lays it out
+  and animates it with the panes. Its 30pt buttons sit `Space.item` from its top and bottom and `Space.section` in from
+  its ends: the tracker toggle alone at the leading end; New Session, Quest Log and Settings, then Artifacts, Worker Log
+  and Version Control at the trailing end, 1 apart in a group and `Space.item` between the groups; caffeinate
+  `Space.section` past them (`ActionBarMetrics`). Its empty space drags the window. Toasts sit `Space.section` above the
+  window's bottom edge.
 - The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
   under it the artifacts or the Worker Log. Each has its own title and close button, and either shows alone
   (it then fills the dock). `DockState` keeps their visibility app-wide; ⇧⌘K and ⇧⌘J move the keys between them (all
@@ -321,7 +331,7 @@ again where it was when the keys come back.
 
 `StateRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and
 fails on a raw colour outside `Theme.swift`, a `StateColor`/`textSelected`
-outside the token layer, `brassActive` or `ToggleLook` outside the action bar, a
+outside the token layer, `brassActive` or `ActionBarButtonLook` outside the action bar, a
 view picking a colour by a state flag, and a hand-rolled dropdown or field. It
 must find no breaks.
 
@@ -362,7 +372,7 @@ the plates scroll in their own list in the space above it, which shrinks to make
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an
 SVG's own coordinates: path data, and an art's own size where no uniform scale
-lands both sides on 5s (the action-bar plate's 430 x 53). A design value that
+lands both sides on 5s. A design value that
 isn't on 5s is snapped to the nearest 5 or redrawn onto 5s, never kept with a
 marker.
 
