@@ -1360,6 +1360,7 @@ type tmuxPaneOptionCall struct {
 type tmuxEnvStub struct {
 	calls           []tmuxEnvCall
 	renameCalls     []tmuxRenameCall
+	paneTitleCalls  []tmuxRenameCall
 	paneOptionCalls []tmuxPaneOptionCall
 	err             error
 }
@@ -1371,6 +1372,11 @@ func (s *tmuxEnvStub) SetEnvironment(_ context.Context, session, key, value stri
 
 func (s *tmuxEnvStub) RenameWindow(_ context.Context, target, name string) error {
 	s.renameCalls = append(s.renameCalls, tmuxRenameCall{target: target, name: name})
+	return s.err
+}
+
+func (s *tmuxEnvStub) SelectPaneTitle(_ context.Context, target, title string) error {
+	s.paneTitleCalls = append(s.paneTitleCalls, tmuxRenameCall{target: target, name: title})
 	return s.err
 }
 

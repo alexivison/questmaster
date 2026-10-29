@@ -1019,6 +1019,9 @@ func TestStart_TitledSessionDoesNotSetTmuxWindowName(t *testing.T) {
 	if got := runner.windowNames[result.SessionID+":0"]; got != "" {
 		t.Fatalf("rename-window name = %q, want no custom name", got)
 	}
+	if got := runner.paneTitles[result.SessionID+":0.0"]; got != "Add GLM 5.2" {
+		t.Fatalf("pane title = %q, want session title", got)
+	}
 
 	for _, call := range runner.calls {
 		if len(call.args) > 0 && call.args[0] == "new-session" {
@@ -3274,7 +3277,7 @@ func TestLaunchWorkspace_Success(t *testing.T) {
 	svc, runner := setupService(t)
 	runner.sessions["qm-lw"] = true
 
-	if err := svc.launchAppWorkspace(t.Context(), "qm-lw", "/tmp", false, false, launchCmds("echo claude")); err != nil {
+	if err := svc.launchAppWorkspace(t.Context(), "qm-lw", "/tmp", "", false, false, launchCmds("echo claude")); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 	assertAgentOnlyLayout(t, runner, "qm-lw")
@@ -3286,7 +3289,7 @@ func TestLaunchWorkspace_AgentStartsAfterRoleAssignment(t *testing.T) {
 	runner.sessions["qm-lw3"] = true
 
 	agentCmd := "echo claude"
-	if err := svc.launchAppWorkspace(t.Context(), "qm-lw3", "/tmp", false, false, launchCmds(agentCmd)); err != nil {
+	if err := svc.launchAppWorkspace(t.Context(), "qm-lw3", "/tmp", "", false, false, launchCmds(agentCmd)); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 
@@ -3547,7 +3550,7 @@ func TestLaunchWorkspace_ErrorOnRespawn(t *testing.T) {
 
 	runner.sessions["qm-werr"] = true
 
-	err := svc.launchAppWorkspace(t.Context(), "qm-werr", "/tmp", false, false, launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), "qm-werr", "/tmp", "", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace")
 	}
@@ -3566,7 +3569,7 @@ func TestLaunchWorkspace_ErrorOnAgentRespawn(t *testing.T) {
 
 	runner.sessions["qm-wresp"] = true
 
-	err := svc.launchAppWorkspace(t.Context(), "qm-wresp", "/tmp", false, false, launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), "qm-wresp", "/tmp", "", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace agent respawn")
 	}

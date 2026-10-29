@@ -17,6 +17,7 @@ import (
 
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 // MutationCommandRunner runs a qm command for serve mutations that belong to
@@ -103,8 +104,8 @@ var mutationRegistry = map[string]mutationHandler{
 	"start": func(s *Server, ctx context.Context, req Request, payload mutationPayload) (any, error) {
 		return s.mutateStart(ctx, req, payload)
 	},
-	"rename": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
-		return s.mutateRename(payload)
+	"rename": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateRename(ctx, payload)
 	},
 	"recolor": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRecolor(payload)
@@ -285,7 +286,7 @@ func (s *Server) mutateStart(ctx context.Context, req Request, payload mutationP
 	return s.runCommandJSON(ctx, args, stdin)
 }
 
-func (s *Server) mutateRename(payload mutationPayload) (any, error) {
+func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any, error) {
 	sessionID, err := requiredFirst("session_id", payload.SessionID, payload.TargetID, payload.ID)
 	if err != nil {
 		return nil, err
@@ -294,12 +295,33 @@ func (s *Server) mutateRename(payload mutationPayload) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	var hasAgent bool
 	if err := s.mutationStore().Update(sessionID, func(m *state.Manifest) {
 		m.Title = title
 		m.SetExtra("title_locked", "1")
 		delete(m.Extra, "title_provisional")
+		hasAgent = len(m.Agents) > 0
 	}); err != nil {
 		return nil, err
+	}
+	if hasAgent {
+		client := s.TmuxClient
+		if client == nil && s.Snapshotter != nil {
+			client = s.Snapshotter.tmuxClient
+		}
+		if client == nil {
+			client = tmux.NewExecClient()
+		}
+		alive, err := client.HasSession(ctx, sessionID)
+		if err != nil {
+			return nil, fmt.Errorf("check renamed session pane: %w", err)
+		}
+		if alive {
+			pane := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
+			if err := client.SelectPaneTitle(ctx, pane, title); err != nil {
+				return nil, fmt.Errorf("rename session pane: %w", err)
+			}
+		}
 	}
 	return map[string]string{"session_id": sessionID, "title": title}, nil
 }

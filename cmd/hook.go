@@ -86,6 +86,7 @@ type hookTmuxEnvironmentSetter interface {
 	SetEnvironment(ctx context.Context, session, key, value string) error
 	SetPaneOption(ctx context.Context, target, key, value string) error
 	RenameWindow(ctx context.Context, target, name string) error
+	SelectPaneTitle(ctx context.Context, target, title string) error
 }
 
 // defaultHookRunner wires HookRunner to the real internal/state package.
@@ -2326,6 +2327,7 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		(strings.TrimSpace(manifest.Title) != "" && manifest.ExtraString(titleProvisionalExtraKey) == "") {
 		return
 	}
+	var updatedAgentTitle bool
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		// Re-check under the lock: a concurrent turn may have set it.
 		if m.ExtraString("title_locked") != "" ||
@@ -2335,9 +2337,16 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		m.Title = title
 		m.WindowName = ""
 		delete(m.Extra, titleProvisionalExtraKey)
+		updatedAgentTitle = len(m.Agents) > 0
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
 		return
+	}
+	if r.TmuxClient != nil && updatedAgentTitle {
+		pane := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
+		if err := r.TmuxClient.SelectPaneTitle(ctx, pane, title); err != nil {
+			fmt.Fprintf(stderr, "questmaster hook: update pane title: %v\n", err)
+		}
 	}
 }
 
