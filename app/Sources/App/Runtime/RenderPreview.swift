@@ -137,6 +137,7 @@ enum RenderPreview {
         render(workerLogTabsView(workers: 9, selected: nil), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-start.png")
         render(workerLogTabsView(workers: 9, selected: "w9"), size: CGSize(width: DockWidthPreference.panelWidth, height: WorkerLogTabMetrics.height), to: "\(outputDir)/worker-log-tabs-overflow-end.png")
         renderView(workerLogDockView(menuOpen: false, selected: "w2"), size: logDock, to: "\(outputDir)/worker-log-tabs-dock.png")
+        renderView(workerLogDockView(menuOpen: false, workers: 9, selected: "w5"), size: logDock, to: "\(outputDir)/worker-log-tabs-dock-overflow.png")
         render(workerChatFeedView(rounds: 1), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-overflow.png")
         render(workerChatFeedView(rounds: 0, entryLimit: 3), size: CGSize(width: DockWidthPreference.panelWidth, height: 400), to: "\(outputDir)/worker-chat-feed-few.png")
         render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
