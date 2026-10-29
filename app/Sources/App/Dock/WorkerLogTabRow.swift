@@ -14,11 +14,9 @@ enum WorkerLogTabMetrics {
     /// What the row takes from the panel's bottom: the row and the inset under it.
     static let reserved = height + bottomInset
     static let separatorGap = Space.row
-    /// The scroller's inset from the panel's edges, so a tab scrolled out of view never reaches the scooped edge.
-    static let sideInset = Space.item
-    /// The tabs' end margins inside the scroller; with `sideInset`, the feed's own inset. A row that fits is centred
-    /// between them.
-    static let edgeInset = WorkerChatMetrics.inset - sideInset
+    /// The scroller's inset from the panel's edges: the bottom corners' scoop reaches its radius in beside the row, and
+    /// the tabs, clipped or not, keep `Space.item` clear of it. A row that fits is centred between the insets.
+    static let sideInset = ScoopedRectangle.radius + Space.item
     /// How far a clipped side fades out, as the feed's top does.
     static let fadeWidth = WorkerChatMetrics.topFadeHeight
     static let labelBaseline: CGFloat = 17
@@ -70,7 +68,6 @@ struct WorkerLogTabRow: View {
                             .id(index)
                         }
                     }
-                    .padding(.horizontal, WorkerLogTabMetrics.edgeInset)
                     .frame(minWidth: viewport.size.width)
                     .background(ScrollerHider())
                     .background(WorkerLogTabScrollWatcher { hiddenSides = $0 })
