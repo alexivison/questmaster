@@ -1048,6 +1048,7 @@ func addChatEntryAt(event *state.StateEvent, pane *state.PaneState, kind, text s
 	pane.LastChatAt = event.Ts
 	if kind == "say" || kind == "message" {
 		pane.Narration = capNarration(text)
+		pane.NarrationAt = event.Ts
 	}
 	if event.Fields == nil {
 		event.Fields = make(map[string]interface{})
@@ -1713,7 +1714,19 @@ func addClaudeNarration(ev *state.StateEvent, pane *state.PaneState, path string
 		return
 	}
 	for _, narration := range narrations {
+		at := narration.timestamp
+		if at.IsZero() {
+			at = ev.Ts
+		}
+		line, lineAt := pane.Narration, pane.NarrationAt
 		addChatEntryAt(ev, pane, "say", narration.text, narration.timestamp)
+		if at.After(lineAt) {
+			pane.NarrationAt = at
+			continue
+		}
+		// A say that arrived after this block was written set the line. Keep
+		// the chat entry for the Worker Log; leave the plate on the newer line.
+		pane.Narration, pane.NarrationAt = line, lineAt
 	}
 	pane.ClaudeNarrationOffset = next
 	pane.ClaudeNarrationSkippingLine = skipping

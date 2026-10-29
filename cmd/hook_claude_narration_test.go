@@ -427,3 +427,101 @@ func TestHookClaudeNarrationCursorIsWrittenWhenOnlyItMoves(t *testing.T) {
 		t.Fatalf("cursor = %d, want the end of the transcript %d", got, want)
 	}
 }
+
+// claudeNarrationClockAt sets the hook clock, so say times and transcript
+// timestamps sit on one timeline.
+func claudeNarrationClockAt(t *testing.T, r *HookRunner, at string) {
+	t.Helper()
+	when, err := time.Parse(time.RFC3339Nano, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Now = func() time.Time { return when }
+}
+
+func claudeTextBlock(text string) map[string]interface{} {
+	return map[string]interface{}{"type": "text", "text": text}
+}
+
+// runClaudeMessageDisplay sends one text block the way MessageDisplay does: a
+// single final batch.
+func runClaudeMessageDisplay(r *HookRunner, promptID, messageID, text string) {
+	runClaudeHook(r, "say", map[string]interface{}{
+		"message_id": messageID, "prompt_id": promptID, "index": 0, "final": true, "delta": text,
+	})
+}
+
+func countOf(texts []string, want string) int {
+	n := 0
+	for _, text := range texts {
+		if text == want {
+			n++
+		}
+	}
+	return n
+}
+
+func TestHookClaudeLateNarrationKeepsNewerSayOnPlate(t *testing.T) {
+	r, rec, path := newClaudeNarrationRunner(t)
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:40Z")
+	runClaudeHook(r, "working", map[string]interface{}{"prompt_id": "p1", "transcript_path": path})
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:44Z")
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:44Z", claudeToolUseBlock("Bash")))
+	runClaudeHook(r, "tool_start", map[string]interface{}{"prompt_id": "p1", "transcript_path": path, "tool_use_id": "t1", "tool_name": "Bash"})
+
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:45.195Z", claudeThinkingBlock("Checking the final state.")))
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:46Z", claudeTextBlock("All green.")))
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:46.100Z")
+	runClaudeMessageDisplay(r, "p1", "m1", "All green.")
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:50Z")
+	runClaudeHook(r, "done", map[string]interface{}{"prompt_id": "p1", "transcript_path": path, "last_assistant_message": "All green."})
+
+	if got := rec.lastState.Panes["agent"].Narration; got != "All green." {
+		t.Fatalf("plate line = %q, want the newer say", got)
+	}
+	if got := claudeSayTexts(rec); countOf(got, "Checking the final state.") != 1 || countOf(got, "All green.") != 1 {
+		t.Fatalf("say texts = %#v, want each once", got)
+	}
+	if kinds := claudeChatKinds(latestHookEvent(t, rec)); slices.Contains(kinds, "message") {
+		t.Fatalf("done chat kinds = %#v, want no message for the text already said", kinds)
+	}
+}
+
+func TestHookClaudeNarrationBeforeSayKeepsSayOnPlate(t *testing.T) {
+	r, rec, path := newClaudeNarrationRunner(t)
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:40Z")
+	runClaudeHook(r, "working", map[string]interface{}{"prompt_id": "p1", "transcript_path": path})
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:45.195Z", claudeThinkingBlock("Reading the config next.")))
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:46Z", claudeTextBlock("Config looks right.")))
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:46.100Z")
+	runClaudeMessageDisplay(r, "p1", "m1", "Config looks right.")
+
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:46.200Z", claudeToolUseBlock("Read")))
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:46.300Z")
+	runClaudeHook(r, "tool_start", map[string]interface{}{"prompt_id": "p1", "transcript_path": path, "tool_use_id": "t1", "tool_name": "Read"})
+
+	if got := rec.lastState.Panes["agent"].Narration; got != "Config looks right." {
+		t.Fatalf("plate line = %q, want the text block's say", got)
+	}
+	if got := claudeSayTexts(rec); countOf(got, "Reading the config next.") != 1 {
+		t.Fatalf("say texts = %#v, want the narration once", got)
+	}
+}
+
+func TestHookClaudeNarrationAfterSayReplacesPlate(t *testing.T) {
+	r, rec, path := newClaudeNarrationRunner(t)
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:40Z")
+	runClaudeHook(r, "working", map[string]interface{}{"prompt_id": "p1", "transcript_path": path})
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:45Z", claudeTextBlock("Looking at the test.")))
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:45.100Z")
+	runClaudeMessageDisplay(r, "p1", "m1", "Looking at the test.")
+
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:48Z", claudeThinkingBlock("Now editing the test.")))
+	appendClaudeTranscript(t, path, claudeTranscriptRecord(t, "2026-10-29T07:09:48.100Z", claudeToolUseBlock("Edit")))
+	claudeNarrationClockAt(t, r, "2026-10-29T07:09:48.500Z")
+	runClaudeHook(r, "tool_start", map[string]interface{}{"prompt_id": "p1", "transcript_path": path, "tool_use_id": "t1", "tool_name": "Edit"})
+
+	if got := rec.lastState.Panes["agent"].Narration; got != "Now editing the test." {
+		t.Fatalf("plate line = %q, want the newer narration", got)
+	}
+}
