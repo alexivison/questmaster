@@ -53,7 +53,7 @@ func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd, title st
 		return fmt.Errorf("%s agent pane: %w", label, err)
 	}
 	if title != "" {
-		if err := s.Client.SelectPaneTitle(ctx, agentPane, title); err != nil {
+		if err := s.Client.SetManagedPaneTitle(ctx, agentPane, title); err != nil {
 			return fmt.Errorf("%s agent pane title: %w", label, err)
 		}
 	}

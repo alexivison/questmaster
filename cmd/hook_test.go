@@ -1307,6 +1307,7 @@ type manifestStoreStub struct {
 	updateCalls int
 	readErr     error
 	updateErr   error
+	afterUpdate func(*state.Manifest)
 }
 
 func newManifestStoreStub(sessionID string, extras map[string]string) *manifestStoreStub {
@@ -1337,6 +1338,9 @@ func (s *manifestStoreStub) Update(sessionID string, fn func(*state.Manifest)) e
 	}
 	fn(&s.manifest)
 	s.manifest.SessionID = sessionID
+	if s.afterUpdate != nil {
+		s.afterUpdate(&s.manifest)
+	}
 	return nil
 }
 
@@ -1362,6 +1366,7 @@ type tmuxEnvStub struct {
 	renameCalls     []tmuxRenameCall
 	paneTitleCalls  []tmuxRenameCall
 	paneOptionCalls []tmuxPaneOptionCall
+	resolvedPane    string
 	err             error
 }
 
@@ -1378,6 +1383,20 @@ func (s *tmuxEnvStub) RenameWindow(_ context.Context, target, name string) error
 func (s *tmuxEnvStub) SelectPaneTitle(_ context.Context, target, title string) error {
 	s.paneTitleCalls = append(s.paneTitleCalls, tmuxRenameCall{target: target, name: title})
 	return s.err
+}
+
+func (s *tmuxEnvStub) SetManagedPaneTitle(ctx context.Context, target, title string) error {
+	return s.SelectPaneTitle(ctx, target, title)
+}
+
+func (s *tmuxEnvStub) ResolveRole(_ context.Context, sessionID, _ string, _ int) (string, error) {
+	if s.err != nil {
+		return "", s.err
+	}
+	if s.resolvedPane != "" {
+		return s.resolvedPane, nil
+	}
+	return tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0), nil
 }
 
 func (s *tmuxEnvStub) SetPaneOption(_ context.Context, target, key, value string) error {
@@ -3028,6 +3047,9 @@ func TestHookClaudeSessionEndPreservesLockedTitle(t *testing.T) {
 	}
 	if len(tmuxEnv.paneOptionCalls) != 1 || tmuxEnv.paneOptionCalls[0] != (tmuxPaneOptionCall{target: "%7", key: tmux.PaneRoleOption, value: tmux.RoleShell}) {
 		t.Fatalf("pane option calls: %+v", tmuxEnv.paneOptionCalls)
+	}
+	if len(tmuxEnv.paneTitleCalls) != 1 || tmuxEnv.paneTitleCalls[0] != (tmuxRenameCall{target: "%7", name: ""}) {
+		t.Fatalf("managed title was not cleared: %+v", tmuxEnv.paneTitleCalls)
 	}
 	if len(tmuxEnv.renameCalls) != 0 {
 		t.Fatalf("rename calls: %+v", tmuxEnv.renameCalls)

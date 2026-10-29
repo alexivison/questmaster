@@ -86,7 +86,8 @@ type hookTmuxEnvironmentSetter interface {
 	SetEnvironment(ctx context.Context, session, key, value string) error
 	SetPaneOption(ctx context.Context, target, key, value string) error
 	RenameWindow(ctx context.Context, target, name string) error
-	SelectPaneTitle(ctx context.Context, target, title string) error
+	ResolveRole(ctx context.Context, sessionID, role string, preferredWindow int) (string, error)
+	SetManagedPaneTitle(ctx context.Context, target, title string) error
 }
 
 // defaultHookRunner wires HookRunner to the real internal/state package.
@@ -2295,6 +2296,9 @@ func clearAdoptedAgentOnExit(ctx context.Context, r *HookRunner, stderr io.Write
 		if err := r.TmuxClient.SetPaneOption(ctx, tmuxPane, tmux.PaneRoleOption, tmux.RoleShell); err != nil {
 			fmt.Fprintf(stderr, "questmaster hook %s: retag adopted pane: %v\n", agent, err)
 		}
+		if err := r.TmuxClient.SetManagedPaneTitle(ctx, tmuxPane, ""); err != nil {
+			fmt.Fprintf(stderr, "questmaster hook %s: clear adopted pane title: %v\n", agent, err)
+		}
 	}
 }
 
@@ -2327,7 +2331,7 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		(strings.TrimSpace(manifest.Title) != "" && manifest.ExtraString(titleProvisionalExtraKey) == "") {
 		return
 	}
-	var updatedAgentTitle bool
+	var paneTitleErr error
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		// Re-check under the lock: a concurrent turn may have set it.
 		if m.ExtraString("title_locked") != "" ||
@@ -2337,16 +2341,22 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		m.Title = title
 		m.WindowName = ""
 		delete(m.Extra, titleProvisionalExtraKey)
-		updatedAgentTitle = len(m.Agents) > 0
+		if r.TmuxClient != nil && len(m.Agents) > 0 {
+			// Keep the tmux write inside the manifest lock so an explicit rename
+			// cannot be followed by this older first-prompt title.
+			pane, err := r.TmuxClient.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
+			if err != nil {
+				paneTitleErr = err
+				return
+			}
+			paneTitleErr = r.TmuxClient.SetManagedPaneTitle(ctx, pane, title)
+		}
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
 		return
 	}
-	if r.TmuxClient != nil && updatedAgentTitle {
-		pane := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
-		if err := r.TmuxClient.SelectPaneTitle(ctx, pane, title); err != nil {
-			fmt.Fprintf(stderr, "questmaster hook: update pane title: %v\n", err)
-		}
+	if paneTitleErr != nil {
+		fmt.Fprintf(stderr, "questmaster hook: update pane title: %v\n", paneTitleErr)
 	}
 }
 

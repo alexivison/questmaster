@@ -295,33 +295,40 @@ func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any
 	if err != nil {
 		return nil, err
 	}
-	var hasAgent bool
+	client := s.TmuxClient
+	if client == nil && s.Snapshotter != nil {
+		client = s.Snapshotter.tmuxClient
+	}
+	if client == nil {
+		client = tmux.NewExecClient()
+	}
+	var paneTitleErr error
 	if err := s.mutationStore().Update(sessionID, func(m *state.Manifest) {
 		m.Title = title
 		m.SetExtra("title_locked", "1")
 		delete(m.Extra, "title_provisional")
-		hasAgent = len(m.Agents) > 0
-	}); err != nil {
-		return nil, err
-	}
-	if hasAgent {
-		client := s.TmuxClient
-		if client == nil && s.Snapshotter != nil {
-			client = s.Snapshotter.tmuxClient
-		}
-		if client == nil {
-			client = tmux.NewExecClient()
+		if len(m.Agents) == 0 {
+			return
 		}
 		alive, err := client.HasSession(ctx, sessionID)
 		if err != nil {
-			return nil, fmt.Errorf("check renamed session pane: %w", err)
+			paneTitleErr = fmt.Errorf("check renamed session pane: %w", err)
+			return
 		}
-		if alive {
-			pane := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
-			if err := client.SelectPaneTitle(ctx, pane, title); err != nil {
-				return nil, fmt.Errorf("rename session pane: %w", err)
-			}
+		if !alive {
+			return
 		}
+		pane, err := client.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
+		if err != nil {
+			paneTitleErr = fmt.Errorf("resolve renamed session pane: %w", err)
+			return
+		}
+		paneTitleErr = client.SetManagedPaneTitle(ctx, pane, title)
+	}); err != nil {
+		return nil, err
+	}
+	if paneTitleErr != nil {
+		return nil, fmt.Errorf("rename session pane: %w", paneTitleErr)
 	}
 	return map[string]string{"session_id": sessionID, "title": title}, nil
 }
