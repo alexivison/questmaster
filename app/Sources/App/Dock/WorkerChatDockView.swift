@@ -133,6 +133,7 @@ struct WorkerChatDockView: View {
     private var tabRow: some View {
         if store.showsTabs {
             WorkerLogTabRow(workers: store.workers, selectedID: store.filter.workerID, areaFocused: areaFocused, onSelect: store.selectWorker)
+                .padding(.horizontal, WorkerLogTabMetrics.sideInset)
                 .padding(.bottom, WorkerLogTabMetrics.bottomInset)
         }
     }
