@@ -254,11 +254,13 @@ final class TrackerPortraitStatusNSView: NSView {
         let light = TrackerCastFillNSView.edgeLight
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for sublayer in [glow, ring, arc, head, pulse, spinner.layer, finishFill, flash] {
+        for sublayer in [glow, ring, arc, head, pulse, finishFill, flash] {
             sublayer.removeAllAnimations()
             sublayer.frame = bounds
             sublayer.isHidden = true
         }
+        spinner.stopSpinning()
+        spinner.layer.isHidden = true
         let full = geometry.ringPath(around: middle)
         let sweep = geometry.arcPath(around: middle)
         for shape in shapeLayers {
@@ -366,9 +368,7 @@ final class TrackerPortraitStatusNSView: NSView {
         case .filling:
             return (.pi / 2, (arc.presentation() ?? arc).strokeEnd)
         case .spinning where !(applied?.reduceMotion ?? true):
-            let transform = (spinner.layer.presentation() ?? spinner.layer).transform
-            let turn = atan2(transform.m12, transform.m11)
-            let head = .pi / 2 + turn
+            let head = .pi / 2 + spinner.currentTurn
             return (head + 2 * .pi * CGFloat(WorkingSpinner.arc), CGFloat(WorkingSpinner.arc))
         default:
             return (.pi / 2, 1)

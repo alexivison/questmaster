@@ -93,6 +93,8 @@ struct ActionBarView: View {
         .padding(.horizontal, ActionBarMetrics.endInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(WindowDragArea())
+        // The header sits under the window's transparent titlebar, whose safe area would push the buttons down.
+        .ignoresSafeArea()
     }
 
     private func group(_ specs: [ActionBarButtonSpec]) -> some View {
