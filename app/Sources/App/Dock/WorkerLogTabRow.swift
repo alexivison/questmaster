@@ -14,8 +14,11 @@ enum WorkerLogTabMetrics {
     /// What the row takes from the panel's bottom: the row and the inset under it.
     static let reserved = height + bottomInset
     static let separatorGap = Space.row
-    /// The tabs' end margins: the feed's own. A row that fits is centred between them.
-    static let edgeInset = WorkerChatMetrics.inset
+    /// The scroller's inset from the panel's edges, so a tab scrolled out of view never reaches the scooped edge.
+    static let sideInset = Space.item
+    /// The tabs' end margins inside the scroller; with `sideInset`, the feed's own inset. A row that fits is centred
+    /// between them.
+    static let edgeInset = WorkerChatMetrics.inset - sideInset
     /// How far a clipped side fades out, as the feed's top does.
     static let fadeWidth = WorkerChatMetrics.topFadeHeight
     static let labelBaseline: CGFloat = 17
