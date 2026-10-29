@@ -11,11 +11,11 @@ struct DockWidthPreferenceTests {
     }
 
     private static func panelsAndViewerAreShareOfTheWindow() {
-        expect(DockWidthPreference.panelWidth(forWindowWidth: 2560) == 530, "panels keep their 530 minimum")
-        expect(DockWidthPreference.panelWidth(forWindowWidth: 3000) == 600, "panels take 20% of a wide window")
+        expect(DockWidthPreference.panelWidth(forWindowWidth: 1512) == 360, "panels keep the 360 minimum on a small window")
+        expect(DockWidthPreference.panelWidth(forWindowWidth: 2560) == 512, "panels take 20% of the window")
         expect(DockWidthPreference.viewerWidth(fraction: nil, windowWidth: 2560) == 768, "the viewer takes 30% by default")
         expect(DockWidthPreference.viewerWidth(fraction: 0.5, windowWidth: 2560) == 1280, "the viewer takes the user's share")
-        expect(DockWidthPreference.viewerWidth(fraction: nil, windowWidth: 1520) == 530, "the viewer is never narrower than the panels")
+        expect(DockWidthPreference.viewerWidth(fraction: 0.1, windowWidth: 2560) == 512, "the viewer is never narrower than the panels")
     }
 
     private static func clampPreservesTerminalAndDockMinimums() {

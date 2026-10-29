@@ -66,8 +66,8 @@ struct ShellSplitLayoutTests {
         )
 
         expect(layout.trackerFrame == ShellSplitRect(x: 0, y: 8, width: 0, height: 884), "hidden tracker frame mismatch")
-        expect(layout.terminalFrame == ShellSplitRect(x: 0, y: 0, width: 982, height: 892), "hidden-tracker terminal mismatch")
-        expect(layout.dockFrame == ShellSplitRect(x: 982, y: 8, width: 530, height: 884), "hidden-tracker dock mismatch: 30% is under the panels' 530")
+        expect(layout.terminalFrame == ShellSplitRect(x: 0, y: 0, width: 1056, height: 892), "hidden-tracker terminal mismatch")
+        expect(layout.dockFrame == ShellSplitRect(x: 1056, y: 8, width: 456, height: 884), "hidden-tracker dock should take 30% of the window")
     }
 
     private static func panelDockUsesThePanelWidth() {
@@ -79,9 +79,8 @@ struct ShellSplitLayoutTests {
             dockWidthMode: .panel
         )
 
-        expect(layout.dockWidth == DockWidthPreference.panelWidth, "a panel dock should ignore the preferred share, got \(layout.dockWidth)")
-        expect(layout.dockFrame.width == 530, "the panel dock is the artboards' 480 plus the Worker Log tab row's 50")
-        expect(layout.terminalFrame.width == 672, "panel dock terminal width mismatch")
+        expect(layout.dockWidth == DockWidthPreference.minWidth, "a panel dock should ignore the preferred share and keep the 360 floor, got \(layout.dockWidth)")
+        expect(layout.terminalFrame.width == 842, "panel dock terminal width mismatch")
     }
 
     private static func panelDockKeepsTheMinimumTerminalWidth() {
@@ -93,7 +92,7 @@ struct ShellSplitLayoutTests {
             dockWidthMode: .panel
         )
 
-        expect(layout.dockWidth < DockWidthPreference.panelWidth, "a narrow window should clamp the panel dock, got \(layout.dockWidth)")
+        expect(layout.dockWidth < DockWidthPreference.minWidth, "a narrow window should clamp the panel dock below its floor, got \(layout.dockWidth)")
         expect(layout.terminalFrame.width == DockWidthPreference.minTerminalWidth, "a narrow window should keep the terminal at its minimum, got \(layout.terminalFrame.width)")
     }
 
@@ -111,8 +110,8 @@ struct ShellSplitLayoutTests {
         expect(dockWidth(windowWidth: 3000, fraction: nil, mode: .panel) == 600, "panels should take 20% of a wide window")
         expect(dockWidth(windowWidth: 3000, fraction: nil, mode: .standard) == 900, "the viewer should take 30% until resized")
         expect(dockWidth(windowWidth: 3000, fraction: 0.4, mode: .standard) == 1200, "the viewer should take the user's share")
-        expect(dockWidth(windowWidth: 2000, fraction: nil, mode: .panel) == 530, "panels should stay at their 530 minimum")
-        expect(dockWidth(windowWidth: 2000, fraction: 0.1, mode: .standard) == 530, "the viewer should never be narrower than the panels")
+        expect(dockWidth(windowWidth: 1500, fraction: nil, mode: .panel) == 360, "panels should stay at the 360 minimum")
+        expect(dockWidth(windowWidth: 3000, fraction: 0.1, mode: .standard) == 600, "the viewer should never be narrower than the panels")
     }
 
     private static func dockResizeClampsFromDragDelta() {
@@ -129,7 +128,7 @@ struct ShellSplitLayoutTests {
 
         expect(resized(startWidth: 641, deltaX: 80) == 561.0 / 1520, "positive delta should narrow the dock")
         expect(resized(startWidth: 641, deltaX: -1000) == 842.0 / 1520, "negative delta should clamp to the max dock width")
-        expect(resized(startWidth: 641, deltaX: 300) == 530.0 / 1520, "the viewer should not narrow past the panels")
+        expect(resized(startWidth: 641, deltaX: 400) == 360.0 / 1520, "the viewer should not narrow past the panels")
         expect(resized(startWidth: 641, deltaX: 80, dockVisible: false) == nil, "a hidden dock has no share to resize")
     }
 
