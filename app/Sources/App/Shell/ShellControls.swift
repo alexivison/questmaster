@@ -34,18 +34,12 @@ enum ShellMetrics {
     /// horizontal and vertical Ghostty padding are 10, `gap` is 20, so both are 10) — otherwise
     /// the shortfall. Horizontal: tracker-to-terminal and terminal-to-dock (or window edge,
     /// dock hidden) — all the same axis, so the same value. Vertical: the terminal's own inset
-    /// from the window's top edge.
+    /// from the header above it and from the window's bottom edge.
     static let horizontalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.x))
     static let verticalFlushGap = CGFloat(GhosttyGapDerivation.flushGap(g: Double(gap), ghosttyPadding: GhosttyWindowPadding.resolved.y))
     /// The tracker column holds the plate band's 2pt past the plates' right edge; the gap after it is that much
     /// shorter, so the plates sit `gap` from the terminal's first cell, not `gap` + 2.
     static let trackerTrailingGap: CGFloat = max(0, horizontalFlushGap - TrackerPlateDesign.glowBandWidth)
-    /// The footer's reserved band: its plate, the shell gap below it, and the flush gap above it.
-    static let footerBand = FooterBand(
-        plateHeight: Double(ActionBarMetrics.plateSvgHeight),
-        bottomGap: Double(gap),
-        topGap: Double(verticalFlushGap)
-    )
     static let splitLayoutMetrics = ShellSplitLayoutMetrics(
         sideCardInset: Double(sideCardInset),
         dockDividerHitWidth: Double(Space.item),
@@ -53,8 +47,10 @@ enum ShellMetrics {
         trackerLeadingInset: Double(trackerLeadingInset),
         trackerTrailingGap: Double(trackerTrailingGap),
         terminalToDockGap: Double(horizontalFlushGap),
-        terminalTopInset: Double(verticalFlushGap),
-        footerReservedHeight: footerBand.reservedHeight
+        terminalVerticalInset: Double(verticalFlushGap),
+        headerHeight: Double(ActionBarMetrics.height),
+        // The plates end the band's width short of the tracker column's edge, so the header sits `gap` past them.
+        headerTrackerGap: Double(gap - TrackerPlateDesign.glowBandWidth)
     )
 }
 

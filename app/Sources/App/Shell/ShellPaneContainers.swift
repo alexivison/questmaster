@@ -62,19 +62,10 @@ final class TrackerShellView: NSView {
     }
 }
 
-/// A thin strip pinned to the top of the terminal pane that lets the window be dragged by its
-/// background, the way the removed header used to. With the header gone the terminal's own view
-/// now reaches the window's top edge, under the transparent titlebar; its own `mouseDown` (text
-/// selection) would otherwise swallow drags there, since `NSView.mouseDownCanMoveWindow` only
-/// kicks in when nothing else handles the event first.
-private final class WindowDragHandleView: NSView {
-    override var mouseDownCanMoveWindow: Bool { true }
-}
-
 final class TerminalShellView: NSView {
     private let messageOverlay: NSHostingView<TerminalEndedOverlay>
 
-    init(body: NSView, dragHandleHeight: CGFloat) {
+    init(body: NSView) {
         messageOverlay = NSHostingView(rootView: TerminalEndedOverlay())
         super.init(frame: .zero)
         wantsLayer = true
@@ -87,16 +78,6 @@ final class TerminalShellView: NSView {
             body.leadingAnchor.constraint(equalTo: leadingAnchor),
             body.trailingAnchor.constraint(equalTo: trailingAnchor),
             body.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-
-        let dragHandle = WindowDragHandleView()
-        dragHandle.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(dragHandle)
-        NSLayoutConstraint.activate([
-            dragHandle.topAnchor.constraint(equalTo: topAnchor),
-            dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor),
-            dragHandle.trailingAnchor.constraint(equalTo: trailingAnchor),
-            dragHandle.heightAnchor.constraint(equalToConstant: dragHandleHeight),
         ])
 
         messageOverlay.translatesAutoresizingMaskIntoConstraints = false

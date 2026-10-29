@@ -4,18 +4,21 @@ import SwiftUI
 
 /// The working spinner for SwiftUI chrome, at the size SwiftUI gives it: a `SpinnerRing` that turns while the view is in
 /// a window and is gone with it, so the thing it marks (a refresh) is the only thing that keeps it alive. Under Reduce
-/// Motion it holds still and full, as the tracker's spinning ring does.
+/// Motion it holds still and full, as the tracker's spinning ring does. With a `cornerRadius` it traces a rounded square
+/// (an action-bar toggle's border) instead of a circle.
 struct SpinnerRingView: View {
     let stroke: CGFloat
+    var cornerRadius: CGFloat?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Representable(stroke: stroke, reduceMotion: reduceMotion)
+        Representable(stroke: stroke, cornerRadius: cornerRadius, reduceMotion: reduceMotion)
             .allowsHitTesting(false)
     }
 
     private struct Representable: NSViewRepresentable {
         let stroke: CGFloat
+        let cornerRadius: CGFloat?
         let reduceMotion: Bool
 
         func makeNSView(context: Context) -> SpinnerRingNSView {
@@ -23,7 +26,7 @@ struct SpinnerRingView: View {
         }
 
         func updateNSView(_ view: SpinnerRingNSView, context: Context) {
-            view.configure(stroke: stroke, reduceMotion: reduceMotion)
+            view.configure(stroke: stroke, cornerRadius: cornerRadius, reduceMotion: reduceMotion)
         }
     }
 }
@@ -34,8 +37,9 @@ final class SpinnerRingNSView: NSView {
     private let spinner = SpinnerRing()
     private let still = CAShapeLayer()
     private var stroke: CGFloat = 0
+    private var cornerRadius: CGFloat?
     private var reduceMotion = false
-    private var built: (side: CGFloat, stroke: CGFloat, reduceMotion: Bool, inWindow: Bool)?
+    private var built: (side: CGFloat, stroke: CGFloat, cornerRadius: CGFloat?, reduceMotion: Bool, inWindow: Bool)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -56,8 +60,9 @@ final class SpinnerRingNSView: NSView {
     /// Whether the ring holds still and full (Reduce Motion) instead of turning.
     var holdsStill: Bool { !still.isHidden }
 
-    func configure(stroke: CGFloat, reduceMotion: Bool) {
+    func configure(stroke: CGFloat, cornerRadius: CGFloat? = nil, reduceMotion: Bool) {
         self.stroke = stroke
+        self.cornerRadius = cornerRadius
         self.reduceMotion = reduceMotion
         rebuild()
     }
@@ -89,15 +94,17 @@ final class SpinnerRingNSView: NSView {
 
     private func rebuild() {
         let side = min(bounds.width, bounds.height)
-        let next = (side: side, stroke: stroke, reduceMotion: reduceMotion, inWindow: window != nil)
-        guard side > 0, built?.side != next.side || built?.stroke != next.stroke
+        let next = (side: side, stroke: stroke, cornerRadius: cornerRadius, reduceMotion: reduceMotion, inWindow: window != nil)
+        guard side > 0, built?.side != next.side || built?.stroke != next.stroke || built?.cornerRadius != next.cornerRadius
                 || built?.reduceMotion != next.reduceMotion || built?.inWindow != next.inWindow else {
             return
         }
         built = next
         let middle = CGPoint(x: bounds.midX, y: bounds.midY)
-        let radius = (side - stroke) / 2
-        let ring = CGPath(ellipseIn: CGRect(x: side / 2 - radius, y: side / 2 - radius, width: 2 * radius, height: 2 * radius), transform: nil)
+        let inset = stroke / 2
+        let ringRect = CGRect(x: inset, y: inset, width: side - stroke, height: side - stroke)
+        let ring = cornerRadius.map { CGPath(roundedRect: ringRect, cornerWidth: $0 - inset, cornerHeight: $0 - inset, transform: nil) }
+            ?? CGPath(ellipseIn: ringRect, transform: nil)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         spinner.stopSpinning()

@@ -21,7 +21,7 @@ public enum StateColor: UInt32, CaseIterable, Sendable {
     case textSelected = 0xe6edf3
     /// The one gold: titles, project headers and marks.
     case accent = 0xd7b13d
-    /// "On", for toggles only (the action bar), with its glow.
+    /// "On", for toggles only (the action bar's inner glow).
     case brassActive = 0xa58961
     /// A warning: a missing file's icon, in every state.
     case warn = 0xd29922
@@ -203,17 +203,19 @@ public enum MarkLook {
     }
 }
 
-/// A toggle (an action-bar slot): brass and its inner glow mean "on", and nothing else.
-public struct ToggleLook: Equatable, Sendable {
-    public let border: StateColor
-    /// The inner glow's opacity, in `border`'s colour; 0 draws none.
+/// An action-bar button. Its icon is `textMeta` at rest, `textBody` while the panel it opens shows (active) and
+/// `textSelected` under the pointer. A toggle that is on (caffeinate) keeps its icon and adds the brass inner glow,
+/// with the working spinner turning round its edge. No state changes a button's `line` border.
+public struct ActionBarButtonLook: Equatable, Sendable {
+    public let icon: StateColor
+    /// The brass inner glow's opacity; 0 draws none.
     public let glowOpacity: Double
+    /// Whether the working spinner turns round the button's edge.
+    public let spins: Bool
 
-    public static let off = ToggleLook(border: .line, glowOpacity: 0)
-    public static let on = ToggleLook(border: .brassActive, glowOpacity: 0.25)
-
-    public static func of(on: Bool) -> ToggleLook {
-        on ? .on : .off
+    public static func of(active: Bool, on: Bool, hovered: Bool) -> ActionBarButtonLook {
+        let icon: StateColor = hovered ? .textSelected : active ? .textBody : .textMeta
+        return ActionBarButtonLook(icon: icon, glowOpacity: on ? 0.15 : 0, spins: on)
     }
 }
 

@@ -7,7 +7,7 @@ import SwiftUI
 /// pushes into. The wrapper (`ShellPaneContainers.swift`) keeps its public update methods and
 /// writes to this model; the view re-renders reactively and forwards taps through the wrapper's
 /// closures. Dock chrome decisions come from Core (`ShellChrome`); this layer only renders and
-/// routes events. The terminal's own chrome is the action bar footer (`app/Sources/App/ActionBar`).
+/// routes events. The terminal's own chrome is the action bar header (`app/Sources/App/ActionBar`).
 
 @Observable
 final class DockChromeModel {

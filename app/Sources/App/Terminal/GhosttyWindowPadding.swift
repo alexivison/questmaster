@@ -7,7 +7,7 @@ import QuestmasterCore
 /// scalar (Ghostty accepts a two-value "left,right"/"top,bottom" pair), so a blind fixed-size read
 /// risks writing past its own buffer. The embedded app loads the same config files with no CLI
 /// overrides, so this file read already gives the true value. Used both for the shell's "flush"
-/// gaps (tracker-to-terminal, terminal-to-dock, footer-to-terminal), which rely on this padding to
+/// gaps (tracker-to-terminal, terminal-to-dock, header-to-terminal), which rely on this padding to
 /// reach `G` on its own, and as `GhosttyKitTerminalHost.cellMetrics`'s padding for the terminal's
 /// row/column snapping.
 enum GhosttyWindowPadding {

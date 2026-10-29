@@ -2,17 +2,20 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// Hosts `ActionBarFooterView`, accepting the first click on its slots even while the window is
+/// Hosts `ActionBarView`, accepting the first click on its buttons even while the window is
 /// inactive.
-private final class ActionBarHostingView: NSHostingView<ActionBarFooterView> {
+private final class ActionBarHostingView: NSHostingView<ActionBarView> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
 }
 
+/// The header's AppKit host: the dock panels' scooped chrome (fill, border and shadow) at the header's own radius,
+/// around the SwiftUI bar. `MainSplitView` lays it out over the terminal column.
 final class ActionBarShellView: NSView {
-    private let model = ActionBarFooterModel()
+    private let model = ActionBarModel()
     private let hostingView: ActionBarHostingView
+    private var chrome: ScoopedLayerChrome!
 
     var onNewSession: (() -> Void)?
     var onShowTracker: (() -> Void)?
@@ -25,14 +28,14 @@ final class ActionBarShellView: NSView {
     var onOpenSettings: (() -> Void)?
 
     init() {
-        hostingView = ActionBarHostingView(rootView: ActionBarFooterView(
+        hostingView = ActionBarHostingView(rootView: ActionBarView(
             model: model,
             onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {}, onOpenVersionControl: {},
             onToggleCaffeine: {}, onOpenSettings: {}
         ))
         super.init(frame: .zero)
 
-        hostingView.rootView = ActionBarFooterView(
+        hostingView.rootView = ActionBarView(
             model: model,
             onNewSession: { [weak self] in self?.onNewSession?() },
             onShowTracker: { [weak self] in self?.onShowTracker?() },
@@ -45,14 +48,17 @@ final class ActionBarShellView: NSView {
             onOpenSettings: { [weak self] in self?.onOpenSettings?() }
         )
 
+        // The split view sets the header's frame; the bar's content mustn't push back on it.
+        hostingView.sizingOptions = []
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hostingView)
         NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: topAnchor, constant: -ActionBarMetrics.overflowTop),
+            hostingView.topAnchor.constraint(equalTo: topAnchor),
             hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
             hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        chrome = ScoopedLayerChrome(view: self, content: hostingView, radius: ActionBarMetrics.scoopRadius)
     }
 
     @available(*, unavailable)
@@ -60,33 +66,9 @@ final class ActionBarShellView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Top-left origin, matching `ActionBarFooterView`'s own SwiftUI (and so `ActionBarMetrics`'s)
-    /// coordinate convention, so `hitTest`'s rects need no separate flip.
-    override var isFlipped: Bool { true }
-
-    /// The footer has no background of its own: the dragon frame is opaque art, and everything else
-    /// is transparent. Hit-testing follows the same rule: only the bar and the slots claim a click,
-    /// and everything else, including the dragons and the margins, falls through to whatever is
-    /// behind (the dock, where the two overlap).
-    /// `point` arrives in the superview's coordinates, so it is converted into this view's own (flipped)
-    /// space before it is compared with the plate and slot rects.
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let local = convert(point, from: superview)
-        let contentX = (bounds.width - ActionBarMetrics.plateWidth) / 2
-        let platePoint = CGPoint(x: local.x - contentX, y: local.y)
-        guard isOnActionBarShape(platePoint) else {
-            return nil
-        }
-        return super.hitTest(point)
-    }
-
-    private func isOnActionBarShape(_ point: CGPoint) -> Bool {
-        if ActionBarMetrics.barHitRect.contains(point) {
-            return true
-        }
-        return (0..<ActionBarMetrics.slotCount).contains { index in
-            CGRect(x: ActionBarMetrics.slotX(at: index), y: ActionBarMetrics.slotTop, width: ActionBarMetrics.slotSize, height: ActionBarMetrics.slotSize).contains(point)
-        }
+    override func layout() {
+        super.layout()
+        chrome.layout(bounds: bounds)
     }
 
     func update(navigation: AppNavigationState, dockPanels: DockPanels, dockContentMode: DockContentMode) {

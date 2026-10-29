@@ -11,7 +11,7 @@ final class ShellFocusCoordinator {
     private let bottomDockShell: () -> DockShellView?
     private let dockColumn: () -> DockColumnView?
     private let dockPanels: () -> DockPanels
-    private let footerShell: () -> ActionBarShellView?
+    private let actionBar: () -> ActionBarShellView?
     private let trackerHosting: () -> NSView?
     private let dockView: () -> SwiftUIDockPane?
     private let versionControlPane: () -> VersionControlDockPane?
@@ -28,7 +28,7 @@ final class ShellFocusCoordinator {
         bottomDockShell: @escaping () -> DockShellView?,
         dockColumn: @escaping () -> DockColumnView?,
         dockPanels: @escaping () -> DockPanels,
-        footerShell: @escaping () -> ActionBarShellView?,
+        actionBar: @escaping () -> ActionBarShellView?,
         trackerHosting: @escaping () -> NSView?,
         dockView: @escaping () -> SwiftUIDockPane?,
         versionControlPane: @escaping () -> VersionControlDockPane?,
@@ -44,7 +44,7 @@ final class ShellFocusCoordinator {
         self.bottomDockShell = bottomDockShell
         self.dockColumn = dockColumn
         self.dockPanels = dockPanels
-        self.footerShell = footerShell
+        self.actionBar = actionBar
         self.trackerHosting = trackerHosting
         self.dockView = dockView
         self.versionControlPane = versionControlPane
@@ -109,7 +109,7 @@ final class ShellFocusCoordinator {
         splitView()?.setDockVisible(navigation.dockVisible, animated: animateDockVisibility)
         dockColumn()?.setPanels(dockPanels(), animated: animateDockVisibility)
         updateRegionKeys()
-        footerShell()?.update(
+        actionBar()?.update(
             navigation: navigation.state,
             dockPanels: dockPanels(),
             dockContentMode: dockView()?.currentMode ?? .artifacts
