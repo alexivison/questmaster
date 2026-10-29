@@ -1146,6 +1146,27 @@ func TestContinue_StoppedRegular(t *testing.T) {
 	}
 }
 
+func TestContinueUsesTitleRenamedBeforePaneLaunch(t *testing.T) {
+	svc, runner := setupService(t)
+	sessionID := uniqueRuntimeSessionID(t, "qm-rename-continue")
+	createTestManifest(t, svc.Store, sessionID, "Old title", t.TempDir(), "")
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "new-session" {
+			if err := svc.Store.Update(sessionID, func(m *state.Manifest) { m.Title = "New title" }); err != nil {
+				return "", err
+			}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	if _, err := svc.Continue(t.Context(), sessionID); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if got := runner.paneTitles[sessionID+":0.0"]; got != "New title" {
+		t.Fatalf("pane title = %q, want rename committed during Continue", got)
+	}
+}
+
 // TestContinue_PreservesRecordedModel guards resume specifically: the model a
 // session was first launched with must survive being re-recorded on
 // Continue, since that recorded value is modelsuggest's only source for
@@ -3280,7 +3301,7 @@ func TestLaunchWorkspace_Success(t *testing.T) {
 	svc, runner := setupService(t)
 	runner.sessions["qm-lw"] = true
 
-	if err := svc.launchAppWorkspace(t.Context(), "qm-lw", "/tmp", "", false, false, launchCmds("echo claude")); err != nil {
+	if err := svc.launchAppWorkspace(t.Context(), "qm-lw", "/tmp", false, false, launchCmds("echo claude")); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 	assertAgentOnlyLayout(t, runner, "qm-lw")
@@ -3292,7 +3313,7 @@ func TestLaunchWorkspace_AgentStartsAfterRoleAssignment(t *testing.T) {
 	runner.sessions["qm-lw3"] = true
 
 	agentCmd := "echo claude"
-	if err := svc.launchAppWorkspace(t.Context(), "qm-lw3", "/tmp", "", false, false, launchCmds(agentCmd)); err != nil {
+	if err := svc.launchAppWorkspace(t.Context(), "qm-lw3", "/tmp", false, false, launchCmds(agentCmd)); err != nil {
 		t.Fatalf("launch workspace: %v", err)
 	}
 
@@ -3553,7 +3574,7 @@ func TestLaunchWorkspace_ErrorOnRespawn(t *testing.T) {
 
 	runner.sessions["qm-werr"] = true
 
-	err := svc.launchAppWorkspace(t.Context(), "qm-werr", "/tmp", "", false, false, launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), "qm-werr", "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace")
 	}
@@ -3572,7 +3593,7 @@ func TestLaunchWorkspace_ErrorOnAgentRespawn(t *testing.T) {
 
 	runner.sessions["qm-wresp"] = true
 
-	err := svc.launchAppWorkspace(t.Context(), "qm-wresp", "/tmp", "", false, false, launchCmds("claude"))
+	err := svc.launchAppWorkspace(t.Context(), "qm-wresp", "/tmp", false, false, launchCmds("claude"))
 	if err == nil {
 		t.Fatal("expected error from launch workspace agent respawn")
 	}
