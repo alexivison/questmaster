@@ -163,7 +163,6 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		sessionID:   sessionID,
 		cwd:         cwd,
 		runtimeDir:  rtDir,
-		title:       m.Title,
 		agentPath:   agentPath,
 		master:      isMaster,
 		worker:      m.ExtraString("parent_session") != "",

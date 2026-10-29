@@ -52,7 +52,6 @@ func (s *Service) launchAppWorkspace(ctx context.Context, session, cwd string, i
 	if err := s.Client.RespawnPane(ctx, agentPane, cwd, agentCmd); err != nil {
 		return fmt.Errorf("%s agent pane: %w", label, err)
 	}
-
 	return nil
 }
 

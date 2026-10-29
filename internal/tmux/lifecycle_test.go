@@ -3,6 +3,9 @@ package tmux
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -588,6 +591,140 @@ func TestSelectPaneTitle_Success(t *testing.T) {
 	if err := c.SelectPaneTitle(t.Context(), "qm-s:0.1", "Claude"); err != nil {
 		t.Fatalf("SelectPaneTitle: %v", err)
 	}
+}
+
+func TestSetManagedPaneTitleKeepsBorderTitleAfterNativeUpdate(t *testing.T) {
+	const original = "#{?pane_active,#[fg=green] #{pane_title},#{pane_title}}"
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if args[0] == "display-message" {
+			return original, nil
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+
+	if err := c.SetManagedPaneTitle(t.Context(), "qm-s:0.1", "Fix #123"); err != nil {
+		t.Fatalf("SetManagedPaneTitle: %v", err)
+	}
+
+	var paneOption, borderFormat string
+	for _, call := range m.calls {
+		args := call.args
+		if len(args) < 6 || args[0] != "set-option" {
+			continue
+		}
+		switch args[1] {
+		case "-p":
+			if args[3] != "qm-s:0.1" {
+				t.Fatalf("pane option call = %v", args)
+			}
+			switch args[4] {
+			case "@questmaster_title":
+				paneOption = args[5]
+			case "pane-border-format":
+				borderFormat = args[5]
+			default:
+				t.Fatalf("pane option call = %v", args)
+			}
+		}
+	}
+	if paneOption != "Fix #123" {
+		t.Fatalf("pane title option = %q", paneOption)
+	}
+	if borderFormat != "#{?pane_active,#[fg=green] #{?#{==:#{@questmaster_title},},#{pane_title},#{@questmaster_title}},#{?#{==:#{@questmaster_title},},#{pane_title},#{@questmaster_title}}}" {
+		t.Fatalf("border format = %q", borderFormat)
+	}
+}
+
+func TestSetManagedPaneTitlePreservesOtherPanesWithoutTitles(t *testing.T) {
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if args[0] == "display-message" {
+			return "#{pane_index}", nil
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+	if err := c.SetManagedPaneTitle(t.Context(), "qm-s:0.1", "Agent title"); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range m.calls {
+		args := call.args
+		if len(args) == 6 && args[0] == "set-option" && args[1] == "-p" && args[4] == "pane-border-format" {
+			if args[5] != "#{pane_index}#{?#{==:#{@questmaster_title},},, #{@questmaster_title}}" {
+				t.Fatalf("border format = %q", args[5])
+			}
+			return
+		}
+	}
+	t.Fatal("pane border format was not set")
+}
+
+func TestSetManagedPaneTitleDisplaysZero(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+	runner := isolatedTmuxRunner{socket: fmt.Sprintf("qm-title-zero-%d", os.Getpid())}
+	if _, err := runner.Run(t.Context(), "new-session", "-d", "-s", "qm-title-zero", "sleep 60"); err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Run(context.Background(), "kill-server") //nolint:errcheck
+	if _, err := runner.Run(t.Context(), "set-option", "-wg", "pane-border-format", "#{pane_title}"); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(runner)
+	if err := client.SetManagedPaneTitle(t.Context(), "qm-title-zero:0.0", "0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SelectPaneTitle(t.Context(), "qm-title-zero:0.0", "Native"); err != nil {
+		t.Fatal(err)
+	}
+	visible, err := runner.Run(t.Context(), "display-message", "-t", "qm-title-zero:0.0", "-p", "#{E:#{pane-border-format}}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visible != "0" {
+		t.Fatalf("pane border title = %q, want Questmaster title 0", visible)
+	}
+}
+
+func TestSetManagedPaneTitleOverridesPaneLocalFormat(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux is not installed")
+	}
+	runner := isolatedTmuxRunner{socket: fmt.Sprintf("qm-title-local-%d", os.Getpid())}
+	if _, err := runner.Run(t.Context(), "new-session", "-d", "-s", "qm-title-local", "sleep 60"); err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Run(context.Background(), "kill-server") //nolint:errcheck
+	target := "qm-title-local:0.0"
+	if _, err := runner.Run(t.Context(), "set-option", "-p", "-t", target, "pane-border-format", "#{pane_title}"); err != nil {
+		t.Skipf("tmux does not support pane-local border formats: %v", err)
+	}
+	client := NewClient(runner)
+	if err := client.SetManagedPaneTitle(t.Context(), target, "Questmaster"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SelectPaneTitle(t.Context(), target, "Native"); err != nil {
+		t.Fatal(err)
+	}
+	visible, err := runner.Run(t.Context(), "display-message", "-t", target, "-p", "#{E:#{pane-border-format}}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visible != "Questmaster" {
+		t.Fatalf("pane border title = %q, want Questmaster title", visible)
+	}
+}
+
+type isolatedTmuxRunner struct{ socket string }
+
+func (r isolatedTmuxRunner) Run(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "tmux", append([]string{"-L", r.socket}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("tmux %v: %w: %s", args, err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimRight(string(out), "\n"), nil
 }
 
 // ---------------------------------------------------------------------------

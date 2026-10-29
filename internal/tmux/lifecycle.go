@@ -191,6 +191,39 @@ func (c *Client) SelectPaneTitle(ctx context.Context, target, title string) erro
 	return nil
 }
 
+// SetManagedPaneTitle keeps the Questmaster title in the pane border even when
+// the program later changes tmux's native pane_title with an OSC sequence.
+// Preserve the effective border format so existing tmux styling and the
+// native title of other panes in this window continue to work.
+func (c *Client) SetManagedPaneTitle(ctx context.Context, target, title string) error {
+	const option = "@questmaster_title"
+	const visibleTitle = "#{?#{==:#{@questmaster_title},},#{pane_title},#{@questmaster_title}}"
+
+	format, err := c.runner.Run(ctx, "display-message", "-t", target, "-p", "#{pane-border-format}")
+	if err != nil {
+		return fmt.Errorf("read pane border format for %s: %w", target, err)
+	}
+	if err := c.SetPaneOption(ctx, target, option, title); err != nil {
+		return err
+	}
+	if !strings.Contains(format, "#{@questmaster_title}") {
+		if strings.Contains(format, "#{pane_title}") {
+			format = strings.ReplaceAll(format, "#{pane_title}", visibleTitle)
+		} else if format == "" {
+			format = "#{?#{==:#{@questmaster_title},},,#{@questmaster_title}}"
+		} else {
+			format += "#{?#{==:#{@questmaster_title},},, #{@questmaster_title}}"
+		}
+		if err := c.SetPaneOption(ctx, target, "pane-border-format", format); err != nil {
+			// Older tmux versions only accept this option at window scope.
+			if fallbackErr := c.SetWindowOption(ctx, target, "pane-border-format", format); fallbackErr != nil {
+				return errors.Join(err, fallbackErr)
+			}
+		}
+	}
+	return c.SelectPaneTitle(ctx, target, title)
+}
+
 // SelectWindow makes a window active.
 func (c *Client) SelectWindow(ctx context.Context, target string) error {
 	_, err := c.runner.Run(ctx, "select-window", "-t", target)
