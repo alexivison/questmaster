@@ -20,7 +20,7 @@ struct DockStateTests {
     private static func initialStateIsHiddenOnTheList() {
         let state = DockState.initial
         expect(!state.topVisible && !state.bottomVisible && state.dockContent == .artifactList, "first launch should hide both panels, the bottom on the artifact list")
-        expect(state.selectedArtifactID == nil && state.dockPreferredWidth == nil, "nothing open, the default width")
+        expect(state.selectedArtifactID == nil && state.dockPreferredFraction == nil, "nothing open, the default width")
         expect(state.artifactScope == .session && state.artifactFilterQuery.isEmpty && state.artifactFilterTokens.isEmpty, "the Session tab, no filter")
     }
 
@@ -45,7 +45,7 @@ struct DockStateTests {
         var display = ArtifactDisplayState()
         var state = DockState(
             bottomVisible: true,
-            dockPreferredWidth: 520,
+            dockPreferredFraction: 0.3,
             artifactScope: .session,
             artifactFilterQuery: "tracker",
             artifactFilterTokens: [ArtifactFilterToken(kind: .type, value: "html", title: "html")]
@@ -67,7 +67,7 @@ struct DockStateTests {
         let b1 = artifact("b1", session: "qm-b")
         let snapshot = snapshot(a: [a1], b: [b1])
         var display = ArtifactDisplayState()
-        var state = DockState(bottomVisible: true, selectedArtifactID: a1.id, dockPreferredWidth: 520, artifactFilterQuery: "x")
+        var state = DockState(bottomVisible: true, selectedArtifactID: a1.id, dockPreferredFraction: 0.3, artifactFilterQuery: "x")
 
         let update = display.update(with: snapshot, preferredSessionID: "qm-b", selectedArtifactID: state.selectedArtifactID)
         state.followList(selectedArtifactID: update.selectedArtifactID)
@@ -76,7 +76,7 @@ struct DockStateTests {
         expect(state.selectedArtifactID == b1.id, "the cursor should move into the new list")
         var unchanged = state
         unchanged.selectedArtifactID = a1.id
-        expect(unchanged == DockState(bottomVisible: true, selectedArtifactID: a1.id, dockPreferredWidth: 520, artifactFilterQuery: "x"),
+        expect(unchanged == DockState(bottomVisible: true, selectedArtifactID: a1.id, dockPreferredFraction: 0.3, artifactFilterQuery: "x"),
                "only the cursor should change")
     }
 
