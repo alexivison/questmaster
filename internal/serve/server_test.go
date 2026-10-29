@@ -2288,6 +2288,7 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	srv := &Server{
 		SocketPath:    socketPath,
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		TmuxClient:    tmux.NewClient(&recordingTmuxRunner{}),
 		ClockInterval: time.Hour,
 		ChangeSource:  changes,
 	}
@@ -2342,6 +2343,121 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	if err := <-errc; err != nil {
 		t.Fatalf("server returned error: %v", err)
 	}
+}
+
+func TestRenameMutationUpdatesAgentPaneTitle(t *testing.T) {
+	for _, agentName := range []string{"claude", "codex"} {
+		t.Run(agentName, func(t *testing.T) {
+			env := seedServeFixture(t)
+			if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+				m.Agents[0].Name = agentName
+			}); err != nil {
+				t.Fatal(err)
+			}
+			runner := &recordingTmuxRunner{}
+			srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+			if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "New session title"}); err != nil {
+				t.Fatalf("rename: %v", err)
+			}
+			found := false
+			for _, args := range runner.Calls() {
+				if slices.Equal(args, []string{"set-option", "-p", "-t", "qm-demo:0.0", "@questmaster_title", "New session title"}) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("managed pane title was not set: %v", runner.Calls())
+			}
+		})
+	}
+}
+
+func TestRenameMutationTargetsAdoptedAgentPane(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+		m.SetExtra("adopted_pane", "%7")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &adoptedPaneTmuxRunner{}
+	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Adopted agent"}); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	for _, args := range runner.calls {
+		if len(args) == 6 && args[0] == "set-option" && args[1] == "-p" && args[3] == "qm-demo:0.1" && args[4] == "@questmaster_title" && args[5] == "Adopted agent" {
+			return
+		}
+	}
+	t.Fatalf("agent pane title was not set on 0.1: %v", runner.calls)
+}
+
+func TestRenameMutationDuringContinueBeforeRoleTag(t *testing.T) {
+	env := seedServeFixture(t)
+	runner := &untaggedPaneTmuxRunner{}
+	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Renamed during continue"}); err != nil {
+		t.Fatalf("rename while the new pane has no role tag: %v", err)
+	}
+	for _, args := range runner.calls {
+		if slices.Equal(args, []string{"set-option", "-p", "-t", "qm-demo:0.0", "@questmaster_title", "Renamed during continue"}) {
+			return
+		}
+	}
+	t.Fatalf("new agent pane title was not set: %v", runner.calls)
+}
+
+type untaggedPaneTmuxRunner struct{ calls [][]string }
+
+func (r *untaggedPaneTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	switch args[0] {
+	case "list-panes":
+		return "0 0", nil
+	case "display-message":
+		return "#{pane_title}", nil
+	}
+	return "", nil
+}
+
+type adoptedPaneTmuxRunner struct{ calls [][]string }
+
+func (r *adoptedPaneTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	switch args[0] {
+	case "list-panes":
+		return "0 0 shell\n0 1 agent", nil
+	case "display-message":
+		return "#{pane_title}", nil
+	}
+	return "", nil
+}
+
+func TestRenameMutationKeepsStoppedSessionTitle(t *testing.T) {
+	env := seedServeFixture(t)
+	client := tmux.NewClient(stoppedTmuxRunner{})
+	// A stopped session has no pane to title, but its manifest still takes the rename.
+	srv := &Server{Snapshotter: NewSnapshotter(env.store, client, nil)}
+	_, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Next title"})
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	m, err := env.store.Read("qm-demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Title != "Next title" {
+		t.Fatalf("stored title = %q", m.Title)
+	}
+}
+
+type stoppedTmuxRunner struct{}
+
+func (stoppedTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	if len(args) > 0 && args[0] == "has-session" {
+		return "", &tmux.ExitError{Code: 1}
+	}
+	return "", fmt.Errorf("unexpected tmux call: %v", args)
 }
 
 func TestServerMutationRunnerTimeoutReturnsError(t *testing.T) {
@@ -2788,6 +2904,14 @@ func (r *recordingTmuxRunner) Run(_ context.Context, args ...string) (string, er
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, append([]string(nil), args...))
+	if len(args) > 0 {
+		switch args[0] {
+		case "list-panes":
+			return "0 0 agent", nil
+		case "display-message":
+			return "#{pane_title}", nil
+		}
+	}
 	return "", nil
 }
 

@@ -22,7 +22,17 @@ import (
 
 type runtimeTmuxRunner struct{}
 
-func (runtimeTmuxRunner) Run(context.Context, ...string) (string, error) { return "qm-demo", nil }
+func (runtimeTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	if len(args) > 0 {
+		switch args[0] {
+		case "list-panes":
+			return "0 0 agent", nil
+		case "display-message":
+			return "#{pane_title}", nil
+		}
+	}
+	return "qm-demo", nil
+}
 
 type runtimeChangeSource struct{ changes chan serve.Change }
 

@@ -1019,6 +1019,12 @@ func TestStart_TitledSessionDoesNotSetTmuxWindowName(t *testing.T) {
 	if got := runner.windowNames[result.SessionID+":0"]; got != "" {
 		t.Fatalf("rename-window name = %q, want no custom name", got)
 	}
+	if got := runner.paneTitles[result.SessionID+":0.0"]; got != "Add GLM 5.2" {
+		t.Fatalf("pane title = %q, want session title", got)
+	}
+	if !runner.hasCall("set-option", "-p", "-t", result.SessionID+":0.0", "@questmaster_title", "Add GLM 5.2") {
+		t.Fatalf("managed pane title option missing: %+v", runner.calls)
+	}
 
 	for _, call := range runner.calls {
 		if len(call.args) > 0 && call.args[0] == "new-session" {
@@ -1137,6 +1143,27 @@ func TestContinue_StoppedRegular(t *testing.T) {
 	// Session should now be running
 	if !runner.sessions[sessionID] {
 		t.Fatal("session not recreated in tmux")
+	}
+}
+
+func TestContinueUsesTitleRenamedBeforePaneLaunch(t *testing.T) {
+	svc, runner := setupService(t)
+	sessionID := uniqueRuntimeSessionID(t, "qm-rename-continue")
+	createTestManifest(t, svc.Store, sessionID, "Old title", t.TempDir(), "")
+	runner.fn = func(ctx context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "new-session" {
+			if err := svc.Store.Update(sessionID, func(m *state.Manifest) { m.Title = "New title" }); err != nil {
+				return "", err
+			}
+		}
+		return runner.defaultHandler(ctx, args...)
+	}
+
+	if _, err := svc.Continue(t.Context(), sessionID); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if got := runner.paneTitles[sessionID+":0.0"]; got != "New title" {
+		t.Fatalf("pane title = %q, want rename committed during Continue", got)
 	}
 }
 

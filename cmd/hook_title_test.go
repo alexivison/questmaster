@@ -1,6 +1,55 @@
 package cmd
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+
+	"github.com/alexivison/questmaster/internal/state"
+)
+
+func TestFirstPromptTitleDoesNotOverrideConcurrentExplicitRename(t *testing.T) {
+	r, _ := newTestRunner(t)
+	store := newManifestStoreStub("qm-t", nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "agent"}}
+	tmuxStub := &tmuxEnvStub{}
+	store.afterUpdate = func(m *state.Manifest) {
+		m.Title = "Explicit title"
+		m.SetExtra("title_locked", "1")
+		_ = tmuxStub.SelectPaneTitle(t.Context(), "qm-t:0.0", "Explicit title")
+	}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	var stderr bytes.Buffer
+	maybeDeriveTitle(t.Context(), r, "qm-t", "Derived title", &stderr)
+	if stderr.Len() != 0 {
+		t.Fatalf("hook stderr = %q", stderr.String())
+	}
+	if store.manifest.Title != "Explicit title" {
+		t.Fatalf("manifest title = %q", store.manifest.Title)
+	}
+	if got := tmuxStub.paneTitleCalls[len(tmuxStub.paneTitleCalls)-1].name; got != "Explicit title" {
+		t.Fatalf("last pane title = %q, want explicit title", got)
+	}
+}
+
+func TestFirstPromptTitleTargetsAdoptedAgentPane(t *testing.T) {
+	r, _ := newTestRunner(t)
+	store := newManifestStoreStub("qm-t", map[string]string{"adopted_pane": "%7"})
+	store.manifest.Agents = []state.AgentManifest{{Name: "claude", Role: "agent"}}
+	tmuxStub := &tmuxEnvStub{resolvedPane: "qm-t:0.1"}
+	r.Store = store
+	r.TmuxClient = tmuxStub
+
+	var stderr bytes.Buffer
+	maybeDeriveTitle(t.Context(), r, "qm-t", "Adopted title", &stderr)
+	if stderr.Len() != 0 {
+		t.Fatalf("hook stderr = %q", stderr.String())
+	}
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0] != (tmuxRenameCall{target: "qm-t:0.1", name: "Adopted title"}) {
+		t.Fatalf("agent pane title calls = %+v", tmuxStub.paneTitleCalls)
+	}
+}
 
 // startThenPrompt drives the SessionStart → first-prompt sequence that the
 // title heuristic keys off of. rec.lastState persists between the two calls,
@@ -8,6 +57,7 @@ import "testing"
 func TestHookClaudeDerivesTitleOnFirstPrompt(t *testing.T) {
 	r, _ := newTestRunner(t)
 	store := newManifestStoreStub("qm-t", nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "claude", Role: "agent"}}
 	tmuxStub := &tmuxEnvStub{}
 	r.Store = store
 	r.TmuxClient = tmuxStub
@@ -20,6 +70,9 @@ func TestHookClaudeDerivesTitleOnFirstPrompt(t *testing.T) {
 	}
 	if len(tmuxStub.renameCalls) != 0 {
 		t.Fatalf("rename calls = %d, want 0", len(tmuxStub.renameCalls))
+	}
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "investigate the flaky test" {
+		t.Fatalf("pane title calls = %+v", tmuxStub.paneTitleCalls)
 	}
 }
 
@@ -107,14 +160,19 @@ func TestHookRespectsLockedTitle(t *testing.T) {
 func TestHookCodexDerivesTitleOnFirstPrompt(t *testing.T) {
 	r, _ := newTestRunner(t)
 	store := newManifestStoreStub("qm-t", nil)
+	store.manifest.Agents = []state.AgentManifest{{Name: "codex", Role: "agent"}}
 	r.Store = store
-	r.TmuxClient = &tmuxEnvStub{}
+	tmuxStub := &tmuxEnvStub{}
+	r.TmuxClient = tmuxStub
 
 	runHookWithStdin(r, "codex", "starting", "qm-t", nil)
 	runHookWithStdin(r, "codex", "working", "qm-t", map[string]interface{}{"prompt": "add a retry to the uploader"})
 
 	if store.manifest.Title != "add a retry to the uploader" {
 		t.Fatalf("title = %q, want %q", store.manifest.Title, "add a retry to the uploader")
+	}
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "add a retry to the uploader" {
+		t.Fatalf("pane title calls = %+v", tmuxStub.paneTitleCalls)
 	}
 }
 
