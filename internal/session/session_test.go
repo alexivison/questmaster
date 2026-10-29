@@ -1022,6 +1022,9 @@ func TestStart_TitledSessionDoesNotSetTmuxWindowName(t *testing.T) {
 	if got := runner.paneTitles[result.SessionID+":0.0"]; got != "Add GLM 5.2" {
 		t.Fatalf("pane title = %q, want session title", got)
 	}
+	if !runner.hasCall("set-option", "-p", "-t", result.SessionID+":0.0", "@questmaster_title", "Add GLM 5.2") {
+		t.Fatalf("managed pane title option missing: %+v", runner.calls)
+	}
 
 	for _, call := range runner.calls {
 		if len(call.args) > 0 && call.args[0] == "new-session" {

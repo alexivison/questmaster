@@ -590,6 +590,70 @@ func TestSelectPaneTitle_Success(t *testing.T) {
 	}
 }
 
+func TestSetManagedPaneTitleKeepsBorderTitleAfterNativeUpdate(t *testing.T) {
+	const original = "#{?pane_active,#[fg=green] #{pane_title},#{pane_title}}"
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if args[0] == "display-message" {
+			return original, nil
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+
+	if err := c.SetManagedPaneTitle(t.Context(), "qm-s:0.1", "Fix #123"); err != nil {
+		t.Fatalf("SetManagedPaneTitle: %v", err)
+	}
+
+	var paneOption, borderFormat string
+	for _, call := range m.calls {
+		args := call.args
+		if len(args) < 6 || args[0] != "set-option" {
+			continue
+		}
+		switch args[1] {
+		case "-p":
+			if args[3] != "qm-s:0.1" || args[4] != "@questmaster_title" {
+				t.Fatalf("pane option call = %v", args)
+			}
+			paneOption = args[5]
+		case "-w":
+			if args[3] != "qm-s:0.1" || args[4] != "pane-border-format" {
+				t.Fatalf("window option call = %v", args)
+			}
+			borderFormat = args[5]
+		}
+	}
+	if paneOption != "Fix #123" {
+		t.Fatalf("pane title option = %q", paneOption)
+	}
+	if borderFormat != "#{?pane_active,#[fg=green] #{?#{@questmaster_title},#{@questmaster_title},#{pane_title}},#{?#{@questmaster_title},#{@questmaster_title},#{pane_title}}}" {
+		t.Fatalf("border format = %q", borderFormat)
+	}
+}
+
+func TestSetManagedPaneTitlePreservesOtherPanesWithoutTitles(t *testing.T) {
+	m := newMock(func(_ context.Context, args ...string) (string, error) {
+		if args[0] == "display-message" {
+			return "#{pane_index}", nil
+		}
+		return "", nil
+	})
+	c := NewClient(m)
+	if err := c.SetManagedPaneTitle(t.Context(), "qm-s:0.1", "Agent title"); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range m.calls {
+		args := call.args
+		if len(args) == 6 && args[0] == "set-option" && args[1] == "-w" && args[4] == "pane-border-format" {
+			if args[5] != "#{pane_index}#{?#{@questmaster_title}, #{@questmaster_title},}" {
+				t.Fatalf("border format = %q", args[5])
+			}
+			return
+		}
+	}
+	t.Fatal("pane border format was not set")
+}
+
 // ---------------------------------------------------------------------------
 // SelectWindow
 // ---------------------------------------------------------------------------

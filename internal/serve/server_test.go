@@ -2288,6 +2288,7 @@ func TestServerRenameMutationUpdatesAndPushesTracker(t *testing.T) {
 	srv := &Server{
 		SocketPath:    socketPath,
 		Snapshotter:   NewSnapshotter(env.store, env.tmuxClient, func() time.Time { return env.now }),
+		TmuxClient:    tmux.NewClient(&recordingTmuxRunner{}),
 		ClockInterval: time.Hour,
 		ChangeSource:  changes,
 	}
@@ -2358,15 +2359,50 @@ func TestRenameMutationUpdatesAgentPaneTitle(t *testing.T) {
 			if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "New session title"}); err != nil {
 				t.Fatalf("rename: %v", err)
 			}
-			want := [][]string{
-				{"has-session", "-t", "qm-demo"},
-				{"select-pane", "-t", "qm-demo:0.0", "-T", "New session title"},
+			found := false
+			for _, args := range runner.Calls() {
+				if slices.Equal(args, []string{"set-option", "-p", "-t", "qm-demo:0.0", "@questmaster_title", "New session title"}) {
+					found = true
+				}
 			}
-			if got := runner.Calls(); !reflect.DeepEqual(got, want) {
-				t.Fatalf("tmux calls = %v, want %v", got, want)
+			if !found {
+				t.Fatalf("managed pane title was not set: %v", runner.Calls())
 			}
 		})
 	}
+}
+
+func TestRenameMutationTargetsAdoptedAgentPane(t *testing.T) {
+	env := seedServeFixture(t)
+	if err := env.store.Update("qm-demo", func(m *state.Manifest) {
+		m.SetExtra("adopted_pane", "%7")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &adoptedPaneTmuxRunner{}
+	srv := &Server{Snapshotter: NewSnapshotter(env.store, tmux.NewClient(runner), nil)}
+	if _, err := srv.mutateRename(t.Context(), mutationPayload{SessionID: "qm-demo", Title: "Adopted agent"}); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	for _, args := range runner.calls {
+		if len(args) == 6 && args[0] == "set-option" && args[1] == "-p" && args[3] == "qm-demo:0.1" && args[4] == "@questmaster_title" && args[5] == "Adopted agent" {
+			return
+		}
+	}
+	t.Fatalf("agent pane title was not set on 0.1: %v", runner.calls)
+}
+
+type adoptedPaneTmuxRunner struct{ calls [][]string }
+
+func (r *adoptedPaneTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	switch args[0] {
+	case "list-panes":
+		return "0 0 shell\n0 1 agent", nil
+	case "display-message":
+		return "#{pane_title}", nil
+	}
+	return "", nil
 }
 
 func TestRenameMutationKeepsStoppedSessionTitle(t *testing.T) {
@@ -2840,6 +2876,14 @@ func (r *recordingTmuxRunner) Run(_ context.Context, args ...string) (string, er
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, append([]string(nil), args...))
+	if len(args) > 0 {
+		switch args[0] {
+		case "list-panes":
+			return "0 0 agent", nil
+		case "display-message":
+			return "#{pane_title}", nil
+		}
+	}
 	return "", nil
 }
 
