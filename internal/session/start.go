@@ -305,7 +305,6 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 		sessionID:   sessionID,
 		cwd:         cwd,
 		runtimeDir:  runtimeDir,
-		title:       opts.Title,
 		agentPath:   agentPath,
 		master:      role == roleMaster,
 		worker:      opts.MasterID != "",

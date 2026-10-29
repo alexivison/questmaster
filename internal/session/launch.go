@@ -8,6 +8,7 @@ import (
 	"github.com/alexivison/questmaster/internal/agent"
 	"github.com/alexivison/questmaster/internal/hooks"
 	"github.com/alexivison/questmaster/internal/state"
+	"github.com/alexivison/questmaster/internal/tmux"
 )
 
 const openCodeConfigDirEnv = "OPENCODE_CONFIG_DIR"
@@ -19,7 +20,6 @@ type launchConfig struct {
 	sessionID   string
 	cwd         string
 	runtimeDir  string
-	title       string
 	agentPath   string
 	master      bool
 	worker      bool
@@ -87,7 +87,10 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
-	if err := s.launchAppWorkspace(ctx, lc.sessionID, lc.cwd, lc.title, lc.master, lc.worker, lc.agentCmds); err != nil {
+	if err := s.launchAppWorkspace(ctx, lc.sessionID, lc.cwd, lc.master, lc.worker, lc.agentCmds); err != nil {
+		return err
+	}
+	if err := s.syncLaunchedPaneTitle(ctx, lc.sessionID); err != nil {
 		return err
 	}
 
@@ -95,6 +98,26 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
+	return nil
+}
+
+// syncLaunchedPaneTitle reads the current manifest under its lock. A rename
+// may have committed after Continue read its launch snapshot but before the
+// new tmux pane existed; the latest title wins in that case.
+func (s *Service) syncLaunchedPaneTitle(ctx context.Context, sessionID string) error {
+	var titleErr error
+	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
+		if m.Title == "" {
+			return
+		}
+		pane := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
+		titleErr = s.Client.SetManagedPaneTitle(ctx, pane, m.Title)
+	}); err != nil {
+		return fmt.Errorf("sync launched pane title: %w", err)
+	}
+	if titleErr != nil {
+		return fmt.Errorf("sync launched pane title: %w", titleErr)
+	}
 	return nil
 }
 

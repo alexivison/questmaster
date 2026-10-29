@@ -197,7 +197,7 @@ func (c *Client) SelectPaneTitle(ctx context.Context, target, title string) erro
 // native title of other panes in this window continue to work.
 func (c *Client) SetManagedPaneTitle(ctx context.Context, target, title string) error {
 	const option = "@questmaster_title"
-	const visibleTitle = "#{?#{@questmaster_title},#{@questmaster_title},#{pane_title}}"
+	const visibleTitle = "#{?#{==:#{@questmaster_title},},#{pane_title},#{@questmaster_title}}"
 
 	format, err := c.runner.Run(ctx, "display-message", "-t", target, "-p", "#{pane-border-format}")
 	if err != nil {
@@ -210,12 +210,15 @@ func (c *Client) SetManagedPaneTitle(ctx context.Context, target, title string) 
 		if strings.Contains(format, "#{pane_title}") {
 			format = strings.ReplaceAll(format, "#{pane_title}", visibleTitle)
 		} else if format == "" {
-			format = "#{?#{@questmaster_title},#{@questmaster_title},}"
+			format = "#{?#{==:#{@questmaster_title},},,#{@questmaster_title}}"
 		} else {
-			format += "#{?#{@questmaster_title}, #{@questmaster_title},}"
+			format += "#{?#{==:#{@questmaster_title},},, #{@questmaster_title}}"
 		}
-		if err := c.SetWindowOption(ctx, target, "pane-border-format", format); err != nil {
-			return err
+		if err := c.SetPaneOption(ctx, target, "pane-border-format", format); err != nil {
+			// Older tmux versions only accept this option at window scope.
+			if fallbackErr := c.SetWindowOption(ctx, target, "pane-border-format", format); fallbackErr != nil {
+				return errors.Join(err, fallbackErr)
+			}
 		}
 	}
 	return c.SelectPaneTitle(ctx, target, title)
