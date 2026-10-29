@@ -2,14 +2,16 @@ import AppKit
 import QuestmasterCore
 
 /// The working spinner's drawing, one for everything that spins: a third of a ring, clear at its tail through the amber
-/// to a light head, turning once every `WorkingSpinner.period`. It is a conic gradient masked to the ring, in a square
-/// layer centred on the ring and turned by Core Animation, so nothing redraws while it spins. The tracker's portrait
-/// ring (`TrackerPortraitStatusNSView`) and the dock's refresh mark (`SpinnerRingNSView`) both use it.
+/// to a light head, turning once every `WorkingSpinner.period`. It is a conic gradient turned by Core Animation under a
+/// still mask of the ring, so nothing redraws while it spins and a ring that isn't a circle (an action-bar toggle's
+/// rounded square) keeps its place while the arc runs round it. The tracker's portrait ring
+/// (`TrackerPortraitStatusNSView`) and `SpinnerRingNSView` both use it.
 final class SpinnerRing {
     private static let spinKey = "spin"
 
-    /// The square layer that turns; the owner adds it to its own layer.
+    /// The square layer, masked to the ring; the owner adds it to its own layer.
     let layer = CALayer()
+    /// The gradient that turns under the mask.
     private let gradient = CAGradientLayer()
     private let mask = CAShapeLayer()
 
@@ -17,7 +19,7 @@ final class SpinnerRing {
         gradient.type = .conic
         gradient.startPoint = CGPoint(x: 0.5, y: 0.5)
         gradient.endPoint = CGPoint(x: 0.5, y: 1)
-        gradient.mask = mask
+        layer.mask = mask
         mask.fillColor = nil
         mask.lineCap = .butt
         layer.addSublayer(gradient)
@@ -27,7 +29,13 @@ final class SpinnerRing {
     var layers: [CALayer] { [layer, gradient, mask] }
 
     /// The turn while it runs, nil when it doesn't. Tests read it.
-    var spinAnimation: CABasicAnimation? { layer.animation(forKey: Self.spinKey) as? CABasicAnimation }
+    var spinAnimation: CABasicAnimation? { gradient.animation(forKey: Self.spinKey) as? CABasicAnimation }
+
+    /// How far the arc has turned right now, in radians (counterclockwise positive, as Core Animation's z rotation).
+    var currentTurn: CGFloat {
+        let transform = (gradient.presentation() ?? gradient).transform
+        return atan2(transform.m12, transform.m11)
+    }
 
     /// Lays the ring out in a square of `side` centred on `middle` (in the owner's coordinates). `ringPath` is the circle
     /// to stroke, in the square's own coordinates, `lineWidth` wide.
@@ -35,8 +43,11 @@ final class SpinnerRing {
         let amber = TrackerCastFillNSView.amber
         let light = TrackerCastFillNSView.edgeLight
         layer.frame = CGRect(x: middle.x - side / 2, y: middle.y - side / 2, width: side, height: side)
-        gradient.frame = CGRect(origin: .zero, size: CGSize(width: side, height: side))
-        mask.frame = gradient.bounds
+        // The gradient turns about the square's centre, so it spans the square's diagonal to cover its corners at
+        // every angle.
+        let cover = side * 2.squareRoot()
+        gradient.frame = CGRect(x: (side - cover) / 2, y: (side - cover) / 2, width: cover, height: cover)
+        mask.frame = layer.bounds
         mask.path = ringPath
         mask.lineWidth = lineWidth
         mask.strokeColor = AppPalette.mask.cgColor
@@ -53,10 +64,10 @@ final class SpinnerRing {
         spin.toValue = -2 * Double.pi
         spin.duration = WorkingSpinner.period
         spin.repeatCount = .infinity
-        layer.add(spin, forKey: Self.spinKey)
+        gradient.add(spin, forKey: Self.spinKey)
     }
 
     func stopSpinning() {
-        layer.removeAnimation(forKey: Self.spinKey)
+        gradient.removeAnimation(forKey: Self.spinKey)
     }
 }
