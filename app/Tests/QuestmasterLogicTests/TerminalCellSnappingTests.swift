@@ -59,6 +59,7 @@ struct TerminalCellSnappingTests {
     private static func applyingShiftsTerminalUpWithoutTouchingTheTracker() {
         let layout = ShellSplitLayout(
             trackerFrame: ShellSplitRect(x: 10, y: 8, width: 280, height: 884),
+            headerFrame: ShellSplitRect(x: 300, y: 830, width: 531, height: 50),
             terminalFrame: ShellSplitRect(x: 290, y: 103, width: 561, height: 797),
             dockFrame: ShellSplitRect(x: 851, y: 8, width: 661, height: 884),
             firstDividerFrame: ShellSplitRect(x: 290, y: 8, width: 0, height: 884),
@@ -67,22 +68,22 @@ struct TerminalCellSnappingTests {
         )
         let cell = TerminalCellMetrics(cellWidth: 8, cellHeight: 18, paddingX: 10, paddingY: 10)
         // Height 797 = 43 rows (774) + 20 padding + 3pt remainder.
-        let (adjusted, footerBottomInset) = TerminalCellSnapping.applying(to: layout, cell: cell, dockVisible: true)
+        let adjusted = TerminalCellSnapping.applying(to: layout, cell: cell, dockVisible: true)
 
-        expect(footerBottomInset == 3, "footer should float up by the vertical leftover, got \(footerBottomInset)")
         expect(adjusted.terminalFrame.height == 794, "terminal height should snap down, got \(adjusted.terminalFrame.height)")
         expect(adjusted.terminalFrame.y == 106, "terminal bottom should rise by the leftover, got \(adjusted.terminalFrame.y)")
         expect(adjusted.terminalFrame.maxY == layout.terminalFrame.maxY, "terminal's top edge must not move, got \(adjusted.terminalFrame.maxY)")
 
-        // The tracker is full window height (round 5), independent of the footer — it (and its
-        // divider) must come back completely untouched.
+        // The tracker is full window height, and the header sits above the terminal's top edge:
+        // they (and the tracker's divider) must come back completely untouched.
         expect(adjusted.trackerFrame == layout.trackerFrame, "tracker should be untouched, got \(adjusted.trackerFrame)")
         expect(adjusted.firstDividerFrame == layout.firstDividerFrame, "first divider should be untouched, got \(adjusted.firstDividerFrame)")
+        expect(adjusted.headerFrame.y == layout.headerFrame.y && adjusted.headerFrame.height == layout.headerFrame.height, "a vertical snap should leave the header where it is, got \(adjusted.headerFrame)")
     }
 
     private static func snappedContentHeightAccountsForTheConstantReservation() {
         let cell = TerminalCellMetrics(cellWidth: 8, cellHeight: 18, paddingX: 10, paddingY: 10)
-        // constantReservedHeight 123 (footer + top inset) leaves 797 for the terminal, which is
+        // constantReservedHeight 123 (header band + bottom inset) leaves 797 for the terminal, which is
         // 43 rows (774) + 20 padding + a 3pt remainder, same as the case above.
         let snapped = TerminalCellSnapping.snappedContentHeight(contentHeight: 920, constantReservedHeight: 123, cell: cell)
         expect(snapped == 917, "content height should snap down by the same 3pt remainder, got \(snapped)")
@@ -97,6 +98,7 @@ struct TerminalCellSnappingTests {
     private static func applyingWidensDockByHorizontalLeftoverAndMovesItLeft() {
         let layout = ShellSplitLayout(
             trackerFrame: ShellSplitRect(x: 10, y: 111, width: 280, height: 781),
+            headerFrame: ShellSplitRect(x: 300, y: 830, width: 535, height: 50),
             terminalFrame: ShellSplitRect(x: 290, y: 103, width: 565, height: 797),
             dockFrame: ShellSplitRect(x: 855, y: 8, width: 657, height: 884),
             firstDividerFrame: ShellSplitRect(x: 290, y: 111, width: 0, height: 781),
@@ -105,7 +107,7 @@ struct TerminalCellSnappingTests {
         )
         let cell = TerminalCellMetrics(cellWidth: 8, cellHeight: 18, paddingX: 10, paddingY: 10)
         // Width 565 = 68 columns (544) + 20 padding + 1pt remainder.
-        let (adjusted, _) = TerminalCellSnapping.applying(to: layout, cell: cell, dockVisible: true)
+        let adjusted = TerminalCellSnapping.applying(to: layout, cell: cell, dockVisible: true)
 
         expect(adjusted.terminalFrame.width == 564, "terminal width should snap down, got \(adjusted.terminalFrame.width)")
         expect(adjusted.dockFrame.x == 854, "dock should move left by the leftover to stay flush, got \(adjusted.dockFrame.x)")
@@ -113,11 +115,14 @@ struct TerminalCellSnappingTests {
         expect(adjusted.dockWidth == 658, "reported dock width should include the leftover, got \(adjusted.dockWidth)")
         expect(adjusted.secondDividerFrame.x == 850.5, "divider should move with the dock, got \(adjusted.secondDividerFrame.x)")
         expect(adjusted.dockFrame.maxX == layout.dockFrame.maxX, "dock's outer edge must not move, got \(adjusted.dockFrame.maxX)")
+        expect(adjusted.headerFrame.width == 534, "the header should give up the leftover with the terminal, keeping its gap to the dock, got \(adjusted.headerFrame.width)")
+        expect(adjusted.headerFrame.x == layout.headerFrame.x, "the header's leading edge must not move, got \(adjusted.headerFrame.x)")
     }
 
     private static func applyingLeavesLeftoverAtWindowEdgeWhenDockHidden() {
         let layout = ShellSplitLayout(
             trackerFrame: ShellSplitRect(x: 10, y: 111, width: 280, height: 781),
+            headerFrame: ShellSplitRect(x: 300, y: 830, width: 535, height: 50),
             terminalFrame: ShellSplitRect(x: 290, y: 103, width: 565, height: 797),
             dockFrame: ShellSplitRect(x: 855, y: 8, width: 0, height: 884),
             firstDividerFrame: ShellSplitRect(x: 290, y: 111, width: 0, height: 781),
@@ -125,16 +130,18 @@ struct TerminalCellSnappingTests {
             dockWidth: 0
         )
         let cell = TerminalCellMetrics(cellWidth: 8, cellHeight: 18, paddingX: 10, paddingY: 10)
-        let (adjusted, _) = TerminalCellSnapping.applying(to: layout, cell: cell, dockVisible: false)
+        let adjusted = TerminalCellSnapping.applying(to: layout, cell: cell, dockVisible: false)
 
         expect(adjusted.terminalFrame.width == 564, "terminal width should still snap down, got \(adjusted.terminalFrame.width)")
         expect(adjusted.dockFrame == layout.dockFrame, "a hidden dock should be untouched, got \(adjusted.dockFrame)")
         expect(adjusted.dockWidth == 0, "a hidden dock's width should stay 0, got \(adjusted.dockWidth)")
+        expect(adjusted.headerFrame == layout.headerFrame, "with the dock hidden the header keeps its gap to the window's edge, got \(adjusted.headerFrame)")
     }
 
     private static func applyingIsANoOpWhenAlreadySnapped() {
         let layout = ShellSplitLayout(
             trackerFrame: ShellSplitRect(x: 10, y: 111, width: 280, height: 781),
+            headerFrame: ShellSplitRect(x: 300, y: 830, width: 535, height: 50),
             terminalFrame: ShellSplitRect(x: 290, y: 103, width: 564, height: 794),
             dockFrame: ShellSplitRect(x: 854, y: 8, width: 658, height: 884),
             firstDividerFrame: ShellSplitRect(x: 290, y: 111, width: 0, height: 781),
@@ -142,9 +149,8 @@ struct TerminalCellSnappingTests {
             dockWidth: 658
         )
         let cell = TerminalCellMetrics(cellWidth: 8, cellHeight: 18, paddingX: 10, paddingY: 10)
-        let (adjusted, footerBottomInset) = TerminalCellSnapping.applying(to: layout, cell: cell, dockVisible: true)
+        let adjusted = TerminalCellSnapping.applying(to: layout, cell: cell, dockVisible: true)
         expect(adjusted == layout, "an already-snapped layout should come back unchanged")
-        expect(footerBottomInset == 0, "an already-snapped layout should report no footer inset")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

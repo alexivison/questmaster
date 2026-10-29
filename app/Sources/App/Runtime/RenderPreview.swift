@@ -80,10 +80,14 @@ enum RenderPreview {
             size: CGSize(width: 340, height: 780),
             to: "\(outputDir)/tracker-list-column.png"
         )
-        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar.png")
-        render(actionBarSlotsView(), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-active-dock-open.png")
-        render(actionBarSlotsView(dockContentMode: .workerChat), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-worker-chat-open.png")
-        render(actionBarSlotsView(dockPanels: DockPanels(top: true)), size: CGSize(width: ActionBarMetrics.plateWidth + 40, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-slots-version-control-open.png")
+        // The header at the design's own 631 wide: the mock's state (tracker shown, Worker Log and Version Control open,
+        // caffeinate on), and everything at rest.
+        renderView(actionBarHeaderView(), size: CGSize(width: 631, height: ActionBarMetrics.height), to: "\(outputDir)/action-bar.png")
+        renderView(
+            actionBarHeaderView(trackerVisible: false, caffeineActive: false, dockPanels: DockPanels()),
+            size: CGSize(width: 631, height: ActionBarMetrics.height),
+            to: "\(outputDir)/action-bar-rest.png"
+        )
         // The Version Control panel as the Session Detail Dock draws it, and a row of it as the Pull Request Item draws it.
         renderView(versionControlPanelView(), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel.png")
         renderView(versionControlPanelView(state: .empty), size: CGSize(width: 482, height: 305), to: "\(outputDir)/version-control-panel-empty.png")
@@ -138,19 +142,9 @@ enum RenderPreview {
         render(chatItemDesignView(), size: CGSize(width: 480, height: 32), to: "\(outputDir)/chat-item-design.png")
         render(chatItemTextDesignView(), size: CGSize(width: 441, height: 174), to: "\(outputDir)/chat-item-text-design.png")
         render(chatItemWrappedView(), size: CGSize(width: DockWidthPreference.panelWidth, height: 120), autoHeight: true, to: "\(outputDir)/chat-item-wrapped.png")
-        // No window-centring margin here: this one's meant to overlay directly on
-        // action-bar.svg's own 722×120 frame for the design-fidelity comparison.
-        render(actionBarFooterView(), size: CGSize(width: ActionBarMetrics.plateWidth, height: ActionBarMetrics.canvasHeight), to: "\(outputDir)/action-bar-overlay-compare.png")
-        renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer.png")
-        renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: false, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-tracker-hidden.png")
-        renderView(shellWithFooterView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: false), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-footer-dock-hidden.png")
-        // A narrow window plus a maxed-out dock width: the dock's left edge lands well inside
-        // the footer's centred content, so its bottom-right corner reaches under the footer.
-        renderView(
-            shellWithFooterView(size: CGSize(width: 950, height: 900), trackerVisible: false, dockVisible: true, preferredDockWidth: 900),
-            size: CGSize(width: 950, height: 900),
-            to: "\(outputDir)/shell-with-footer-dock-wide-overlap.png"
-        )
+        renderView(shellWithHeaderView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-header.png")
+        renderView(shellWithHeaderView(size: CGSize(width: 1400, height: 900), trackerVisible: false, dockVisible: true), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-header-tracker-hidden.png")
+        renderView(shellWithHeaderView(size: CGSize(width: 1400, height: 900), trackerVisible: true, dockVisible: false), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/shell-with-header-dock-hidden.png")
         for role in ["shell","master", "worker", "collapsed", "overflow", "master-yellow", "master-magenta", "stopped", "worker-selected", "worker-attached", "worker-selected-unfocused", "shell-selected", "shell-selected-unfocused", "master-attached", "collapsed-attached", "master-selected", "collapsed-selected", "overflow-selected", "shell-selected-error", "master-selected-error", "worker-selected-error", "master-selected-attached", "master-selected-attached-unfocused", "worker-selected-attached", "worker-selected-attached-unfocused", "master-idle", "worker-idle", "master-idle-selected", "worker-idle-selected", "master-blocked", "master-done", "master-needs-input", "master-error", "master-blocked-selected", "master-done-selected", "master-needs-input-selected", "master-error-selected", "worker-blocked", "worker-done", "worker-needs-input", "worker-error", "worker-blocked-selected", "worker-done-selected", "worker-needs-input-selected", "worker-error-selected", "master-design", "worker-design", "collapsed-design", "master-design-idle", "worker-design-idle", "worker-design-long", "overflow-design-idle"] {
             render(nameplateFixtureView(role: role), size: CGSize(width: 340, height: 380), to: "\(outputDir)/nameplate-\(role).png")
         }
@@ -245,7 +239,7 @@ enum RenderPreview {
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = AppPalette.window.cgColor
         splitView.addArrangedSubview(TrackerShellView(body: tracker))
-        splitView.addArrangedSubview(TerminalShellView(body: terminalBody, dragHandleHeight: 0))
+        splitView.addArrangedSubview(TerminalShellView(body: terminalBody))
         let dockColumn = DockColumnView(
             top: DockShellView(body: NSView(), model: DockChromeModel(topBar: .versionControl)),
             bottom: DockShellView(body: SwiftUIDockPane(store: store, workerChatStore: WorkerChatStore(), newQuestPresenter: NewQuestSheetPresenter(), settingsPresenter: SettingsSheetPresenter()))
@@ -683,38 +677,38 @@ enum RenderPreview {
         return container
     }
 
-    /// The full window shell with the action bar footer, for judging the window-centred
-    /// placement — and, with `trackerVisible`/`dockVisible`/`preferredDockWidth`, confirming that
-    /// placement holds with either side card hidden, or with the dock wide enough to reach down
-    /// over the footer's own area.
+    /// The full window shell with the action bar header over the terminal column, with either side card hidden.
     @MainActor
-    private static func shellWithFooterView(size: CGSize, trackerVisible: Bool, dockVisible: Bool, preferredDockWidth: Double? = nil) -> NSView {
-        // `splitView` gets the window's full size — it reserves its own tracker/terminal space
-        // above the footer via `ShellSplitLayoutMetrics.footerReservedHeight`, same as the real
-        // app; the dock ignores that reservation and keeps the full height.
+    private static func shellWithHeaderView(size: CGSize, trackerVisible: Bool, dockVisible: Bool) -> NSView {
         let splitView = shellView(size: size) as! MainSplitView
-        splitView.trackerVisible = trackerVisible
-        splitView.setDockVisible(dockVisible, animated: false)
-        if let preferredDockWidth {
-            splitView.setDockPreferredWidth(preferredDockWidth)
-        }
-        splitView.applyCanonicalLayout()
-        let footer = ActionBarShellView()
-        footer.update(
+        let header = ActionBarShellView()
+        header.update(
             navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockVisible),
             dockPanels: DockPanels(bottom: dockVisible),
             dockContentMode: .artifacts
         )
-        return ShellRootContainerView(splitView: splitView, footer: footer)
+        splitView.setHeader(header)
+        splitView.trackerVisible = trackerVisible
+        splitView.setDockVisible(dockVisible, animated: false)
+        splitView.applyCanonicalLayout()
+        return ShellRootContainerView(splitView: splitView)
     }
 
+    /// The header alone, filling its frame as the split view gives it one.
     @MainActor
-    private static func actionBarFooterView() -> some View {
-        ActionBarFooterView(
-            model: ActionBarFooterModel(),
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {}, onOpenVersionControl: {},
-            onToggleCaffeine: {}, onOpenSettings: {}
+    private static func actionBarHeaderView(
+        trackerVisible: Bool = true,
+        caffeineActive: Bool = true,
+        dockPanels: DockPanels = DockPanels(top: true, bottom: true)
+    ) -> NSView {
+        let header = ActionBarShellView()
+        header.update(
+            navigation: AppNavigationState(focusedRegion: .terminal, trackerVisible: trackerVisible, dockVisible: dockPanels.top || dockPanels.bottom),
+            dockPanels: dockPanels,
+            dockContentMode: .workerChat
         )
+        header.updateCaffeine(caffeineActive)
+        return header
     }
 
     @MainActor
@@ -978,25 +972,6 @@ enum RenderPreview {
         .background(AppPalette.panel.swiftUI)
     }
 
-    /// The slot bar with Caffeine active and the Artifacts dock open (Artifacts slot active too).
-    @MainActor
-    private static func actionBarSlotsView(
-        dockContentMode: DockContentMode = .artifacts,
-        dockPanels: DockPanels = DockPanels(bottom: true)
-    ) -> some View {
-        let model = ActionBarFooterModel(
-            navigation: AppNavigationState(focusedRegion: .dock, trackerVisible: true, dockVisible: true),
-            caffeineActive: true,
-            dockContentMode: dockContentMode,
-            dockPanels: dockPanels
-        )
-        return ActionBarFooterView(
-            model: model,
-            onNewSession: {}, onShowTracker: {}, onHideTracker: {}, onOpenArtifacts: {}, onOpenQuests: {}, onOpenWorkerChat: {}, onOpenVersionControl: {},
-            onToggleCaffeine: {}, onOpenSettings: {}
-        )
-    }
-
     /// A list with a master, a shell row, a master with workers and a collapsed master with circles.
     @MainActor
     private static func breathingListView() -> some View {
@@ -1034,7 +1009,7 @@ enum RenderPreview {
         let body = NSView()
         body.wantsLayer = true
         body.layer?.backgroundColor = AppPalette.terminal.cgColor
-        let shell = TerminalShellView(body: body, dragHandleHeight: 0)
+        let shell = TerminalShellView(body: body)
         shell.showEnded()
         return shell
     }
@@ -1915,7 +1890,7 @@ enum RenderPreview {
     @MainActor
     private static func questLogWindowView() -> NSView {
         let size = CGSize(width: 1400, height: 900)
-        let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+        let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
         let stack = InWindowModalStack()
         stack.presentQuestLog(questLogModal(questLogStore()))
         (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
@@ -2175,7 +2150,7 @@ enum RenderPreview {
         // The Quest Log centred in the window, with 30pt of the scrim around it.
         let modalCrop = CGRect(x: 220, y: 30, width: 960, height: 840)
         do {
-            let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+            let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
             let stack = InWindowModalStack()
             (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
             recordAnimation("quest-log-open-gif", root: shell, size: size, crop: modalCrop, duration: 0.75 * Motion.slowdown, to: dir) {
@@ -2184,7 +2159,7 @@ enum RenderPreview {
         }
         do {
             // The log opens, then Abandon's confirmation fades in over it and back out; the log stays put.
-            let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+            let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
             let stack = InWindowModalStack()
             (shell as? ShellRootContainerView)?.addOverlay(InWindowModalHost(stack: stack))
             let slow = Motion.slowdown
@@ -2203,7 +2178,7 @@ enum RenderPreview {
     @MainActor
     private static func modalWindowView(overQuestLog: Bool = false, _ modal: some View) -> NSView {
         let size = CGSize(width: 1400, height: 900)
-        let shell = shellWithFooterView(size: size, trackerVisible: true, dockVisible: true)
+        let shell = shellWithHeaderView(size: size, trackerVisible: true, dockVisible: true)
         let stack = InWindowModalStack()
         if overQuestLog {
             stack.presentQuestLog(questLogModal(questLogStore()))

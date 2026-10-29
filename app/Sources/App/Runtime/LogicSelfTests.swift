@@ -128,9 +128,8 @@ enum LogicSelfTests {
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
-        ("testActionBarFooterHeightIsIntegral", testActionBarFooterHeightIsIntegral),
-        ("testActionBarSlotsCentreInsideFooter", testActionBarSlotsCentreInsideFooter),
-        ("testActionBarHitTestUsesSuperviewCoordinates", testActionBarHitTestUsesSuperviewCoordinates),
+        ("testActionBarHeaderSitsOverTheTerminalColumn", testActionBarHeaderSitsOverTheTerminalColumn),
+        ("testActionBarCaffeinateSpinsOnlyWhileOn", testActionBarCaffeinateSpinsOnlyWhileOn),
         ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
         ("testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide", testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide),
         ("testWorkerChatFollowerDoesNotGlideOnTrimOrResize", testWorkerChatFollowerDoesNotGlideOnTrimOrResize),
@@ -2075,7 +2074,7 @@ enum LogicSelfTests {
             bottomDockShell: { bottom },
             dockColumn: { column },
             dockPanels: { DockPanels(top: true, bottom: true) },
-            footerShell: { nil },
+            actionBar: { nil },
             trackerHosting: { nil },
             dockView: { bottomPane },
             versionControlPane: { pane },
@@ -2801,7 +2800,7 @@ enum LogicSelfTests {
                 bottomDockShell: { nil },
                 dockColumn: { nil },
                 dockPanels: { DockPanels() },
-                footerShell: { nil },
+                actionBar: { nil },
                 trackerHosting: { tracker },
                 dockView: { nil },
                 versionControlPane: { nil },
@@ -2916,7 +2915,7 @@ enum LogicSelfTests {
             bottomDockShell: { nil },
             dockColumn: { nil },
             dockPanels: { DockPanels() },
-            footerShell: { nil },
+            actionBar: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
             versionControlPane: { nil },
@@ -2982,7 +2981,7 @@ enum LogicSelfTests {
             bottomDockShell: { dock },
             dockColumn: { nil },
             dockPanels: { DockPanels(bottom: true) },
-            footerShell: { nil },
+            actionBar: { nil },
             trackerHosting: { tracker },
             dockView: { nil },
             versionControlPane: { nil },
@@ -4698,7 +4697,7 @@ enum LogicSelfTests {
         let failed = try ended(.failure(StubMutationError()), request: delete, clear: true)
         try expect(failed.ended == 0, "a delete that failed hasn't ended anything")
 
-        let shell = TerminalShellView(body: NSView(), dragHandleHeight: 0)
+        let shell = TerminalShellView(body: NSView())
         try expect(!shell.showsEnded, "a terminal pane starts with no ended icon: it is attaching or attached")
         shell.showEnded()
         try expect(shell.showsEnded, "showEnded puts the icon up")
@@ -5572,64 +5571,67 @@ enum LogicSelfTests {
         try expect(model.errorMessage == nil, "both saves succeeding should leave no error")
     }
 
-    /// A fractional footer height puts every plate border and the snapped terminal edge on half
-    /// pixels at 1x, which renders blurry — guards `ActionBarMetrics.plateSvgHeight` against a
-    /// future edit reintroducing a fractional sum.
-    private static func testActionBarFooterHeightIsIntegral() throws {
-        try expect(
-            ActionBarMetrics.plateSvgHeight == ActionBarMetrics.plateSvgHeight.rounded(),
-            "plateSvgHeight should be a whole point, got \(ActionBarMetrics.plateSvgHeight)"
-        )
+    /// The split view lays the header out over the terminal column: its top level with the tracker's and the dock's, the
+    /// terminal starting the flush gap under it. Its empty space moves the window; a button keeps its click.
+    private static func testActionBarHeaderSitsOverTheTerminalColumn() throws {
+        let size = CGSize(width: 1400, height: 900)
+        let window = HeadlessWindow(size: size)
+        let splitView = MainSplitView(frame: NSRect(origin: .zero, size: size))
+        let panes = (0..<3).map { _ in NSView() }
+        panes.forEach(splitView.addArrangedSubview)
+        let header = ActionBarShellView()
+        splitView.setHeader(header)
+        splitView.setDockVisible(true, animated: false)
+        window.contentView = splitView
+        window.show()
+        defer { window.close() }
+        splitView.applyCanonicalLayout()
+        header.layoutSubtreeIfNeeded()
+
+        let (tracker, terminal, dock) = (panes[0].frame, panes[1].frame, panes[2].frame)
+        try expect(header.frame.height == ActionBarMetrics.height, "the header is \(ActionBarMetrics.height) high, got \(header.frame.height)")
+        try expect(header.frame.maxY == tracker.maxY && header.frame.maxY == dock.maxY, "the header's top is level with the tracker's and the dock's")
+        try expect(header.frame.minY - terminal.maxY == ShellMetrics.verticalFlushGap, "the terminal starts the flush gap under the header, got \(header.frame.minY - terminal.maxY)")
+        try expect(dock.minX - header.frame.maxX == ShellMetrics.gap, "the header stops the shell gap short of the dock, got \(dock.minX - header.frame.maxX)")
+
+        let middle = NSPoint(x: header.frame.midX, y: header.frame.midY)
+        guard let empty = splitView.hitTest(middle) else {
+            throw TestFailure("the header's empty space should take a click")
+        }
+        try expect(!(empty is NSHostingView<ActionBarView>) && empty.mouseDownCanMoveWindow, "the header's empty space moves the window, got \(empty)")
+        let trackerToggle = NSPoint(x: header.frame.minX + ActionBarMetrics.endInset + ActionBarMetrics.buttonSize / 2, y: header.frame.midY)
+        try expect(splitView.hitTest(trackerToggle) is NSHostingView<ActionBarView>, "a button keeps its click, got \(String(describing: splitView.hitTest(trackerToggle)))")
     }
 
-    /// The slot run is centred on the frame, and the bar's hit area sits inside the footer.
-    private static func testActionBarSlotsCentreInsideFooter() throws {
-        let runStart = ActionBarMetrics.slotX(at: 0)
-        let runEnd = ActionBarMetrics.slotX(at: ActionBarMetrics.slotCount - 1) + ActionBarMetrics.slotSize
-        try expect(
-            (runStart + runEnd) / 2 == ActionBarMetrics.plateWidth / 2,
-            "slot run should centre on the frame, got centre \((runStart + runEnd) / 2)"
-        )
-        try expect(
-            ActionBarMetrics.barHitRect.minY >= 0 && ActionBarMetrics.barHitRect.maxY <= ActionBarMetrics.plateSvgHeight,
-            "bar hit area should sit inside the footer, got \(ActionBarMetrics.barHitRect)"
-        )
-    }
+    /// Caffeinate's on state is the tracker's working spinner round the button's border, there only while it is on.
+    private static func testActionBarCaffeinateSpinsOnlyWhileOn() throws {
+        let size = CGSize(width: 700, height: ActionBarMetrics.height)
+        let window = HeadlessWindow(size: size)
+        let header = ActionBarShellView()
+        header.frame = NSRect(origin: .zero, size: size)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        container.addSubview(header)
+        window.contentView = container
+        window.show()
+        defer { window.close() }
+        func spinner() -> SpinnerRingNSView? {
+            header.layoutSubtreeIfNeeded()
+            return descendant(SpinnerRingNSView.self, in: header)
+        }
 
-    /// `hitTest` receives its point in the superview's coordinates. The footer sits a shell gap plus a
-    /// row-snap leftover above the window bottom, so a click on a slot's or the plate's top edge must
-    /// still reach the footer, and a point in the gap above the plate must not.
-    private static func testActionBarHitTestUsesSuperviewCoordinates() throws {
-        let superview = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
-        let footer = ActionBarShellView()
-        footer.translatesAutoresizingMaskIntoConstraints = false
-        superview.addSubview(footer)
-        let rowSnapLeftover: CGFloat = 6
-        let bottomInset = ShellMetrics.gap + rowSnapLeftover
-        NSLayoutConstraint.activate([
-            footer.leadingAnchor.constraint(equalTo: superview.leadingAnchor),
-            footer.trailingAnchor.constraint(equalTo: superview.trailingAnchor),
-            footer.bottomAnchor.constraint(equalTo: superview.bottomAnchor, constant: -bottomInset),
-            footer.heightAnchor.constraint(equalToConstant: ActionBarMetrics.plateSvgHeight),
-        ])
-        superview.layoutSubtreeIfNeeded()
-
-        let plateLeft = (superview.bounds.width - ActionBarMetrics.plateWidth) / 2
-        let slotCentreX = plateLeft + ActionBarMetrics.slotX(at: 0) + ActionBarMetrics.slotSize / 2
-        let plateTopEdgeY = bottomInset + ActionBarMetrics.plateSvgHeight
-        let slotTopEdgeY = plateTopEdgeY - ActionBarMetrics.slotTop - 0.5
-        try expect(
-            footer.hitTest(NSPoint(x: slotCentreX, y: slotTopEdgeY)) != nil,
-            "a click on a slot's top edge should reach the footer"
-        )
-        try expect(
-            footer.hitTest(NSPoint(x: plateLeft + 100, y: plateTopEdgeY - 0.5)) != nil,
-            "a click on the plate's top edge should reach the footer"
-        )
-        try expect(
-            footer.hitTest(NSPoint(x: slotCentreX, y: plateTopEdgeY + 1)) == nil,
-            "a click in the gap above the plate should fall through the footer"
-        )
+        try waitForMainQueue("the bar to draw") {
+            header.layoutSubtreeIfNeeded()
+            return descendant(NSHostingView<ActionBarView>.self, in: header) != nil
+        }
+        try expect(spinner() == nil, "no spinner while caffeinate is off")
+        header.updateCaffeine(true)
+        try waitForMainQueue("the spinner to appear") { spinner() != nil }
+        guard let ring = spinner() else {
+            throw TestFailure("the spinner should stay while caffeinate is on")
+        }
+        try expect(ring.frame.size == CGSize(width: ActionBarMetrics.buttonSize, height: ActionBarMetrics.buttonSize), "it traces the button's border, got \(ring.frame.size)")
+        header.updateCaffeine(false)
+        try waitForMainQueue("the spinner to go") { spinner() == nil }
     }
 
     /// Root cause of the scrollbar gutter resisting four prior fix PRs (#222/#223/#225/#226):
@@ -5944,7 +5946,7 @@ enum LogicSelfTests {
             bottomDockShell: { bottom },
             dockColumn: { column },
             dockPanels: { DockPanels(top: true, bottom: true) },
-            footerShell: { nil },
+            actionBar: { nil },
             trackerHosting: { nil },
             dockView: { pane },
             versionControlPane: { versionControl },

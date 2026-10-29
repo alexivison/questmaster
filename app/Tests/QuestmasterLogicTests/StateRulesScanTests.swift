@@ -25,7 +25,7 @@ struct StateRulesScanTests {
             allowedIn: [tokenLayer]
         ),
         Rule(name: "state-colour", pattern: #"\bStateColor\b|\btextSelected\b"#, allowedIn: [tokenLayer]),
-        Rule(name: "brass-on", pattern: #"\b(brassActive|ToggleLook)\b"#, allowedIn: [tokenLayer, "ActionBar/"]),
+        Rule(name: "brass-on", pattern: #"\b(brassActive|ActionBarButtonLook)\b"#, allowedIn: [tokenLayer, "ActionBar/"]),
         Rule(
             name: "state-pick",
             pattern: #"(?i)\b\w*(select|highlight|focus|hover|active|checked)\w*\b[^?\n]*(?<!\?)\?(?!\?)\s[^:\n]*(AppPalette\.|\w\.color\b)"#,

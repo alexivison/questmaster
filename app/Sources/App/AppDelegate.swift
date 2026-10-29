@@ -84,10 +84,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         errorPresenter = ErrorPresentationController { [weak self] in
             self?.shellHandles?.window
         }
-        toastPresenter = ToastPresentationController(
-            window: { [weak self] in self?.shellHandles?.window },
-            footer: { [weak self] in self?.shellHandles?.footerShell }
-        )
+        toastPresenter = ToastPresentationController(window: { [weak self] in self?.shellHandles?.window })
         caffeineController.onActiveChanged = { [weak self] active in
             self?.shellWindowController.updateCaffeine(active)
         }
@@ -120,7 +117,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             bottomDockShell: { [weak self] in self?.shellHandles?.bottomDockShell },
             dockColumn: { [weak self] in self?.shellHandles?.dockColumn },
             dockPanels: { [weak self] in self?.dockPanels ?? DockPanels() },
-            footerShell: { [weak self] in self?.shellHandles?.footerShell },
+            actionBar: { [weak self] in self?.shellHandles?.actionBar },
             trackerHosting: { [weak self] in self?.shellHandles?.trackerHosting },
             dockView: { [weak self] in self?.shellHandles?.dockView },
             versionControlPane: { [weak self] in self?.shellHandles?.versionControlPane },
@@ -248,21 +245,21 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.versionControlPane.onControlDirection = { [weak self] direction in
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false
         }
-        handles.footerShell.onNewSession = { [weak self] in self?.openNewSession() }
-        handles.footerShell.onShowTracker = { [weak self] in self?.toggleTracker() }
-        handles.footerShell.onHideTracker = { [weak self] in self?.hideTracker() }
-        handles.footerShell.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
-        handles.footerShell.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
+        handles.actionBar.onNewSession = { [weak self] in self?.openNewSession() }
+        handles.actionBar.onShowTracker = { [weak self] in self?.toggleTracker() }
+        handles.actionBar.onHideTracker = { [weak self] in self?.hideTracker() }
+        handles.actionBar.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
+        handles.actionBar.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
         questLogFilter.onChange = { [weak self] in self?.syncQuestLog() }
         questLogFilter.onMoveSelection = { [weak self] command in _ = self?.questLogStore.handle(command) }
         questLogFilter.onLeave = { [weak window = handles.window] in window?.makeFirstResponder(nil) }
         handles.modalHost.onEmpty = { [weak self] in self?.focusCoordinator.focusCurrentRegion() }
         handles.modalHost.onDrawingChange = { [weak self] in self?.focusCoordinator.updateRegionKeys() }
-        handles.footerShell.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat) }
-        handles.footerShell.onOpenVersionControl = { [weak self] in self?.toggleVersionControlDock() }
+        handles.actionBar.onOpenWorkerChat = { [weak self] in self?.showDockContent(.workerChat) }
+        handles.actionBar.onOpenVersionControl = { [weak self] in self?.toggleVersionControlDock() }
         handles.versionControlPane.onPullRequestEffect = { [weak self] effect in self?.runPullRequestEffect(effect) }
-        handles.footerShell.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
-        handles.footerShell.onOpenSettings = { [weak self] in self?.openSettings() }
+        handles.actionBar.onToggleCaffeine = { [weak self] in self?.caffeineController.toggle() }
+        handles.actionBar.onOpenSettings = { [weak self] in self?.openSettings() }
         handles.topDockShell.onHideDock = { [weak self] in self?.hideVersionControl() }
         handles.topDockShell.onDismissLogFilter = { [weak self] in self?.workerChatStore.closeMenu() }
         handles.bottomDockShell.onHideDock = { [weak self] in self?.hideBottomDock() }

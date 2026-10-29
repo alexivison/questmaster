@@ -26,7 +26,7 @@ public struct TerminalCellMetrics: Equatable {
 
 /// A terminal pane snapped to whole columns/rows, plus how much of the originally available space
 /// didn't fit a whole cell — the caller redistributes this leftover (to the dock's width, to the
-/// window's trailing edge, or below the footer) rather than letting it sit as slack inside the pane.
+/// window's trailing edge, or above the window's bottom edge) rather than letting it sit as slack inside the pane.
 public struct SnappedTerminalSize: Equatable {
     public let width: Double
     public let height: Double
@@ -53,10 +53,10 @@ public enum TerminalCellSnapping {
     }
 
     /// Snaps the window's full content-view height so the terminal pane's own height — the
-    /// content height minus `constantReservedHeight` (the footer reservation plus the terminal's
-    /// own top inset, neither of which varies with window size) — lands on a whole-row boundary.
+    /// content height minus `constantReservedHeight` (the header band above it and the terminal's
+    /// own bottom inset, neither of which varies with window size) — lands on a whole-row boundary.
     /// Used to set `NSWindow.contentResizeIncrements` from a zero-leftover baseline, so ordinary
-    /// interactive resizing keeps the gap under the footer at a constant `G` instead of drifting
+    /// interactive resizing keeps the gap under the terminal at a constant `G` instead of drifting
     /// up to a whole row's worth of slack.
     public static func snappedContentHeight(contentHeight: Double, constantReservedHeight: Double, cell: TerminalCellMetrics) -> Double {
         let (snappedTerminalHeight, _) = snappedDimension(
@@ -69,20 +69,18 @@ public enum TerminalCellSnapping {
 
     /// Adjusts an already-planned layout so the terminal pane's width/height land on whole
     /// columns/rows. The freed horizontal space moves into the dock's width when visible
-    /// (keeping the terminal-to-dock gap at exactly `cell.paddingX`, same as before snapping) or
-    /// is left at the window's trailing edge when the dock is hidden (nothing to widen). The
-    /// tracker pane is untouched — it's full window height, like the dock, independent of the
-    /// footer reservation — only the terminal's own frame changes; the returned
-    /// `footerBottomInset` is how far the footer should float up from the window's bottom edge to
-    /// sit flush under the snapped terminal, leaving the leftover strip below it.
+    /// (keeping the terminal-to-dock gap at exactly `cell.paddingX`, same as before snapping, and
+    /// the header's trailing edge `sideCardInset` from the dock with it) or is left at the window's
+    /// trailing edge when the dock is hidden (nothing to widen). The terminal keeps its top edge
+    /// under the header; the vertical leftover lands below it, above the window's bottom edge.
     public static func applying(
         to layout: ShellSplitLayout,
         cell: TerminalCellMetrics,
         dockVisible: Bool
-    ) -> (layout: ShellSplitLayout, footerBottomInset: Double) {
+    ) -> ShellSplitLayout {
         let snapped = snap(availableWidth: layout.terminalFrame.width, availableHeight: layout.terminalFrame.height, cell: cell)
         guard snapped.horizontalLeftover > 0 || snapped.verticalLeftover > 0 else {
-            return (layout, 0)
+            return layout
         }
 
         let terminalFrame = ShellSplitRect(
@@ -110,15 +108,24 @@ public enum TerminalCellSnapping {
             )
             : layout.secondDividerFrame
 
-        let newLayout = ShellSplitLayout(
+        let headerFrame = absorbHorizontally
+            ? ShellSplitRect(
+                x: layout.headerFrame.x,
+                y: layout.headerFrame.y,
+                width: layout.headerFrame.width - snapped.horizontalLeftover,
+                height: layout.headerFrame.height
+            )
+            : layout.headerFrame
+
+        return ShellSplitLayout(
             trackerFrame: layout.trackerFrame,
+            headerFrame: headerFrame,
             terminalFrame: terminalFrame,
             dockFrame: dockFrame,
             firstDividerFrame: layout.firstDividerFrame,
             secondDividerFrame: secondDividerFrame,
             dockWidth: layout.dockWidth + (absorbHorizontally ? snapped.horizontalLeftover : 0)
         )
-        return (newLayout, snapped.verticalLeftover)
     }
 
     private static func snappedDimension(available: Double, cellSize: Double, padding: Double) -> (snapped: Double, leftover: Double) {

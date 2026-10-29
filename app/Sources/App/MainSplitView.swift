@@ -47,6 +47,8 @@ final class MainSplitView: NSView {
     private let firstDivider = NSView()
     private let secondDividerGrab = DockResizeDividerView()
     private var panes: [NSView] = []
+    /// The action bar header over the terminal column, laid out and animated with the panes.
+    private var header: NSView?
     private let defaultPreferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
     private var preferredDockWidth: CGFloat? = DockWidthPreference.storedWidth().map { CGFloat($0) }
     private var dockWidthMode: RightDockWidthMode = .standard
@@ -59,13 +61,10 @@ final class MainSplitView: NSView {
     /// terminal pane to whole columns/rows — `nil`, or `.unavailable`, before any surface has
     /// reported one, in which case the layout is used exactly as planned.
     var cellMetricsProvider: (() -> TerminalCellMetrics)?
-    /// How far the footer should float up from the window's bottom edge (the vertical row-snap
-    /// leftover) — fires only when that value actually changes.
-    var onFooterBottomInsetChanged: ((CGFloat) -> Void)?
-    private var lastFooterBottomInset: CGFloat = 0
 
     private struct CanonicalLayout {
         let trackerFrame: NSRect
+        let headerFrame: NSRect
         let terminalFrame: NSRect
         let dockFrame: NSRect
         let firstDividerFrame: NSRect
@@ -110,6 +109,14 @@ final class MainSplitView: NSView {
     func addArrangedSubview(_ view: NSView) {
         panes.append(view)
         addSubview(view, positioned: .below, relativeTo: nil)
+        needsLayout = true
+    }
+
+    /// Adds the header above every pane, so its shadow falls on the terminal.
+    func setHeader(_ view: NSView) {
+        header?.removeFromSuperview()
+        header = view
+        addSubview(view)
         needsLayout = true
     }
 
@@ -201,14 +208,11 @@ final class MainSplitView: NSView {
         }
 
         let cell = cellMetricsProvider?() ?? .unavailable
-        let (layout, footerBottomInset) = TerminalCellSnapping.applying(to: planned, cell: cell, dockVisible: dockVisible)
-        if footerBottomInset != lastFooterBottomInset {
-            lastFooterBottomInset = footerBottomInset
-            onFooterBottomInsetChanged?(CGFloat(footerBottomInset))
-        }
+        let layout = TerminalCellSnapping.applying(to: planned, cell: cell, dockVisible: dockVisible)
 
         return CanonicalLayout(
             trackerFrame: nsRect(layout.trackerFrame),
+            headerFrame: nsRect(layout.headerFrame),
             terminalFrame: nsRect(layout.terminalFrame),
             dockFrame: nsRect(layout.dockFrame),
             firstDividerFrame: nsRect(layout.firstDividerFrame),
@@ -232,6 +236,9 @@ final class MainSplitView: NSView {
         setPaneFrame(panes[0], layout.trackerFrame)
         setPaneFrame(panes[1], layout.terminalFrame)
         setPaneFrame(panes[2], layout.dockFrame)
+        if let header {
+            setPaneFrame(header, layout.headerFrame)
+        }
     }
 
     private func animate(to layout: CanonicalLayout) {
@@ -253,6 +260,7 @@ final class MainSplitView: NSView {
             animatePane(panes[0], to: layout.trackerFrame, isVisible: trackerVisible)
             panes[1].animator().frame = layout.terminalFrame
             animatePane(panes[2], to: layout.dockFrame, isVisible: dockVisible)
+            header?.animator().frame = layout.headerFrame
             if dockDividerParticipates {
                 secondDividerGrab.animator().frame = layout.secondDividerFrame
                 secondDividerGrab.animator().alphaValue = dockVisible ? 1 : 0

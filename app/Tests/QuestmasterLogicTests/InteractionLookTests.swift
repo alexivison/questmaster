@@ -35,7 +35,12 @@ struct InteractionLookTests {
         expect(OutlineLook.frame(focused: false) == .frameRest && OutlineLook.frame(focused: true) == .frameFocused, "a dock frame lifts with focus")
         expect(OutlineLook.tabSelected.recessed && OutlineLook.tabSelectedUnfocused.recessed, "a selected tab's disc is recessed")
         expect(!OutlineLook.tabRest.recessed, "a resting tab's disc is not recessed")
-        expect(ToggleLook.of(on: true) == .on && ToggleLook.of(on: false) == .off, "a toggle is on or off")
+        let button = { (active: Bool, on: Bool, hovered: Bool) in ActionBarButtonLook.of(active: active, on: on, hovered: hovered) }
+        expect(button(false, false, false).icon == .textMeta, "a resting action-bar icon is meta")
+        expect(button(true, false, false).icon == .textBody, "an active action-bar icon (its panel shows) brightens to body")
+        expect(button(false, false, true).icon == .textSelected && button(true, false, true).icon == .textSelected, "the pointer brightens either to selected")
+        expect(button(false, true, false).icon == .textMeta, "a toggle that is on keeps its resting icon")
+        expect(button(false, true, false).spins && button(false, true, false).glowOpacity > 0, "a toggle that is on glows and spins")
         expect(PlateBand.color(showsCursor: false, pointerOver: false, recoloring: false) == nil, "a plain plate has no band")
         expect(PlateBand.color(showsCursor: true, pointerOver: true, recoloring: true) == .accent, "the recolour band wins over the cursor and hover")
         expect(PlateBand.showsCursor(highlighted: true, areaFocused: true), "the cursor shows while the tracker has keys")
@@ -69,7 +74,7 @@ struct InteractionLookTests {
         expect(Set(bands.map { $0?.rawValue ?? 0 }).count == bands.count, "every plate band state should differ: \(bands)")
         expect(OutlineLook.fieldFocused != .fieldRest, "a focused field should not look at rest")
         expect(OutlineLook.frameFocused != .frameRest, "a focused dock frame should not look at rest")
-        expect(ToggleLook.on != .off, "an on toggle should not look off")
+        expect(ActionBarButtonLook.of(active: false, on: true, hovered: false) != .of(active: false, on: false, hovered: false), "an on toggle should not look off")
     }
 
     private static func eachStateStepIsBrighterThanTheOneBelow() {
@@ -80,7 +85,7 @@ struct InteractionLookTests {
         expectBrighter([OutlineLook.tabRest, .tabSelectedUnfocused, .tabSelected].map(levels), "tabs")
         expectBrighter([OutlineLook.fieldRest, .fieldFocused].map(levels), "fields")
         expectBrighter([OutlineLook.frameRest, .frameFocused].map(levels), "dock frames")
-        expectBrighter([ToggleLook.off, .on].map { [$0.border.luminance] }, "toggles")
+        expectBrighter([(false, false), (true, false), (false, true)].map { [ActionBarButtonLook.of(active: $0.0, on: false, hovered: $0.1).icon.luminance] }, "action-bar icons: rest, active, under the pointer")
         let band = { (cursor: Bool, pointer: Bool) in PlateBand.color(showsCursor: cursor, pointerOver: pointer, recoloring: false)?.luminance ?? 0 }
         expectBrighter([[0], [band(false, true)], [band(true, false)]], "plate bands: none, hover, cursor")
         expectBrighter([StateColor.textMeta, .textMetaHighlighted, .textBody, .textSelected].map { [$0.luminance] }, "text steps")
@@ -96,7 +101,8 @@ struct InteractionLookTests {
         for color in rowColors + outlineColors {
             expect(color != .accent && color != .brassActive, "rows, tabs and fields carry no gold or brass, got \(color)")
         }
-        expect(ToggleLook.off.border != .brassActive, "an off toggle carries no brass")
+        let off = ActionBarButtonLook.of(active: true, on: false, hovered: true)
+        expect(off.glowOpacity == 0 && !off.spins, "an off toggle carries no brass and no spinner")
     }
 
     /// The pointer only shows the hover look on a resting row; a highlighted or selected row keeps its look.
