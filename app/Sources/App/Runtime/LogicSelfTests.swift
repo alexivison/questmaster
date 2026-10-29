@@ -6435,7 +6435,10 @@ enum LogicSelfTests {
         try expect(row.height == WorkerLogTabMetrics.height, "the tab row should be \(WorkerLogTabMetrics.height) high, got \(row.height)")
         try expect(abs(row.minY - WorkerLogTabMetrics.bottomInset) < 0.5, "the row should end \(WorkerLogTabMetrics.bottomInset) above the panel's bottom, got \(row.minY)")
         try expect(abs(feed.minY - row.maxY) < 0.5, "the feed should end where the row begins, got its bottom at \(feed.minY) over the row's top at \(row.maxY)")
-        try expect(row.width == DockWidthPreference.panelWidth && feed.width == DockWidthPreference.panelWidth, "both should span the panel")
+        try expect(feed.width == DockWidthPreference.panelWidth, "the feed should span the panel, got \(feed.width)")
+        let side = WorkerLogTabMetrics.sideInset
+        try expect(row.minX == side && row.width == DockWidthPreference.panelWidth - 2 * side,
+                   "the tab row should sit \(side) in from both panel edges, got x \(row.minX) width \(row.width)")
     }
 
     private static func fittingSize<V: View>(of view: V) throws -> CGSize {
