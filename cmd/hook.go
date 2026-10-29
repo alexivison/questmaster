@@ -745,6 +745,7 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			} else if opts.action == "working" {
 				clearClaudeDisplay(&pane)
 				pane.ClaudePromptID = payload.PromptID
+				seedClaudeNarration(&pane, payload.TranscriptPath)
 				pane.ClaudeLastSayMessage = ""
 				pane.ClaudeLastSayPromptID = ""
 				pane.ClaudeLastSayTranscript = ""
@@ -828,6 +829,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 			updateSubagentChat(&pane, &ev, opts.action, payload.AgentID, payload.AgentType)
 		}
 		if !isSubagent {
+			if opts.action == "tool_start" || opts.action == "done" {
+				addClaudeNarration(&ev, &pane, payload.TranscriptPath, stderr)
+			}
 			if opts.action == "done" && finalMessage != "" && pane.State == "done" && !suppressFinalMessage {
 				addChatEntry(&ev, &pane, "message", finalMessage)
 			}
@@ -1308,7 +1312,10 @@ func claudeDisplayStateChanged(before, after state.PaneState) bool {
 		before.ClaudeLastSayPromptID != after.ClaudeLastSayPromptID ||
 		before.ClaudeLastSayTranscript != after.ClaudeLastSayTranscript ||
 		before.ClaudeLastStopPromptID != after.ClaudeLastStopPromptID ||
-		before.ClaudeLastStopTranscript != after.ClaudeLastStopTranscript
+		before.ClaudeLastStopTranscript != after.ClaudeLastStopTranscript ||
+		before.ClaudeNarrationPath != after.ClaudeNarrationPath ||
+		before.ClaudeNarrationOffset != after.ClaudeNarrationOffset ||
+		before.ClaudeNarrationSkippingLine != after.ClaudeNarrationSkippingLine
 }
 
 func sameClaudeDisplayTime(a, b *time.Time) bool {
@@ -1570,6 +1577,146 @@ func extractAssistantText(raw json.RawMessage) string {
 		}
 	}
 	return ""
+}
+
+// claudeNarration is one visible narration block read from a Claude transcript.
+type claudeNarration struct {
+	text      string
+	timestamp time.Time
+}
+
+// claudeTranscriptReadLimit bounds one transcript read. A line longer than it is
+// skipped whole, the way Codex rollout reads skip oversized lines.
+const claudeTranscriptReadLimit = 1 << 20
+
+// readClaudeNarration returns the visible narration written to a Claude
+// transcript after offset, and the offset the next read resumes from. Only
+// complete lines are consumed, so a line still being written is read whole
+// later.
+func readClaudeNarration(path string, offset int64, skipping bool) ([]claudeNarration, int64, bool, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, offset, skipping, nil
+	}
+	if err != nil {
+		return nil, offset, skipping, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, offset, skipping, err
+	}
+	if offset < 0 || info.Size() < offset {
+		// The transcript was replaced or truncated. Resume at its new end
+		// rather than replay lines that may already have been said.
+		return nil, info.Size(), false, nil
+	}
+	available := min(info.Size()-offset, claudeTranscriptReadLimit)
+	if available == 0 {
+		return nil, offset, skipping, nil
+	}
+	data := make([]byte, available)
+	n, err := f.ReadAt(data, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, offset, skipping, err
+	}
+	data = data[:n]
+	if skipping {
+		newline := bytes.IndexByte(data, '\n')
+		if newline < 0 {
+			return nil, offset + int64(n), true, nil
+		}
+		offset += int64(newline + 1)
+		data = data[newline+1:]
+	}
+	lastNewline := bytes.LastIndexByte(data, '\n')
+	if lastNewline < 0 {
+		if len(data) >= claudeTranscriptReadLimit {
+			return nil, offset + int64(len(data)), true, nil
+		}
+		return nil, offset, false, nil
+	}
+	var narrations []claudeNarration
+	for _, line := range bytes.Split(data[:lastNewline], []byte{'\n'}) {
+		narrations = append(narrations, claudeNarrationsInLine(line)...)
+	}
+	return narrations, offset + int64(lastNewline+1), false, nil
+}
+
+// claudeNarrationsInLine returns the visible narration blocks in one transcript
+// line. Claude Code shows a thinking block that has text as plain text; a
+// redacted one has empty text and stays hidden. Only assistant records count,
+// because api-request-blob records repeat the same blocks.
+func claudeNarrationsInLine(line []byte) []claudeNarration {
+	if !bytes.Contains(line, []byte(`"thinking"`)) {
+		return nil
+	}
+	var rec struct {
+		Type      string `json:"type"`
+		Timestamp string `json:"timestamp"`
+		Message   struct {
+			Content []struct {
+				Type     string `json:"type"`
+				Thinking string `json:"thinking"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(line, &rec); err != nil || rec.Type != "assistant" {
+		return nil
+	}
+	timestamp, _ := time.Parse(time.RFC3339Nano, rec.Timestamp)
+	var narrations []claudeNarration
+	for _, block := range rec.Message.Content {
+		text := strings.TrimSpace(block.Thinking)
+		if block.Type == "thinking" && text != "" {
+			narrations = append(narrations, claudeNarration{text: text, timestamp: timestamp})
+		}
+	}
+	return narrations
+}
+
+// seedClaudeNarration starts the cursor at the transcript's current end, so a
+// new prompt never says narration written before it.
+func seedClaudeNarration(pane *state.PaneState, path string) {
+	if path == "" {
+		return
+	}
+	pane.ClaudeNarrationPath = path
+	pane.ClaudeNarrationOffset = claudeTranscriptSize(path)
+	pane.ClaudeNarrationSkippingLine = false
+}
+
+// claudeTranscriptSize is 0 for a transcript Claude has not written yet, so its
+// first lines are read when they arrive.
+func claudeTranscriptSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// addClaudeNarration says the visible narration written since the pane's cursor
+// and moves the cursor past it. A cursor that belongs to another transcript
+// restarts at that transcript's end.
+func addClaudeNarration(ev *state.StateEvent, pane *state.PaneState, path string, stderr io.Writer) {
+	if path == "" {
+		return
+	}
+	if pane.ClaudeNarrationPath != path {
+		seedClaudeNarration(pane, path)
+		return
+	}
+	narrations, next, skipping, err := readClaudeNarration(path, pane.ClaudeNarrationOffset, pane.ClaudeNarrationSkippingLine)
+	if err != nil {
+		fmt.Fprintf(stderr, "questmaster hook claude: read narration: %v\n", err)
+		return
+	}
+	for _, narration := range narrations {
+		addChatEntryAt(ev, pane, "say", narration.text, narration.timestamp)
+	}
+	pane.ClaudeNarrationOffset = next
+	pane.ClaudeNarrationSkippingLine = skipping
 }
 
 // ---------------------------------------------------------------------

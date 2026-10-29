@@ -129,6 +129,9 @@ type PaneState struct {
 	ClaudeLastSayTranscript      string                 `json:"claude_last_say_transcript,omitempty"`
 	ClaudeLastStopPromptID       string                 `json:"claude_last_stop_prompt_id,omitempty"`
 	ClaudeLastStopTranscript     string                 `json:"claude_last_stop_transcript,omitempty"`
+	ClaudeNarrationPath          string                 `json:"claude_narration_path,omitempty"`
+	ClaudeNarrationOffset        int64                  `json:"claude_narration_offset,omitempty"`
+	ClaudeNarrationSkippingLine  bool                   `json:"claude_narration_skipping_line,omitempty"`
 	SubagentWake                 *SubagentWake          `json:"subagent_wake,omitempty"`
 
 	CodexTranscriptPath         string `json:"codex_transcript_path,omitempty"`
