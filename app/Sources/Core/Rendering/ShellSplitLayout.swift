@@ -1,9 +1,9 @@
 import Foundation
 
 public enum RightDockWidthMode: Equatable {
-    /// The artifact viewer: the user's resizable width.
+    /// The artifact viewer: the user's resizable share of the window.
     case standard
-    /// Everything else (Version Control, the artifact list, worker chat): one fixed width.
+    /// Everything else (Version Control, the artifact list, worker chat): one fixed share of the window.
     case panel
 }
 
@@ -143,7 +143,7 @@ public enum ShellSplitLayoutPlanner {
         metrics: ShellSplitLayoutMetrics,
         trackerVisible: Bool,
         dockVisible: Bool,
-        preferredDockWidth: Double?,
+        preferredDockFraction: Double?,
         dockWidthMode: RightDockWidthMode
     ) -> ShellSplitLayout? {
         guard size.width > 0 else {
@@ -159,7 +159,7 @@ public enum ShellSplitLayoutPlanner {
         let dockWidth = dockVisible
             ? DockWidthPreference.clampedWidth(
                 proposedDockWidth(
-                    preferredDockWidth: preferredDockWidth,
+                    preferredDockFraction: preferredDockFraction,
                     dockWidthMode: dockWidthMode,
                     windowWidth: size.width
                 ),
@@ -239,16 +239,18 @@ public enum ShellSplitLayoutPlanner {
         )
     }
 
-    public static func resizedDockWidth(
+    /// The viewer's share of the window after a drag or a widen/narrow step of `deltaX` (positive narrows),
+    /// clamped as the layout clamps it.
+    public static func resizedDockFraction(
         startWidth: Double,
         deltaX: Double,
         windowWidth: Double,
         metrics: ShellSplitLayoutMetrics,
         trackerVisible: Bool,
         dockVisible: Bool
-    ) -> Double {
-        guard dockVisible else {
-            return startWidth
+    ) -> Double? {
+        guard dockVisible, windowWidth > 0 else {
+            return nil
         }
         let availableWidth = max(0, windowWidth - sideCardHorizontalInsets(
             metrics: metrics,
@@ -256,11 +258,12 @@ public enum ShellSplitLayoutPlanner {
             dockVisible: dockVisible
         ))
         let trackerWidth = trackerVisible ? min(metrics.trackerMaxWidth, availableWidth) : 0
-        return DockWidthPreference.clampedWidth(
-            startWidth - deltaX,
+        let width = DockWidthPreference.clampedWidth(
+            max(startWidth - deltaX, DockWidthPreference.panelWidth(forWindowWidth: windowWidth)),
             availableWidth: availableWidth,
             trackerWidth: trackerWidth
         )
+        return width / windowWidth
     }
 
     private static func sideCardHorizontalInsets(
@@ -277,15 +280,15 @@ public enum ShellSplitLayoutPlanner {
     }
 
     private static func proposedDockWidth(
-        preferredDockWidth: Double?,
+        preferredDockFraction: Double?,
         dockWidthMode: RightDockWidthMode,
         windowWidth: Double
     ) -> Double {
         switch dockWidthMode {
         case .standard:
-            return preferredDockWidth ?? DockWidthPreference.defaultWidth(forWindowWidth: windowWidth)
+            return DockWidthPreference.viewerWidth(fraction: preferredDockFraction, windowWidth: windowWidth)
         case .panel:
-            return DockWidthPreference.panelWidth
+            return DockWidthPreference.panelWidth(forWindowWidth: windowWidth)
         }
     }
 

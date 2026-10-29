@@ -69,8 +69,8 @@ final class ShellSnapshotRenderer {
                 dockCoordinator.state.followList(selectedArtifactID: update.selectedArtifactID)
             }
         }
-        splitView()?.setDockPreferredWidth(
-            dockCoordinator.state.dockPreferredWidth,
+        splitView()?.setDockPreferredFraction(
+            dockCoordinator.state.dockPreferredFraction,
             animated: shouldAnimateDockLayout
         )
         // The column is as wide as the bottom panel wants it; Version Control alone takes its own width.

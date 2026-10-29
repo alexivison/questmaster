@@ -231,11 +231,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         shellHandles = handles
 
-        handles.splitView.onDockWidthCommitted = { [weak self] width in
+        handles.splitView.onDockFractionCommitted = { [weak self] fraction in
             guard let self else {
                 return
             }
-            self.dockCoordinator.state.dockPreferredWidth = width
+            self.dockCoordinator.state.dockPreferredFraction = fraction
+            DockWidthPreference.store(fraction: fraction)
         }
         handles.dockView.onControlDirection = { [weak self] direction in
             self?.focusCoordinator.handleNativeControlDirection(direction) ?? false

@@ -3,22 +3,19 @@ import QuestmasterCore
 
 struct DockWidthPreferenceTests {
     static func run() {
-        defaultWidthIsWiderThanLegacyFixedWidth()
+        panelsAndViewerAreShareOfTheWindow()
         clampPreservesTerminalAndDockMinimums()
         widthsRoundToWholePoints()
-        persistenceRoundTripsPositiveWidths()
+        persistenceRoundTripsPositiveFractions()
         print("DockWidthPreferenceTests: all tests passed")
     }
 
-    private static func defaultWidthIsWiderThanLegacyFixedWidth() {
-        expect(
-            DockWidthPreference.defaultWidth(forWindowWidth: 1520) == 760,
-            "default dock width should use the wider fixed default at the app's default window width"
-        )
-        expect(
-            DockWidthPreference.defaultWidth(forWindowWidth: 2000) == 900,
-            "default dock width should scale to 45 percent on wider windows"
-        )
+    private static func panelsAndViewerAreShareOfTheWindow() {
+        expect(DockWidthPreference.panelWidth(forWindowWidth: 2560) == 530, "panels keep their 530 minimum")
+        expect(DockWidthPreference.panelWidth(forWindowWidth: 3000) == 600, "panels take 20% of a wide window")
+        expect(DockWidthPreference.viewerWidth(fraction: nil, windowWidth: 2560) == 768, "the viewer takes 30% by default")
+        expect(DockWidthPreference.viewerWidth(fraction: 0.5, windowWidth: 2560) == 1280, "the viewer takes the user's share")
+        expect(DockWidthPreference.viewerWidth(fraction: nil, windowWidth: 1520) == 530, "the viewer is never narrower than the panels")
     }
 
     private static func clampPreservesTerminalAndDockMinimums() {
@@ -38,16 +35,12 @@ struct DockWidthPreferenceTests {
 
     private static func widthsRoundToWholePoints() {
         expect(
-            DockWidthPreference.defaultWidth(forWindowWidth: 2001) == 900,
-            "default dock width should round to whole points"
-        )
-        expect(
             DockWidthPreference.clampedWidth(640.5, availableWidth: 1518, trackerWidth: 300) == 641,
             "clamped dock width should round fractional resize values"
         )
     }
 
-    private static func persistenceRoundTripsPositiveWidths() {
+    private static func persistenceRoundTripsPositiveFractions() {
         let suiteName = "QuestmasterDockWidthPreferenceTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             fputs("DockWidthPreferenceTests failed: could not create defaults suite\n", stderr)
@@ -57,9 +50,9 @@ struct DockWidthPreferenceTests {
             defaults.removePersistentDomain(forName: suiteName)
         }
 
-        expect(DockWidthPreference.storedWidth(in: defaults) == nil, "empty defaults should not have a dock width")
-        DockWidthPreference.store(width: 512.5, in: defaults)
-        expect(DockWidthPreference.storedWidth(in: defaults) == 513, "stored dock width did not round trip as a whole point")
+        expect(DockWidthPreference.storedFraction(in: defaults) == nil, "empty defaults should not have a dock share")
+        DockWidthPreference.store(fraction: 0.35, in: defaults)
+        expect(DockWidthPreference.storedFraction(in: defaults) == 0.35, "stored dock share did not round trip")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

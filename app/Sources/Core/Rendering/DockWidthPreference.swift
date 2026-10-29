@@ -1,18 +1,27 @@
 import Foundation
 
+/// The dock's width is a share of the window: the panels' fixed, the artifact viewer's the user's to resize.
 public enum DockWidthPreference {
-    public static let defaultsKey = "Questmaster.DockWidth"
-    public static let defaultWidth = 760.0
-    public static let defaultWindowFraction = 0.45
-    public static let minWidth = 360.0
-    /// The dock's one fixed width, for everything but the artifact viewer: the Chat Item and Session Detail Dock
+    public static let defaultsKey = "Questmaster.DockWidthFraction"
+    /// The artifact viewer's share of the window until the user resizes it.
+    public static let viewerFraction = 0.30
+    /// Version Control, the artifact list and the Worker Log: their share of the window.
+    public static let panelFraction = 0.20
+    /// The panels' narrowest width, and the width they were designed at: the Chat Item and Session Detail Dock
     /// artboards are 480pt wide, and the Worker Log's tab row takes 50 more (2026-10-28).
     public static let panelWidth = 530.0
-    public static let resizeStep = 80.0
+    public static let minWidth = 360.0
+    /// One press of the widen/narrow command, as a share of the window.
+    public static let resizeStep = 0.05
     public static let minTerminalWidth = 360.0
 
-    public static func defaultWidth(forWindowWidth windowWidth: Double) -> Double {
-        roundedWidth(max(defaultWidth, windowWidth * defaultWindowFraction))
+    public static func panelWidth(forWindowWidth windowWidth: Double) -> Double {
+        max(panelWidth, windowWidth * panelFraction)
+    }
+
+    /// The viewer is never narrower than the panels, so opening an artifact never shrinks the dock.
+    public static func viewerWidth(fraction: Double?, windowWidth: Double) -> Double {
+        max(panelWidth(forWindowWidth: windowWidth), windowWidth * (fraction ?? viewerFraction))
     }
 
     public static func clampedWidth(_ proposedWidth: Double, availableWidth: Double, trackerWidth: Double) -> Double {
@@ -23,13 +32,13 @@ public enum DockWidthPreference {
         return roundedWidth(min(max(proposedWidth, minWidth), maxWidth))
     }
 
-    public static func storedWidth(in defaults: UserDefaults = .standard) -> Double? {
+    public static func storedFraction(in defaults: UserDefaults = .standard) -> Double? {
         let value = defaults.double(forKey: defaultsKey)
         return value > 0 ? value : nil
     }
 
-    public static func store(width: Double, in defaults: UserDefaults = .standard) {
-        defaults.set(roundedWidth(width), forKey: defaultsKey)
+    public static func store(fraction: Double, in defaults: UserDefaults = .standard) {
+        defaults.set(fraction, forKey: defaultsKey)
     }
 
     private static func roundedWidth(_ width: Double) -> Double {
