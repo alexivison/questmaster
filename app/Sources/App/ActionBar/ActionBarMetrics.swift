@@ -11,6 +11,8 @@ enum ActionBarMetrics {
     static let scoopRadius: CGFloat = 13
     static let buttonSize = ControlHeight.control
     static let buttonRadius = Token.Radius.hairline
+    /// The header's top and bottom to its buttons: they sit centred.
+    static let buttonInset = (height - buttonSize) / 2
     static let endInset = Space.section
     /// Buttons in a group nearly touch: one point apart.
     static let buttonSeam: CGFloat = 1

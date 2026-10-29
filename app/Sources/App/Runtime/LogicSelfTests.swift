@@ -130,6 +130,8 @@ enum LogicSelfTests {
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
         ("testActionBarHeaderSitsOverTheTerminalColumn", testActionBarHeaderSitsOverTheTerminalColumn),
         ("testActionBarCaffeinateSpinsOnlyWhileOn", testActionBarCaffeinateSpinsOnlyWhileOn),
+        ("testActionBarButtonsCentreUnderTheTitlebar", testActionBarButtonsCentreUnderTheTitlebar),
+        ("testSpinnerTurnsItsArcUnderAStillRing", testSpinnerTurnsItsArcUnderAStillRing),
         ("testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt", testScrollerHidingSurvivesCompetingResetQueuedRightBehindIt),
         ("testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide", testWorkerChatFollowerGlidesArrivalsAndKeepsFollowingMidGlide),
         ("testWorkerChatFollowerDoesNotGlideOnTrimOrResize", testWorkerChatFollowerDoesNotGlideOnTrimOrResize),
@@ -5632,6 +5634,50 @@ enum LogicSelfTests {
         try expect(ring.frame.size == CGSize(width: ActionBarMetrics.buttonSize, height: ActionBarMetrics.buttonSize), "it traces the button's border, got \(ring.frame.size)")
         header.updateCaffeine(false)
         try waitForMainQueue("the spinner to go") { spinner() == nil }
+    }
+
+    /// The header sits under the window's transparent titlebar (`fullSizeContentView`), whose safe area would push
+    /// SwiftUI content down: the buttons must stay centred, `ActionBarMetrics.buttonInset` from its top and bottom. The
+    /// headless window has no titlebar, so this one is a titled window like the app's, never shown.
+    private static func testActionBarButtonsCentreUnderTheTitlebar() throws {
+        let size = CGSize(width: 700, height: 200)
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = container
+        let header = ActionBarShellView()
+        header.frame = NSRect(x: 0, y: size.height - ShellMetrics.gap - ActionBarMetrics.height, width: size.width, height: ActionBarMetrics.height)
+        container.addSubview(header)
+        header.updateCaffeine(true)
+        func ring() -> SpinnerRingNSView? {
+            header.layoutSubtreeIfNeeded()
+            return descendant(SpinnerRingNSView.self, in: header)
+        }
+
+        try waitForMainQueue("caffeinate's spinner to draw") { ring() != nil }
+        guard let ring = ring() else {
+            throw TestFailure("caffeinate's spinner should draw")
+        }
+        let button = ring.convert(ring.bounds, to: header)
+        try expect(
+            header.bounds.maxY - button.maxY == ActionBarMetrics.buttonInset && button.minY == ActionBarMetrics.buttonInset,
+            "the buttons sit \(ActionBarMetrics.buttonInset) from the header's top and bottom under a titlebar, got top \(header.bounds.maxY - button.maxY), bottom \(button.minY)"
+        )
+    }
+
+    /// The spinner turns its arc, not its ring: a rounded square (an action-bar toggle's border) must stay put while the
+    /// arc runs round it, so the turn is on the gradient under a still mask, never on the masked layer.
+    private static func testSpinnerTurnsItsArcUnderAStillRing() throws {
+        let side = ActionBarMetrics.buttonSize
+        let spinner = SpinnerRing()
+        let square = CGPath(roundedRect: CGRect(x: 0.5, y: 0.5, width: side - 1, height: side - 1), cornerWidth: 2.5, cornerHeight: 2.5, transform: nil)
+        spinner.layout(around: CGPoint(x: side / 2, y: side / 2), side: side, ringPath: square, lineWidth: 1)
+        spinner.startSpinning()
+        try expect(spinner.spinAnimation != nil, "the arc turns")
+        try expect(spinner.layer.mask != nil && (spinner.layer.animationKeys() ?? []).isEmpty, "the masked layer, and so the ring, stays still")
+        try expect(spinner.layers.allSatisfy { $0.mask == nil || $0 === spinner.layer }, "only the still layer carries the ring's mask")
     }
 
     /// Root cause of the scrollbar gutter resisting four prior fix PRs (#222/#223/#225/#226):
