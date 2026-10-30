@@ -46,15 +46,10 @@ final class TrackerFlightOverlay: NSView {
     /// Flies one spell along its route, starting now. Nothing flies under Reduce Motion, nor while the avatar has no sprites or no
     /// view on screen.
     func fly(_ flight: TrackerSpellFlight) {
-        guard !Motion.reducesMotion() else {
-            return
-        }
-        guard let route = route(for: flight), let sprites = sprites(),
+        guard !Motion.reducesMotion(), let route = route(for: flight), let sprites = sprites(),
               let art = sprites.flight(for: flight.spell), let impact = sprites.impact(for: flight.spell) else {
-            AvatarFlightLog.write("no route spell=\(flight.spell) avatarView=\(avatar.view != nil) onScreen=\(avatar.view?.window != nil) sprites=\(sprites() != nil) workerLog=\(workerLogFrame().map { "\($0)" } ?? "none")")
             return
         }
-        AvatarFlightLog.write("route spell=\(flight.spell) from=\(route.from) to=\(route.to) impact=\(route.impactsAtEnd) window=\(bounds.size) workerLog=\(workerLogFrame().map { "\($0)" } ?? "none")")
         let start = layerPoint(route.from)
         let end = layerPoint(route.to)
         let spell = spriteLayer(art)

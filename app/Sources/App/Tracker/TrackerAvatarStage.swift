@@ -52,7 +52,6 @@ final class TrackerAvatarStage {
         let now = clock()
         let attached = attachedID.flatMap { id in sessions.first { $0.id == id } }
         let events = detector.observe(sessions, attachedID: attached?.id)
-        AvatarFlightLog.write("stage events=\(events) attached=\(attached?.id ?? "-") animation=\(catalog.animation(for: attached) != nil)")
         director.observe(attached, at: now)
         for event in events {
             director.answer(event, at: now)
