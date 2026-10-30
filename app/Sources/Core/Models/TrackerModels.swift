@@ -167,6 +167,23 @@ public struct TrackerSessionGroup: Decodable, Equatable {
     }
 }
 
+/// A message or report a session last exchanged. `kind` is `instructions` (a message from its master) or `report` (its
+/// report to its master).
+public struct TrackerExchange: Equatable {
+    public var kind: String
+    public var at: Date
+
+    public init(kind: String, at: Date) {
+        self.kind = kind
+        self.at = at
+    }
+}
+
+private struct WireExchange: Decodable {
+    let kind: String
+    let at: String
+}
+
 public struct TrackerSession: Decodable, Equatable {
     public var id: String
     public var title: String
@@ -195,6 +212,11 @@ public struct TrackerSession: Decodable, Equatable {
     public var narration: String
     /// The tool the session is running, nil when none is.
     public var cast: TrackerCast?
+    /// The session's latest message from its master or report to its master, nil when it has none. Unlike `lastChatAt`,
+    /// status and action entries don't change it.
+    public var lastExchange: TrackerExchange?
+    /// The sub-agents the session has running. Only Claude reports them; any other agent is 0.
+    public var activeSubagents: Int
 
     public init(
         id: String,
@@ -221,7 +243,9 @@ public struct TrackerSession: Decodable, Equatable {
         elapsedSeedMS: Int? = nil,
         artifacts: [ArtifactReference] = [],
         narration: String = "",
-        cast: TrackerCast? = nil
+        cast: TrackerCast? = nil,
+        lastExchange: TrackerExchange? = nil,
+        activeSubagents: Int = 0
     ) {
         self.id = id
         self.title = title
@@ -248,6 +272,8 @@ public struct TrackerSession: Decodable, Equatable {
         self.artifacts = artifacts
         self.narration = narration
         self.cast = cast
+        self.lastExchange = lastExchange
+        self.activeSubagents = activeSubagents
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -272,6 +298,8 @@ public struct TrackerSession: Decodable, Equatable {
         case artifacts
         case narration
         case cast
+        case last_exchange
+        case active_subagents
     }
 
     public init(from decoder: Decoder) throws {
@@ -320,6 +348,11 @@ public struct TrackerSession: Decodable, Equatable {
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
         narration = try container.decodeIfPresent(String.self, forKey: .narration) ?? ""
         cast = try container.decodeIfPresent(TrackerCast.self, forKey: .cast)
+        let wireExchange = try container.decodeIfPresent(WireExchange.self, forKey: .last_exchange)
+        lastExchange = wireExchange.flatMap { wire in
+            TrackerSession.parseInstant(wire.at).map { TrackerExchange(kind: wire.kind, at: $0) }
+        }
+        activeSubagents = try container.decodeIfPresent(Int.self, forKey: .active_subagents) ?? 0
     }
 
     public func duration(at date: Date) -> String {

@@ -108,6 +108,12 @@ type QuestSnapshot struct {
 	SessionID   string `json:"session_id,omitempty"`
 }
 
+// ExchangeRow is the last master-worker instructions or report for a tracker row.
+type ExchangeRow struct {
+	Kind string    `json:"kind"`
+	At   time.Time `json:"at"`
+}
+
 // SessionSnapshot is one tracker row with live activity already applied.
 type SessionSnapshot struct {
 	ID              string             `json:"id"`
@@ -117,6 +123,8 @@ type SessionSnapshot struct {
 	ElapsedMS       int64              `json:"elapsed_ms"`
 	ElapsedSince    *time.Time         `json:"elapsed_since,omitempty"`
 	LastChatAt      *time.Time         `json:"last_chat_at,omitempty"`
+	LastExchange    *ExchangeRow       `json:"last_exchange,omitempty"`
+	ActiveSubagents int                `json:"active_subagents,omitempty"`
 	Narration       string             `json:"narration,omitempty"`
 	Cast            *CastSnapshot      `json:"cast,omitempty"`
 	LatestActivity  string             `json:"latest_activity,omitempty"`
@@ -334,6 +342,8 @@ func sameClockTrackerRow(a, b SessionSnapshot) bool {
 		sameCast(a.Cast, b.Cast) &&
 		a.LastKind == b.LastKind &&
 		sameTime(a.LastChatAt, b.LastChatAt) &&
+		sameExchange(a.LastExchange, b.LastExchange) &&
+		a.ActiveSubagents == b.ActiveSubagents &&
 		artifactsEqual(a.Artifacts, b.Artifacts)
 }
 
@@ -349,6 +359,13 @@ func sameTime(a, b *time.Time) bool {
 		return a == nil && b == nil
 	}
 	return a.Equal(*b)
+}
+
+func sameExchange(a, b *ExchangeRow) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Kind == b.Kind && a.At.Equal(b.At)
 }
 
 func (s *Snapshotter) liveSessionSet() (map[string]struct{}, error) {
@@ -449,6 +466,8 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 		row.ElapsedMS = 0
 		row.ElapsedSince = nil
 		row.LastChatAt = nil
+		row.LastExchange = nil
+		row.ActiveSubagents = 0
 		row.Narration = result.Narration
 		row.Cast = nil
 		row.LatestActivity = ""
@@ -456,6 +475,8 @@ func (s *Snapshotter) applySessionState(row *SessionSnapshot, sessionID string, 
 		return
 	}
 	row.LastChatAt = timePtr(result.LastChatAt)
+	row.LastExchange = exchangeRow(result)
+	row.ActiveSubagents = result.ActiveSubagents
 	row.Narration = result.Narration
 	row.Cast = castSnapshot(result, row.Agent, typicals)
 	if result.State != "" {
@@ -594,6 +615,8 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 			ElapsedMS:       elapsedMS(observedAt, elapsedSince),
 			ElapsedSince:    timePtr(elapsedSince),
 			LastChatAt:      timePtr(result.LastChatAt),
+			LastExchange:    exchangeRow(result),
+			ActiveSubagents: result.ActiveSubagents,
 			Narration:       result.Narration,
 			Cast:            castSnapshot(result, row.Agent, typicals),
 			LatestActivity:  snippet,
@@ -616,6 +639,8 @@ func (s *Snapshotter) sessionSnapshots(rows []tracker.SessionRow, observedAt tim
 		if row.Status != "active" {
 			out[i].Cast = nil
 			out[i].LastChatAt = nil
+			out[i].LastExchange = nil
+			out[i].ActiveSubagents = 0
 		}
 	}
 	return out
@@ -783,6 +808,13 @@ func timePtr(t time.Time) *time.Time {
 	}
 	utc := t.UTC()
 	return &utc
+}
+
+func exchangeRow(result sessionactivity.Result) *ExchangeRow {
+	if result.LastExchangeKind == "" || result.LastExchangeAt.IsZero() {
+		return nil
+	}
+	return &ExchangeRow{Kind: result.LastExchangeKind, At: result.LastExchangeAt.UTC()}
 }
 
 func artifactsEqual(a, b []ArtifactSnapshot) bool {

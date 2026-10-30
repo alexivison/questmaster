@@ -4581,3 +4581,73 @@ func TestHookWorkingSinceOnlyBackfillWritesState(t *testing.T) {
 		})
 	}
 }
+
+func TestHookClaudeSubagentsCountRunningChildrenUntilTheyStop(t *testing.T) {
+	r, rec := newTestRunner(t)
+	rec.lastState = &state.SessionState{
+		SessionID: "qm-abc",
+		Version:   state.SchemaVersion,
+		Panes: map[string]state.PaneState{
+			"agent": {Role: "agent", Agent: "claude", State: "working"},
+		},
+	}
+	start := func(agentID, agentType string) {
+		runHookWithStdin(r, "claude", "subagent_start", "qm-abc", map[string]interface{}{"agent_id": agentID, "agent_type": agentType})
+	}
+	stop := func(agentID string) {
+		runHookWithStdin(r, "claude", "subagent_stop", "qm-abc", map[string]interface{}{"agent_id": agentID, "agent_type": "general-purpose"})
+	}
+	running := func() int { return len(rec.lastState.Panes["agent"].ActiveSubagents) }
+	expectRunning := func(want int, step string) {
+		t.Helper()
+		if got := running(); got != want {
+			t.Fatalf("%s: running sub-agents = %d, want %d", step, got, want)
+		}
+	}
+	start("task-1", "general-purpose")
+	start("task-2", "general-purpose")
+	expectRunning(2, "two starts")
+	stop("helper-9")
+	expectRunning(2, "a stop with no matching start")
+	start("helper-10", "internal")
+	expectRunning(2, "an internal helper start")
+	stop("task-1")
+	expectRunning(1, "one stop")
+	stop("task-2")
+	expectRunning(0, "the last stop")
+}
+
+func TestHookClaudeSessionStartAndStopClearRunningSubagents(t *testing.T) {
+	r, rec := newTestRunner(t)
+	running := func() int { return len(rec.lastState.Panes["agent"].ActiveSubagents) }
+	seed := func(phase string) {
+		rec.lastState = &state.SessionState{
+			SessionID: "qm-abc",
+			Version:   state.SchemaVersion,
+			Panes: map[string]state.PaneState{
+				"agent": {
+					Role:                    "agent",
+					Agent:                   "claude",
+					State:                   phase,
+					ActiveSubagents:         map[string]string{"task-1": "general-purpose"},
+					ActiveSubagentStartedAt: map[string]time.Time{"task-1": time.Now()},
+				},
+			},
+		}
+	}
+	seed("done")
+	runHookWithStdin(r, "claude", "done", "qm-abc", map[string]interface{}{})
+	if got := running(); got != 1 {
+		t.Fatalf("a finished turn cleared the running sub-agents: %d left, want 1", got)
+	}
+	seed("working")
+	runHookWithStdin(r, "claude", "starting", "qm-abc", map[string]interface{}{})
+	if got := running(); got != 0 {
+		t.Fatalf("session start left %d running sub-agents, want 0", got)
+	}
+	seed("working")
+	runHookWithStdin(r, "claude", "stopped", "qm-abc", map[string]interface{}{})
+	if got := running(); got != 0 {
+		t.Fatalf("session stop left %d running sub-agents, want 0", got)
+	}
+}

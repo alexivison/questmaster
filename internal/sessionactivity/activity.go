@@ -22,15 +22,19 @@ type Observation struct {
 // WorkingSince is non-zero only while State == "working" and timestamps
 // the moment the session entered the working state.
 type Result struct {
-	State        string
-	Activity     string
-	LastKind     string
-	LastEvent    time.Time
-	WorkingSince time.Time
-	LastChatAt   time.Time
-	Agent        string
-	Narration    string
-	RunningTool  *state.RunningTool
+	State            string
+	Activity         string
+	LastKind         string
+	LastEvent        time.Time
+	WorkingSince     time.Time
+	LastChatAt       time.Time
+	LastExchangeKind string
+	LastExchangeAt   time.Time
+	// ActiveSubagents counts the sub-agents the session has running (Claude reports them; see cmd/hook.go).
+	ActiveSubagents int
+	Agent           string
+	Narration       string
+	RunningTool     *state.RunningTool
 }
 
 // AgentKey namespaces a session's agent-pane activity key.
@@ -104,15 +108,18 @@ func FromState(ss *state.SessionState) Result {
 		runningTool = &latest
 	}
 	return Result{
-		State:        stateName,
-		Activity:     normalizeStartingActivity(stateName, p.Activity),
-		LastKind:     p.LastKind,
-		LastEvent:    p.LastEvent,
-		WorkingSince: normalizeWorkingSince(stateName, p.WorkingSince, p.LastEvent),
-		LastChatAt:   p.LastChatAt,
-		Agent:        p.Agent,
-		Narration:    p.Narration,
-		RunningTool:  runningTool,
+		State:            stateName,
+		Activity:         normalizeStartingActivity(stateName, p.Activity),
+		LastKind:         p.LastKind,
+		LastEvent:        p.LastEvent,
+		WorkingSince:     normalizeWorkingSince(stateName, p.WorkingSince, p.LastEvent),
+		LastChatAt:       p.LastChatAt,
+		LastExchangeKind: p.LastExchangeKind,
+		LastExchangeAt:   p.LastExchangeAt,
+		ActiveSubagents:  len(p.ActiveSubagents),
+		Agent:            p.Agent,
+		Narration:        p.Narration,
+		RunningTool:      runningTool,
 	}
 }
 

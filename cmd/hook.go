@@ -654,6 +654,9 @@ func handleClaude(r *HookRunner, sessionID string, opts hookOptions, stderr io.W
 				}
 			}
 			pruneClaudeOpenChatActions(&pane, now)
+			if opts.action == "starting" || opts.action == "stopped" {
+				clearActiveSubagents(&pane)
+			}
 			switch opts.action {
 			case "working", "done", "stopped":
 				pane.ClaudeOpenChatActions = nil
@@ -1107,6 +1110,12 @@ func updateSubagentChat(pane *state.PaneState, event *state.StateEvent, action, 
 		return true
 	}
 	return false
+}
+
+// clearActiveSubagents forgets a session's sub-agents when the session starts or stops: they can't outlive it.
+func clearActiveSubagents(pane *state.PaneState) {
+	pane.ActiveSubagents = nil
+	pane.ActiveSubagentStartedAt = nil
 }
 
 const (
@@ -2576,7 +2585,7 @@ func activityForCodexTool(p codexPayload) string {
 		return "Edit: " + truncatePath(codexToolInputString(in, "file_path", "path"))
 	case "Read":
 		return "Read: " + truncatePath(codexToolInputString(in, "file_path", "path"))
-	case "Bash", "Shell", "shell":
+	case "Bash", "Shell", "shell", "exec_command":
 		return "Bash: " + truncatePromptLine(codexToolInputString(in, "command", "cmd"))
 	case "Task":
 		return "Agent: " + truncatePromptLine(codexToolInputString(in, "description", "prompt"))

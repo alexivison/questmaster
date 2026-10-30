@@ -14,9 +14,11 @@ import (
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
+	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
+	"github.com/alexivison/questmaster/internal/workerfeed"
 )
 
 // ---------------------------------------------------------------------------
@@ -1868,6 +1870,55 @@ func TestSpawn_FromMasterPassesPromptAsFirstTurn(t *testing.T) {
 	if strings.Count(launch, task) != 1 {
 		t.Fatalf("expected worker prompt exactly once in launch command, got %q", launch)
 	}
+}
+
+// A spawn prompt stays in the worker feed as instructions but does not set the
+// exchange; only the master's later message does.
+func TestSpawn_PromptLeavesExchangeUntilMasterRelays(t *testing.T) {
+	t.Parallel()
+	svc, runner := setupService(t)
+	counter := int64(5200)
+	svc.Now = func() int64 { counter++; return counter }
+	masterID := "qm-master"
+	createTestManifest(t, svc.Store, masterID, "orch", t.TempDir(), "master")
+
+	prompt := "inspect the worker startup flow"
+	result, err := svc.Spawn(t.Context(), masterID, SpawnOpts{Title: "worker-1", Prompt: prompt})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	requireExchange := func(stage, wantKind string) {
+		t.Helper()
+		ss, err := state.LoadSessionStateAt(svc.Store.Root(), result.SessionID)
+		if err != nil || ss == nil {
+			t.Fatalf("%s: load worker state = %v, %v", stage, ss, err)
+		}
+		pane := ss.Panes["agent"]
+		if pane.LastExchangeKind != wantKind {
+			t.Fatalf("%s: exchange kind = %q, want %q", stage, pane.LastExchangeKind, wantKind)
+		}
+		if wantKind != "" && pane.LastExchangeAt.IsZero() {
+			t.Fatalf("%s: exchange time is unset for %q", stage, wantKind)
+		}
+		if wantKind == "" && !pane.LastExchangeAt.IsZero() {
+			t.Fatalf("%s: exchange time = %s, want unset", stage, pane.LastExchangeAt)
+		}
+	}
+	requireExchange("after spawn", "")
+
+	page, err := workerfeed.ReadSince(svc.Store.Root(), masterID, nil)
+	if err != nil {
+		t.Fatalf("read feed after spawn: %v", err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].Kind != "instructions" || page.Entries[0].Text != prompt {
+		t.Fatalf("feed after spawn = %#v, want one instructions entry for the prompt", page.Entries)
+	}
+
+	relay := message.NewService(svc.Store, tmux.NewClient(runner))
+	if err := relay.RelayFrom(t.Context(), masterID, result.SessionID, "follow up"); err != nil {
+		t.Fatalf("relay from master: %v", err)
+	}
+	requireExchange("after master relay", "instructions")
 }
 
 // Spawn threads a persisted role default model (and any --model override) all

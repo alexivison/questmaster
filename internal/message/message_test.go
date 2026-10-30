@@ -476,6 +476,9 @@ func TestRelayFrom_LogsInstructionsFromParentMaster(t *testing.T) {
 			if got := ss.Panes[agentRole].LastChatAt; !got.Equal(page.Entries[0].Timestamp) {
 				t.Fatalf("LastChatAt = %s, want entry timestamp %s", got, page.Entries[0].Timestamp)
 			}
+			if pane := ss.Panes[agentRole]; pane.LastExchangeKind != "instructions" || !pane.LastExchangeAt.Equal(page.Entries[0].Timestamp) {
+				t.Fatalf("instructions exchange = %q at %s, want instructions at %s", pane.LastExchangeKind, pane.LastExchangeAt, page.Entries[0].Timestamp)
+			}
 		})
 	}
 }
@@ -1346,6 +1349,9 @@ func TestReport_LogsCappedFeedEntry(t *testing.T) {
 			}
 			if got := ss.Panes["agent"].LastChatAt; !got.Equal(event.Ts) {
 				t.Fatalf("report LastChatAt = %s, want event timestamp %s", got, event.Ts)
+			}
+			if pane := ss.Panes["agent"]; pane.LastExchangeKind != "report" || !pane.LastExchangeAt.Equal(event.Ts) {
+				t.Fatalf("report exchange = %q at %s, want report at %s", pane.LastExchangeKind, pane.LastExchangeAt, event.Ts)
 			}
 		})
 	}

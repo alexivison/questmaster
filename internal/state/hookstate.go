@@ -98,6 +98,8 @@ type PaneState struct {
 	LastKind                string               `json:"last_kind"`
 	WorkingSince            time.Time            `json:"working_since,omitempty"`
 	LastChatAt              time.Time            `json:"last_chat_at,omitempty"`
+	LastExchangeKind        string               `json:"last_exchange_kind,omitempty"`
+	LastExchangeAt          time.Time            `json:"last_exchange_at,omitempty"`
 	ActiveSubagents         map[string]string    `json:"active_subagents,omitempty"`
 	ActiveSubagentStartedAt map[string]time.Time `json:"active_subagent_started_at,omitempty"`
 

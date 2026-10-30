@@ -54,6 +54,9 @@ enum AppPalette {
     static let chatSpeech = NSColor(hex: 0xd9dbb8)
     /// The chat design's Working tag amber. It was borrowed from `trackerNeedsInput` until that became blue.
     static let chatWorking = NSColor(hex: 0xe8b34a)
+    /// The bard sprite's own face colour (its lit skin, `01-idle.png`), the lid a blink draws over the eyes: the art's
+    /// colour, not a chrome one.
+    static let avatarSkin = NSColor(hex: 0xf5b47b)
     /// The black the tracker plates and the selected-session panel shade with, always at a partial opacity.
     static let shadow = NSColor.black
     /// The white highlights and blends lift toward (the item card's bezel, the cast bar's light edge), always partial.
