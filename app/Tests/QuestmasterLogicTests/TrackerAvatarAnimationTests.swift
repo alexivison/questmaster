@@ -4,6 +4,7 @@ import QuestmasterCore
 struct TrackerAvatarAnimationTests {
     static func run() {
         decodesTheBardsFile()
+        aCatchHoldsItsClosedHandPastTheRecoil()
         aLoopCyclesEachTrackOnItsOwnClock()
         aOneShotHoldsItsLastFrame()
         aFinishLastsItsLongestTrackAndHoldsItsLastFrame()
@@ -15,21 +16,12 @@ struct TrackerAvatarAnimationTests {
         print("TrackerAvatarAnimationTests: all tests passed")
     }
 
-    /// The bard's file, read from the app's resources beside this test directory.
     private static func bardJSON() -> [String: Any] {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/App/Resources/Sprites/bard/animation.json")
-        guard let data = try? Data(contentsOf: url), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            fail("the bard's animation.json should read as a JSON object at \(url.path)")
-        }
-        return json
+        AvatarAnimationFixture.bardJSON()
     }
 
     private static func decode(_ json: [String: Any]) throws -> TrackerAvatarAnimation {
-        try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: json))
+        try AvatarAnimationFixture.decode(json)
     }
 
     /// The bard's file with one pose's JSON edited.
@@ -59,6 +51,17 @@ struct TrackerAvatarAnimationTests {
         let calling = animation.animation(for: .callingOut)?.loop
         expect(calling?.front?.steps.map(\.frame) == [1, 2, 3] && calling?.behind == nil, "calling out should cycle a front layer and no behind layer")
         expect(animation.animation(for: .idle)?.loop == nil && animation.animation(for: .idle)?.once == nil, "idle should play no block")
+    }
+
+    /// A catch hovers on f1, then closes on f3 at the catch. The hand holds f3 through the recoil's return at 0.54 s, which is a step
+    /// of its own, so the move returns on a step boundary.
+    private static func aCatchHoldsItsClosedHandPastTheRecoil() {
+        guard let once = (try? decode(bardJSON()))?.animation(for: .catching)?.once else {
+            fail("catching should have a one-shot")
+        }
+        expect(once.character.starts == [0, 0.18, 0.54], "a catch should hover on f1, close on f3 at 0.18 s, and hold f3 to 0.54 s, got \(once.character.starts)")
+        expect(once.character.steps.map(\.frame) == [1, 3, 3], "a catch should show f1 then f3, got \(once.character.steps.map(\.frame))")
+        expect(near(once.seconds, 1), "a catch should last one second")
     }
 
     private static func aLoopCyclesEachTrackOnItsOwnClock() {
@@ -212,7 +215,7 @@ struct TrackerAvatarAnimationTests {
         guard let animation = try? decode(bardJSON()) else {
             fail("the bard's file should decode")
         }
-        let catalog = TrackerAvatarCatalog(animations: ["bard": animation])
+        let catalog = AvatarAnimationFixture.catalog(animation)
         let bard = AvatarSessionFixture.session(sessionClass: "bard")
         expect(catalog.classID(for: bard) == "bard", "a bard master should show the bard's avatar")
         expect(catalog.animation(for: bard) == animation, "a bard master should get the bard's animation")
