@@ -12,7 +12,7 @@ public enum MotionStep: Equatable, Sendable {
         switch self {
         case .fast: 0.12
         case .standard: 0.18
-        case .flight: 0.6
+        case .flight: 1.0
         }
     }
 

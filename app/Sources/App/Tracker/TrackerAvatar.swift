@@ -29,7 +29,7 @@ enum TrackerAvatarDesign {
     /// A cycle is two holds: at rest, then down.
     static let breathPeriod: TimeInterval = 2 * breathHoldPeriod
     /// How high a spell's path arcs between its two ends.
-    static let flightArcHeight: CGFloat = 20
+    static let flightArcHeight: CGFloat = 40
 }
 
 /// Idle's layer art, split for its motion: the figure above and below the legs.

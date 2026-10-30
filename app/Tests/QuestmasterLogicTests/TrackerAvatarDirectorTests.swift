@@ -253,7 +253,7 @@ struct TrackerAvatarDirectorTests {
         let flying = director.frame(at: 0)
         expect(flying.launches == [TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar)], "the wisp should fly from the worker to the avatar")
         expect(flying.pose == .pondering, "the avatar should keep its pose while the wisp flies")
-        expect(director.frame(at: 0.6).pose == .catching, "the catch should show once the wisp arrives")
+        expect(director.frame(at: MotionStep.flight.seconds).pose == .catching, "the catch should show once the wisp arrives")
     }
 
     private static func queueDropsTheNewestPastItsCapacity() {
