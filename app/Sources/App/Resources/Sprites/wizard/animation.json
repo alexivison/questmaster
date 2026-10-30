@@ -38,11 +38,11 @@
   "poses": {
     "01-idle": {
       "foot_row": 151,
-      "body_column": 42
+      "body_column": 38
     },
     "02-pondering": {
       "foot_row": 158,
-      "body_column": 39,
+      "body_column": 33,
       "loop": {
         "character": [
           [
@@ -88,7 +88,7 @@
     },
     "03-studying": {
       "foot_row": 151,
-      "body_column": 35,
+      "body_column": 39,
       "loop": {
         "character": [
           [
@@ -120,7 +120,7 @@
     },
     "04-inscribing": {
       "foot_row": 168,
-      "body_column": 34,
+      "body_column": 33,
       "loop": {
         "character": [
           [
@@ -220,12 +220,24 @@
     },
     "05-channelling": {
       "foot_row": 167,
-      "body_column": 40,
+      "body_column": 41,
       "loop": {
         "character": [
           [
             1,
-            1.2
+            0.3
+          ],
+          [
+            2,
+            0.3
+          ],
+          [
+            3,
+            0.3
+          ],
+          [
+            2,
+            0.3
           ]
         ],
         "front": [
@@ -296,7 +308,7 @@
     },
     "06-scrying": {
       "foot_row": 151,
-      "body_column": 37,
+      "body_column": 39,
       "loop": {
         "character": [
           [
@@ -372,7 +384,7 @@
     },
     "07-spellsong": {
       "foot_row": 151,
-      "body_column": 45,
+      "body_column": 39,
       "loop": {
         "character": [
           [
@@ -474,7 +486,7 @@
     },
     "09-summoning": {
       "foot_row": 171,
-      "body_column": 55,
+      "body_column": 49,
       "once": {
         "character": [
           [
@@ -546,7 +558,7 @@
     },
     "10-catching": {
       "foot_row": 151,
-      "body_column": 44,
+      "body_column": 39,
       "once": {
         "character": [
           [
@@ -580,7 +592,7 @@
     },
     "11-calling-out": {
       "foot_row": 159,
-      "body_column": 49,
+      "body_column": 41,
       "loop": {
         "character": [
           [
@@ -622,7 +634,7 @@
     },
     "12-bow": {
       "foot_row": 153,
-      "body_column": 46,
+      "body_column": 43,
       "once": {
         "character": [
           [
