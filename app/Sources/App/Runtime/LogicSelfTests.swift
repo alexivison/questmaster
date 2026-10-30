@@ -3644,10 +3644,14 @@ enum LogicSelfTests {
     }
 
     /// The elevation shadows (AGENTS.md, "Interaction states") reach past the clip that shapes their panel: a modal's
-    /// from `scoopedPanel`, the dock's from `ScoopedLayerChrome`. A pixel 2pt under each panel's bottom edge, on the
-    /// window fill, must be darker than the same fill far from it, and only a shadow dropped downward is that dark
-    /// there.
+    /// (`modal`) from `scoopedPanel`, the dock's (`raised`, 1.5 down) from `ScoopedLayerChrome`. A pixel 2pt under each
+    /// panel's bottom edge, on the window fill, must be darker than the same fill far from it, and only a shadow dropped
+    /// downward is that dark there. Every layer that draws the raised shadow in its own bounds leaves room for its whole
+    /// bleed, so no edge cuts it: the tracker plates' silhouette layers and the toast's hosting view.
     private static func testChromeShadowsReachPastTheirClips() throws {
+        try expect(TrackerPlateDesign.silhouetteMargin >= Elevation.raised.bleed, "the plates' silhouette layers should hold the raised shadow's \(Elevation.raised.bleed) bleed, got a \(TrackerPlateDesign.silhouetteMargin) margin")
+        try expect(ToastBanner.shadowMargin >= Elevation.raised.bleed, "the toast's hosting view should hold the raised shadow's \(Elevation.raised.bleed) bleed, got a \(ToastBanner.shadowMargin) margin")
+
         func darkness(_ view: NSView, size: CGSize, belowPanelAt probe: CGPoint) throws -> CGFloat {
             view.frame = NSRect(origin: .zero, size: size)
             let window = HeadlessWindow(size: size, scale: 1)

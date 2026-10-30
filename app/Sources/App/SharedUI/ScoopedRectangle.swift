@@ -45,7 +45,7 @@ extension View {
 }
 
 /// The AppKit side of the same chrome, for a dock pane: `content` holds the pane's subviews, filled and masked to the
-/// shape, while `view`, its parent, stays unmasked so its layer's panel shadow reaches past the shape. A
+/// shape, while `view`, its parent, stays unmasked so its layer's raised shadow reaches past the shape. A
 /// non-interactive border view on top of `view` draws the inner border. Create it after the
 /// content subviews so the border stays above them, and call `layout(bounds:)` from the view's `layout()`.
 @MainActor
@@ -68,7 +68,7 @@ final class ScoopedLayerChrome {
         content.layer?.backgroundColor = fill.cgColor
         content.layer?.mask = maskLayer
         view.wantsLayer = true
-        let elevation = Elevation.panel
+        let elevation = Elevation.raised
         view.layer?.shadowColor = AppPalette.shadow.cgColor
         view.layer?.shadowOpacity = Float(elevation.opacity)
         view.layer?.shadowRadius = elevation.sigma
