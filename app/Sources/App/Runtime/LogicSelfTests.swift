@@ -81,6 +81,7 @@ enum LogicSelfTests {
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
         ("testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents", testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
+        ("testArtifactExternalOpenUsesCurrentListAndViewerArtifact", testArtifactExternalOpenUsesCurrentListAndViewerArtifact),
         ("testGChordShortcutIgnoresCapsLock", testGChordShortcutIgnoresCapsLock),
         ("testKeymapPressReadsEventsAsTheKeymapDoes", testKeymapPressReadsEventsAsTheKeymapDoes),
         ("testKeymapPressIgnoresCapsLock", testKeymapPressIgnoresCapsLock),
@@ -2132,6 +2133,23 @@ enum LogicSelfTests {
             preferredArtifactSessionID: "qm-a"
         )
         try expect(model.artifactModel.selectedArtifactID == second.id, "render should retain the selected artifact")
+    }
+
+    private static func testArtifactExternalOpenUsesCurrentListAndViewerArtifact() throws {
+        let artifact = ArtifactReference(kind: "markdown", path: "/tmp/report.md", label: "Report", sessionID: "qm-a", addedAt: "", id: "art-report")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+            TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", artifacts: [artifact]),
+        ])])
+        let model = DockPaneModel()
+        var opened: [ArtifactReference] = []
+        model.onOpenArtifactExternal = { opened.append($0) }
+        var keys = ListKeyResolver()
+        _ = model.apply(DockState(dockContent: .artifactList, selectedArtifactID: artifact.id), snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        try expect(dockKey(try keyEvent("o", keyCode: 31), &keys, model, snapshot), "list o should be handled")
+        _ = model.apply(DockState(dockContent: .artifactViewer, selectedArtifactID: artifact.id), snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        try expect(dockKey(try keyEvent("o", keyCode: 31), &keys, model, snapshot, in: []), "viewer o should be handled")
+        try expect(opened == [artifact, artifact], "list and viewer should open the same artifact externally")
     }
 
     private static func testKeymapPressReadsEventsAsTheKeymapDoes() throws {
@@ -5004,7 +5022,7 @@ enum LogicSelfTests {
                 }
             }
         }
-        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":2,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
+        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":3,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
     }
 
     private static func testServeStreamReconnectsAfterProtocolMismatch() throws {
@@ -5025,7 +5043,7 @@ enum LogicSelfTests {
         let padding = String(repeating: "x", count: 100_000)
         let lines = [
             "{\"protocol_version\":1,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wrong\",\"sessions\":[]}}\n",
-            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[],\"padding\":\"\(padding)\"}}\n",
+            "{\"protocol_version\":3,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[],\"padding\":\"\(padding)\"}}\n",
         ]
         DispatchQueue.global().async {
             for line in lines {
@@ -5034,7 +5052,7 @@ enum LogicSelfTests {
                 let peer = Darwin.accept(listener, nil, nil)
                 guard peer >= 0 else { return }
                 try? UnixSocketIO.setReadTimeout(on: peer, seconds: 5)
-                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":2,\"accepting\":true}\n"
+                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":3,\"accepting\":true}\n"
                 try? UnixSocketIO.write(Data(hello.utf8), to: peer)
                 var requestBytes = [UInt8](repeating: 0, count: 4096)
                 var requestLines = 0

@@ -985,7 +985,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             var requests: [(artifact: ArtifactReference, request: ServeMutationRequest)] = []
             for artifact in artifacts {
                 do {
-                    requests.append((artifact, try ServeMutationRequests.artifactDelete(path: artifact.path, sessionID: artifact.sessionID)))
+                    requests.append((artifact, try ServeMutationRequests.artifactDelete(id: artifact.id)))
                 } catch {
                     self.errorPresenter.showTransientError(error.localizedDescription)
                     return

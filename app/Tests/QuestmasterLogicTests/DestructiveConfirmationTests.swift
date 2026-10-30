@@ -4,8 +4,8 @@ import QuestmasterCore
 struct DestructiveConfirmationTests {
     static func run() {
         deleteSessionCopyIsExplicit()
-        deleteArtifactKeepsTheFile()
-        deleteArtifactsKeepsTheFiles()
+        deleteArtifactRemovesFileAndLinks()
+        deleteArtifactsRemoveFilesAndLinks()
         deleteQuestsCopyIsExplicit()
         print("DestructiveConfirmationTests: all tests passed")
     }
@@ -19,7 +19,7 @@ struct DestructiveConfirmationTests {
         expect(spec.confirmLabel == "Banish", "confirm label mismatch")
     }
 
-    private static func deleteArtifactKeepsTheFile() {
+    private static func deleteArtifactRemovesFileAndLinks() {
         let spec = DestructiveConfirmation.deleteArtifact(ArtifactReference(
             kind: "html",
             path: "/tmp/plan.html",
@@ -30,16 +30,16 @@ struct DestructiveConfirmationTests {
         expect(spec.action == .deleteArtifact, "action mismatch")
         expect(spec.subjectID == "/tmp/plan.html", "artifact path mismatch")
         expect(spec.title == "Delete artifact Plan?", "title mismatch: \(spec.title)")
-        expect(spec.message == "This removes it from the artifact list. The file stays on disk.", "message mismatch: \(spec.message)")
-        expect(spec.confirmLabel == "Remove", "confirm label mismatch")
+        expect(spec.message == "This permanently deletes the file and removes it from every session. This can't be undone.", "message mismatch: \(spec.message)")
+        expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }
 
-    private static func deleteArtifactsKeepsTheFiles() {
+    private static func deleteArtifactsRemoveFilesAndLinks() {
         let spec = DestructiveConfirmation.deleteArtifacts(count: 2)
         expect(spec.action == .deleteArtifacts, "action mismatch")
         expect(spec.title == "Delete 2 artifacts?", "title mismatch: \(spec.title)")
-        expect(spec.message == "This removes them from the artifact list. The files stay on disk.", "message mismatch: \(spec.message)")
-        expect(spec.confirmLabel == "Remove", "confirm label mismatch")
+        expect(spec.message == "This permanently deletes the files and removes them from every session. This can't be undone.", "message mismatch: \(spec.message)")
+        expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }
 
     private static func deleteQuestsCopyIsExplicit() {

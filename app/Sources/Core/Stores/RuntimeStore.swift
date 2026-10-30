@@ -99,7 +99,7 @@ public final class RuntimeStore {
     /// Removes an artifact after its serve mutation acknowledges success; the next serve snapshot remains authoritative.
     public func removeArtifact(_ artifact: ArtifactReference) {
         var tracker = snapshot.tracker
-        let matches: (ArtifactReference) -> Bool = { $0.path == artifact.path && $0.sessionID == artifact.sessionID }
+        let matches: (ArtifactReference) -> Bool = { $0.id == artifact.id }
         tracker.artifacts.removeAll(where: matches)
         for repoIndex in tracker.repos.indices {
             for sessionIndex in tracker.repos[repoIndex].sessions.indices {

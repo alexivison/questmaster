@@ -35,8 +35,8 @@ public struct DestructiveConfirmation: Equatable {
             action: .deleteArtifact,
             subjectID: path,
             title: "Delete artifact \(subject)?",
-            message: "This removes it from the artifact list. The file stays on disk.",
-            confirmLabel: "Remove",
+            message: "This permanently deletes the file and removes it from every session. This can't be undone.",
+            confirmLabel: "Delete",
             cancelLabel: "Cancel"
         )
     }
@@ -47,8 +47,8 @@ public struct DestructiveConfirmation: Equatable {
             action: .deleteArtifacts,
             subjectID: String(count),
             title: "Delete \(count) artifacts?",
-            message: "This removes them from the artifact list. The files stay on disk.",
-            confirmLabel: "Remove",
+            message: "This permanently deletes the files and removes them from every session. This can't be undone.",
+            confirmLabel: "Delete",
             cancelLabel: "Cancel"
         )
     }

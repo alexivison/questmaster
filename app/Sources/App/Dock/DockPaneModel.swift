@@ -27,6 +27,7 @@ final class DockPaneModel: ObservableObject {
 
     var onShowArtifactListIntent: (() -> Void)?
     var onOpenArtifactIntent: ((String) -> Void)?
+    var onOpenArtifactExternal: ((ArtifactReference) -> Void)?
     var onSetArtifactScope: ((ArtifactScope) -> Void)?
     var onSelectedArtifactChange: ((String?) -> Void)?
     var onDeleteArtifacts: (([ArtifactReference]) -> Void)?
@@ -123,6 +124,9 @@ final class DockPaneModel: ObservableObject {
             return onControlDirection?(direction) == true
         }
         guard currentArtifactRoute == .list else {
+            if Keymap.matches(press, .openExternal) {
+                return openSelectedArtifactExternal()
+            }
             if Keymap.matches(press, .back) {
                 onShowArtifactListIntent?()
                 return true
@@ -167,6 +171,8 @@ final class DockPaneModel: ObservableObject {
             return moveArtifactScope(delta: 1)
         case .open:
             return openSelectedArtifact()
+        case .openExternal:
+            return openSelectedArtifactExternal()
         case .copy:
             return copySelectedArtifactPaths()
         case .toggleMark:
@@ -457,6 +463,25 @@ final class DockPaneModel: ObservableObject {
             return false
         }
         onOpenArtifactIntent?(selectedArtifactID)
+        return true
+    }
+
+    private func openSelectedArtifactExternal() -> Bool {
+        let artifact: ArtifactReference?
+        if currentArtifactRoute == .viewer {
+            switch artifactModel.displayState {
+            case .viewing(let current), .missing(let current), .unsupported(let current):
+                artifact = current
+            case .noCurrentSession, .empty:
+                artifact = nil
+            }
+        } else {
+            artifact = selectedArtifactID.flatMap { id in artifactModel.artifacts.first { $0.id == id } }
+        }
+        guard let artifact else {
+            return false
+        }
+        onOpenArtifactExternal?(artifact)
         return true
     }
 

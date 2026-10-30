@@ -172,15 +172,11 @@ struct MutationRequestTests {
 
     private static func artifactDeleteEncodesArtifactData() {
         do {
-            let sessionArtifact = try ServeMutationRequests.artifactDelete(path: " /tmp/plan.html ", sessionID: " qm-a ")
+            let sessionArtifact = try ServeMutationRequests.artifactDelete(id: " art-plan ")
             let sessionData = sessionArtifact.jsonObject(id: "artifact-delete")["data"] as? NSDictionary
             expect(sessionArtifact.method == "artifact.delete", "artifact delete method mismatch")
-            expect(sessionData?["path"] as? String == "/tmp/plan.html", "artifact path should be trimmed")
-            expect(sessionData?["session_id"] as? String == "qm-a", "artifact session id should be trimmed")
-
-            let globalArtifact = try ServeMutationRequests.artifactDelete(path: "/tmp/global.html", sessionID: " ")
-            let globalData = globalArtifact.jsonObject(id: "artifact-delete-global")["data"] as? NSDictionary
-            expect(globalData?["session_id"] == nil, "global artifact delete should omit session id")
+            expect(sessionData?["id"] as? String == "art-plan", "artifact ID should be trimmed")
+            expect(sessionData?["session_id"] == nil, "artifact delete should be global")
         } catch {
             fail("artifact delete request threw \(error)")
         }
