@@ -816,15 +816,33 @@ func DeleteArtifactAt(root, idOrPath string) (bool, error) {
 			}
 			return err
 		}
-		removed = true
-		syncErr := syncArtifactSidecarsLocked(root, next, target.SessionIDs...)
+		var syncedIDs []string
+		// Sidecars are compatibility copies. Restore those already changed if a
+		// later write fails, so a reported failure keeps the file registered.
+		rollback := func(cause error) error {
+			if stagedPath != "" {
+				if restoreErr := os.Rename(stagedPath, target.Path); restoreErr != nil {
+					return errors.Join(cause, fmt.Errorf("restore artifact file from %s: %w", stagedPath, restoreErr))
+				}
+			}
+			registryErr := writeArtifactsRegistryLocked(root, artifacts)
+			sidecarErr := syncArtifactSidecarsLocked(root, artifacts, syncedIDs...)
+			return errors.Join(cause, registryErr, sidecarErr)
+		}
+		for _, sessionID := range target.SessionIDs {
+			if err := syncArtifactSidecarsLocked(root, next, sessionID); err != nil {
+				return rollback(err)
+			}
+			syncedIDs = append(syncedIDs, sessionID)
+		}
 		if stagedPath != "" {
 			if err := os.Remove(stagedPath); err != nil {
-				return errors.Join(syncErr, fmt.Errorf("remove staged artifact file %s: %w", stagedPath, err))
+				return rollback(fmt.Errorf("remove staged artifact file %s: %w", stagedPath, err))
 			}
 		}
+		removed = true
 		cleanupManagedArtifactDirectory(root, target)
-		return syncErr
+		return nil
 	})
 	return removed, err
 }

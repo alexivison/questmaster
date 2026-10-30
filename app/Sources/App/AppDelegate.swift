@@ -991,7 +991,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let confirmation = artifacts.count == 1
             ? DestructiveConfirmation.deleteArtifact(artifacts[0])
-            : .deleteArtifacts(count: artifacts.count)
+            : .deleteArtifacts(artifacts)
         destructiveConfirmationPresenter.present(confirmation) { [weak self] confirmed in
             guard confirmed, let self else {
                 return

@@ -174,6 +174,42 @@ func TestDeleteArtifactRegistryWriteFailureKeepsFile(t *testing.T) {
 	}
 }
 
+func TestDeleteArtifactSidecarWriteFailureRestoresFileAndLinks(t *testing.T) {
+	root := setStateRoot(t)
+	path := filepath.Join(t.TempDir(), "shared.md")
+	if err := os.WriteFile(path, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"qm-a", "qm-b"} {
+		if err := os.MkdirAll(SessionStateDir(root, id), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := UpsertArtifactAt(root, id, Artifact{Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(SessionArtifactsPath(root, "qm-b")+".tmp", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := DeleteArtifactAt(root, path)
+	if err == nil || removed {
+		t.Fatalf("delete = %v, %v; want failure without deletion", removed, err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "keep" {
+		t.Fatalf("file = %q, %v", data, err)
+	}
+	artifacts, err := LoadArtifactsGlobal(root)
+	if err != nil || len(artifacts) != 1 || !reflect.DeepEqual(artifacts[0].SessionIDs, []string{"qm-a", "qm-b"}) {
+		t.Fatalf("registry = %#v, %v", artifacts, err)
+	}
+	for _, id := range []string{"qm-a", "qm-b"} {
+		sidecar, exists, err := loadArtifactsSidecarAt(root, id)
+		if err != nil || !exists || len(sidecar) != 1 || sidecar[0].Path != path {
+			t.Fatalf("sidecar %s = %#v, %v, %v", id, sidecar, exists, err)
+		}
+	}
+}
+
 func TestArtifactGlobalUpsertKeepsSessionLinks(t *testing.T) {
 	root := setStateRoot(t)
 	path := filepath.Join(t.TempDir(), "report.html")

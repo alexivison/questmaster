@@ -36,10 +36,16 @@ struct DestructiveConfirmationTests {
     }
 
     private static func deleteArtifactsRemoveFilesAndLinks() {
-        let spec = DestructiveConfirmation.deleteArtifacts(count: 2)
+        let paths = ["/tmp/plan.html", "/tmp/diagram.png"]
+        let spec = DestructiveConfirmation.deleteArtifacts(paths.map {
+            ArtifactReference(kind: "html", path: $0, label: "", addedAt: "")
+        })
         expect(spec.action == .deleteArtifacts, "action mismatch")
         expect(spec.title == "Delete 2 artifacts?", "title mismatch: \(spec.title)")
-        expect(spec.message == "This permanently deletes the files and removes them from every session. This can't be undone.", "message mismatch: \(spec.message)")
+        for path in paths {
+            expect(spec.message.contains(path), "confirmation should show selected path \(path)")
+        }
+        expect(spec.message.contains("every session"), "confirmation should explain shared deletion")
         expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }
 

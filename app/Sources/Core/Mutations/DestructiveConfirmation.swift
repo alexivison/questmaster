@@ -41,13 +41,14 @@ public struct DestructiveConfirmation: Equatable {
         )
     }
 
-    public static func deleteArtifacts(count: Int) -> DestructiveConfirmation {
-        let count = max(1, count)
+    public static func deleteArtifacts(_ artifacts: [ArtifactReference]) -> DestructiveConfirmation {
+        let count = max(1, artifacts.count)
+        let paths = artifacts.map { "• \(cleaned($0.path))" }.joined(separator: "\n")
         return DestructiveConfirmation(
             action: .deleteArtifacts,
             subjectID: String(count),
             title: "Delete \(count) artifacts?",
-            message: "This permanently deletes the files and removes them from every session. This can't be undone.",
+            message: "Files to delete:\n\(paths)\n\nThis permanently deletes the files and removes them from every session. This can't be undone.",
             confirmLabel: "Delete",
             cancelLabel: "Cancel"
         )
