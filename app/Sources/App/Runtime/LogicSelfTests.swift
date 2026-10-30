@@ -1040,9 +1040,7 @@ enum LogicSelfTests {
                    "the ground circle should draw under the figure, on the root")
         try expect(summoning.figure.sublayers?.first === summoning.character, "the bard should be the figure's first layer")
         summoning.startMotion()
-        try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) != nil, "the figure should carry the summoning's hop")
-        try expect(summoning.behind.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the ground circle should stay put")
-        try expect(summoning.character.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the bard should ride the figure, not move alone")
+        try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the summoning should not move: its feet stay on the baseline")
         for layer in [summoning.character, summoning.behind] {
             try expect(layer.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "every layer should play the one-shot's frames")
         }
@@ -1053,8 +1051,7 @@ enum LogicSelfTests {
         calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
         try expect(calling.figure.sublayers?.last === calling.front, "the bubble should draw in front of the bard, inside the figure")
         calling.startMotion()
-        try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) != nil && calling.front.animation(forKey: TrackerAvatarMotionKey.move) == nil,
-                   "the bubble should bob with the bard")
+        try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "calling out should not bob: its feet stay on the baseline")
         let character = calling.character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
         let front = calling.front.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
         try expect(character?.duration == 0.25 && character?.values?.count == 2, "a 1-frame character should cycle on its own 0.25 s clock")

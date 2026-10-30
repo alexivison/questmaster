@@ -474,7 +474,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
                 sprites.frame(pose, kind, track.frame(at: elapsed, looping: false))
             }
         }
-        addMove(TrackerAvatarMotion.finishSteps(in: finish), duration: finish.seconds, repeatCount: 1)
+        addMove(TrackerAvatarMotion.finishSteps(in: finish), duration: finish.seconds)
     }
 
     /// A frame pose has no eyelids.
@@ -490,7 +490,6 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
             }
             addFrames(of: kind, track: track, duration: track.seconds, looping: true)
         }
-        startMove(duration: block.character.seconds, repeatCount: .infinity)
     }
 
     private func startOneShot() {
@@ -506,7 +505,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
             layer(kind).contents = track.steps.last.flatMap { sprites.frame(pose, kind, $0.frame) }
             addFrames(of: kind, track: track, duration: block.seconds, looping: false)
         }
-        startMove(duration: block.seconds, repeatCount: 1)
+        addMove(TrackerAvatarMotion.steps(for: pose, in: block), duration: block.seconds)
     }
 
     /// Plays a track's frames as discrete keyframes over `duration`, each from its start. The last key holds the frame that closes the
@@ -526,28 +525,22 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         layer(kind).add(frames, forKey: TrackerAvatarMotionKey.frames)
     }
 
-    /// The pose's pixel move from Core: a loop's cycle, or a one-shot's whole showing.
-    private func startMove(duration: TimeInterval, repeatCount: Float) {
-        addMove(TrackerAvatarMotion.steps(for: pose, in: block, duration: duration), duration: duration, repeatCount: repeatCount)
-    }
-
-    /// Plays Core's steps on the figure as discrete keyframes on position: each step holds until the next, and the last one holds
+    /// Plays Core's steps on the figure's x position as discrete keyframes: each step holds until the next, and the last one holds
     /// to the end. The move is additive, so it carries the figure off its anchor and back, and the anchor itself is never changed.
     /// A move already playing stays as it is.
-    private func addMove(_ steps: [TrackerAvatarMoveStep], duration: TimeInterval, repeatCount: Float) {
+    private func addMove(_ steps: [TrackerAvatarMoveStep], duration: TimeInterval) {
         guard let last = steps.last, figure.animation(forKey: TrackerAvatarMotionKey.move) == nil else {
             return
         }
-        let pixel = TrackerAvatarDesign.pixelPoints
-        // Each step holds until the next, and the last one holds to the end: its repeat at the end is the terminal key.
-        let offsets = (steps + [last]).map { CGPoint(x: CGFloat($0.x) * pixel, y: CGFloat($0.y) * pixel) }
-        let move = CAKeyframeAnimation(keyPath: "position")
+        let pixel = Double(TrackerAvatarDesign.pixelPoints)
+        // Each step holds until the next, and the last one holds to the end: its key at the duration is the terminal key.
+        let offsets = (steps + [last]).map { NSNumber(value: Double($0.x) * pixel) }
+        let move = CAKeyframeAnimation(keyPath: "position.x")
         move.isAdditive = true
         move.calculationMode = .discrete
-        move.values = offsets.map { NSValue(point: $0) }
+        move.values = offsets
         move.keyTimes = (steps.map { $0.seconds / duration } + [1]).map { NSNumber(value: $0) }
         move.duration = duration
-        move.repeatCount = repeatCount
         figure.add(move, forKey: TrackerAvatarMotionKey.move)
     }
 }

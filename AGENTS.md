@@ -472,12 +472,12 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   A cast's finish also leans him back 2 px (screen left) on f4 and settles him to the anchor on f5 (`TrackerAvatarMotion.finishSteps`,
   Core), as discrete keyframes on the figure, so it returns exactly. An effect layer (`TrackerAvatarDesign.effectPlacements`) shares its
   pose's frames and timing: summoning's ground circle (`<pose>-effect-f<n>`) draws behind him and stays put, and calling out's bubble
-  draws in front of him and moves with him. Both sit on the pose's anchor, and an effect whose art is missing isn't drawn.
+  draws in front of him and stays with him. Both sit on the pose's anchor, and an effect whose art is missing isn't drawn.
   Each pose is placed by its body column (`TrackerAvatarDesign.bodyColumns`, the torso's centre at belt height, the median over
   its loop frames with effect colours left out; finish frames don't count) on the slot's centre column, so an effect on one side doesn't move him. Moves come
-  from `TrackerAvatarMotion` (Core): release steps 3 px forward on its strike, summoning hops 4 px up, catching recoils 2 px
-  back, calling out bobs 2 px up twice a loop, and the bow stays put. A move is discrete, additive keyframes on position, and
-  returns to the anchor exactly; Reduce Motion plays none. The rigs' layers take contents, position, bounds and hidden at once
+  from `TrackerAvatarMotion` (Core), and they are horizontal only, so every figure's feet stay on the baseline: release steps 3 px
+  forward on its strike, catching recoils 2 px back, and summoning, calling out and the bow stay put. A move is discrete, additive
+  keyframes on the figure's x position, and returns to the anchor exactly; Reduce Motion plays none. The rigs' layers take contents, position, bounds and hidden at once
   (`TrackerAvatarLayerActions`): left implicit, Core Animation cross-dissolves a contents change over 0.25 s, which is the
   slow fade. `testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation` checks the keys after a switch.
   Idle fidgets are `TrackerAvatarFidgets` (Core): while idle, every 8 to 15 s (`TrackerAvatarFidgetTiming.gapSeconds`) he plays one
