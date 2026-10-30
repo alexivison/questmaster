@@ -44,6 +44,7 @@ enum LogicSelfTests {
         ("testAFinishPlaysInPlace", testAFinishPlaysInPlace),
         ("testIdleBreathsInWholePixelSteps", testIdleBreathsInWholePixelSteps),
         ("testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame", testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame),
+        ("testTheStageLaunchesEachSpellFromItsPayloads", testTheStageLaunchesEachSpellFromItsPayloads),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -1139,6 +1140,45 @@ enum LogicSelfTests {
         try expect(sameImage(loop?.values?.first, loopFrame), "once the enter has run, the loop should start from its own first frame")
         avatar.configure(pose: .callingOut, beat: 0, finish: nil, enter: 0, reduceMotion: true)
         try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the enter should be skipped")
+    }
+
+    /// The stage reads each payload's spawn, message and report, and launches the spell each one flies, in order. Its clock is the
+    /// test's own, so the spawn's summoning has time to show before the orb leaves.
+    @MainActor
+    private static func testTheStageLaunchesEachSpellFromItsPayloads() throws {
+        final class Clock {
+            var now: TimeInterval = 0
+        }
+        let clock = Clock()
+        let stage = TrackerAvatarStage(clock: { clock.now })
+        func row(_ fields: [String: Any]) throws -> TrackerSession {
+            var payload: [String: Any] = ["status": "active", "state": "working", "agent": "claude", "elapsed_ms": 0, "worker_count": 0]
+            payload.merge(fields) { _, new in new }
+            return try JSONDecoder().decode(TrackerSession.self, from: JSONSerialization.data(withJSONObject: payload))
+        }
+        let master = try row(["id": "qm-m", "title": "Wizard", "session_type": "master", "class": "wizard"])
+        let worker = try row(["id": "qm-w", "title": "Ember", "session_type": "worker", "parent_id": "qm-m"])
+        let messaged = try row(["id": "qm-w", "title": "Ember", "session_type": "worker", "parent_id": "qm-m",
+                                "last_exchange": ["kind": "instructions", "at": "2026-10-30T13:26:05.000001Z"]])
+        let reported = try row(["id": "qm-w", "title": "Ember", "session_type": "worker", "parent_id": "qm-m",
+                                "last_exchange": ["kind": "report", "at": "2026-10-30T13:26:09.000001Z"]])
+        guard let summoning = TrackerAvatarSprites.bundled()["wizard"]?.animation.onceSeconds(for: .summoning) else {
+            throw TestFailure("the wizard's sprites should load from the app bundle")
+        }
+
+        stage.observe(sessions: [master], attachedID: "qm-m")
+        clock.now = 1
+        stage.observe(sessions: [master, worker], attachedID: "qm-m")
+        clock.now = 1 + summoning + 0.01
+        stage.observe(sessions: [master, worker], attachedID: "qm-m")
+        clock.now = 5
+        stage.observe(sessions: [master, messaged], attachedID: "qm-m")
+        clock.now = 9
+        stage.observe(sessions: [master, reported], attachedID: "qm-m")
+        clock.now = 10
+        stage.observe(sessions: [master, reported], attachedID: "qm-m")
+        let spells = stage.launches.map(\.flight.spell)
+        try expect(spells == [.orb, .messenger, .wisp], "each payload should launch its spell once, got \(spells)")
     }
 
     /// The character layer of the avatar's shown frame rig: the figure's first layer, under the rig's root.

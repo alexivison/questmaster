@@ -8,6 +8,7 @@ struct TrackerAvatarEventsTests {
         attachAndSwitchAreBaselines()
         otherMastersAndNonBardsFireNothing()
         exchangesFireOnlyWhenTheyChange()
+        eventsLaunchTheirSpells()
         print("TrackerAvatarEventsTests: all tests passed")
     }
 
@@ -71,6 +72,34 @@ struct TrackerAvatarEventsTests {
         expect(repeated.isEmpty, "the same exchange should fire once, got \(repeated)")
         let report = detector.observe(rows(workers: [worker("qm-w1", exchange: ("report", "2026-10-28T09:01:00Z"))]), attachedID: master)
         expect(report == [.reported(worker: "qm-w1")], "a new report should be a report, got \(report)")
+    }
+
+    /// Payloads through the detector and the director launch each spell: an orb for a spawn once summoning has shown, a messenger
+    /// for a message, and a wisp for a report.
+    private static func eventsLaunchTheirSpells() {
+        let catalog = AvatarAnimationFixture.catalog()
+        var detector = TrackerAvatarEventDetector(catalog: catalog)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        var spells: [TrackerSpellFlight.Spell] = []
+        func drain(at now: TimeInterval) {
+            spells += director.frame(at: now).launches.map(\.spell)
+        }
+        _ = detector.observe(rows(), attachedID: master)
+        director.observe(AvatarSessionFixture.session(id: master, sessionClass: "bard"), at: 0)
+
+        let spawned = detector.observe(rows(workers: [worker("qm-w1")]), attachedID: master)
+        for event in spawned { director.answer(event, at: 1) }
+        let summoning = AvatarAnimationFixture.bard().onceSeconds(for: .summoning)
+        drain(at: 1 + summoning + 0.01)
+
+        let messaged = detector.observe(rows(workers: [worker("qm-w1", exchange: ("instructions", "2026-10-28T09:00:05Z"))]), attachedID: master)
+        for event in messaged { director.answer(event, at: 5) }
+        drain(at: 5)
+
+        let reported = detector.observe(rows(workers: [worker("qm-w1", exchange: ("report", "2026-10-28T09:00:09Z"))]), attachedID: master)
+        for event in reported { director.answer(event, at: 9) }
+        drain(at: 9)
+        expect(spells == [.orb, .messenger, .wisp], "each exchange should launch its spell once, got \(spells)")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
