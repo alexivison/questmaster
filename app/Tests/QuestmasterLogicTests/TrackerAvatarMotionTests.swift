@@ -46,9 +46,10 @@ struct TrackerAvatarMotionTests {
         ], "a catch should recoil 2 px back on the catch, then return; got \(steps)")
     }
 
-    /// Calling out's loop is three frames of 0.18 s. Its two beats each bob up at their start and come down halfway through.
+    /// Calling out's loop is three frames of 0.25 s (`TrackerAvatarDesign.loopFrameSeconds`). Its two beats each bob up at their
+    /// start and come down halfway through.
     private static func callingOutBobsTwiceAFrameLoop() {
-        let loop: TimeInterval = 0.54
+        let loop: TimeInterval = 0.75
         let steps = TrackerAvatarMotion.steps(for: .callingOut, duration: loop)
         let beat = loop / 2
         expect(steps.map(\.seconds) == [0, beat / 2, beat, beat + beat / 2], "calling out should change at each beat and each half beat; got \(steps.map(\.seconds))")

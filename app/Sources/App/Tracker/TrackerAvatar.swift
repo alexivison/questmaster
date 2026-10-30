@@ -34,8 +34,8 @@ enum TrackerAvatarDesign {
     static let breathPeriod: TimeInterval = 2.4
     /// How high a spell's path arcs between its two ends.
     static let flightArcHeight: CGFloat = 20
-    /// How long each frame of a loop shows, by default: three frames make a 0.54 s loop.
-    static let loopFrameSeconds: TimeInterval = 0.18
+    /// How long each frame of a loop shows, by default: three frames make a 0.75 s loop.
+    static let loopFrameSeconds: TimeInterval = 0.25
     /// Pondering's head nods slowly, so its frames hold longer than the default.
     static let ponderingFrameSeconds: TimeInterval = 0.5
     /// Studying's frames hold a little longer than the default.
