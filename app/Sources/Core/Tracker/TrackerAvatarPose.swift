@@ -2,7 +2,7 @@ import Foundation
 
 /// The pose the tracker's class avatar strikes, from what its session is doing. Only a bard master has art, so any other
 /// session (another class, a worker, a shell, nothing attached) has no pose and no avatar.
-public enum TrackerAvatarPose: Equatable, Sendable {
+public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     case idle
     case pondering
     case studying
@@ -16,6 +16,15 @@ public enum TrackerAvatarPose: Equatable, Sendable {
     case release
     case catching
     case bow
+
+    /// How the pose's art plays: idle draws as layers, a one-shot plays once, and the rest cycle a loop.
+    public var playKind: TrackerAvatarPlayKind {
+        switch self {
+        case .idle: .layers
+        case .summoning, .release, .catching, .bow: .oneShot
+        default: .loop
+        }
+    }
 
     /// The poses that cast a spell. A cast that ends for another pose plays its finish first (`TrackerAvatarDirector`).
     public var isCast: Bool {
