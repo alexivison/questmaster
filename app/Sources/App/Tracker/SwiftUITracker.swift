@@ -244,10 +244,12 @@ struct TrackerRootView: View {
     @State private var snapshot: RuntimeSnapshot
     @State private var currentTerminalSessionID: String?
     @State private var runtimeObservation: RuntimeStoreObservation?
-    @State private var avatarStage = TrackerAvatarStage()
+    /// The class avatar's state, owned by the window so the flight overlay (drawn above the whole window) reads the same launches.
+    let avatarStage: TrackerAvatarStage
 
     init(
         store: RuntimeStore,
+        avatarStage: TrackerAvatarStage? = nil,
         navigation: NavigationStore = NavigationStore(state: AppNavigationState(focusedRegion: .tracker)),
         keyboardBridge: TrackerKeyboardBridge? = nil,
         newSessionPresenter: NewSessionSheetPresenter,
@@ -256,6 +258,7 @@ struct TrackerRootView: View {
         onEffect: @escaping (TrackerEffect) -> Bool = { _ in false }
     ) {
         self.store = store
+        self.avatarStage = avatarStage ?? TrackerAvatarStage()
         self.navigation = navigation
         self.keyboardBridge = keyboardBridge
         self.onEffect = onEffect
@@ -380,7 +383,6 @@ struct TrackerRootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(list: $0) }
         // The list takes the height left above the tag, `selectedTagGap` clear of it. The avatar slot keeps its height with no
         // avatar, so nothing below the list moves when one appears.
         return VStack(alignment: .leading, spacing: 0) {
@@ -395,30 +397,14 @@ struct TrackerRootView: View {
                 fidget: avatarStage.fidgetFrame,
                 beat: avatarStage.beat,
                 finish: avatarStage.finish,
-                enter: avatarStage.enter
+                enter: avatarStage.enter,
+                handle: avatarStage.avatar
             )
                 .padding(.leading, TrackerListMetrics.sidePadding)
                 .padding(.top, TrackerListMetrics.avatarGap)
                 .padding(.bottom, TrackerListMetrics.verticalPadding)
-                .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(avatar: $0) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlayPreferenceValue(TrackerFlightAnchorKey.self) { anchors in
-            GeometryReader { proxy in
-                TrackerSpellFlightLayer(
-                    plans: TrackerSpellRoute.plans(
-                        for: avatarStage.launches,
-                        anchors: anchors,
-                        proxy: proxy,
-                        masterID: avatarStage.attachedID,
-                        sprites: avatarStage.sprites
-                    ),
-                    latestSerial: avatarStage.latestSerial,
-                    sprites: avatarStage.sprites
-                )
-            }
-            .allowsHitTesting(false)
-        }
     }
 
     private func copySessionID(_ sessionID: String) {
@@ -772,7 +758,6 @@ private struct TrackerRepoSection: View {
                 onEditSession: onEditSession,
                 onToggleWorkersCollapsed: onToggleWorkersCollapsed
             )
-            .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(plates: [rendered.session.id: $0]) }
         }
     }
 }

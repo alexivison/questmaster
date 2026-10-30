@@ -32,6 +32,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     private let navigation = NavigationStore()
     private let dockCoordinator = DockCoordinator()
     private let workerChatStore = WorkerChatStore()
+    private let avatarStage = TrackerAvatarStage()
     private let pullRequestStore = PullRequestStore()
     private let questLogStore = QuestLogStore()
     private let questLogFilter = QuestLogFilter()
@@ -226,7 +227,10 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func createWindow() {
-        let handles = shellWindowController.createWindow { [unowned self] window in
+        let handles = shellWindowController.createWindow(
+            avatarStage: avatarStage,
+            workerLogFrame: { [weak self] in self?.workerLogWindowFrame() }
+        ) { [unowned self] window in
             self.makeTrackerEffectExecutor(window: window)
         }
         shellHandles = handles
@@ -426,6 +430,16 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Which dock panels show, from the app-wide dock state and whether a session is attached.
     private var dockPanels: DockPanels {
         dockCoordinator.state.panels(hasSession: runtimeStore.currentTerminalSessionID != nil)
+    }
+
+    /// The Worker Log panel's frame in window coordinates, while it shows in the dock: the spells fly to its left edge. Nil when the
+    /// bottom panel is hidden or shows artifacts, and when only Version Control shows.
+    private func workerLogWindowFrame() -> NSRect? {
+        guard dockCoordinator.state.bottomVisible, dockCoordinator.state.dockContent == .workerChat,
+              let bottom = shellHandles?.bottomDockShell else {
+            return nil
+        }
+        return bottom.convert(bottom.bounds, to: nil)
     }
 
     private func syncPullRequests() {

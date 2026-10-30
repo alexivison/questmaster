@@ -4,28 +4,15 @@ import QuestmasterCore
 
 /// The class avatar's state in the running app: Core's event detector, director and fidgets, fed from each tracker payload and the
 /// attached session, with one timer for the next change. The attached session's class decides the sprites the avatar draws from.
-/// The views read `pose`, `fidgetFrame`, `finish`, `enter`, `sprites` and `launches`; they decide none of them.
+/// The views read `pose`, `fidgetFrame`, `finish`, `enter`, `sprites`; they decide none of them. Each spell that starts goes to `onLaunch`,
+/// the flight overlay, which draws it.
 @MainActor
 @Observable
 final class TrackerAvatarStage {
-    /// How many launches stay readable, so a view that updates late still finds the ones it hasn't played.
-    private static let launchHistory = 16
-
-    /// A spell that started, numbered so the flight overlay plays each one once.
-    struct Launch: Equatable {
-        let serial: Int
-        let flight: TrackerSpellFlight
-    }
-
     /// The pose on screen, or nil when the attached session shows no avatar.
     private(set) var pose: TrackerAvatarPose?
     /// The idle fidget's art frame on screen, while he fidgets; nil while he breathes.
     private(set) var fidgetFrame: Int?
-    private(set) var launches: [Launch] = []
-    /// The attached session's id when it is in the tracker, so the flights aim at its master's plate.
-    private(set) var attachedID: String?
-    /// The number of the latest launch; zero before the first.
-    private(set) var latestSerial = 0
     /// The director's beat count (`TrackerAvatarFrame.beat`): it rises when a pose's cue starts.
     private(set) var beat = 0
     /// How far into the cast's finish the avatar is, while it finishes; nil otherwise.
@@ -42,6 +29,10 @@ final class TrackerAvatarStage {
     @ObservationIgnored private var detector: TrackerAvatarEventDetector
     @ObservationIgnored private let clock: () -> TimeInterval
     @ObservationIgnored private var wakeTimer: Timer?
+    /// Called once for each spell that starts, in order. The overlay that draws the flight sets it.
+    @ObservationIgnored var onLaunch: ((TrackerSpellFlight) -> Void)?
+    /// The avatar's view, for the overlay to measure where the spells leave from.
+    @ObservationIgnored let avatar = TrackerAvatarHandle()
 
     /// The clock is the wall clock: a session's working start (`elapsedSince`) is a wall-clock time.
     init(clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
@@ -60,7 +51,6 @@ final class TrackerAvatarStage {
     func observe(sessions: [TrackerSession], attachedID: String?) {
         let now = clock()
         let attached = attachedID.flatMap { id in sessions.first { $0.id == id } }
-        self.attachedID = attached?.id
         let events = detector.observe(sessions, attachedID: attached?.id)
         AvatarFlightLog.write("stage events=\(events) attached=\(attached?.id ?? "-") animation=\(catalog.animation(for: attached) != nil)")
         director.observe(attached, at: now)
@@ -94,10 +84,8 @@ final class TrackerAvatarStage {
         finish = frame.finishElapsed
         enter = frame.enterElapsed
         for flight in frame.launches {
-            latestSerial += 1
-            launches.append(Launch(serial: latestSerial, flight: flight))
+            onLaunch?(flight)
         }
-        launches = Array(launches.suffix(Self.launchHistory))
         scheduleWake(at: [frame.nextChange, fidget.nextChange].compactMap { $0 }.min())
     }
 

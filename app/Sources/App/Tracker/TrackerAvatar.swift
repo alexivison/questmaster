@@ -182,6 +182,7 @@ final class TrackerAvatarSprites {
 /// The class avatar in the tracker column, in its slot. `beat` is the director's beat count: it rises whenever a pose's cue
 /// starts, so a one-shot that repeats on the same pose plays again. `finish` is how far into the cast's finish the avatar is, while it
 /// finishes, and `enter` how far into the pose's enter, while it enters. `fidget` is the idle fidget's art frame, while he fidgets.
+/// `handle` lets the flight overlay measure the view, where the spells leave from.
 struct TrackerAvatarSlot: View {
     let pose: TrackerAvatarPose?
     var sprites: TrackerAvatarSprites?
@@ -189,9 +190,10 @@ struct TrackerAvatarSlot: View {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
+    var handle: TrackerAvatarHandle?
 
     var body: some View {
-        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter)
+        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter, handle: handle)
             .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
     }
 }
@@ -204,9 +206,12 @@ struct TrackerAvatar: NSViewRepresentable {
     var beat = 0
     var finish: TimeInterval?
     var enter: TimeInterval?
+    var handle: TrackerAvatarHandle?
 
     func makeNSView(context: Context) -> TrackerAvatarView {
-        TrackerAvatarView()
+        let view = TrackerAvatarView()
+        handle?.view = view
+        return view
     }
 
     func updateNSView(_ view: TrackerAvatarView, context: Context) {

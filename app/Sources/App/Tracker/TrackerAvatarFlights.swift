@@ -1,109 +1,35 @@
 import AppKit
 import QuestmasterCore
-import SwiftUI
 
-/// The frames the spells fly between, published by the tracker column's views: each plate, the list that scrolls the plates,
-/// and the avatar's slot.
-struct TrackerFlightAnchors {
-    var plates: [String: Anchor<CGRect>] = [:]
-    var list: Anchor<CGRect>?
-    var avatar: Anchor<CGRect>?
-}
-
-enum TrackerFlightAnchorKey: PreferenceKey {
-    static var defaultValue: TrackerFlightAnchors { TrackerFlightAnchors() }
-
-    static func reduce(value: inout TrackerFlightAnchors, nextValue: () -> TrackerFlightAnchors) {
-        let next = nextValue()
-        value.plates.merge(next.plates) { _, latest in latest }
-        value.list = next.list ?? value.list
-        value.avatar = next.avatar ?? value.avatar
-    }
-}
-
-/// One spell's flight in the tracker column's own coordinates (top-left origin): where it starts, where it lands.
-struct TrackerSpellPlan: Equatable {
-    let serial: Int
-    let spell: TrackerSpellFlight.Spell
-    let from: CGPoint
-    let to: CGPoint
-}
-
-/// Where each launch flies. The avatar's end is its hand. A worker's end is its plate, or its master's plate when the worker
-/// has none on screen (a collapsed worker). A plate scrolled out of view aims at the list's edge nearest to it.
+/// The avatar's view, for the flight overlay to measure. The view sets `view` when SwiftUI makes it. The reference is weak, so the
+/// view's life stays with the tracker.
 @MainActor
-enum TrackerSpellRoute {
-    static func plans(
-        for launches: [TrackerAvatarStage.Launch],
-        anchors: TrackerFlightAnchors,
-        proxy: GeometryProxy,
-        masterID: String?,
-        sprites: TrackerAvatarSprites?
-    ) -> [TrackerSpellPlan] {
-        let avatar = anchors.avatar.map { proxy[$0] }
-        let list = anchors.list.map { proxy[$0] }
-        func point(_ end: TrackerSpellFlight.End) -> CGPoint? {
-            switch end {
-            case .avatar:
-                return avatar.flatMap { sprites?.handPoint(in: $0) }
-            case .worker(let id):
-                guard let anchor = anchors.plates[id] ?? masterID.flatMap({ anchors.plates[$0] }) else {
-                    return nil
-                }
-                let plate = proxy[anchor]
-                return clamped(CGPoint(x: plate.midX, y: plate.midY), into: list)
-            }
-        }
-        let plans = launches.compactMap { launch -> TrackerSpellPlan? in
-            guard let from = point(launch.flight.from), let to = point(launch.flight.to) else {
-                return nil
-            }
-            return TrackerSpellPlan(serial: launch.serial, spell: launch.flight.spell, from: from, to: to)
-        }
-        AvatarFlightLog.write("plans launches=\(launches.map(\.serial)) resolved=\(plans.map(\.serial)) plates=\(anchors.plates.keys.sorted()) avatar=\(anchors.avatar != nil) list=\(anchors.list != nil) master=\(masterID ?? "-") sprites=\(sprites != nil)")
-        return plans
-    }
-
-    private static func clamped(_ point: CGPoint, into list: CGRect?) -> CGPoint {
-        guard let list else {
-            return point
-        }
-        return CGPoint(x: min(max(point.x, list.minX), list.maxX), y: min(max(point.y, list.minY), list.maxY))
-    }
+final class TrackerAvatarHandle {
+    weak var view: TrackerAvatarView?
 }
 
-/// The spells in flight over the tracker column. It sits above every plate and the list, and takes no clicks, so no list
-/// clips a flight. Each launch flies once; a launch made before the view appeared is skipped.
+/// The spells' flights, drawn over the whole window: above the tracker, the terminal and the dock. The overlay takes no clicks and
+/// never becomes the first responder, so the keys stay where they were. A flight leaves the avatar's hand and lands on the Worker
+/// Log's left edge, or leaves the window's right edge when no Worker Log shows; a returning wisp runs back the other way
+/// (`TrackerSpellPath`, Core). Each flight is one Core Animation position animation, and its impact frame lingers and fades where
+/// the flight lands on screen.
 @MainActor
-struct TrackerSpellFlightLayer: NSViewRepresentable {
-    let plans: [TrackerSpellPlan]
-    let latestSerial: Int
-    let sprites: TrackerAvatarSprites?
-
-    func makeNSView(context: Context) -> TrackerSpellFlightView {
-        TrackerSpellFlightView()
-    }
-
-    func updateNSView(_ view: TrackerSpellFlightView, context: Context) {
-        view.play(plans, latestSerial: latestSerial, sprites: sprites)
-    }
-}
-
-/// The flight overlay's view. A flight is a Core Animation position animation along an arc that eases out; the impact frame
-/// then lingers and fades. Both layers are removed when done.
-@MainActor
-final class TrackerSpellFlightView: NSView {
+final class TrackerFlightOverlay: NSView {
     private typealias Design = TrackerAvatarDesign
 
     /// How finely the arc is sampled: the path is a list of keyframes, spaced by the flight's easing.
     private static let flightSampleCount = 30
 
-    /// Nil until the first update, which marks every launch so far as played.
-    private var playedSerial: Int?
+    private let sprites: () -> TrackerAvatarSprites?
+    private let avatar: TrackerAvatarHandle
+    /// The Worker Log panel's frame in window coordinates, while it shows; nil otherwise.
+    private let workerLogFrame: () -> NSRect?
 
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        AvatarFlightLog.write("flight view made")
+    init(avatar: TrackerAvatarHandle, sprites: @escaping () -> TrackerAvatarSprites?, workerLogFrame: @escaping () -> NSRect?) {
+        self.avatar = avatar
+        self.sprites = sprites
+        self.workerLogFrame = workerLogFrame
+        super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = false
     }
@@ -115,43 +41,58 @@ final class TrackerSpellFlightView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// Flies each plan whose serial is past the last one played, then moves the mark past every launch seen so far. A launch
-    /// whose ends didn't resolve is not replayed later.
-    func play(_ plans: [TrackerSpellPlan], latestSerial: Int, sprites: TrackerAvatarSprites?) {
-        AvatarFlightLog.write("play plans=\(plans.map(\.serial)) played=\(playedSerial.map(String.init) ?? "nil") latest=\(latestSerial)")
-        guard let playedSerial else {
-            self.playedSerial = latestSerial
-            return
-        }
-        for plan in plans where plan.serial > playedSerial {
-            fly(plan, sprites: sprites)
-        }
-        self.playedSerial = latestSerial
-    }
+    override var acceptsFirstResponder: Bool { false }
 
-    private func fly(_ plan: TrackerSpellPlan, sprites: TrackerAvatarSprites?) {
-        AvatarFlightLog.write("fly serial=\(plan.serial) spell=\(plan.spell) reduce=\(Motion.reducesMotion()) art=\(sprites?.flight(for: plan.spell) != nil)/\(sprites?.impact(for: plan.spell) != nil) from=\(plan.from) to=\(plan.to)")
-        guard !Motion.reducesMotion(),
-              let flight = sprites?.flight(for: plan.spell),
-              let impact = sprites?.impact(for: plan.spell) else {
+    /// Flies one spell along its route, starting now. Nothing flies under Reduce Motion, nor while the avatar has no sprites or no
+    /// view on screen.
+    func fly(_ flight: TrackerSpellFlight) {
+        guard !Motion.reducesMotion() else {
             return
         }
-        let end = layerPoint(plan.to)
-        let spell = spriteLayer(flight)
+        guard let route = route(for: flight), let sprites = sprites(),
+              let art = sprites.flight(for: flight.spell), let impact = sprites.impact(for: flight.spell) else {
+            AvatarFlightLog.write("no route spell=\(flight.spell) avatarView=\(avatar.view != nil) onScreen=\(avatar.view?.window != nil) sprites=\(sprites() != nil) workerLog=\(workerLogFrame().map { "\($0)" } ?? "none")")
+            return
+        }
+        AvatarFlightLog.write("route spell=\(flight.spell) from=\(route.from) to=\(route.to) impact=\(route.impactsAtEnd) window=\(bounds.size) workerLog=\(workerLogFrame().map { "\($0)" } ?? "none")")
+        let start = layerPoint(route.from)
+        let end = layerPoint(route.to)
+        let spell = spriteLayer(art)
         spell.position = end
         layer?.addSublayer(spell)
         let move = CAKeyframeAnimation(keyPath: "position")
-        move.values = flightPoints(from: layerPoint(plan.from), to: end).map { NSValue(point: NSPoint(x: $0.x, y: $0.y)) }
+        move.values = flightPoints(from: start, to: end).map { NSValue(point: NSPoint(x: $0.x, y: $0.y)) }
         move.keyTimes = (0...Self.flightSampleCount).map { NSNumber(value: Double($0) / Double(Self.flightSampleCount)) }
         move.calculationMode = .linear
         move.duration = Motion.duration(.flight)
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             spell.removeFromSuperlayer()
-            self?.showImpact(impact, at: end)
+            if route.impactsAtEnd {
+                self?.showImpact(impact, at: end)
+            }
         }
         spell.add(move, forKey: MotionKey.flight)
         CATransaction.commit()
+    }
+
+    /// The flight's route in the window's top-left coordinates, which Core works in. Nil while the avatar isn't on screen to measure.
+    private func route(for flight: TrackerSpellFlight) -> TrackerSpellPath.Route? {
+        guard let sprites = sprites(), let avatarView = avatar.view, avatarView.window != nil else {
+            return nil
+        }
+        guard let hand = sprites.handPoint(in: topLeft(convert(avatarView.bounds, from: avatarView))) else {
+            return nil
+        }
+        let workerLog = workerLogFrame().map { frame in
+            shellRect(topLeft(convert(frame, from: nil)))
+        }
+        return TrackerSpellPath.route(
+            for: flight,
+            hand: TrackerSpellPoint(x: Double(hand.x), y: Double(hand.y)),
+            workerLog: workerLog,
+            window: shellRect(CGRect(origin: .zero, size: bounds.size))
+        )
     }
 
     /// The impact frame holds for a flight's time, then fades over a fast step, and is removed.
@@ -199,9 +140,19 @@ final class TrackerSpellFlightView: NSView {
         return layer
     }
 
-    /// Top-left coordinates (the tracker column's) into this view's layer space, whose origin is bottom-left.
-    private func layerPoint(_ point: CGPoint) -> CGPoint {
-        CGPoint(x: point.x, y: bounds.height - point.y)
+    /// A rect in this view's bottom-left coordinates as the window's top-left one, which Core and the sprites' hand point use.
+    private func topLeft(_ rect: NSRect) -> CGRect {
+        CGRect(x: rect.minX, y: bounds.height - rect.maxY, width: rect.width, height: rect.height)
+    }
+
+    /// Core's rect as a `ShellSplitRect`, whose fields are doubles.
+    private func shellRect(_ rect: CGRect) -> ShellSplitRect {
+        ShellSplitRect(x: Double(rect.minX), y: Double(rect.minY), width: Double(rect.width), height: Double(rect.height))
+    }
+
+    /// A top-left point (Core's) as this view's layer point, whose origin is bottom-left.
+    private func layerPoint(_ point: TrackerSpellPoint) -> CGPoint {
+        CGPoint(x: CGFloat(point.x), y: bounds.height - CGFloat(point.y))
     }
 
     private enum MotionKey {

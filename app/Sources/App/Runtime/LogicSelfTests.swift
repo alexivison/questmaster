@@ -45,6 +45,7 @@ enum LogicSelfTests {
         ("testIdleBreathsInWholePixelSteps", testIdleBreathsInWholePixelSteps),
         ("testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame", testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame),
         ("testTheStageLaunchesEachSpellFromItsPayloads", testTheStageLaunchesEachSpellFromItsPayloads),
+        ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -1142,6 +1143,59 @@ enum LogicSelfTests {
         try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the enter should be skipped")
     }
 
+    /// The flight overlay sits above the terminal and the dock, takes no clicks or keys, and flies a spell from the avatar's hand to the
+    /// Worker Log's left edge, level with the hand. Under Reduce Motion nothing flies.
+    @MainActor
+    private static func testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge() throws {
+        let sprites = try bardSprites()
+        let size = CGSize(width: 800, height: 500)
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        let terminal = NSView(frame: root.bounds)
+        terminal.autoresizingMask = [.width, .height]
+        root.addSubview(terminal)
+        let avatarView = TrackerAvatarView(frame: NSRect(x: 40, y: 40, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        root.addSubview(avatarView)
+        let handle = TrackerAvatarHandle()
+        handle.view = avatarView
+        let panel = NSRect(x: 560, y: 0, width: 240, height: size.height)
+        let overlay = TrackerFlightOverlay(avatar: handle, sprites: { sprites }, workerLogFrame: { panel })
+        overlay.frame = root.bounds
+        overlay.autoresizingMask = [.width, .height]
+        root.addSubview(overlay)
+        let window = HeadlessWindow(size: size)
+        window.contentView = root
+        window.show()
+        Motion.reducesMotion = { false }
+
+        try expect(root.subviews.last === overlay, "the flight overlay should sit above the terminal, the dock and the tracker")
+        try expect(!overlay.acceptsFirstResponder, "the flight overlay should never take the keys")
+        try expect(overlay.hitTest(NSPoint(x: 700, y: 300)) == nil, "the flight overlay should take no clicks")
+        try expect(root.hitTest(NSPoint(x: 700, y: 300)) === terminal, "a click over the terminal should still reach the terminal")
+
+        overlay.fly(TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-2")))
+        let flights = (overlay.layer?.sublayers ?? []).compactMap { $0.animation(forKey: "spell-flight") as? CAKeyframeAnimation }
+        guard let flight = flights.first, let start = flight.values?.first as? NSValue, let end = flight.values?.last as? NSValue else {
+            throw TestFailure("a spell should fly from the avatar's hand to the Worker Log's edge")
+        }
+        // The hand in the layer's own bottom-left coordinates, from the sprites' hand point in the slot's top-left ones.
+        let slot = CGRect(x: 40, y: size.height - 40 - TrackerAvatarMetrics.slotHeight, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        guard let hand = sprites.handPoint(in: slot) else {
+            throw TestFailure("the bard should have a hand point")
+        }
+        let handLayer = CGPoint(x: hand.x, y: size.height - hand.y)
+        try expect(abs(start.pointValue.x - handLayer.x) < 0.5 && abs(start.pointValue.y - handLayer.y) < 0.5,
+                   "a flight should start at the avatar's hand, got \(start.pointValue)")
+        let landing = end.pointValue
+        try expect(abs(landing.x - panel.minX) < 0.5 && abs(landing.y - handLayer.y) < 0.5,
+                   "a flight should land on the Worker Log's left edge at the hand's height, got \(landing)")
+
+        let spellCount = overlay.layer?.sublayers?.count ?? 0
+        Motion.reducesMotion = { true }
+        overlay.fly(TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-2")))
+        try expect((overlay.layer?.sublayers?.count ?? 0) == spellCount, "under Reduce Motion nothing should fly")
+        Motion.reducesMotion = { false }
+    }
+
     /// The stage reads each payload's spawn, message and report, and launches the spell each one flies, in order. Its clock is the
     /// test's own, so the spawn's summoning has time to show before the orb leaves.
     @MainActor
@@ -1167,6 +1221,8 @@ enum LogicSelfTests {
         }
         let summoning = (wizardSummoning.enter?.seconds ?? 0) + (wizardSummoning.loop?.seconds ?? 0) + (wizardSummoning.finish?.seconds ?? 0)
 
+        var launched: [TrackerSpellFlight] = []
+        stage.onLaunch = { launched.append($0) }
         stage.observe(sessions: [master], attachedID: "qm-m")
         clock.now = 1
         stage.observe(sessions: [master, worker], attachedID: "qm-m")
@@ -1178,7 +1234,7 @@ enum LogicSelfTests {
         stage.observe(sessions: [master, reported], attachedID: "qm-m")
         clock.now = 10
         stage.observe(sessions: [master, reported], attachedID: "qm-m")
-        let spells = stage.launches.map(\.flight.spell)
+        let spells = launched.map(\.spell)
         try expect(spells == [.orb, .messenger, .wisp], "each payload should launch its spell once, got \(spells)")
     }
 

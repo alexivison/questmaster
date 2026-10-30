@@ -2235,41 +2235,27 @@ enum RenderPreview {
         }
     }
 
-    /// The tracker column's avatar and spells: a master plate and two worker plates above the avatar's slot, with the same
-    /// spell overlay the tracker uses, all read from the stage.
+    /// The tracker column's avatar under two placeholder plates and a master's, read from the stage. The spells fly in the window
+    /// (`TrackerFlightOverlay`), so this column draws none.
     private struct TrackerAvatarColumnPreview: View {
         let stage: TrackerAvatarStage
 
         var body: some View {
             VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
-                placeholderPlate(id: "qm-m1", height: TrackerNameplateRole.master.canvasSize.height)
-                placeholderPlate(id: "qm-w1", height: TrackerNameplateRole.worker.canvasSize.height)
-                placeholderPlate(id: "qm-w2", height: TrackerNameplateRole.worker.canvasSize.height)
+                placeholderPlate(height: TrackerNameplateRole.master.canvasSize.height)
+                placeholderPlate(height: TrackerNameplateRole.worker.canvasSize.height)
+                placeholderPlate(height: TrackerNameplateRole.worker.canvasSize.height)
                 TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish, enter: stage.enter)
-                    .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(avatar: $0) }
             }
             .frame(width: TrackerAvatarMetrics.slotWidth, alignment: .topLeading)
             .frame(maxHeight: .infinity, alignment: .top)
             .background(AppPalette.window.swiftUI)
-            .overlayPreferenceValue(TrackerFlightAnchorKey.self) { anchors in
-                GeometryReader { proxy in
-                    TrackerSpellFlightLayer(
-                        plans: TrackerSpellRoute.plans(
-                            for: stage.launches, anchors: anchors, proxy: proxy, masterID: stage.attachedID, sprites: stage.sprites
-                        ),
-                        latestSerial: stage.latestSerial,
-                        sprites: stage.sprites
-                    )
-                }
-                .allowsHitTesting(false)
-            }
         }
 
-        private func placeholderPlate(id: String, height: CGFloat) -> some View {
+        private func placeholderPlate(height: CGFloat) -> some View {
             Rectangle()
                 .fill(AppPalette.line.swiftUI)
                 .frame(width: TrackerAvatarMetrics.slotWidth, height: height)
-                .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(plates: [id: $0]) }
         }
     }
 
@@ -2354,9 +2340,6 @@ enum RenderPreview {
             (0.9, feed([master, avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", firstMessaged)),
                         avatarPreviewSession(id: "qm-w2", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", secondMessaged))])),
         ], to: dir)
-        recordTrackerAvatarTimeline("avatar-summon-flight", seconds: 4.5, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, worker, newWorker]))], to: dir)
-        recordTrackerAvatarTimeline("avatar-message-flight", seconds: 3, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, instructed]))], to: dir)
-        recordTrackerAvatarTimeline("avatar-report-flight", seconds: 3, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, reported]))], to: dir)
     }
 
     /// Every avatar pose in turn on one view, each held for `allPosesHoldSeconds`: loops cycle, one-shots play once and rest on

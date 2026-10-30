@@ -53,8 +53,13 @@ final class ShellWindowController {
         self.destructiveConfirmationPresenter = destructiveConfirmationPresenter
     }
 
+    /// `workerLogFrame` gives the Worker Log panel's frame in window coordinates while it shows; the spells fly to its edge.
     @discardableResult
-    func createWindow(makeTrackerEffectExecutor: (NSWindow) -> TrackerEffectExecutor) -> Handles {
+    func createWindow(
+        avatarStage: TrackerAvatarStage,
+        workerLogFrame: @escaping () -> NSRect?,
+        makeTrackerEffectExecutor: (NSWindow) -> TrackerEffectExecutor
+    ) -> Handles {
         let frame = NSRect(x: 0, y: 0, width: 1520, height: 900)
         let window = NSWindow(
             contentRect: frame,
@@ -81,6 +86,7 @@ final class ShellWindowController {
         let headerAlignment = TrackerHeaderAlignmentModel()
         let trackerContent = TrackerKeyboardHostingView(rootView: TrackerRootView(
             store: runtimeStore,
+            avatarStage: avatarStage,
             navigation: navigation,
             keyboardBridge: keyboardBridge,
             newSessionPresenter: newSessionPresenter,
@@ -119,6 +125,14 @@ final class ShellWindowController {
         splitView.setHeader(actionBar)
 
         let root = ShellRootContainerView(splitView: splitView)
+        // The flights sit above the tracker, the terminal and the dock, and below the modals.
+        let flights = TrackerFlightOverlay(
+            avatar: avatarStage.avatar,
+            sprites: { [weak avatarStage] in avatarStage?.sprites },
+            workerLogFrame: workerLogFrame
+        )
+        avatarStage.onLaunch = { [weak flights] flight in flights?.fly(flight) }
+        root.addOverlay(flights)
         let modalHost = InWindowModalHost(stack: .shared)
         root.addOverlay(modalHost)
         window.contentView = root
