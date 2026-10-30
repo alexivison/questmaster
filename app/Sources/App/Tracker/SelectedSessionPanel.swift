@@ -133,8 +133,8 @@ struct SelectedSessionPanel: View {
             layer.translateBy(x: 0, y: -PanelDesign.frameDropShadowDrop)
             layer.fill(PanelDesign.frame, with: .color(shadow))
         }
-        context.fill(PanelDesign.frame, with: .color(AppPalette.line.swiftUI))
-        context.fill(PanelDesign.titleStrip, with: .color(AppPalette.item.swiftUI))
+        context.fill(PanelDesign.frame, with: .color(AppPalette.lineSoftSubtle.swiftUI))
+        context.fill(PanelDesign.titleStrip, with: .color(AppPalette.panel.swiftUI))
         context.fillInnerShadow(PanelDesign.titleStrip, PanelDesign.titleShadow)
         context.fill(PanelDesign.projectBar, with: .color(content.projectColor.swiftUI))
         context.fillInnerShadow(PanelDesign.projectBar, PanelDesign.barRimShadow(content.projectColor))
@@ -172,7 +172,7 @@ struct SelectedSessionPanel: View {
 
     private func color(for role: TrackerPlateShapes.Role) -> Color {
         switch role {
-        case .outline: AppPalette.line.swiftUI
+        case .outline: AppPalette.lineSoftSubtle.swiftUI
         case .panel: AppPalette.panel.swiftUI
         case .project: content.projectColor.swiftUI
         }

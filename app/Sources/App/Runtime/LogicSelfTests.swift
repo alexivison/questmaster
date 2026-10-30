@@ -978,15 +978,22 @@ enum LogicSelfTests {
             return (pixel(bitmap, 258.5, 24.5)?.alphaComponent ?? 0) > 0.9
         }, "the panel should draw its frame")
         try expect(bitmap.pixelsWide == 520 && bitmap.pixelsHigh == 150, "the panel should render 260 x 75 at 2x, got \(bitmap.pixelsWide) x \(bitmap.pixelsHigh)")
-        guard let arc = pixel(bitmap, 258.5, 24.5), let outside = pixel(bitmap, 259.5, 22) else {
+        guard let arc = pixel(bitmap, 258.5, 24.5), let outside = pixel(bitmap, 259.5, 22),
+              let frame = AppPalette.lineSoftSubtle.usingColorSpace(.sRGB) else {
             throw TestFailure("the corner pixels should be readable")
         }
+        func isFrameColour(_ color: NSColor) -> Bool {
+            color.alphaComponent > 0.9
+                && abs(color.redComponent - frame.redComponent) < 0.02
+                && abs(color.greenComponent - frame.greenComponent) < 0.02
+                && abs(color.blueComponent - frame.blueComponent) < 0.02
+        }
         try expect(outside.alphaComponent < 0.1, "outside the frame's corner should be clear, got alpha \(outside.alphaComponent)")
-        try expect(arc.alphaComponent > 0.9 && arc.redComponent > 0.22, "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
+        try expect(isFrameColour(arc), "the frame's arc at its top-right corner should be the frame's colour, got \(arc)")
         guard let bottomArc = pixel(bitmap, 258.5, 65) else {
             throw TestFailure("the bottom-right pixel should be readable")
         }
-        try expect(bottomArc.alphaComponent > 0.9 && bottomArc.redComponent > 0.22, "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
+        try expect(isFrameColour(bottomArc), "the frame's arc at its bottom-right corner should be the frame's colour, got \(bottomArc)")
     }
 
     private static func testSelectedSessionPanelNamesTheAttachedSessionsProject() throws {
