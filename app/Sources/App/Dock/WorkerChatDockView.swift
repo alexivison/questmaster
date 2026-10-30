@@ -39,11 +39,11 @@ enum WorkerChatMetrics {
     /// named by RPG rarity: common (white) for tool calls, rare and epic for item tags, epic again for a summoned familiar. Status tags keep
     /// their status colours.
     enum Color {
-        static let text = AppPalette.bright
+        static let text = AppPalette.text
         static let speech = AppPalette.chatSpeech
         static let muted = AppPalette.dim
         static let time = AppPalette.controlBorder
-        static let common = AppPalette.bright
+        static let common = AppPalette.text
         static let rare = AppPalette.rarityRare
         static let epic = AppPalette.rarityEpic
         static let working = AppPalette.chatWorking

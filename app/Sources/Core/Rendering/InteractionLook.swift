@@ -11,14 +11,15 @@ public enum StateColor: UInt32, CaseIterable, Sendable {
     case item = 0x2d333b
     /// A highlighted or selected outline, and a focused field's border.
     case controlBorder = 0x768390
-    /// Meta text at rest (dates, projects, placeholders, hints).
-    case textMeta = 0x9da7b1
-    /// Meta text on a highlighted row in a focused area.
-    case textMetaHighlighted = 0xadbac7
-    /// Body text at rest.
-    case textBody = 0xd8dee9
+    /// Meta text at rest (dates, projects, placeholders, hints). The terminal theme's white (ANSI 7).
+    case textMeta = 0x8d9aa8
+    /// Meta text on a highlighted row in a focused area. The one step between the terminal's white and foreground.
+    case textMetaHighlighted = 0x9da7b1
+    /// Body text at rest. The terminal theme's foreground.
+    case textBody = 0xadbac7
     /// Text on a highlighted or selected item. Bold on top of it means selected, in a lasting-selection list only.
-    case textSelected = 0xe6edf3
+    /// The terminal theme's bright white (ANSI 15).
+    case textSelected = 0xc4d0dc
     /// The one gold: titles, project headers and marks.
     case accent = 0xd7b13d
     /// "On", for toggles only (the action bar's inner glow).

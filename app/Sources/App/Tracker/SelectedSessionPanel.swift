@@ -87,7 +87,7 @@ struct SelectedSessionPanel: View {
             TrackerPlateLine(
                 text: content.title,
                 font: AppFonts.trackerPanelTitle,
-                color: AppPalette.bright,
+                color: AppPalette.text,
                 x: Self.textX,
                 width: Self.textRightEdge - Self.textX,
                 baseline: Self.titleBaseline
@@ -95,7 +95,7 @@ struct SelectedSessionPanel: View {
             TrackerPlateLine(
                 text: content.projectName,
                 font: AppFonts.monoSmall,
-                color: AppPalette.bright,
+                color: AppPalette.text,
                 x: Self.textX,
                 width: Self.textRightEdge - Self.textX,
                 baseline: Self.projectBaseline
