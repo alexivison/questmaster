@@ -70,7 +70,7 @@
 
 ### Task 4: Swift membership, deletion, and `o` intent
 
-**Files:** Modify `app/Sources/Core/Models/ArtifactModels.swift`, `app/Sources/Core/Artifacts/ArtifactDisplayState.swift`, `app/Sources/Core/Stores/RuntimeStore.swift`, `app/Sources/Core/Navigation/KeymapBindings.swift`, `app/Sources/Core/Navigation/ListKeys.swift`, `app/Sources/Core/Mutations/MutationRequests.swift`, `app/Sources/Core/Mutations/DestructiveConfirmation.swift`, `app/Sources/Core/Runtime/ServeContract.swift`, `app/Sources/App/Dock/DockPaneModel.swift`, `app/Sources/App/Dock/DockPane.swift`, and `app/Sources/App/Runtime/LogicSelfTests.swift`.
+**Files:** Modify `app/Sources/Core/Models/ArtifactModels.swift`, `app/Sources/Core/Artifacts/ArtifactDisplayState.swift`, `app/Sources/Core/Stores/RuntimeStore.swift`, `app/Sources/Core/Navigation/KeymapBindings.swift`, `app/Sources/Core/Navigation/ListKeys.swift`, `app/Sources/Core/Mutations/MutationRequests.swift`, `app/Sources/Core/Mutations/DestructiveConfirmation.swift`, `app/Sources/Core/Models/ServeContract.swift`, `app/Sources/App/Dock/DockPaneModel.swift`, `app/Sources/App/Dock/DockPane.swift`, and `app/Sources/App/Runtime/LogicSelfTests.swift`.
 
 **Interfaces:** `ArtifactReference.id` decodes the stable ID and `sessionIDs` decodes `session_ids` with legacy `session_id` fallback. Add `ListCommand.openExternal`, `ListCapabilities.externalOpen`, and `Keymap.Action.openExternal` bound to `o`. `DockPaneModel.onOpenArtifactExternal` passes the selected/current `ArtifactReference`; `ServeMutationRequests.artifactDelete` sends artifact ID/path without a session ID.
 
