@@ -17,7 +17,7 @@ struct TrackerPlateVariantTests {
         expect(TrackerPlateVariant(role: .worker) == .worker, "worker should use the worker plate")
     }
 
-    /// Whatever the shell section takes has no plate, so the two never disagree about a row.
+    /// Whatever the shell rows take has no plate, so the two never disagree about a row.
     private static func shellRowsDrawNoPlate() {
         for role in SessionRoleKind.allCases {
             let session = TrackerSession(id: "s", title: "s", repoName: "r", role: role.rawValue)

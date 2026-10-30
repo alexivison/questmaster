@@ -215,7 +215,7 @@ again where it was when the keys come back.
 | | toggle on (caffeinate) | icon unchanged; a 2pt `brassActive` inner glow at 15% and the tracker's working spinner (`SpinnerRingView`) turning round the 1pt border |
 | Tracker plate | cursor, while the tracker has the keys (`PlateBand.showsCursor`) / under the pointer / recolouring | `textSelected` / `controlBorder` / `accent` band; no band otherwise |
 | | attached: the session open in the terminal (`TrackerAttachedDot`) | a 5pt dot (`Space.row`) in the project colour (`TrackerNameplateColor.barLightness`, the project name's and side diamonds'), its centre `Space.item` left of the disc's left edge and level with the disc's centre; no shadow, no band, hit shape, layout or number change |
-| Shell row (the tracker's shell section) | rest (`RowLook.shellRest`) | no fill, title and glyph `textMeta`, glyph disc `item` rim (a filled row's disc takes the look's own rim) |
+| Shell row (the tracker's shell rows) | rest (`RowLook.shellRest`) | no fill, title and glyph `textMeta`, glyph disc `item` rim (a filled row's disc takes the look's own rim) |
 | | under the pointer | the hover look (1pt `line` outline), on a resting row only |
 | | keyboard cursor, while the tracker has the keys (`RowLook.shellCursor`) | 1pt `controlBorder` outline inside the row, no fill, text and glyph as at rest, regular weight |
 | | the viewed shell (`RowLook.selected`) | `item` fill, **bold** `textSelected` |
@@ -227,8 +227,8 @@ again where it was when the keys come back.
   12.5 left of its row), drawn outside the plate's silhouette layers, which clip at their margin.
 - Bold means selected and appears only in a lasting-selection list, a text tab row's selected tab or a selection chip's value. Artifacts
   have no selected state: picking one opens it.
-- Shells are not plates: every shell, tmux and orphan row leaves its repo group for the shell section pinned under all
-  the plates (`TrackerShellSection`, drawn by `TrackerShellRow`). A shell's own display colour tints its title in every
+- Shells are not plates: every shell, tmux and orphan row leaves its repo group for the shell rows (`TrackerShellSection`,
+  drawn by `TrackerShellRow`), the last block of the plates' one list. A shell's own display colour tints its title in every
   state; none leaves the state's text colour.
 - Dividers inside rows are `line` in every state.
 - Brass and glow mean "on", for toggles only. One gold, `accent` #D7B13D, for
@@ -357,7 +357,7 @@ is a multiple of 5, and spacing takes one of four steps (`Space` in
 | `Space.row` | 5 | rows of one list control; a field and its dropdown; collapsed circles; the cast row under its disc |
 | `Space.item` | 10 | sibling items (plates, tabs, buttons, chat entries, bar icons); icon → text; text inset inside a control; header band → content |
 | `Space.section` | 20 | the shell gap (`ShellMetrics.gap`); every panel's edge margin; blocks inside a panel |
-| `Space.group` | 40 | between groups of blocks: the selected-session panel → the list |
+| `Space.group` | 40 | between groups of blocks: the list → the selected-session tag |
 
 Control heights are one family (`ControlHeight`): `chip` 15, `compact` 25
 (pill tabs, Quest Log rows), `control` 30 (buttons, dropdown rows), `field` 35
@@ -367,18 +367,25 @@ own height as an `svg…` constant and scales to the control's.
 
 Portraits sit on 5s too: the master's disc spans 0-50 and the worker's 20-60 in
 their rows, and plate text starts `Space.row` past the disc's round edge (55,
-65; the side diamonds don't count). The selected-session panel's text starts
-`Space.item` past its disc (80). Logos are 0.6 of their disc (30, 24, 15),
+65; the side diamonds don't count). Logos are 0.6 of their disc (30, 24, 15),
 canvases and icon, logo and mark sizes are lengths like any other. A plate disc with a class portrait carries its
 agent's logo in a 25pt badge (logo 15), as big as a collapsed worker's circle, whose edge hangs `Space.row` outside the
 disc on the left and below it (`TrackerPlateDesign.badgeOverhang`); the sheets' title row is a 40pt portrait disc, `Space.item`, then the 35pt field.
 A shell row is 35 high (`ControlHeight.field`) and as wide as the 260 column, flush with the plates, stacked with no gap
 (the tracker mock's layout, not Shell Session.svg's inset and spaced rows), with a 25pt disc (`ControlHeight.compact`) 10
-in and the title 10 past it. The shell section is pinned to the bottom of the tracker column (`verticalPadding` from its
-edge), as tall as its rows up to `TrackerShellMetrics.maxHeight` (175, five rows) and scrolling inside itself past that;
-the plates scroll in their own list in the space above it, which shrinks to make room and ends
-`TrackerListMetrics.shellClearance` (`Space.group`) over the section. Each scroller sees only its own rows' cursor
-(`plateCursorID` / `shellCursorID`), and a cursor the pointer moved scrolls neither (`PointerCursor`).
+in and the title 10 past it. The shells follow the last plate with `TrackerListMetrics.shellGap` (`Space.section`), in the
+plates' one scrolling list: `TrackerShellRows.rows` is a `ForEach` that sits directly in the lazy list, so the list knows
+each shell's id and scrolls to a far one as it does a plate. The list's cursor is one id, and the list brings the cursor's
+row into view when it appears (`scrollOnAppear`); a cursor the pointer moved scrolls nothing (`PointerCursor`). Below the
+list the free space stands, then the selected-session tag (`TrackerListMetrics.selectedTagGap`, `Space.group`, above it),
+then the avatar slot (`avatarGap`, `Space.section`, above it) and its bottom margin (`verticalPadding`, `Space.section`).
+
+The selected-session tag (`SelectedSessionTag`, `SelectedSessionTagMetrics`) is `Main Chat Session Tag.svg` on the scale: an
+id tab `ControlHeight.chip` (15) high, `Space.row` in from each side of the frame, over a frame with a 1.5pt rim (the SVG's
+stroke, which also divides the title band from the project bar), a 20pt title band and a 10pt project bar. The tag is as
+wide as its title plus `Space.item` on each side of the band, up to the avatar slot, and it is centred over the avatar.
+Its frame casts `Elevation.raised`; its colours are `panel` (tab), `textMeta` (id), `line` (frame), `item` (band), `textBody`
+(title and project) and the project's own colour (bar).
 
 Not spacing, so free of the rule: text baselines and line heights, a glyph's
 optical nudge, radii and stroke widths, 0/1 spacers, and `svg…` lengths in an
@@ -422,7 +429,7 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 | Step | Seconds | Role |
 |---|---|---|
 | `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade |
-| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
+| `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
 | `MotionStep.flight` | 0.6 | a spell travelling across the tracker column, from the class avatar's hand to a plate or back (an arc that eases out, along a Core Animation position path); the spell's impact frame then holds for this long and fades over `fast` |
 
 - **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
@@ -460,7 +467,7 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   keyframes on the layer's contents, and a discrete keyframe holds each value only up to the next key, so each sequence
   ends on a repeated key or its last frame never shows. Each pose's feet (`TrackerAvatarDesign.footRows`, the row of its lowest
   boot pixel) stand on the shared baseline, so rows below the feet hang under it: summoning's rune circle hangs 21 to 25 pt
-  below the slot's baseline, so it runs up to 5 pt into the 20 pt gap above the shell section (in its hold frame, f3). `TrackerAvatarFrame.beat` rises whenever a pose's cue
+  below the slot's baseline, so it runs up to 5 pt into the 20 pt margin under the slot (in its hold frame, f3). `TrackerAvatarFrame.beat` rises whenever a pose's cue
   starts, so a repeated one-shot (two releases in a row) plays its lead-in again. A cast pose (studying, inscribing, channelling, scrying, spellsong) with `<pose>-f4` and `-f5` art plays them when the steady pose leaves it for another pose: f4, then f5, `finishFourSeconds` (0.25 s) and `finishFiveSeconds` (0.5 s), then the change snaps. The finish counts toward the hold, so it adds no second hold. Calling out cuts in with no finish, as does a switch to the same pose and any one-shot (release, summoning, catching). A bow waits for the finish: it is a steady change, so the cast finishes first. Core decides (`TrackerAvatarFrame.finish`); a pose without finish art skips it, and nothing finishes under Reduce Motion.
   A cast's finish also leans him back 2 px (screen left) on f4 and settles him to the anchor on f5 (`TrackerAvatarMotion.finishSteps`,
   Core), as discrete keyframes on the figure, so it returns exactly. An effect layer (`TrackerAvatarDesign.effectPlacements`) shares its
@@ -481,20 +488,6 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   A cast's finish holds f4 for 0.25 s (`TrackerAvatarTiming.finishFourSeconds`) and f5 for 0.5 s (`finishFiveSeconds`), then the
   next pose snaps in; the finish still counts toward the hold. Inscribing has no f5: it holds f4 for the whole 0.75 s
   (`TrackerAvatarTiming.finishSeconds`), from `TrackerAvatarFinish.holdsFourFrame`.
-- **Selected-session panel:** the disc's icon is the class portrait; a shell, tmux or orphan session shows the shell
-  row's terminal glyph (`ShellTerminalGlyph`, scaled with the disc, `textMeta`); no class, or nothing attached, leaves the
-  disc empty. The icon fades in once when the attached session or its portrait changes, over `standard`; the old icon goes
-  at once and the first draw doesn't fade. It is one Core Animation opacity animation (clear to full,
-  `Motion.timingFunction`) on the icon's own layer, run by the render server, so SwiftUI redraws nothing for it
-  (`IconFade`, a hosting view like `SkeletonPulse`'s; no `.id`/`.transition` re-creation per switch). The disc is drawn in
-  layers so only the icon fades: the base (with the strips, one Canvas), the icon's one `IconFade` layer, and the
-  overlay (a Canvas). The icon key is empty when the disc has none, and an empty key never fades, so a switch fades only
-  an icon coming in: one fade a switch that brings an icon in (from an empty disc too), none to an empty disc. A change
-  with no window or the same key adds no fade; a new key (an empty one too), leaving the window, or any update under
-  Reduce Motion drops one still running.
-
-`MotionRulesScanTests` (in the logic-test runner) scans `app/Sources/App` and fails on a break:
-
 - **raw-duration**: a number literal as an animation's `duration:` / `.duration =` / `.delay(` /
   `setAnimationDuration(` (0 is allowed), or a SwiftUI curve built outside the token layer (`.easeOut`, `.snappy`,
   `.spring`, `.default` … in `withAnimation`, `.animation` or an `Animation` value; they carry a default duration of
@@ -508,17 +501,6 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   continuous one passes them by naming its `period` and taking the breathing token.
 
 The scan reads lines, so a duration passed through a helper's parameter isn't seen.
-`testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges`
-hosts the panel in an off-screen window and asserts the fade is a Core Animation opacity animation on the icon's layer
-(from clear to full, `standard`, `Motion.timingFunction`, once), that its presentation layer starts clear and reaches full
-opacity, that exactly one fade runs when an icon comes in (class to class, class to shell, shell to class, empty disc to
-class), that no view is re-created, that the disc ends as drawn fresh, that a switch to an empty disc drops a fade still
-running, and that the first icon, an unrelated edit, a switch to or between empty discs, a view outside a window, one that
-left it and Reduce Motion show none. `cacheDisplay` draws the model layers, so it cannot see a Core Animation fade; the
-test reads the presentation layer's opacity, and
-`RENDER_ONLY=selected-session-fade-gif QUESTMASTER_ANIMATION_SLOWDOWN=6 … --render-preview <dir>` records it frame by
-frame from the presentation layers (`recordAnimation(…, capturesLayers: true)`; `QUESTMASTER_ANIMATION_SLOWDOWN` stretches
-every step in DEBUG builds so the recorder can sample it).
 
 ## Testing conventions
 

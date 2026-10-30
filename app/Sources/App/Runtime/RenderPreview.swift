@@ -156,11 +156,10 @@ enum RenderPreview {
         for fixture in ["master", "list", "shimmer"] {
             render(castFixtureView(fixture), size: CGSize(width: 340, height: 420), to: "\(outputDir)/cast-\(fixture).png")
         }
-        render(selectedSessionPanelView(), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel.png")
-        render(selectedSessionPanelView(withText: false), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-plain.png")
-        render(selectedSessionPanelView(portrait: .master(.cleric)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-class.png")
-        render(selectedSessionPanelView(portrait: .familiar(.wizard)), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-familiar.png")
-        render(selectedSessionPanelView(isShell: true), size: SelectedSessionPanel.canvasSize, to: "\(outputDir)/selected-session-panel-shell.png")
+        let tagSize = CGSize(width: TrackerAvatarMetrics.slotWidth, height: SelectedSessionTagMetrics.height)
+        render(selectedSessionTagView(), size: tagSize, to: "\(outputDir)/selected-session-tag.png")
+        render(selectedSessionTagView(title: "Terminal", id: "", projectName: ""), size: tagSize, to: "\(outputDir)/selected-session-tag-terminal.png")
+        render(selectedSessionTagView(title: "Wire up the worker chat and the session tag's long title", projectName: "questmaster"), size: tagSize, to: "\(outputDir)/selected-session-tag-long.png")
         render(portraitNumbersView(), size: CGSize(width: 140, height: 60), to: "\(outputDir)/portrait-numbers.png")
         render(plateBandsView(), size: CGSize(width: 320, height: 800), to: "\(outputDir)/plate-bands.png")
         render(trackerCursorView(), size: CGSize(width: 320, height: 260), to: "\(outputDir)/tracker-cursor.png")
@@ -190,7 +189,6 @@ enum RenderPreview {
         renderView(questLogWindowView(), size: CGSize(width: 1400, height: 900), to: "\(outputDir)/quest-log-window.png")
         recordQuestLogAnimations(to: outputDir)
         recordDockPanelAnimations(to: outputDir)
-        recordSelectedSessionFade(to: outputDir)
         recordRefreshSpinner(to: outputDir)
         recordTrackerAvatarMotion(to: outputDir)
         recordTrackerAvatarRound2(to: outputDir)
@@ -531,28 +529,6 @@ enum RenderPreview {
         canvas.layer?.backgroundColor = AppPalette.window.cgColor
         canvas.addSubview(column)
         return (canvas, column)
-    }
-
-    /// The selected-session panel's class icon fading in as the attached session changes, sampled frame by frame: the
-    /// paladin's icon, then the wizard's. Ends past the fade so the last frames are the settled icon.
-    @MainActor
-    private static func recordSelectedSessionFade(to dir: String) {
-        let size = SelectedSessionPanel.canvasSize
-        let model = SelectedSessionPanelFadeModel(SelectedSessionPanelContent(
-            title: "Improve fuzzy search ranking", id: "qm-1789532989", projectName: "Questmaster",
-            projectColor: NSColor(hex: 0x7A7AF0), portrait: .master(.paladin)
-        ))
-        let host = NSHostingView(rootView: SelectedSessionPanelFadeHarness(model: model).background(AppPalette.window.swiftUI))
-        // The fade is Core Animation's, so the frames are its presentation layers, captured from a plain (non-flipped) container.
-        let container = NSView(frame: NSRect(origin: .zero, size: size))
-        host.frame = container.bounds
-        container.addSubview(host)
-        recordAnimation("selected-session-fade-gif", root: container, size: size, crop: CGRect(origin: .zero, size: size), duration: (MotionStep.standard.seconds + 0.12) * Motion.slowdown, capturesLayers: true, to: dir) {
-            model.content = SelectedSessionPanelContent(
-                title: "Wire up the worker chat", id: "qm-1789533001", projectName: "Questmaster",
-                projectColor: NSColor(hex: 0x7A7AF0), portrait: .master(.wizard)
-            )
-        }
     }
 
     /// A panel coming and going while the other grows or shrinks, as `DockColumnView` runs it, sampled frame by frame.
@@ -1480,7 +1456,7 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The tracker with masters, workers and the shell section pinned to the column's bottom: one shell attached (filled,
+    /// The tracker with masters, workers and the shells under them: one shell attached (filled,
     /// bold), one with a colour, one plain. `extraMasters` lengthens the plates' list until it is cut at the section's
     /// clearance; `extraShells` crowds the section until it stops at its max height and scrolls to `viewedShell`.
     @MainActor
@@ -1582,25 +1558,21 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The selected-session panel with the strings and the bar colour `Selected Session.svg` shows, or with no text, to
-    /// compare the plate alone against the SVG's raster. With neither a portrait nor `isShell` the disc is empty.
+    /// The selected-session tag as the column draws it, centred in the avatar's slot. The default is the mock's session; an
+    /// empty id and project draw the "Terminal" tag of nothing attached.
     @MainActor
-    private static func selectedSessionPanelView(withText: Bool = true, portrait: SessionPortrait? = nil, isShell: Bool = false) -> some View {
-        SelectedSessionPanel(
-            content: SelectedSessionPanelContent(
-                title: withText ? "Improve fuzzy search ranking" : "",
-                id: withText ? "qm-1789532989" : "",
-                projectName: withText ? "Questmaster" : "",
-                projectColor: NSColor(hex: 0x7A7AF0),
-                portrait: portrait,
-                isShell: isShell
-            ),
+    private static func selectedSessionTagView(
+        title: String = "Trace Events", id: String = "qm-1789532989", projectName: String = "scry"
+    ) -> some View {
+        SelectedSessionTag(
+            content: SelectedSessionTagContent(title: title, id: id, projectName: projectName, projectColor: NSColor(hex: 0x7A7AF0)),
             onCopyID: { _ in }
         )
+        .frame(width: TrackerAvatarMetrics.slotWidth)
         .background(AppPalette.window.swiftUI)
     }
 
-    /// The tracker column with a master attached and shells pinned below: the avatar under the selected-session panel. `state`
+    /// The tracker column with a master attached and shells under the plates: the avatar under the selected-session tag. `state`
     /// and `tool` set the pose; a class other than bard leaves the slot empty.
     @MainActor
     private static func trackerAvatarView(state: String, tool: String? = nil, sessionClass: String = "bard") -> some View {
@@ -2662,21 +2634,4 @@ private final class SettingsPreviewEffortClient: ServeReasoningEffortSuggesting 
     }
 }
 
-/// The selected-session panel over a model its content can change in, for the fade's recording and self-test.
-@MainActor
-final class SelectedSessionPanelFadeModel: ObservableObject {
-    @Published var content: SelectedSessionPanelContent
-
-    init(_ content: SelectedSessionPanelContent) {
-        self.content = content
-    }
-}
-
-struct SelectedSessionPanelFadeHarness: View {
-    @ObservedObject var model: SelectedSessionPanelFadeModel
-
-    var body: some View {
-        SelectedSessionPanel(content: model.content, onCopyID: { _ in })
-    }
-}
 #endif

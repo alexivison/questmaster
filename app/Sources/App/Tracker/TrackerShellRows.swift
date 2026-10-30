@@ -2,7 +2,7 @@ import AppKit
 import QuestmasterCore
 import SwiftUI
 
-/// The shell section's geometry, from the tracker mock: rows as tall as a field, stacked with no gap, each as wide as the
+/// The shell rows' geometry, from the tracker mock: rows as tall as a field, stacked with no gap, each as wide as the
 /// tracker column (flush with the plates), with a 25pt icon disc 10 in and the title 10 past it (Shell Session.svg's own
 /// row is inset and spaced; the mock wins). The rows carry no shadow.
 enum TrackerShellMetrics {
@@ -15,13 +15,10 @@ enum TrackerShellMetrics {
     static let cornerRadius = FormFieldMetrics.cornerRadius
     /// The terminal glyph's own box in the SVG's coordinates (15 x 11), centred in the disc.
     static let svgGlyphSize = CGSize(width: 15, height: 11)
-    /// The section is as tall as its rows up to this: five of them. Past it the section scrolls inside itself, so many
-    /// shells never push the section past the column's bottom (at the 600pt minimum window the plates still keep room).
-    static let maxHeight: CGFloat = 175
 }
 
 /// The terminal glyph of Shell Session.svg: the SVG's own paths (a rounded frame, then the prompt and its cursor), in
-/// the glyph's own coordinates, its top-left at the origin. The shell rows' discs and the selected-session panel's draw it.
+/// the glyph's own coordinates, its top-left at the origin. The shell rows' discs draw it.
 enum ShellTerminalGlyph {
     private static let frame = "M27.9666 34H38.8016C40.1169 34 40.7682 33.3846 40.7682 32.1537V24.8523C40.7682 23.6214 40.1169 23 38.8016 23H27.9666C26.6576 23 26 23.6214 26 24.8523V32.1537C26 33.3846 26.6576 34 27.9666 34ZM27.9791 33.038C27.3528 33.038 27.0084 32.7214 27.0084 32.0999V24.906C27.0084 24.2846 27.3528 23.962 27.9791 23.962H38.7891C39.4092 23.962 39.7599 24.2846 39.7599 24.906V32.0999C39.7599 32.7214 39.4092 33.038 38.7891 33.038H27.9791Z"
     private static let prompt = "M28.6929 27.6186C28.2044 27.8995 28.6177 28.6105 29.1564 28.2878L30.9601 27.2123C31.3171 26.9972 31.2983 26.4894 30.9601 26.2862L29.1564 25.2107C28.6177 24.8881 28.1981 25.5931 28.6929 25.8799L30.2023 26.7463L28.6929 27.6186ZM31.3359 28.2819C31.3359 28.491 31.5113 28.6643 31.7367 28.6643H34.1229C34.3484 28.6643 34.5238 28.491 34.5238 28.2819C34.5238 28.0668 34.3484 27.8935 34.1229 27.8935H31.7367C31.5113 27.8935 31.3359 28.0668 31.3359 28.2819Z"
@@ -35,7 +32,7 @@ enum ShellTerminalGlyph {
     }()
 }
 
-/// The icon disc of a shell row: the panel's fill, a 1pt border in the look's icon-border colour (`item` at rest, as the
+/// The icon disc of a shell row: the panel-colour fill, a 1pt border in the look's icon-border colour (`item` at rest, as the
 /// SVG draws it, then the state rules' `controlBorder` on a filled row), and the terminal glyph in the look's icon
 /// colour, centred.
 struct ShellRowDisc: View {
@@ -135,16 +132,14 @@ struct TrackerShellRow: View {
     }
 }
 
-/// The shell section, pinned to the bottom of the tracker column under the plates' scrolling list: one row per shell,
-/// stacked with no gap. The section is as tall as its rows up to `TrackerShellMetrics.maxHeight`, and the plates' list
-/// shrinks to make room; past that it scrolls inside itself, apart from the plates' list.
-///
-/// Its scroller follows the plates' list's rules. When it appears and when its rows change it brings the cursor's shell,
-/// else the viewed one, into view. The cursor onto a shell by the keys (or by the viewed session changing) scrolls that
-/// row in with the least movement; a cursor the pointer moved is already under it, so it doesn't scroll (`PointerCursor`).
-/// It sees only shell ids (`TrackerShellSection.shellCursorID`), as the plates' list sees only plates'.
-struct TrackerShellRows: View {
+/// The shell rows, the last block of the tracker's one list: one row per shell, stacked with no gap, the first `topInset`
+/// under the plates. `rows` is the list's own children rather than a view of its own, so the lazy list knows each row's id
+/// and can scroll to a shell far down it, as it does a plate.
+@MainActor
+struct TrackerShellRows {
     let shells: [TrackerRenderedShell]
+    /// From the last plate (or the list's top, with no plates) to the first shell.
+    let topInset: CGFloat
     /// The tracker's cursor row.
     let selectedID: String?
     /// The shell the terminal is attached to.
@@ -158,67 +153,33 @@ struct TrackerShellRows: View {
     var onActivate: (TrackerSession) -> Void
     var onEditSession: (TrackerSession) -> Void
 
-    private var sessions: [TrackerSession] { shells.map(\.rendered.session) }
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                rows
-                    .background(ScrollerHider())
-            }
-            .scrollIndicators(.hidden)
-            .frame(height: min(CGFloat(shells.count) * TrackerShellMetrics.rowHeight, TrackerShellMetrics.maxHeight))
-            .onAppear { reveal(with: proxy) }
-            .onChange(of: sessions.map(\.id)) { reveal(with: proxy) }
-            .onChange(of: selectedID) { _, id in
-                guard let id = TrackerShellSection.shellCursorID(id, in: sessions) else {
-                    return
-                }
-                switch PointerHighlight.cursor.scrollStep(to: id) {
-                case .scroll:
-                    proxy.scrollTo(id)
-                case .cancelQueued:
-                    break
-                }
-            }
-        }
-    }
-
-    /// Brings the cursor's shell, else the viewed one, into view with the least scroll; a row already in view stays.
-    private func reveal(with proxy: ScrollViewProxy) {
-        guard let id = TrackerShellSection.revealID(cursorID: selectedID, viewedID: viewedID, in: sessions) else {
-            return
-        }
-        proxy.scrollTo(id)
-    }
-
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(shells, id: \.rendered.session.id) { shell in
-                let session = shell.rendered.session
-                TrackerShellRow(
-                    rendered: shell.rendered,
-                    isViewed: session.id == viewedID,
-                    isSelected: session.id == selectedID,
-                    areaFocused: areaFocused,
-                    shortcutNumber: shortcutNumbers[session.id],
-                    commandLongPressIsActive: commandLongPressIsActive,
-                    previewHovered: previewHoveredIDs.contains(session.id),
-                    onHighlight: {
-                        // Hover moves the tracker's cursor only while the tracker has the keys.
-                        guard areaFocused else {
-                            return
-                        }
-                        PointerHighlight.cursor.pointerMoved(to: session.id)
-                        onSelect(session.id)
-                    },
-                    onActivate: {
-                        onSelect(session.id)
-                        onActivate(session)
-                    },
-                    onEdit: { onEditSession(session) }
-                )
-            }
+    var rows: some View {
+        let firstID = shells.first?.rendered.session.id
+        return ForEach(shells, id: \.rendered.session.id) { shell in
+            let session = shell.rendered.session
+            TrackerShellRow(
+                rendered: shell.rendered,
+                isViewed: session.id == viewedID,
+                isSelected: session.id == selectedID,
+                areaFocused: areaFocused,
+                shortcutNumber: shortcutNumbers[session.id],
+                commandLongPressIsActive: commandLongPressIsActive,
+                previewHovered: previewHoveredIDs.contains(session.id),
+                onHighlight: {
+                    // Hover moves the tracker's cursor only while the tracker has the keys.
+                    guard areaFocused else {
+                        return
+                    }
+                    PointerHighlight.cursor.pointerMoved(to: session.id)
+                    onSelect(session.id)
+                },
+                onActivate: {
+                    onSelect(session.id)
+                    onActivate(session)
+                },
+                onEdit: { onEditSession(session) }
+            )
+            .padding(.top, session.id == firstID ? topInset : 0)
         }
     }
 }

@@ -4,9 +4,9 @@ import QuestmasterCore
 import SwiftUI
 
 enum TrackerAvatarMetrics {
-    /// The slot the avatar stands in: the selected-session panel's width, and the height of the tallest sprite (160 px at
-    /// one point a pixel).
-    static let slotWidth = SelectedSessionPanel.canvasSize.width
+    /// The slot the avatar stands in: the master plate's width, which the selected-session tag is centred in, and the height
+    /// of the tallest sprite (160 px at one point a pixel).
+    static let slotWidth = TrackerPlateDesign.topLevelSize.width
     static let slotHeight: CGFloat = 160
     /// The render previews' column: a master plate, two worker plates and the slot, in the tracker's spacing.
     static var previewColumnHeight: CGFloat {

@@ -34,13 +34,13 @@ struct TrackerRenderedRepo {
     let groups: [TrackerRenderGroup]
 }
 
-/// A row of the shell section, with the repo it was listed under (the selected-session panel names it).
+/// A shell row, with the repo it was listed under (the selected-session tag names it).
 struct TrackerRenderedShell {
     let rendered: TrackerRenderedSession
     let repoName: String
 }
 
-/// The tracker's rows: the masters and workers by repo, drawn as plates, then the shell section under all of them.
+/// The tracker's rows: the masters and workers by repo, drawn as plates, then the shells under all of them.
 struct TrackerRenderedTracker {
     let repos: [TrackerRenderedRepo]
     let shells: [TrackerRenderedShell]
@@ -68,8 +68,8 @@ enum TrackerRenderer {
                 rendered: TrackerRenderedSession(
                     session: row.session,
                     status: status(for: row.session),
-                    // The panel's bar colour when the shell is attached: its own colour, else the shell grey. A shell
-                    // never takes its repo's colour, as before the shell section.
+                    // The tag's bar colour when the shell is attached: its own colour, else the shell grey. A shell
+                    // never takes its repo's colour.
                     groupColor: shellTint(for: row.session) ?? AppPalette.muted,
                     recolorEditHint: nil
                 ),
@@ -79,14 +79,14 @@ enum TrackerRenderer {
         return TrackerRenderedTracker(repos: repos, shells: shells)
     }
 
-    /// The colour a shell's own display colour gives its row's title (every state) and, attached, the panel's bar; nil
+    /// The colour a shell's own display colour gives its row's title (every state) and, attached, the tag's bar; nil
     /// for a shell with none.
     static func shellTint(for session: TrackerSession) -> NSColor? {
         ShellRowStyle.tintName(displayColor: session.displayColor).flatMap(AppPalette.displayColor)
     }
 
     /// Every row in the order the cursor and the Cmd+N numbers walk: each plate group's master and workers, repo by
-    /// repo, then the shell section.
+    /// repo, then the shells.
     static func flatSessions(in tracker: TrackerRenderedTracker) -> [TrackerSession] {
         let plates = tracker.repos.flatMap { repo in
             repo.groups.flatMap { group in
