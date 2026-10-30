@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/repo"
@@ -22,6 +24,7 @@ func newArtifactCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&sessionFlag, "session", "", "session ID (defaults to current session)")
 	cmd.AddCommand(
+		newArtifactCreateCmd(store, client, &sessionFlag),
 		newArtifactAddCmd(store, client, &sessionFlag),
 		newArtifactListCmd(store, client, &sessionFlag),
 		newArtifactRemoveCmd(store, client, &sessionFlag),
@@ -41,20 +44,41 @@ func newArtifactAddCmd(store *state.Store, client *tmux.Client, sessionFlag *str
 			if err != nil {
 				return err
 			}
-			path, err := resolveArtifactPath(args[0])
+			root := artifactStateRoot(store)
+			artifacts, err := state.LoadArtifactsGlobal(root)
 			if err != nil {
 				return err
 			}
-			projectID := resolveArtifactProjectID(store, sessionID)
-			artifact := state.Artifact{
-				Kind:      kind,
-				Path:      path,
-				Label:     label,
-				SessionID: sessionID,
-				ProjectID: projectID,
-				AddedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+			path := args[0]
+			existing, found := state.ArtifactByIDOrPath(artifacts, path)
+			if strings.HasPrefix(path, "art-") && !filepath.IsAbs(path) {
+				if !found {
+					return fmt.Errorf("artifact %q not found", path)
+				}
+				path = existing.Path
+				if slices.Contains(existing.SessionIDs, sessionID) {
+					fmt.Fprintf(cmd.OutOrStdout(), "session\t%s\npath\t%s\n", sessionID, path)
+					return nil
+				}
+			} else {
+				path, err = resolveArtifactPath(path)
+				if err != nil {
+					return err
+				}
+				existing, found = state.ArtifactByIDOrPath(artifacts, path)
 			}
-			if err := state.UpsertArtifactAt(artifactStateRoot(store), sessionID, artifact); err != nil {
+			projectID := resolveArtifactProjectID(store, sessionID)
+			if r, ok := repo.Resolve(path); ok {
+				projectID = r.Identity
+			}
+			if found {
+				projectID = existing.ProjectID
+			}
+			artifact := state.Artifact{
+				Kind: kind, Path: path, Label: label, ProjectID: projectID,
+				AddedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			if err := state.UpsertArtifactAt(root, sessionID, artifact); err != nil {
 				return err
 			}
 			if state.ArtifactMissing(path) {

@@ -237,7 +237,16 @@ State defaults to `~/.questmaster-state`. Override it with `QUESTMASTER_STATE_RO
 export QUESTMASTER_STATE_ROOT=/path/to/state
 ```
 
-Sessions use `qm-*` IDs (for example `qm-1234567890`). The current session ID is read from `QUESTMASTER_SESSION`. Artifacts are indexed in `<state-root>/artifacts.json`; per-session artifact sidecars are synced for compatibility. The model catalog is cached in `<state-root>/model-catalog.json`.
+Sessions use `qm-*` IDs (for example `qm-1234567890`). The current session ID is read from `QUESTMASTER_SESSION`. Artifacts are indexed in `<state-root>/artifacts.json`; newly created files live in the project-organized `<state-root>/artifact-files/` library, and per-session artifact sidecars are synced for compatibility. The model catalog is cached in `<state-root>/model-catalog.json`.
+
+Create and register an artifact in one command (standard input supplies text, or `--from` copies an existing file):
+
+```sh
+printf '# Report\n' | questmaster artifact create report.md --label Report
+questmaster artifact create diagram.png --from /path/to/diagram.png
+```
+
+The command prints the artifact ID and stored path. `questmaster artifact add <artifact-id-or-path> --session qm-...` links an existing artifact to another session without moving or copying it. `questmaster artifact rm` removes a registration or session link without deleting file bytes.
 
 ## Development
 

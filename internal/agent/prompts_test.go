@@ -122,7 +122,9 @@ func TestSessionPromptsDescribeArtifactRegistration(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for _, want := range []string{
-				"questmaster artifact add /absolute/path/to/file --label \"Readable title\"",
+				"questmaster artifact create report.html --label \"Readable title\"",
+				"questmaster artifact create image.png --from /absolute/path/to/image.png",
+				"questmaster artifact add <artifact-id-or-path> --session qm-...",
 				"Questmaster artifact view",
 				"UTF-8 charset meta tag",
 			} {
