@@ -42,6 +42,7 @@ enum LogicSelfTests {
         ("testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation", testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation),
         ("testAvatarEffectLayersKeepTheirPlacement", testAvatarEffectLayersKeepTheirPlacement),
         ("testAFinishPlaysInPlace", testAFinishPlaysInPlace),
+        ("testIdleBreathsInWholePixelSteps", testIdleBreathsInWholePixelSteps),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -1071,6 +1072,40 @@ enum LogicSelfTests {
         rig.showFinish(elapsed: 0)
         try expect(rig.character.contents != nil, "a finish should show its first frame")
         try expect(rig.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "a finish should not move the figure")
+    }
+
+    /// Idle breathes in whole-pixel steps, not a glide: the figure above the legs holds at rest for 1.6 s, drops one pixel for as
+    /// long, and comes back, so no position falls between two pixel rows. Only the upper layer moves, and Reduce Motion stops it.
+    @MainActor
+    private static func testIdleBreathsInWholePixelSteps() throws {
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = try bardSprites()
+        window.contentView = avatar
+        window.show()
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let shown = (avatar.layer?.sublayers ?? []).filter { !$0.isHidden }
+        let breathing = shown.flatMap { $0.sublayers ?? [] }.filter { $0.animation(forKey: TrackerAvatarMotionKey.breath) != nil }
+        guard breathing.count == 1, let upper = breathing.first,
+              let breath = upper.animation(forKey: TrackerAvatarMotionKey.breath) as? CAKeyframeAnimation else {
+            throw TestFailure("idle should breathe on one layer, the figure above the legs, as a keyframe animation")
+        }
+        let pixel = Double(TrackerAvatarDesign.pixelPoints)
+        let offsets = (breath.values ?? []).compactMap { ($0 as? NSNumber)?.doubleValue }
+        let pixels = offsets.map { $0 / pixel }
+        try expect(pixels == [0, -1, 0], "idle should rest, drop one whole sprite pixel and come back, got \(pixels)")
+        try expect(breath.calculationMode == .discrete, "the breath should step, not glide, got \(String(describing: breath.calculationMode))")
+        try expect(breath.timingFunction == nil, "a step takes no easing curve")
+        let hold: TimeInterval = 1.6
+        let times = (breath.keyTimes ?? []).map { $0.doubleValue * breath.duration }
+        try expect(breath.duration == 2 * hold, "the breath should be a 3.2 s cycle of two holds, got \(breath.duration)")
+        let expected: [TimeInterval] = [0, hold, breath.duration]
+        try expect(times.count == expected.count && zip(times, expected).allSatisfy { abs($0 - $1) < 1e-9 },
+                   "the breath should hold at rest for 1.6 s, drop, and close on rest, got \(times)")
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        try expect(upper.animation(forKey: TrackerAvatarMotionKey.breath) == nil, "Reduce Motion should stop the breath")
     }
 
     /// The bard's sprites load from the app bundle: their animation file reads, and the art the avatar draws from it is there.

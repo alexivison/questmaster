@@ -22,8 +22,12 @@ enum TrackerAvatarDesign {
     /// How long the lids stay down. A blink snaps shut and open, so no motion step applies.
     static let blinkClosedSeconds: TimeInterval = 0.15
     static let blinkIntervalSeconds: ClosedRange<TimeInterval> = 3...6
-    static let breathPixels: CGFloat = 2
-    static let breathPeriod: TimeInterval = 2.4
+    /// The breath steps a whole sprite pixel, never a glide: the figure above the legs holds at rest for `breathHoldPeriod`, drops
+    /// `breathPixels` for as long, and comes back. A half-pixel position would blur on Retina.
+    static let breathPixels: CGFloat = 1
+    static let breathHoldPeriod: TimeInterval = 1.6
+    /// A cycle is two holds: at rest, then down.
+    static let breathPeriod: TimeInterval = 2 * breathHoldPeriod
     /// How high a spell's path arcs between its two ends.
     static let flightArcHeight: CGFloat = 20
 }
@@ -345,12 +349,13 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
         guard upper.animation(forKey: TrackerAvatarMotionKey.breath) == nil else {
             return
         }
-        let breath = CABasicAnimation(keyPath: "transform.translation.y")
-        breath.fromValue = 0
-        breath.toValue = -Design.breathPixels * Design.pixelPoints
+        let breath = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        let down = -Design.breathPixels * Design.pixelPoints
+        // A discrete keyframe holds each value up to the next key, so the cycle closes on its own rest key.
+        breath.values = [0, down, 0].map { NSNumber(value: Double($0)) }
+        breath.keyTimes = [0, Design.breathHoldPeriod, Design.breathPeriod].map { NSNumber(value: $0 / Design.breathPeriod) }
+        breath.calculationMode = .discrete
         breath.duration = Design.breathPeriod
-        breath.timingFunction = Motion.breathingTimingFunction
-        breath.autoreverses = true
         breath.repeatCount = .infinity
         upper.add(breath, forKey: TrackerAvatarMotionKey.breath)
     }
