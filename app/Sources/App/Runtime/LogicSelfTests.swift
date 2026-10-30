@@ -21,6 +21,8 @@ enum LogicSelfTests {
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
+        ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
+        ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
@@ -1475,6 +1477,35 @@ enum LogicSelfTests {
             ArtifactNavigationPolicy.decide(url: URL(string: "javascript:alert(1)"), userInitiated: true) == .block,
             "javascript URLs should be blocked"
         )
+    }
+
+    private static func testArtifactExternalOpenRouting() throws {
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/report.MD") == .editor, "Markdown should use the editor")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/report.html") == .browser, "HTML should use the browser")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/diagram.PNG") == .preview, "images should use Preview")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/data.csv") == .system, "other files should use their default app")
+        let missing = ArtifactReference(
+            kind: "markdown",
+            path: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("missing.md").path,
+            label: "Missing",
+            addedAt: ""
+        )
+        do {
+            try ArtifactExternalOpener.open(artifact: missing, attachedSessionID: "qm-a", tmuxPath: "/usr/bin/tmux", environment: [:])
+            throw TestFailure("missing artifact should fail before launching an app")
+        } catch ArtifactExternalOpenError.missingFile {
+            // Expected.
+        }
+    }
+
+    private static func testArtifactEditorWindowKeepsPathSeparate() throws {
+        let path = "/tmp/report ' with spaces; $(touch danger).md"
+        let args = TerminalTmuxClientProcess.editorWindowArguments(sessionID: "qm-a", path: path, shell: "/bin/zsh")
+        try expect(Array(args.prefix(5)) == ["new-window", "-t", "qm-a", "-n", "Artifact"], "editor should open a new tmux window")
+        try expect(args[6] == "/tmp", "editor window should start beside the artifact")
+        try expect(args[7].contains("artifact_path=$1"), "editor script should read the path as an argument")
+        try expect(args[7].hasSuffix("'/tmp/report '\\'' with spaces; $(touch danger).md'"), "path should be shell quoted as one positional argument")
+        try expect(args[7].contains("eval \"set -- $EDITOR\""), "editor command should allow arguments")
     }
 
     private static func testLocalMarkdownImageURLFiltering() throws {
