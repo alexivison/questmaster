@@ -4,7 +4,7 @@ import QuestmasterCore
 
 /// The class avatar's state in the running app: Core's event detector, director and fidgets, fed from each tracker payload and the
 /// attached session, with one timer for the next change. The attached session's class decides the sprites the avatar draws from.
-/// The views read `pose`, `fidgetFrame`, `finish`, `sprites` and `launches`; they decide none of them.
+/// The views read `pose`, `fidgetFrame`, `finish`, `enter`, `sprites` and `launches`; they decide none of them.
 @MainActor
 @Observable
 final class TrackerAvatarStage {
@@ -30,6 +30,8 @@ final class TrackerAvatarStage {
     private(set) var beat = 0
     /// How far into the cast's finish the avatar is, while it finishes; nil otherwise.
     private(set) var finish: TimeInterval?
+    /// How far into the pose's enter the avatar is, while it enters; nil otherwise.
+    private(set) var enter: TimeInterval?
     /// The attached session's class sprites, while its class has an avatar. The avatar and its spells draw from them.
     private(set) var sprites: TrackerAvatarSprites?
 
@@ -89,6 +91,7 @@ final class TrackerAvatarStage {
         fidgetFrame = fidget.artFrame
         beat = frame.beat
         finish = frame.finishElapsed
+        enter = frame.enterElapsed
         for flight in frame.launches {
             latestSerial += 1
             launches.append(Launch(serial: latestSerial, flight: flight))

@@ -51,6 +51,9 @@ public struct TrackerAvatarFrame: Equatable {
     /// How far into the cast's finish the avatar is, while `pose` (the cast) is finishing; nil otherwise. The view reads each
     /// layer's frame at this time from the finish's tracks.
     public let finishElapsed: TimeInterval?
+    /// How far into the steady pose's enter the avatar is, while the enter plays; nil otherwise, so the loop plays. The view reads
+    /// each layer's frame at this time from the enter's tracks.
+    public let enterElapsed: TimeInterval?
 }
 
 /// Decides the class avatar's pose and its spell flights. It is pure: the view feeds it the attached session and the
@@ -65,6 +68,9 @@ public struct TrackerAvatarFrame: Equatable {
 ///   and the bow plays for its one-shot's length.
 ///   A shorter turn goes straight to idle. Attaching to a done session, or switching to one, shows its steady pose with
 ///   no bow.
+/// - A steady pose with an `enter` plays it once when it comes on screen (on attach, a switch, a change or a calling out cut-in),
+///   then its loop. The hold counts from the pose's arrival, so the enter counts toward it. A pose that continues doesn't replay
+///   its enter, and Reduce Motion skips it.
 /// - Events play as cues, one after another: a cue is a few beats, each holding a pose and maybe starting a spell. At most
 ///   `queueCapacity` cues wait behind the one playing; a burst past that drops the newest.
 /// - Under Reduce Motion the poses still play, but no spell flies.
@@ -97,6 +103,9 @@ public struct TrackerAvatarDirector {
     private var steadyWanted: TrackerAvatarPose?
     private var steadyShown: TrackerAvatarPose?
     private var steadyShownSince: TimeInterval = 0
+    /// When the steady pose last changed, so its enter started then. Unlike the hold's clock, a show of the same pose leaves it,
+    /// so a pose that continues doesn't replay its enter.
+    private var enterSince: TimeInterval = 0
     /// Cues waiting to play, in order. `playing` holds the beats left of the cue on now.
     private var queued: [[Beat]] = []
     private var playing: [Beat] = []
@@ -152,7 +161,8 @@ public struct TrackerAvatarDirector {
             launches: started,
             nextChange: nextChange(after: now),
             beat: beatCount,
-            finishElapsed: finishing.map { now - $0.startedAt }
+            finishElapsed: finishing.map { now - $0.startedAt },
+            enterElapsed: enterElapsed(at: now)
         )
     }
 
@@ -171,8 +181,7 @@ public struct TrackerAvatarDirector {
         attachedIsDone = isDone(session)
         workingStart = attachedIsWorking ? (session?.elapsedSince?.timeIntervalSince1970 ?? now) : nil
         steadyWanted = wantedSteady()
-        steadyShown = steadyWanted
-        steadyShownSince = now
+        show(steadyWanted, at: now)
     }
 
     /// Reads the attached session's turn: when a working stretch starts, and whether a turn that ends now earns a bow.
@@ -348,6 +357,9 @@ public struct TrackerAvatarDirector {
     }
 
     private mutating func show(_ pose: TrackerAvatarPose?, at time: TimeInterval) {
+        if pose != steadyShown {
+            enterSince = time
+        }
         steadyShown = pose
         steadyShownSince = time
         if pose == .bow {
@@ -355,8 +367,26 @@ public struct TrackerAvatarDirector {
         }
     }
 
-    /// When the state next changes on its own, after `now`: a beat ends, a finish moves to its next step or ends, the hold runs out
-    /// or the bow's time is up.
+    /// The enter the steady pose plays when it comes on screen: nil when it has none, or under Reduce Motion.
+    private var steadyEnter: TrackerAvatarBlock? {
+        guard !reducesMotion, let steadyShown else {
+            return nil
+        }
+        return animation?.animation(for: steadyShown)?.enter
+    }
+
+    /// How far into the steady pose's enter the avatar is, while it plays. A cue or a finish takes the frame while it plays, and the
+    /// enter's clock runs on under them, as the hold's does.
+    private func enterElapsed(at now: TimeInterval) -> TimeInterval? {
+        guard beatPose == nil, finishing == nil, let enter = steadyEnter else {
+            return nil
+        }
+        let elapsed = now - enterSince
+        return elapsed < enter.seconds ? elapsed : nil
+    }
+
+    /// When the state next changes on its own, after `now`: a beat ends, a finish moves to its next step or ends, the hold runs out,
+    /// the enter moves to its next step or ends, or the bow's time is up.
     private func nextChange(after now: TimeInterval) -> TimeInterval? {
         var changes: [TimeInterval] = []
         if let beatEnd {
@@ -367,6 +397,10 @@ public struct TrackerAvatarDirector {
             changes.append(Self.finishEnd(of: finishing))
         } else if steadyWanted != steadyShown {
             changes.append(steadyShownSince + TrackerAvatarTiming.holdSeconds)
+        }
+        if let enter = steadyEnter {
+            changes += enter.changes.map { enterSince + $0 }
+            changes.append(enterSince + enter.seconds)
         }
         if let bowShownSince {
             changes.append(bowShownSince + bowSeconds)

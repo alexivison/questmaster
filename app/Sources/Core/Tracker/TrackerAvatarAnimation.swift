@@ -19,7 +19,7 @@ public struct TrackerAvatarStep: Equatable, Sendable {
     }
 }
 
-/// One layer's steps in order. A loop cycles them. A finish or a one-shot plays them once and holds the last frame.
+/// One layer's steps in order. A loop cycles them. An enter, a finish or a one-shot plays them once and holds the last frame.
 public struct TrackerAvatarTrack: Equatable, Sendable {
     public let steps: [TrackerAvatarStep]
 
@@ -56,7 +56,7 @@ public struct TrackerAvatarTrack: Equatable, Sendable {
     }
 }
 
-/// The tracks a pose plays in one block: a loop, a finish or a one-shot. Its character track is always there. Its length is its
+/// The tracks a pose plays in one block: a loop, an enter, a finish or a one-shot. Its character track is always there. Its length is its
 /// longest track, so a block with an effect that runs longer than the figure keeps the figure on its last frame.
 public struct TrackerAvatarBlock: Equatable, Sendable {
     public let character: TrackerAvatarTrack
@@ -90,12 +90,14 @@ public struct TrackerAvatarBlock: Equatable, Sendable {
 }
 
 /// One pose's art and timings: where its figure stands, and the blocks it plays. Idle plays none, and draws as layers. A one-shot
-/// plays `once`. The other steady poses cycle `loop`, and a cast also has a `finish` for when it leaves for another pose.
+/// plays `once`. The other steady poses cycle `loop`, which an `enter` may open: the enter plays once when the pose comes on screen,
+/// then the loop starts from its own first frame. A cast also has a `finish` for when it leaves for another pose.
 public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
     /// The row of the lowest boot pixel, and the column of the body's centre, on the pose's canvas.
     public let footRow: Int
     public let bodyColumn: Int
     public let loop: TrackerAvatarBlock?
+    public let enter: TrackerAvatarBlock?
     public let finish: TrackerAvatarBlock?
     public let once: TrackerAvatarBlock?
 
@@ -103,12 +105,14 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         footRow: Int,
         bodyColumn: Int,
         loop: TrackerAvatarBlock? = nil,
+        enter: TrackerAvatarBlock? = nil,
         finish: TrackerAvatarBlock? = nil,
         once: TrackerAvatarBlock? = nil
     ) {
         self.footRow = footRow
         self.bodyColumn = bodyColumn
         self.loop = loop
+        self.enter = enter
         self.finish = finish
         self.once = once
     }
@@ -191,7 +195,7 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case unsupportedVersion(Int)
     case unknownPose(String)
     case missingPose(String)
-    /// A pose's blocks don't match how it plays, or it has a finish but isn't a cast.
+    /// A pose's blocks don't match how it plays: a finish on a pose that isn't a cast, or an enter on a pose without a loop.
     case misplacedBlock(String)
     case unknownLayer(String)
     /// A track with no steps, a step that isn't a frame shown for a positive time, or a block with no character track.
@@ -264,6 +268,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
 
     private static func poseAnimation(_ pose: File.Pose, named name: String, kind: TrackerAvatarPose) throws -> TrackerAvatarPoseAnimation {
         let loop = try block(pose.loop, named: name)
+        let enter = try block(pose.enter, named: name)
         let finish = try block(pose.finish, named: name)
         let once = try block(pose.once, named: name)
         let fitsItsKind: Bool
@@ -272,13 +277,14 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         case .loop: fitsItsKind = loop != nil && once == nil
         case .oneShot: fitsItsKind = once != nil && loop == nil
         }
-        guard fitsItsKind, finish == nil || kind.isCast else {
+        guard fitsItsKind, finish == nil || kind.isCast, enter == nil || kind.playKind == .loop else {
             throw TrackerAvatarAnimationError.misplacedBlock(name)
         }
         return TrackerAvatarPoseAnimation(
             footRow: pose.footRow,
             bodyColumn: pose.bodyColumn,
             loop: loop,
+            enter: enter,
             finish: finish,
             once: once
         )
@@ -340,13 +346,14 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let footRow: Int
             let bodyColumn: Int
             let loop: [String: [TrackerAvatarStep]]?
+            let enter: [String: [TrackerAvatarStep]]?
             let finish: [String: [TrackerAvatarStep]]?
             let once: [String: [TrackerAvatarStep]]?
 
             enum CodingKeys: String, CodingKey {
                 case footRow = "foot_row"
                 case bodyColumn = "body_column"
-                case loop, finish, once
+                case loop, enter, finish, once
             }
         }
     }

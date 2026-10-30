@@ -2229,7 +2229,7 @@ enum RenderPreview {
         let stage: TrackerAvatarStage
 
         var body: some View {
-            TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish)
+            TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish, enter: stage.enter)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .background(AppPalette.window.swiftUI)
         }
@@ -2245,7 +2245,7 @@ enum RenderPreview {
                 placeholderPlate(id: "qm-m1", height: TrackerNameplateRole.master.canvasSize.height)
                 placeholderPlate(id: "qm-w1", height: TrackerNameplateRole.worker.canvasSize.height)
                 placeholderPlate(id: "qm-w2", height: TrackerNameplateRole.worker.canvasSize.height)
-                TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish)
+                TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish, enter: stage.enter)
                     .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(avatar: $0) }
             }
             .frame(width: TrackerAvatarMetrics.slotWidth, alignment: .topLeading)

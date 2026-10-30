@@ -13,6 +13,9 @@ struct TrackerAvatarAnimationTests {
         aPoseWithBehindAndFrontOfDifferentLengthsPlaysEachOnItsOwnClock()
         aBehindAndFrontOfDifferentLengthsEachKeepTheirOwnLength()
         aFinishChangesAtItsOwnSteps()
+        aPoseWithAnEnterReadsItsBlock()
+        anEnterPlaysOnceAndTheLoopKeepsItsOwnClock()
+        anEnterNeedsALoopAndACharacterTrack()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
         aCatalogShowsEachClassWithArtAndNoOthers()
@@ -26,17 +29,6 @@ struct TrackerAvatarAnimationTests {
 
     private static func decode(_ json: [String: Any]) throws -> TrackerAvatarAnimation {
         try AvatarAnimationFixture.decode(json)
-    }
-
-    /// The bard's file with one pose's JSON edited.
-    private static func bard(editing name: String, _ edit: (inout [String: Any]) -> Void) throws -> TrackerAvatarAnimation {
-        var json = bardJSON()
-        var poses = json["poses"] as? [String: Any] ?? [:]
-        var pose = poses[name] as? [String: Any] ?? [:]
-        edit(&pose)
-        poses[name] = pose
-        json["poses"] = poses
-        return try decode(json)
     }
 
     private static func decodesTheBardsFile() {
@@ -111,7 +103,7 @@ struct TrackerAvatarAnimationTests {
     }
 
     private static func aMissingOptionalTrackStillDecodes() {
-        let animation = try? bard(editing: "11-calling-out") { pose in
+        let animation = try? AvatarAnimationFixture.bard(editing: "11-calling-out") { pose in
             var loop = pose["loop"] as? [String: Any] ?? [:]
             loop.removeValue(forKey: "front")
             pose["loop"] = loop
@@ -122,7 +114,7 @@ struct TrackerAvatarAnimationTests {
     /// A 1-frame character and an 8-frame front each cycle on their own clock, and neither waits for the other.
     private static func aPoseWithBehindAndFrontOfDifferentLengthsPlaysEachOnItsOwnClock() {
         let eightFrames = (1...8).map { [$0, 0.125] as [Any] }
-        let animation = try? bard(editing: "11-calling-out") { pose in
+        let animation = try? AvatarAnimationFixture.bard(editing: "11-calling-out") { pose in
             pose["loop"] = [
                 "character": [[1, 0.25]],
                 "front": eightFrames,
@@ -142,7 +134,7 @@ struct TrackerAvatarAnimationTests {
 
     /// A pose's effects on both sides, each with its own length: the behind layer stays on its track while the front cycles its own.
     private static func aBehindAndFrontOfDifferentLengthsEachKeepTheirOwnLength() {
-        let animation = try? bard(editing: "11-calling-out") { pose in
+        let animation = try? AvatarAnimationFixture.bard(editing: "11-calling-out") { pose in
             pose["loop"] = [
                 "character": [[1, 0.25]],
                 "behind": [[2, 0.5], [3, 0.5]],
@@ -162,13 +154,68 @@ struct TrackerAvatarAnimationTests {
     private static func aFinishChangesAtItsOwnSteps() {
         let finish = try? decode(bardJSON()).animation(for: .studying)?.finish
         expect(finish?.changes == [0.25], "a studying finish should change once, at 0.25 s, got \(String(describing: finish?.changes))")
-        let finishWithEffect = try? bard(editing: "03-studying") { pose in
+        let finishWithEffect = try? AvatarAnimationFixture.bard(editing: "03-studying") { pose in
             pose["finish"] = [
                 "character": [[4, 0.25], [5, 0.5]],
                 "front": [[1, 0.125], [2, 0.625]],
             ]
         }.animation(for: .studying)?.finish
         expect(finishWithEffect?.changes == [0.125, 0.25], "a finish should change at every layer's step, got \(String(describing: finishWithEffect?.changes))")
+    }
+
+    /// A steady pose's enter reads as its own block, with its tracks on their own clocks, and a pose without one has none.
+    private static func aPoseWithAnEnterReadsItsBlock() {
+        let animation = try? AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
+            pose["enter"] = ["character": [[4, 0.25], [5, 0.5]], "front": [[1, 1]]]
+        }
+        guard let enter = animation?.animation(for: .pondering)?.enter else {
+            fail("pondering should read its enter")
+        }
+        expect(enter.character.steps == [TrackerAvatarStep(frame: 4, seconds: 0.25), TrackerAvatarStep(frame: 5, seconds: 0.5)],
+               "the enter's character should play f4 then f5, got \(enter.character.steps)")
+        expect(enter.front?.steps == [TrackerAvatarStep(frame: 1, seconds: 1)], "the enter's front should be its own track")
+        expect(near(enter.seconds, 1), "the enter should last as long as its longest track, got \(enter.seconds)")
+        expect((try? decode(bardJSON()))?.animation(for: .pondering)?.enter == nil, "a pose without an enter should have none")
+    }
+
+    /// An enter plays once and holds its last frame. The loop under it is the same block as before, so it still cycles from its own
+    /// first frame once the enter has played.
+    private static func anEnterPlaysOnceAndTheLoopKeepsItsOwnClock() {
+        let animation = try? AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
+            pose["enter"] = ["character": [[4, 0.25], [5, 0.5]]]
+        }
+        guard let pondering = animation?.animation(for: .pondering), let enter = pondering.enter, let loop = pondering.loop else {
+            fail("pondering should read its enter and its loop")
+        }
+        expect(enter.character.frame(at: 0.1, looping: false) == 4, "an enter should open on f4")
+        expect(enter.character.frame(at: 0.3, looping: false) == 5, "an enter should move to f5 when f4 has shown")
+        expect(enter.character.frame(at: 9, looping: false) == 5, "an enter should hold its last frame once it has played")
+        expect(loop.character.frame(at: 0, looping: true) == 1, "the loop should start from its own first frame, f1")
+    }
+
+    /// An enter opens a steady pose's loop, so one without a loop, or with no character track, is a bad file.
+    private static func anEnterNeedsALoopAndACharacterTrack() {
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("09-summoning"), "an enter on a one-shot, which has no loop") {
+            _ = try AvatarAnimationFixture.bard(editing: "09-summoning") { pose in
+                pose["enter"] = ["character": [[1, 0.25]]]
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("01-idle"), "an enter on idle, which draws as layers") {
+            _ = try AvatarAnimationFixture.bard(editing: "01-idle") { pose in
+                pose["enter"] = ["character": [[1, 0.25]]]
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("02-pondering"), "an enter on a pose whose loop is removed") {
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
+                pose.removeValue(forKey: "loop")
+                pose["enter"] = ["character": [[4, 0.25]]]
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.invalidTrack("02-pondering has no character track"), "an enter with no character track") {
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
+                pose["enter"] = ["front": [[1, 0.25]]]
+            }
+        }
     }
 
     private static func aBadFileThrows() {
@@ -192,38 +239,38 @@ struct TrackerAvatarAnimationTests {
             _ = try decode(json)
         }
         expectThrows(TrackerAvatarAnimationError.misplacedBlock("09-summoning"), "a one-shot with a loop instead of its once") {
-            _ = try bard(editing: "09-summoning") { pose in
+            _ = try AvatarAnimationFixture.bard(editing: "09-summoning") { pose in
                 pose["loop"] = ["character": [[1, 0.25]]]
                 pose.removeValue(forKey: "once")
             }
         }
         expectThrows(TrackerAvatarAnimationError.misplacedBlock("01-idle"), "idle with a loop") {
-            _ = try bard(editing: "01-idle") { pose in
+            _ = try AvatarAnimationFixture.bard(editing: "01-idle") { pose in
                 pose["loop"] = ["character": [[1, 0.25]]]
             }
         }
         expectThrows(TrackerAvatarAnimationError.misplacedBlock("02-pondering"), "a finish on a pose that isn't a cast") {
-            _ = try bard(editing: "02-pondering") { pose in
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
                 pose["finish"] = ["character": [[4, 0.25]]]
             }
         }
         expectThrows(TrackerAvatarAnimationError.unknownLayer("middle"), "a layer the avatar doesn't draw") {
-            _ = try bard(editing: "11-calling-out") { pose in
+            _ = try AvatarAnimationFixture.bard(editing: "11-calling-out") { pose in
                 pose["loop"] = ["character": [[1, 0.25]], "middle": [[1, 0.25]]]
             }
         }
         expectThrows(TrackerAvatarAnimationError.invalidTrack("02-pondering has no character track"), "a block with no character track") {
-            _ = try bard(editing: "02-pondering") { pose in
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
                 pose["loop"] = ["front": [[1, 0.25]]]
             }
         }
         expectThrows(TrackerAvatarAnimationError.invalidTrack("02-pondering character"), "a step held for no time") {
-            _ = try bard(editing: "02-pondering") { pose in
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
                 pose["loop"] = ["character": [[1, 0]]]
             }
         }
         expectThrows(TrackerAvatarAnimationError.invalidTrack("02-pondering character"), "a track with no steps") {
-            _ = try bard(editing: "02-pondering") { pose in
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
                 pose["loop"] = ["character": [] as [Any]]
             }
         }

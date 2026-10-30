@@ -34,6 +34,17 @@ enum AvatarAnimationFixture {
         return animation
     }
 
+    /// The bard's file with one pose's JSON edited, decoded.
+    static func bard(editing name: String, _ edit: (inout [String: Any]) -> Void) throws -> TrackerAvatarAnimation {
+        var json = bardJSON()
+        var poses = json["poses"] as? [String: Any] ?? [:]
+        var pose = poses[name] as? [String: Any] ?? [:]
+        edit(&pose)
+        poses[name] = pose
+        json["poses"] = poses
+        return try decode(json)
+    }
+
     /// A catalog that gives the bard `animation`.
     static func catalog(_ animation: TrackerAvatarAnimation = bard()) -> TrackerAvatarCatalog {
         TrackerAvatarCatalog(animations: ["bard": animation])

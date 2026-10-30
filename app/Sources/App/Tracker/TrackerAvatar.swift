@@ -181,16 +181,17 @@ final class TrackerAvatarSprites {
 
 /// The class avatar in the tracker column, in its slot. `beat` is the director's beat count: it rises whenever a pose's cue
 /// starts, so a one-shot that repeats on the same pose plays again. `finish` is how far into the cast's finish the avatar is, while it
-/// finishes. `fidget` is the idle fidget's art frame, while he fidgets.
+/// finishes, and `enter` how far into the pose's enter, while it enters. `fidget` is the idle fidget's art frame, while he fidgets.
 struct TrackerAvatarSlot: View {
     let pose: TrackerAvatarPose?
     var sprites: TrackerAvatarSprites?
     var fidget: Int?
     var beat = 0
     var finish: TimeInterval?
+    var enter: TimeInterval?
 
     var body: some View {
-        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish)
+        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish, enter: enter)
             .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
     }
 }
@@ -202,6 +203,7 @@ struct TrackerAvatar: NSViewRepresentable {
     var fidget: Int?
     var beat = 0
     var finish: TimeInterval?
+    var enter: TimeInterval?
 
     func makeNSView(context: Context) -> TrackerAvatarView {
         TrackerAvatarView()
@@ -209,7 +211,7 @@ struct TrackerAvatar: NSViewRepresentable {
 
     func updateNSView(_ view: TrackerAvatarView, context: Context) {
         view.sprites = sprites
-        view.configure(pose: pose, fidget: fidget, beat: beat, finish: finish, reduceMotion: Motion.reducesMotion())
+        view.configure(pose: pose, fidget: fidget, beat: beat, finish: finish, enter: enter, reduceMotion: Motion.reducesMotion())
     }
 }
 
@@ -372,7 +374,7 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
 
 /// A pose drawn as frames. Its loop cycles, or its one-shot plays once. Each layer plays its own track on its own clock: the
 /// character, a `behind` effect that stays put, and a `front` effect that moves with the figure. The figure (the character and any
-/// front effect) is one layer, which the pose's moves carry. A finish sets each layer to its frame at the
+/// front effect) is one layer, which the pose's moves carry. A finish or an enter sets each layer to its frame at the
 /// elapsed time the director gives. The render server runs the animations as discrete keyframes on the layers' contents and position.
 @MainActor
 final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
@@ -416,7 +418,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
 
     /// Whether every frame the pose's blocks name has its art.
     private static func hasArt(_ pose: TrackerAvatarPose, _ placement: TrackerAvatarPoseAnimation, _ sprites: TrackerAvatarSprites) -> Bool {
-        [placement.loop, placement.once, placement.finish].compactMap { $0 }.allSatisfy { block in
+        [placement.loop, placement.enter, placement.once, placement.finish].compactMap { $0 }.allSatisfy { block in
             TrackerAvatarLayer.allCases.allSatisfy { layer in
                 (block.track(for: layer)?.steps ?? []).allSatisfy { sprites.frame(pose, layer, $0.frame) != nil }
             }
@@ -468,14 +470,29 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
     }
 
     /// Holds each layer on its finish frame at `elapsed` seconds into the finish. A finish plays in place. A pose without a finish
-    /// shows nothing. A layer the finish doesn't play is cleared, so no art from the loop lingers under it.
+    /// shows nothing.
     func showFinish(elapsed: TimeInterval) {
         guard let finish = placement.finish else {
             return
         }
+        showBlock(finish, elapsed: elapsed)
+    }
+
+    /// Holds each layer on its enter frame at `elapsed` seconds into the enter. Once the enter has run, `startMotion` starts the loop
+    /// from its first frame. A pose without an enter shows nothing.
+    func showEnter(elapsed: TimeInterval) {
+        guard let enter = placement.enter else {
+            return
+        }
+        showBlock(enter, elapsed: elapsed)
+    }
+
+    /// Sets each layer to its frame at `elapsed` seconds into `block`, which plays once and holds its last frame. A layer the block
+    /// doesn't play is cleared, so no art from the loop lingers under it.
+    private func showBlock(_ block: TrackerAvatarBlock, elapsed: TimeInterval) {
         for kind in TrackerAvatarLayer.allCases {
             layer(kind).removeAnimation(forKey: TrackerAvatarMotionKey.frames)
-            layer(kind).contents = finish.track(for: kind).flatMap { track in
+            layer(kind).contents = block.track(for: kind).flatMap { track in
                 sprites.frame(pose, kind, track.frame(at: elapsed, looping: false))
             }
         }
@@ -621,6 +638,7 @@ final class TrackerAvatarView: NSView {
     private var shown: (any TrackerAvatarPoseRig)?
     private var beat = 0
     private var finish: TimeInterval?
+    private var enter: TimeInterval?
     private var reduceMotion = false
     private var blinkTimer: Timer?
 
@@ -648,8 +666,9 @@ final class TrackerAvatarView: NSView {
 
     /// Shows `pose`. While `fidget` names an art frame and the pose is idle, the fidget's frame shows in its place. When `beat`
     /// has risen on the same pose, starts that pose's one-shot again from its lead-in. A `finish` (how far into the cast's finish
-    /// it is) holds the cast's loop still while it shows.
-    func configure(pose: TrackerAvatarPose?, fidget: Int? = nil, beat: Int, finish: TimeInterval?, reduceMotion: Bool) {
+    /// it is) holds the cast's loop still while it shows. An `enter` (how far into the pose's enter it is) plays in place of the loop
+    /// until it has run, and then the loop starts from its first frame.
+    func configure(pose: TrackerAvatarPose?, fidget: Int? = nil, beat: Int, finish: TimeInterval?, enter: TimeInterval? = nil, reduceMotion: Bool) {
         self.reduceMotion = reduceMotion
         let key = Self.key(pose: pose, fidget: fidget)
         if key != shownKey {
@@ -662,6 +681,7 @@ final class TrackerAvatarView: NSView {
         }
         self.beat = beat
         self.finish = finish
+        self.enter = enter
         updateMotion()
     }
 
@@ -726,8 +746,8 @@ final class TrackerAvatarView: NSView {
         updateMotion()
     }
 
-    /// The shown pose moves while the view is on screen and motion is allowed, and holds still while a finish shows; any other
-    /// state stops it.
+    /// The shown pose moves while the view is on screen and motion is allowed. A finish or an enter shows its frames in place of the
+    /// loop, which starts once the enter has run; any other state stops the motion.
     private func updateMotion() {
         guard window != nil, !reduceMotion else {
             shown?.stopMotion()
@@ -736,6 +756,8 @@ final class TrackerAvatarView: NSView {
         }
         if let finish {
             (shown as? TrackerAvatarFrameRig)?.showFinish(elapsed: finish)
+        } else if let enter {
+            (shown as? TrackerAvatarFrameRig)?.showEnter(elapsed: enter)
         } else {
             shown?.startMotion()
         }

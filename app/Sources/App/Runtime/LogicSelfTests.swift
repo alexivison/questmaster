@@ -43,6 +43,7 @@ enum LogicSelfTests {
         ("testAvatarEffectLayersKeepTheirPlacement", testAvatarEffectLayersKeepTheirPlacement),
         ("testAFinishPlaysInPlace", testAFinishPlaysInPlace),
         ("testIdleBreathsInWholePixelSteps", testIdleBreathsInWholePixelSteps),
+        ("testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame", testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -1108,6 +1109,53 @@ enum LogicSelfTests {
         try expect(upper.animation(forKey: TrackerAvatarMotionKey.breath) == nil, "Reduce Motion should stop the breath")
     }
 
+    /// A pose's enter shows its own frame as the pose comes on screen, then the loop starts from its first frame. Reduce Motion skips
+    /// the enter. The check reads the layer's contents and the loop's keyframes, which hold the sprites' own images.
+    @MainActor
+    private static func testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class's animation.json should read")
+        }
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, enter: 0, reduceMotion: false)
+        guard let character = shownCharacter(of: avatar) else {
+            throw TestFailure("calling out should draw its character")
+        }
+        let enterFrame = sprites.frame(.callingOut, .character, 2)
+        let loopFrame = sprites.frame(.callingOut, .character, 1)
+        try expect(sameImage(character.contents, enterFrame), "an enter should show its own frame as the pose comes on screen")
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, enter: 0.1, reduceMotion: false)
+        try expect(sameImage(character.contents, enterFrame), "an enter should hold its frame until the director moves it on")
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
+        let loop = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(sameImage(loop?.values?.first, loopFrame), "once the enter has run, the loop should start from its own first frame")
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, enter: 0, reduceMotion: true)
+        try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the enter should be skipped")
+    }
+
+    /// The character layer of the avatar's shown frame rig: the figure's first layer, under the rig's root.
+    @MainActor
+    private static func shownCharacter(of avatar: TrackerAvatarView) -> CALayer? {
+        let root = (avatar.layer?.sublayers ?? []).first { !$0.isHidden }
+        return root?.sublayers?.last?.sublayers?.first
+    }
+
+    /// Whether a layer's contents, or a keyframe's value, is `image` itself.
+    private static func sameImage(_ value: Any?, _ image: CGImage?) -> Bool {
+        guard let value, let image else {
+            return false
+        }
+        return (value as AnyObject) === image
+    }
+
     /// The bard's sprites load from the app bundle: their animation file reads, and the art the avatar draws from it is there.
     @MainActor
     private static func testBundledBardSpritesReadTheirAnimationFile() throws {
@@ -1138,7 +1186,7 @@ enum LogicSelfTests {
             guard let poseAnimation = sprites.animation.animation(for: pose) else {
                 continue
             }
-            for block in [poseAnimation.loop, poseAnimation.finish, poseAnimation.once].compactMap({ $0 }) {
+            for block in [poseAnimation.loop, poseAnimation.enter, poseAnimation.finish, poseAnimation.once].compactMap({ $0 }) {
                 for layer in TrackerAvatarLayer.allCases {
                     for step in block.track(for: layer)?.steps ?? [] where sprites.frame(pose, layer, step.frame) == nil {
                         missing.append("\(pose.resourceName) \(layer.rawValue) f\(step.frame)")
@@ -1159,7 +1207,8 @@ enum LogicSelfTests {
     }
 
     /// A class folder for the render tests, in a temporary directory: the bard's `animation.json` with calling out's loop made 1 frame
-    /// for the character and 8 frames for the front, and the frames that loop and the summoning need, each a solid square.
+    /// for the character and 8 frames for the front, and an enter of f2 on the character. The frames the loops, the enter and the
+    /// summoning need are each a solid square.
     @MainActor
     private static func syntheticClassFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("avatar-class-\(UUID().uuidString)", isDirectory: true)
@@ -1172,6 +1221,7 @@ enum LogicSelfTests {
         }
         let eightFrames = (1...8).map { [$0, 0.125] as [Any] }
         calling["loop"] = ["character": [[1, 0.25]], "front": eightFrames]
+        calling["enter"] = ["character": [[2, 0.25]]]
         poses["11-calling-out"] = calling
         json["poses"] = poses
         try JSONSerialization.data(withJSONObject: json).write(to: folder.appendingPathComponent("animation.json"))
@@ -1180,6 +1230,7 @@ enum LogicSelfTests {
             try writeSolidFrame(Double(number) / 10 + 0.4, to: folder.appendingPathComponent("09-summoning-behind-f\(number).png"))
         }
         try writeSolidFrame(0.1, to: folder.appendingPathComponent("11-calling-out-f1.png"))
+        try writeSolidFrame(0.2, to: folder.appendingPathComponent("11-calling-out-f2.png"))
         for number in 1...8 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("11-calling-out-front-f\(number).png"))
         }

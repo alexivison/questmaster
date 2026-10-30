@@ -394,7 +394,8 @@ struct TrackerRootView: View {
                 sprites: avatarStage.sprites,
                 fidget: avatarStage.fidgetFrame,
                 beat: avatarStage.beat,
-                finish: avatarStage.finish
+                finish: avatarStage.finish,
+                enter: avatarStage.enter
             )
                 .padding(.leading, TrackerListMetrics.sidePadding)
                 .padding(.top, TrackerListMetrics.avatarGap)
