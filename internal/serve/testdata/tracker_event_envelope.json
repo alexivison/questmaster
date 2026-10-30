@@ -1,5 +1,5 @@
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "type": "event",
   "topic": "tracker",
   "data": {
@@ -33,27 +33,43 @@
         "pull_requests_rev": "abcdef1234567890",
         "artifacts": [
           {
+            "id": "art-contract-plan",
             "kind": "html",
             "path": "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
             "label": "Plan",
             "session_id": "qm-demo",
+            "session_ids": [
+              "qm-demo",
+              "qm-second"
+            ],
+            "created_by_session_id": "qm-demo",
             "project_id": "/tmp/questmaster/.git",
             "added_at": "2026-06-19T04:19:00Z",
             "missing": true
           },
           {
+            "id": "art-contract-report",
             "kind": "markdown",
             "path": "/tmp/questmaster/worktrees/app-contract/docs/report.md",
             "label": "Report",
             "session_id": "qm-demo",
+            "session_ids": [
+              "qm-demo"
+            ],
+            "created_by_session_id": "qm-demo",
             "project_id": "/tmp/questmaster/.git",
             "added_at": "2026-06-19T04:19:30Z"
           },
           {
+            "id": "art-contract-screenshot",
             "kind": "image",
             "path": "/tmp/questmaster/worktrees/app-contract/docs/screenshot.png",
             "label": "Screenshot",
             "session_id": "qm-demo",
+            "session_ids": [
+              "qm-demo"
+            ],
+            "created_by_session_id": "qm-demo",
             "project_id": "/tmp/questmaster/.git",
             "added_at": "2026-06-19T04:19:40Z"
           }
@@ -77,35 +93,56 @@
     ],
     "artifacts": [
       {
+        "id": "art-contract-plan",
         "kind": "html",
         "path": "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
         "label": "Plan",
         "session_id": "qm-demo",
+        "session_ids": [
+          "qm-demo",
+          "qm-second"
+        ],
+        "created_by_session_id": "qm-demo",
         "project_id": "/tmp/questmaster/.git",
         "added_at": "2026-06-19T04:19:00Z",
         "missing": true
       },
       {
+        "id": "art-contract-report",
         "kind": "markdown",
         "path": "/tmp/questmaster/worktrees/app-contract/docs/report.md",
         "label": "Report",
         "session_id": "qm-demo",
+        "session_ids": [
+          "qm-demo"
+        ],
+        "created_by_session_id": "qm-demo",
         "project_id": "/tmp/questmaster/.git",
         "added_at": "2026-06-19T04:19:30Z"
       },
       {
+        "id": "art-contract-screenshot",
         "kind": "image",
         "path": "/tmp/questmaster/worktrees/app-contract/docs/screenshot.png",
         "label": "Screenshot",
         "session_id": "qm-demo",
+        "session_ids": [
+          "qm-demo"
+        ],
+        "created_by_session_id": "qm-demo",
         "project_id": "/tmp/questmaster/.git",
         "added_at": "2026-06-19T04:19:40Z"
       },
       {
+        "id": "art-contract-orphan",
         "kind": "html",
         "path": "/tmp/questmaster/old-sessions/qm-orphan/docs/orphan.html",
         "label": "Orphan",
         "session_id": "qm-orphan",
+        "session_ids": [
+          "qm-orphan"
+        ],
+        "created_by_session_id": "qm-orphan",
         "project_id": "/tmp/questmaster/.git",
         "added_at": "2026-06-19T04:19:50Z"
       }

@@ -100,6 +100,32 @@ func TestArtifactAddListRemove(t *testing.T) {
 	}
 }
 
+func TestArtifactDeleteRemovesFileAndAllLinks(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	path := filepath.Join(t.TempDir(), "shared.md")
+	if err := os.WriteFile(path, []byte("shared"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"qm-first", "qm-second"} {
+		if err := state.UpsertArtifactAt(store.Root(), id, state.Artifact{Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	artifacts, err := state.LoadArtifactsGlobal(store.Root())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, store, sessionsRunner(), "artifact", "delete", artifacts[0].ID)
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("file remains: %v", err)
+	}
+	artifacts, err = state.LoadArtifactsGlobal(store.Root())
+	if err != nil || len(artifacts) != 0 {
+		t.Fatalf("registry = %#v, %v", artifacts, err)
+	}
+}
+
 func TestArtifactAddInfersAndOverridesKind(t *testing.T) {
 	store := setupStore(t)
 	t.Setenv(state.StateRootEnv, store.Root())

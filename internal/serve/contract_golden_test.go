@@ -56,6 +56,7 @@ func serveContractFixtures() []contractFixture {
 	lastChatAt := observedAt.Add(-time.Minute)
 	castStartedAt := time.Date(2026, 6, 19, 4, 19, 48, 529000000, time.UTC)
 	artifact := ArtifactSnapshot{
+		ID: "art-contract-plan", SessionIDs: []string{"qm-demo", "qm-second"}, CreatedBySessionID: "qm-demo",
 		Kind:      "html",
 		Path:      "/tmp/questmaster/worktrees/app-contract/docs/plan.html",
 		Label:     "Plan",
@@ -65,6 +66,7 @@ func serveContractFixtures() []contractFixture {
 		Missing:   true,
 	}
 	markdownArtifact := ArtifactSnapshot{
+		ID: "art-contract-report", SessionIDs: []string{"qm-demo"}, CreatedBySessionID: "qm-demo",
 		Kind:      "markdown",
 		Path:      "/tmp/questmaster/worktrees/app-contract/docs/report.md",
 		Label:     "Report",
@@ -73,6 +75,7 @@ func serveContractFixtures() []contractFixture {
 		AddedAt:   observedAt.Add(-30 * time.Second).Format(time.RFC3339),
 	}
 	imageArtifact := ArtifactSnapshot{
+		ID: "art-contract-screenshot", SessionIDs: []string{"qm-demo"}, CreatedBySessionID: "qm-demo",
 		Kind:      "image",
 		Path:      "/tmp/questmaster/worktrees/app-contract/docs/screenshot.png",
 		Label:     "Screenshot",
@@ -81,6 +84,7 @@ func serveContractFixtures() []contractFixture {
 		AddedAt:   observedAt.Add(-20 * time.Second).Format(time.RFC3339),
 	}
 	orphanArtifact := ArtifactSnapshot{
+		ID: "art-contract-orphan", SessionIDs: []string{"qm-orphan"}, CreatedBySessionID: "qm-orphan",
 		Kind:      "html",
 		Path:      "/tmp/questmaster/old-sessions/qm-orphan/docs/orphan.html",
 		Label:     "Orphan",

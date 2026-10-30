@@ -757,6 +757,52 @@ func RemoveArtifactGlobal(root, path string) (bool, error) {
 	return removed, err
 }
 
+// DeleteArtifactAt removes the registered file and every session link. The
+// registry lock keeps deletion ordered with registration and relinking.
+func DeleteArtifactAt(root, idOrPath string) (bool, error) {
+	if idOrPath == "" {
+		return false, errors.New("artifact id or path is required")
+	}
+	if root == "" {
+		return false, errors.New("no state root resolved")
+	}
+	removed := false
+	err := withArtifactsRegistryLock(root, func() error {
+		artifacts, err := loadArtifactsGlobalLocked(root)
+		if err != nil {
+			return err
+		}
+		target, found := ArtifactByIDOrPath(artifacts, idOrPath)
+		if !found {
+			return nil
+		}
+		info, err := os.Lstat(target.Path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect artifact file: %w", err)
+		}
+		if err == nil {
+			if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+				return fmt.Errorf("artifact path is not a file: %s", target.Path)
+			}
+			if err := os.Remove(target.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("delete artifact file: %w", err)
+			}
+		}
+		next := make([]Artifact, 0, len(artifacts)-1)
+		for _, artifact := range artifacts {
+			if artifact.ID != target.ID {
+				next = append(next, artifact)
+			}
+		}
+		if err := writeArtifactsRegistryLocked(root, next); err != nil {
+			return err
+		}
+		removed = true
+		return syncArtifactSidecarsLocked(root, next, target.SessionIDs...)
+	})
+	return removed, err
+}
+
 func FilterArtifacts(artifacts []Artifact, scope, sessionID, projectID string) []Artifact {
 	if scope == ArtifactScopeAll {
 		return SortedArtifacts(artifacts)

@@ -49,6 +49,89 @@ func TestArtifactLinksRemainAfterSecondSessionAdd(t *testing.T) {
 	}
 }
 
+func TestDeleteArtifactRemovesFileAndEveryLink(t *testing.T) {
+	root := setStateRoot(t)
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := os.WriteFile(path, []byte("report"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"qm-a", "qm-b"} {
+		if err := UpsertArtifactAt(root, id, Artifact{Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	artifacts, err := LoadArtifactsGlobal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := DeleteArtifactAt(root, artifacts[0].ID)
+	if err != nil || !removed {
+		t.Fatalf("delete = %v, %v", removed, err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("file remains: %v", err)
+	}
+	artifacts, err = LoadArtifactsGlobal(root)
+	if err != nil || len(artifacts) != 0 {
+		t.Fatalf("registry = %#v, %v", artifacts, err)
+	}
+	for _, id := range []string{"qm-a", "qm-b"} {
+		linked, err := LoadArtifactsAt(root, id)
+		if err != nil || len(linked) != 0 {
+			t.Fatalf("sidecar %s = %#v, %v", id, linked, err)
+		}
+	}
+}
+
+func TestDeleteArtifactMissingAndDiskFailure(t *testing.T) {
+	root := setStateRoot(t)
+	missing := filepath.Join(t.TempDir(), "missing.md")
+	if err := UpsertArtifactAt(root, "qm-a", Artifact{Path: missing}); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := DeleteArtifactAt(root, missing); err != nil || !removed {
+		t.Fatalf("missing delete = %v, %v", removed, err)
+	}
+	dir := filepath.Join(t.TempDir(), "directory")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertArtifactAt(root, "qm-a", Artifact{Path: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := DeleteArtifactAt(root, dir); err == nil || removed {
+		t.Fatalf("directory delete = %v, %v", removed, err)
+	}
+	artifacts, err := LoadArtifactsGlobal(root)
+	if err != nil || len(artifacts) != 1 || artifacts[0].Path != dir {
+		t.Fatalf("registry after failure = %#v, %v", artifacts, err)
+	}
+}
+
+func TestDeleteArtifactSymlinkDoesNotFollowTarget(t *testing.T) {
+	root := setStateRoot(t)
+	target := filepath.Join(t.TempDir(), "target.md")
+	link := filepath.Join(t.TempDir(), "link.md")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertArtifactAt(root, "qm-a", Artifact{Path: link}); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := DeleteArtifactAt(root, link); err != nil || !removed {
+		t.Fatalf("symlink delete = %v, %v", removed, err)
+	}
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("link remains: %v", err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "keep" {
+		t.Fatalf("target = %q, %v", data, err)
+	}
+}
+
 func TestArtifactGlobalUpsertKeepsSessionLinks(t *testing.T) {
 	root := setStateRoot(t)
 	path := filepath.Join(t.TempDir(), "report.html")

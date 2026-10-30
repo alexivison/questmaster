@@ -1463,6 +1463,45 @@ func TestArtifactDeleteMutationRemovesSessionAndGlobalArtifacts(t *testing.T) {
 	}
 }
 
+func TestArtifactDeleteMutationRemovesEverySessionAndFile(t *testing.T) {
+	store, err := state.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "shared.md")
+	if err := os.WriteFile(path, []byte("shared"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"qm-a", "qm-b"} {
+		if err := state.UpsertArtifactAt(store.Root(), id, state.Artifact{Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	artifacts, err := state.LoadArtifactsGlobal(store.Root())
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("registry = %#v, %v", artifacts, err)
+	}
+	snapshots := artifactSnapshots(artifacts)
+	if len(snapshots) != 1 || snapshots[0].ID != artifacts[0].ID || !reflect.DeepEqual(snapshots[0].SessionIDs, []string{"qm-a", "qm-b"}) {
+		t.Fatalf("snapshot = %#v", snapshots)
+	}
+	server := &Server{Snapshotter: &Snapshotter{store: store}}
+	data, err := json.Marshal(map[string]string{"id": artifacts[0].ID, "session_id": "qm-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.mutate(t.Context(), Request{Method: "artifact.delete", Data: data}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("file remains: %v", err)
+	}
+	artifacts, err = state.LoadArtifactsGlobal(store.Root())
+	if err != nil || len(artifacts) != 0 {
+		t.Fatalf("registry after delete = %#v, %v", artifacts, err)
+	}
+}
+
 func anyArtifactHasPath(artifacts []state.Artifact, path string) bool {
 	for _, artifact := range artifacts {
 		if artifact.Path == path {

@@ -28,6 +28,7 @@ func newArtifactCmd(store *state.Store, client *tmux.Client) *cobra.Command {
 		newArtifactAddCmd(store, client, &sessionFlag),
 		newArtifactListCmd(store, client, &sessionFlag),
 		newArtifactRemoveCmd(store, client, &sessionFlag),
+		newArtifactDeleteCmd(store),
 	)
 	return cmd
 }

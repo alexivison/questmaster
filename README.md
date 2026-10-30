@@ -246,7 +246,7 @@ printf '# Report\n' | questmaster artifact create report.md --label Report
 questmaster artifact create diagram.png --from /path/to/diagram.png
 ```
 
-The command prints the artifact ID and stored path. `questmaster artifact add <artifact-id-or-path> --session qm-...` links an existing artifact to another session without moving or copying it. `questmaster artifact rm` removes a registration or session link without deleting file bytes.
+The command prints the artifact ID and stored path. `questmaster artifact add <artifact-id-or-path> --session qm-...` links an existing artifact to another session without moving or copying it. `questmaster artifact rm` removes a registration or session link while keeping the file. `questmaster artifact delete <artifact-id-or-path>` permanently deletes the file and every session link.
 
 ## Development
 
