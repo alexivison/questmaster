@@ -462,10 +462,10 @@ struct TrackerRootView: View {
 
     /// Feeds the class avatar the tracker's sessions and the attached session's id.
     private func feedAvatar() {
-        avatarStage.observe(
-            sessions: TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot)),
-            attachedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID)
-        )
+        let sessions = TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot))
+        let attachedID = TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID)
+        AvatarFlightLog.write("feed attached=\(attachedID ?? "-") rows=\(sessions.count) workers=\(sessions.filter { $0.parentID == attachedID }.map { "\($0.id)[\($0.lastExchange.map { "\($0.kind)@\($0.at)" } ?? "none")]" })")
+        avatarStage.observe(sessions: sessions, attachedID: attachedID)
     }
 
     private func installRuntimeObservation() {

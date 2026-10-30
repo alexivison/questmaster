@@ -54,12 +54,14 @@ enum TrackerSpellRoute {
                 return clamped(CGPoint(x: plate.midX, y: plate.midY), into: list)
             }
         }
-        return launches.compactMap { launch in
+        let plans = launches.compactMap { launch -> TrackerSpellPlan? in
             guard let from = point(launch.flight.from), let to = point(launch.flight.to) else {
                 return nil
             }
             return TrackerSpellPlan(serial: launch.serial, spell: launch.flight.spell, from: from, to: to)
         }
+        AvatarFlightLog.write("plans launches=\(launches.map(\.serial)) resolved=\(plans.map(\.serial)) plates=\(anchors.plates.keys.sorted()) avatar=\(anchors.avatar != nil) list=\(anchors.list != nil) master=\(masterID ?? "-") sprites=\(sprites != nil)")
+        return plans
     }
 
     private static func clamped(_ point: CGPoint, into list: CGRect?) -> CGPoint {
@@ -101,6 +103,7 @@ final class TrackerSpellFlightView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        AvatarFlightLog.write("flight view made")
         wantsLayer = true
         layer?.masksToBounds = false
     }
@@ -115,6 +118,7 @@ final class TrackerSpellFlightView: NSView {
     /// Flies each plan whose serial is past the last one played, then moves the mark past every launch seen so far. A launch
     /// whose ends didn't resolve is not replayed later.
     func play(_ plans: [TrackerSpellPlan], latestSerial: Int, sprites: TrackerAvatarSprites?) {
+        AvatarFlightLog.write("play plans=\(plans.map(\.serial)) played=\(playedSerial.map(String.init) ?? "nil") latest=\(latestSerial)")
         guard let playedSerial else {
             self.playedSerial = latestSerial
             return
@@ -126,6 +130,7 @@ final class TrackerSpellFlightView: NSView {
     }
 
     private func fly(_ plan: TrackerSpellPlan, sprites: TrackerAvatarSprites?) {
+        AvatarFlightLog.write("fly serial=\(plan.serial) spell=\(plan.spell) reduce=\(Motion.reducesMotion()) art=\(sprites?.flight(for: plan.spell) != nil)/\(sprites?.impact(for: plan.spell) != nil) from=\(plan.from) to=\(plan.to)")
         guard !Motion.reducesMotion(),
               let flight = sprites?.flight(for: plan.spell),
               let impact = sprites?.impact(for: plan.spell) else {
