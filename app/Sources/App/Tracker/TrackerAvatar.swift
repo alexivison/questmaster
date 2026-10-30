@@ -304,7 +304,7 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
             part.magnificationFilter = .nearest
             part.minificationFilter = .nearest
         }
-        lids.fillColor = AppPalette.avatarSkin.cgColor
+        lids.fillColor = idle.lidColour.cgColor
         lids.path = eyelidPath()
         lids.isHidden = true
     }
