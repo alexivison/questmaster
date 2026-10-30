@@ -67,7 +67,7 @@ struct TrackerCastRow: View {
     private var square: some View {
         ZStack {
             RoundedRectangle(cornerRadius: Self.radius).fill(AppPalette.panel.swiftUI)
-            RoundedRectangle(cornerRadius: Self.radius).strokeBorder(AppPalette.line.swiftUI, lineWidth: Self.border)
+            RoundedRectangle(cornerRadius: Self.radius).strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Self.border)
             if let icon = TrackerCastIcon.image(symbol: cast.symbol, metrics: metrics) {
                 Image(nsImage: icon)
             }
@@ -81,7 +81,7 @@ struct TrackerCastRow: View {
             TrackerCastFillView(cast: cast, isFinishing: isFinishing, reduceMotion: reduceMotion)
                 .frame(width: barWidth - 2 * Self.border, height: metrics.side - 2 * Self.border)
                 .offset(x: Self.border, y: Self.border)
-            RoundedRectangle(cornerRadius: Self.radius).strokeBorder(AppPalette.line.swiftUI, lineWidth: Self.border)
+            RoundedRectangle(cornerRadius: Self.radius).strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Self.border)
             TrackerPlateLine(
                 text: cast.label,
                 font: AppFonts.monoSmall,
