@@ -11,8 +11,9 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     case scrying
     case spellsong
     case callingOut
-    /// The one-shots: a master casting (summoning, then release), a messenger's release, and a catch. Bowing is one too.
+    /// A master summoning: a steady cast while a `questmaster spawn` runs, and the cue that casts it before a spawn's release.
     case summoning
+    /// The one-shots: a messenger's release, a catch, and a bow.
     case release
     case catching
     case bow
@@ -21,7 +22,7 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     public var playKind: TrackerAvatarPlayKind {
         switch self {
         case .idle: .layers
-        case .summoning, .release, .catching, .bow: .oneShot
+        case .release, .catching, .bow: .oneShot
         default: .loop
         }
     }
@@ -29,7 +30,7 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     /// The poses that cast a spell. A cast that ends for another pose plays its finish first (`TrackerAvatarDirector`).
     public var isCast: Bool {
         switch self {
-        case .studying, .inscribing, .channelling, .scrying, .spellsong: true
+        case .studying, .inscribing, .channelling, .scrying, .spellsong, .summoning: true
         default: false
         }
     }

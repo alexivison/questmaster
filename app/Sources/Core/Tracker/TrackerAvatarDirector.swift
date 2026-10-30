@@ -48,11 +48,11 @@ public struct TrackerAvatarFrame: Equatable {
     /// How many pose beats have started so far. A beat on the same pose as the one before still starts afresh, so the view
     /// replays that pose's one-shot when this rises.
     public let beat: Int
-    /// How far into the cast's finish the avatar is, while `pose` (the cast) is finishing; nil otherwise. The view reads each
-    /// layer's frame at this time from the finish's tracks.
+    /// How far into a finish the avatar is, while `pose` finishes: a cast leaving for another pose, or a summoning cast's finish on
+    /// its cue. Nil otherwise. The view reads each layer's frame at this time from the finish's tracks.
     public let finishElapsed: TimeInterval?
-    /// How far into the steady pose's enter the avatar is, while the enter plays; nil otherwise, so the loop plays. The view reads
-    /// each layer's frame at this time from the enter's tracks.
+    /// How far into an enter the avatar is, while `pose` enters: a steady pose's enter, or a summoning cast's on its cue. Nil
+    /// otherwise, so the loop plays. The view reads each layer's frame at this time from the enter's tracks.
     public let enterElapsed: TimeInterval?
 }
 
@@ -73,15 +73,26 @@ public struct TrackerAvatarFrame: Equatable {
 ///   its enter, and Reduce Motion skips it.
 /// - Events play as cues, one after another: a cue is a few beats, each holding a pose and maybe starting a spell. At most
 ///   `queueCapacity` cues wait behind the one playing; a burst past that drops the newest.
+/// - A spawn casts the summoning first: its enter, one loop cycle and its finish, on one beat, then the release with the orb. When
+///   the summoning is on screen already (its command is still running), the release waits for that summoning to finish instead.
 /// - Under Reduce Motion the poses still play, but no spell flies.
 public struct TrackerAvatarDirector {
     public static let queueCapacity = 4
 
-    /// One step of a cue: a pose held for `seconds` (nil keeps the steady pose), and a spell that starts with it.
+    /// One step of a cue: a pose held for `seconds` (nil keeps the steady pose), and a spell that starts with it. A cast's beat
+    /// plays its enter, one loop cycle and its finish, in that order.
     private struct Beat: Equatable {
         let pose: TrackerAvatarPose?
         let seconds: TimeInterval
         let flight: TrackerSpellFlight?
+        var cast: CastCue?
+    }
+
+    /// The phases of a cast on its beat, in seconds: its enter, one loop cycle, then its finish.
+    private struct CastCue: Equatable {
+        let enter: TimeInterval
+        let loop: TimeInterval
+        let finish: TimeInterval
     }
 
     private let reducesMotion: Bool
@@ -115,6 +126,11 @@ public struct TrackerAvatarDirector {
     private var beatCount = 0
     /// A cast's finish in progress: its tracks play from `startedAt`, and the steady pose snaps in when they end.
     private var finishing: Finish?
+    /// The cast cue on the beat now, and when its beat began; its phases time the enter and the finish on that beat.
+    private var beatCast: CastCue?
+    private var beatStartedAt: TimeInterval = 0
+    /// Spawns whose release waits for the summoning on screen to finish. Each entry is one cue's beats, queued when that summoning ends.
+    private var waitingForSummoning: [[Beat]] = []
 
     private struct Finish: Equatable {
         let pose: TrackerAvatarPose
@@ -145,7 +161,11 @@ public struct TrackerAvatarDirector {
     /// An event the avatar answers. Its cue waits behind the cues already queued, and is dropped when the queue is full. An
     /// attached session without an avatar answers nothing.
     public mutating func answer(_ event: TrackerAvatarEvent, at now: TimeInterval) {
-        guard let animation, queued.count < Self.queueCapacity else {
+        guard let animation, queued.count + waitingForSummoning.count < Self.queueCapacity else {
+            return
+        }
+        if case .spawned(let worker) = event, steadyShown == .summoning {
+            waitingForSummoning.append([orbRelease(to: worker, animation)])
             return
         }
         enqueue(cue(for: event, animation: animation), at: now)
@@ -161,7 +181,7 @@ public struct TrackerAvatarDirector {
             launches: started,
             nextChange: nextChange(after: now),
             beat: beatCount,
-            finishElapsed: finishing.map { now - $0.startedAt },
+            finishElapsed: finishElapsed(at: now),
             enterElapsed: enterElapsed(at: now)
         )
     }
@@ -170,9 +190,11 @@ public struct TrackerAvatarDirector {
         attachedID = session?.id
         self.session = session
         queued = []
+        waitingForSummoning = []
         playing = []
         beatPose = nil
         beatEnd = nil
+        beatCast = nil
         finishing = nil
         bowPending = false
         bowRequested = false
@@ -215,14 +237,7 @@ public struct TrackerAvatarDirector {
     private func cue(for event: TrackerAvatarEvent, animation: TrackerAvatarAnimation) -> [Beat] {
         switch event {
         case .spawned(let worker):
-            return [
-                Beat(pose: .summoning, seconds: animation.onceSeconds(for: .summoning), flight: nil),
-                Beat(
-                    pose: .release,
-                    seconds: animation.onceSeconds(for: .release),
-                    flight: TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker(worker))
-                ),
-            ]
+            return [summoningCast(animation), orbRelease(to: worker, animation)]
         case .messaged(let worker):
             return [
                 Beat(
@@ -237,6 +252,26 @@ public struct TrackerAvatarDirector {
                 Beat(pose: .catching, seconds: animation.onceSeconds(for: .catching), flight: nil),
             ]
         }
+    }
+
+    /// The summoning cast's beat: its enter, one loop cycle and its finish.
+    private func summoningCast(_ animation: TrackerAvatarAnimation) -> Beat {
+        let summoning = animation.animation(for: .summoning)
+        let cast = CastCue(
+            enter: summoning?.enter?.seconds ?? 0,
+            loop: summoning?.loop?.seconds ?? 0,
+            finish: summoning?.finish?.seconds ?? 0
+        )
+        return Beat(pose: .summoning, seconds: cast.enter + cast.loop + cast.finish, flight: nil, cast: cast)
+    }
+
+    /// The release that launches the orb from the avatar to a new worker's plate.
+    private func orbRelease(to worker: String, _ animation: TrackerAvatarAnimation) -> Beat {
+        Beat(
+            pose: .release,
+            seconds: animation.onceSeconds(for: .release),
+            flight: TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker(worker))
+        )
     }
 
     /// Queues a cue. The clock moves to `now` first, so a cue that arrives after an idle gap starts now, not at the end of
@@ -264,15 +299,22 @@ public struct TrackerAvatarDirector {
 
     /// Ends the beats that are over, starts the next ones, and applies the steady pose once it has held.
     private mutating func advance(to now: TimeInterval) {
-        if beatEnd == nil {
-            startBeat(at: now)
-        }
+        startIdleBeat(at: now)
         while let end = beatEnd, now >= end {
             startBeat(at: end)
         }
         endFinish(at: now)
+        startIdleBeat(at: now)
         updateBow(at: now)
         applySteady(at: now)
+        startIdleBeat(at: now)
+    }
+
+    /// Starts the next queued beat when none is playing, so a release that a finish or a change let go plays at once.
+    private mutating func startIdleBeat(at now: TimeInterval) {
+        if beatEnd == nil {
+            startBeat(at: now)
+        }
     }
 
     /// Starts the next beat at `start`, taking the next cue when the one playing has run out. With nothing left, the avatar
@@ -284,11 +326,14 @@ public struct TrackerAvatarDirector {
         guard !playing.isEmpty else {
             beatPose = nil
             beatEnd = nil
+            beatCast = nil
             return
         }
         let beat = playing.removeFirst()
         beatPose = beat.pose
         beatEnd = start + beat.seconds
+        beatCast = beat.cast
+        beatStartedAt = start
         if beat.pose != nil {
             beatCount += 1
             finishing = nil
@@ -360,6 +405,11 @@ public struct TrackerAvatarDirector {
         if pose != steadyShown {
             enterSince = time
         }
+        if steadyShown == .summoning, pose != .summoning {
+            // The summoning is over (its finish, if any, has played): the spawns that waited on it release now.
+            queued += waitingForSummoning.map { $0.compactMap(withMotion) }.filter { !$0.isEmpty }
+            waitingForSummoning = []
+        }
         steadyShown = pose
         steadyShownSince = time
         if pose == .bow {
@@ -375,14 +425,35 @@ public struct TrackerAvatarDirector {
         return animation?.animation(for: steadyShown)?.enter
     }
 
-    /// How far into the steady pose's enter the avatar is, while it plays. A cue or a finish takes the frame while it plays, and the
-    /// enter's clock runs on under them, as the hold's does.
+    /// How far into an enter the avatar is, while it plays. A summoning cast's enter plays on its cue. The steady pose's enter waits
+    /// while a cue or a finish takes the frame, and its clock runs on under them, as the hold's does.
     private func enterElapsed(at now: TimeInterval) -> TimeInterval? {
-        guard beatPose == nil, finishing == nil, let enter = steadyEnter else {
+        guard !reducesMotion else {
+            return nil
+        }
+        if beatPose != nil {
+            guard let cast = beatCast, now - beatStartedAt < cast.enter else {
+                return nil
+            }
+            return now - beatStartedAt
+        }
+        guard finishing == nil, let enter = steadyEnter else {
             return nil
         }
         let elapsed = now - enterSince
         return elapsed < enter.seconds ? elapsed : nil
+    }
+
+    /// How far into a finish the avatar is: the steady change's finish, or a summoning cast's finish on its cue. Nil otherwise.
+    private func finishElapsed(at now: TimeInterval) -> TimeInterval? {
+        if let finishing {
+            return now - finishing.startedAt
+        }
+        guard !reducesMotion, let cast = beatCast else {
+            return nil
+        }
+        let start = beatStartedAt + cast.enter + cast.loop
+        return now >= start ? now - start : nil
     }
 
     /// When the state next changes on its own, after `now`: a beat ends, a finish moves to its next step or ends, the hold runs out,
@@ -391,6 +462,10 @@ public struct TrackerAvatarDirector {
         var changes: [TimeInterval] = []
         if let beatEnd {
             changes.append(beatEnd)
+        }
+        if let cast = beatCast {
+            changes.append(beatStartedAt + cast.enter)
+            changes.append(beatStartedAt + cast.enter + cast.loop)
         }
         if let finishing {
             changes += finishing.block.changes.map { finishing.startedAt + $0 }

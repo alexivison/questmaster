@@ -609,7 +609,7 @@
     "09-summoning": {
       "foot_row": 171,
       "body_column": 49,
-      "once": {
+      "enter": {
         "character": [
           [
             1,
@@ -674,6 +674,22 @@
           [
             6,
             0.17
+          ]
+        ]
+      },
+      "loop": {
+        "character": [
+          [
+            1,
+            0.46
+          ]
+        ]
+      },
+      "finish": {
+        "character": [
+          [
+            1,
+            0.36
           ]
         ]
       }

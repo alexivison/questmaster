@@ -40,6 +40,8 @@ struct TrackerAvatarDirectorTests {
         callingOutCutsInWithItsOwnEnter()
         aPoseThatContinuesDoesNotReplayItsEnter()
         noEnterUnderReduceMotion()
+        aSummoningCastPlaysItsPhasesOnTheCue()
+        aSpawnWaitsForTheSummoningOnScreen()
         print("TrackerAvatarDirectorTests: all tests passed")
     }
 
@@ -51,15 +53,20 @@ struct TrackerAvatarDirectorTests {
     private static let finishFourSeconds: TimeInterval = 0.25
     private static let finishSeconds: TimeInterval = 0.75
     private static let bowSeconds: TimeInterval = 2
+    /// The bard's summoning cast, as his file times it: an enter of 0.54 s, one loop cycle of 0.46 s and a finish of 0.54 s.
+    private static let summoningCastSeconds: TimeInterval = 1.54
 
     private static func bard(
         state: String = "working",
         tool: String? = nil,
         id: String = "qm-1",
         elapsedSince: String? = nil,
-        subagents: Int = 0
+        subagents: Int = 0,
+        activity: String? = nil
     ) -> TrackerSession {
-        AvatarSessionFixture.session(id: id, state: state, tool: tool, elapsedSince: elapsedSince, activeSubagents: subagents)
+        AvatarSessionFixture.session(
+            id: id, state: state, tool: tool, elapsedSince: elapsedSince, activeSubagents: subagents, activity: activity
+        )
     }
 
     /// The payload's working start of 1970-01-01T00:00:00Z, which is time 0 on the director's wall clock.
@@ -185,16 +192,48 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func spawnSummonsThenReleasesAndLaunchesTheOrb() {
-        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         director.observe(bard(), at: 0)
         director.answer(.spawned(worker: "qm-2"), at: 10)
         let summoning = director.frame(at: 10)
         expect(summoning.pose == .summoning && summoning.launches.isEmpty, "a spawn should start with the summoning, no flight yet")
-        let release = director.frame(at: 11)
-        expect(release.pose == .release, "the summoning should give way to the release")
+        expect(director.frame(at: 10 + summoningCastSeconds - 0.01).pose == .summoning, "the summoning should hold for its whole cast")
+        let release = director.frame(at: 10 + summoningCastSeconds + 0.01)
+        expect(release.pose == .release, "the summoning cast should give way to the release")
         expect(release.launches == [TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker("qm-2"))], "the orb should fly from the avatar to the new worker")
-        expect(director.frame(at: 11.5).launches.isEmpty, "a flight should launch once")
-        expect(director.frame(at: 12).pose == .pondering, "the release should give way to the steady pose")
+        let releaseEnd = 10 + summoningCastSeconds + AvatarAnimationFixture.bard().onceSeconds(for: .release)
+        expect(director.frame(at: 10 + summoningCastSeconds + 0.5).launches.isEmpty, "a flight should launch once")
+        expect(director.frame(at: releaseEnd + 0.01).pose == .pondering, "the release should give way to the steady pose")
+    }
+
+    /// A spawn's summoning cast plays its enter, one loop cycle and its finish on its own beat, and only then the release.
+    private static func aSummoningCastPlaysItsPhasesOnTheCue() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(), at: 0)
+        director.answer(.spawned(worker: "qm-2"), at: 10)
+        expect(near(director.frame(at: 10).enterElapsed, 0), "the cast should open on its enter")
+        expect(near(director.frame(at: 10.3).enterElapsed, 0.3), "the enter should run on from the spawn")
+        let loop = director.frame(at: 10.6)
+        expect(loop.pose == .summoning && loop.enterElapsed == nil && loop.finishElapsed == nil, "the loop should cycle with neither an enter nor a finish, got \(loop)")
+        expect(near(director.frame(at: 11.2).finishElapsed, 0.2), "the finish should begin after the loop's one cycle")
+        expect(director.frame(at: 11.2).launches.isEmpty, "the orb should wait out the finish")
+        expect(director.frame(at: 11.6).pose == .release, "the release should follow the finish")
+    }
+
+    /// A spawn while the summoning is on screen doesn't cut it: the orb leaves once the summoning's finish has played.
+    private static func aSpawnWaitsForTheSummoningOnScreen() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Bash", activity: "Bash: questmaster spawn --title x"), at: 0)
+        expect(director.frame(at: 0).pose == .summoning, "a spawn command should show the summoning at once")
+        director.answer(.spawned(worker: "qm-2"), at: 1)
+        let running = director.frame(at: 2)
+        expect(running.pose == .summoning && running.launches.isEmpty, "a spawn should not cut the running summoning, got \(running)")
+        director.observe(bard(), at: 3)
+        let finishing = director.frame(at: 3.3)
+        expect(finishing.pose == .summoning && near(finishing.finishElapsed, 0.3) && finishing.launches.isEmpty, "the summoning should finish first, got \(finishing)")
+        let released = director.frame(at: 3.6)
+        expect(released.pose == .release && released.launches == [TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker("qm-2"))],
+               "the orb should leave once the finish has played, got \(released)")
     }
 
     private static func messageReleasesAndLaunchesTheMessenger() {
@@ -231,11 +270,11 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func reduceMotionPlaysPosesWithoutFlights() {
-        var director = TrackerAvatarDirector(reducesMotion: true, catalog: noFinishCatalog)
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: catalog)
         director.observe(bard(), at: 0)
         director.answer(.spawned(worker: "qm-2"), at: 10)
-        expect(director.frame(at: 10).pose == .summoning, "under Reduce Motion the summoning should still play")
-        let release = director.frame(at: 11)
+        expect(director.frame(at: 10).pose == .summoning && director.frame(at: 10).enterElapsed == nil, "under Reduce Motion the summoning should still play, with no enter")
+        let release = director.frame(at: 10 + summoningCastSeconds + 0.01)
         expect(release.pose == .release && release.launches.isEmpty, "under Reduce Motion the release should play with no orb")
         director.answer(.reported(worker: "qm-2"), at: 20)
         let catching = director.frame(at: 20)

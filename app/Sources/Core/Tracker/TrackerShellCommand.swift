@@ -1,8 +1,8 @@
 import Foundation
 
 /// The pose a shell command strikes. The command's first program decides it, after any leading `cd dir &&`, env assignments
-/// and `rtk`: a reading command studies, a writing one inscribes, a network one scries, and anything else (builds, tests,
-/// scripts, questmaster) channels. The table below is the whole rule.
+/// and `rtk`: a reading command studies, a writing one inscribes, a network one scries, a spawn summons, and anything else
+/// (builds, tests, scripts, other questmaster commands) channels. The table below is the whole rule.
 public enum TrackerShellCommand {
     /// Keys are a program, or a program and its subcommand or flag (`git status`, `gh pr view`, `sed -n`). The longest key
     /// that matches wins, so `gh pr view` is read before `gh`.
@@ -19,6 +19,8 @@ public enum TrackerShellCommand {
         // Network
         "curl": .scrying, "wget": .scrying, "gh api": .scrying, "gh pr create": .scrying, "gh pr merge": .scrying,
         "git fetch": .scrying, "git pull": .scrying, "git push": .scrying, "git clone": .scrying,
+        // Summoning: a worker is spawned while the command runs
+        "questmaster spawn": .summoning, "qm spawn": .summoning,
     ]
 
     /// The pose a shell command strikes; channelling when the command is empty or its program isn't in the table.

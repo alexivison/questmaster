@@ -8,6 +8,8 @@ struct TrackerShellCommandTests {
         networkCommandsScry()
         everythingElseChannels()
         leadInsAndPipesDoNotChangeTheCommand()
+        spawnsSummon()
+        otherQuestmasterCommandsStillChannel()
         print("TrackerShellCommandTests: all tests passed")
     }
 
@@ -36,6 +38,23 @@ struct TrackerShellCommandTests {
             "git push origin main", "git clone https://example.com/r.git", "gh pr create --draft", "gh pr merge 3",
         ] {
             expect(TrackerShellCommand.pose(for: command) == .scrying, "\(command) should scry, got \(TrackerShellCommand.pose(for: command))")
+        }
+    }
+
+    /// A spawn summons, whether it is `questmaster` or `qm`, and whatever lead-ins, env assignments, rtk or pipe come with it.
+    private static func spawnsSummon() {
+        for command in [
+            "questmaster spawn --title x", "qm spawn --title x", "qm spawn", "cd /repo && questmaster spawn --title x",
+            "cd a && cd b && qm spawn x", "rtk questmaster spawn x", "FOO=1 questmaster spawn x", "questmaster spawn x | tee out",
+        ] {
+            expect(TrackerShellCommand.pose(for: command) == .summoning, "\(command) should summon, got \(TrackerShellCommand.pose(for: command))")
+        }
+    }
+
+    /// Only the spawn summons: the other questmaster commands, and a word that only begins with spawn, channel as before.
+    private static func otherQuestmasterCommandsStillChannel() {
+        for command in ["questmaster send master hi", "questmaster list", "qm list", "qm send qm-1 hi", "questmaster", "questmaster spawnx x"] {
+            expect(TrackerShellCommand.pose(for: command) == .channelling, "\(command) should channel, got \(TrackerShellCommand.pose(for: command))")
         }
     }
 

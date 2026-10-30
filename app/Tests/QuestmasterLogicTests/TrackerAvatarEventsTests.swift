@@ -89,8 +89,9 @@ struct TrackerAvatarEventsTests {
 
         let spawned = detector.observe(rows(workers: [worker("qm-w1")]), attachedID: master)
         for event in spawned { director.answer(event, at: 1) }
-        let summoning = AvatarAnimationFixture.bard().onceSeconds(for: .summoning)
-        drain(at: 1 + summoning + 0.01)
+        let summoning = AvatarAnimationFixture.bard().animation(for: .summoning)
+        let cast = (summoning?.enter?.seconds ?? 0) + (summoning?.loop?.seconds ?? 0) + (summoning?.finish?.seconds ?? 0)
+        drain(at: 1 + cast + 0.01)
 
         let messaged = detector.observe(rows(workers: [worker("qm-w1", exchange: ("instructions", "2026-10-28T09:00:05Z"))]), attachedID: master)
         for event in messaged { director.answer(event, at: 5) }

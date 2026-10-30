@@ -1162,9 +1162,10 @@ enum LogicSelfTests {
                                 "last_exchange": ["kind": "instructions", "at": "2026-10-30T13:26:05.000001Z"]])
         let reported = try row(["id": "qm-w", "title": "Ember", "session_type": "worker", "parent_id": "qm-m",
                                 "last_exchange": ["kind": "report", "at": "2026-10-30T13:26:09.000001Z"]])
-        guard let summoning = TrackerAvatarSprites.bundled()["wizard"]?.animation.onceSeconds(for: .summoning) else {
+        guard let wizardSummoning = TrackerAvatarSprites.bundled()["wizard"]?.animation.animation(for: .summoning) else {
             throw TestFailure("the wizard's sprites should load from the app bundle")
         }
+        let summoning = (wizardSummoning.enter?.seconds ?? 0) + (wizardSummoning.loop?.seconds ?? 0) + (wizardSummoning.finish?.seconds ?? 0)
 
         stage.observe(sessions: [master], attachedID: "qm-m")
         clock.now = 1

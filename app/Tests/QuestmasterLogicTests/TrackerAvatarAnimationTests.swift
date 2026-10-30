@@ -7,7 +7,7 @@ struct TrackerAvatarAnimationTests {
         decodesTheWizardsFile()
         aCatchHoldsItsClosedHandPastTheRecoil()
         aLoopCyclesEachTrackOnItsOwnClock()
-        aOneShotHoldsItsLastFrame()
+        aSummoningEntersLoopsAndFinishes()
         aFinishLastsItsLongestTrackAndHoldsItsLastFrame()
         aMissingOptionalTrackStillDecodes()
         aPoseWithBehindAndFrontOfDifferentLengthsPlaysEachOnItsOwnClock()
@@ -73,19 +73,23 @@ struct TrackerAvatarAnimationTests {
         expect(loop.character.frame(at: 1.3, looping: true) == 1, "a loop should wrap back to f1 after its cycle")
     }
 
-    /// A one-shot plays its steps once and holds the last frame; the summoning's effect and the figure share its length.
-    private static func aOneShotHoldsItsLastFrame() {
-        guard let once = (try? decode(bardJSON()))?.animation(for: .summoning)?.once else {
-            fail("summoning should have a one-shot")
+    /// A summoning casts: its enter leads in on f2 and strikes on f1, and holds f1 past its end, while its ground circle strikes with
+    /// the figure. Its loop holds f3 for one cycle, and its finish strikes on f1 and settles on f3. A bow still lasts its two seconds.
+    private static func aSummoningEntersLoopsAndFinishes() {
+        guard let summoning = (try? decode(bardJSON()))?.animation(for: .summoning),
+              let enter = summoning.enter, let loop = summoning.loop, let finish = summoning.finish else {
+            fail("summoning should have an enter, a loop and a finish")
         }
-        expect(near(once.seconds, 1), "a summoning should last one second, got \(once.seconds)")
-        expect(once.character.starts == [0, 0.18, 0.54], "a summoning should lead in on f2 and strike on f1, got \(once.character.starts)")
-        expect(once.character.frame(at: 0, looping: false) == 2, "a summoning should lead in on f2")
-        expect(once.character.frame(at: 0.3, looping: false) == 1, "a summoning should strike on f1")
-        expect(once.character.frame(at: 0.9, looping: false) == 3, "a summoning should hold f3 to its end")
-        expect(once.character.frame(at: 5, looping: false) == 3, "a summoning should hold its last frame past its end")
-        expect(once.behind?.frame(at: 0.3, looping: false) == 1, "a summoning's ground circle should strike with the figure")
-        expect(once.front == nil, "a summoning has no front layer")
+        expect(near(enter.seconds, 0.54), "a summoning's enter should last 0.54 s, got \(enter.seconds)")
+        expect(enter.character.starts == [0, 0.18], "a summoning should lead in on f2 and strike on f1 at 0.18 s, got \(enter.character.starts)")
+        expect(enter.character.frame(at: 0, looping: false) == 2, "a summoning should lead in on f2")
+        expect(enter.character.frame(at: 0.3, looping: false) == 1, "a summoning should strike on f1")
+        expect(enter.character.frame(at: 5, looping: false) == 1, "a summoning's enter should hold its last frame past its end")
+        expect(enter.behind?.frame(at: 0.3, looping: false) == 1, "a summoning's ground circle should strike with the figure")
+        expect(enter.front == nil && loop.front == nil && finish.front == nil, "a summoning has no front layer")
+        expect(near(loop.seconds, 0.46) && loop.character.frame(at: 0.1, looping: true) == 3, "a summoning's loop should hold f3 for one 0.46 s cycle")
+        expect(finish.character.frame(at: 0.1, looping: false) == 1 && finish.character.frame(at: 0.3, looping: false) == 3,
+               "a summoning's finish should strike on f1 and settle on f3")
         expect(near((try? decode(bardJSON()))?.animation(for: .bow)?.once?.seconds ?? 0, 2), "a bow should last two seconds")
     }
 
@@ -195,8 +199,8 @@ struct TrackerAvatarAnimationTests {
 
     /// An enter opens a steady pose's loop, so one without a loop, or with no character track, is a bad file.
     private static func anEnterNeedsALoopAndACharacterTrack() {
-        expectThrows(TrackerAvatarAnimationError.misplacedBlock("09-summoning"), "an enter on a one-shot, which has no loop") {
-            _ = try AvatarAnimationFixture.bard(editing: "09-summoning") { pose in
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("10-catching"), "an enter on a one-shot, which has no loop") {
+            _ = try AvatarAnimationFixture.bard(editing: "10-catching") { pose in
                 pose["enter"] = ["character": [[1, 0.25]]]
             }
         }
@@ -238,8 +242,8 @@ struct TrackerAvatarAnimationTests {
             json["poses"] = poses
             _ = try decode(json)
         }
-        expectThrows(TrackerAvatarAnimationError.misplacedBlock("09-summoning"), "a one-shot with a loop instead of its once") {
-            _ = try AvatarAnimationFixture.bard(editing: "09-summoning") { pose in
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("10-catching"), "a one-shot with a loop instead of its once") {
+            _ = try AvatarAnimationFixture.bard(editing: "10-catching") { pose in
                 pose["loop"] = ["character": [[1, 0.25]]]
                 pose.removeValue(forKey: "once")
             }
@@ -331,7 +335,7 @@ struct TrackerAvatarAnimationTests {
         expect(animation.fidgets.first?.track.steps.map(\.frame) == [2, 3, 2], "the hood should play its three idle frames")
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 158 && pondering?.bodyColumn == 33, "pondering should stand at the wizard's foot row and body column")
-        expect(animation.animation(for: .summoning)?.once?.behind != nil, "the wizard's summoning should have a ground effect")
+        expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the wizard's summoning should have a ground effect")
     }
 
     private static func aCatalogShowsEachClassWithArtAndNoOthers() {
