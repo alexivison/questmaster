@@ -198,10 +198,9 @@ struct Elevation {
     /// Points down.
     let drop: CGFloat
 
-    /// Tracker plates and dropdowns.
+    /// Everything that floats at panel level, kept tight for a flat look: the tracker's plates and discs, every
+    /// dropdown, the dock's panels, the action bar header and the toast.
     static let raised = Elevation(opacity: 0.35, blur: 4, drop: 1.5)
-    /// The dock's panels and the toast.
-    static let panel = Elevation(opacity: 0.3, blur: 12, drop: 4)
     /// Every in-window modal, the Quest Log included.
     static let modal = Elevation(opacity: 0.45, blur: 30, drop: 10)
 
