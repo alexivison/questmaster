@@ -1564,7 +1564,7 @@ struct TrackerShortcutNumber: View {
                 .frame(width: side, height: side)
             Text("\(number)")
                 .font(AppFonts.monoBold.swiftUI)
-                .foregroundStyle(AppPalette.bright.swiftUI)
+                .foregroundStyle(AppPalette.text.swiftUI)
         }
         .frame(width: diameter, height: diameter)
     }
@@ -1616,7 +1616,7 @@ struct TrackerAgentMark: View {
         .frame(width: diameter, height: diameter)
     }
 
-    static func image(for agentName: String, side: CGFloat = 12, tint: NSColor = AppPalette.bright) -> NSImage? {
+    static func image(for agentName: String, side: CGFloat = 12, tint: NSColor = AppPalette.text) -> NSImage? {
         let canvasSize = NSSize(width: side, height: side)
         switch AgentKind(name: agentName) {
         case .claude:

@@ -413,7 +413,7 @@ enum LogicSelfTests {
         let window = HeadlessWindow(size: CGSize(width: 80, height: 80))
         let held = TrackerGlowNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         window.contentView = held
-        held.configure(path: CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil), color: AppPalette.bright)
+        held.configure(path: CGPath(rect: CGRect(x: 0, y: 0, width: 40, height: 40), transform: nil), color: AppPalette.text)
         try expect(held.layer?.animationKeys()?.isEmpty != false, "a band should have no animation")
         try expect(held.layer?.opacity == TrackerGlowNSView.bandOpacity, "a band should hold its opacity")
     }

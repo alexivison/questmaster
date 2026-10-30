@@ -156,7 +156,7 @@ struct SettingsSheetView: View {
             let row = model.state.rows[rowIndex]
             let isFocusedRole = RoleDefaultsSettingsModel.roles[model.state.focusedRoleIndex] == role
             ZStack(alignment: .topLeading) {
-                BaselineText(title, font: AppFonts.settingsSectionTitle, color: AppPalette.settingsText, baseline: 0)
+                BaselineText(title, font: AppFonts.settingsSectionTitle, color: AppPalette.text, baseline: 0)
                 SettingsSectionRule(width: SettingsMetrics.columnWidth)
                     .offset(y: SettingsMetrics.ruleDrop)
                 SettingsRoleRow(
@@ -225,7 +225,7 @@ private struct SettingsRoleRow: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            BaselineText(title, font: AppFonts.settingsLabel, color: AppPalette.settingsText, baseline: SettingsMetrics.labelBaseline)
+            BaselineText(title, font: AppFonts.settingsLabel, color: AppPalette.text, baseline: SettingsMetrics.labelBaseline)
             BaselineText(description, font: AppFonts.settingsDescription, color: AppPalette.settingsDescription, baseline: SettingsMetrics.descriptionBaseline)
             picker
                 .frame(maxWidth: .infinity, alignment: .trailing)
