@@ -35,7 +35,7 @@ public struct DestructiveConfirmation: Equatable {
             action: .deleteArtifact,
             subjectID: path,
             title: "Delete artifact \(subject)?",
-            message: "This permanently deletes the file and removes it from every session. This can't be undone.",
+            message: "\(path)\nThis permanently deletes the file and removes it from every session. This can't be undone.",
             confirmLabel: "Delete",
             cancelLabel: "Cancel"
         )

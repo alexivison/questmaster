@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -129,6 +130,47 @@ func TestDeleteArtifactSymlinkDoesNotFollowTarget(t *testing.T) {
 	}
 	if data, err := os.ReadFile(target); err != nil || string(data) != "keep" {
 		t.Fatalf("target = %q, %v", data, err)
+	}
+}
+
+func TestDeleteArtifactRemovesEmptyManagedDirectory(t *testing.T) {
+	root := setStateRoot(t)
+	artifact, err := CreateArtifactAt(root, "qm-a", ArtifactCreateOptions{
+		Name: "report.md", ProjectID: "project-a", Content: strings.NewReader("report"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(artifact.Path)
+	if removed, err := DeleteArtifactAt(root, artifact.ID); err != nil || !removed {
+		t.Fatalf("delete = %v, %v", removed, err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("managed directory remains: %v", err)
+	}
+}
+
+func TestDeleteArtifactRegistryWriteFailureKeepsFile(t *testing.T) {
+	root := setStateRoot(t)
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := os.WriteFile(path, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertArtifactAt(root, "qm-a", Artifact{Path: path}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(ArtifactsRegistryPath(root)+".tmp", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := DeleteArtifactAt(root, path); err == nil || removed {
+		t.Fatalf("delete = %v, %v", removed, err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "keep" {
+		t.Fatalf("file = %q, %v", data, err)
+	}
+	artifacts, err := LoadArtifactsGlobal(root)
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("registry = %#v, %v", artifacts, err)
 	}
 }
 

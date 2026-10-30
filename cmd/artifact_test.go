@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +124,94 @@ func TestArtifactDeleteRemovesFileAndAllLinks(t *testing.T) {
 	artifacts, err = state.LoadArtifactsGlobal(store.Root())
 	if err != nil || len(artifacts) != 0 {
 		t.Fatalf("registry = %#v, %v", artifacts, err)
+	}
+}
+
+func TestArtifactRemoveUsesRequestedSessionForSharedArtifact(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	path := filepath.Join(t.TempDir(), "shared.md")
+	for _, id := range []string{"qm-a", "qm-b"} {
+		if err := state.UpsertArtifactAt(store.Root(), id, state.Artifact{Path: path}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runCmd(t, store, sessionsRunner(), "artifact", "rm", path, "--session", "qm-b")
+	artifacts, err := state.LoadArtifactsGlobal(store.Root())
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("registry = %#v, %v", artifacts, err)
+	}
+	if !reflect.DeepEqual(artifacts[0].SessionIDs, []string{"qm-a"}) {
+		t.Fatalf("wrong session unlinked: %#v", artifacts[0].SessionIDs)
+	}
+}
+
+func TestArtifactAddAcceptsRelativeFileStartingWithArt(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-art-prefix")
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("art-report.md", []byte("report"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, store, sessionsRunner(), "artifact", "add", "art-report.md")
+	artifacts, err := state.LoadArtifactsAt(store.Root(), "qm-art-prefix")
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("registered = %#v, %v", artifacts, err)
+	}
+}
+
+func TestArtifactAddWithoutMetadataIsIdempotent(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-idempotent")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := os.WriteFile(path, []byte("report"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, store, sessionsRunner(), "artifact", "add", path, "--label", "Report")
+	before, err := state.LoadArtifactsGlobal(store.Root())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, store, sessionsRunner(), "artifact", "add", path)
+	after, err := state.LoadArtifactsGlobal(store.Root())
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("re-add changed artifact: before=%#v after=%#v, %v", before, after, err)
+	}
+}
+
+func TestArtifactAddUnknownIDDoesNotRegisterMissingPath(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-unknown-id")
+	unknownID := "art-0123456789abcdef0123456789abcdef"
+	if _, err := runCmdInputErr(t, store, sessionsRunner(), strings.NewReader(""), "artifact", "add", unknownID); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("unknown ID error = %v", err)
+	}
+	artifacts, err := state.LoadArtifactsGlobal(store.Root())
+	if err != nil || len(artifacts) != 0 {
+		t.Fatalf("registry = %#v, %v", artifacts, err)
+	}
+}
+
+func TestArtifactDeleteAcceptsRelativePath(t *testing.T) {
+	store := setupStore(t)
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("report.md", []byte("report"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path, err := filepath.Abs("report.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.UpsertArtifactAt(store.Root(), "qm-a", state.Artifact{Path: path}); err != nil {
+		t.Fatal(err)
+	}
+	runCmd(t, store, sessionsRunner(), "artifact", "delete", "report.md")
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("file remains: %v", err)
 	}
 }
 

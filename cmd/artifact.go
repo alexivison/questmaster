@@ -37,7 +37,7 @@ func newArtifactAddCmd(store *state.Store, client *tmux.Client, sessionFlag *str
 	var label string
 	var kind string
 	cmd := &cobra.Command{
-		Use:   "add <path>",
+		Use:   "add <id-or-path>",
 		Short: "Register an artifact file for the current session",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -52,21 +52,21 @@ func newArtifactAddCmd(store *state.Store, client *tmux.Client, sessionFlag *str
 			}
 			path := args[0]
 			existing, found := state.ArtifactByIDOrPath(artifacts, path)
-			if strings.HasPrefix(path, "art-") && !filepath.IsAbs(path) {
-				if !found {
-					return fmt.Errorf("artifact %q not found", path)
-				}
+			if !found && looksLikeArtifactID(path) {
+				return fmt.Errorf("artifact %q not found", path)
+			}
+			if found && existing.ID == path {
 				path = existing.Path
-				if slices.Contains(existing.SessionIDs, sessionID) {
-					fmt.Fprintf(cmd.OutOrStdout(), "session\t%s\npath\t%s\n", sessionID, path)
-					return nil
-				}
 			} else {
 				path, err = resolveArtifactPath(path)
 				if err != nil {
 					return err
 				}
 				existing, found = state.ArtifactByIDOrPath(artifacts, path)
+			}
+			if found && slices.Contains(existing.SessionIDs, sessionID) && label == "" && kind == "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "session\t%s\npath\t%s\n", sessionID, path)
+				return nil
 			}
 			projectID := resolveArtifactProjectID(store, sessionID)
 			if r, ok := repo.Resolve(path); ok {
@@ -92,6 +92,24 @@ func newArtifactAddCmd(store *state.Store, client *tmux.Client, sessionFlag *str
 	cmd.Flags().StringVar(&label, "label", "", "display label (defaults to file name)")
 	cmd.Flags().StringVar(&kind, "kind", "", "artifact kind override (defaults from file extension)")
 	return cmd
+}
+
+func looksLikeArtifactID(value string) bool {
+	if !strings.HasPrefix(value, "art-") {
+		return false
+	}
+	hex := strings.TrimPrefix(value, "art-")
+	if len(hex) != 24 && len(hex) != 32 {
+		return false
+	}
+	for _, c := range hex {
+		if c < '0' || c > '9' {
+			if c < 'a' || c > 'f' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func newArtifactListCmd(store *state.Store, client *tmux.Client, sessionFlag *string) *cobra.Command {
@@ -149,8 +167,8 @@ func newArtifactRemoveCmd(store *state.Store, client *tmux.Client, sessionFlag *
 			}
 			removed := false
 			root := artifactStateRoot(store)
-			if target.SessionID != "" {
-				removed, err = state.RemoveArtifactAt(root, target.SessionID, target.Path)
+			if scope == state.ArtifactScopeSession {
+				removed, err = state.RemoveArtifactAt(root, sessionID, target.Path)
 			} else {
 				removed, err = state.RemoveArtifactGlobal(root, target.Path)
 			}
@@ -159,9 +177,6 @@ func newArtifactRemoveCmd(store *state.Store, client *tmux.Client, sessionFlag *
 			}
 			if !removed {
 				return artifactNotFoundError(args[0], scope, sessionID)
-			}
-			if target.SessionID != "" {
-				sessionID = target.SessionID
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "session\t%s\nremoved\t%s\n", sessionID, target.Path)
 			return nil

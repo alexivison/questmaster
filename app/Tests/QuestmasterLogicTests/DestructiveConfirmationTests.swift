@@ -30,7 +30,8 @@ struct DestructiveConfirmationTests {
         expect(spec.action == .deleteArtifact, "action mismatch")
         expect(spec.subjectID == "/tmp/plan.html", "artifact path mismatch")
         expect(spec.title == "Delete artifact Plan?", "title mismatch: \(spec.title)")
-        expect(spec.message == "This permanently deletes the file and removes it from every session. This can't be undone.", "message mismatch: \(spec.message)")
+        expect(spec.message.contains("/tmp/plan.html"), "confirmation should show the file path")
+        expect(spec.message.contains("every session"), "confirmation should explain shared deletion")
         expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }
 

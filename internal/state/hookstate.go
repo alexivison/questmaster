@@ -780,12 +780,26 @@ func DeleteArtifactAt(root, idOrPath string) (bool, error) {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("inspect artifact file: %w", err)
 		}
+		stagedPath := ""
 		if err == nil {
 			if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 				return fmt.Errorf("artifact path is not a file: %s", target.Path)
 			}
-			if err := os.Remove(target.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("delete artifact file: %w", err)
+			temp, err := os.CreateTemp(filepath.Dir(target.Path), ".artifact-delete-*")
+			if err != nil {
+				return fmt.Errorf("stage artifact deletion: %w", err)
+			}
+			stagedPath = temp.Name()
+			if err := temp.Close(); err != nil {
+				_ = os.Remove(stagedPath)
+				return fmt.Errorf("close deletion staging file: %w", err)
+			}
+			if err := os.Rename(target.Path, stagedPath); err != nil {
+				_ = os.Remove(stagedPath)
+				if !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("stage artifact file: %w", err)
+				}
+				stagedPath = ""
 			}
 		}
 		next := make([]Artifact, 0, len(artifacts)-1)
@@ -795,12 +809,42 @@ func DeleteArtifactAt(root, idOrPath string) (bool, error) {
 			}
 		}
 		if err := writeArtifactsRegistryLocked(root, next); err != nil {
+			if stagedPath != "" {
+				if restoreErr := os.Rename(stagedPath, target.Path); restoreErr != nil {
+					return errors.Join(err, fmt.Errorf("restore artifact file from %s: %w", stagedPath, restoreErr))
+				}
+			}
 			return err
 		}
 		removed = true
-		return syncArtifactSidecarsLocked(root, next, target.SessionIDs...)
+		syncErr := syncArtifactSidecarsLocked(root, next, target.SessionIDs...)
+		if stagedPath != "" {
+			if err := os.Remove(stagedPath); err != nil {
+				return errors.Join(syncErr, fmt.Errorf("remove staged artifact file %s: %w", stagedPath, err))
+			}
+		}
+		cleanupManagedArtifactDirectory(root, target)
+		return syncErr
 	})
 	return removed, err
+}
+
+func cleanupManagedArtifactDirectory(root string, artifact Artifact) {
+	library := filepath.Join(root, "artifact-files")
+	relative, err := filepath.Rel(library, artifact.Path)
+	if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	if len(parts) != 3 || parts[1] != artifact.ID || (parts[0] != "ungrouped" && !strings.HasPrefix(parts[0], "project-")) {
+		return
+	}
+	dir := filepath.Join(library, parts[0], parts[1])
+	if err := os.Remove(dir); err != nil {
+		return // Keep directories containing any other files.
+	}
+	_ = os.Remove(filepath.Dir(dir))
+	_ = os.Remove(library)
 }
 
 func FilterArtifacts(artifacts []Artifact, scope, sessionID, projectID string) []Artifact {

@@ -13,7 +13,16 @@ func newArtifactDeleteCmd(store *state.Store) *cobra.Command {
 		Short: "Permanently delete an artifact file and all session links",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			removed, err := state.DeleteArtifactAt(artifactStateRoot(store), args[0])
+			root := artifactStateRoot(store)
+			idOrPath := args[0]
+			var err error
+			if !looksLikeArtifactID(idOrPath) {
+				idOrPath, err = resolveArtifactPath(idOrPath)
+				if err != nil {
+					return err
+				}
+			}
+			removed, err := state.DeleteArtifactAt(root, idOrPath)
 			if err != nil {
 				return err
 			}
