@@ -9,7 +9,7 @@ import SwiftUI
 /// (past 200) in their tab, body, strip and bar paths sits 17 points left of the SVG's (15 on the master, whose art
 /// then moves 2 left to put its disc at 0, 2026-10-23), so the straight runs shorten and every corner keeps its shape. The panel's right edge lines up with the master plate's. The plate bodies' 2pt and the panel's 1.5pt strokes run inside their fills in the same colour, so
 /// they are not copied. Ornament pieces carry the role their colour has in the SVGs: `outline` is the plate's border
-/// colour (#444C56), `panel` the plate body's (#22272E), and `project` the project's.
+/// colour (`lineSoftSubtle`, #373E47), `panel` the plate body's (#22272E), and `project` the project's.
 enum TrackerPlateShapes {
     enum Role {
         case outline

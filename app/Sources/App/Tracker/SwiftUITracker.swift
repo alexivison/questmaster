@@ -819,7 +819,7 @@ private struct TrackerCollapsedCircle<Content: View>: View {
                 )
             }
             Canvas { context, _ in
-                context.stroke(circle, with: .color(AppPalette.line.swiftUI), lineWidth: stroke)
+                context.stroke(circle, with: .color(AppPalette.lineSoftSubtle.swiftUI), lineWidth: stroke)
             }
             .frame(width: side, height: side)
             content
@@ -1007,8 +1007,8 @@ private struct TrackerPlateArt: View {
                 context.fill(tab, with: .color(AppPalette.panel.swiftUI))
             }
             context.fillDropShadow(artwork.body, .raised)
-            context.fill(artwork.body, with: .color(AppPalette.line.swiftUI))
-            context.fill(artwork.titleStrip, with: .color(AppPalette.item.swiftUI))
+            context.fill(artwork.body, with: .color(AppPalette.lineSoftSubtle.swiftUI))
+            context.fill(artwork.titleStrip, with: .color(AppPalette.panel.swiftUI))
             context.fillInnerShadow(artwork.titleStrip, .strip)
             if let bar = artwork.bar {
                 context.fill(bar, with: .color(AppPalette.panel.swiftUI))
@@ -1055,7 +1055,7 @@ private struct TrackerPortraitOutline: View {
             context.translateBy(x: TrackerPlateDesign.silhouetteMargin, y: TrackerPlateDesign.silhouetteMargin)
             context.drawLayer { ring in
                 ring.clip(to: artwork.discRing)
-                ring.stroke(artwork.disc, with: .color(AppPalette.line.swiftUI), lineWidth: artwork.discStroke)
+                ring.stroke(artwork.disc, with: .color(AppPalette.lineSoftSubtle.swiftUI), lineWidth: artwork.discStroke)
                 ring.fillInnerShadow(artwork.discEdge, .discInner)
             }
             for ornament in artwork.ornaments {
@@ -1067,7 +1067,7 @@ private struct TrackerPortraitOutline: View {
 
     private func color(for role: TrackerPlateShapes.Role) -> Color {
         switch role {
-        case .outline: AppPalette.line.swiftUI
+        case .outline: AppPalette.lineSoftSubtle.swiftUI
         case .panel: AppPalette.panel.swiftUI
         case .project: barColor.swiftUI
         }
@@ -1570,7 +1570,7 @@ struct TrackerShortcutNumber: View {
     }
 }
 
-/// The agent's badge at a portrait's bottom-left, from `Portrait.svg`: the disc's fill, a 1pt `line` border and the
+/// The agent's badge at a portrait's bottom-left, from `Portrait.svg`: the disc's fill, a 1pt `lineSoftSubtle` border and the
 /// agent's logo in the mark tint (Claude's and Pi's keep their own colours).
 private struct TrackerAgentBadge: View {
     let agent: String
@@ -1580,7 +1580,7 @@ private struct TrackerAgentBadge: View {
             Circle()
                 .fill(AppPalette.panel.swiftUI)
             Circle()
-                .strokeBorder(AppPalette.line.swiftUI, lineWidth: Token.Size.divider)
+                .strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Token.Size.divider)
             if let image = TrackerAgentMark.image(for: agent, side: TrackerPlateDesign.badgeLogoSide, tint: AppPalette.agentMarkTint) {
                 Image(nsImage: image)
             }

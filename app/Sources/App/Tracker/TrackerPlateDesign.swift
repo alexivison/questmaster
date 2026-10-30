@@ -64,7 +64,7 @@ enum TrackerPlateDesign {
     static let attachedDotDiameter = Space.row
     static let attachedDotInset = Space.item
 
-    /// A portrait's agent badge: a circle in the disc's fill with a 1pt `line` border, as big as a collapsed worker's circle
+    /// A portrait's agent badge: a circle in the disc's fill with a 1pt `lineSoftSubtle` border, as big as a collapsed worker's circle
     /// (25) and holding the agent's logo at the same 0.6 (15). Its edge sits `badgeOverhang` (5) outside the disc on the
     /// left and the same below it, on the master's disc and the worker's alike, so its frame starts on whole points.
     static let badgeDiameter = collapsedCircleDiameter
