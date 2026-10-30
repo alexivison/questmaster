@@ -24,7 +24,8 @@ struct TrackerAvatarDirectorTests {
         twoQueuedReleasesEachStartANewBeat()
         steadyChangesStartNoBeat()
         finishPlaysBeforeLeavingACastPose()
-        inscribingHoldsFourForTheWholeFinish()
+        inscribingHoldsItsOneFrameForTheWholeFinish()
+        finishWakesOnlyAheadOfNow()
         finishCountsTowardTheHold()
         noFinishWithoutFinishArt()
         noFinishForCallingOutOrTheSamePose()
@@ -34,6 +35,15 @@ struct TrackerAvatarDirectorTests {
         bowPlaysAfterACastFinishes()
         print("TrackerAvatarDirectorTests: all tests passed")
     }
+
+    /// The bard's art, with its casts' finishes.
+    private static let catalog = AvatarAnimationFixture.catalog()
+    private static let noFinishCatalog = AvatarAnimationFixture.catalogWithoutFinishes()
+
+    /// The bard's timings, as his file gives them: a finish's f4 and f5, and a bow's whole showing.
+    private static let finishFourSeconds: TimeInterval = 0.25
+    private static let finishSeconds: TimeInterval = 0.75
+    private static let bowSeconds: TimeInterval = 2
 
     private static func bard(
         state: String = "working",
@@ -49,7 +59,7 @@ struct TrackerAvatarDirectorTests {
     private static let epochStart = "1970-01-01T00:00:00Z"
 
     private static func holdsASteadyPoseBeforeAChangeShows() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(tool: "Read"), at: 0)
         expect(director.frame(at: 0).pose == .studying, "an attached reader should study at once")
         director.observe(bard(tool: "Bash"), at: 0.5)
@@ -61,7 +71,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func collapsesToTheLatestPose() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(tool: "Read"), at: 0)
         director.observe(bard(tool: "Bash"), at: 0.2)
         director.observe(bard(tool: "Edit"), at: 0.4)
@@ -70,26 +80,26 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func callingOutCutsInAtOnce() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(tool: "Read"), at: 0)
         director.observe(bard(state: "blocked"), at: 0.2)
         expect(director.frame(at: 0.2).pose == .callingOut, "a blocked bard should call out without waiting out the hold")
     }
 
     private static func bowsOnceWhenATurnEndsAfterAMinuteOfWork() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.observe(bard(state: "done"), at: 61)
         expect(director.frame(at: 61).pose == .bow, "a turn ending after a minute of work should bow")
-        expect(director.frame(at: 61 + TrackerAvatarTiming.bowSeconds - 0.1).pose == .bow, "the bow should hold until its time is up")
-        let afterBow = director.frame(at: 61 + TrackerAvatarTiming.bowSeconds)
+        expect(director.frame(at: 61 + bowSeconds - 0.1).pose == .bow, "the bow should hold until its time is up")
+        let afterBow = director.frame(at: 61 + bowSeconds)
         expect(afterBow.pose == .idle, "the bow should give way to idle, got \(String(describing: afterBow.pose))")
         director.observe(bard(state: "done"), at: 65)
         expect(director.frame(at: 65).pose == .idle, "a session that stays done should not bow again")
     }
 
     private static func aShortTurnGoesStraightToIdle() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.observe(bard(state: "done"), at: 59.9)
         let frame = director.frame(at: 59.9)
@@ -98,14 +108,14 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func theMinuteIsInclusive() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.observe(bard(state: "done"), at: TrackerAvatarTiming.minimumBowWorkSeconds)
         expect(director.frame(at: TrackerAvatarTiming.minimumBowWorkSeconds).pose == .bow, "a working stretch of exactly the minimum should bow")
     }
 
     private static func bowWaitsForTheCurrentPoseHold() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.observe(bard(tool: "Edit"), at: 59.5)
         expect(director.frame(at: 59.5).pose == .inscribing, "an edit should show at once after the hold")
@@ -117,7 +127,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func bowIsHeldUntilSubagentsStop() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(subagents: 1), at: 0)
         expect(director.frame(at: 0).pose == .spellsong, "a sub-agent running should strum")
         director.observe(bard(state: "done", subagents: 1), at: 70)
@@ -125,11 +135,11 @@ struct TrackerAvatarDirectorTests {
         expect(director.frame(at: 75).pose == .spellsong, "the strum should hold while the sub-agents run")
         director.observe(bard(state: "done", subagents: 0), at: 80)
         expect(director.frame(at: 80).pose == .bow, "the bow should play once the last sub-agent stops")
-        expect(director.frame(at: 80 + TrackerAvatarTiming.bowSeconds).pose == .idle, "the bow should end after its time")
+        expect(director.frame(at: 80 + bowSeconds).pose == .idle, "the bow should end after its time")
     }
 
     private static func resumedWorkCancelsAHeldBow() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(subagents: 1), at: 0)
         director.observe(bard(state: "done", subagents: 1), at: 70)
         director.observe(bard(subagents: 0), at: 75)
@@ -139,7 +149,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func attachingMidStretchUsesThePayloadsWorkingStart() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(elapsedSince: epochStart), at: 100)
         director.observe(bard(state: "done"), at: 101)
         expect(director.frame(at: 101).pose == .pondering, "the bow should wait for the pondering pose's hold from the attach")
@@ -147,7 +157,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func attachingWithoutAStartTimesFromFirstSeen() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 100)
         director.observe(bard(state: "done"), at: 101)
         expect(director.frame(at: 101 + TrackerAvatarTiming.holdSeconds).pose == .idle, "without the payload's start, a turn seen for a second should not bow")
@@ -155,12 +165,12 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func doesNotBowOnAttachOrSwitch() {
-        var attached = TrackerAvatarDirector(reducesMotion: false)
+        var attached = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         attached.observe(bard(state: "done"), at: 0)
         expect(attached.frame(at: 0).pose == .idle, "attaching to a done session should show idle")
         expect(attached.frame(at: 0).launches.isEmpty, "attaching should launch nothing")
 
-        var switched = TrackerAvatarDirector(reducesMotion: false)
+        var switched = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         switched.observe(bard(), at: 0)
         switched.observe(bard(state: "done", id: "qm-2"), at: 3)
         expect(switched.frame(at: 3).pose == .idle, "switching to a done session should show idle with no bow")
@@ -168,7 +178,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func spawnSummonsThenReleasesAndLaunchesTheOrb() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.answer(.spawned(worker: "qm-2"), at: 10)
         let summoning = director.frame(at: 10)
@@ -181,7 +191,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func messageReleasesAndLaunchesTheMessenger() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.answer(.messaged(worker: "qm-2"), at: 4)
         let frame = director.frame(at: 4)
@@ -191,7 +201,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func reportLaunchesTheWispBeforeTheCatch() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.answer(.reported(worker: "qm-2"), at: 0)
         let flying = director.frame(at: 0)
@@ -201,7 +211,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func queueDropsTheNewestPastItsCapacity() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         for _ in 0..<(TrackerAvatarDirector.queueCapacity + 3) {
             director.answer(.messaged(worker: "qm-2"), at: 0)
@@ -214,7 +224,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func reduceMotionPlaysPosesWithoutFlights() {
-        var director = TrackerAvatarDirector(reducesMotion: true)
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.answer(.spawned(worker: "qm-2"), at: 10)
         expect(director.frame(at: 10).pose == .summoning, "under Reduce Motion the summoning should still play")
@@ -226,7 +236,7 @@ struct TrackerAvatarDirectorTests {
     }
 
     private static func switchingSessionClearsTheQueue() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(id: "qm-1"), at: 0)
         director.answer(.messaged(worker: "qm-2"), at: 0)
         director.answer(.spawned(worker: "qm-3"), at: 0)
@@ -244,7 +254,7 @@ struct TrackerAvatarDirectorTests {
     /// Two messages to two workers: the second release queues behind the first on the same pose, so the pose never changes
     /// between them. Each release starts its own beat, which is what makes the view replay its lead-in.
     private static func twoQueuedReleasesEachStartANewBeat() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(), at: 0)
         director.answer(.messaged(worker: "qm-2"), at: 4)
         director.answer(.messaged(worker: "qm-3"), at: 4.2)
@@ -263,114 +273,131 @@ struct TrackerAvatarDirectorTests {
 
     /// A steady pose change is not a cue: it starts no beat, so nothing replays.
     private static func steadyChangesStartNoBeat() {
-        var director = TrackerAvatarDirector(reducesMotion: false)
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(tool: "Read"), at: 0)
         let before = director.frame(at: 0).beat
         director.observe(bard(tool: "Bash"), at: 2)
         expect(director.frame(at: 3).beat == before, "a steady pose change should not start a beat")
     }
 
-    /// Leaving a cast for another pose: the cast plays f4 (0.25 s) then f5 (0.5 s), then the new pose snaps in.
+    /// Leaving a cast for another pose: the cast's finish plays f4 (0.25 s) then f5 (0.5 s), then the new pose snaps in.
     private static func finishPlaysBeforeLeavingACastPose() {
-        var director = TrackerAvatarDirector(reducesMotion: false, finishes: [.studying])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         director.observe(bard(tool: "Read"), at: 0)
         director.observe(bard(tool: "Edit"), at: 2)
         let four = director.frame(at: 2)
-        expect(four.pose == .studying && four.finish == .four, "the cast should start its finish on f4, got \(String(describing: four.finish))")
-        expect(director.frame(at: 2 + TrackerAvatarTiming.finishFourSeconds).finish == .five, "the finish should move to f5")
-        let before = director.frame(at: 2 + TrackerAvatarTiming.finishFourSeconds + TrackerAvatarTiming.finishFiveSeconds - 0.01)
-        expect(before.pose == .studying && before.finish == .five, "the finish should hold f5 until both frames have shown")
-        let after = director.frame(at: 2 + TrackerAvatarTiming.finishFourSeconds + TrackerAvatarTiming.finishFiveSeconds)
-        expect(after.pose == .inscribing && after.finish == nil, "the new pose should snap in when the finish ends, got \(String(describing: after.pose))")
+        expect(four.pose == .studying && four.finishElapsed == 0, "the cast should start its finish at its first frame, got \(four)")
+        let five = director.frame(at: 2 + finishFourSeconds)
+        expect(five.finishElapsed == finishFourSeconds, "the finish should move to f5 when f4 has shown, got \(String(describing: five.finishElapsed))")
+        let before = director.frame(at: 2 + finishSeconds - 0.01)
+        expect(before.pose == .studying && before.finishElapsed != nil, "the finish should hold f5 until both frames have shown")
+        let after = director.frame(at: 2 + finishSeconds)
+        expect(after.pose == .inscribing && after.finishElapsed == nil, "the new pose should snap in when the finish ends, got \(String(describing: after.pose))")
     }
 
     /// The finish counts toward the hold: it starts when the hold has run out, and the new pose doesn't wait a second hold.
     private static func finishCountsTowardTheHold() {
-        var director = TrackerAvatarDirector(reducesMotion: false, finishes: [.studying])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         director.observe(bard(tool: "Read"), at: 0)
         director.observe(bard(tool: "Edit"), at: 0.5)
         let held = director.frame(at: 0.5)
-        expect(held.pose == .studying && held.finish == nil, "a change inside the hold should wait")
+        expect(held.pose == .studying && held.finishElapsed == nil, "a change inside the hold should wait")
         let start = director.frame(at: TrackerAvatarTiming.holdSeconds)
-        expect(start.pose == .studying && start.finish == .four, "the finish should start when the hold runs out")
-        let end = TrackerAvatarTiming.holdSeconds + TrackerAvatarTiming.finishFourSeconds + TrackerAvatarTiming.finishFiveSeconds
+        expect(start.pose == .studying && start.finishElapsed == 0, "the finish should start when the hold runs out")
+        let end = TrackerAvatarTiming.holdSeconds + finishSeconds
         expect(director.frame(at: end).pose == .inscribing, "the new pose should show at the finish's end, with no second hold")
     }
 
     private static func noFinishWithoutFinishArt() {
-        var director = TrackerAvatarDirector(reducesMotion: false, finishes: [])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: noFinishCatalog)
         director.observe(bard(tool: "Read"), at: 0)
         director.observe(bard(tool: "Edit"), at: 2)
         let frame = director.frame(at: 2)
-        expect(frame.pose == .inscribing && frame.finish == nil, "a cast without finish frames should skip the finish and snap")
+        expect(frame.pose == .inscribing && frame.finishElapsed == nil, "a cast without finish frames should skip the finish and snap")
     }
 
     private static func noFinishForCallingOutOrTheSamePose() {
-        var calling = TrackerAvatarDirector(reducesMotion: false, finishes: [.studying])
+        var calling = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         calling.observe(bard(tool: "Read"), at: 0)
         calling.observe(bard(state: "blocked"), at: 2)
-        expect(calling.frame(at: 2).pose == .callingOut && calling.frame(at: 2).finish == nil, "calling out should cut in with no finish")
+        expect(calling.frame(at: 2).pose == .callingOut && calling.frame(at: 2).finishElapsed == nil, "calling out should cut in with no finish")
 
-        var same = TrackerAvatarDirector(reducesMotion: false, finishes: [.studying])
+        var same = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         same.observe(bard(tool: "Read"), at: 0)
         same.observe(bard(tool: "Grep"), at: 2)
-        expect(same.frame(at: 2).pose == .studying && same.frame(at: 2).finish == nil, "a switch to the same cast pose should play no finish")
+        expect(same.frame(at: 2).pose == .studying && same.frame(at: 2).finishElapsed == nil, "a switch to the same cast pose should play no finish")
     }
 
     private static func noFinishUnderReduceMotion() {
-        var director = TrackerAvatarDirector(reducesMotion: true, finishes: [.studying])
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: catalog)
         director.observe(bard(tool: "Read"), at: 0)
         director.observe(bard(tool: "Edit"), at: 2)
         let frame = director.frame(at: 2)
-        expect(frame.pose == .inscribing && frame.finish == nil, "under Reduce Motion the switch should snap with no finish")
+        expect(frame.pose == .inscribing && frame.finishElapsed == nil, "under Reduce Motion the switch should snap with no finish")
     }
 
     /// Calling out cuts a finish in progress short, as it cuts in at once.
     private static func callingOutCutsAFinishShort() {
-        var director = TrackerAvatarDirector(reducesMotion: false, finishes: [.studying])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         director.observe(bard(tool: "Read"), at: 0)
         director.observe(bard(tool: "Edit"), at: 2)
         director.observe(bard(state: "blocked"), at: 2.1)
         let frame = director.frame(at: 2.1)
-        expect(frame.pose == .callingOut && frame.finish == nil, "calling out should cut a finish short")
+        expect(frame.pose == .callingOut && frame.finishElapsed == nil, "calling out should cut a finish short")
     }
 
     /// A pose that isn't a cast has no finish, even with finish art.
     private static func noFinishLeavingANonCastPose() {
-        var director = TrackerAvatarDirector(reducesMotion: false, finishes: [.pondering])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         director.observe(bard(), at: 0)
         director.observe(bard(tool: "Read"), at: 2)
         let frame = director.frame(at: 2)
-        expect(frame.pose == .studying && frame.finish == nil, "a non-cast pose should snap with no finish")
+        expect(frame.pose == .studying && frame.finishElapsed == nil, "a non-cast pose should snap with no finish")
     }
 
     private static func bowPlaysAfterACastFinishes() {
-        var director = TrackerAvatarDirector(reducesMotion: false, finishes: [.channelling])
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         director.observe(bard(tool: "Bash"), at: 0)
         director.observe(bard(state: "done"), at: 61)
-        let four = TrackerAvatarTiming.finishFourSeconds
-        let five = TrackerAvatarTiming.finishFiveSeconds
         let first = director.frame(at: 61)
-        expect(first.pose == .channelling && first.finish == .four, "a bow should wait while the cast's first finish frame shows")
-        expect(director.frame(at: 61 + four + 0.01).finish == .five, "the cast's second finish frame should follow the first")
-        let bowStart = director.frame(at: 61 + four + five + 0.01)
-        expect(bowStart.pose == .bow && bowStart.finish == nil, "the bow should show once the cast's finish ends, got \(String(describing: bowStart.pose))")
-        expect(director.frame(at: 61 + four + five + TrackerAvatarTiming.bowSeconds - 0.1).pose == .bow, "the bow should hold for its time")
-        expect(director.frame(at: 61 + four + five + TrackerAvatarTiming.bowSeconds + 0.1).pose == .idle, "the bow should give way to idle after its time")
+        expect(first.pose == .channelling && first.finishElapsed == 0, "a bow should wait while the cast's finish plays its first frame")
+        expect(near(director.frame(at: 61 + finishFourSeconds + 0.01).finishElapsed, finishFourSeconds + 0.01), "the cast's finish should run on past its first frame")
+        let bowStart = director.frame(at: 61 + finishSeconds + 0.01)
+        expect(bowStart.pose == .bow && bowStart.finishElapsed == nil, "the bow should show once the cast's finish ends, got \(String(describing: bowStart.pose))")
+        expect(director.frame(at: 61 + finishSeconds + bowSeconds - 0.1).pose == .bow, "the bow should hold for its time")
+        expect(director.frame(at: 61 + finishSeconds + bowSeconds + 0.1).pose == .idle, "the bow should give way to idle after its time")
     }
 
-    /// Inscribing has no f5: its f4 holds for the whole finish (0.75 s), and the new pose snaps in when the finish ends.
-    private static func inscribingHoldsFourForTheWholeFinish() {
-        var director = TrackerAvatarDirector(reducesMotion: false, finishes: [.inscribing])
+    /// The finish's steps are wake-ups in the future only. A step already past is not offered again, so the stage doesn't wake
+    /// over and over while the second frame shows.
+    private static func finishWakesOnlyAheadOfNow() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
+        director.observe(bard(tool: "Read"), at: 0)
+        director.observe(bard(tool: "Edit"), at: 2)
+        let during = director.frame(at: 2 + finishFourSeconds + 0.1)
+        expect(during.finishElapsed != nil, "the finish should be playing its second frame")
+        expect(during.nextChange == 2 + finishSeconds, "the next change should be the finish's end, got \(String(describing: during.nextChange))")
+    }
+
+    /// Inscribing has one finish frame, which holds for the whole finish (0.75 s). The new pose snaps in when the finish ends.
+    private static func inscribingHoldsItsOneFrameForTheWholeFinish() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalog)
         director.observe(bard(tool: "Edit"), at: 0)
         director.observe(bard(tool: "Read"), at: 2)
-        let finish = TrackerAvatarTiming.finishSeconds
-        for offset in [0, TrackerAvatarTiming.finishFourSeconds + 0.01, finish - 0.01] {
+        for offset in [0, finishFourSeconds + 0.01, finishSeconds - 0.01] {
             let frame = director.frame(at: 2 + offset)
-            expect(frame.pose == .inscribing && frame.finish == .four, "inscribing should hold f4 through its finish, got \(frame)")
+            expect(frame.pose == .inscribing && near(frame.finishElapsed, offset), "inscribing should play its finish through, got \(frame)")
         }
-        let after = director.frame(at: 2 + finish)
-        expect(after.pose == .studying && after.finish == nil, "the new pose should snap in when the finish ends, got \(after)")
+        let after = director.frame(at: 2 + finishSeconds)
+        expect(after.pose == .studying && after.finishElapsed == nil, "the new pose should snap in when the finish ends, got \(after)")
+    }
+
+    /// Times measured from a payload's clock carry rounding, so they compare within a nanosecond.
+    private static func near(_ value: TimeInterval?, _ expected: TimeInterval) -> Bool {
+        guard let value else {
+            return false
+        }
+        return abs(value - expected) < 1e-9
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

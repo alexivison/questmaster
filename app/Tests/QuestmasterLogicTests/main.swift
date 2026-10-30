@@ -54,7 +54,6 @@ enum QuestmasterLogicTests {
         timed("TrackerShellCommandTests") { TrackerShellCommandTests.run() }
         timed("TrackerAvatarMotionTests") { TrackerAvatarMotionTests.run() }
         timed("TrackerAvatarFidgetsTests") { TrackerAvatarFidgetsTests.run() }
-        timed("TrackerAvatarPlaybackTests") { TrackerAvatarPlaybackTests.run() }
         timed("TrackerAvatarAnimationTests") { TrackerAvatarAnimationTests.run() }
         timed("ModalCommandRoutingTests") { ModalCommandRoutingTests.run() }
         timed("InteractionLookTests") { InteractionLookTests.run() }

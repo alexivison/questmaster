@@ -27,13 +27,13 @@ struct TrackerAvatarEventsTests {
     }
 
     private static func firstPayloadIsTheBaseline() {
-        var detector = TrackerAvatarEventDetector()
+        var detector = TrackerAvatarEventDetector(catalog: AvatarAnimationFixture.catalog())
         let events = detector.observe(rows(workers: [worker("qm-w1")]), attachedID: master)
         expect(events.isEmpty, "the first payload should be a baseline, got \(events)")
     }
 
     private static func spawnFiresForANewWorkerOfTheAttachedMaster() {
-        var detector = TrackerAvatarEventDetector()
+        var detector = TrackerAvatarEventDetector(catalog: AvatarAnimationFixture.catalog())
         _ = detector.observe(rows(workers: [worker("qm-w1")]), attachedID: master)
         let events = detector.observe(rows(workers: [worker("qm-w1"), worker("qm-w2")]), attachedID: master)
         expect(events == [.spawned(worker: "qm-w2")], "a new worker should spawn once, got \(events)")
@@ -41,7 +41,7 @@ struct TrackerAvatarEventsTests {
     }
 
     private static func attachAndSwitchAreBaselines() {
-        var detector = TrackerAvatarEventDetector()
+        var detector = TrackerAvatarEventDetector(catalog: AvatarAnimationFixture.catalog())
         _ = detector.observe(rows(workers: [worker("qm-w1")]), attachedID: master)
         expect(detector.observe(rows(workers: [worker("qm-w1")]), attachedID: nil).isEmpty, "detaching should fire nothing")
         let attach = detector.observe(rows(workers: [worker("qm-w1"), worker("qm-w2")]), attachedID: master)
@@ -51,19 +51,19 @@ struct TrackerAvatarEventsTests {
     }
 
     private static func otherMastersAndNonBardsFireNothing() {
-        var detector = TrackerAvatarEventDetector()
+        var detector = TrackerAvatarEventDetector(catalog: AvatarAnimationFixture.catalog())
         _ = detector.observe(rows(workers: [worker("qm-w1")], masterClass: "wizard"), attachedID: master)
         let wizard = detector.observe(rows(workers: [worker("qm-w1"), worker("qm-w2")], masterClass: "wizard"), attachedID: master)
         expect(wizard.isEmpty, "a wizard master should show no events, got \(wizard)")
 
-        var other = TrackerAvatarEventDetector()
+        var other = TrackerAvatarEventDetector(catalog: AvatarAnimationFixture.catalog())
         _ = other.observe(rows(workers: [worker("qm-w1", parent: "qm-m2")]), attachedID: master)
         let elsewhere = other.observe(rows(workers: [worker("qm-w1", parent: "qm-m2", exchange: ("report", at))]), attachedID: master)
         expect(elsewhere.isEmpty, "another master's worker should show no events, got \(elsewhere)")
     }
 
     private static func exchangesFireOnlyWhenTheyChange() {
-        var detector = TrackerAvatarEventDetector()
+        var detector = TrackerAvatarEventDetector(catalog: AvatarAnimationFixture.catalog())
         _ = detector.observe(rows(workers: [worker("qm-w1")]), attachedID: master)
         let message = detector.observe(rows(workers: [worker("qm-w1", exchange: ("instructions", at))]), attachedID: master)
         expect(message == [.messaged(worker: "qm-w1")], "a new instruction should be a message, got \(message)")

@@ -1,43 +1,16 @@
 import Foundation
 
-/// The class avatar's timings, in seconds. A view never states a duration (AGENTS.md, "Motion"); the avatar's own holds
-/// are named here.
+/// The class avatar's timings, in seconds. A view never states a duration (AGENTS.md, "Motion"). The art's own lengths (a one-shot's,
+/// a finish's) come from the class's `animation.json`.
 public enum TrackerAvatarTiming {
     /// A steady pose stays this long before a different one shows, so tool calls that change several times a second
     /// don't flicker. Calling out is the exception: it cuts in at once.
     public static let holdSeconds: TimeInterval = 1.5
-    /// The bow, shown once a qualifying turn ends and its sub-agents have stopped.
-    public static let bowSeconds: TimeInterval = 2
     /// The least working stretch that earns a bow when it ends. A shorter turn goes straight to idle; the user may tune this.
     public static let minimumBowWorkSeconds: TimeInterval = 60
-    /// The summoning, the release and the catch.
-    public static let castSeconds: TimeInterval = 1
-    /// A one-shot's lead-in (f2), then its strike (f1, where a move lands). Its follow-through (f3) holds to the end.
-    public static let oneShotLeadInSeconds: TimeInterval = 0.18
-    public static let oneShotStrikeSeconds: TimeInterval = 0.36
-    /// A cast's two finish frames when the avatar leaves the cast for another pose: f4 holds `finishFourSeconds`, then f5 holds
-    /// `finishFiveSeconds`, and the next pose snaps in after them.
-    public static let finishFourSeconds: TimeInterval = 0.25
-    public static let finishFiveSeconds: TimeInterval = 0.5
-    /// The whole finish: f4 and f5 together.
-    public static let finishSeconds: TimeInterval = finishFourSeconds + finishFiveSeconds
 }
 
-/// How a cast's finish plays its frames. Most cast poses show f4 and then f5. Inscribing has no f5, so it holds f4 for the whole
-/// finish.
-public enum TrackerAvatarFinish {
-    public static func holdsFourFrame(for pose: TrackerAvatarPose) -> Bool {
-        pose == .inscribing
-    }
-}
-
-/// Which of a cast's finish frames is on screen: f4 first, then f5.
-public enum TrackerAvatarFinishFrame: Equatable {
-    case four
-    case five
-}
-
-/// A spell's path across the tracker column. The spell's art is in `Resources/Sprites/bard/`.
+/// A spell's path across the tracker column. The spell's art is in its class's folder, `Resources/Sprites/<class>/`.
 public struct TrackerSpellFlight: Equatable {
     public enum Spell: Equatable {
         /// The summoning orb (`S1`), from the avatar to a new worker's plate.
@@ -75,19 +48,21 @@ public struct TrackerAvatarFrame: Equatable {
     /// How many pose beats have started so far. A beat on the same pose as the one before still starts afresh, so the view
     /// replays that pose's one-shot when this rises.
     public let beat: Int
-    /// The cast's finish frame on screen, while `pose` (the cast) is finishing; nil otherwise.
-    public let finish: TrackerAvatarFinishFrame?
+    /// How far into the cast's finish the avatar is, while `pose` (the cast) is finishing; nil otherwise. The view reads each
+    /// layer's frame at this time from the finish's tracks.
+    public let finishElapsed: TimeInterval?
 }
 
 /// Decides the class avatar's pose and its spell flights. It is pure: the view feeds it the attached session and the
 /// events, and asks for a frame at a clock time. Times are seconds from one clock, the same one each call uses, and that
 /// clock is the wall clock, so a session's own working start (its `elapsedSince`) can be compared with it.
 ///
-/// - The steady pose follows the attached session (`TrackerAvatarPose.pose(for:)`). A change holds the pose on screen for
-///   `holdSeconds` before the next one shows, and only the latest desired pose is kept meanwhile. Calling out shows at once.
+/// - The steady pose follows the attached session (`TrackerAvatarPose.pose(for:catalog:)`), when its class has art. A change
+///   holds the pose on screen for `holdSeconds` before the next one shows, and only the latest desired pose is kept meanwhile.
+///   Calling out shows at once.
 /// - A turn that ends after a working stretch of at least `minimumBowWorkSeconds` bows once. The bow waits for the
 ///   sub-agents of that turn to stop, then waits for the pose's hold like any other change. A cast's finish plays first,
-///   and the bow plays for `bowSeconds`.
+///   and the bow plays for its one-shot's length.
 ///   A shorter turn goes straight to idle. Attaching to a done session, or switching to one, shows its steady pose with
 ///   no bow.
 /// - Events play as cues, one after another: a cue is a few beats, each holding a pose and maybe starting a spell. At most
@@ -104,8 +79,9 @@ public struct TrackerAvatarDirector {
     }
 
     private let reducesMotion: Bool
+    private let catalog: TrackerAvatarCatalog
     private var attachedID: String?
-    /// The attached session as last observed; its steady pose comes from it.
+    /// The attached session as last observed. It shows an avatar only when its class has art (`animation`).
     private var session: TrackerSession?
     private var attachedIsWorking = false
     private var attachedIsDone = false
@@ -128,19 +104,23 @@ public struct TrackerAvatarDirector {
     private var beatEnd: TimeInterval?
     private var launches: [TrackerSpellFlight] = []
     private var beatCount = 0
-    /// The poses with finish frames: a cast leaving for another pose plays its finish first, and only these have one.
-    private let finishes: Set<TrackerAvatarPose>
-    /// A cast's finish in progress: its two frames run from `startedAt`, and the steady pose snaps in when they end.
+    /// A cast's finish in progress: its tracks play from `startedAt`, and the steady pose snaps in when they end.
     private var finishing: Finish?
 
     private struct Finish: Equatable {
         let pose: TrackerAvatarPose
+        let block: TrackerAvatarBlock
         let startedAt: TimeInterval
     }
 
-    public init(reducesMotion: Bool, finishes: Set<TrackerAvatarPose> = []) {
+    public init(reducesMotion: Bool, catalog: TrackerAvatarCatalog) {
         self.reducesMotion = reducesMotion
-        self.finishes = finishes
+        self.catalog = catalog
+    }
+
+    /// The attached session's class art, when it has any. Without it the session shows no avatar.
+    private var animation: TrackerAvatarAnimation? {
+        catalog.animation(for: session)
     }
 
     /// The attached session, updated. A different session shows its steady pose at once, with no bow and no queued events.
@@ -153,12 +133,13 @@ public struct TrackerAvatarDirector {
         advance(to: now)
     }
 
-    /// An event the avatar answers. Its cue waits behind the cues already queued, and is dropped when the queue is full.
+    /// An event the avatar answers. Its cue waits behind the cues already queued, and is dropped when the queue is full. An
+    /// attached session without an avatar answers nothing.
     public mutating func answer(_ event: TrackerAvatarEvent, at now: TimeInterval) {
-        guard queued.count < Self.queueCapacity else {
+        guard let animation, queued.count < Self.queueCapacity else {
             return
         }
-        enqueue(cue(for: event), at: now)
+        enqueue(cue(for: event, animation: animation), at: now)
     }
 
     /// The frame at `now`. Each spell that began since the last frame comes out once.
@@ -169,9 +150,9 @@ public struct TrackerAvatarDirector {
         return TrackerAvatarFrame(
             pose: beatPose ?? steadyShown,
             launches: started,
-            nextChange: nextChange(),
+            nextChange: nextChange(after: now),
             beat: beatCount,
-            finish: finishing.map { Self.finishFrame(at: now, of: $0) }
+            finishElapsed: finishing.map { now - $0.startedAt }
         )
     }
 
@@ -186,8 +167,8 @@ public struct TrackerAvatarDirector {
         bowPending = false
         bowRequested = false
         bowShownSince = nil
-        attachedIsWorking = Self.isWorking(session)
-        attachedIsDone = Self.isDone(session)
+        attachedIsWorking = isWorking(session)
+        attachedIsDone = isDone(session)
         workingStart = attachedIsWorking ? (session?.elapsedSince?.timeIntervalSince1970 ?? now) : nil
         steadyWanted = wantedSteady()
         steadyShown = steadyWanted
@@ -197,8 +178,8 @@ public struct TrackerAvatarDirector {
     /// Reads the attached session's turn: when a working stretch starts, and whether a turn that ends now earns a bow.
     private mutating func updateTurn(_ session: TrackerSession?, at now: TimeInterval) {
         self.session = session
-        let working = Self.isWorking(session)
-        let done = Self.isDone(session)
+        let working = isWorking(session)
+        let done = isDone(session)
         if working {
             if let since = session?.elapsedSince?.timeIntervalSince1970 {
                 workingStart = since
@@ -222,22 +203,29 @@ public struct TrackerAvatarDirector {
         attachedIsDone = done
     }
 
-    private func cue(for event: TrackerAvatarEvent) -> [Beat] {
-        let cast = TrackerAvatarTiming.castSeconds
+    private func cue(for event: TrackerAvatarEvent, animation: TrackerAvatarAnimation) -> [Beat] {
         switch event {
         case .spawned(let worker):
             return [
-                Beat(pose: .summoning, seconds: cast, flight: nil),
-                Beat(pose: .release, seconds: cast, flight: TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker(worker))),
+                Beat(pose: .summoning, seconds: animation.onceSeconds(for: .summoning), flight: nil),
+                Beat(
+                    pose: .release,
+                    seconds: animation.onceSeconds(for: .release),
+                    flight: TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker(worker))
+                ),
             ]
         case .messaged(let worker):
             return [
-                Beat(pose: .release, seconds: cast, flight: TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker(worker))),
+                Beat(
+                    pose: .release,
+                    seconds: animation.onceSeconds(for: .release),
+                    flight: TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker(worker))
+                ),
             ]
         case .reported(let worker):
             return [
                 Beat(pose: nil, seconds: MotionStep.flight.seconds, flight: TrackerSpellFlight(spell: .wisp, from: .worker(worker), to: .avatar)),
-                Beat(pose: .catching, seconds: cast, flight: nil),
+                Beat(pose: .catching, seconds: animation.onceSeconds(for: .catching), flight: nil),
             ]
         }
     }
@@ -301,9 +289,14 @@ public struct TrackerAvatarDirector {
         }
     }
 
+    /// The bow's length: its one-shot's. With no attached avatar there is no bow to time.
+    private var bowSeconds: TimeInterval {
+        animation?.onceSeconds(for: .bow) ?? 0
+    }
+
     /// Requests the bow once a qualifying turn's sub-agents have all stopped, and ends it after its time on screen.
     private mutating func updateBow(at now: TimeInterval) {
-        if let shownSince = bowShownSince, now - shownSince >= TrackerAvatarTiming.bowSeconds {
+        if let shownSince = bowShownSince, now - shownSince >= bowSeconds {
             bowRequested = false
             bowShownSince = nil
         }
@@ -313,9 +306,13 @@ public struct TrackerAvatarDirector {
         }
     }
 
-    /// The steady pose the attached session calls for: the bow while one is requested, otherwise the session's own pose.
+    /// The steady pose the attached session calls for: the bow while one is requested, otherwise the session's own pose. Nil
+    /// when the session shows no avatar.
     private func wantedSteady() -> TrackerAvatarPose? {
-        bowRequested ? .bow : TrackerAvatarPose.pose(for: session)
+        guard let steady = TrackerAvatarPose.pose(for: session, catalog: catalog) else {
+            return nil
+        }
+        return bowRequested ? .bow : steady
     }
 
     /// Applies the steady pose the session calls for. Calling out cuts in at once, with no finish. Any other change waits for
@@ -333,15 +330,14 @@ public struct TrackerAvatarDirector {
         guard now - steadyShownSince >= TrackerAvatarTiming.holdSeconds else {
             return
         }
-        if beatEnd == nil, Self.playsFinish(leaving: steadyShown, for: steadyWanted, finishes: finishes, reducesMotion: reducesMotion),
-           let shown = steadyShown {
-            finishing = Finish(pose: shown, startedAt: now)
+        if beatEnd == nil, let shown = steadyShown, let block = finishBlock(leaving: shown, for: steadyWanted) {
+            finishing = Finish(pose: shown, block: block, startedAt: now)
             return
         }
         show(steadyWanted, at: now)
     }
 
-    /// Ends a finish once both frames have shown, and snaps to the pose wanted then. The hold already ran before the finish,
+    /// Ends a finish once its tracks have played, and snaps to the pose wanted then. The hold already ran before the finish,
     /// so the new pose shows at once.
     private mutating func endFinish(at now: TimeInterval) {
         guard let finishing, now >= Self.finishEnd(of: finishing) else {
@@ -359,61 +355,51 @@ public struct TrackerAvatarDirector {
         }
     }
 
-    private func nextChange() -> TimeInterval? {
+    /// When the state next changes on its own, after `now`: a beat ends, a finish moves to its next step or ends, the hold runs out
+    /// or the bow's time is up.
+    private func nextChange(after now: TimeInterval) -> TimeInterval? {
         var changes: [TimeInterval] = []
         if let beatEnd {
             changes.append(beatEnd)
         }
         if let finishing {
-            changes.append(finishing.startedAt + TrackerAvatarTiming.finishFourSeconds)
+            changes += finishing.block.changes.map { finishing.startedAt + $0 }
             changes.append(Self.finishEnd(of: finishing))
         } else if steadyWanted != steadyShown {
             changes.append(steadyShownSince + TrackerAvatarTiming.holdSeconds)
         }
         if let bowShownSince {
-            changes.append(bowShownSince + TrackerAvatarTiming.bowSeconds)
+            changes.append(bowShownSince + bowSeconds)
         }
-        return changes.min()
+        return changes.filter { $0 > now }.min()
     }
 
-    /// When a finish's two frames have both shown.
+    /// When a finish's tracks have all played.
     private static func finishEnd(of finish: Finish) -> TimeInterval {
-        finish.startedAt + TrackerAvatarTiming.finishSeconds
+        finish.startedAt + finish.block.seconds
     }
 
-    private static func finishFrame(at now: TimeInterval, of finish: Finish) -> TrackerAvatarFinishFrame {
-        if TrackerAvatarFinish.holdsFourFrame(for: finish.pose) {
-            return .four
+    /// The finish a steady change from `shown` to `wanted` plays first, when there is one: only a cast with a finish, leaving for
+    /// another pose. A bow is a steady change too, so it waits for the finish. Calling out cuts in, a change to the same pose isn't
+    /// a change, and nothing finishes under Reduce Motion.
+    private func finishBlock(leaving shown: TrackerAvatarPose, for wanted: TrackerAvatarPose?) -> TrackerAvatarBlock? {
+        guard !reducesMotion, shown.isCast, let wanted, wanted != shown, wanted != .callingOut else {
+            return nil
         }
-        return now - finish.startedAt < TrackerAvatarTiming.finishFourSeconds ? .four : .five
+        return animation?.animation(for: shown)?.finish
     }
 
-    /// Whether a steady change from `shown` to `wanted` plays `shown`'s finish first: only a cast pose that has finish frames,
-    /// leaving for another pose. A bow is a steady change too, so it waits for the finish. Calling out cuts in, and a change to
-    /// the same pose isn't a change; neither plays a finish, nor does anything under Reduce Motion.
-    static func playsFinish(
-        leaving shown: TrackerAvatarPose?,
-        for wanted: TrackerAvatarPose?,
-        finishes: Set<TrackerAvatarPose>,
-        reducesMotion: Bool
-    ) -> Bool {
-        guard !reducesMotion, let shown, shown.isCast, finishes.contains(shown), let wanted else {
-            return false
-        }
-        return wanted != shown && wanted != .callingOut
-    }
-
-    /// Whether `session` is a bard master (the only session with an avatar) and is working.
-    private static func isWorking(_ session: TrackerSession?) -> Bool {
-        guard let session, TrackerAvatarPose.pose(for: session) != nil else {
+    /// Whether `session` shows an avatar and is working.
+    private func isWorking(_ session: TrackerSession?) -> Bool {
+        guard let session, TrackerAvatarPose.pose(for: session, catalog: catalog) != nil else {
             return false
         }
         return TrackerStatusClassifier.classify(session).kind == .working
     }
 
-    /// Whether `session` is a bard master (the only session with an avatar) and has turned done.
-    private static func isDone(_ session: TrackerSession?) -> Bool {
-        guard let session, TrackerAvatarPose.pose(for: session) != nil else {
+    /// Whether `session` shows an avatar and has turned done.
+    private func isDone(_ session: TrackerSession?) -> Bool {
+        guard let session, TrackerAvatarPose.pose(for: session, catalog: catalog) != nil else {
             return false
         }
         return TrackerStatusClassifier.classify(session).kind == .done

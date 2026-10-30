@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import Darwin
 import Foundation
+import ImageIO
 import QuestmasterCore
 import SwiftUI
 
@@ -40,6 +41,7 @@ enum LogicSelfTests {
         ("testSelectedSessionTagSizesItsPartsFromTheSVG", testSelectedSessionTagSizesItsPartsFromTheSVG),
         ("testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation", testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation),
         ("testAvatarEffectLayersKeepTheirPlacement", testAvatarEffectLayersKeepTheirPlacement),
+        ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -976,12 +978,14 @@ enum LogicSelfTests {
 
     /// A pose switch lands at once. Core Animation animates an implicit change to a layer's contents, position, bounds or
     /// hidden state, so an implicit change shows up as a key on the rig's layer that the rig didn't add itself.
+    @MainActor
     private static func testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation() throws {
         defer { Motion.reducesMotion = { false } }
         let nextTick: TimeInterval = 0.05
         let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
         let window = HeadlessWindow(size: size)
         let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = try bardSprites()
         window.contentView = avatar
         window.show()
         let ownKeys: Set<String> = [TrackerAvatarMotionKey.frames, TrackerAvatarMotionKey.breath, TrackerAvatarMotionKey.move]
@@ -1015,56 +1019,122 @@ enum LogicSelfTests {
     }
 
     /// An effect drawn behind the bard sits on the root, under the figure, and stays put when he moves; an effect in front sits in
-    /// the figure with him, so the figure's move carries it. The bard and both effects play the one-shot's frames together.
+    /// the figure with him, so the figure's move carries it. The bard and both effects play the one-shot's frames together. A
+    /// synthetic class's 1-frame character and 8-frame front loop each on their own clock, not the other's.
+    @MainActor
     private static func testAvatarEffectLayersKeepTheirPlacement() throws {
-        func solid(_ red: CGFloat) throws -> CGImage {
-            guard let context = CGContext(
-                data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
-                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                throw TestFailure("a test frame should be drawable")
-            }
-            context.setFillColor(CGColor(red: red, green: 0, blue: 0, alpha: 1))
-            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
-            guard let image = context.makeImage() else {
-                throw TestFailure("a test frame should be made")
-            }
-            return image
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class's animation.json should read")
         }
-        let summoning = TrackerAvatarFrameRig(
-            pose: .summoning,
-            frames: [1: try solid(0.1), 2: try solid(0.2), 3: try solid(0.3)],
-            finish: nil,
-            motion: .oneShot(seconds: TrackerAvatarTiming.castSeconds),
-            behind: [1: try solid(0.4), 2: try solid(0.5), 3: try solid(0.6)]
-        )
+        guard let summoningPlacement = sprites.animation.animation(for: .summoning),
+              let callingPlacement = sprites.animation.animation(for: .callingOut),
+              let summoning = TrackerAvatarFrameRig(pose: .summoning, placement: summoningPlacement, sprites: sprites),
+              let calling = TrackerAvatarFrameRig(pose: .callingOut, placement: callingPlacement, sprites: sprites) else {
+            throw TestFailure("the synthetic class's summoning and calling out should both draw")
+        }
         summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
-        try expect(summoning.root.sublayers?.first === summoning.effectBehind && summoning.root.sublayers?.last === summoning.figure,
+        try expect(summoning.root.sublayers?.first === summoning.behind && summoning.root.sublayers?.last === summoning.figure,
                    "the ground circle should draw under the figure, on the root")
-        try expect(summoning.figure.sublayers?.first === summoning.bard, "the bard should be the figure's first layer")
+        try expect(summoning.figure.sublayers?.first === summoning.character, "the bard should be the figure's first layer")
         summoning.startMotion()
         try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) != nil, "the figure should carry the summoning's hop")
-        try expect(summoning.effectBehind.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the ground circle should stay put")
-        try expect(summoning.bard.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the bard should ride the figure, not move alone")
-        for layer in [summoning.bard, summoning.effectBehind] {
+        try expect(summoning.behind.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the ground circle should stay put")
+        try expect(summoning.character.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the bard should ride the figure, not move alone")
+        for layer in [summoning.character, summoning.behind] {
             try expect(layer.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "every layer should play the one-shot's frames")
         }
         summoning.stopMotion()
-        try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil && summoning.bard.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
+        try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil && summoning.character.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
                    "stopping should remove the move and the frames")
 
-        let calling = TrackerAvatarFrameRig(
-            pose: .callingOut,
-            frames: [1: try solid(0.1), 2: try solid(0.2), 3: try solid(0.3)],
-            finish: nil,
-            motion: .loop(frameSeconds: TrackerAvatarDesign.loopFrameSeconds),
-            front: [1: try solid(0.7), 2: try solid(0.8), 3: try solid(0.9)]
-        )
         calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
-        try expect(calling.figure.sublayers?.last === calling.effectFront, "the bubble should draw in front of the bard, inside the figure")
+        try expect(calling.figure.sublayers?.last === calling.front, "the bubble should draw in front of the bard, inside the figure")
         calling.startMotion()
-        try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) != nil && calling.effectFront.animation(forKey: TrackerAvatarMotionKey.move) == nil,
+        try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) != nil && calling.front.animation(forKey: TrackerAvatarMotionKey.move) == nil,
                    "the bubble should bob with the bard")
+        let character = calling.character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        let front = calling.front.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(character?.duration == 0.25 && character?.values?.count == 2, "a 1-frame character should cycle on its own 0.25 s clock")
+        try expect(front?.duration == 1 && front?.values?.count == 9, "an 8-frame front should cycle on its own 1 s clock")
+    }
+
+    /// The bard's sprites load from the app bundle: their animation file reads, and the art the avatar draws from it is there.
+    @MainActor
+    private static func testBundledBardSpritesReadTheirAnimationFile() throws {
+        let sprites = try bardSprites()
+        try expect(sprites.animation.idle.legRows == 37, "the bard's idle should split at his leg rows")
+        try expect(sprites.animation.fidgets.map(\.name) == ["hat", "yawn"], "the bard should have the hat and the yawn fidgets")
+        try expect(sprites.availableFidgets.count == 2, "both of the bard's fidgets should have their art")
+        try expect(sprites.idleArt() != nil, "the bard's idle layers should split from his art")
+        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
+                   "the bard's release should have a hand")
+        try expect(TrackerAvatarSprites.bundled()["bard"] != nil, "the bundled bard should be a session class with sprites")
+    }
+
+    /// The bard's sprites, read from the app bundle.
+    @MainActor
+    private static func bardSprites() throws -> TrackerAvatarSprites {
+        guard let sprites = TrackerAvatarSprites.bundled()["bard"] else {
+            throw TestFailure("the bard's sprites should load from the app bundle")
+        }
+        return sprites
+    }
+
+    /// A class folder for the render tests, in a temporary directory: the bard's `animation.json` with calling out's loop made 1 frame
+    /// for the character and 8 frames for the front, and the frames that loop and the summoning need, each a solid square.
+    @MainActor
+    private static func syntheticClassFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("avatar-class-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let bardFile = try Data(contentsOf: try bardAnimationFile())
+        guard var json = try JSONSerialization.jsonObject(with: bardFile) as? [String: Any],
+              var poses = json["poses"] as? [String: Any],
+              var calling = poses["11-calling-out"] as? [String: Any] else {
+            throw TestFailure("the bard's animation.json should read as a JSON object")
+        }
+        let eightFrames = (1...8).map { [$0, 0.125] as [Any] }
+        calling["loop"] = ["character": [[1, 0.25]], "front": eightFrames]
+        poses["11-calling-out"] = calling
+        json["poses"] = poses
+        try JSONSerialization.data(withJSONObject: json).write(to: folder.appendingPathComponent("animation.json"))
+        for number in 1...3 {
+            try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("09-summoning-f\(number).png"))
+            try writeSolidFrame(Double(number) / 10 + 0.4, to: folder.appendingPathComponent("09-summoning-behind-f\(number).png"))
+        }
+        try writeSolidFrame(0.1, to: folder.appendingPathComponent("11-calling-out-f1.png"))
+        for number in 1...8 {
+            try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("11-calling-out-front-f\(number).png"))
+        }
+        return folder
+    }
+
+    @MainActor
+    private static func bardAnimationFile() throws -> URL {
+        guard let url = AppSymbolStyle.resourceBundle().url(forResource: "animation", withExtension: "json", subdirectory: "Sprites/bard") else {
+            throw TestFailure("the bard's animation.json should be in the app bundle")
+        }
+        return url
+    }
+
+    private static func writeSolidFrame(_ red: CGFloat, to url: URL) throws {
+        guard let context = CGContext(
+            data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw TestFailure("a test frame should be drawable")
+        }
+        context.setFillColor(CGColor(red: red, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        guard let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+            throw TestFailure("a test frame should be made")
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            throw TestFailure("a test frame should be written to \(url.lastPathComponent)")
+        }
     }
 
     private static func testMotionTokensShareOneEasingAndFollowReduceMotion() throws {

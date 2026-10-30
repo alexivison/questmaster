@@ -49,7 +49,11 @@ let package = Package(
             ],
             path: "Sources/App",
             resources: [
-                .process("Resources"),
+                .process("Resources/AgentLogos"),
+                .process("Resources/Ornaments"),
+                .process("Resources/Portraits"),
+                // A class's sprites keep their folder, so two classes can name a frame the same.
+                .copy("Resources/Sprites"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),

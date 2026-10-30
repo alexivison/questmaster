@@ -10,7 +10,7 @@ struct TrackerAvatarPoseTests {
         idleStoppedAndErrorIdle()
         subagentsStrumUnlessCalledOut()
         shellCommandsStrikeTheirPose()
-        onlyABardMasterHasAnAvatar()
+        onlyAMasterWithArtHasAnAvatar()
         resourceNamesNameTheBundledArt()
         print("TrackerAvatarPoseTests: all tests passed")
     }
@@ -35,7 +35,7 @@ struct TrackerAvatarPoseTests {
             tool: tool,
             activeSubagents: subagents,
             activity: activity
-        ))
+        ), catalog: AvatarAnimationFixture.catalog())
     }
 
     private static func workingWithoutCastPonders() {
@@ -102,8 +102,9 @@ struct TrackerAvatarPoseTests {
         expect(pose(state: "working", tool: "Read", activity: "Bash: rg foo") == .studying, "a non-shell tool keeps its own pose")
     }
 
-    private static func onlyABardMasterHasAnAvatar() {
-        expect(TrackerAvatarPose.pose(for: nil) == nil, "nothing attached should show no avatar")
+    /// A master shows an avatar only when its class has art: the bard's does, and a wizard's doesn't yet.
+    private static func onlyAMasterWithArtHasAnAvatar() {
+        expect(TrackerAvatarPose.pose(for: nil, catalog: AvatarAnimationFixture.catalog()) == nil, "nothing attached should show no avatar")
         expect(pose(sessionClass: "wizard") == nil, "a wizard master should show no avatar")
         expect(pose(sessionClass: nil) == nil, "a master with no class should show no avatar")
         expect(pose(parentID: "qm-0") == nil, "a bard worker (familiar) should show no avatar")

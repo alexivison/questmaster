@@ -1,7 +1,7 @@
 import Foundation
 
-/// The pose the tracker's class avatar strikes, from what its session is doing. Only a bard master has art, so any other
-/// session (another class, a worker, a shell, nothing attached) has no pose and no avatar.
+/// The pose the tracker's class avatar strikes, from what its session is doing. Only a master whose class has art has an avatar; any
+/// other session (a worker, a shell, a class with no art, nothing attached) has no pose.
 public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     case idle
     case pondering
@@ -34,11 +34,11 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// The steady pose for `session`, or nil when it shows no avatar. In order: calling out (blocked or needing input); a
-    /// running tool's pose while working; spellsong while sub-agents run (working, idle or done); pondering while working with
-    /// no cast; idle. A done session idles at rest: it bows once when it turns done (`TrackerAvatarDirector`).
-    public static func pose(for session: TrackerSession?) -> TrackerAvatarPose? {
-        guard let session, SessionPortrait(session: session) == .master(.bard) else {
+    /// The steady pose for `session`, or nil when it shows no avatar: its class has no art, or it is not a master. In order: calling
+    /// out (blocked or needing input); a running tool's pose while working; spellsong while sub-agents run (working, idle or done);
+    /// pondering while working with no cast; idle. A done session idles at rest: it bows once when it turns done (`TrackerAvatarDirector`).
+    public static func pose(for session: TrackerSession?, catalog: TrackerAvatarCatalog) -> TrackerAvatarPose? {
+        guard let session, catalog.animation(for: session) != nil else {
             return nil
         }
         return pose(
@@ -49,7 +49,7 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
         )
     }
 
-    /// The art's file in the app bundle, without its extension (`Resources/Sprites/bard/`).
+    /// The art's file in the class's folder, without its extension (`Resources/Sprites/<class>/`).
     public var resourceName: String {
         switch self {
         case .idle: "01-idle"

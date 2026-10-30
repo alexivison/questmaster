@@ -31,14 +31,21 @@ struct TrackerSpellPlan: Equatable {
 
 /// Where each launch flies. The avatar's end is its hand. A worker's end is its plate, or its master's plate when the worker
 /// has none on screen (a collapsed worker). A plate scrolled out of view aims at the list's edge nearest to it.
+@MainActor
 enum TrackerSpellRoute {
-    static func plans(for launches: [TrackerAvatarStage.Launch], anchors: TrackerFlightAnchors, proxy: GeometryProxy, masterID: String?) -> [TrackerSpellPlan] {
+    static func plans(
+        for launches: [TrackerAvatarStage.Launch],
+        anchors: TrackerFlightAnchors,
+        proxy: GeometryProxy,
+        masterID: String?,
+        sprites: TrackerAvatarSprites?
+    ) -> [TrackerSpellPlan] {
         let avatar = anchors.avatar.map { proxy[$0] }
         let list = anchors.list.map { proxy[$0] }
         func point(_ end: TrackerSpellFlight.End) -> CGPoint? {
             switch end {
             case .avatar:
-                return avatar.flatMap(TrackerAvatarSprites.handPoint(in:))
+                return avatar.flatMap { sprites?.handPoint(in: $0) }
             case .worker(let id):
                 guard let anchor = anchors.plates[id] ?? masterID.flatMap({ anchors.plates[$0] }) else {
                     return nil
@@ -63,43 +70,26 @@ enum TrackerSpellRoute {
     }
 }
 
-enum TrackerSpellSprites {
-    /// The flight panel of `spell`, cropped to its pixels.
-    static func flight(for spell: TrackerSpellFlight.Spell) -> CGImage? {
-        TrackerAvatarSprites.image(named: "\(stem(spell))-flight")
-    }
-
-    /// The impact panel of `spell`, cropped to its pixels.
-    static func impact(for spell: TrackerSpellFlight.Spell) -> CGImage? {
-        TrackerAvatarSprites.image(named: "\(stem(spell))-impact")
-    }
-
-    private static func stem(_ spell: TrackerSpellFlight.Spell) -> String {
-        switch spell {
-        case .orb: "S1-summoning-orb"
-        case .messenger: "S2-messenger"
-        case .wisp: "S6-returning-wisp"
-        }
-    }
-}
-
 /// The spells in flight over the tracker column. It sits above every plate and the list, and takes no clicks, so no list
 /// clips a flight. Each launch flies once; a launch made before the view appeared is skipped.
+@MainActor
 struct TrackerSpellFlightLayer: NSViewRepresentable {
     let plans: [TrackerSpellPlan]
     let latestSerial: Int
+    let sprites: TrackerAvatarSprites?
 
     func makeNSView(context: Context) -> TrackerSpellFlightView {
         TrackerSpellFlightView()
     }
 
     func updateNSView(_ view: TrackerSpellFlightView, context: Context) {
-        view.play(plans, latestSerial: latestSerial)
+        view.play(plans, latestSerial: latestSerial, sprites: sprites)
     }
 }
 
 /// The flight overlay's view. A flight is a Core Animation position animation along an arc that eases out; the impact frame
 /// then lingers and fades. Both layers are removed when done.
+@MainActor
 final class TrackerSpellFlightView: NSView {
     private typealias Design = TrackerAvatarDesign
 
@@ -124,21 +114,21 @@ final class TrackerSpellFlightView: NSView {
 
     /// Flies each plan whose serial is past the last one played, then moves the mark past every launch seen so far. A launch
     /// whose ends didn't resolve is not replayed later.
-    func play(_ plans: [TrackerSpellPlan], latestSerial: Int) {
+    func play(_ plans: [TrackerSpellPlan], latestSerial: Int, sprites: TrackerAvatarSprites?) {
         guard let playedSerial else {
             self.playedSerial = latestSerial
             return
         }
         for plan in plans where plan.serial > playedSerial {
-            fly(plan)
+            fly(plan, sprites: sprites)
         }
         self.playedSerial = latestSerial
     }
 
-    private func fly(_ plan: TrackerSpellPlan) {
+    private func fly(_ plan: TrackerSpellPlan, sprites: TrackerAvatarSprites?) {
         guard !Motion.reducesMotion(),
-              let flight = TrackerSpellSprites.flight(for: plan.spell),
-              let impact = TrackerSpellSprites.impact(for: plan.spell) else {
+              let flight = sprites?.flight(for: plan.spell),
+              let impact = sprites?.impact(for: plan.spell) else {
             return
         }
         let end = layerPoint(plan.to)

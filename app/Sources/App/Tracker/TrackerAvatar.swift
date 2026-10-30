@@ -15,101 +15,17 @@ enum TrackerAvatarMetrics {
     }
 }
 
-/// The avatar's art and motion settings. Each sprite is drawn at one point a sprite pixel (two device pixels on Retina),
-/// nearest-neighbour. Each pose is placed by its body (`bodyColumns`, the column on the slot's centre) and its feet
-/// (`footRows`, on one baseline). Positions are in sprite pixels from the top-left unless named.
+/// The avatar's drawing settings. Each sprite is drawn at one point a sprite pixel (two device pixels on Retina), nearest-neighbour.
+/// A class's frames, timings and placements come from its `animation.json` (`TrackerAvatarSprites`), not from here.
 enum TrackerAvatarDesign {
     static let pixelPoints: CGFloat = 1
-    /// The legs and cloak (Idle's layers): the bottom rows, which stay still while the figure above them breathes.
-    static let legRows = 37
-    /// Idle's eyes: the row a lid covers while it blinks, and the columns it covers.
-    static let eyeRow = 48
-    static let eyeColumns = 56...63
-    static let blinkIntervalSeconds: ClosedRange<TimeInterval> = 3...6
     /// How long the lids stay down. A blink snaps shut and open, so no motion step applies.
     static let blinkClosedSeconds: TimeInterval = 0.15
-    /// The hand a spell leaves from and returns to, on the release pose's canvas: the middle of the fist, past the cuff.
-    static let handPixel = CGPoint(x: 141, y: 64)
+    static let blinkIntervalSeconds: ClosedRange<TimeInterval> = 3...6
     static let breathPixels: CGFloat = 2
     static let breathPeriod: TimeInterval = 2.4
     /// How high a spell's path arcs between its two ends.
     static let flightArcHeight: CGFloat = 20
-    /// How long each frame of a loop shows, by default: three frames make a 0.75 s loop.
-    static let loopFrameSeconds: TimeInterval = 0.25
-    /// Pondering's head nods slowly, so its frames hold longer than the default.
-    static let ponderingFrameSeconds: TimeInterval = 0.5
-    /// Studying's frames hold a little longer than the default.
-    static let studyingFrameSeconds: TimeInterval = 0.4
-    /// The poses drawn as frames rather than layers, and how their frames play. A pose with no entry draws as layers (Idle).
-    /// A one-shot's lead-in and strike take their timings from `TrackerAvatarTiming` (Core), where its moves are timed too, and
-    /// its frame order comes from `TrackerAvatarPlayback` (Core).
-    static let frameMotions: [TrackerAvatarPose: TrackerAvatarFrameMotion] = [
-        .pondering: .loop(frameSeconds: ponderingFrameSeconds),
-        .studying: .loop(frameSeconds: studyingFrameSeconds),
-        .inscribing: .loop(frameSeconds: loopFrameSeconds),
-        .channelling: .loop(frameSeconds: loopFrameSeconds),
-        .scrying: .loop(frameSeconds: loopFrameSeconds),
-        .spellsong: .loop(frameSeconds: loopFrameSeconds),
-        .callingOut: .loop(frameSeconds: loopFrameSeconds),
-        .release: .oneShot(seconds: TrackerAvatarTiming.castSeconds),
-        .summoning: .oneShot(seconds: TrackerAvatarTiming.castSeconds),
-        .catching: .oneShot(seconds: TrackerAvatarTiming.castSeconds),
-        .bow: .oneShot(seconds: TrackerAvatarTiming.bowSeconds),
-    ]
-    /// The effect layer each pose draws alongside its bard, where it has art: `behind` draws under him (summoning's ground circle),
-    /// `inFront` over him (calling out's bubble). An effect shares its pose's frames and timing; it moves with the bard only in front.
-    static let effectPlacements: [TrackerAvatarPose: TrackerAvatarEffectPlacement] = [
-        .summoning: .behind,
-        .callingOut: .inFront,
-    ]
-    /// Each pose's body centre column (sprite pixels from the left): the middle of the torso at belt height, 60 to 64 rows
-    /// above the soles, as the median over the pose's frames (the loop's three, a one-shot's frames) with effect colours left out.
-    /// Finish frames don't count, so a lean doesn't move him. The view puts this column on the slot's centre column, so an effect
-    /// on one side of a pose doesn't shift him. Idle's fidget frames share idle's column.
-    static let bodyColumns: [TrackerAvatarPose: Int] = [
-        .idle: 51,
-        .pondering: 49,
-        .studying: 55,
-        .inscribing: 69,
-        .channelling: 55,
-        .scrying: 48,
-        .spellsong: 51,
-        .callingOut: 63,
-        .release: 59,
-        .summoning: 71,
-        .catching: 50,
-        .bow: 57,
-    ]
-    /// The row of each pose's lowest boot pixel on its canvas (sprite pixels from the top). The feet stand on the shared baseline,
-    /// so a canvas that hangs below its feet draws below it: summoning's rune circle hangs under its feet, and the bow's swept hat
-    /// hangs 13 px below its boots. Measured from the art: the median over the pose's frames. Idle's fidget frames share idle's row.
-    static let footRows: [TrackerAvatarPose: Int] = [
-        .idle: 160,
-        .pondering: 160,
-        .studying: 160,
-        .inscribing: 162,
-        .channelling: 160,
-        .scrying: 161,
-        .spellsong: 160,
-        .callingOut: 167,
-        .release: 160,
-        .summoning: 161,
-        .catching: 160,
-        .bow: 152,
-    ]
-}
-
-/// How a pose's frames play. A loop cycles its frames, each held `frameSeconds`. A one-shot plays once over `seconds` in its
-/// `TrackerAvatarPlayback` order, and its last frame holds until the one-shot ends.
-enum TrackerAvatarFrameMotion: Equatable {
-    case loop(frameSeconds: TimeInterval)
-    case oneShot(seconds: TimeInterval)
-}
-
-/// Where an effect layer draws around the bard: under him, or over him.
-enum TrackerAvatarEffectPlacement: Equatable {
-    case behind
-    case inFront
 }
 
 /// Idle's layer art, split for its motion: the figure above and below the legs.
@@ -127,103 +43,75 @@ final class TrackerAvatarArt {
     }
 }
 
-enum TrackerAvatarSprites {
-    private static let cache = NSCache<NSString, TrackerAvatarArt>()
+/// One session class's avatar: its `animation.json` and the art beside it in `Resources/Sprites/<class>/`. Art loads when it is first
+/// drawn, and stays. A class with no readable file has no sprites, and so no avatar.
+@MainActor
+final class TrackerAvatarSprites {
+    let classID: String
+    let animation: TrackerAvatarAnimation
+    private let folder: URL
+    private var images: [String: CGImage] = [:]
 
-    /// The layer art for a pose drawn as layers (Idle), loaded and split once. Nil when the pose has no layer art.
-    static func art(for pose: TrackerAvatarPose) -> TrackerAvatarArt? {
-        let name = pose.resourceName as NSString
-        if let cached = cache.object(forKey: name) {
-            return cached
-        }
-        guard let art = load(pose.resourceName) else {
+    private init(classID: String, animation: TrackerAvatarAnimation, folder: URL) {
+        self.classID = classID
+        self.animation = animation
+        self.folder = folder
+    }
+
+    /// The sprites in `folder`, or nil when it has no `animation.json`, or the file doesn't read.
+    convenience init?(classID: String, folder: URL) {
+        let file = folder.appendingPathComponent("animation.json")
+        guard FileManager.default.fileExists(atPath: file.path) else {
             return nil
         }
-        cache.setObject(art, forKey: name)
-        return art
-    }
-
-    /// The bard's frames of a pose drawn as frames, by art frame number; nil when the pose draws as layers or its frames are
-    /// missing.
-    static func frames(for pose: TrackerAvatarPose) -> [Int: CGImage]? {
-        guard TrackerAvatarDesign.frameMotions[pose] != nil else {
+        guard let data = try? Data(contentsOf: file), let animation = try? TrackerAvatarAnimation(data: data) else {
+            NSLog("Questmaster: %@ has no usable animation.json, so its class shows no avatar", file.path)
             return nil
         }
-        return numberedImages(pose, infix: "-f", numbers: TrackerAvatarPlayback.frameNumbers(for: pose))
+        self.init(classID: classID, animation: animation, folder: folder)
     }
 
-    /// The effect art a pose draws in `placement`, by art frame number (`<pose>-effect-f<n>`); nil when the pose has no effect
-    /// there, or its art is missing.
-    static func effectFrames(for pose: TrackerAvatarPose, placement: TrackerAvatarEffectPlacement) -> [Int: CGImage]? {
-        guard TrackerAvatarDesign.effectPlacements[pose] == placement else {
-            return nil
+    /// The sprites of every session class with a readable `animation.json` in the app bundle.
+    static func bundled() -> [String: TrackerAvatarSprites] {
+        guard let root = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites", isDirectory: true) else {
+            return [:]
         }
-        return numberedImages(pose, infix: "-effect-f", numbers: TrackerAvatarPlayback.frameNumbers(for: pose))
+        var sprites: [String: TrackerAvatarSprites] = [:]
+        for sessionClass in SessionClass.allCases {
+            let classID = sessionClass.rawValue
+            sprites[classID] = TrackerAvatarSprites(classID: classID, folder: root.appendingPathComponent(classID, isDirectory: true))
+        }
+        return sprites.compactMapValues { $0 }
     }
 
-    /// A cast's finish frames: f4 then f5, or f4 alone for inscribing, which holds it for the whole finish. Nil when the pose has none
-    /// yet, in which case the finish is skipped.
-    static func finishFrames(for pose: TrackerAvatarPose) -> [CGImage]? {
-        let names = TrackerAvatarFinish.holdsFourFrame(for: pose) ? ["f4"] : ["f4", "f5"]
-        let images = names.compactMap { image(named: "\(pose.resourceName)-\($0)") }
-        return images.count == names.count ? images : nil
+    /// The art frame `number` of a pose's `layer`: `<pose>-f<n>` for the character, `<pose>-behind-f<n>` and `<pose>-front-f<n>` for
+    /// the effects. Nil while its art is missing.
+    func frame(_ pose: TrackerAvatarPose, _ layer: TrackerAvatarLayer, _ number: Int) -> CGImage? {
+        let infix = switch layer {
+        case .character: "-"
+        case .behind: "-behind-"
+        case .front: "-front-"
+        }
+        return image(named: "\(pose.resourceName)\(infix)f\(number)")
     }
 
-    /// The cast poses with finish frames: the only poses the director finishes before leaving them.
-    static func posesWithFinishes() -> Set<TrackerAvatarPose> {
-        Set(TrackerAvatarDesign.frameMotions.keys.filter { $0.isCast && finishFrames(for: $0) != nil })
-    }
-
-    /// The idle fidget's art frame `frame` (`01-idle-f<frame>`); nil while its art hasn't landed.
-    static func fidgetImage(_ frame: Int) -> CGImage? {
-        image(named: "01-idle-f\(frame)")
+    /// The idle fidget's art frame `number` (`01-idle-f<n>`); nil while its art hasn't landed.
+    func idleFrame(_ number: Int) -> CGImage? {
+        frame(.idle, .character, number)
     }
 
     /// The fidgets whose every frame has its art, so the core may play them.
-    static func availableFidgets() -> Set<TrackerAvatarFidget> {
-        Set(TrackerAvatarFidget.allCases.filter { fidget in fidget.frames.allSatisfy { fidgetImage($0) != nil } })
+    var availableFidgets: [TrackerAvatarIdleFidget] {
+        animation.fidgets.filter { fidget in fidget.frames.allSatisfy { idleFrame($0) != nil } }
     }
 
-    /// The size of a pose's canvas in sprite pixels, whichever way it draws. Every frame of a pose shares its canvas, so f1 stands
-    /// for all of them.
-    static func canvasSize(for pose: TrackerAvatarPose) -> CGSize? {
-        if let frame = frames(for: pose)?[1] {
-            return CGSize(width: frame.width, height: frame.height)
-        }
-        return art(for: pose).map { CGSize(width: $0.width, height: $0.height) }
-    }
-
-    /// Where a spell leaves the avatar's hand, in `slot`'s own coordinates (top-left origin), on the release pose. The release
-    /// pose sits on its body column, so the hand is where it is on the slot, not where the canvas's middle would put it.
-    static func handPoint(in slot: CGRect) -> CGPoint? {
-        guard let canvas = canvasSize(for: .release) else {
+    /// Idle's layer art, split at its legs. Nil until its first frame has landed.
+    func idleArt() -> TrackerAvatarArt? {
+        guard let body = idleFrame(1) else {
             return nil
         }
-        let pixel = TrackerAvatarDesign.pixelPoints
-        let bodyColumn = TrackerAvatarDesign.bodyColumns[.release] ?? Int(canvas.width) / 2
-        let hang = (canvas.height - 1 - CGFloat(TrackerAvatarDesign.footRows[.release] ?? Int(canvas.height) - 1)) * pixel
-        let spriteTop = slot.maxY + hang - canvas.height * pixel
-        return CGPoint(
-            x: slot.midX - CGFloat(bodyColumn) * pixel + TrackerAvatarDesign.handPixel.x * pixel,
-            y: spriteTop + TrackerAvatarDesign.handPixel.y * pixel
-        )
-    }
-
-    /// The images named `<pose><infix><number>` for each number, keyed by number; nil when any is missing.
-    private static func numberedImages(_ pose: TrackerAvatarPose, infix: String, numbers: [Int]) -> [Int: CGImage]? {
-        let pairs = numbers.compactMap { number in image(named: "\(pose.resourceName)\(infix)\(number)").map { (number, $0) } }
-        guard pairs.count == numbers.count else {
-            return nil
-        }
-        return Dictionary(uniqueKeysWithValues: pairs)
-    }
-
-    private static func load(_ name: String) -> TrackerAvatarArt? {
-        guard let body = image(named: "\(name)-f1") else {
-            return nil
-        }
+        let legs = animation.idle.legRows
         let height = body.height
-        let legs = TrackerAvatarDesign.legRows
         guard let bodyUpper = crop(body, toRows: 0..<(height - legs)),
               let bodyLower = crop(body, toRows: (height - legs)..<height) else {
             return nil
@@ -231,31 +119,74 @@ enum TrackerAvatarSprites {
         return TrackerAvatarArt(width: body.width, height: height, bodyUpper: bodyUpper, bodyLower: bodyLower)
     }
 
-    /// The bundled PNG `name`, decoded; nil when it is missing.
-    static func image(named name: String) -> CGImage? {
-        guard let url = AppSymbolStyle.resourceBundle().url(forResource: name, withExtension: "png"),
-              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            return nil
-        }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    /// The size of a pose's canvas in sprite pixels. Every frame of a pose shares its canvas, so f1 stands for all of them.
+    func canvasSize(for pose: TrackerAvatarPose) -> CGSize? {
+        frame(pose, .character, 1).map { CGSize(width: $0.width, height: $0.height) }
     }
 
-    private static func crop(_ image: CGImage, toRows rows: Range<Int>) -> CGImage? {
+    /// Where a spell leaves the avatar's hand, in `slot`'s own coordinates (top-left origin), on the release pose. The release pose
+    /// sits on its body column, so the hand is where it is on the slot, not where the canvas's middle would put it.
+    func handPoint(in slot: CGRect) -> CGPoint? {
+        guard let release = animation.animation(for: .release), let canvas = canvasSize(for: .release) else {
+            return nil
+        }
+        let pixel = TrackerAvatarDesign.pixelPoints
+        let hang = (canvas.height - 1 - CGFloat(release.footRow)) * pixel
+        let spriteTop = slot.maxY + hang - canvas.height * pixel
+        let hand = animation.releaseHand
+        return CGPoint(
+            x: slot.midX - CGFloat(release.bodyColumn) * pixel + CGFloat(hand.x) * pixel,
+            y: spriteTop + CGFloat(hand.y) * pixel
+        )
+    }
+
+    /// A spell's flight panel, cropped to its pixels, and its impact panel. A class's spells are its own art.
+    func flight(for spell: TrackerSpellFlight.Spell) -> CGImage? {
+        image(named: "\(Self.spellStem(spell))-flight")
+    }
+
+    func impact(for spell: TrackerSpellFlight.Spell) -> CGImage? {
+        image(named: "\(Self.spellStem(spell))-impact")
+    }
+
+    private static func spellStem(_ spell: TrackerSpellFlight.Spell) -> String {
+        switch spell {
+        case .orb: "S1-summoning-orb"
+        case .messenger: "S2-messenger"
+        case .wisp: "S6-returning-wisp"
+        }
+    }
+
+    /// The PNG `name` in this class's folder, decoded once; nil when it is missing.
+    private func image(named name: String) -> CGImage? {
+        if let cached = images[name] {
+            return cached
+        }
+        guard let source = CGImageSourceCreateWithURL(folder.appendingPathComponent("\(name).png") as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+        images[name] = image
+        return image
+    }
+
+    private func crop(_ image: CGImage, toRows rows: Range<Int>) -> CGImage? {
         image.cropping(to: CGRect(x: 0, y: rows.lowerBound, width: image.width, height: rows.count))
     }
 }
 
 /// The class avatar in the tracker column, in its slot. `beat` is the director's beat count: it rises whenever a pose's cue
-/// starts, so a one-shot that repeats on the same pose plays again. `finish` is a cast's finish frame, when one is on screen.
-/// `fidget` is the idle fidget's art frame, while he fidgets.
+/// starts, so a one-shot that repeats on the same pose plays again. `finish` is how far into the cast's finish the avatar is, while it
+/// finishes. `fidget` is the idle fidget's art frame, while he fidgets.
 struct TrackerAvatarSlot: View {
     let pose: TrackerAvatarPose?
+    var sprites: TrackerAvatarSprites?
     var fidget: Int?
     var beat = 0
-    var finish: TrackerAvatarFinishFrame?
+    var finish: TimeInterval?
 
     var body: some View {
-        TrackerAvatar(pose: pose, fidget: fidget, beat: beat, finish: finish)
+        TrackerAvatar(pose: pose, sprites: sprites, fidget: fidget, beat: beat, finish: finish)
             .frame(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
     }
 }
@@ -263,15 +194,17 @@ struct TrackerAvatarSlot: View {
 /// The avatar's pose drawn in its slot. It takes no clicks.
 struct TrackerAvatar: NSViewRepresentable {
     let pose: TrackerAvatarPose?
+    var sprites: TrackerAvatarSprites?
     var fidget: Int?
     var beat = 0
-    var finish: TrackerAvatarFinishFrame?
+    var finish: TimeInterval?
 
     func makeNSView(context: Context) -> TrackerAvatarView {
         TrackerAvatarView()
     }
 
     func updateNSView(_ view: TrackerAvatarView, context: Context) {
+        view.sprites = sprites
         view.configure(pose: pose, fidget: fidget, beat: beat, finish: finish, reduceMotion: Motion.reducesMotion())
     }
 }
@@ -350,10 +283,14 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
     let lower = CALayer()
     /// The eyelids: one shape over the eye pixels, hidden except during a blink.
     let lids = CAShapeLayer()
-    let art: TrackerAvatarArt
+    private let placement: TrackerAvatarPoseAnimation
+    private let idle: TrackerAvatarIdle
+    private let art: TrackerAvatarArt
 
-    init(pose: TrackerAvatarPose, art: TrackerAvatarArt) {
+    init(pose: TrackerAvatarPose, placement: TrackerAvatarPoseAnimation, idle: TrackerAvatarIdle, art: TrackerAvatarArt) {
         self.pose = pose
+        self.placement = placement
+        self.idle = idle
         self.art = art
         root.addSublayer(lower)
         root.addSublayer(upper)
@@ -376,11 +313,11 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
         let pixel = Design.pixelPoints
         let width = CGFloat(art.width) * pixel
         let height = CGFloat(art.height) * pixel
-        let legHeight = CGFloat(Design.legRows) * pixel
+        let legHeight = CGFloat(idle.legRows) * pixel
         placeRoot(
             pixels: CGSize(width: art.width, height: art.height),
-            footRow: Design.footRows[pose] ?? art.height - 1,
-            bodyColumn: Design.bodyColumns[pose] ?? art.width / 2,
+            footRow: placement.footRow,
+            bodyColumn: placement.bodyColumn,
             in: bounds
         )
         lower.frame = CGRect(x: 0, y: 0, width: width, height: legHeight)
@@ -391,12 +328,12 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
     /// The eye pixels, in the upper body's own space (bottom-left origin), one pixel row across the eyes.
     private func eyelidPath() -> CGPath {
         let pixel = Design.pixelPoints
-        let upperRows = art.height - Design.legRows
+        let upperRows = art.height - idle.legRows
         let path = CGMutablePath()
-        for column in Design.eyeColumns {
+        for column in idle.eyeColumns {
             path.addRect(CGRect(
                 x: CGFloat(column) * pixel,
-                y: CGFloat(upperRows - 1 - Design.eyeRow) * pixel,
+                y: CGFloat(upperRows - 1 - idle.eyeRow) * pixel,
                 width: pixel,
                 height: pixel
             ))
@@ -428,183 +365,170 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
     }
 }
 
-/// A pose drawn as its frames: f1 is the pose at rest. The bard's frames play as a loop, or as a one-shot in its play order. An
-/// effect layer plays the same frames at the same timing on the same canvas, drawn behind him or in front of him. The figure (the
-/// bard and any effect in front) is one layer, which the pose's moves and a cast's finish lean carry; an effect behind stays put.
-/// A cast's finish frames replace the bard when the director finishes the cast. The render server runs the animations as discrete
-/// keyframes on the layers' contents and position.
+/// A pose drawn as frames. Its loop cycles, or its one-shot plays once. Each layer plays its own track on its own clock: the
+/// character, a `behind` effect that stays put, and a `front` effect that moves with the figure. The figure (the character and any
+/// front effect) is one layer, which the pose's moves and a cast's finish lean carry. A finish sets each layer to its frame at the
+/// elapsed time the director gives. The render server runs the animations as discrete keyframes on the layers' contents and position.
 @MainActor
 final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
-    private typealias Design = TrackerAvatarDesign
-
     let pose: TrackerAvatarPose
     /// The whole sprite, placed by its anchor. It holds the effect drawn behind and the figure.
     let root = CALayer()
-    /// The bard and any effect in front of him: the layer the pose's moves and the finish lean carry.
+    /// The character and any effect in front of him: the layer the pose's moves and the finish lean carry.
     let figure = CALayer()
-    let bard = CALayer()
-    let effectBehind = CALayer()
-    let effectFront = CALayer()
-    /// The bard's frames, by art frame number.
-    private let frames: [Int: CGImage]
-    private let behindFrames: [Int: CGImage]?
-    private let frontFrames: [Int: CGImage]?
-    private let finish: [CGImage]?
-    private let motion: TrackerAvatarFrameMotion
-    /// A one-shot's frames in play order, or nil for a loop.
-    private let oneShot: [TrackerAvatarPlaybackFrame]?
-    /// The frame the pose rests on: a one-shot's lead-in, or a loop's first frame.
-    private let restFrame: Int
+    let behind = CALayer()
+    let character = CALayer()
+    let front = CALayer()
+    private let placement: TrackerAvatarPoseAnimation
+    private let sprites: TrackerAvatarSprites
+    /// The block the pose plays: its loop, or its one-shot.
+    private let block: TrackerAvatarBlock
     /// Set once a one-shot has started in this showing, so it plays once.
     private var oneShotStarted = false
 
-    init(
-        pose: TrackerAvatarPose,
-        frames: [Int: CGImage],
-        finish: [CGImage]?,
-        motion: TrackerAvatarFrameMotion,
-        behind: [Int: CGImage]? = nil,
-        front: [Int: CGImage]? = nil
-    ) {
+    /// Nil when the pose plays no frames, or a frame its blocks need has no art.
+    init?(pose: TrackerAvatarPose, placement: TrackerAvatarPoseAnimation, sprites: TrackerAvatarSprites) {
+        guard let block = placement.loop ?? placement.once, Self.hasArt(pose, placement, sprites) else {
+            return nil
+        }
         self.pose = pose
-        self.frames = frames
-        self.finish = finish
-        self.motion = motion
-        behindFrames = behind
-        frontFrames = front
-        oneShot = TrackerAvatarPlayback.oneShotFrames(for: pose)
-        restFrame = oneShot?.first?.frame ?? TrackerAvatarPlayback.loopFrames[0]
-        root.addSublayer(effectBehind)
+        self.placement = placement
+        self.sprites = sprites
+        self.block = block
+        root.addSublayer(behind)
         root.addSublayer(figure)
-        figure.addSublayer(bard)
-        figure.addSublayer(effectFront)
-        for layer in [root, effectBehind, figure, bard, effectFront] {
+        figure.addSublayer(character)
+        figure.addSublayer(front)
+        for layer in [root, figure, behind, character, front] {
             layer.actions = TrackerAvatarLayerActions.immediate
             layer.magnificationFilter = .nearest
             layer.minificationFilter = .nearest
         }
-        bard.contents = frames[restFrame]
-        effectBehind.contents = behind?[restFrame]
-        effectFront.contents = front?[restFrame]
+        for kind in TrackerAvatarLayer.allCases {
+            self.layer(kind).contents = restImage(kind)
+        }
     }
 
-    /// The layers that play frames, with the frames each plays: the bard, and whichever effect has art.
-    private var planes: [(layer: CALayer, frames: [Int: CGImage])] {
-        var planes = [(layer: bard, frames: frames)]
-        if let behindFrames {
-            planes.append((layer: effectBehind, frames: behindFrames))
+    /// Whether every frame the pose's blocks name has its art.
+    private static func hasArt(_ pose: TrackerAvatarPose, _ placement: TrackerAvatarPoseAnimation, _ sprites: TrackerAvatarSprites) -> Bool {
+        [placement.loop, placement.once, placement.finish].compactMap { $0 }.allSatisfy { block in
+            TrackerAvatarLayer.allCases.allSatisfy { layer in
+                (block.track(for: layer)?.steps ?? []).allSatisfy { sprites.frame(pose, layer, $0.frame) != nil }
+            }
         }
-        if let frontFrames {
-            planes.append((layer: effectFront, frames: frontFrames))
+    }
+
+    private func layer(_ kind: TrackerAvatarLayer) -> CALayer {
+        switch kind {
+        case .behind: behind
+        case .character: character
+        case .front: front
         }
-        return planes
+    }
+
+    /// The frame a layer rests on: the first frame of its track in the block. Nil for a layer the block doesn't play.
+    private func restImage(_ kind: TrackerAvatarLayer) -> CGImage? {
+        guard let frame = block.track(for: kind)?.steps.first?.frame else {
+            return nil
+        }
+        return sprites.frame(pose, kind, frame)
     }
 
     func place(in bounds: CGRect) {
-        let canvas = frames[restFrame].map { CGSize(width: $0.width, height: $0.height) } ?? .zero
-        placeRoot(
-            pixels: canvas,
-            footRow: Design.footRows[pose] ?? Int(canvas.height) - 1,
-            bodyColumn: Design.bodyColumns[pose] ?? Int(canvas.width) / 2,
-            in: bounds
-        )
+        let canvas = restImage(.character).map { CGSize(width: $0.width, height: $0.height) } ?? .zero
+        placeRoot(pixels: canvas, footRow: placement.footRow, bodyColumn: placement.bodyColumn, in: bounds)
         let local = CGRect(origin: .zero, size: root.bounds.size)
-        for layer in [effectBehind, figure, bard, effectFront] {
+        for layer in [behind, figure, character, front] {
             layer.frame = local
         }
     }
 
     func startMotion() {
-        switch motion {
-        case .loop(let frameSeconds):
-            startLoop(frameSeconds: frameSeconds)
-        case .oneShot(let seconds):
-            startOneShot(seconds: seconds)
+        if pose.playKind == .oneShot {
+            startOneShot()
+        } else {
+            startLoop()
         }
     }
 
-    /// Stops the frames and the move, and shows the rest frame again, so a rig that stops (out of a window, under Reduce Motion, or
+    /// Stops the frames and the move, and shows the rest frames again, so a rig that stops (out of a window, under Reduce Motion, or
     /// hidden) rests on the pose.
     func stopMotion() {
-        for plane in planes {
-            plane.layer.removeAnimation(forKey: TrackerAvatarMotionKey.frames)
-            plane.layer.contents = plane.frames[restFrame]
+        for kind in TrackerAvatarLayer.allCases {
+            layer(kind).removeAnimation(forKey: TrackerAvatarMotionKey.frames)
+            layer(kind).contents = restImage(kind)
         }
         figure.removeAnimation(forKey: TrackerAvatarMotionKey.move)
         oneShotStarted = false
     }
 
-    /// Holds the loop still on one of the cast's finish frames, and on the first one starts the lean. A pose without finish frames
-    /// shows nothing. A cast has no effect layers, so the finish frames replace the bard alone.
-    func showFinish(_ frame: TrackerAvatarFinishFrame) {
-        guard let finish, let first = finish.first else {
+    /// Holds each layer on its finish frame at `elapsed` seconds into the finish, and on the first call starts the lean. A pose without
+    /// a finish shows nothing. A layer the finish doesn't play is cleared, so no art from the loop lingers under it.
+    func showFinish(elapsed: TimeInterval) {
+        guard let finish = placement.finish else {
             return
         }
-        for plane in planes {
-            plane.layer.removeAnimation(forKey: TrackerAvatarMotionKey.frames)
+        for kind in TrackerAvatarLayer.allCases {
+            layer(kind).removeAnimation(forKey: TrackerAvatarMotionKey.frames)
+            layer(kind).contents = finish.track(for: kind).flatMap { track in
+                sprites.frame(pose, kind, track.frame(at: elapsed, looping: false))
+            }
         }
-        bard.contents = frame == .five ? finish.last : first
-        if frame == .four {
-            startFinishLean()
-        }
+        addMove(TrackerAvatarMotion.finishSteps(in: finish), duration: finish.seconds, repeatCount: 1)
     }
 
     /// A frame pose has no eyelids.
     func setLids(shown: Bool) {}
 
-    private func startLoop(frameSeconds: TimeInterval) {
-        guard bard.animation(forKey: TrackerAvatarMotionKey.frames) == nil else {
+    private func startLoop() {
+        guard character.animation(forKey: TrackerAvatarMotionKey.frames) == nil else {
             return
         }
-        let numbers = TrackerAvatarPlayback.loopFrames
-        let period = Double(numbers.count) * frameSeconds
-        for plane in planes {
-            let images = numbers.compactMap { plane.frames[$0] }
-            guard images.count == numbers.count, let first = images.first else {
+        for kind in TrackerAvatarLayer.allCases {
+            guard let track = block.track(for: kind) else {
                 continue
             }
-            // A discrete keyframe holds each value only up to the next key, so the loop needs the first frame again at the end.
-            let loop = CAKeyframeAnimation(keyPath: "contents")
-            loop.values = images + [first]
-            loop.keyTimes = (0...images.count).map { NSNumber(value: Double($0) / Double(images.count)) }
-            loop.calculationMode = .discrete
-            loop.duration = period
-            loop.repeatCount = .infinity
-            plane.layer.add(loop, forKey: TrackerAvatarMotionKey.frames)
+            addFrames(of: kind, track: track, duration: track.seconds, looping: true)
         }
-        startMove(duration: period, repeatCount: .infinity)
+        startMove(duration: block.character.seconds, repeatCount: .infinity)
     }
 
-    private func startOneShot(seconds: TimeInterval) {
-        guard !oneShotStarted, let oneShot else {
+    private func startOneShot() {
+        guard !oneShotStarted else {
             return
         }
         oneShotStarted = true
-        for plane in planes {
-            let images = oneShot.compactMap { plane.frames[$0.frame] }
-            guard images.count == oneShot.count, let last = images.last else {
+        for kind in TrackerAvatarLayer.allCases {
+            guard let track = block.track(for: kind) else {
                 continue
             }
             // The layer rests on the follow-through, and plays the order: each frame from its start, and the last one holds.
-            plane.layer.contents = last
-            let sequence = CAKeyframeAnimation(keyPath: "contents")
-            sequence.values = images + [last]
-            sequence.keyTimes = (oneShot.map { $0.startSeconds / seconds } + [1]).map { NSNumber(value: $0) }
-            sequence.calculationMode = .discrete
-            sequence.duration = seconds
-            plane.layer.add(sequence, forKey: TrackerAvatarMotionKey.frames)
+            layer(kind).contents = track.steps.last.flatMap { sprites.frame(pose, kind, $0.frame) }
+            addFrames(of: kind, track: track, duration: block.seconds, looping: false)
         }
-        startMove(duration: seconds, repeatCount: 1)
+        startMove(duration: block.seconds, repeatCount: 1)
     }
 
-    /// The finish lean, from Core: back on f4, and forward to the anchor on f5 unless f4 holds for the whole finish.
-    private func startFinishLean() {
-        addMove(TrackerAvatarMotion.finishSteps(for: pose), duration: TrackerAvatarTiming.finishSeconds, repeatCount: 1)
+    /// Plays a track's frames as discrete keyframes over `duration`, each from its start. The last key holds the frame that closes the
+    /// cycle: a loop's first frame, so it joins up, and a one-shot's last. A discrete keyframe holds each value only up to the next key,
+    /// so the closing frame gets a key of its own.
+    private func addFrames(of kind: TrackerAvatarLayer, track: TrackerAvatarTrack, duration: TimeInterval, looping: Bool) {
+        let images = track.steps.compactMap { sprites.frame(pose, kind, $0.frame) }
+        guard images.count == track.steps.count, let first = images.first, let last = images.last else {
+            return
+        }
+        let frames = CAKeyframeAnimation(keyPath: "contents")
+        frames.values = images + [looping ? first : last]
+        frames.keyTimes = (track.starts + [duration]).map { NSNumber(value: $0 / duration) }
+        frames.calculationMode = .discrete
+        frames.duration = duration
+        frames.repeatCount = looping ? .infinity : 1
+        layer(kind).add(frames, forKey: TrackerAvatarMotionKey.frames)
     }
 
-    /// The pose's pixel move from Core.
+    /// The pose's pixel move from Core: a loop's cycle, or a one-shot's whole showing.
     private func startMove(duration: TimeInterval, repeatCount: Float) {
-        addMove(TrackerAvatarMotion.steps(for: pose, duration: duration), duration: duration, repeatCount: repeatCount)
+        addMove(TrackerAvatarMotion.steps(for: pose, in: block, duration: duration), duration: duration, repeatCount: repeatCount)
     }
 
     /// Plays Core's steps on the figure as discrete keyframes on position: each step holds until the next, and the last one holds
@@ -614,7 +538,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         guard let last = steps.last, figure.animation(forKey: TrackerAvatarMotionKey.move) == nil else {
             return
         }
-        let pixel = Design.pixelPoints
+        let pixel = TrackerAvatarDesign.pixelPoints
         // Each step holds until the next, and the last one holds to the end: its repeat at the end is the terminal key.
         let offsets = (steps + [last]).map { CGPoint(x: CGFloat($0.x) * pixel, y: CGFloat($0.y) * pixel) }
         let move = CAKeyframeAnimation(keyPath: "position")
@@ -632,15 +556,17 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
 /// each frame lands as a snap, so the sprite moves in whole frames on the core's steps. A frame whose art is missing shows nothing.
 @MainActor
 fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
-    private typealias Design = TrackerAvatarDesign
-
     let pose = TrackerAvatarPose.idle
     let root = CALayer()
+    private let placement: TrackerAvatarPoseAnimation
+    private let sprites: TrackerAvatarSprites
     private var bounds = CGRect.zero
     private var canvas = CGSize.zero
     private var frame: Int?
 
-    init() {
+    init(placement: TrackerAvatarPoseAnimation, sprites: TrackerAvatarSprites) {
+        self.placement = placement
+        self.sprites = sprites
         root.actions = TrackerAvatarLayerActions.immediate
         root.magnificationFilter = .nearest
         root.minificationFilter = .nearest
@@ -652,7 +578,7 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
             return
         }
         self.frame = frame
-        let image = TrackerAvatarSprites.fidgetImage(frame)
+        let image = sprites.idleFrame(frame)
         root.contents = image
         canvas = image.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
         place(in: bounds)
@@ -660,12 +586,7 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
 
     func place(in bounds: CGRect) {
         self.bounds = bounds
-        placeRoot(
-            pixels: canvas,
-            footRow: Design.footRows[pose] ?? Int(canvas.height) - 1,
-            bodyColumn: Design.bodyColumns[pose] ?? Int(canvas.width) / 2,
-            in: bounds
-        )
+        placeRoot(pixels: canvas, footRow: placement.footRow, bodyColumn: placement.bodyColumn, in: bounds)
     }
 
     /// A fidget has no motion of its own: the core steps its frames.
@@ -678,7 +599,7 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
 
 /// The avatar's view. A pose change snaps: the shown rig hides and the new one shows at once. Idle breathes and blinks, and while
 /// he fidgets his fidget frame replaces the layers, so the breath and the blink pause until he is back. Motion runs only while the
-/// view is in a window and not under Reduce Motion; a pose change still shows then. A cast's finish frame holds the loop still
+/// view is in a window and not under Reduce Motion; a pose change still shows then. A cast's finish holds the loop still
 /// while it is on screen.
 final class TrackerAvatarView: NSView {
     /// A rig is a pose drawn from its own art, or the idle fidget's frame.
@@ -687,12 +608,22 @@ final class TrackerAvatarView: NSView {
         case fidget
     }
 
+    /// The class's sprites the rigs draw from. A different class drops the rigs, which are built again from the new sprites.
+    var sprites: TrackerAvatarSprites? {
+        didSet {
+            guard sprites !== oldValue else {
+                return
+            }
+            resetRigs()
+        }
+    }
+
     private var rigs: [RigKey: any TrackerAvatarPoseRig] = [:]
     /// The rig on screen, and its key.
     private var shownKey: RigKey?
     private var shown: (any TrackerAvatarPoseRig)?
     private var beat = 0
-    private var finish: TrackerAvatarFinishFrame?
+    private var finish: TimeInterval?
     private var reduceMotion = false
     private var blinkTimer: Timer?
 
@@ -719,9 +650,9 @@ final class TrackerAvatarView: NSView {
     }
 
     /// Shows `pose`. While `fidget` names an art frame and the pose is idle, the fidget's frame shows in its place. When `beat`
-    /// has risen on the same pose, starts that pose's one-shot again from its lead-in. A `finish` frame holds the cast's loop still
-    /// while it shows.
-    func configure(pose: TrackerAvatarPose?, fidget: Int? = nil, beat: Int, finish: TrackerAvatarFinishFrame?, reduceMotion: Bool) {
+    /// has risen on the same pose, starts that pose's one-shot again from its lead-in. A `finish` (how far into the cast's finish
+    /// it is) holds the cast's loop still while it shows.
+    func configure(pose: TrackerAvatarPose?, fidget: Int? = nil, beat: Int, finish: TimeInterval?, reduceMotion: Bool) {
         self.reduceMotion = reduceMotion
         let key = Self.key(pose: pose, fidget: fidget)
         if key != shownKey {
@@ -752,36 +683,50 @@ final class TrackerAvatarView: NSView {
         shown?.show()
     }
 
-    /// The rig that draws `key`: its frames when it has a frame set, otherwise its layers.
+    /// The rig that draws `key`, built on first use from the class's sprites. Nil while there are no sprites, or the pose has no art.
     private func rig(for key: RigKey) -> (any TrackerAvatarPoseRig)? {
         if let rig = rigs[key] {
             return rig
         }
-        let rig: any TrackerAvatarPoseRig
-        switch key {
-        case .fidget:
-            rig = TrackerAvatarFidgetRig()
-        case .pose(let pose):
-            if let motion = TrackerAvatarDesign.frameMotions[pose], let frames = TrackerAvatarSprites.frames(for: pose) {
-                rig = TrackerAvatarFrameRig(
-                    pose: pose,
-                    frames: frames,
-                    finish: TrackerAvatarSprites.finishFrames(for: pose),
-                    motion: motion,
-                    behind: TrackerAvatarSprites.effectFrames(for: pose, placement: .behind),
-                    front: TrackerAvatarSprites.effectFrames(for: pose, placement: .inFront)
-                )
-            } else if let art = TrackerAvatarSprites.art(for: pose) {
-                rig = TrackerAvatarRig(pose: pose, art: art)
-            } else {
-                return nil
-            }
+        guard let sprites, let rig = makeRig(for: key, sprites: sprites) else {
+            return nil
         }
         rig.place(in: bounds)
         rig.root.isHidden = true
         layer?.addSublayer(rig.root)
         rigs[key] = rig
         return rig
+    }
+
+    private func makeRig(for key: RigKey, sprites: TrackerAvatarSprites) -> (any TrackerAvatarPoseRig)? {
+        switch key {
+        case .fidget:
+            guard let placement = sprites.animation.animation(for: .idle) else {
+                return nil
+            }
+            return TrackerAvatarFidgetRig(placement: placement, sprites: sprites)
+        case .pose(let pose):
+            guard let placement = sprites.animation.animation(for: pose) else {
+                return nil
+            }
+            if pose.playKind == .layers {
+                guard let art = sprites.idleArt() else {
+                    return nil
+                }
+                return TrackerAvatarRig(pose: pose, placement: placement, idle: sprites.animation.idle, art: art)
+            }
+            return TrackerAvatarFrameRig(pose: pose, placement: placement, sprites: sprites)
+        }
+    }
+
+    /// Drops every rig, the shown one included, so the next configure builds them from the current sprites.
+    private func resetRigs() {
+        shown?.hide()
+        rigs.values.forEach { $0.root.removeFromSuperlayer() }
+        rigs = [:]
+        shownKey = nil
+        shown = nil
+        updateMotion()
     }
 
     /// The shown pose moves while the view is on screen and motion is allowed, and holds still while a finish shows; any other
@@ -793,7 +738,7 @@ final class TrackerAvatarView: NSView {
             return
         }
         if let finish {
-            (shown as? TrackerAvatarFrameRig)?.showFinish(finish)
+            (shown as? TrackerAvatarFrameRig)?.showFinish(elapsed: finish)
         } else {
             shown?.startMotion()
         }

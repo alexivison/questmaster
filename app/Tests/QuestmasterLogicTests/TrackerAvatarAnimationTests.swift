@@ -10,6 +10,7 @@ struct TrackerAvatarAnimationTests {
         aFinishLastsItsLongestTrackAndHoldsItsLastFrame()
         aMissingOptionalTrackStillDecodes()
         aPoseWithBehindAndFrontOfDifferentLengthsPlaysEachOnItsOwnClock()
+        aBehindAndFrontOfDifferentLengthsEachKeepTheirOwnLength()
         aFinishChangesAtItsOwnSteps()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
@@ -131,6 +132,24 @@ struct TrackerAvatarAnimationTests {
             expect(loop.character.frame(at: time, looping: true) == 1, "the 1-frame character should always show f1, at \(time) s")
             expect(loop.front?.frame(at: time, looping: true) == Int(time / 0.125) % 8 + 1, "the 8-frame front should cycle on its own clock, at \(time) s")
         }
+    }
+
+    /// A pose's effects on both sides, each with its own length: the behind layer stays on its track while the front cycles its own.
+    private static func aBehindAndFrontOfDifferentLengthsEachKeepTheirOwnLength() {
+        let animation = try? bard(editing: "11-calling-out") { pose in
+            pose["loop"] = [
+                "character": [[1, 0.25]],
+                "behind": [[2, 0.5], [3, 0.5]],
+                "front": (1...8).map { [$0, 0.125] as [Any] },
+            ]
+        }
+        guard let loop = animation?.animation(for: .callingOut)?.loop else {
+            fail("a loop with behind and front tracks of different lengths should decode")
+        }
+        expect(near(loop.behind?.seconds ?? 0, 1) && near(loop.front?.seconds ?? 0, 1), "the behind and front tracks should each keep their own length")
+        expect(loop.behind?.frame(at: 0.75, looping: true) == 3, "the behind track should cycle its own two steps")
+        expect(loop.front?.frame(at: 0.75, looping: true) == 7, "the front track should cycle its own eight steps")
+        expect(loop.seconds == 1, "the loop should last as long as its tracks")
     }
 
     /// A finish changes frame at its own steps, so the director can wake at each one.

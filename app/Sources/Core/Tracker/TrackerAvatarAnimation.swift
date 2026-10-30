@@ -8,7 +8,7 @@ public enum TrackerAvatarLayer: String, CaseIterable, Sendable {
     case front
 }
 
-/// One step of a track: an art frame (`<pose>-f<n>` for the character, its layer's own name for an effect), and how long it shows.
+/// One step of a track: an art frame number, and how long it shows.
 public struct TrackerAvatarStep: Equatable, Sendable {
     public let frame: Int
     public let seconds: TimeInterval
@@ -221,6 +221,11 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The pose's art and timings. A file that decodes names every pose.
     public func animation(for pose: TrackerAvatarPose) -> TrackerAvatarPoseAnimation? {
         poses[pose]
+    }
+
+    /// How long a one-shot plays: its `once` block's length. Zero for a pose that doesn't play once.
+    public func onceSeconds(for pose: TrackerAvatarPose) -> TimeInterval {
+        poses[pose]?.once?.seconds ?? 0
     }
 
     private static func idle(_ file: File.Idle) throws -> TrackerAvatarIdle {

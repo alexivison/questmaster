@@ -12,6 +12,9 @@ struct TrackerAvatarFidgetsTests {
         print("TrackerAvatarFidgetsTests: all tests passed")
     }
 
+    /// The bard's fidgets, as his file gives them: the hat and the yawn.
+    private static let bardFidgets = AvatarAnimationFixture.bard().fidgets
+
     /// A generator with a fixed seed, so the gaps and picks repeat exactly.
     private struct SeededGenerator: RandomNumberGenerator {
         var state: UInt64
@@ -54,7 +57,7 @@ struct TrackerAvatarFidgetsTests {
 
     private static func gapsAreEightToFifteenSeconds() {
         for seed: UInt64 in 1...20 {
-            var fidgets = TrackerAvatarFidgets(available: Set(TrackerAvatarFidget.allCases), reducesMotion: false, random: SeededGenerator(state: seed))
+            var fidgets = TrackerAvatarFidgets(available: bardFidgets, reducesMotion: false, random: SeededGenerator(state: seed))
             let first = fidgets.frame(pose: .idle, at: 0)
             expect(first.artFrame == nil, "he should breathe at rest before his first fidget")
             guard let due = first.nextChange else {
@@ -70,7 +73,7 @@ struct TrackerAvatarFidgetsTests {
             [Shown(frame: 2, centiseconds: 20), Shown(frame: 3, centiseconds: 20), Shown(frame: 2, centiseconds: 20)],
             [Shown(frame: 7, centiseconds: 60)],
         ]
-        var fidgets = TrackerAvatarFidgets(available: Set(TrackerAvatarFidget.allCases), reducesMotion: false, random: SeededGenerator(state: 3))
+        var fidgets = TrackerAvatarFidgets(available: bardFidgets, reducesMotion: false, random: SeededGenerator(state: 3))
         let played = fidgetsPlayed(&fidgets, until: 400)
         expect(played.count >= 10, "a few hundred seconds should hold several fidgets, got \(played.count)")
         for fidget in played {
@@ -80,7 +83,7 @@ struct TrackerAvatarFidgetsTests {
 
     /// No two fidgets in a row are the same one. Each fidget starts on its own first frame, so the first frame tells them apart.
     private static func aFidgetNeverFollowsItself() {
-        var fidgets = TrackerAvatarFidgets(available: Set(TrackerAvatarFidget.allCases), reducesMotion: false, random: SeededGenerator(state: 11))
+        var fidgets = TrackerAvatarFidgets(available: bardFidgets, reducesMotion: false, random: SeededGenerator(state: 11))
         let played = fidgetsPlayed(&fidgets, until: 3000)
         expect(played.count >= 100, "a long stretch should hold many fidgets, got \(played.count)")
         for (earlier, later) in zip(played, played.dropFirst()) {
@@ -93,7 +96,7 @@ struct TrackerAvatarFidgetsTests {
     /// A fidget whose art is missing is skipped. With only the yawn's art in, the yawn plays, then its slot is empty, and it plays
     /// again on a later gap. With no art at all, nothing plays.
     private static func aFidgetWithMissingArtIsSkipped() {
-        var yawnOnly = TrackerAvatarFidgets(available: [.yawn], reducesMotion: false, random: SeededGenerator(state: 5))
+        var yawnOnly = TrackerAvatarFidgets(available: bardFidgets.filter { $0.name == "yawn" }, reducesMotion: false, random: SeededGenerator(state: 5))
         let yawns = fidgetsPlayed(&yawnOnly, until: 600)
         expect(yawns.count >= 5, "the yawn should keep coming back, got \(yawns.count)")
         expect(yawns.allSatisfy { $0 == [Shown(frame: 7, centiseconds: 60)] }, "only the yawn should play, got \(yawns)")
@@ -104,7 +107,7 @@ struct TrackerAvatarFidgetsTests {
 
     /// A cast, calling out or any other pose stops the fidget where it is, and the idle gap starts again once he is idle.
     private static func anyOtherPoseStopsAFidgetAtOnce() {
-        var fidgets = TrackerAvatarFidgets(available: Set(TrackerAvatarFidget.allCases), reducesMotion: false, random: SeededGenerator(state: 2))
+        var fidgets = TrackerAvatarFidgets(available: bardFidgets, reducesMotion: false, random: SeededGenerator(state: 2))
         let due = fidgets.frame(pose: .idle, at: 0).nextChange ?? 0
         let playing = fidgets.frame(pose: .idle, at: due)
         expect(playing.artFrame != nil, "a fidget should be playing when it is due")
@@ -116,7 +119,7 @@ struct TrackerAvatarFidgetsTests {
     }
 
     private static func noFidgetsUnderReduceMotion() {
-        var fidgets = TrackerAvatarFidgets(available: Set(TrackerAvatarFidget.allCases), reducesMotion: true, random: SeededGenerator(state: 9))
+        var fidgets = TrackerAvatarFidgets(available: bardFidgets, reducesMotion: true, random: SeededGenerator(state: 9))
         expect(fidgetsPlayed(&fidgets, until: 600).isEmpty, "no fidget should play under Reduce Motion")
     }
 

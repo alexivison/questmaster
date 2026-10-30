@@ -18,12 +18,15 @@ public struct TrackerAvatarEventDetector {
         static let report = "report"
     }
 
+    private let catalog: TrackerAvatarCatalog
     private var previousRows: [String: TrackerSession]?
     private var previousAttachedID: String?
 
-    public init() {}
+    public init(catalog: TrackerAvatarCatalog) {
+        self.catalog = catalog
+    }
 
-    /// The events between the last payload and `rows`, for the attached session when it is a bard master.
+    /// The events between the last payload and `rows`, for the attached session when it shows an avatar.
     public mutating func observe(_ rows: [TrackerSession], attachedID: String?) -> [TrackerAvatarEvent] {
         let before = previousRows
         let sameAttachment = attachedID == previousAttachedID
@@ -31,7 +34,7 @@ public struct TrackerAvatarEventDetector {
         previousAttachedID = attachedID
         guard let before, sameAttachment, let attachedID,
               let master = rows.first(where: { $0.id == attachedID }),
-              TrackerAvatarPose.pose(for: master) != nil else {
+              catalog.animation(for: master) != nil else {
             return []
         }
         return rows.filter { $0.parentID == attachedID }.flatMap { events(for: $0, before: before) }

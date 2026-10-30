@@ -1,52 +1,9 @@
 import Foundation
 
-/// How the idle fidgets are timed, in seconds.
+/// How the idle fidgets are spaced, in seconds. A fidget's own frames and times come from the class's `animation.json`.
 public enum TrackerAvatarFidgetTiming {
-    /// How long a frame of a fidget's sequence shows (a hat's three frames).
-    public static let frameSeconds: TimeInterval = 0.2
-    /// How long a fidget holds its one frame (a yawn).
-    public static let holdSeconds: TimeInterval = 0.6
     /// How long he idles between one fidget and the next: a random time in this range.
     public static let gapSeconds: ClosedRange<TimeInterval> = 8...15
-}
-
-/// One step of a fidget: the idle pose's art frame (`01-idle-f<frame>`), shown for `seconds`.
-public struct TrackerAvatarFidgetStep: Equatable {
-    public let frame: Int
-    public let seconds: TimeInterval
-
-    public init(frame: Int, seconds: TimeInterval) {
-        self.frame = frame
-        self.seconds = seconds
-    }
-}
-
-/// The idle fidgets: small moves he makes in place while idle.
-public enum TrackerAvatarFidget: CaseIterable, Equatable {
-    /// Reaching up, tipping the hat brim.
-    case hat
-    /// A yawn.
-    case yawn
-
-    /// The art frames each fidget plays, in order. A hat plays three frames, and a yawn holds one.
-    public var steps: [TrackerAvatarFidgetStep] {
-        typealias Timing = TrackerAvatarFidgetTiming
-        switch self {
-        case .hat:
-            return [step(2, Timing.frameSeconds), step(3, Timing.frameSeconds), step(2, Timing.frameSeconds)]
-        case .yawn:
-            return [step(7, Timing.holdSeconds)]
-        }
-    }
-
-    /// The art frame numbers this fidget needs, so the App can tell whether its art has landed.
-    public var frames: [Int] {
-        steps.map(\.frame)
-    }
-
-    private func step(_ frame: Int, _ seconds: TimeInterval) -> TrackerAvatarFidgetStep {
-        TrackerAvatarFidgetStep(frame: frame, seconds: seconds)
-    }
 }
 
 /// What the idle pose shows at one instant: a fidget's art frame, or nil while he breathes at rest.
@@ -62,26 +19,26 @@ public struct TrackerAvatarFidgetFrame: Equatable {
 /// `random`, so a seeded generator makes them repeatable in tests.
 public struct TrackerAvatarFidgets<Generator: RandomNumberGenerator> {
     private struct Playing {
-        let fidget: TrackerAvatarFidget
+        let fidget: TrackerAvatarIdleFidget
         let start: TimeInterval
 
         /// The same running sum the steps use, so the end and the last step agree to the bit.
         var end: TimeInterval {
-            fidget.steps.reduce(start) { $0 + $1.seconds }
+            fidget.track.steps.reduce(start) { $0 + $1.seconds }
         }
     }
 
-    private let available: Set<TrackerAvatarFidget>
+    private let available: [TrackerAvatarIdleFidget]
     private let reducesMotion: Bool
     private var random: Generator
     /// When the next fidget is due, while he idles.
     private var due: TimeInterval?
     private var current: Playing?
     /// The fidget that played last, which the next one may not be.
-    private var last: TrackerAvatarFidget?
+    private var last: TrackerAvatarIdleFidget?
 
-    /// `available` names the fidgets whose art has landed.
-    public init(available: Set<TrackerAvatarFidget>, reducesMotion: Bool, random: Generator) {
+    /// `available` lists the fidgets whose art has landed, in the order the file gives them.
+    public init(available: [TrackerAvatarIdleFidget], reducesMotion: Bool, random: Generator) {
         self.available = available
         self.reducesMotion = reducesMotion
         self.random = random
@@ -131,15 +88,15 @@ public struct TrackerAvatarFidgets<Generator: RandomNumberGenerator> {
         Double.random(in: TrackerAvatarFidgetTiming.gapSeconds, using: &random)
     }
 
-    private mutating func pickFidget() -> TrackerAvatarFidget? {
-        let candidates = TrackerAvatarFidget.allCases.filter { available.contains($0) && $0 != last }
+    private mutating func pickFidget() -> TrackerAvatarIdleFidget? {
+        let candidates = available.filter { $0 != last }
         return candidates.randomElement(using: &random)
     }
 
     /// The step showing at `now`, and when it gives way to the next.
     private static func stepFrame(of playing: Playing, at now: TimeInterval) -> TrackerAvatarFidgetFrame {
         var start = playing.start
-        for step in playing.fidget.steps {
+        for step in playing.fidget.track.steps {
             let end = start + step.seconds
             if now < end {
                 return TrackerAvatarFidgetFrame(artFrame: step.frame, nextChange: end)

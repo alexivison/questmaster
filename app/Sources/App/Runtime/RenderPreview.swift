@@ -2167,7 +2167,7 @@ enum RenderPreview {
         warmUpFirstWindow()
         let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
         let container = NSView(frame: NSRect(origin: .zero, size: size))
-        let host = NSHostingView(rootView: TrackerAvatarSlot(pose: .idle).background(AppPalette.window.swiftUI))
+        let host = NSHostingView(rootView: TrackerAvatarSlot(pose: .idle, sprites: previewBardSprites()).background(AppPalette.window.swiftUI))
         host.frame = container.bounds
         host.autoresizingMask = [.width, .height]
         container.addSubview(host)
@@ -2229,7 +2229,7 @@ enum RenderPreview {
         let stage: TrackerAvatarStage
 
         var body: some View {
-            TrackerAvatarSlot(pose: stage.pose, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish)
+            TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .background(AppPalette.window.swiftUI)
         }
@@ -2245,7 +2245,7 @@ enum RenderPreview {
                 placeholderPlate(id: "qm-m1", height: TrackerNameplateRole.master.canvasSize.height)
                 placeholderPlate(id: "qm-w1", height: TrackerNameplateRole.worker.canvasSize.height)
                 placeholderPlate(id: "qm-w2", height: TrackerNameplateRole.worker.canvasSize.height)
-                TrackerAvatarSlot(pose: stage.pose, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish)
+                TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish)
                     .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(avatar: $0) }
             }
             .frame(width: TrackerAvatarMetrics.slotWidth, alignment: .topLeading)
@@ -2254,8 +2254,11 @@ enum RenderPreview {
             .overlayPreferenceValue(TrackerFlightAnchorKey.self) { anchors in
                 GeometryReader { proxy in
                     TrackerSpellFlightLayer(
-                        plans: TrackerSpellRoute.plans(for: stage.launches, anchors: anchors, proxy: proxy, masterID: stage.attachedID),
-                        latestSerial: stage.latestSerial
+                        plans: TrackerSpellRoute.plans(
+                            for: stage.launches, anchors: anchors, proxy: proxy, masterID: stage.attachedID, sprites: stage.sprites
+                        ),
+                        latestSerial: stage.latestSerial,
+                        sprites: stage.sprites
                     )
                 }
                 .allowsHitTesting(false)
@@ -2268,6 +2271,12 @@ enum RenderPreview {
                 .frame(width: TrackerAvatarMetrics.slotWidth, height: height)
                 .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(plates: [id: $0]) }
         }
+    }
+
+    /// The bard's sprites for the avatar previews, read from the app bundle. Without them a preview draws no avatar.
+    @MainActor
+    private static func previewBardSprites() -> TrackerAvatarSprites? {
+        TrackerAvatarSprites.bundled()["bard"]
     }
 
     /// How long the recorder lets the tracker draw the first pose before its first frame: a run-loop turn is enough.
@@ -2365,6 +2374,7 @@ enum RenderPreview {
         let container = NSView(frame: NSRect(origin: .zero, size: size))
         // The slot sits at the top of the container, so the room below it is captured with any overhang.
         let avatar = TrackerAvatarView(frame: NSRect(x: 0, y: size.height - TrackerAvatarMetrics.slotHeight, width: size.width, height: TrackerAvatarMetrics.slotHeight))
+        avatar.sprites = previewBardSprites()
         container.addSubview(avatar)
         recordAnimation("avatar-all-poses", root: container, size: size, crop: CGRect(origin: .zero, size: size), duration: Double(poses.count) * allPosesHoldSeconds, capturesLayers: true, to: dir) {
             // The first pose lands before the first frame, as the timelines do, so frame 0 is the pose and not an empty slot.
@@ -2387,9 +2397,9 @@ enum RenderPreview {
     private static func renderTrackerAvatarStills(to dir: String) {
         let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
         let slot = CGRect(origin: .zero, size: size)
-        let hand = TrackerAvatarSprites.handPoint(in: slot) ?? .zero
+        let hand = previewBardSprites()?.handPoint(in: slot) ?? .zero
         let marked = ZStack(alignment: .topLeading) {
-            TrackerAvatarSlot(pose: .release)
+            TrackerAvatarSlot(pose: .release, sprites: previewBardSprites())
             Rectangle()
                 .fill(Color.red)
                 .frame(width: AvatarPreviewMetrics.markerSide, height: AvatarPreviewMetrics.markerSide)
@@ -2400,10 +2410,12 @@ enum RenderPreview {
         render(marked, size: size, to: "\(dir)/tracker-avatar-release-hand.png")
 
         let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = previewBardSprites()
         avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
         avatar.showEyelids(true)
         renderView(avatar, size: size, to: "\(dir)/tracker-avatar-idle-eyelids.png")
         let open = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        open.sprites = previewBardSprites()
         open.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
         renderView(open, size: size, to: "\(dir)/tracker-avatar-idle-eyes-open.png")
         renderSummonClearance(to: dir)
@@ -2415,7 +2427,7 @@ enum RenderPreview {
     private static func renderSummonClearance(to dir: String) {
         let slotSize = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
         let view = VStack(spacing: 0) {
-            TrackerAvatarSlot(pose: .summoning)
+            TrackerAvatarSlot(pose: .summoning, sprites: previewBardSprites())
                 .frame(width: slotSize.width, height: slotSize.height)
             Color.clear
                 .frame(height: TrackerListMetrics.verticalPadding)

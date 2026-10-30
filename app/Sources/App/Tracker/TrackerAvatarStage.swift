@@ -3,8 +3,8 @@ import Observation
 import QuestmasterCore
 
 /// The class avatar's state in the running app: Core's event detector, director and fidgets, fed from each tracker payload and the
-/// attached session, with one timer for the next change. The views read `pose`, `fidgetFrame`, `finish` and `launches`; they decide
-/// none of them.
+/// attached session, with one timer for the next change. The attached session's class decides the sprites the avatar draws from.
+/// The views read `pose`, `fidgetFrame`, `finish`, `sprites` and `launches`; they decide none of them.
 @MainActor
 @Observable
 final class TrackerAvatarStage {
@@ -28,26 +28,28 @@ final class TrackerAvatarStage {
     private(set) var latestSerial = 0
     /// The director's beat count (`TrackerAvatarFrame.beat`): it rises when a pose's cue starts.
     private(set) var beat = 0
-    /// The cast's finish frame on screen, or nil. Only the poses with finish art ever finish (`posesWithFinishes`).
-    private(set) var finish: TrackerAvatarFinishFrame?
+    /// How far into the cast's finish the avatar is, while it finishes; nil otherwise.
+    private(set) var finish: TimeInterval?
+    /// The attached session's class sprites, while its class has an avatar. The avatar and its spells draw from them.
+    private(set) var sprites: TrackerAvatarSprites?
 
+    @ObservationIgnored private let classSprites: [String: TrackerAvatarSprites]
+    @ObservationIgnored private let catalog: TrackerAvatarCatalog
     @ObservationIgnored private var director: TrackerAvatarDirector
     @ObservationIgnored private var fidgets: TrackerAvatarFidgets<SystemRandomNumberGenerator>
-    @ObservationIgnored private var detector = TrackerAvatarEventDetector()
+    @ObservationIgnored private var detector: TrackerAvatarEventDetector
     @ObservationIgnored private let clock: () -> TimeInterval
     @ObservationIgnored private var wakeTimer: Timer?
 
     /// The clock is the wall clock: a session's working start (`elapsedSince`) is a wall-clock time.
     init(clock: @escaping () -> TimeInterval = { Date().timeIntervalSince1970 }) {
-        director = TrackerAvatarDirector(
-            reducesMotion: Motion.reducesMotion(),
-            finishes: TrackerAvatarSprites.posesWithFinishes()
-        )
-        fidgets = TrackerAvatarFidgets(
-            available: TrackerAvatarSprites.availableFidgets(),
-            reducesMotion: Motion.reducesMotion(),
-            random: SystemRandomNumberGenerator()
-        )
+        let classSprites = TrackerAvatarSprites.bundled()
+        let catalog = TrackerAvatarCatalog(animations: classSprites.mapValues(\.animation))
+        self.classSprites = classSprites
+        self.catalog = catalog
+        director = TrackerAvatarDirector(reducesMotion: Motion.reducesMotion(), catalog: catalog)
+        detector = TrackerAvatarEventDetector(catalog: catalog)
+        fidgets = TrackerAvatarFidgets(available: [], reducesMotion: Motion.reducesMotion(), random: SystemRandomNumberGenerator())
         self.clock = clock
     }
 
@@ -62,7 +64,22 @@ final class TrackerAvatarStage {
         for event in events {
             director.answer(event, at: now)
         }
+        useSprites(for: attached)
         refresh(at: now)
+    }
+
+    /// Follows the attached session's class. A class change starts its fidgets afresh, from its own art.
+    private func useSprites(for session: TrackerSession?) {
+        let next = catalog.classID(for: session).flatMap { classSprites[$0] }
+        guard next !== sprites else {
+            return
+        }
+        sprites = next
+        fidgets = TrackerAvatarFidgets(
+            available: next?.availableFidgets ?? [],
+            reducesMotion: Motion.reducesMotion(),
+            random: SystemRandomNumberGenerator()
+        )
     }
 
     private func refresh(at now: TimeInterval) {
@@ -71,7 +88,7 @@ final class TrackerAvatarStage {
         pose = frame.pose
         fidgetFrame = fidget.artFrame
         beat = frame.beat
-        finish = frame.finish
+        finish = frame.finishElapsed
         for flight in frame.launches {
             latestSerial += 1
             launches.append(Launch(serial: latestSerial, flight: flight))

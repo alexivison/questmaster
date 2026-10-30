@@ -389,7 +389,13 @@ struct TrackerRootView: View {
                 .frame(width: TrackerAvatarMetrics.slotWidth)
                 .padding(.leading, TrackerListMetrics.sidePadding)
                 .padding(.top, TrackerListMetrics.selectedTagGap)
-            TrackerAvatarSlot(pose: avatarStage.pose, fidget: avatarStage.fidgetFrame, beat: avatarStage.beat, finish: avatarStage.finish)
+            TrackerAvatarSlot(
+                pose: avatarStage.pose,
+                sprites: avatarStage.sprites,
+                fidget: avatarStage.fidgetFrame,
+                beat: avatarStage.beat,
+                finish: avatarStage.finish
+            )
                 .padding(.leading, TrackerListMetrics.sidePadding)
                 .padding(.top, TrackerListMetrics.avatarGap)
                 .padding(.bottom, TrackerListMetrics.verticalPadding)
@@ -403,9 +409,11 @@ struct TrackerRootView: View {
                         for: avatarStage.launches,
                         anchors: anchors,
                         proxy: proxy,
-                        masterID: avatarStage.attachedID
+                        masterID: avatarStage.attachedID,
+                        sprites: avatarStage.sprites
                     ),
-                    latestSerial: avatarStage.latestSerial
+                    latestSerial: avatarStage.latestSerial,
+                    sprites: avatarStage.sprites
                 )
             }
             .allowsHitTesting(false)
