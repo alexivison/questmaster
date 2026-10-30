@@ -281,6 +281,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.bottomDockShell.onRefreshArtifact = { [weak self] in self?.shellHandles?.dockView.refreshCurrentArtifact() }
         handles.dockView.onShowArtifactListIntent = { [weak self] in self?.showArtifactListFromDock() }
         handles.dockView.onOpenArtifactIntent = { [weak self] artifactID in self?.openArtifactFromDock(artifactID) }
+        handles.dockView.onOpenArtifactExternal = { [weak self] artifact in self?.openArtifactExternally(artifact) }
         handles.dockView.onSetArtifactScope = { [weak self] scope in self?.setArtifactScope(scope) }
         handles.dockView.onSelectedArtifactChange = { [weak self] artifactID in
             guard let self else {
@@ -548,6 +549,19 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let outcome = navigation.focusDockPanel(.bottom)
         renderSnapshot(animateDockVisibility: true, animateDockLayout: true)
         focusCoordinator.applyNavigationOutcome(outcome)
+    }
+
+    private func openArtifactExternally(_ artifact: ArtifactReference) {
+        do {
+            try ArtifactExternalOpener.open(
+                artifact: artifact,
+                attachedSessionID: runtimeStore.currentTerminalSessionID,
+                tmuxPath: resolveExecutable("tmux"),
+                environment: appChildProcessEnvironment()
+            )
+        } catch {
+            errorPresenter.showTransientError(error.localizedDescription)
+        }
     }
 
     private func setArtifactScope(_ scope: ArtifactScope) {
@@ -977,7 +991,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let confirmation = artifacts.count == 1
             ? DestructiveConfirmation.deleteArtifact(artifacts[0])
-            : .deleteArtifacts(count: artifacts.count)
+            : .deleteArtifacts(artifacts)
         destructiveConfirmationPresenter.present(confirmation) { [weak self] confirmed in
             guard confirmed, let self else {
                 return
@@ -985,7 +999,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
             var requests: [(artifact: ArtifactReference, request: ServeMutationRequest)] = []
             for artifact in artifacts {
                 do {
-                    requests.append((artifact, try ServeMutationRequests.artifactDelete(path: artifact.path, sessionID: artifact.sessionID)))
+                    requests.append((artifact, try ServeMutationRequests.artifactDelete(id: artifact.id)))
                 } catch {
                     self.errorPresenter.showTransientError(error.localizedDescription)
                     return

@@ -15,6 +15,7 @@ extension Keymap {
         case jumpToTop
         case jumpToBottom
         case open
+        case openExternal
         case back
         case toggleMark
         case focusFilter
@@ -77,6 +78,7 @@ extension Keymap {
         case .jumpToTop: return [.character("g")]
         case .jumpToBottom: return [.character("G")]
         case .open: return [.code(36), .code(76)]
+        case .openExternal: return [.character("o")]
         case .back: return [.character("h"), .code(53), .code(123), .character("[", [.control])]
         case .toggleMark: return [.character(" ")]
         case .focusFilter: return [.character("/")]

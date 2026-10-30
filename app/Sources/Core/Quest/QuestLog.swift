@@ -257,7 +257,7 @@ public final class QuestLogStore {
             return targets.isEmpty ? nil : .delete(targets)
         case .copy:
             return targets.isEmpty ? nil : .copy(targets)
-        case .jumpToTopPrefix, .open, .previousTab, .nextTab, .refresh, .editRepo,
+        case .jumpToTopPrefix, .open, .openExternal, .previousTab, .nextTab, .refresh, .editRepo,
              .toggleWorkersCollapsed, .toggleAllWorkersCollapsed:
             return nil
         }

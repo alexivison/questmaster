@@ -8,6 +8,7 @@ struct ArtifactCoreTests {
         currentSessionFilteringUsesAppCurrentID()
         eachStoreResolvesItsOwnCurrentArtifacts()
         topLevelArtifactsFilterByScope()
+        sharedArtifactUsesStableIDAndAppearsInBothSessions()
         activeSessionIDControlsArtifactScope()
         selectionRecoveryAndDisplayStatesFollowCurrentArtifacts()
         newArtifactDeltaDetectionIgnoresInitialAndUnrelatedUpdates()
@@ -70,6 +71,28 @@ struct ArtifactCoreTests {
             ArtifactKind.classify(kind: "pdf", path: "/tmp/report.pdf") == .unsupported("pdf"),
             "unknown kind should stay unsupported"
         )
+    }
+
+    private static func sharedArtifactUsesStableIDAndAppearsInBothSessions() {
+        let raw = """
+        {"id":"art-shared","kind":"markdown","path":"/tmp/report.md","label":"Report","session_id":"qm-a","session_ids":["qm-a","qm-b"],"created_by_session_id":"qm-a"}
+        """
+        do {
+            let shared = try decode(ArtifactReference.self, raw)
+            expect(shared.id == "art-shared", "wire ID should be stable")
+            expect(shared.sessionIDs == ["qm-a", "qm-b"], "wire memberships should decode")
+            expect(shared.createdBySessionID == "qm-a", "creator should decode")
+            let snapshot = trackerSnapshot([
+                session(id: "qm-a", artifacts: [shared]),
+                session(id: "qm-b", artifacts: [shared]),
+            ], artifacts: [shared])
+            expect(ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-a") == [shared], "creator should see shared artifact")
+            expect(ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-b") == [shared], "linked session should see shared artifact")
+            expect(ArtifactDisplayState.currentArtifacts(in: snapshot, preferredSessionID: "qm-b", scope: .all) == [shared], "All should show one shared row")
+            expect(ArtifactDisplayState.recoveredSelection(current: shared.id, in: [shared]) == shared.id, "selection should use stable ID")
+        } catch {
+            fail("shared artifact decode threw \(error)")
+        }
     }
 
     private static func currentSessionFilteringUsesAppCurrentID() {
