@@ -283,7 +283,7 @@ struct TrackerAvatarAnimationTests {
         expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "fidgets should come in name order")
         expect(animation.fidgets.first?.track.steps.map(\.frame) == [2, 3, 2], "the hood should play its three idle frames")
         let pondering = animation.animation(for: .pondering)
-        expect(pondering?.footRow == 158 && pondering?.bodyColumn == 39, "pondering should stand at the wizard's foot row and body column")
+        expect(pondering?.footRow == 158 && pondering?.bodyColumn == 33, "pondering should stand at the wizard's foot row and body column")
         expect(animation.animation(for: .summoning)?.once?.behind != nil, "the wizard's summoning should have a ground effect")
     }
 
