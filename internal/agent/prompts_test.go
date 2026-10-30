@@ -96,7 +96,17 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 func TestSessionPromptsDescribeQuestmasterPRAlerts(t *testing.T) {
 	for name, prompt := range map[string]string{"master": masterPrompt, "worker": workerPrompt} {
 		t.Run(name, func(t *testing.T) {
-			for _, phrase := range []string{"questmaster pr watch <url>", "[PR owner/repo#N]", "idle or done", "questmaster pr events <ref> --unread", "deleted or pruned"} {
+			for _, phrase := range []string{
+				"opens or is handed a PR runs questmaster pr watch <url> right away",
+				"a master does not also watch a PR its worker owns",
+				"[PR owner/repo#N]",
+				"idle or done",
+				"questmaster pr events <ref> --unread",
+				"deleted or pruned",
+				"not your own polling",
+				"gh pr checks --watch",
+				"A one-off gh pr view or gh pr checks",
+			} {
 				if !strings.Contains(prompt, phrase) {
 					t.Fatalf("%s prompt missing PR alert rule %q", name, phrase)
 				}
