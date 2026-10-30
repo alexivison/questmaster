@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -804,8 +805,8 @@ func TestUpsertArtifactDoesNotRecreateAbsentPreviousOwnerSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load global artifacts: %v", err)
 	}
-	if len(artifacts) != 1 || artifacts[0].SessionID != newID || artifacts[0].Label != "New" {
-		t.Fatalf("artifacts = %#v, want moved artifact owned by new session", artifacts)
+	if len(artifacts) != 1 || !reflect.DeepEqual(artifacts[0].SessionIDs, []string{newID, oldID}) || artifacts[0].Label != "Old" {
+		t.Fatalf("artifacts = %#v, want both session links and original metadata", artifacts)
 	}
 	if _, err := os.Stat(SessionStateDir(root, oldID)); !os.IsNotExist(err) {
 		t.Fatalf("old session state dir recreated: err=%v", err)
@@ -814,8 +815,8 @@ func TestUpsertArtifactDoesNotRecreateAbsentPreviousOwnerSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load new sidecar: %v", err)
 	}
-	if !ok || len(sidecar) != 1 || sidecar[0].SessionID != newID || sidecar[0].Label != "New" {
-		t.Fatalf("new sidecar = %#v ok=%v, want moved artifact", sidecar, ok)
+	if !ok || len(sidecar) != 1 || !reflect.DeepEqual(sidecar[0].SessionIDs, []string{newID, oldID}) || sidecar[0].Label != "Old" {
+		t.Fatalf("new sidecar = %#v ok=%v, want shared artifact", sidecar, ok)
 	}
 }
 

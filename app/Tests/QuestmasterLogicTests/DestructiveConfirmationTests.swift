@@ -4,8 +4,8 @@ import QuestmasterCore
 struct DestructiveConfirmationTests {
     static func run() {
         deleteSessionCopyIsExplicit()
-        deleteArtifactKeepsTheFile()
-        deleteArtifactsKeepsTheFiles()
+        deleteArtifactRemovesFileAndLinks()
+        deleteArtifactsRemoveFilesAndLinks()
         deleteQuestsCopyIsExplicit()
         print("DestructiveConfirmationTests: all tests passed")
     }
@@ -19,7 +19,7 @@ struct DestructiveConfirmationTests {
         expect(spec.confirmLabel == "Banish", "confirm label mismatch")
     }
 
-    private static func deleteArtifactKeepsTheFile() {
+    private static func deleteArtifactRemovesFileAndLinks() {
         let spec = DestructiveConfirmation.deleteArtifact(ArtifactReference(
             kind: "html",
             path: "/tmp/plan.html",
@@ -30,16 +30,23 @@ struct DestructiveConfirmationTests {
         expect(spec.action == .deleteArtifact, "action mismatch")
         expect(spec.subjectID == "/tmp/plan.html", "artifact path mismatch")
         expect(spec.title == "Delete artifact Plan?", "title mismatch: \(spec.title)")
-        expect(spec.message == "This removes it from the artifact list. The file stays on disk.", "message mismatch: \(spec.message)")
-        expect(spec.confirmLabel == "Remove", "confirm label mismatch")
+        expect(spec.message.contains("/tmp/plan.html"), "confirmation should show the file path")
+        expect(spec.message.contains("every session"), "confirmation should explain shared deletion")
+        expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }
 
-    private static func deleteArtifactsKeepsTheFiles() {
-        let spec = DestructiveConfirmation.deleteArtifacts(count: 2)
+    private static func deleteArtifactsRemoveFilesAndLinks() {
+        let paths = ["/tmp/plan.html", "/tmp/diagram.png"]
+        let spec = DestructiveConfirmation.deleteArtifacts(paths.map {
+            ArtifactReference(kind: "html", path: $0, label: "", addedAt: "")
+        })
         expect(spec.action == .deleteArtifacts, "action mismatch")
         expect(spec.title == "Delete 2 artifacts?", "title mismatch: \(spec.title)")
-        expect(spec.message == "This removes them from the artifact list. The files stay on disk.", "message mismatch: \(spec.message)")
-        expect(spec.confirmLabel == "Remove", "confirm label mismatch")
+        for path in paths {
+            expect(spec.message.contains(path), "confirmation should show selected path \(path)")
+        }
+        expect(spec.message.contains("every session"), "confirmation should explain shared deletion")
+        expect(spec.confirmLabel == "Delete", "confirm label mismatch")
     }
 
     private static func deleteQuestsCopyIsExplicit() {

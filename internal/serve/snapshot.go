@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -79,13 +80,16 @@ type CurrentSession struct {
 
 // ArtifactSnapshot is a tracker-visible runtime artifact reference.
 type ArtifactSnapshot struct {
-	Kind      string `json:"kind"`
-	Path      string `json:"path"`
-	Label     string `json:"label"`
-	SessionID string `json:"session_id"`
-	ProjectID string `json:"project_id"`
-	AddedAt   string `json:"added_at"`
-	Missing   bool   `json:"missing,omitempty"`
+	ID                 string   `json:"id"`
+	Kind               string   `json:"kind"`
+	Path               string   `json:"path"`
+	Label              string   `json:"label"`
+	SessionID          string   `json:"session_id"`
+	SessionIDs         []string `json:"session_ids"`
+	CreatedBySessionID string   `json:"created_by_session_id"`
+	ProjectID          string   `json:"project_id"`
+	AddedAt            string   `json:"added_at"`
+	Missing            bool     `json:"missing,omitempty"`
 }
 
 // ProjectSnapshot is a historical repo project discovered from session
@@ -418,16 +422,24 @@ func (s *Snapshotter) observeTrackerRows(rows []tracker.SessionRow, observedAt t
 func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
 	snapshot.Sessions = append([]SessionSnapshot(nil), snapshot.Sessions...)
 	for i := range snapshot.Sessions {
-		snapshot.Sessions[i].Artifacts = append([]ArtifactSnapshot(nil), snapshot.Sessions[i].Artifacts...)
+		snapshot.Sessions[i].Artifacts = cloneArtifactSnapshots(snapshot.Sessions[i].Artifacts)
 		if snapshot.Sessions[i].Cast != nil {
 			cast := *snapshot.Sessions[i].Cast
 			snapshot.Sessions[i].Cast = &cast
 		}
 	}
-	snapshot.Artifacts = append([]ArtifactSnapshot(nil), snapshot.Artifacts...)
+	snapshot.Artifacts = cloneArtifactSnapshots(snapshot.Artifacts)
 	snapshot.Quests = append([]QuestSnapshot(nil), snapshot.Quests...)
 	snapshot.Projects = append([]ProjectSnapshot(nil), snapshot.Projects...)
 	return snapshot
+}
+
+func cloneArtifactSnapshots(artifacts []ArtifactSnapshot) []ArtifactSnapshot {
+	cloned := append([]ArtifactSnapshot(nil), artifacts...)
+	for i := range cloned {
+		cloned[i].SessionIDs = append([]string(nil), cloned[i].SessionIDs...)
+	}
+	return cloned
 }
 
 func trackerSessionIndex(rows []SessionSnapshot, sessionID string) int {
@@ -737,13 +749,16 @@ func artifactSnapshots(artifacts []state.Artifact) []ArtifactSnapshot {
 	out := make([]ArtifactSnapshot, 0, len(sorted))
 	for _, artifact := range sorted {
 		out = append(out, ArtifactSnapshot{
-			Kind:      artifact.Kind,
-			Path:      artifact.Path,
-			Label:     artifact.Label,
-			SessionID: artifact.SessionID,
-			ProjectID: artifact.ProjectID,
-			AddedAt:   artifact.AddedAt,
-			Missing:   state.ArtifactMissing(artifact.Path),
+			ID:                 artifact.ID,
+			Kind:               artifact.Kind,
+			Path:               artifact.Path,
+			Label:              artifact.Label,
+			SessionID:          artifact.SessionID,
+			SessionIDs:         artifact.SessionIDs,
+			CreatedBySessionID: artifact.CreatedBySessionID,
+			ProjectID:          artifact.ProjectID,
+			AddedAt:            artifact.AddedAt,
+			Missing:            state.ArtifactMissing(artifact.Path),
 		})
 	}
 	return out
@@ -790,7 +805,7 @@ func artifactsEqual(a, b []ArtifactSnapshot) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if !reflect.DeepEqual(a[i], b[i]) {
 			return false
 		}
 	}

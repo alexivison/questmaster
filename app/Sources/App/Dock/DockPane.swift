@@ -241,6 +241,11 @@ final class SwiftUIDockPane: NSHostingView<DockRootView> {
         set { model.onOpenArtifactIntent = newValue }
     }
 
+    var onOpenArtifactExternal: ((ArtifactReference) -> Void)? {
+        get { model.onOpenArtifactExternal }
+        set { model.onOpenArtifactExternal = newValue }
+    }
+
     var onSetArtifactScope: ((ArtifactScope) -> Void)? {
         get { model.onSetArtifactScope }
         set { model.onSetArtifactScope = newValue }

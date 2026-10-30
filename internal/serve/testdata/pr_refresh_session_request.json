@@ -5,5 +5,5 @@
     "session_id": "qm-demo",
     "wait": true
   },
-  "protocol_version": 2
+  "protocol_version": 3
 }

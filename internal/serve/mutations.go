@@ -544,25 +544,19 @@ func (s *Server) mutateQuestDelete(payload mutationPayload) (any, error) {
 }
 
 func (s *Server) mutateArtifactDelete(payload mutationPayload) (any, error) {
-	path, err := requiredValue("path", payload.Path)
+	idOrPath, err := requiredFirst("artifact id or path", payload.ID, payload.Path)
 	if err != nil {
 		return nil, err
 	}
 	root := s.mutationStore().Root()
-	sessionID := strings.TrimSpace(payload.SessionID)
-	var removed bool
-	if sessionID == "" {
-		removed, err = state.RemoveArtifactGlobal(root, path)
-	} else {
-		removed, err = state.RemoveArtifactAt(root, sessionID, path)
-	}
+	removed, err := state.DeleteArtifactAt(root, idOrPath)
 	if err != nil {
 		return nil, err
 	}
 	if !removed {
-		return nil, fmt.Errorf("artifact %q not found", path)
+		return nil, fmt.Errorf("artifact %q not found", idOrPath)
 	}
-	return map[string]any{"path": path, "deleted": true}, nil
+	return map[string]any{"id": idOrPath, "deleted": true}, nil
 }
 
 func (s *Server) mutationStore() *state.Store {

@@ -21,6 +21,8 @@ enum LogicSelfTests {
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
+        ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
+        ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
         ("testTrackerSkeletonMatchesServeStartupMessages", testTrackerSkeletonMatchesServeStartupMessages),
         ("testShellRowsLeaveTheRepoGroupsForTheirOwnSection", testShellRowsLeaveTheRepoGroupsForTheirOwnSection),
@@ -81,6 +83,7 @@ enum LogicSelfTests {
         ("testDockPanelsTransitionOnceAndSkipItWithReducedMotion", testDockPanelsTransitionOnceAndSkipItWithReducedMotion),
         ("testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents", testCommandKeysReachTheirActionsWhileTheTerminalConsumesKeyEquivalents),
         ("testDockSelectionPublishesImmediately", testDockSelectionPublishesImmediately),
+        ("testArtifactExternalOpenUsesCurrentListAndViewerArtifact", testArtifactExternalOpenUsesCurrentListAndViewerArtifact),
         ("testGChordShortcutIgnoresCapsLock", testGChordShortcutIgnoresCapsLock),
         ("testKeymapPressReadsEventsAsTheKeymapDoes", testKeymapPressReadsEventsAsTheKeymapDoes),
         ("testKeymapPressIgnoresCapsLock", testKeymapPressIgnoresCapsLock),
@@ -1476,6 +1479,35 @@ enum LogicSelfTests {
         )
     }
 
+    private static func testArtifactExternalOpenRouting() throws {
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/report.MD") == .editor, "Markdown should use the editor")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/report.html") == .browser, "HTML should use the browser")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/diagram.PNG") == .preview, "images should use Preview")
+        try expect(ArtifactExternalRoute.classify(path: "/tmp/data.csv") == .system, "other files should use their default app")
+        let missing = ArtifactReference(
+            kind: "markdown",
+            path: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("missing.md").path,
+            label: "Missing",
+            addedAt: ""
+        )
+        do {
+            try ArtifactExternalOpener.open(artifact: missing, attachedSessionID: "qm-a", tmuxPath: "/usr/bin/tmux", environment: [:])
+            throw TestFailure("missing artifact should fail before launching an app")
+        } catch ArtifactExternalOpenError.missingFile {
+            // Expected.
+        }
+    }
+
+    private static func testArtifactEditorWindowKeepsPathSeparate() throws {
+        let path = "/tmp/report ' with spaces; $(touch danger).md"
+        let args = TerminalTmuxClientProcess.editorWindowArguments(sessionID: "qm-a", path: path, shell: "/bin/zsh")
+        try expect(Array(args.prefix(5)) == ["new-window", "-t", "qm-a", "-n", "Artifact"], "editor should open a new tmux window")
+        try expect(args[6] == "/tmp", "editor window should start beside the artifact")
+        try expect(args[7].contains("artifact_path=$1"), "editor script should read the path as an argument")
+        try expect(args[7].hasSuffix("'/tmp/report '\\'' with spaces; $(touch danger).md'"), "path should be shell quoted as one positional argument")
+        try expect(args[7].contains("eval \"set -- $EDITOR\""), "editor command should allow arguments")
+    }
+
     private static func testLocalMarkdownImageURLFiltering() throws {
         let baseURL = URL(fileURLWithPath: "/tmp/artifacts", isDirectory: true)
         try expect(
@@ -2132,6 +2164,23 @@ enum LogicSelfTests {
             preferredArtifactSessionID: "qm-a"
         )
         try expect(model.artifactModel.selectedArtifactID == second.id, "render should retain the selected artifact")
+    }
+
+    private static func testArtifactExternalOpenUsesCurrentListAndViewerArtifact() throws {
+        let artifact = ArtifactReference(kind: "markdown", path: "/tmp/report.md", label: "Report", sessionID: "qm-a", addedAt: "", id: "art-report")
+        var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
+        snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo-a", name: "Alpha", sessions: [
+            TrackerSession(id: "qm-a", title: "Alpha", repoName: "Alpha", artifacts: [artifact]),
+        ])])
+        let model = DockPaneModel()
+        var opened: [ArtifactReference] = []
+        model.onOpenArtifactExternal = { opened.append($0) }
+        var keys = ListKeyResolver()
+        _ = model.apply(DockState(dockContent: .artifactList, selectedArtifactID: artifact.id), snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        try expect(dockKey(try keyEvent("o", keyCode: 31), &keys, model, snapshot), "list o should be handled")
+        _ = model.apply(DockState(dockContent: .artifactViewer, selectedArtifactID: artifact.id), snapshot: snapshot, preferredArtifactSessionID: "qm-a")
+        try expect(dockKey(try keyEvent("o", keyCode: 31), &keys, model, snapshot, in: []), "viewer o should be handled")
+        try expect(opened == [artifact, artifact], "list and viewer should open the same artifact externally")
     }
 
     private static func testKeymapPressReadsEventsAsTheKeymapDoes() throws {
@@ -5004,7 +5053,7 @@ enum LogicSelfTests {
                 }
             }
         }
-        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":2,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
+        _ = try UnixSocketMutationClient.decodeAck(Data("{\"protocol_version\":3,\"type\":\"response\",\"ok\":true,\"data\":{}}".utf8))
     }
 
     private static func testServeStreamReconnectsAfterProtocolMismatch() throws {
@@ -5025,7 +5074,7 @@ enum LogicSelfTests {
         let padding = String(repeating: "x", count: 100_000)
         let lines = [
             "{\"protocol_version\":1,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"wrong\",\"sessions\":[]}}\n",
-            "{\"protocol_version\":2,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[],\"padding\":\"\(padding)\"}}\n",
+            "{\"protocol_version\":3,\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"recovered\",\"sessions\":[],\"padding\":\"\(padding)\"}}\n",
         ]
         DispatchQueue.global().async {
             for line in lines {
@@ -5034,7 +5083,7 @@ enum LogicSelfTests {
                 let peer = Darwin.accept(listener, nil, nil)
                 guard peer >= 0 else { return }
                 try? UnixSocketIO.setReadTimeout(on: peer, seconds: 5)
-                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":2,\"accepting\":true}\n"
+                let hello = "{\"root\":\"\(fixture.stateRoot.path)\",\"identity\":\"canonical\",\"protocol_version\":3,\"accepting\":true}\n"
                 try? UnixSocketIO.write(Data(hello.utf8), to: peer)
                 var requestBytes = [UInt8](repeating: 0, count: 4096)
                 var requestLines = 0

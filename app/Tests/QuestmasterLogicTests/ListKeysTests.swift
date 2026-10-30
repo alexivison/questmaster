@@ -8,6 +8,7 @@ struct ListKeysTests {
         sharedMovesAndTheirAliases()
         ggAndGArePerSurface()
         returnOpensOnlyWhereTheListOpens()
+        externalOpenBelongsToArtifacts()
         leftAndRightNeverOpenOrMove()
         tabsAreBracketsWhereTheSurfaceHasThem()
         surfaceSpecificKeysAreGivenOnlyToTheirSurfaces()
@@ -79,6 +80,13 @@ struct ListKeysTests {
         expect(command(press(nil, keyCode: 76), .questLog) == nil, "keypad Enter should do nothing in the Quest Log")
         expect(command(press("\r", [.shift], keyCode: 36), .tracker) == nil, "shift-Return is no list key")
         expect(command(press("\r", keyCode: 36), .workerLogMenu) == .open, "Return ticks a row in the Worker Log's dropdown")
+    }
+
+    private static func externalOpenBelongsToArtifacts() {
+        expect(command(press("o", keyCode: 31), .artifacts) == .openExternal, "o should open the highlighted artifact externally")
+        expect(command(press("o", keyCode: 31), .tracker) == nil, "o should pass through the tracker")
+        expect(command(press("o", keyCode: 31), .versionControl) == nil, "o should pass through Version Control")
+        expect(command(press("o", keyCode: 31), .questLog) == nil, "o should pass through the Quest Log")
     }
 
     /// `l` never opens, and h, l, ← and → move nothing in a list: the tabs are `[` and `]`.

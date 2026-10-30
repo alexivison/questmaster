@@ -4,12 +4,14 @@ package state
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -48,14 +50,17 @@ const (
 
 var ensuredSessionStateDirs sync.Map
 
-// Artifact is a session-scoped runtime reference to a generated file.
+// Artifact is one file reference that may be linked to several sessions.
 type Artifact struct {
-	Kind      string `json:"kind"`
-	Path      string `json:"path"`
-	Label     string `json:"label,omitempty"`
-	SessionID string `json:"session_id"`
-	ProjectID string `json:"project_id"`
-	AddedAt   string `json:"added_at"`
+	ID                 string   `json:"id,omitempty"`
+	Kind               string   `json:"kind"`
+	Path               string   `json:"path"`
+	Label              string   `json:"label,omitempty"`
+	SessionID          string   `json:"session_id,omitempty"` // Legacy projection for older readers.
+	SessionIDs         []string `json:"session_ids,omitempty"`
+	CreatedBySessionID string   `json:"created_by_session_id,omitempty"`
+	ProjectID          string   `json:"project_id"`
+	AddedAt            string   `json:"added_at"`
 }
 
 // SessionState is the authoritative per-session state snapshot written by
@@ -567,6 +572,7 @@ func UpsertArtifact(sessionID string, artifact Artifact) error {
 
 // UpsertArtifactAt is UpsertArtifact with an explicit state root.
 func UpsertArtifactAt(root, sessionID string, artifact Artifact) error {
+	rawLabel, rawKind := artifact.Label, artifact.Kind
 	artifact = normalizeArtifact(artifact)
 	if artifact.Path == "" {
 		return errors.New("artifact path is required")
@@ -580,28 +586,47 @@ func UpsertArtifactAt(root, sessionID string, artifact Artifact) error {
 	if root == "" {
 		return errors.New("no state root resolved")
 	}
-	artifact.SessionID = sessionID
 	return withArtifactsRegistryLock(root, func() error {
 		artifacts, err := loadArtifactsGlobalLocked(root)
 		if err != nil {
 			return err
 		}
-		previousSessionID := ""
 		for i := range artifacts {
-			if artifacts[i].Path == artifact.Path {
-				previousSessionID = artifacts[i].SessionID
-				artifacts[i] = artifact
-				if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
-					return err
-				}
-				return syncArtifactSidecarsLocked(root, artifacts, previousSessionID, sessionID)
+			if artifacts[i].Path != artifact.Path {
+				continue
 			}
+			current := artifacts[i]
+			alreadyLinked := artifactHasSession(current, sessionID)
+			current.SessionIDs = append(current.SessionIDs, sessionID)
+			if alreadyLinked {
+				if rawLabel != "" {
+					current.Label = rawLabel
+				}
+				if rawKind != "" {
+					current.Kind = rawKind
+				}
+				if artifact.ProjectID != "" {
+					current.ProjectID = artifact.ProjectID
+				}
+				current.AddedAt = artifact.AddedAt
+			}
+			current = normalizeArtifact(current)
+			artifacts[i] = current
+			if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
+				return err
+			}
+			return syncArtifactSidecarsLocked(root, artifacts, current.SessionIDs...)
 		}
+		artifact.SessionIDs = append(artifact.SessionIDs, sessionID)
+		if artifact.CreatedBySessionID == "" {
+			artifact.CreatedBySessionID = sessionID
+		}
+		artifact = normalizeArtifact(artifact)
 		artifacts = append(artifacts, artifact)
 		if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
 			return err
 		}
-		return syncArtifactSidecarsLocked(root, artifacts, sessionID)
+		return syncArtifactSidecarsLocked(root, artifacts, artifact.SessionIDs...)
 	})
 }
 
@@ -627,8 +652,21 @@ func UpsertArtifactGlobal(root string, artifact Artifact) error {
 		}
 		for i := range artifacts {
 			if artifacts[i].Path == artifact.Path {
+				current := artifacts[i]
+				artifact.ID = current.ID
+				artifact.SessionIDs = append(artifact.SessionIDs, current.SessionIDs...)
+				if artifact.CreatedBySessionID == "" {
+					artifact.CreatedBySessionID = current.CreatedBySessionID
+				}
+				if artifact.ProjectID == "" {
+					artifact.ProjectID = current.ProjectID
+				}
+				artifact = normalizeArtifact(artifact)
 				artifacts[i] = artifact
-				return writeArtifactsRegistryLocked(root, artifacts)
+				if err := writeArtifactsRegistryLocked(root, artifacts); err != nil {
+					return err
+				}
+				return syncArtifactSidecarsLocked(root, artifacts, artifact.SessionIDs...)
 			}
 		}
 		return writeArtifactsRegistryLocked(root, append(artifacts, artifact))
@@ -658,12 +696,19 @@ func RemoveArtifactAt(root, sessionID, path string) (bool, error) {
 			return err
 		}
 		next := make([]Artifact, 0, len(artifacts))
+		affected := []string{sessionID}
 		for _, artifact := range artifacts {
-			if artifact.Path == path && artifact.SessionID == sessionID {
-				removed = true
+			if artifact.Path != path || !artifactHasSession(artifact, sessionID) {
+				next = append(next, artifact)
 				continue
 			}
-			next = append(next, artifact)
+			removed = true
+			affected = append(affected, artifact.SessionIDs...)
+			artifact.SessionIDs = removeArtifactSession(artifact.SessionIDs, sessionID)
+			artifact.SessionID = ""
+			if len(artifact.SessionIDs) != 0 {
+				next = append(next, normalizeArtifact(artifact))
+			}
 		}
 		if !removed {
 			return nil
@@ -671,7 +716,7 @@ func RemoveArtifactAt(root, sessionID, path string) (bool, error) {
 		if err := writeArtifactsRegistryLocked(root, next); err != nil {
 			return err
 		}
-		return syncArtifactSidecarsLocked(root, next, sessionID)
+		return syncArtifactSidecarsLocked(root, next, affected...)
 	})
 	return removed, err
 }
@@ -692,9 +737,11 @@ func RemoveArtifactGlobal(root, path string) (bool, error) {
 			return err
 		}
 		next := make([]Artifact, 0, len(artifacts))
+		var affected []string
 		for _, artifact := range artifacts {
 			if artifact.Path == path {
 				removed = true
+				affected = append(affected, artifact.SessionIDs...)
 				continue
 			}
 			next = append(next, artifact)
@@ -702,9 +749,120 @@ func RemoveArtifactGlobal(root, path string) (bool, error) {
 		if !removed {
 			return nil
 		}
-		return writeArtifactsRegistryLocked(root, next)
+		if err := writeArtifactsRegistryLocked(root, next); err != nil {
+			return err
+		}
+		return syncArtifactSidecarsLocked(root, next, affected...)
 	})
 	return removed, err
+}
+
+// DeleteArtifactAt removes the registered file and every session link. The
+// registry lock keeps deletion ordered with registration and relinking.
+func DeleteArtifactAt(root, idOrPath string) (bool, error) {
+	if idOrPath == "" {
+		return false, errors.New("artifact id or path is required")
+	}
+	if root == "" {
+		return false, errors.New("no state root resolved")
+	}
+	removed := false
+	err := withArtifactsRegistryLock(root, func() error {
+		artifacts, err := loadArtifactsGlobalLocked(root)
+		if err != nil {
+			return err
+		}
+		target, found := ArtifactByIDOrPath(artifacts, idOrPath)
+		if !found {
+			return nil
+		}
+		info, err := os.Lstat(target.Path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect artifact file: %w", err)
+		}
+		stagedPath := ""
+		if err == nil {
+			if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+				return fmt.Errorf("artifact path is not a file: %s", target.Path)
+			}
+			temp, err := os.CreateTemp(filepath.Dir(target.Path), ".artifact-delete-*")
+			if err != nil {
+				return fmt.Errorf("stage artifact deletion: %w", err)
+			}
+			stagedPath = temp.Name()
+			if err := temp.Close(); err != nil {
+				_ = os.Remove(stagedPath)
+				return fmt.Errorf("close deletion staging file: %w", err)
+			}
+			if err := os.Rename(target.Path, stagedPath); err != nil {
+				_ = os.Remove(stagedPath)
+				if !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("stage artifact file: %w", err)
+				}
+				stagedPath = ""
+			}
+		}
+		next := make([]Artifact, 0, len(artifacts)-1)
+		for _, artifact := range artifacts {
+			if artifact.ID != target.ID {
+				next = append(next, artifact)
+			}
+		}
+		if err := writeArtifactsRegistryLocked(root, next); err != nil {
+			if stagedPath != "" {
+				if restoreErr := os.Rename(stagedPath, target.Path); restoreErr != nil {
+					return errors.Join(err, fmt.Errorf("restore artifact file from %s: %w", stagedPath, restoreErr))
+				}
+			}
+			return err
+		}
+		var syncedIDs []string
+		// Sidecars are compatibility copies. Restore those already changed if a
+		// later write fails, so a reported failure keeps the file registered.
+		rollback := func(cause error) error {
+			if stagedPath != "" {
+				if restoreErr := os.Rename(stagedPath, target.Path); restoreErr != nil {
+					return errors.Join(cause, fmt.Errorf("restore artifact file from %s: %w", stagedPath, restoreErr))
+				}
+			}
+			registryErr := writeArtifactsRegistryLocked(root, artifacts)
+			sidecarErr := syncArtifactSidecarsLocked(root, artifacts, syncedIDs...)
+			return errors.Join(cause, registryErr, sidecarErr)
+		}
+		for _, sessionID := range target.SessionIDs {
+			if err := syncArtifactSidecarsLocked(root, next, sessionID); err != nil {
+				return rollback(err)
+			}
+			syncedIDs = append(syncedIDs, sessionID)
+		}
+		if stagedPath != "" {
+			if err := os.Remove(stagedPath); err != nil {
+				return rollback(fmt.Errorf("remove staged artifact file %s: %w", stagedPath, err))
+			}
+		}
+		removed = true
+		cleanupManagedArtifactDirectory(root, target)
+		return nil
+	})
+	return removed, err
+}
+
+func cleanupManagedArtifactDirectory(root string, artifact Artifact) {
+	library := filepath.Join(root, "artifact-files")
+	relative, err := filepath.Rel(library, artifact.Path)
+	if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	if len(parts) != 3 || parts[1] != artifact.ID || (parts[0] != "ungrouped" && !strings.HasPrefix(parts[0], "project-")) {
+		return
+	}
+	dir := filepath.Join(library, parts[0], parts[1])
+	if err := os.Remove(dir); err != nil {
+		return // Keep directories containing any other files.
+	}
+	_ = os.Remove(filepath.Dir(dir))
+	_ = os.Remove(library)
 }
 
 func FilterArtifacts(artifacts []Artifact, scope, sessionID, projectID string) []Artifact {
@@ -726,7 +884,7 @@ func FilterArtifacts(artifacts []Artifact, scope, sessionID, projectID string) [
 
 	filtered := make([]Artifact, 0, len(artifacts))
 	for _, artifact := range artifacts {
-		if artifact.SessionID == sessionID {
+		if artifactHasSession(artifact, sessionID) {
 			filtered = append(filtered, artifact)
 		}
 	}
@@ -794,19 +952,20 @@ func migrateArtifactsRegistry(root string) ([]Artifact, error) {
 
 func mergeMigratedArtifacts(byPath map[string]Artifact, artifacts []Artifact, sessionID, projectID string) {
 	for _, artifact := range artifacts {
-		artifact = normalizeArtifact(artifact)
-		if artifact.Path == "" || !filepath.IsAbs(artifact.Path) {
-			continue
-		}
-		if artifact.SessionID == "" {
+		if artifact.SessionID == "" && len(artifact.SessionIDs) == 0 {
 			artifact.SessionID = sessionID
 		}
 		if artifact.ProjectID == "" {
 			artifact.ProjectID = projectID
 		}
-		if current, ok := byPath[artifact.Path]; !ok || artifactNewer(artifact, current) {
-			byPath[artifact.Path] = artifact
+		artifact = normalizeArtifact(artifact)
+		if artifact.Path == "" || !filepath.IsAbs(artifact.Path) {
+			continue
 		}
+		if current, ok := byPath[artifact.Path]; ok {
+			artifact = mergeArtifactRecords(current, artifact)
+		}
+		byPath[artifact.Path] = artifact
 	}
 }
 
@@ -921,15 +1080,64 @@ func dedupeArtifactsByPath(artifacts []Artifact) []Artifact {
 		if artifact.Path == "" {
 			continue
 		}
-		if current, ok := byPath[artifact.Path]; !ok || artifactNewer(artifact, current) {
-			byPath[artifact.Path] = artifact
+		if current, ok := byPath[artifact.Path]; ok {
+			artifact = mergeArtifactRecords(current, artifact)
 		}
+		byPath[artifact.Path] = artifact
 	}
 	out := make([]Artifact, 0, len(byPath))
 	for _, artifact := range byPath {
 		out = append(out, artifact)
 	}
 	return out
+}
+
+func mergeArtifactRecords(current, incoming Artifact) Artifact {
+	preferred := current
+	if artifactNewer(incoming, current) {
+		preferred = incoming
+	}
+	preferred.SessionIDs = append(append([]string(nil), current.SessionIDs...), incoming.SessionIDs...)
+	if preferred.CreatedBySessionID == "" {
+		preferred.CreatedBySessionID = current.CreatedBySessionID
+	}
+	if preferred.ID == "" {
+		preferred.ID = current.ID
+	}
+	return normalizeArtifact(preferred)
+}
+
+// ArtifactByIDOrPath resolves a registry record by stable ID or canonical path.
+func ArtifactByIDOrPath(artifacts []Artifact, value string) (Artifact, bool) {
+	path := value
+	if filepath.IsAbs(value) {
+		path = filepath.Clean(value)
+	}
+	for _, artifact := range artifacts {
+		if artifact.ID == value || artifact.Path == path {
+			return artifact, true
+		}
+	}
+	return Artifact{}, false
+}
+
+func artifactHasSession(artifact Artifact, sessionID string) bool {
+	for _, id := range artifact.SessionIDs {
+		if id == sessionID {
+			return true
+		}
+	}
+	return artifact.SessionID == sessionID
+}
+
+func removeArtifactSession(ids []string, sessionID string) []string {
+	next := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != sessionID {
+			next = append(next, id)
+		}
+	}
+	return next
 }
 
 func artifactNewer(left, right Artifact) bool {
@@ -994,6 +1202,10 @@ func ArtifactKindForPath(path string) string {
 func normalizeArtifact(artifact Artifact) Artifact {
 	if artifact.Path != "" {
 		artifact.Path = filepath.Clean(artifact.Path)
+		if artifact.ID == "" {
+			sum := sha256.Sum256([]byte(artifact.Path))
+			artifact.ID = fmt.Sprintf("art-%x", sum[:12])
+		}
 	}
 	artifact.Kind = strings.ToLower(strings.TrimSpace(artifact.Kind))
 	if artifact.Kind == "" {
@@ -1004,6 +1216,20 @@ func normalizeArtifact(artifact Artifact) Artifact {
 	}
 	if artifact.AddedAt == "" {
 		artifact.AddedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if artifact.CreatedBySessionID == "" && artifact.SessionID != "" {
+		artifact.CreatedBySessionID = artifact.SessionID
+	}
+	ids := append([]string(nil), artifact.SessionIDs...)
+	if artifact.SessionID != "" {
+		ids = append(ids, artifact.SessionID)
+	}
+	sort.Strings(ids)
+	ids = slices.Compact(ids)
+	artifact.SessionIDs = ids
+	artifact.SessionID = ""
+	if len(ids) > 0 {
+		artifact.SessionID = ids[0]
 	}
 	return artifact
 }
