@@ -45,8 +45,8 @@ go vet ./...
 go test ./...
 ```
 
-`-buildvcs=false` is required here — both in CI and locally (a bare `go build`
-exits 128 in this environment because of a broken `~/.git`). Always pass it.
+Use `-buildvcs=false` for the standard build check to match CI. A bare
+`go build ./...` also works locally; the earlier `~/.git` issue was fixed.
 
 **macOS app** (macOS only — depends on AppKit and a fetched GhosttyKit
 `xcframework`; it does **not** build on Linux):
