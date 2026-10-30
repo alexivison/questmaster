@@ -41,6 +41,7 @@ enum LogicSelfTests {
         ("testSelectedSessionTagSizesItsPartsFromTheSVG", testSelectedSessionTagSizesItsPartsFromTheSVG),
         ("testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation", testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation),
         ("testAvatarEffectLayersKeepTheirPlacement", testAvatarEffectLayersKeepTheirPlacement),
+        ("testAFinishPlaysInPlace", testAFinishPlaysInPlace),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
@@ -1056,6 +1057,20 @@ enum LogicSelfTests {
         let front = calling.front.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
         try expect(character?.duration == 0.25 && character?.values?.count == 2, "a 1-frame character should cycle on its own 0.25 s clock")
         try expect(front?.duration == 1 && front?.values?.count == 9, "an 8-frame front should cycle on its own 1 s clock")
+    }
+
+    /// A cast's finish plays in place: its frames show, and the figure never leaves its anchor.
+    @MainActor
+    private static func testAFinishPlaysInPlace() throws {
+        let sprites = try bardSprites()
+        guard let placement = sprites.animation.animation(for: .studying),
+              let rig = TrackerAvatarFrameRig(pose: .studying, placement: placement, sprites: sprites) else {
+            throw TestFailure("the bard's studying should draw")
+        }
+        rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        rig.showFinish(elapsed: 0)
+        try expect(rig.character.contents != nil, "a finish should show its first frame")
+        try expect(rig.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "a finish should not move the figure")
     }
 
     /// The bard's sprites load from the app bundle: their animation file reads, and the art the avatar draws from it is there.

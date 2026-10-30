@@ -7,7 +7,6 @@ struct TrackerAvatarMotionTests {
         catchingRecoilsBackOnTheStrikeAndBack()
         posesWithoutAMoveStayPut()
         everyStepFallsWithinItsPose()
-        finishLeansBackOnF4ThenSettles()
         print("TrackerAvatarMotionTests: all tests passed")
     }
 
@@ -70,22 +69,6 @@ struct TrackerAvatarMotionTests {
             expect(steps.last.map { $0.x == 0 } == true, "\(pose) should end on its anchor")
             expect(steps.allSatisfy { $0.seconds >= 0 && $0.seconds <= block.seconds }, "\(pose) should keep its steps within its duration")
         }
-    }
-
-    /// A cast leans back on its first frame, one or two pixels screen left, then settles to the anchor on its last, which holds to the end.
-    private static func finishLeansBackOnF4ThenSettles() {
-        let studying = bard.animation(for: .studying)?.finish
-        let steps = studying.map { TrackerAvatarMotion.finishSteps(in: $0) }
-        let four = studying?.character.starts[1] ?? 0
-        expect(steps == [
-            TrackerAvatarMoveStep(seconds: 0, x: -TrackerAvatarMotion.finishLeanPixels),
-            TrackerAvatarMoveStep(seconds: four),
-        ], "a finish should lean back on f4 and settle on f5, got \(String(describing: steps))")
-        let inscribing = bard.animation(for: .inscribing)?.finish.map { TrackerAvatarMotion.finishSteps(in: $0) }
-        expect(inscribing == [TrackerAvatarMoveStep(seconds: 0, x: -TrackerAvatarMotion.finishLeanPixels)],
-               "inscribing should lean back on f4 and hold it for the whole finish, got \(String(describing: inscribing))")
-        expect((1...2).contains(TrackerAvatarMotion.finishLeanPixels), "a finish's lean should be 1 to 2 px")
-        expect(steps?.last.map { $0.x == 0 } == true, "a finish should end on its anchor")
     }
 
     private static func fail(_ message: String) -> Never {

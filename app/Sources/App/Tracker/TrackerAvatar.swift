@@ -367,14 +367,14 @@ fileprivate final class TrackerAvatarRig: TrackerAvatarPoseRig {
 
 /// A pose drawn as frames. Its loop cycles, or its one-shot plays once. Each layer plays its own track on its own clock: the
 /// character, a `behind` effect that stays put, and a `front` effect that moves with the figure. The figure (the character and any
-/// front effect) is one layer, which the pose's moves and a cast's finish lean carry. A finish sets each layer to its frame at the
+/// front effect) is one layer, which the pose's moves carry. A finish sets each layer to its frame at the
 /// elapsed time the director gives. The render server runs the animations as discrete keyframes on the layers' contents and position.
 @MainActor
 final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
     let pose: TrackerAvatarPose
     /// The whole sprite, placed by its anchor. It holds the effect drawn behind and the figure.
     let root = CALayer()
-    /// The character and any effect in front of him: the layer the pose's moves and the finish lean carry.
+    /// The character and any effect in front of him: the layer the pose's moves carry.
     let figure = CALayer()
     let behind = CALayer()
     let character = CALayer()
@@ -462,8 +462,8 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         oneShotStarted = false
     }
 
-    /// Holds each layer on its finish frame at `elapsed` seconds into the finish, and on the first call starts the lean. A pose without
-    /// a finish shows nothing. A layer the finish doesn't play is cleared, so no art from the loop lingers under it.
+    /// Holds each layer on its finish frame at `elapsed` seconds into the finish. A finish plays in place. A pose without a finish
+    /// shows nothing. A layer the finish doesn't play is cleared, so no art from the loop lingers under it.
     func showFinish(elapsed: TimeInterval) {
         guard let finish = placement.finish else {
             return
@@ -474,7 +474,6 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
                 sprites.frame(pose, kind, track.frame(at: elapsed, looping: false))
             }
         }
-        addMove(TrackerAvatarMotion.finishSteps(in: finish), duration: finish.seconds)
     }
 
     /// A frame pose has no eyelids.

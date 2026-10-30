@@ -19,8 +19,6 @@ public enum TrackerAvatarMotion {
     public static let releaseStepPixels = 3
     /// A catch recoils this many pixels back (left) as the wisp lands.
     public static let catchRecoilPixels = 2
-    /// A cast leans back, screen left, this many pixels on its f4 frame, then settles forward to its anchor on f5.
-    public static let finishLeanPixels = 2
 
     /// The steps of a pose's move over its one-shot (`block`). The first step is at 0, and the last step holds to the block's end.
     /// A pose without a move has no steps.
@@ -33,16 +31,6 @@ public enum TrackerAvatarMotion {
         default:
             return []
         }
-    }
-
-    /// The steps of a cast finish's lean: back at its start, then forward to the anchor at its last step. A finish with one step
-    /// holds the lean for the whole finish, so it never comes forward.
-    public static func finishSteps(in block: TrackerAvatarBlock) -> [TrackerAvatarMoveStep] {
-        let back = TrackerAvatarMoveStep(seconds: 0, x: -finishLeanPixels)
-        guard block.character.steps.count > 1, let forward = block.character.starts.last else {
-            return [back]
-        }
-        return [back, TrackerAvatarMoveStep(seconds: forward)]
     }
 
     /// Steps to the offset as the strike begins (the block's second step), and back to the anchor as its follow-through begins
