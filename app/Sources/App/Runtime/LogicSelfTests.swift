@@ -1086,6 +1086,20 @@ enum LogicSelfTests {
         try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the wizard's art")
         try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
                    "the wizard should have the art of all three spells")
+        var missing: [String] = []
+        for pose in TrackerAvatarPose.allCases {
+            guard let poseAnimation = sprites.animation.animation(for: pose) else {
+                continue
+            }
+            for block in [poseAnimation.loop, poseAnimation.finish, poseAnimation.once].compactMap({ $0 }) {
+                for layer in TrackerAvatarLayer.allCases {
+                    for step in block.track(for: layer)?.steps ?? [] where sprites.frame(pose, layer, step.frame) == nil {
+                        missing.append("\(pose.resourceName) \(layer.rawValue) f\(step.frame)")
+                    }
+                }
+            }
+        }
+        try expect(missing.isEmpty, "every frame the wizard's file plays should have its art, missing: \(missing)")
     }
 
     /// The bard's sprites, read from the app bundle.
