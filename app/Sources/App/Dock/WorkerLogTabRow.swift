@@ -204,7 +204,7 @@ private struct WorkerLogTab: View {
     }
 }
 
-/// The diamond between two tabs: the design's #444C56, the `line` colour.
+/// The diamond between two tabs: the design's #444C56, now the `line` colour #474F59.
 private struct WorkerLogTabSeparator: View {
     var body: some View {
         Color.clear
