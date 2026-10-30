@@ -42,6 +42,7 @@ enum LogicSelfTests {
         ("testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation", testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation),
         ("testAvatarEffectLayersKeepTheirPlacement", testAvatarEffectLayersKeepTheirPlacement),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
+        ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -1071,6 +1072,20 @@ enum LogicSelfTests {
         try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
                    "the bard's release should have a hand")
         try expect(TrackerAvatarSprites.bundled()["bard"] != nil, "the bundled bard should be a session class with sprites")
+    }
+
+    @MainActor
+    private static func testBundledWizardSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["wizard"] else {
+            throw TestFailure("the wizard's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle.legRows == 45, "the wizard's idle should split at his leg rows")
+        try expect(sprites.animation.fidgets.map(\.name) == ["hood", "staff-tap"], "the wizard should have the hood and staff-tap fidgets")
+        try expect(sprites.availableFidgets.count == 2, "both of the wizard's fidgets should have their art")
+        try expect(sprites.idleArt() != nil, "the wizard's idle layers should split from his art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the wizard's art")
+        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
+                   "the wizard should have the art of all three spells")
     }
 
     /// The bard's sprites, read from the app bundle.

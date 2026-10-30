@@ -1,20 +1,25 @@
 import Foundation
 import QuestmasterCore
 
-/// The bard's `animation.json`, read from the app's resources, for the class avatar's tests.
+/// The class `animation.json` files, read from the app's resources, for the class avatar's tests.
 enum AvatarAnimationFixture {
-    /// The bard's file as a JSON object, so a test can edit it before it is decoded.
-    static func bardJSON() -> [String: Any] {
+    /// A class's file as a JSON object, so a test can edit it before it is decoded.
+    static func classJSON(_ classID: String) -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/App/Resources/Sprites/bard/animation.json")
+            .appendingPathComponent("Sources/App/Resources/Sprites/\(classID)/animation.json")
         guard let data = try? Data(contentsOf: url), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            fputs("AvatarAnimationFixture: the bard's animation.json should read as a JSON object at \(url.path)\n", stderr)
+            fputs("AvatarAnimationFixture: \(classID)'s animation.json should read as a JSON object at \(url.path)\n", stderr)
             exit(1)
         }
         return json
+    }
+
+    /// The bard's file as a JSON object, so a test can edit it before it is decoded.
+    static func bardJSON() -> [String: Any] {
+        classJSON("bard")
     }
 
     static func decode(_ json: [String: Any]) throws -> TrackerAvatarAnimation {

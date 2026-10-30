@@ -4,6 +4,7 @@ import QuestmasterCore
 struct TrackerAvatarAnimationTests {
     static func run() {
         decodesTheBardsFile()
+        decodesTheWizardsFile()
         aCatchHoldsItsClosedHandPastTheRecoil()
         aLoopCyclesEachTrackOnItsOwnClock()
         aOneShotHoldsItsLastFrame()
@@ -14,6 +15,7 @@ struct TrackerAvatarAnimationTests {
         aFinishChangesAtItsOwnSteps()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
+        aCatalogShowsEachClassWithArtAndNoOthers()
         aLidColourIsRequiredAndReadsAsHexRGB()
         print("TrackerAvatarAnimationTests: all tests passed")
     }
@@ -267,6 +269,33 @@ struct TrackerAvatarAnimationTests {
         expect(catalog.classID(for: AvatarSessionFixture.session(sessionClass: "wizard")) == nil, "a class with no art should show no avatar")
         expect(catalog.classID(for: AvatarSessionFixture.session(sessionClass: "bard", parentID: "qm-1")) == nil, "a worker should show no avatar")
         expect(catalog.classID(for: nil) == nil, "no attached session should show no avatar")
+    }
+
+    private static func decodesTheWizardsFile() {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("wizard")) else {
+            fail("the wizard's file should decode")
+        }
+        expect(
+            animation.idle == TrackerAvatarIdle(legRows: 45, eyeRow: 16, eyeColumns: 44...45, lidColour: TrackerAvatarColour(rgb: 0x7b6c63)),
+            "idle should carry the wizard's leg rows, eye row, eye columns and lid colour"
+        )
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 87, y: 21), "the release hand should be the wizard's hand pixel")
+        expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "fidgets should come in name order")
+        expect(animation.fidgets.first?.track.steps.map(\.frame) == [2, 3, 2], "the hood should play its three idle frames")
+        let pondering = animation.animation(for: .pondering)
+        expect(pondering?.footRow == 158 && pondering?.bodyColumn == 39, "pondering should stand at the wizard's foot row and body column")
+        expect(animation.animation(for: .summoning)?.once?.behind != nil, "the wizard's summoning should have a ground effect")
+    }
+
+    private static func aCatalogShowsEachClassWithArtAndNoOthers() {
+        guard let bard = try? decode(bardJSON()), let wizard = try? decode(AvatarAnimationFixture.classJSON("wizard")) else {
+            fail("the bard's and the wizard's files should decode")
+        }
+        let catalog = TrackerAvatarCatalog(animations: ["bard": bard, "wizard": wizard])
+        expect(catalog.classID(for: AvatarSessionFixture.session(sessionClass: "wizard")) == "wizard", "a wizard master should show the wizard's avatar")
+        expect(catalog.classID(for: AvatarSessionFixture.session(sessionClass: "bard")) == "bard", "a bard master should still show the bard's avatar")
+        expect(catalog.classID(for: AvatarSessionFixture.session(sessionClass: "wizard", parentID: "qm-1")) == nil, "a wizard worker should show no avatar")
+        expect(catalog.classID(for: AvatarSessionFixture.session(sessionClass: "paladin")) == nil, "a class with no art should show no avatar")
     }
 
     /// Sums of the file's decimal seconds carry rounding, so durations compare within a nanosecond.
