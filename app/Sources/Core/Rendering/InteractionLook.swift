@@ -4,11 +4,11 @@ import Foundation
 /// so a state look and the palette can't drift apart. The rules they serve are in AGENTS.md, "Interaction states".
 public enum StateColor: UInt32, CaseIterable, Sendable {
     /// Panel and dock frames at rest.
-    case lineSoftSubtle = 0x373e47
+    case lineSoftSubtle = 0x3a414a
     /// Outlines at rest, and every divider inside a row.
-    case line = 0x444c56
+    case line = 0x474f59
     /// A highlighted or selected row's fill.
-    case item = 0x2d333b
+    case item = 0x30363e
     /// A highlighted or selected outline, and a focused field's border.
     case controlBorder = 0x768390
     /// Meta text at rest (dates, projects, placeholders, hints). The terminal theme's white (ANSI 7).

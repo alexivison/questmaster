@@ -3,7 +3,7 @@ import QuestmasterCore
 
 enum AppPalette {
     static let window = NSColor(hex: 0x1c2128)
-    static let panel = NSColor(hex: 0x22272e)
+    static let panel = NSColor(hex: 0x252a31)
     static let item = StateColor.item.color
     static let artifactListColumn = panel
     static let artifactViewerBackground = artifactListColumn
