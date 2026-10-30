@@ -115,6 +115,16 @@ both sides in the same change**:
 go test -buildvcs=false ./internal/serve -update
 ```
 
+The tracker session row carries an optional `last_exchange` object, `{"kind": "instructions" | "report", "at": RFC3339}`.
+It is set only when a master messages a worker or a worker reports to its master, and spawn prompts leave it empty. The
+class avatar diffs it between payloads to fly its spells (`TrackerAvatarEventDetector`), so status and action chat
+entries don't change it. Old decoders ignore the key, so it needed no `ServeProtocolVersion` bump.
+
+The row also carries `active_subagents`, the count of sub-agents the session has running. Only Claude reports them: the
+hooks add an id on `SubagentStart` and remove it on `SubagentStop` (a stop with no matching start is ignored, and so is a
+start with no agent type or an `internal` one), and both `starting` and `stopped` clear the set. A finished turn keeps its
+sub-agents until they stop. The key is omitted at zero, and it needed no `ServeProtocolVersion` bump either.
+
 ## Swift app architecture
 
 **Keep app logic in Core and UI decisions close to the existing shell.** The app
@@ -413,6 +423,7 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
 |---|---|---|
 | `MotionStep.fast` | 0.12 | a small change: the modals' fade-out, the toast showing, a page swap or overflow cue in the Quest Log, the artifact rows' select-mode toggle, the cast bar's fade |
 | `MotionStep.standard` | 0.18 | a panel, modal or layout move: the modals' fade-in, the toast hiding, the split view's panes, the dock's panels (`DockPanelMotion`), the tracker's expand/collapse and cast-row open/close, the Quest Log's unroll, the worker chat's glide and arrival fade, the attach veil, the selected-session panel's icon fade, the status ring's crossfade, exit sweep, flash and exit fade, the cast bar's finish flash |
+| `MotionStep.flight` | 0.6 | a spell travelling across the tracker column, from the class avatar's hand to a plate or back (an arc that eases out, along a Core Animation position path); the spell's impact frame then holds for this long and fades over `fast` |
 
 - **One easing:** ease out, quick at first and settling, as the cubic Bézier (0, 0, 0.58, 1), the system's own `.easeOut`.
   `Motion.timingFunction` is its Core Animation and AppKit form, `Motion.animation(_:after:)` its SwiftUI form, and
@@ -435,8 +446,41 @@ App target the forms each framework takes (`Motion` in `SharedUI/DesignTokens.sw
   animations (`SpinnerRing`/`WorkingSpinner`, the cast bar's and status ring's fill, pulse and shimmer, the skeleton
   pulses) keep their own periods, named as a `period` or a duration learned at runtime, and are outside the steps. An
   animation that ends, even one of those views' (a flash, an exit, a crossfade), takes a step.
-- **A new transition** picks `fast` or `standard`; a step is added to `MotionStep` only for a new pace the app doesn't
-  have yet, never a one-off number.
+- **A new transition** picks `fast`, `standard` or `flight`; a step is added to `MotionStep` only for a new pace the app
+  doesn't have yet, never a one-off number. `flight` is the pace of things that cross the window.
+- **Class avatar:** its holds, bow, cast and flight timings are named in `TrackerAvatarTiming` (Core), and its art settings
+  in `TrackerAvatarDesign` (App). A pose holds 1.5 s before a steady change shows, and the change snaps (no crossfade); calling out cuts in at once. The
+  steady pose, in order: calling out; a running tool's pose while working; spellsong while sub-agents run; pondering while
+  working; idle. A turn that ends after a working stretch of at least `minimumBowWorkSeconds` (60 s) bows once, after its
+  sub-agents have stopped and the current pose has held; a shorter turn goes straight to idle. A flight
+  is a one-shot that starts with its cue and plays once, never looped. A shell command's pose comes from the one table in `TrackerShellCommand` (Core): reading commands (ls, cat, rg, git log, gh pr view, ...) pose as studying, writing ones (sed -i, mv, cp, git commit, gofmt -w, ...) as inscribing, network ones (curl, git push, gh api, gh pr create, ...) as scrying, and anything else as channelling. The first command of a `cd ... &&` chain, a pipeline or an env assignment decides it. Codex's `exec_command` activity reads `Bash: <command>` like the other agents' shell calls, so it poses by its command too; a bare `exec_command` with no command text channels. Every pose but Idle draws as its frames
+  (`Resources/Sprites/bard/<pose>-f<n>.png`, copied from the sprite source's `frames/` folder; f1 is the pose at rest, and each pose has only the frames it plays), and `TrackerAvatarDesign.frameMotions` lists how each plays:
+  a loop cycles f1, f2, f3, each held for its pose's frame length (`loopFrameSeconds`, 0.18 s, unless the table gives `ponderingFrameSeconds`, 0.5 s, or `studyingFrameSeconds`, 0.4 s); a one-shot plays its order from `TrackerAvatarPlayback` (Core), each frame from its start time: release and summoning f2 (lead-in), f1 (strike at `oneShotLeadInSeconds`), then f3 holds; catching f1, then f3 from the catch on; a bow f2, f1, then f2 holds (f3 doesn't ship). Frames have no glow
+  or floaters; their pixel moves (below) are the only motion beyond the frames. Idle keeps its layers (breath, blink), split from `01-idle-f1`. The render server runs the frame animations as discrete
+  keyframes on the layer's contents, and a discrete keyframe holds each value only up to the next key, so each sequence
+  ends on a repeated key or its last frame never shows. Each pose's feet (`TrackerAvatarDesign.footRows`, the row of its lowest
+  boot pixel) stand on the shared baseline, so rows below the feet hang under it: summoning's rune circle hangs 21 to 25 pt
+  below the slot's baseline, so it runs up to 5 pt into the 20 pt gap above the shell section (in its hold frame, f3). `TrackerAvatarFrame.beat` rises whenever a pose's cue
+  starts, so a repeated one-shot (two releases in a row) plays its lead-in again. A cast pose (studying, inscribing, channelling, scrying, spellsong) with `<pose>-f4` and `-f5` art plays them when the steady pose leaves it for another pose: f4, then f5, `finishFourSeconds` (0.25 s) and `finishFiveSeconds` (0.5 s), then the change snaps. The finish counts toward the hold, so it adds no second hold. Calling out cuts in with no finish, as does a switch to the same pose and any one-shot (release, summoning, catching). A bow waits for the finish: it is a steady change, so the cast finishes first. Core decides (`TrackerAvatarFrame.finish`); a pose without finish art skips it, and nothing finishes under Reduce Motion.
+  A cast's finish also leans him back 2 px (screen left) on f4 and settles him to the anchor on f5 (`TrackerAvatarMotion.finishSteps`,
+  Core), as discrete keyframes on the figure, so it returns exactly. An effect layer (`TrackerAvatarDesign.effectPlacements`) shares its
+  pose's frames and timing: summoning's ground circle (`<pose>-effect-f<n>`) draws behind him and stays put, and calling out's bubble
+  draws in front of him and moves with him. Both sit on the pose's anchor, and an effect whose art is missing isn't drawn.
+  Each pose is placed by its body column (`TrackerAvatarDesign.bodyColumns`, the torso's centre at belt height, the median over
+  its loop frames with effect colours left out; finish frames don't count) on the slot's centre column, so an effect on one side doesn't move him. Moves come
+  from `TrackerAvatarMotion` (Core): release steps 3 px forward on its strike, summoning hops 4 px up, catching recoils 2 px
+  back, calling out bobs 2 px up twice a loop, and the bow stays put. A move is discrete, additive keyframes on position, and
+  returns to the anchor exactly; Reduce Motion plays none. The rigs' layers take contents, position, bounds and hidden at once
+  (`TrackerAvatarLayerActions`): left implicit, Core Animation cross-dissolves a contents change over 0.25 s, which is the
+  slow fade. `testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation` checks the keys after a switch.
+  Idle fidgets are `TrackerAvatarFidgets` (Core): while idle, every 8 to 15 s (`TrackerAvatarFidgetTiming.gapSeconds`) he plays one
+  fidget in place, then breathes again. The fidgets are idle art frames, as one table: hat (f2, f3, f2) and yawn (f7, held); a sequence frame shows 0.2 s and a held frame 0.6 s. A fidget never follows itself,
+  and one whose art is missing is skipped. The picks come from an injected random source, so tests seed it. Any other pose stops
+  a fidget at once, and none play under Reduce Motion. The fidget frame replaces the idle layers, so breath and blink pause until
+  he is back. Its anchor is idle's (`footRows`, `bodyColumns`) until the fidget art is measured.
+  A cast's finish holds f4 for 0.25 s (`TrackerAvatarTiming.finishFourSeconds`) and f5 for 0.5 s (`finishFiveSeconds`), then the
+  next pose snaps in; the finish still counts toward the hold. Inscribing has no f5: it holds f4 for the whole 0.75 s
+  (`TrackerAvatarTiming.finishSeconds`), from `TrackerAvatarFinish.holdsFourFrame`.
 - **Selected-session panel:** the disc's icon is the class portrait; a shell, tmux or orphan session shows the shell
   row's terminal glyph (`ShellTerminalGlyph`, scaled with the disc, `textMeta`); no class, or nothing attached, leaves the
   disc empty. The icon fades in once when the attached session or its portrait changes, over `standard`; the old icon goes

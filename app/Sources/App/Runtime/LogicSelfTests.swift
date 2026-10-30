@@ -39,6 +39,8 @@ enum LogicSelfTests {
         ("testSelectedSessionPanelNamesTheAttachedSessionsProject", testSelectedSessionPanelNamesTheAttachedSessionsProject),
         ("testSelectedSessionPanelFrameKeepsItsRoundedCorners", testSelectedSessionPanelFrameKeepsItsRoundedCorners),
         ("testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges", testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges),
+        ("testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation", testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation),
+        ("testAvatarEffectLayersKeepTheirPlacement", testAvatarEffectLayersKeepTheirPlacement),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -594,8 +596,8 @@ enum LogicSelfTests {
             return (weight / (scale * scale), weight == 0 ? .zero : CGPoint(x: sum.x / weight, y: sum.y / weight))
         }
 
-        /// The row tops: the first plate sits `selectedPanelGap` under the panel, the next after a row and a gap.
-        let masterTop = SelectedSessionPanel.canvasSize.height + TrackerListMetrics.selectedPanelGap
+        /// The row tops: the first plate sits a spacing down the list (no header-alignment cell height here), the next after a row and a gap.
+        let masterTop = TrackerListMetrics.spacing
         let workerTop = masterTop + TrackerNameplateRole.master.canvasSize.height + TrackerListMetrics.spacing
         let collapsedTop = workerTop + TrackerNameplateRole.worker.canvasSize.height + TrackerListMetrics.spacing
         let gutter = TrackerListMetrics.sidePadding
@@ -1009,6 +1011,99 @@ enum LogicSelfTests {
     /// leaves the session and its portrait alone, a view outside a window and Reduce Motion show no fade. The disc's pixels
     /// are the model layers', which the fade leaves alone: the new icon is in them when the fade starts and they end as drawn
     /// fresh.
+    /// A pose switch lands at once. Core Animation animates an implicit change to a layer's contents, position, bounds or
+    /// hidden state, so an implicit change shows up as a key on the rig's layer that the rig didn't add itself.
+    private static func testAvatarPoseSwitchesLandAtOnceWithNoImplicitAnimation() throws {
+        defer { Motion.reducesMotion = { false } }
+        let nextTick: TimeInterval = 0.05
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = avatar
+        window.show()
+        let ownKeys: Set<String> = [TrackerAvatarMotionKey.frames, TrackerAvatarMotionKey.breath, TrackerAvatarMotionKey.move]
+        /// The layer and every layer drawn inside it, so an implicit animation on a child shows up too.
+        func tree(_ layer: CALayer) -> [CALayer] {
+            [layer] + (layer.sublayers ?? []).flatMap { tree($0) }
+        }
+        let switches: [(TrackerAvatarPose, Int?)] = [
+            (.channelling, nil), (.release, nil), (.idle, nil), (.pondering, nil), (.summoning, nil), (.bow, nil),
+            (.callingOut, nil), (.catching, nil), (.studying, nil), (.idle, 2), (.idle, nil),
+        ]
+        for reduceMotion in [false, true] {
+            Motion.reducesMotion = { reduceMotion }
+            for (pose, fidget) in switches {
+                avatar.configure(pose: pose, fidget: fidget, beat: 0, finish: nil, reduceMotion: reduceMotion)
+                RunLoop.current.run(until: Date().addingTimeInterval(nextTick))
+                let shown = (avatar.layer?.sublayers ?? []).filter { !$0.isHidden }
+                try expect(shown.count == 1, "a switch to \(pose) should show one rig, got \(shown.count)")
+                guard let layer = shown.first else {
+                    continue
+                }
+                for part in tree(layer) {
+                    let implicit = (part.animationKeys() ?? []).filter { !ownKeys.contains($0) }
+                    try expect(implicit.isEmpty, "a switch to \(pose) should land at once, but \(implicit.sorted()) animate implicitly (reduce motion \(reduceMotion))")
+                }
+                let presented = layer.presentation() ?? layer
+                try expect(presented.bounds == layer.bounds && presented.opacity == layer.opacity,
+                           "a switch to \(pose) should show its model values on the next tick")
+            }
+        }
+    }
+
+    /// An effect drawn behind the bard sits on the root, under the figure, and stays put when he moves; an effect in front sits in
+    /// the figure with him, so the figure's move carries it. The bard and both effects play the one-shot's frames together.
+    private static func testAvatarEffectLayersKeepTheirPlacement() throws {
+        func solid(_ red: CGFloat) throws -> CGImage {
+            guard let context = CGContext(
+                data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                throw TestFailure("a test frame should be drawable")
+            }
+            context.setFillColor(CGColor(red: red, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+            guard let image = context.makeImage() else {
+                throw TestFailure("a test frame should be made")
+            }
+            return image
+        }
+        let summoning = TrackerAvatarFrameRig(
+            pose: .summoning,
+            frames: [1: try solid(0.1), 2: try solid(0.2), 3: try solid(0.3)],
+            finish: nil,
+            motion: .oneShot(seconds: TrackerAvatarTiming.castSeconds),
+            behind: [1: try solid(0.4), 2: try solid(0.5), 3: try solid(0.6)]
+        )
+        summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        try expect(summoning.root.sublayers?.first === summoning.effectBehind && summoning.root.sublayers?.last === summoning.figure,
+                   "the ground circle should draw under the figure, on the root")
+        try expect(summoning.figure.sublayers?.first === summoning.bard, "the bard should be the figure's first layer")
+        summoning.startMotion()
+        try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) != nil, "the figure should carry the summoning's hop")
+        try expect(summoning.effectBehind.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the ground circle should stay put")
+        try expect(summoning.bard.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the bard should ride the figure, not move alone")
+        for layer in [summoning.bard, summoning.effectBehind] {
+            try expect(layer.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "every layer should play the one-shot's frames")
+        }
+        summoning.stopMotion()
+        try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil && summoning.bard.animation(forKey: TrackerAvatarMotionKey.frames) == nil,
+                   "stopping should remove the move and the frames")
+
+        let calling = TrackerAvatarFrameRig(
+            pose: .callingOut,
+            frames: [1: try solid(0.1), 2: try solid(0.2), 3: try solid(0.3)],
+            finish: nil,
+            motion: .loop(frameSeconds: TrackerAvatarDesign.loopFrameSeconds),
+            front: [1: try solid(0.7), 2: try solid(0.8), 3: try solid(0.9)]
+        )
+        calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        try expect(calling.figure.sublayers?.last === calling.effectFront, "the bubble should draw in front of the bard, inside the figure")
+        calling.startMotion()
+        try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) != nil && calling.effectFront.animation(forKey: TrackerAvatarMotionKey.move) == nil,
+                   "the bubble should bob with the bard")
+    }
+
     private static func testSelectedSessionPanelFadesItsIconInWhenTheSessionChanges() throws {
         defer { Motion.reducesMotion = { false } }
         Motion.reducesMotion = { false }
@@ -3383,10 +3478,10 @@ enum LogicSelfTests {
             return (0..<height).filter { isColor(column, $0, AppPalette.item) }
         }
 
-        /// Nothing of a plate in the band above the section, at several columns.
-        func clearBand(above sectionTop: Int) -> Bool {
-            let clearTop = sectionTop - Int(TrackerListMetrics.shellClearance)
-            return [60, 120, 200].allSatisfy { x in (clearTop..<sectionTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
+        /// Nothing of a plate in the band above the panel, at several columns.
+        func clearBand(above panelTop: Int) -> Bool {
+            let clearTop = panelTop - Int(TrackerListMetrics.selectedPanelGap)
+            return [60, 120, 200].allSatisfy { x in (clearTop..<panelTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
         }
     }
 
@@ -3400,9 +3495,9 @@ enum LogicSelfTests {
     }
 
     /// The shell section sits on the tracker column's bottom edge, at its bottom margin, however many plates there are:
-    /// with few plates there is empty space above it, with many the plates are cut `shellClearance` above it, and with
-    /// many shells the section stops at its max height. The viewed shell's filled row marks the section's bottom (the
-    /// last shell) or its top (the first).
+    /// the avatar slot and the selected-session panel stand above it, the plates' list stops `selectedPanelGap` above the
+    /// panel, and with many shells the section stops at its max height. The viewed shell's filled row marks the section's
+    /// bottom (the last shell) or its top (the first).
     private static func testTheShellSectionIsPinnedToTheTrackersBottom() throws {
         let height = 700
         let bottom = height - Int(TrackerListMetrics.verticalPadding) - 1
@@ -3415,22 +3510,27 @@ enum LogicSelfTests {
         func sectionTop(shells: Int) -> Int {
             height - Int(TrackerListMetrics.verticalPadding) - min(shells * rowHeight, Int(TrackerShellMetrics.maxHeight))
         }
+        /// The panel's top: the avatar slot, its bottom margin and gap stand between it and the section.
+        func panelTop(shells: Int) -> Int {
+            sectionTop(shells: shells) - Int(TrackerListMetrics.verticalPadding) - Int(TrackerAvatarMetrics.slotHeight)
+                - Int(TrackerListMetrics.avatarGap) - Int(SelectedSessionPanel.canvasSize.height)
+        }
 
         let few = try probe(masters: 1, shells: 2, viewed: "shell-1")
         try expect(few.filledShellRows.last == bottom, "with few plates the section should end at the column's bottom margin, got row \(String(describing: few.filledShellRows.last)) for \(bottom)")
         try expect(few.filledShellRows.suffix(rowHeight).first == bottom - rowHeight + 1, "the viewed shell's row should be 35 high")
-        try expect(few.clearBand(above: sectionTop(shells: 2)), "there should be empty space above the section")
+        try expect(few.clearBand(above: panelTop(shells: 2)), "there should be empty space above the panel")
 
         let many = try probe(masters: 14, shells: 2, viewed: "shell-1")
         try expect(many.filledShellRows.last == bottom, "with many plates the section should stay at the column's bottom margin, got row \(String(describing: many.filledShellRows.last)) for \(bottom)")
-        try expect(many.clearBand(above: sectionTop(shells: 2)), "the plates should be cut a clearance above the section, leaving its band empty")
+        try expect(many.clearBand(above: panelTop(shells: 2)), "the plates should be cut a clearance above the panel, leaving its band empty")
 
         // Past five rows the section stops at its max height, five rows, and the plates keep their clearance above it.
         let crowded = try probe(masters: 14, shells: 8, viewed: "shell-0")
         let crowdedTop = sectionTop(shells: 8)
         try expect(crowdedTop == bottom + 1 - Int(TrackerShellMetrics.maxHeight), "eight shells should stand 175 high")
         try expect(crowded.filledShellRows.contains(crowdedTop) && !crowded.filledShellRows.contains(crowdedTop - 1), "the first of eight shells should be the section's top, got rows \(crowded.filledShellRows.suffix(40))")
-        try expect(crowded.clearBand(above: crowdedTop), "the capped section keeps its clearance too")
+        try expect(crowded.clearBand(above: panelTop(shells: 8)), "the capped section keeps the panel's clearance too")
     }
 
     /// Many shells at the minimum window height: the section is `maxHeight` tall and scrolls inside itself, its last shell

@@ -244,6 +244,7 @@ struct TrackerRootView: View {
     @State private var snapshot: RuntimeSnapshot
     @State private var currentTerminalSessionID: String?
     @State private var runtimeObservation: RuntimeStoreObservation?
+    @State private var avatarStage = TrackerAvatarStage()
 
     init(
         store: RuntimeStore,
@@ -319,6 +320,8 @@ struct TrackerRootView: View {
 
         let panelContent = SelectedSessionPanelContent.make(currentTerminalSessionID: currentTerminalSessionID, tracker: tracker)
         let showsShells = !tracker.shells.isEmpty && !isBackendStartingMessage(snapshot.serviceStateMessage)
+        // The first plate's crown reaches a few points above its disc, so the column's top never cuts it: at least `spacing` down.
+        let firstPlateTop = max(TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight), TrackerListMetrics.spacing)
         // The plates' list scrolls only to a plate: a cursor on a shell is not its row.
         let plateCursorID = TrackerShellSection.plateCursorID(selectedID, in: rows)
         let list = Group {
@@ -354,21 +357,26 @@ struct TrackerRootView: View {
                                 onToggleWorkersCollapsed: toggleWorkersCollapsed(for:)
                             )
                             .padding(.leading, TrackerListMetrics.sidePadding)
-                            .padding(.top, index == 0 ? TrackerListMetrics.selectedPanelGap : TrackerListMetrics.spacing)
-                            .padding(.bottom, index == repos.count - 1 && !showsShells ? TrackerListMetrics.verticalPadding : 0)
+                            .padding(.top, index == 0 ? firstPlateTop : TrackerListMetrics.spacing)
                         }
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The plates scroll in the space above the shell section, which ends `shellClearance` above it.
-        .padding(.bottom, showsShells ? TrackerListMetrics.shellClearance : 0)
+        .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(list: $0) }
+        // The plates take the height left above the panel, `selectedPanelGap` clear of it. The avatar slot keeps its height with
+        // no avatar, so nothing below the plates moves when one appears.
         return VStack(alignment: .leading, spacing: 0) {
+            list
             SelectedSessionPanel(content: panelContent, onCopyID: copySessionID)
                 .padding(.leading, TrackerListMetrics.sidePadding)
-                .padding(.top, TrackerHeaderAlignmentMetrics.firstSectionTopInset(cellHeight: headerAlignment.cellHeight))
-            list
+                .padding(.top, TrackerListMetrics.selectedPanelGap)
+            TrackerAvatarSlot(pose: avatarStage.pose, fidget: avatarStage.fidgetFrame, beat: avatarStage.beat, finish: avatarStage.finish)
+                .padding(.leading, TrackerListMetrics.sidePadding)
+                .padding(.top, TrackerListMetrics.avatarGap)
+                .padding(.bottom, TrackerListMetrics.verticalPadding)
+                .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(avatar: $0) }
             // The shell section is pinned to the column's bottom, at the tracker's bottom margin, whatever the plates do.
             if showsShells {
                 TrackerShellRows(
@@ -387,6 +395,20 @@ struct TrackerRootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlayPreferenceValue(TrackerFlightAnchorKey.self) { anchors in
+            GeometryReader { proxy in
+                TrackerSpellFlightLayer(
+                    plans: TrackerSpellRoute.plans(
+                        for: avatarStage.launches,
+                        anchors: anchors,
+                        proxy: proxy,
+                        masterID: avatarStage.attachedID
+                    ),
+                    latestSerial: avatarStage.latestSerial
+                )
+            }
+            .allowsHitTesting(false)
+        }
     }
 
     private func copySessionID(_ sessionID: String) {
@@ -428,9 +450,18 @@ struct TrackerRootView: View {
             .contains(where: { $0.parentID == sessionID })
     }
 
+    /// Feeds the class avatar the tracker's sessions and the attached session's id.
+    private func feedAvatar() {
+        avatarStage.observe(
+            sessions: TrackerRenderer.flatSessions(in: TrackerRenderer.tracker(snapshot)),
+            attachedID: TerminalSessionChipResolver.cleanSessionID(currentTerminalSessionID)
+        )
+    }
+
     private func installRuntimeObservation() {
         snapshot = store.snapshot
         currentTerminalSessionID = store.currentTerminalSessionID
+        feedAvatar()
         guard runtimeObservation == nil else {
             return
         }
@@ -439,6 +470,7 @@ struct TrackerRootView: View {
             let previousRows = selectableRows(in: TrackerRenderer.tracker(snapshot))
             snapshot = store.snapshot
             currentTerminalSessionID = store.currentTerminalSessionID
+            feedAvatar()
             let rows = selectableRows(in: TrackerRenderer.tracker(snapshot))
             commandState.recoverStaleSelection(previousRows: previousRows, rows: rows, currentTerminalSessionID: store.currentTerminalSessionID)
 
@@ -730,6 +762,7 @@ private struct TrackerRepoSection: View {
                 onEditSession: onEditSession,
                 onToggleWorkersCollapsed: onToggleWorkersCollapsed
             )
+            .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(plates: [rendered.session.id: $0]) }
         }
     }
 }
@@ -1707,12 +1740,12 @@ private struct TrackerSkeletonPlaceholder: View {
                     plate(role: .worker)
                     plate(role: .worker)
                 }
-                Spacer(minLength: TrackerListMetrics.shellClearance)
+                Spacer(minLength: TrackerListMetrics.selectedPanelGap)
                 shellRow
             }
             // Where the real list will put its first plate and its shell section.
             .padding(.leading, TrackerListMetrics.sidePadding)
-            .padding(.top, TrackerListMetrics.selectedPanelGap)
+            .padding(.top, TrackerListMetrics.spacing)
             .padding(.bottom, TrackerListMetrics.verticalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }

@@ -48,6 +48,10 @@ enum RenderPreview {
         render(newSessionView(.classChosen), size: NewSessionSheetModel.sheetSize, to: "\(outputDir)/new-session-class-cleric.png")
         render(classPlatesView(), size: CGSize(width: 340, height: 360), to: "\(outputDir)/class-plates.png")
         render(classTrackerView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/class-tracker.png")
+        render(trackerAvatarView(state: "idle"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-idle.png")
+        render(trackerAvatarView(state: "working", tool: "Bash"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-channelling.png")
+        render(trackerAvatarView(state: "blocked"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-calling-out.png")
+        render(trackerAvatarView(state: "idle", sessionClass: "wizard"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-no-avatar.png")
         render(shellRowStatesView(), size: CGSize(width: 300, height: 500), to: "\(outputDir)/shell-rows.png")
         render(shellRowStatesView(gapless: true), size: CGSize(width: 300, height: 290), to: "\(outputDir)/shell-rows-stack.png")
         render(trackerWithShellsView(), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-shells.png")
@@ -188,6 +192,10 @@ enum RenderPreview {
         recordDockPanelAnimations(to: outputDir)
         recordSelectedSessionFade(to: outputDir)
         recordRefreshSpinner(to: outputDir)
+        recordTrackerAvatarMotion(to: outputDir)
+        recordTrackerAvatarRound2(to: outputDir)
+        recordTrackerAvatarAllPoses(to: outputDir)
+        renderTrackerAvatarStills(to: outputDir)
         // A long quest scrolled partway down, with the overflow cue at the page's bottom edge.
         let scrolledPage = QuestLogPageScroll()
         scrolledPage.previewOffset = 160
@@ -1592,6 +1600,35 @@ enum RenderPreview {
         .background(AppPalette.window.swiftUI)
     }
 
+    /// The tracker column with a master attached and shells pinned below: the avatar under the selected-session panel. `state`
+    /// and `tool` set the pose; a class other than bard leaves the slot empty.
+    @MainActor
+    private static func trackerAvatarView(state: String, tool: String? = nil, sessionClass: String = "bard") -> some View {
+        let attached = TrackerSession(
+            id: "bard", title: "Trace Events", repoName: "questmaster", displayColor: "orange", sessionClass: sessionClass,
+            agent: "claude", role: "master", state: state, snippet: "Following event dispatch...", elapsedSeedMS: 186_000,
+            cast: tool.map { TrackerCast(tool: $0, startedAt: Date(), typicalMS: 6000) }
+        )
+        let dotfiles = [
+            TrackerSession(id: "m1", title: "Audit aliases", repoName: "dotfiles", displayColor: "lime", sessionClass: "cleric", agent: "claude", role: "master", state: "working", snippet: "Checking aliases across...", elapsedSeedMS: 216_000),
+            TrackerSession(id: "m2", title: "Scan packages", repoName: "dotfiles", displayColor: "lime", sessionClass: "paladin", agent: "codex", role: "master", state: "working", snippet: "Resolving package depen...", elapsedSeedMS: 36_000),
+        ]
+        let shells = (1...3).map { TrackerSession(id: "s\($0)", title: "Shell", repoName: "scry", displayColor: "blue", agent: "shell", role: "shell", state: "idle", snippet: "") }
+        let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "bard")
+        store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [
+            TrackerRepo(id: "dotfiles", name: "dotfiles", color: "lime", sessions: dotfiles),
+            TrackerRepo(id: "questmaster", name: "questmaster", color: "orange", sessions: [attached]),
+            TrackerRepo(id: "scry", name: "scry", color: "indigo", sessions: shells),
+        ])))
+        return TrackerRootView(
+            store: store,
+            navigation: NavigationStore(state: AppNavigationState(focusedRegion: .terminal)),
+            newSessionPresenter: NewSessionSheetPresenter(),
+            destructiveConfirmationPresenter: DestructiveConfirmationPresenter()
+        )
+        .background(AppPalette.window.swiftUI)
+    }
+
     @MainActor
     private static func trackerPreviewStore() -> RuntimeStore {
         let store = RuntimeStore(sourceLabel: "preview", currentTerminalSessionID: "root-1")
@@ -2143,6 +2180,288 @@ enum RenderPreview {
         }
         window.orderOut(nil)
         print("RenderPreview: recorded \(index) frames to \(frames)")
+    }
+
+    /// The idle avatar's breath and blink, sampled frame by frame from its presentation layers into one GIF at real speed.
+    /// Only runs when RENDER_ONLY names `tracker-avatar-idle-motion`. The sample is longer than a breath cycle, and a blink
+    /// falls inside it, since the first one comes 3 to 6 s in.
+    @MainActor
+    private static func recordTrackerAvatarMotion(to dir: String) {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["RENDER_ONLY"]?.split(separator: ",").contains("tracker-avatar-idle-motion") == true else {
+            return
+        }
+        let scale = CGFloat(Int(environment["RENDER_SCALE"] ?? "") ?? 2)
+        warmUpFirstWindow()
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        let host = NSHostingView(rootView: TrackerAvatarSlot(pose: .idle).background(AppPalette.window.swiftUI))
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+        let window = HeadlessWindow(size: size, scale: scale)
+        window.contentView = container
+        window.show()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        let framesPerSecond = 30.0
+        let sampleSeconds = 8.0
+        let began = Date()
+        var frames: [CGImage] = []
+        var index = 0
+        while Date().timeIntervalSince(began) < sampleSeconds {
+            RunLoop.current.run(until: began.addingTimeInterval(Double(index) / framesPerSecond))
+            if let frame = captureLayers(of: container, scale: scale) {
+                frames.append(frame)
+            }
+            index += 1
+        }
+        RingPreview.writeGIF(frames, to: "\(dir)/tracker-avatar-idle-motion.gif")
+        window.orderOut(nil)
+        print("RenderPreview: recorded \(frames.count) avatar frames")
+    }
+
+    /// A bard master's session as the tracker payload decodes it, for the avatar's preview timelines.
+    private static func avatarPreviewSession(
+        id: String,
+        state: String = "working",
+        parentID: String = "",
+        sessionClass: String? = "bard",
+        tool: String? = nil,
+        exchange: (kind: String, at: String)? = nil,
+        elapsedSince: Date? = nil,
+        subagents: Int = 0
+    ) -> TrackerSession {
+        var fields: [String: Any] = [
+            "id": id, "title": id, "status": "active", "state": state, "agent": "claude",
+            "parent_id": parentID, "worker_count": 0, "elapsed_ms": 0,
+        ]
+        if let sessionClass {
+            fields["class"] = sessionClass
+        }
+        if let tool {
+            fields["cast"] = ["tool": tool, "started_at": "2026-10-28T09:00:00Z", "typical_ms": 0]
+        }
+        if let exchange {
+            fields["last_exchange"] = ["kind": exchange.kind, "at": exchange.at]
+        }
+        if let elapsedSince {
+            fields["elapsed_since"] = ISO8601DateFormatter().string(from: elapsedSince)
+        }
+        fields["active_subagents"] = subagents
+        let data = try! JSONSerialization.data(withJSONObject: fields)
+        return try! JSONDecoder().decode(TrackerSession.self, from: data)
+    }
+
+    /// The avatar's own slot, reading the pose from the stage the way the tracker does.
+    private struct TrackerAvatarSlotPreview: View {
+        let stage: TrackerAvatarStage
+
+        var body: some View {
+            TrackerAvatarSlot(pose: stage.pose, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(AppPalette.window.swiftUI)
+        }
+    }
+
+    /// The tracker column's avatar and spells: a master plate and two worker plates above the avatar's slot, with the same
+    /// spell overlay the tracker uses, all read from the stage.
+    private struct TrackerAvatarColumnPreview: View {
+        let stage: TrackerAvatarStage
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: TrackerListMetrics.spacing) {
+                placeholderPlate(id: "qm-m1", height: TrackerNameplateRole.master.canvasSize.height)
+                placeholderPlate(id: "qm-w1", height: TrackerNameplateRole.worker.canvasSize.height)
+                placeholderPlate(id: "qm-w2", height: TrackerNameplateRole.worker.canvasSize.height)
+                TrackerAvatarSlot(pose: stage.pose, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish)
+                    .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(avatar: $0) }
+            }
+            .frame(width: TrackerAvatarMetrics.slotWidth, alignment: .topLeading)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(AppPalette.window.swiftUI)
+            .overlayPreferenceValue(TrackerFlightAnchorKey.self) { anchors in
+                GeometryReader { proxy in
+                    TrackerSpellFlightLayer(
+                        plans: TrackerSpellRoute.plans(for: stage.launches, anchors: anchors, proxy: proxy, masterID: stage.attachedID),
+                        latestSerial: stage.latestSerial
+                    )
+                }
+                .allowsHitTesting(false)
+            }
+        }
+
+        private func placeholderPlate(id: String, height: CGFloat) -> some View {
+            Rectangle()
+                .fill(AppPalette.line.swiftUI)
+                .frame(width: TrackerAvatarMetrics.slotWidth, height: height)
+                .anchorPreference(key: TrackerFlightAnchorKey.self, value: .bounds) { TrackerFlightAnchors(plates: [id: $0]) }
+        }
+    }
+
+    /// How long the recorder lets the tracker draw the first pose before its first frame: a run-loop turn is enough.
+    private static let firstDrawSeconds: TimeInterval = 0.05
+
+    /// One avatar timeline, recorded at real speed from the stage: each step drives the stage at its offset from the start.
+    /// The column is recorded with its plates and spells, otherwise the slot alone. Only runs when RENDER_ONLY names it.
+    @MainActor
+    private static func recordTrackerAvatarTimeline(_ name: String, seconds: Double, column: Bool, steps: [(Double, (TrackerAvatarStage) -> Void)], to dir: String) {
+        guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains(Substring(name)) == true else {
+            return
+        }
+        let stage = TrackerAvatarStage()
+        // The capture is the container's own bounds, so the room under the slot keeps a circle that hangs below its feet.
+        let size = column
+            ? CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.previewColumnHeight + AvatarPreviewMetrics.overhangRoom)
+            : CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight + AvatarPreviewMetrics.overhangRoom)
+        let host = column
+            ? NSHostingView(rootView: TrackerAvatarColumnPreview(stage: stage))
+            : NSHostingView(rootView: TrackerAvatarSlotPreview(stage: stage))
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+        recordAnimation(name, root: container, size: size, crop: CGRect(origin: .zero, size: size), duration: seconds, capturesLayers: true, to: dir) {
+            // The first pose lands before the first frame, and a turn of the run loop lets the tracker draw it, so frame 0 shows
+            // the rig and not an empty slot. The later steps run on their timers.
+            for (offset, step) in steps where offset == 0 {
+                step(stage)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(firstDrawSeconds))
+            for (offset, step) in steps where offset > 0 {
+                Timer.scheduledTimer(withTimeInterval: offset, repeats: false) { _ in
+                    step(stage)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private static func recordTrackerAvatarRound2(to dir: String) {
+        let master = avatarPreviewSession(id: "qm-m1")
+        // A turn that has run for a minute and a half, so its end earns a bow.
+        let longTurn = avatarPreviewSession(id: "qm-m1", elapsedSince: Date().addingTimeInterval(-90))
+        let channelling = avatarPreviewSession(id: "qm-m1", tool: "Bash")
+        let studying = avatarPreviewSession(id: "qm-m1", tool: "Read")
+        let done = avatarPreviewSession(id: "qm-m1", state: "done")
+        let worker = avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil)
+        let newWorker = avatarPreviewSession(id: "qm-w2", parentID: "qm-m1", sessionClass: nil)
+        let instructed = avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", "2026-10-28T09:00:00Z"))
+        let reported = avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("report", "2026-10-28T09:00:00Z"))
+        func feed(_ sessions: [TrackerSession]) -> (TrackerAvatarStage) -> Void {
+            { $0.observe(sessions: sessions, attachedID: "qm-m1") }
+        }
+        recordTrackerAvatarTimeline("avatar-channelling-effects", seconds: 6, column: false, steps: [(0, feed([channelling]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-pose-switch", seconds: 2.5, column: false, steps: [(0, feed([studying])), (0.5, feed([channelling]))], to: dir)
+        // The cast loops for its hold, plays its finish once, then pondering snaps in.
+        recordTrackerAvatarTimeline("avatar-cast-finish", seconds: 4, column: false, steps: [(0, feed([channelling])), (2, feed([master]))], to: dir)
+        // A cast that finishes with the studying art: the loop, its two finish frames, then pondering snaps in.
+        recordTrackerAvatarTimeline("avatar-studying-finish", seconds: 4, column: false, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Read")])), (2, feed([master]))], to: dir)
+        // A cast that holds one finish frame: inscribing shows f4 for the whole finish, then pondering snaps in.
+        recordTrackerAvatarTimeline("avatar-inscribing-finish", seconds: 4, column: false, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Edit")])), (2, feed([master]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-bow-oneshot", seconds: 4.5, column: false, steps: [(0, feed([longTurn])), (0.5, feed([done]))], to: dir)
+        let strumming = avatarPreviewSession(id: "qm-m1", state: "done", subagents: 1)
+        recordTrackerAvatarTimeline("avatar-subagent-strum", seconds: 5, column: false, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", subagents: 1)])), (2, feed([strumming])), (4, feed([avatarPreviewSession(id: "qm-m1", state: "done")]))], to: dir)
+        let casting = avatarPreviewSession(id: "qm-m1", tool: "Task")
+        recordTrackerAvatarTimeline("avatar-spellsong-frames", seconds: 2, column: false, steps: [(0, feed([casting]))], to: dir)
+        // Two messages in a row, to two workers: the second release queues behind the first and must play its lead-in again.
+        let firstMessaged = "2026-10-28T09:00:00Z"
+        let secondMessaged = "2026-10-28T09:00:01Z"
+        let quietWorker = avatarPreviewSession(id: "qm-w2", parentID: "qm-m1", sessionClass: nil)
+        recordTrackerAvatarTimeline("avatar-double-release", seconds: 3.5, column: false, steps: [
+            (0, feed([master, worker, quietWorker])),
+            (0.5, feed([master, avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", firstMessaged)), quietWorker])),
+            (0.9, feed([master, avatarPreviewSession(id: "qm-w1", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", firstMessaged)),
+                        avatarPreviewSession(id: "qm-w2", parentID: "qm-m1", sessionClass: nil, exchange: ("instructions", secondMessaged))])),
+        ], to: dir)
+        recordTrackerAvatarTimeline("avatar-summon-flight", seconds: 4.5, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, worker, newWorker]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-message-flight", seconds: 3, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, instructed]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-report-flight", seconds: 3, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, reported]))], to: dir)
+    }
+
+    /// Every avatar pose in turn on one view, each held for `allPosesHoldSeconds`: loops cycle, one-shots play once and rest on
+    /// their follow-through, and Idle breathes. Only runs when RENDER_ONLY names `avatar-all-poses`.
+    @MainActor
+    private static func recordTrackerAvatarAllPoses(to dir: String) {
+        guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains("avatar-all-poses") == true else {
+            return
+        }
+        let poses: [TrackerAvatarPose] = [
+            .pondering, .studying, .inscribing, .channelling, .scrying, .spellsong, .callingOut,
+            .release, .summoning, .catching, .bow, .idle,
+        ]
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight + AvatarPreviewMetrics.overhangRoom)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        // The slot sits at the top of the container, so the room below it is captured with any overhang.
+        let avatar = TrackerAvatarView(frame: NSRect(x: 0, y: size.height - TrackerAvatarMetrics.slotHeight, width: size.width, height: TrackerAvatarMetrics.slotHeight))
+        container.addSubview(avatar)
+        recordAnimation("avatar-all-poses", root: container, size: size, crop: CGRect(origin: .zero, size: size), duration: Double(poses.count) * allPosesHoldSeconds, capturesLayers: true, to: dir) {
+            // The first pose lands before the first frame, as the timelines do, so frame 0 is the pose and not an empty slot.
+            avatar.configure(pose: poses[0], beat: 0, finish: nil, reduceMotion: false)
+            RunLoop.current.run(until: Date().addingTimeInterval(firstDrawSeconds))
+            for (index, pose) in poses.enumerated().dropFirst() {
+                Timer.scheduledTimer(withTimeInterval: Double(index) * allPosesHoldSeconds, repeats: false) { _ in
+                    avatar.configure(pose: pose, beat: 0, finish: nil, reduceMotion: false)
+                }
+            }
+        }
+    }
+
+    /// How long each pose is shown in the all-poses recording: long enough for a cast to play out and rest.
+    private static let allPosesHoldSeconds: TimeInterval = 2
+
+    /// Still renders for the avatar's art settings: the release pose with its spell origin marked, and idle with its eyelids
+    /// shown over the eyes.
+    @MainActor
+    private static func renderTrackerAvatarStills(to dir: String) {
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let slot = CGRect(origin: .zero, size: size)
+        let hand = TrackerAvatarSprites.handPoint(in: slot) ?? .zero
+        let marked = ZStack(alignment: .topLeading) {
+            TrackerAvatarSlot(pose: .release)
+            Rectangle()
+                .fill(Color.red)
+                .frame(width: AvatarPreviewMetrics.markerSide, height: AvatarPreviewMetrics.markerSide)
+                .offset(x: hand.x - AvatarPreviewMetrics.markerSide / 2, y: hand.y - AvatarPreviewMetrics.markerSide / 2)
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+        render(marked, size: size, to: "\(dir)/tracker-avatar-release-hand.png")
+
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        avatar.showEyelids(true)
+        renderView(avatar, size: size, to: "\(dir)/tracker-avatar-idle-eyelids.png")
+        let open = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        open.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        renderView(open, size: size, to: "\(dir)/tracker-avatar-idle-eyes-open.png")
+        renderSummonClearance(to: dir)
+    }
+
+    /// The summoning slot with the gap under it and a shell row's top edge in the gap's place: the rune circle hangs below the
+    /// feet, so it should stay in the gap, clear of the shell row (drawn as an outline so any overlap shows).
+    @MainActor
+    private static func renderSummonClearance(to dir: String) {
+        let slotSize = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let view = VStack(spacing: 0) {
+            TrackerAvatarSlot(pose: .summoning)
+                .frame(width: slotSize.width, height: slotSize.height)
+            Color.clear
+                .frame(height: TrackerListMetrics.verticalPadding)
+            Rectangle()
+                .stroke(Color.red, lineWidth: AvatarPreviewMetrics.outlineWidth)
+                .frame(height: AvatarPreviewMetrics.shellStandIn)
+        }
+        .frame(width: slotSize.width, height: slotSize.height + TrackerListMetrics.verticalPadding + AvatarPreviewMetrics.shellStandIn, alignment: .topLeading)
+        .background(AppPalette.window.swiftUI)
+        render(view, size: CGSize(width: slotSize.width, height: slotSize.height + TrackerListMetrics.verticalPadding + AvatarPreviewMetrics.shellStandIn), to: "\(dir)/tracker-avatar-summon-clearance.png")
+    }
+
+    private enum AvatarPreviewMetrics {
+        /// Room under the slot in the recordings: the rune circle hangs about 23 pt below the baseline.
+        static let overhangRoom: CGFloat = 30
+        static let markerSide: CGFloat = 4
+        static let shellStandIn: CGFloat = 43
+        static let outlineWidth: CGFloat = 1
     }
 
     @MainActor
