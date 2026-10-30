@@ -14,6 +14,7 @@ struct TrackerAvatarAnimationTests {
         aFinishChangesAtItsOwnSteps()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
+        aLidColourIsRequiredAndReadsAsHexRGB()
         print("TrackerAvatarAnimationTests: all tests passed")
     }
 
@@ -40,7 +41,10 @@ struct TrackerAvatarAnimationTests {
         guard let animation = try? decode(bardJSON()) else {
             fail("the bard's file should decode")
         }
-        expect(animation.idle == TrackerAvatarIdle(legRows: 37, eyeRow: 48, eyeColumns: 56...63), "idle should carry the bard's leg rows, eye row and eye columns")
+        expect(
+            animation.idle == TrackerAvatarIdle(legRows: 37, eyeRow: 48, eyeColumns: 56...63, lidColour: TrackerAvatarColour(rgb: 0xf5b47b)),
+            "idle should carry the bard's leg rows, eye row, eye columns and lid colour"
+        )
         expect(animation.releaseHand == TrackerAvatarPixel(x: 141, y: 64), "the release hand should be the bard's hand pixel")
         expect(animation.fidgets.map(\.name) == ["hat", "yawn"], "fidgets should come in name order")
         expect(animation.fidgets.first?.track.steps.map(\.frame) == [2, 3, 2], "the hat should play its three idle frames")
@@ -228,6 +232,28 @@ struct TrackerAvatarAnimationTests {
             json["idle"] = idle
             _ = try decode(json)
         }
+    }
+
+    /// The bard's file with its idle block edited.
+    private static func bardWithIdle(_ edit: (inout [String: Any]) -> Void) throws -> TrackerAvatarAnimation {
+        var json = bardJSON()
+        var idle = json["idle"] as? [String: Any] ?? [:]
+        edit(&idle)
+        json["idle"] = idle
+        return try decode(json)
+    }
+
+    /// The lids' colour is required, and reads only as `#rrggbb`.
+    private static func aLidColourIsRequiredAndReadsAsHexRGB() {
+        expect(TrackerAvatarColour(hex: "#f5b47b")?.rgb == 0xf5b47b, "a #rrggbb colour should read as its RGB value")
+        expect(TrackerAvatarColour(hex: "#F5B47B")?.rgb == 0xf5b47b, "upper-case hex digits should read too")
+        for text in ["f5b47b", "#f5b47", "#f5b47bff", "#f5b4zb", "#+5b47b", "#", ""] {
+            expect(TrackerAvatarColour(hex: text) == nil, "\"\(text)\" should not read as a colour")
+        }
+        expectThrows(TrackerAvatarAnimationError.invalidLidColour, "a lid colour without its # sign") {
+            _ = try bardWithIdle { $0["lid_colour"] = "f5b47b" }
+        }
+        expect((try? bardWithIdle { $0["lid_colour"] = nil }) == nil, "a file with no lid colour should not read")
     }
 
     private static func aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt() {

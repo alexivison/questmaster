@@ -114,6 +114,25 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
     }
 }
 
+/// An sRGB colour, read from `#rrggbb`.
+public struct TrackerAvatarColour: Equatable, Sendable {
+    /// The colour as `0xRRGGBB`.
+    public let rgb: UInt32
+
+    public init(rgb: UInt32) {
+        self.rgb = rgb
+    }
+
+    /// Reads `#rrggbb`: a `#` and six hex digits. Nil for any other text.
+    public init?(hex: String) {
+        let digits = hex.dropFirst()
+        guard hex.first == "#", digits.count == 6, digits.allSatisfy(\.isHexDigit), let rgb = UInt32(digits, radix: 16) else {
+            return nil
+        }
+        self.init(rgb: rgb)
+    }
+}
+
 /// Idle draws as layers: the legs and cloak hold still while the figure above them breathes, and the eyelids cover the eyes.
 public struct TrackerAvatarIdle: Equatable, Sendable {
     /// The bottom rows, which stay still while the figure above breathes.
@@ -122,11 +141,14 @@ public struct TrackerAvatarIdle: Equatable, Sendable {
     public let eyeRow: Int
     /// The columns the lids cover, the first and the last included.
     public let eyeColumns: ClosedRange<Int>
+    /// The colour the lids draw in: the figure's own skin, so a blink reads as closed eyes.
+    public let lidColour: TrackerAvatarColour
 
-    public init(legRows: Int, eyeRow: Int, eyeColumns: ClosedRange<Int>) {
+    public init(legRows: Int, eyeRow: Int, eyeColumns: ClosedRange<Int>, lidColour: TrackerAvatarColour) {
         self.legRows = legRows
         self.eyeRow = eyeRow
         self.eyeColumns = eyeColumns
+        self.lidColour = lidColour
     }
 }
 
@@ -176,6 +198,8 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case invalidTrack(String)
     /// The eye columns are two numbers, the first and the last included.
     case invalidEyeColumns
+    /// The lid colour is `#rrggbb`.
+    case invalidLidColour
 }
 
 /// A class's avatar art and timings, read from its `animation.json` (`Resources/Sprites/<class>/`). The file names every pose, and
@@ -232,7 +256,10 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         guard let first = file.eyeColumns.first, file.eyeColumns.count == 2, let last = file.eyeColumns.last, first <= last else {
             throw TrackerAvatarAnimationError.invalidEyeColumns
         }
-        return TrackerAvatarIdle(legRows: file.legRows, eyeRow: file.eyeRow, eyeColumns: first...last)
+        guard let lidColour = TrackerAvatarColour(hex: file.lidColour) else {
+            throw TrackerAvatarAnimationError.invalidLidColour
+        }
+        return TrackerAvatarIdle(legRows: file.legRows, eyeRow: file.eyeRow, eyeColumns: first...last, lidColour: lidColour)
     }
 
     private static func poseAnimation(_ pose: File.Pose, named name: String, kind: TrackerAvatarPose) throws -> TrackerAvatarPoseAnimation {
@@ -294,11 +321,13 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let legRows: Int
             let eyeRow: Int
             let eyeColumns: [Int]
+            let lidColour: String
 
             enum CodingKeys: String, CodingKey {
                 case legRows = "leg_rows"
                 case eyeRow = "eye_row"
                 case eyeColumns = "eye_columns"
+                case lidColour = "lid_colour"
             }
         }
 
