@@ -5,6 +5,8 @@ struct TrackerAvatarAnimationTests {
     static func run() {
         decodesTheBardsFile()
         decodesTheWizardsFile()
+        decodesThePaladinsFile()
+        thePaladinsBlocksPlayAtTheirTimes()
         aCatchHoldsItsClosedHandPastTheRecoil()
         aLoopCyclesEachTrackOnItsOwnClock()
         aSummoningEntersLoopsAndFinishes()
@@ -336,6 +338,38 @@ struct TrackerAvatarAnimationTests {
         let pondering = animation.animation(for: .pondering)
         expect(pondering?.footRow == 158 && pondering?.bodyColumn == 33, "pondering should stand at the wizard's foot row and body column")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the wizard's summoning should have a ground effect")
+    }
+
+    private static func decodesThePaladinsFile() {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("paladin")) else {
+            fail("the paladin's file should decode")
+        }
+        expect(
+            animation.idle == TrackerAvatarIdle(legRows: 60, eyeRow: 15, eyeColumns: 41...42, lidColour: TrackerAvatarColour(rgb: 0xf6b83f)),
+            "idle should carry the paladin's leg rows, eye row, eye columns and lid colour"
+        )
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 96, y: 52), "the release hand should be the paladin's hand pixel")
+        expect(animation.fidgets.map(\.name) == ["watch"], "the paladin should have the watch fidget")
+        let pondering = animation.animation(for: .pondering)
+        expect(pondering?.footRow == 171 && pondering?.bodyColumn == 52, "pondering should stand at the paladin's foot row and body column")
+        expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the paladin's summoning should have a ground effect")
+        expect(animation.animation(for: .channelling)?.finish != nil, "the paladin's channelling should finish")
+    }
+
+    /// The paladin's frames at given times, read from his file: the summoning's ground circle opens below the figure, and the
+    /// channelling's finish lifts the hammer.
+    private static func thePaladinsBlocksPlayAtTheirTimes() {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("paladin")),
+              let summoning = animation.animation(for: .summoning), let enter = summoning.enter, let loop = summoning.loop,
+              let finish = summoning.finish, let channellingFinish = animation.animation(for: .channelling)?.finish else {
+            fail("the paladin's summoning and channelling should have their blocks")
+        }
+        expect(enter.character.frame(at: 0.3, looping: false) == 1, "a summoning should hold the paladin's f1 through its enter")
+        expect(enter.behind?.frame(at: 0.3, looping: false) == 15, "the ground circle should reach frame 15 at 0.3 s of its enter")
+        expect(loop.character.frame(at: 0.9, looping: true) == 2, "the summoning's loop should show f2 from 0.6 s")
+        expect(finish.behind?.frame(at: 0.2, looping: false) == 10, "the ground circle's finish should reach frame 10 at 0.2 s")
+        expect(channellingFinish.character.frame(at: 0.3, looping: false) == 3, "the channelling's finish should lift the hammer on f3 at 0.2 s")
+        expect(channellingFinish.character.frame(at: 9, looping: false) == 4, "the channelling's finish should hold f4 at its end")
     }
 
     private static func aCatalogShowsEachClassWithArtAndNoOthers() {

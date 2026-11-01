@@ -48,6 +48,7 @@ enum LogicSelfTests {
         ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
+        ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -1278,6 +1279,31 @@ enum LogicSelfTests {
         try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the wizard's art")
         try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
                    "the wizard should have the art of all three spells")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the wizard's file plays should have its art, missing: \(missing)")
+    }
+
+    @MainActor
+    private static func testBundledPaladinSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["paladin"] else {
+            throw TestFailure("the paladin's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle.legRows == 60, "the paladin's idle should split at his leg rows")
+        try expect(sprites.animation.fidgets.map(\.name) == ["watch"], "the paladin should have the watch fidget")
+        try expect(sprites.availableFidgets.count == 1, "the paladin's fidget should have its art")
+        try expect(sprites.idleArt() != nil, "the paladin's idle layers should split from his art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the paladin's art")
+        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
+                   "the paladin should have the art of all three spells")
+        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
+                   "the paladin's release should have a hand")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the paladin's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The frames a class's file plays that have no art, as `pose layer fN` names.
+    @MainActor
+    private static func missingFrames(of sprites: TrackerAvatarSprites) -> [String] {
         var missing: [String] = []
         for pose in TrackerAvatarPose.allCases {
             guard let poseAnimation = sprites.animation.animation(for: pose) else {
@@ -1291,7 +1317,7 @@ enum LogicSelfTests {
                 }
             }
         }
-        try expect(missing.isEmpty, "every frame the wizard's file plays should have its art, missing: \(missing)")
+        return missing
     }
 
     /// The bard's sprites, read from the app bundle.
