@@ -91,14 +91,14 @@ final class TrackerAvatarSprites {
     /// The idle figure's height: from idle's foot row to idle f1's top opaque row. Nil while idle's first frame has no art.
     private func measureIdleFigure() -> Int? {
         guard let body = idleFrame(1), let footRow = animation.animation(for: .idle)?.footRow,
-              let topRow = Self.topOpaqueRow(of: body) else {
+              let topRow = Self.opaqueRows(of: body)?.lowerBound else {
             return nil
         }
         return TrackerTagLayout.figureHeight(topRow: topRow, footRow: footRow)
     }
 
-    /// The first row, counted from the top, with a pixel that isn't clear. Nil when the image is clear throughout.
-    private static func topOpaqueRow(of image: CGImage) -> Int? {
+    /// The first and last rows, counted from the top, that hold a pixel which isn't clear. Nil when the image is clear throughout.
+    static func opaqueRows(of image: CGImage) -> ClosedRange<Int>? {
         let width = image.width
         let height = image.height
         let bytesPerRow = width * bytesPerPixel
@@ -116,9 +116,13 @@ final class TrackerAvatarSprites {
         guard drawn else {
             return nil
         }
-        return (0..<height).first { row in
+        let rows = (0..<height).filter { row in
             (0..<width).contains { column in pixels[row * bytesPerRow + column * bytesPerPixel + alphaByte] > 0 }
         }
+        guard let first = rows.first, let last = rows.last else {
+            return nil
+        }
+        return first...last
     }
 
     /// Premultiplied RGBA pixels, four bytes each, with alpha last.

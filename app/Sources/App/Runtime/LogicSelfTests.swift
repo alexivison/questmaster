@@ -77,6 +77,7 @@ enum LogicSelfTests {
         ("testShellRowsKeepTheMocksGeometry", testShellRowsKeepTheMocksGeometry),
         ("testTheShellsScrollWithThePlatesInOneList", testTheShellsScrollWithThePlatesInOneList),
         ("testTheTagStandsAtTheTrackersBottom", testTheTagStandsAtTheTrackersBottom),
+        ("testEachBundledClassSitsOnTheBottomMargin", testEachBundledClassSitsOnTheBottomMargin),
         ("testFilterFieldFocusFollowsTheFirstResponder", testFilterFieldFocusFollowsTheFirstResponder),
         ("testQuestLogFilterReturnAndEscHandBackToTheList", testQuestLogFilterReturnAndEscHandBackToTheList),
         ("testDockKeepsItsStateAcrossSessionSwitches", testDockKeepsItsStateAcrossSessionSwitches),
@@ -3524,11 +3525,11 @@ enum LogicSelfTests {
         let window: HeadlessWindow
         let size: CGSize
 
-        init(masters: Int, shells: Int, viewed: String, height: Int) throws {
-            func session(_ id: String, role: String) -> TrackerSession {
-                TrackerSession(id: id, title: id, repoName: "Repo", agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
+        init(masters: Int, shells: Int, viewed: String, height: Int, sessionClass: String = "") throws {
+            func session(_ id: String, role: String, sessionClass: String = "") -> TrackerSession {
+                TrackerSession(id: id, title: id, repoName: "Repo", sessionClass: sessionClass, agent: role == "shell" ? "shell" : "codex", role: role, state: "idle")
             }
-            let plates = (0..<masters).map { session("master-\($0)", role: "master") }
+            let plates = (0..<masters).map { session("master-\($0)", role: "master", sessionClass: sessionClass) }
             let shellRows = (0..<shells).map { session("shell-\($0)", role: "shell") }
             store = RuntimeStore(sourceLabel: "test", currentTerminalSessionID: viewed, expandedMasterIDs: [])
             store.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", color: "indigo", sessions: plates + shellRows)])))
@@ -3600,6 +3601,13 @@ enum LogicSelfTests {
             let clearTop = panelTop - Int(TrackerListMetrics.selectedTagGap)
             return [60, 120, 200].allSatisfy { x in (clearTop..<panelTop).allSatisfy { isColor(x, $0, AppPalette.window) } }
         }
+
+        /// The lowest row with a pixel off the window's colour in one of `columns`. Nil when the columns are clear.
+        func lowestInkRow(columns: Range<Int>) -> Int? {
+            (0..<height).reversed().first { row in
+                columns.contains { column in !isColor(column, row, AppPalette.window) }
+            }
+        }
     }
 
     /// Where the tag's top edge sits in a column `height` tall with no class attached: the bottom margin, the tallest figure, the gap
@@ -3640,6 +3648,36 @@ enum LogicSelfTests {
         try expect(probe.isColor(column, rimRow, AppPalette.line), "the frame's rim should sit at row \(rimRow) in the column's centre")
         try expect(probe.isColor(bandPadding, bandRow, AppPalette.item), "the title band should sit at row \(bandRow), left of its title")
         try expect(probe.clearBand(above: Int(top)), "the tag should have clear space above it, under the list")
+    }
+
+    /// Each bundled class's figure stands on the column's bottom margin: its sole sits `verticalPadding` above the column's bottom edge.
+    /// The sole is the bottom edge of the feet's row. The art can hang below its feet (the bard's does, by two rows), so the lowest ink
+    /// is the sole only for a class whose art stops at its feet; the reach below the feet is read from the art, and the rest is layout.
+    @MainActor
+    private static func testEachBundledClassSitsOnTheBottomMargin() throws {
+        let height = 960
+        let columns = Int(TrackerListMetrics.sidePadding)..<Int(TrackerListMetrics.sidePadding + TrackerAvatarMetrics.slotWidth)
+        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
+            let fixture = try TrackerFixture(masters: 1, shells: 0, viewed: "master-0", height: height, sessionClass: classID)
+            defer { fixture.close() }
+            guard let idle = sprites.idleFrame(1), let footRow = sprites.animation.animation(for: .idle)?.footRow,
+                  let artRows = TrackerAvatarSprites.opaqueRows(of: idle) else {
+                throw TestFailure("the \(classID)'s idle art should load")
+            }
+            var lowest: Int?
+            try expect(waitUntil {
+                lowest = (try? fixture.probe())?.lowestInkRow(columns: columns)
+                return lowest != nil
+            }, "the \(classID)'s figure should draw in its column")
+            guard let lowest else {
+                throw TestFailure("the \(classID)'s figure should have a lowest row")
+            }
+            let reach = artRows.upperBound - footRow
+            let sole = lowest - reach + 1
+            let distance = CGFloat(height - sole)
+            try expect(distance == TrackerListMetrics.verticalPadding,
+                       "the \(classID)'s sole should sit \(TrackerListMetrics.verticalPadding) pt above the column's bottom edge, got \(distance)")
+        }
     }
 
     /// The spacing the source scan can't see (AGENTS.md, "Spacing"), measured on 1x renders: stacked paddings and row
