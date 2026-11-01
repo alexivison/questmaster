@@ -387,8 +387,9 @@ struct TrackerRootView: View {
         // Nothing below the list moves when the attached class changes.
         return VStack(alignment: .leading, spacing: 0) {
             list
+            // Top-aligned: the block's content is shorter than its frame, and a centred frame would drop the slot and the tag by half the slack.
             avatarBlock(tagContent: tagContent)
-                .frame(height: TrackerAvatarMetrics.avatarBlockHeight)
+                .frame(height: TrackerAvatarMetrics.avatarBlockHeight, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
