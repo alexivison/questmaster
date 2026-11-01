@@ -49,6 +49,7 @@ enum LogicSelfTests {
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
+        ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
         ("testStartupTmuxSessionChoice", testStartupTmuxSessionChoice),
@@ -1299,6 +1300,20 @@ enum LogicSelfTests {
                    "the paladin's release should have a hand")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the paladin's file plays should have its art, missing: \(missing)")
+    }
+
+    /// Each bundled class's idle figure is measured from its own art, against its foot line, and the slot reserves the tallest one
+    /// rounded up to the 5 pt step. The tag's place follows these numbers.
+    @MainActor
+    private static func testTheBundledIdleFiguresSetTheSlot() throws {
+        let sprites = TrackerAvatarSprites.bundled()
+        for (classID, figure) in [("bard", 159), ("paladin", 171), ("wizard", 150)] {
+            try expect(sprites[classID]?.idleFigureHeight == figure,
+                       "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
+        }
+        let tallest = sprites.values.compactMap(\.idleFigureHeight).max() ?? 0
+        try expect(TrackerAvatarMetrics.tallestFigureHeight == tallest, "the tallest figure should be \(tallest) px, got \(TrackerAvatarMetrics.tallestFigureHeight)")
+        try expect(TrackerAvatarMetrics.slotHeight == 175, "the slot should reserve the tallest figure rounded up to 5, got \(TrackerAvatarMetrics.slotHeight)")
     }
 
     /// The frames a class's file plays that have no art, as `pose layer fN` names.
@@ -3587,9 +3602,10 @@ enum LogicSelfTests {
         }
     }
 
-    /// Where the tag's top edge sits in a column `height` tall: the avatar slot, its gap and the bottom margin stand under it.
+    /// Where the tag's top edge sits in a column `height` tall with no class attached: the bottom margin, the tallest figure, the gap
+    /// above it and the tag stand under it.
     private static func tagTopEdge(height: Int) -> CGFloat {
-        CGFloat(height) - TrackerListMetrics.verticalPadding - TrackerAvatarMetrics.slotHeight - TrackerListMetrics.avatarGap
+        CGFloat(height) - TrackerListMetrics.verticalPadding - CGFloat(TrackerAvatarMetrics.tallestFigureHeight) - TrackerListMetrics.avatarGap
             - SelectedSessionTagMetrics.height
     }
 

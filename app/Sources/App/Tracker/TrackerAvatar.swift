@@ -4,12 +4,21 @@ import QuestmasterCore
 import SwiftUI
 
 enum TrackerAvatarMetrics {
-    /// The slot the avatar stands in: the master plate's width, which the selected-session tag is centred in, and the height
-    /// of the tallest sprite (160 px at one point a pixel).
+    /// The slot the avatar stands in: the master plate's width, which the selected-session tag is centred in.
     static let slotWidth = TrackerPlateDesign.topLevelSize.width
-    static let slotHeight: CGFloat = 160
+    /// The tallest bundled class's idle figure, in sprite pixels above its sole. The list's bottom edge follows it, so no class moves it.
+    @MainActor static let tallestFigureHeight = TrackerAvatarSprites.bundled().values.compactMap(\.idleFigureHeight).max() ?? 0
+    /// The slot's reserved height: the tallest figure rounded up to the 5 pt step, one point a sprite pixel. It is the same for every
+    /// class, so the slot never changes size when the attached class does.
+    @MainActor static let slotHeight = CGFloat(TrackerTagLayout.reservedHeight(tallestFigure: tallestFigureHeight, step: Int(Space.row)))
+    /// From the list's bottom edge to the column's bottom edge: the list gap, the tag, its gap above the tallest figure, the figure's
+    /// height above the sole, and the bottom margin under the sole.
+    @MainActor static var avatarBlockHeight: CGFloat {
+        TrackerListMetrics.selectedTagGap + SelectedSessionTagMetrics.height + TrackerListMetrics.avatarGap + CGFloat(tallestFigureHeight)
+            + TrackerListMetrics.verticalPadding
+    }
     /// The render previews' column: a master plate, two worker plates and the slot, in the tracker's spacing.
-    static var previewColumnHeight: CGFloat {
+    @MainActor static var previewColumnHeight: CGFloat {
         TrackerNameplateRole.master.canvasSize.height + 2 * TrackerNameplateRole.worker.canvasSize.height
             + 3 * TrackerListMetrics.spacing + slotHeight
     }
@@ -53,6 +62,9 @@ final class TrackerAvatarArt {
 final class TrackerAvatarSprites {
     let classID: String
     let animation: TrackerAvatarAnimation
+    /// The idle figure's height in sprite pixels above its sole, read once when the class loads, so the tag can follow it. Nil while
+    /// idle's first frame has no art.
+    private(set) var idleFigureHeight: Int?
     private let folder: URL
     private var images: [String: CGImage] = [:]
 
@@ -73,7 +85,45 @@ final class TrackerAvatarSprites {
             return nil
         }
         self.init(classID: classID, animation: animation, folder: folder)
+        idleFigureHeight = measureIdleFigure()
     }
+
+    /// The idle figure's height: from idle's foot row to idle f1's top opaque row. Nil while idle's first frame has no art.
+    private func measureIdleFigure() -> Int? {
+        guard let body = idleFrame(1), let footRow = animation.animation(for: .idle)?.footRow,
+              let topRow = Self.topOpaqueRow(of: body) else {
+            return nil
+        }
+        return TrackerTagLayout.figureHeight(topRow: topRow, footRow: footRow)
+    }
+
+    /// The first row, counted from the top, with a pixel that isn't clear. Nil when the image is clear throughout.
+    private static func topOpaqueRow(of image: CGImage) -> Int? {
+        let width = image.width
+        let height = image.height
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let drawn = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else {
+            return nil
+        }
+        return (0..<height).first { row in
+            (0..<width).contains { column in pixels[row * bytesPerRow + column * bytesPerPixel + alphaByte] > 0 }
+        }
+    }
+
+    /// Premultiplied RGBA pixels, four bytes each, with alpha last.
+    private static let bytesPerPixel = 4
+    private static let alphaByte = 3
 
     /// The sprites of every session class with a readable `animation.json` in the app bundle.
     static func bundled() -> [String: TrackerAvatarSprites] {

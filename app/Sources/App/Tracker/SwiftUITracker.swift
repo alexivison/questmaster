@@ -383,14 +383,21 @@ struct TrackerRootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The list takes the height left above the tag, `selectedTagGap` clear of it. The avatar slot keeps its height with no
-        // avatar, so nothing below the list moves when one appears.
+        // The list takes the height left above the avatar block, so the block's fixed height alone decides where the list stops.
+        // Nothing below the list moves when the attached class changes.
         return VStack(alignment: .leading, spacing: 0) {
             list
-            SelectedSessionTag(content: tagContent, onCopyID: copySessionID)
-                .frame(width: TrackerAvatarMetrics.slotWidth)
-                .padding(.leading, TrackerListMetrics.sidePadding)
-                .padding(.top, TrackerListMetrics.selectedTagGap)
+            avatarBlock(tagContent: tagContent)
+                .frame(height: TrackerAvatarMetrics.avatarBlockHeight)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// The avatar slot and the selected-session tag over it, in one block. The slot keeps its reserved height and stands on the
+    /// block's bottom margin. The tag's top follows the attached class's idle figure (`TrackerTagLayout`), and it draws in front of
+    /// the avatar, since a pose taller than idle may reach the tag's gap.
+    private func avatarBlock(tagContent: SelectedSessionTagContent) -> some View {
+        ZStack(alignment: .topLeading) {
             TrackerAvatarSlot(
                 pose: avatarStage.pose,
                 sprites: avatarStage.sprites,
@@ -400,11 +407,26 @@ struct TrackerRootView: View {
                 enter: avatarStage.enter,
                 handle: avatarStage.avatar
             )
-                .padding(.leading, TrackerListMetrics.sidePadding)
-                .padding(.top, TrackerListMetrics.avatarGap)
-                .padding(.bottom, TrackerListMetrics.verticalPadding)
+                .padding(.top, slotOffset)
+            SelectedSessionTag(content: tagContent, onCopyID: copySessionID)
+                .frame(width: TrackerAvatarMetrics.slotWidth)
+                .padding(.top, tagOffset)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.leading, TrackerListMetrics.sidePadding)
+    }
+
+    /// How far the slot's top sits below the block's top: its reserved height stands on the bottom margin.
+    private var slotOffset: CGFloat {
+        TrackerAvatarMetrics.avatarBlockHeight - TrackerListMetrics.verticalPadding - TrackerAvatarMetrics.slotHeight
+    }
+
+    /// How far the tag's top sits below the list: the attached class's figure, or the tallest's with no class.
+    private var tagOffset: CGFloat {
+        CGFloat(TrackerTagLayout.offsetBelowList(
+            figureHeight: avatarStage.sprites?.idleFigureHeight,
+            tallestFigure: TrackerAvatarMetrics.tallestFigureHeight,
+            listGap: Int(TrackerListMetrics.selectedTagGap)
+        ))
     }
 
     private func copySessionID(_ sessionID: String) {
