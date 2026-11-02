@@ -100,6 +100,8 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
     public let enter: TrackerAvatarBlock?
     public let finish: TrackerAvatarBlock?
     public let once: TrackerAvatarBlock?
+    /// Where the shared bubble's bottom centre sits, on the pose's canvas. Only calling out has one; nil draws no bubble.
+    public let bubble: TrackerAvatarPixel?
 
     public init(
         footRow: Int,
@@ -107,7 +109,8 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         loop: TrackerAvatarBlock? = nil,
         enter: TrackerAvatarBlock? = nil,
         finish: TrackerAvatarBlock? = nil,
-        once: TrackerAvatarBlock? = nil
+        once: TrackerAvatarBlock? = nil,
+        bubble: TrackerAvatarPixel? = nil
     ) {
         self.footRow = footRow
         self.bodyColumn = bodyColumn
@@ -115,6 +118,7 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         self.enter = enter
         self.finish = finish
         self.once = once
+        self.bubble = bubble
     }
 }
 
@@ -197,6 +201,8 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case missingPose(String)
     /// A pose's blocks don't match how it plays: a finish on a pose that isn't a cast, or an enter on a pose without a loop.
     case misplacedBlock(String)
+    /// A pose has a bubble anchor but isn't calling out, the only pose that draws the shared bubble.
+    case misplacedBubble(String)
     case unknownLayer(String)
     /// A track with no steps, a step that isn't a frame shown for a positive time, or a block with no character track.
     case invalidTrack(String)
@@ -280,13 +286,17 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         guard fitsItsKind, finish == nil || kind.isCast, enter == nil || kind.playKind == .loop else {
             throw TrackerAvatarAnimationError.misplacedBlock(name)
         }
+        guard pose.bubble == nil || kind == .callingOut else {
+            throw TrackerAvatarAnimationError.misplacedBubble(name)
+        }
         return TrackerAvatarPoseAnimation(
             footRow: pose.footRow,
             bodyColumn: pose.bodyColumn,
             loop: loop,
             enter: enter,
             finish: finish,
-            once: once
+            once: once,
+            bubble: pose.bubble.map { TrackerAvatarPixel(x: $0.x, y: $0.y) }
         )
     }
 
@@ -349,11 +359,12 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let enter: [String: [TrackerAvatarStep]]?
             let finish: [String: [TrackerAvatarStep]]?
             let once: [String: [TrackerAvatarStep]]?
+            let bubble: Pixel?
 
             enum CodingKeys: String, CodingKey {
                 case footRow = "foot_row"
                 case bodyColumn = "body_column"
-                case loop, enter, finish, once
+                case loop, enter, finish, once, bubble
             }
         }
     }

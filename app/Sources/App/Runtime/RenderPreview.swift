@@ -56,6 +56,9 @@ enum RenderPreview {
         render(trackerAvatarView(state: "idle", sessionClass: "wizard"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-wizard.png")
         render(trackerAvatarView(state: "idle", sessionClass: "paladin"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-paladin.png")
         render(trackerAvatarView(state: "idle", sessionClass: "cleric"), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-cleric.png")
+        for sessionClass in ["bard", "paladin", "wizard", "cleric"] {
+            render(trackerAvatarView(state: "blocked", sessionClass: sessionClass), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-avatar-calling-out-\(sessionClass).png")
+        }
         render(trackerAvatarView(state: "idle", sessionClass: ""), size: CGSize(width: 340, height: 960), to: "\(outputDir)/tracker-tag-none.png")
         render(shellRowStatesView(), size: CGSize(width: 300, height: 500), to: "\(outputDir)/shell-rows.png")
         render(shellRowStatesView(gapless: true), size: CGSize(width: 300, height: 290), to: "\(outputDir)/shell-rows-stack.png")

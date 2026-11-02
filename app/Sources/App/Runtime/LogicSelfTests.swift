@@ -50,6 +50,7 @@ enum LogicSelfTests {
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
         ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
+        ("testTheBubbleStaysInTheSlotAndUnderTheTag", testTheBubbleStaysInTheSlotAndUnderTheTag),
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
@@ -1045,8 +1046,8 @@ enum LogicSelfTests {
             throw TestFailure("the synthetic class's summoning and calling out should both draw")
         }
         summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
-        try expect(summoning.root.sublayers?.first === summoning.behind && summoning.root.sublayers?.last === summoning.figure,
-                   "the ground circle should draw under the figure, on the root")
+        try expect(summoning.root.sublayers?.first === summoning.behind && summoning.root.sublayers?.dropFirst().first === summoning.figure,
+                   "the ground circle should draw under the figure, on the root, with the bubble above both")
         try expect(summoning.figure.sublayers?.first === summoning.character, "the bard should be the figure's first layer")
         summoning.startMotion()
         try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the summoning should not move: its feet stay on the baseline")
@@ -1246,7 +1247,8 @@ enum LogicSelfTests {
     @MainActor
     private static func shownCharacter(of avatar: TrackerAvatarView) -> CALayer? {
         let root = (avatar.layer?.sublayers ?? []).first { !$0.isHidden }
-        return root?.sublayers?.last?.sublayers?.first
+        // The root holds the behind effect, then the figure, then the bubble.
+        return root?.sublayers?.dropFirst().first?.sublayers?.first
     }
 
     /// Whether a layer's contents, or a keyframe's value, is `image` itself.
@@ -1320,6 +1322,55 @@ enum LogicSelfTests {
                    "the cleric's release should have a hand")
         let missing = missingFrames(of: sprites)
         try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
+    }
+
+    /// The shared bubble, drawn as the calling-out rig places it, sits inside the slot and under the tag. Every bundled class with an
+    /// anchor is checked, and a fixture with one covers the path until a class ships one.
+    @MainActor
+    private static func testTheBubbleStaysInTheSlotAndUnderTheTag() throws {
+        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key })
+        where sprites.animation.animation(for: .callingOut)?.bubble != nil {
+            try expectBubbleClear(of: sprites, named: classID)
+        }
+        try expectBubbleClear(of: try bubbleFixture(), named: "the bubble fixture")
+    }
+
+    /// The cleric's sprites with a bubble anchor beside his head on the right, read the way a class's file would carry one.
+    @MainActor
+    private static func bubbleFixture() throws -> TrackerAvatarSprites {
+        guard let folder = AppSymbolStyle.resourceBundle().resourceURL?.appendingPathComponent("Sprites/cleric", isDirectory: true),
+              let data = try? Data(contentsOf: folder.appendingPathComponent("animation.json")),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var poses = json["poses"] as? [String: Any],
+              var calling = poses["11-calling-out"] as? [String: Any] else {
+            throw TestFailure("the cleric's calling-out pose should read as JSON")
+        }
+        calling["bubble"] = ["x": 52, "y": 24]
+        poses["11-calling-out"] = calling
+        json["poses"] = poses
+        let animation = try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: json))
+        return TrackerAvatarSprites(classID: "cleric", animation: animation, folder: folder)
+    }
+
+    /// Checks the bubble the calling-out rig places for `sprites`, as the slot sees it (top left origin): it lies inside the slot, and its
+    /// top sits under the tag's bottom edge, which is `avatarGap` over the class's idle figure.
+    @MainActor
+    private static func expectBubbleClear(of sprites: TrackerAvatarSprites, named name: String) throws {
+        guard let placement = sprites.animation.animation(for: .callingOut), let figure = sprites.idleFigureHeight,
+              sprites.bubble != nil, let rig = TrackerAvatarFrameRig(pose: .callingOut, placement: placement, sprites: sprites) else {
+            throw TestFailure("\(name) should draw its calling out with the shared bubble")
+        }
+        let slot = CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        rig.place(in: slot)
+        try expect(rig.root.sublayers?.last === rig.bubble, "\(name)'s bubble should draw over the figure and its effects")
+        // Layers measure from the bottom left: the bubble is in the root's space, and the root in the slot's.
+        let bubble = rig.bubble.frame.offsetBy(dx: rig.root.frame.minX, dy: rig.root.frame.minY)
+        let top = slot.height - bubble.maxY
+        let tagBottom = slot.height - CGFloat(figure) - TrackerListMetrics.avatarGap
+        try expect(bubble.width > 0 && bubble.height > 0, "\(name)'s bubble should have a frame")
+        try expect(bubble.minX >= slot.minX && bubble.maxX <= slot.maxX && top >= slot.minY && slot.height - bubble.minY <= slot.maxY,
+                   "\(name)'s bubble should sit inside the slot, got \(bubble)")
+        try expect(top >= tagBottom, "\(name)'s bubble should sit under the tag's bottom at \(tagBottom), got its top at \(top)")
     }
 
     /// Each bundled class's idle figure is measured from its own art, against its foot line, and the slot reserves the tallest one

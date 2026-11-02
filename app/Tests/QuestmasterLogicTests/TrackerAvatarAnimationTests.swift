@@ -14,6 +14,7 @@ struct TrackerAvatarAnimationTests {
         aSummoningEntersLoopsAndFinishes()
         aFinishLastsItsLongestTrackAndHoldsItsLastFrame()
         aMissingOptionalTrackStillDecodes()
+        aBubbleAnchorBelongsToCallingOut()
         aPoseWithBehindAndFrontOfDifferentLengthsPlaysEachOnItsOwnClock()
         aBehindAndFrontOfDifferentLengthsEachKeepTheirOwnLength()
         aFinishChangesAtItsOwnSteps()
@@ -222,6 +223,23 @@ struct TrackerAvatarAnimationTests {
         expectThrows(TrackerAvatarAnimationError.invalidTrack("02-pondering has no character track"), "an enter with no character track") {
             _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
                 pose["enter"] = ["front": [[1, 0.25]]]
+            }
+        }
+    }
+
+    /// Calling out's bubble anchor is read from its pose, and only calling out may carry one: a file that puts one on another pose
+    /// doesn't read, since no other pose would draw it.
+    private static func aBubbleAnchorBelongsToCallingOut() {
+        guard let edited = try? AvatarAnimationFixture.bard(editing: "11-calling-out", { pose in
+            pose["bubble"] = ["x": 56, "y": 27]
+        }) else {
+            fail("a calling-out bubble anchor should decode")
+        }
+        expect(edited.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 56, y: 27), "calling out should carry its bubble anchor")
+        expect(edited.animation(for: .pondering)?.bubble == nil, "a pose without a bubble key should draw none")
+        expectThrows(TrackerAvatarAnimationError.misplacedBubble("02-pondering"), "a bubble on a pose that isn't calling out") {
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
+                pose["bubble"] = ["x": 1, "y": 1]
             }
         }
     }

@@ -68,10 +68,12 @@ final class TrackerAvatarSprites {
     private let folder: URL
     private var images: [String: CGImage] = [:]
 
-    private init(classID: String, animation: TrackerAvatarAnimation, folder: URL) {
+    /// The class's sprites from its parsed file, with its idle figure measured from the art beside it.
+    init(classID: String, animation: TrackerAvatarAnimation, folder: URL) {
         self.classID = classID
         self.animation = animation
         self.folder = folder
+        idleFigureHeight = measureIdleFigure()
     }
 
     /// The sprites in `folder`, or nil when it has no `animation.json`, or the file doesn't read.
@@ -85,7 +87,6 @@ final class TrackerAvatarSprites {
             return nil
         }
         self.init(classID: classID, animation: animation, folder: folder)
-        idleFigureHeight = measureIdleFigure()
     }
 
     /// The idle figure's height: from idle's foot row to idle f1's top opaque row. Nil while idle's first frame has no art.
@@ -158,6 +159,11 @@ final class TrackerAvatarSprites {
         frame(.idle, .character, number)
     }
 
+    /// The shared calling-out bubble, `Resources/Sprites/shared/bubble.png`, beside the class folders. Nil while it has no art.
+    var bubble: CGImage? {
+        image(named: "bubble", in: folder.deletingLastPathComponent().appendingPathComponent("shared", isDirectory: true))
+    }
+
     /// The fidgets whose every frame has its art, so the core may play them.
     var availableFidgets: [TrackerAvatarIdleFidget] {
         animation.fidgets.filter { fidget in fidget.frames.allSatisfy { idleFrame($0) != nil } }
@@ -215,12 +221,13 @@ final class TrackerAvatarSprites {
         }
     }
 
-    /// The PNG `name` in this class's folder, decoded once; nil when it is missing.
-    private func image(named name: String) -> CGImage? {
+    /// The PNG `name` in `directory` (this class's folder by default), decoded once; nil when it is missing.
+    private func image(named name: String, in directory: URL? = nil) -> CGImage? {
         if let cached = images[name] {
             return cached
         }
-        guard let source = CGImageSourceCreateWithURL(folder.appendingPathComponent("\(name).png") as CFURL, nil),
+        let url = (directory ?? folder).appendingPathComponent("\(name).png")
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             return nil
         }
@@ -445,6 +452,8 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
     let behind = CALayer()
     let character = CALayer()
     let front = CALayer()
+    /// The shared bubble, on a calling-out pose's anchor. It sits over the figure and its front effect, and shows with the pose.
+    let bubble = CALayer()
     private let placement: TrackerAvatarPoseAnimation
     private let sprites: TrackerAvatarSprites
     /// The block the pose plays: its loop, or its one-shot.
@@ -463,9 +472,11 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         self.block = block
         root.addSublayer(behind)
         root.addSublayer(figure)
+        root.addSublayer(bubble)
         figure.addSublayer(character)
         figure.addSublayer(front)
-        for layer in [root, figure, behind, character, front] {
+        bubble.contents = sprites.bubble
+        for layer in [root, figure, bubble, behind, character, front] {
             layer.actions = TrackerAvatarLayerActions.immediate
             layer.magnificationFilter = .nearest
             layer.minificationFilter = .nearest
@@ -507,6 +518,23 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         for layer in [behind, figure, character, front] {
             layer.frame = local
         }
+        placeBubble(canvas: canvas)
+    }
+
+    /// Puts the bubble's bottom centre on the pose's anchor, in the canvas's own rows and columns (row 0 at the top), so it keeps the
+    /// figure's place and never moves with its frames. Nothing is placed without an anchor or art.
+    private func placeBubble(canvas: CGSize) {
+        guard let anchor = placement.bubble, let image = sprites.bubble else {
+            return
+        }
+        let pixel = TrackerAvatarDesign.pixelPoints
+        let bottom = CGFloat(Int(canvas.height) - 1 - anchor.y) * pixel
+        bubble.frame = CGRect(
+            x: CGFloat(anchor.x - image.width / 2) * pixel,
+            y: bottom,
+            width: CGFloat(image.width) * pixel,
+            height: CGFloat(image.height) * pixel
+        )
     }
 
     func startMotion() {
