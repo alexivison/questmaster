@@ -251,6 +251,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         handles.actionBar.onHideTracker = { [weak self] in self?.hideTracker() }
         handles.actionBar.onOpenArtifacts = { [weak self] in self?.showArtifactListFromDock() }
         handles.actionBar.onOpenQuests = { [weak self] in self?.toggleQuestLog() }
+        handles.actionBar.onOpenNewQuest = { [weak self] in self?.openNewQuest() }
         questLogFilter.onChange = { [weak self] in self?.syncQuestLog() }
         questLogFilter.onMoveSelection = { [weak self] command in _ = self?.questLogStore.handle(command) }
         questLogFilter.onLeave = { [weak window = handles.window] in window?.makeFirstResponder(nil) }

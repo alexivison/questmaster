@@ -109,6 +109,7 @@ enum LogicSelfTests {
         ("testNewSessionEffortKeysCycleWhereAnECannotBeTyped", testNewSessionEffortKeysCycleWhereAnECannotBeTyped),
         ("testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne", testNewSessionClassCyclesInTheTitleAndSummonSendsAChosenOne),
         ("testEveryPortraitIsBundledUnderItsOwnName", testEveryPortraitIsBundledUnderItsOwnName),
+        ("testEveryAppIconLoadsItsGlyph", testEveryAppIconLoadsItsGlyph),
         ("testNewSessionTabTakesTheHighlightedModelThenMovesOn", testNewSessionTabTakesTheHighlightedModelThenMovesOn),
         ("testNewSessionEscapePutsADropdownAwayBeforeClosing", testNewSessionEscapePutsADropdownAwayBeforeClosing),
         ("testNewQuestTypedPathSubmitsAPathOnlyProject", testNewQuestTypedPathSubmitsAPathOnlyProject),
@@ -5236,6 +5237,17 @@ enum LogicSelfTests {
             try expect(try pixelWidth(.familiar(sessionClass)) == 120, "\(sessionClass.rawValue)'s familiar should be 120px")
         }
         try expect(try pixelWidth(.master(nil)) == 150, "the Random silhouette should be 150px")
+    }
+
+    /// Every glyph is bundled under its icon's name, and each cast icon name Core gives a tool resolves to one.
+    private static func testEveryAppIconLoadsItsGlyph() throws {
+        for icon in AppIcon.allCases {
+            try expect(icon.image(glyphSide: 20, tint: .white) != nil, "no glyph bundled as \(icon.rawValue).svg")
+        }
+        for tool in ["Bash", "Edit", "Read", "WebFetch", "Task", "TodoWrite", "mcp__linear__save_issue"] {
+            let name = TrackerCast(tool: tool, startedAt: Date(), typicalMS: 0).iconName
+            try expect(AppIcon(rawValue: name) != nil, "the cast icon \(name) for \(tool) has no glyph")
+        }
     }
 
     private static func testNewSessionTabTakesTheHighlightedModelThenMovesOn() throws {

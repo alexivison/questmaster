@@ -7,27 +7,22 @@ struct StatusMessagePane: View {
     var title: String = ""
     var message: String
     var detail: String = ""
-    var symbolName: String?
+    var icon: AppIcon?
     var alignment: HorizontalAlignment = .leading
     var textAlignment: TextAlignment = .leading
     var frameAlignment: Alignment = .topLeading
     var backgroundColor: NSColor?
     var detailSelectable = false
 
-    private static let symbolSide = ControlHeight.compact
+    private static let iconSide = ControlHeight.compact
 
     var body: some View {
         VStack(alignment: alignment, spacing: Space.item) {
-            if let symbolName, let image = AppSymbolStyle.image(
-                name: symbolName,
-                pointSize: Self.symbolSide,
-                color: AppPalette.muted,
-                canvasSize: NSSize(width: Self.symbolSide, height: Self.symbolSide)
-            ) {
+            if let icon, let image = icon.image(glyphSide: Self.iconSide, tint: AppPalette.muted) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: Self.symbolSide, height: Self.symbolSide)
+                    .frame(width: Self.iconSide, height: Self.iconSide)
             }
             if !title.isEmpty {
                 Text(title)

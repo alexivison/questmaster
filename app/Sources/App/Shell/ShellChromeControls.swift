@@ -15,9 +15,15 @@ enum ChromeMetrics {
     static let iconPointSize: CGFloat = 15
 }
 
-/// SF Symbol button whose icon takes the row look: rest, and the highlighted icon under the pointer.
+/// A chrome button's glyph: an SF Symbol, or one of the game-icons.
+enum ChromeGlyph {
+    case symbol(String)
+    case icon(AppIcon)
+}
+
+/// Icon button whose glyph takes the row look: rest, and the highlighted icon under the pointer.
 struct ChromeIconButton: View {
-    let symbolName: String
+    let glyph: ChromeGlyph
     let accessibilityLabel: String
     /// Hover tooltip text. Defaults to `accessibilityLabel`; pass a label+shortcut string
     /// (e.g. via Keymap.CommandBinding.displayGlyph) for controls with a keyboard shortcut.
@@ -26,10 +32,9 @@ struct ChromeIconButton: View {
     @State private var isHovered = false
 
     var body: some View {
+        let tint = RowLook.pick(highlighted: isHovered, areaFocused: true).icon.color
         Button(action: action) {
-            Image(systemName: symbolName)
-                .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
-                .foregroundStyle(RowLook.pick(highlighted: isHovered, areaFocused: true).icon.color.swiftUI)
+            glyphView(tint: tint)
                 .frame(width: ChromeMetrics.iconWidth, height: ChromeMetrics.iconHeight)
                 .contentShape(Rectangle())
         }
@@ -37,5 +42,19 @@ struct ChromeIconButton: View {
         .onHover { isHovered = $0 }
         .help(tooltip ?? accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    @ViewBuilder
+    private func glyphView(tint: NSColor) -> some View {
+        switch glyph {
+        case .symbol(let name):
+            Image(systemName: name)
+                .font(.system(size: ChromeMetrics.iconPointSize, weight: .medium))
+                .foregroundStyle(tint.swiftUI)
+        case .icon(let icon):
+            if let image = icon.image(glyphSide: ChromeMetrics.iconPointSize, tint: tint) {
+                Image(nsImage: image)
+            }
+        }
     }
 }

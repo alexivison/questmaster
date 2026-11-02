@@ -167,10 +167,10 @@ private extension ArtifactScope {
 
 /// A pick-to-open row: artifact-item-v2.svg's 50pt row fitted to 40 (2026-10-22, the tracker worker plate's density),
 /// radius 5, in its `RowLook` (the fill only while highlighted). The icon tile 30 square at (10, 5), radius 5, with a
-/// 1pt border and the icon at the design's 0.6 of the tile (14.4 x 18) centred; the title 10 past the tile; a 1pt
-/// divider through the row's middle from the tile to 40 short of the right edge; the title and the project and date
-/// sitting 4.5 off it on either side, the date ending on the divider's end. The 20pt gutters on either side hold the
-/// pane's margin; in select mode the left one holds the mark.
+/// 1pt border and the kind's glyph centred in it at 20 square (the design's 18, snapped to the 5 scale); the title 10
+/// past the tile; a 1pt divider through the row's middle from the tile to 40 short of the right edge; the title and the
+/// project and date sitting 4.5 off it on either side, the date ending on the divider's end. The 20pt gutters on either
+/// side hold the pane's margin; in select mode the left one holds the mark.
 struct ArtifactRow: View {
     var artifact: ArtifactReference
     var projectTitle: String
@@ -187,9 +187,7 @@ struct ArtifactRow: View {
         static let gutter = Space.section
         static let tileOrigin = CGPoint(x: Space.item, y: Space.row)
         static let tileSide: CGFloat = 30
-        static let iconSize = CGSize(width: 14.4, height: 18)
-        /// doc.richtext at this size and semibold fills `iconSize`, as the design's glyph does.
-        static let iconPointSize: CGFloat = 16.875
+        static let iconSide: CGFloat = 20
         static let textX = tileOrigin.x + tileSide + Space.item
         /// The text column ends as far from the right as the tile's far edge is from the left.
         static let trailingInset = tileOrigin.x + tileSide
@@ -274,10 +272,9 @@ struct ArtifactRow: View {
                 .fill(AppPalette.panel.swiftUI)
             RoundedRectangle(cornerRadius: Metrics.cornerRadius)
                 .strokeBorder(rowLook.iconBorder.color.swiftUI, lineWidth: Token.Size.divider)
-            Image(systemName: iconName)
-                .font(.system(size: Metrics.iconPointSize, weight: .semibold))
-                .frame(width: Metrics.iconSize.width, height: Metrics.iconSize.height)
-                .foregroundStyle(rowLook.icon.color.swiftUI)
+            if let image = kindIcon.image(glyphSide: Metrics.iconSide, tint: rowLook.icon.color) {
+                Image(nsImage: image)
+            }
         }
         .frame(width: Metrics.tileSide, height: Metrics.tileSide)
     }
@@ -314,19 +311,19 @@ struct ArtifactRow: View {
         return date
     }
 
-    private var iconName: String {
+    private var kindIcon: AppIcon {
         if artifact.missing {
-            return "exclamationmark.triangle"
+            return .artifactMissing
         }
         switch artifact.resolvedKind {
         case .html:
-            return "doc.richtext"
+            return .artifactHTML
         case .markdown:
-            return "doc.text"
+            return .artifactMarkdown
         case .image:
-            return "photo"
+            return .artifactImage
         case .unsupported:
-            return "questionmark.square.dashed"
+            return .artifactUnsupported
         }
     }
 }
@@ -360,7 +357,7 @@ private struct ArtifactViewerPane: View {
                 ArtifactImageView(artifact: artifact, reloadNonce: reloadNonce)
             case .unsupported:
                 ArtifactStatusPane(
-                    symbolName: "questionmark.square.dashed",
+                    icon: .artifactUnsupported,
                     title: "Unsupported artifact",
                     message: "This artifact kind is not supported in this build.",
                     detail: artifact.kind
@@ -370,14 +367,14 @@ private struct ArtifactViewerPane: View {
             EmptyState()
         case .missing(let artifact):
             ArtifactStatusPane(
-                symbolName: "exclamationmark.triangle",
+                icon: .artifactMissing,
                 title: "Missing file",
                 message: "This artifact pointed at a file that no longer exists.",
                 detail: artifact.path
             )
         case .unsupported(let artifact):
             ArtifactStatusPane(
-                symbolName: "questionmark.square.dashed",
+                icon: .artifactUnsupported,
                 title: "Unsupported artifact",
                 message: "This artifact kind is not supported in this build.",
                 detail: artifact.kind
@@ -388,7 +385,7 @@ private struct ArtifactViewerPane: View {
 }
 
 struct ArtifactStatusPane: View {
-    var symbolName: String
+    var icon: AppIcon
     var title: String
     var message: String
     var detail: String = ""
@@ -398,7 +395,7 @@ struct ArtifactStatusPane: View {
             title: title,
             message: message,
             detail: detail,
-            symbolName: symbolName,
+            icon: icon,
             backgroundColor: AppPalette.artifactViewerBackground,
             detailSelectable: true
         )

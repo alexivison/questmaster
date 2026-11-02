@@ -21,7 +21,7 @@ struct ArtifactImageView: View {
                     .padding(Space.section)
             } else {
                 ArtifactStatusPane(
-                    symbolName: "photo",
+                    icon: .artifactImage,
                     title: "Image unavailable",
                     message: error ?? "This image could not be opened.",
                     detail: artifact.path

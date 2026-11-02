@@ -23,19 +23,6 @@ enum ActionBarMetrics {
     /// The working spinner traces the button's 1pt border.
     static let spinnerStroke: CGFloat = 1
 
-    /// Each glyph's own rendered bounding box, measured from the design, so glyphs with different natural aspect
-    /// ratios draw at the same visual size.
-    enum IconSize {
-        static func size(for symbolName: String) -> CGSize {
-            switch symbolName {
-            case "sidebar.left": CGSize(width: 20, height: 16)
-            case "plus.rectangle": CGSize(width: 20, height: 16)
-            case "checklist": CGSize(width: 20, height: 18)
-            case "doc.richtext": CGSize(width: 16, height: 20)
-            case "text.bubble": CGSize(width: 20, height: 19)
-            case "cup.and.saucer": CGSize(width: 20, height: 15)
-            default: CGSize(width: 20, height: 20)
-            }
-        }
-    }
+    /// Every glyph is a square of this side, centred in its button.
+    static let iconSide: CGFloat = 20
 }

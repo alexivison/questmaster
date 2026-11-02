@@ -39,6 +39,8 @@ private enum SettingsMetrics {
     static let columnSpacing = Space.section
     static let columnWidth = SettingsSheetModel.sheetSize.width - 2 * inset - sidebarWidth - columnSpacing
     static let sidebarSpacing = Space.section
+    /// A section's glyph inside its tab's icon square, where the SF Symbol it replaces drew at 14pt.
+    static let sectionIconSide: CGFloat = 15
     /// From the top of the agent tabs: the first section title's baseline, then each next one 175 on.
     static let firstSectionBaseline: CGFloat = 65
     static let sectionPitch: CGFloat = 175
@@ -73,10 +75,10 @@ private enum SettingsSection: CaseIterable {
         }
     }
 
-    var symbolName: String {
+    var icon: AppIcon {
         switch self {
         case .modelsAndReasoning:
-            return "slider.vertical.3"
+            return .settingsModels
         }
     }
 }
@@ -117,7 +119,7 @@ struct SettingsSheetView: View {
             ForEach(SettingsSection.allCases, id: \.self) { section in
                 PillTab(
                     title: section.title,
-                    icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: OutlineLook.tabSelected.label.color, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
+                    icon: section.icon.image(glyphSide: SettingsMetrics.sectionIconSide, canvasSide: PillTabMetrics.iconSide, tint: OutlineLook.tabSelected.label.color),
                     look: .tabSelected,
                     selected: true,
                     help: "\(section.title) settings",

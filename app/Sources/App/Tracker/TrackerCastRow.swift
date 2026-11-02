@@ -68,11 +68,16 @@ struct TrackerCastRow: View {
         ZStack {
             RoundedRectangle(cornerRadius: Self.radius).fill(AppPalette.panel.swiftUI)
             RoundedRectangle(cornerRadius: Self.radius).strokeBorder(AppPalette.lineSoftSubtle.swiftUI, lineWidth: Self.border)
-            if let icon = TrackerCastIcon.image(symbol: cast.symbol, metrics: metrics) {
+            if let icon = squareIcon {
                 Image(nsImage: icon)
             }
         }
         .frame(width: metrics.side, height: metrics.side)
+    }
+
+    private var squareIcon: NSImage? {
+        guard let icon = AppIcon(rawValue: cast.iconName) else { return nil }
+        return TrackerCastIcon.image(icon, metrics: metrics)
     }
 
     private var bar: some View {
@@ -97,27 +102,25 @@ struct TrackerCastRow: View {
     }
 }
 
-/// A tool's SF Symbol drawn by its ink, not its alignment box: the ink is fitted to the icon box on its longer side and
+/// A tool's glyph drawn by its ink, not its alignment box: the ink is fitted to the icon box on its longer side and
 /// to the square's parity on its shorter one, then centred in the square, so every icon sits on whole pixels at 1x with
 /// equal space around its ink.
 @MainActor
 enum TrackerCastIcon {
     private static var cache: [String: NSImage] = [:]
-    /// Each symbol's ink in its 64pt source, found once and shared by every square size.
-    private static var inks: [String: NSRect] = [:]
+    /// Each glyph's ink in its 64pt source, found once and shared by every square size.
+    private static var inks: [AppIcon: NSRect] = [:]
     private static let sourcePointSize: CGFloat = 64
     private static let probeScale: CGFloat = 2
     /// The alpha byte above which a probe pixel counts as ink (2%).
     private static let inkAlpha: UInt8 = 5
 
-    static func image(symbol: String, metrics: TrackerCastLayout.Metrics) -> NSImage? {
-        let key = "\(symbol)@\(metrics.side)"
+    static func image(_ icon: AppIcon, metrics: TrackerCastLayout.Metrics) -> NSImage? {
+        let key = "\(icon.rawValue)@\(metrics.side)"
         if let cached = cache[key] { return cached }
-        let configuration = NSImage.SymbolConfiguration(pointSize: sourcePointSize, weight: .medium)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [AppPalette.muted]))
-        guard let source = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration),
-              let ink = inks[symbol] ?? inkRect(of: source) else { return nil }
-        inks[symbol] = ink
+        guard let source = icon.image(glyphSide: sourcePointSize, tint: AppPalette.muted),
+              let ink = inks[icon] ?? inkRect(of: source) else { return nil }
+        inks[icon] = ink
         let side = metrics.side
         let longer = metrics.iconSide
         let shorterRaw = longer * min(ink.width, ink.height) / max(ink.width, ink.height)

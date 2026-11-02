@@ -84,13 +84,13 @@ struct DockTopBar: View {
                 Spacer(minLength: 0)
                 if topBar.showsLogFilter {
                     ChromeIconButton(
-                        symbolName: "line.3.horizontal.decrease",
+                        glyph: .icon(.filter),
                         accessibilityLabel: "Filter Worker Log",
                         tooltip: "Filter Worker Log (\(Keymap.badgeCharacter(for: .toggleFilterMenu) ?? ""))",
                         action: onToggleLogFilter
                     )
                 }
-                ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
+                ChromeIconButton(glyph: .icon(.close), accessibilityLabel: "Close Dock", action: onHideDock)
             }
             .dockTopBarIcons()
             if let title = topBar.title {
@@ -116,7 +116,7 @@ struct DockTopBar: View {
 
     private func viewerBar(_ topBar: DockTopBarModel, back: DockTopBarModel.Back) -> some View {
         HStack(spacing: Space.item) {
-            ChromeIconButton(symbolName: "arrow.backward", accessibilityLabel: backLabel(back)) {
+            ChromeIconButton(glyph: .symbol("arrow.backward"), accessibilityLabel: backLabel(back)) {
                 onBack(back)
             }
             .dockTopBarIcons()
@@ -129,10 +129,10 @@ struct DockTopBar: View {
 
             HStack(spacing: Space.item) {
                 if topBar.showArtifactActions {
-                    ChromeIconButton(symbolName: "doc.on.doc", accessibilityLabel: "Copy artifact path", action: onCopyArtifactPath)
-                    ChromeIconButton(symbolName: "arrow.clockwise", accessibilityLabel: "Refresh artifact", action: onRefreshArtifact)
+                    ChromeIconButton(glyph: .icon(.copyPath), accessibilityLabel: "Copy artifact path", action: onCopyArtifactPath)
+                    ChromeIconButton(glyph: .icon(.refresh), accessibilityLabel: "Refresh artifact", action: onRefreshArtifact)
                 }
-                ChromeIconButton(symbolName: "xmark", accessibilityLabel: "Close Dock", action: onHideDock)
+                ChromeIconButton(glyph: .icon(.close), accessibilityLabel: "Close Dock", action: onHideDock)
             }
             .dockTopBarIcons()
         }
