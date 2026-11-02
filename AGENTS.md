@@ -142,7 +142,8 @@ Core, not in a view callback.** Keep views small.
   `TMUX`/`TMUX_PANE`/`TMUX_TMPDIR`** so the terminal never connects to a stray
   tmux socket.
 - **Styling:** style every view from the shared token layer (`Token`,
-  `AppPalette`, `AppFonts`) — no raw hex or magic-number radii/spacing.
+  `AppPalette`, `AppFonts`) — no raw hex or magic-number radii/spacing. Glyphs that aren't SF Symbols load through
+  `AppIcon` (`app/Sources/App/Resources/Icons`, credited in `CREDITS.md`), tinted as an NSImage for both SwiftUI and AppKit.
 
 **Use AppKit where the current shell or platform boundary requires it:** the
 window, custom `MainSplitView`, first-responder/key mechanics, menus, global key
@@ -286,8 +287,10 @@ again where it was when the keys come back.
   panel scroll sideways with no scroller, in a view 35 in from the panel's edges (`WorkerLogTabMetrics.sideInset`: the
   bottom corners' scoop radius, 25, plus `Space.item`), so every tab, clipped or not, stays 10 clear of the scoop; a side
   with hidden tabs fades out over 20, as the feed's top does. A change of selection scrolls it to the middle. The empty state stays centred in the room above the row.
-- Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) tray in `textMeta`, centred in the
-  section the list would fill, with no text, hint or command. Every dock panel (the artifact list under its tabs, the
+- Nothing to list is one icon, `EmptyState`: a single `Token.Size.emptyIcon` (40) in `textMeta`, centred in the
+  section the list would fill, with no text, hint or command. It is the tray when nothing is there yet, and the search
+  glyph (`ListEmptyReason.noMatch`, from Core) when a filter hid every item the list had: the artifact list, the Quest
+  Log and the Worker Log. Every dock panel (the artifact list under its tabs, the
   artifact viewer, the Worker Log, Version Control), the tracker and the Quest Log's page draw it; the page passes the
   parchment ink instead. The Worker Log draws it only once its first read came back whole and empty, or when
   its filter or worker tab hides every line (`WorkerChatStore.isKnownEmpty`, decided in Core; the chip above it stays, with its x, and the tabs under it when they show);
@@ -313,8 +316,8 @@ again where it was when the keys come back.
   tracker's plates and the dock, or from the window's edges when they're hidden, with the terminal's text starting
   `Space.section` under it. `ShellSplitLayoutPlanner` gives its frame (`headerFrame`) and `MainSplitView` lays it out
   and animates it with the panes. Its 30pt buttons sit `Space.item` from its top and bottom and `Space.section` in from
-  its ends: the tracker toggle alone at the leading end; New Session, Quest Log and Settings, then Artifacts, Worker Log
-  and Version Control at the trailing end, 1 apart in a group and `Space.item` between the groups; caffeinate
+  its ends: the tracker toggle alone at the leading end; New Session, Quest Log, New Quest and Settings, then Artifacts,
+  Worker Log and Version Control at the trailing end, 1 apart in a group and `Space.item` between the groups; caffeinate
   `Space.section` past them (`ActionBarMetrics`). Its empty space drags the window. Toasts sit `Space.section` above the
   window's bottom edge.
 - The dock is two stacked scooped panels, 20 apart (`DockColumnLayout`): Version Control on top at a fixed 300, and
