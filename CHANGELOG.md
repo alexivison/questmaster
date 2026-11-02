@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loop, merge-back flow, serve board/quest payloads, and native app quest
   board/detail UI are gone. Use normal sessions and HTML artifacts instead.
 
+## [0.3.53] - 2026-11-02
+
+### Security
+
+- Retracted v0.3.11 and v0.3.44 through v0.3.52. Those published versions contained content that was removed in a repository history cleanup. Use v0.3.53 or later.
+
 ## [0.3.34] - 2026-06-19
 
 ### Fixed
