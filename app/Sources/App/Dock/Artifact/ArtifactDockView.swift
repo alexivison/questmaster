@@ -336,6 +336,15 @@ private struct ArtifactViewerPane: View {
     var reloadNonce: Int
     var onOpenExternal: (URL) -> Void
 
+    @State private var htmlLoading = true
+
+    private enum SkeletonMetrics {
+        static let titleWidth: CGFloat = 180
+        static let lineWidths: [CGFloat] = [320, 290, 340, 250]
+        static let pulseFrom = 0.6
+        static let pulseTo = 0.7
+    }
+
     var body: some View {
         viewerContent
             .background(AppPalette.artifactViewerBackground.swiftUI)
@@ -347,7 +356,18 @@ private struct ArtifactViewerPane: View {
         case .viewing(let artifact):
             switch artifact.resolvedKind {
             case .html:
-                ArtifactHTMLView(artifact: artifact, reloadNonce: reloadNonce, onOpenExternal: onOpenExternal)
+                ArtifactWebView(
+                    artifact: artifact,
+                    reloadNonce: reloadNonce,
+                    decideNavigation: ArtifactNavigationPolicy.decide,
+                    openExternal: onOpenExternal,
+                    onLoadingChange: { htmlLoading = $0 }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay { if htmlLoading { htmlLoadingSkeleton } }
+                .onAppear { htmlLoading = true }
+                .onChange(of: artifact.path) { _, _ in htmlLoading = true }
+                .onChange(of: reloadNonce) { _, _ in htmlLoading = true }
             case .markdown:
                 ArtifactMarkdownView(artifact: artifact, reloadNonce: reloadNonce)
             case .image:
@@ -379,48 +399,12 @@ private struct ArtifactViewerPane: View {
         }
     }
 
-}
-
-private struct ArtifactHTMLView: View {
-    var artifact: ArtifactReference
-    var reloadNonce: Int
-    var onOpenExternal: (URL) -> Void
-
-    @State private var isLoading = true
-
-    var body: some View {
-        ArtifactWebView(
-            artifact: artifact,
-            reloadNonce: reloadNonce,
-            decideNavigation: ArtifactNavigationPolicy.decide,
-            openExternal: onOpenExternal,
-            onLoadingChange: { isLoading = $0 }
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay {
-            if isLoading {
-                ArtifactViewerLoadingSkeleton()
-            }
-        }
-        .onChange(of: artifact.path) { _, _ in isLoading = true }
-        .onChange(of: reloadNonce) { _, _ in isLoading = true }
-    }
-}
-
-private struct ArtifactViewerLoadingSkeleton: View {
-    private enum Metrics {
-        static let titleWidth: CGFloat = 180
-        static let lineWidths: [CGFloat] = [320, 290, 340, 250, 310]
-        static let pulseFrom = 0.6
-        static let pulseTo = 0.7
-    }
-
-    var body: some View {
-        SkeletonPulse(from: Metrics.pulseFrom, to: Metrics.pulseTo) {
+    private var htmlLoadingSkeleton: some View {
+        SkeletonPulse(from: SkeletonMetrics.pulseFrom, to: SkeletonMetrics.pulseTo) {
             VStack(alignment: .leading, spacing: Space.item) {
-                SkeletonBar(width: Metrics.titleWidth, height: Space.section)
+                SkeletonBar(width: SkeletonMetrics.titleWidth, height: Space.section)
                     .padding(.bottom, Space.item)
-                ForEach(Array(Metrics.lineWidths.enumerated()), id: \.offset) { _, width in
+                ForEach(Array(SkeletonMetrics.lineWidths.enumerated()), id: \.offset) { _, width in
                     SkeletonBar(width: width)
                 }
             }

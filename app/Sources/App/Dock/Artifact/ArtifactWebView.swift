@@ -20,6 +20,7 @@ struct ArtifactWebView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
+        context.coordinator.observeLoading(webView)
         return webView
     }
 
@@ -83,7 +84,7 @@ struct ArtifactWebView: NSViewRepresentable {
         var openExternal: (URL) -> Void
         var onLoadingChange: (Bool) -> Void
         var loadedPath: String?
-        private var activeNavigation: WKNavigation?
+        private var loadingObservation: NSKeyValueObservation?
         private let watcher = ArtifactFileWatcher()
         private var pendingPath: String?
         private var pendingScrollY: Double?
@@ -116,14 +117,10 @@ struct ArtifactWebView: NSViewRepresentable {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
             self.onLoadingChange = onLoadingChange
-            if pendingPath != artifact.path {
-                activeNavigation = nil
-            }
             pendingPath = artifact.path
 
             if reloadNonce != self.reloadNonce {
                 self.reloadNonce = reloadNonce
-                activeNavigation = nil
                 // Manual refresh: reload the current artifact even though its path
                 // is unchanged, preserving scroll like the file watcher does.
                 if contentRuleListReady, loadedPath == artifact.path {
@@ -141,7 +138,17 @@ struct ArtifactWebView: NSViewRepresentable {
             pendingPath = nil
             loadedPath = nil
             pendingScrollY = nil
-            activeNavigation = nil
+            loadingObservation = nil
+        }
+
+        func observeLoading(_ webView: WKWebView) {
+            loadingObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+                // WebKit can report this during updateNSView; update SwiftUI on the next turn.
+                DispatchQueue.main.async { [weak self, weak webView] in
+                    guard let self, let webView, self.loadingObservation != nil else { return }
+                    self.onLoadingChange(webView.isLoading)
+                }
+            }
         }
 
         private func installNetworkBlockerIfNeeded(on webView: WKWebView) {
@@ -231,50 +238,16 @@ struct ArtifactWebView: NSViewRepresentable {
             }
         }
 
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            activeNavigation = navigation
-            // This delegate can fire during updateNSView; defer the SwiftUI state change.
-            DispatchQueue.main.async { [weak self, weak navigation] in
-                guard let self, let navigation, self.activeNavigation === navigation else {
-                    return
-                }
-                self.onLoadingChange(true)
-            }
-        }
-
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard activeNavigation === navigation else {
-                return
-            }
             guard let scrollY = pendingScrollY else {
-                finishLoading(navigation)
                 return
             }
             pendingScrollY = nil
             let clampedScrollY = max(0, scrollY)
             guard clampedScrollY.isFinite else {
-                finishLoading(navigation)
                 return
             }
-            webView.evaluateJavaScript("window.scrollTo(0, \(clampedScrollY))") { [weak self] _, _ in
-                self?.finishLoading(navigation)
-            }
-        }
-
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            finishLoading(navigation)
-        }
-
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            finishLoading(navigation)
-        }
-
-        private func finishLoading(_ navigation: WKNavigation) {
-            guard activeNavigation === navigation else {
-                return
-            }
-            activeNavigation = nil
-            onLoadingChange(false)
+            webView.evaluateJavaScript("window.scrollTo(0, \(clampedScrollY))") { _, _ in }
         }
     }
 }
