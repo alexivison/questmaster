@@ -49,6 +49,7 @@ enum LogicSelfTests {
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
+        ("testBundledClericSpritesReadTheirAnimationFile", testBundledClericSpritesReadTheirAnimationFile),
         ("testTheBundledIdleFiguresSetTheSlot", testTheBundledIdleFiguresSetTheSlot),
         ("testMotionTokensShareOneEasingAndFollowReduceMotion", testMotionTokensShareOneEasingAndFollowReduceMotion),
         ("testPortraitRingAnimatesByItsMode", testPortraitRingAnimatesByItsMode),
@@ -1303,12 +1304,30 @@ enum LogicSelfTests {
         try expect(missing.isEmpty, "every frame the paladin's file plays should have its art, missing: \(missing)")
     }
 
+    @MainActor
+    private static func testBundledClericSpritesReadTheirAnimationFile() throws {
+        guard let sprites = TrackerAvatarSprites.bundled()["cleric"] else {
+            throw TestFailure("the cleric's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.idle.legRows == 45, "the cleric's idle should split at his leg rows")
+        try expect(sprites.animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
+        try expect(sprites.availableFidgets.count == 1, "the cleric's fidget should have its art")
+        try expect(sprites.idleArt() != nil, "the cleric's idle layers should split from his art")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the cleric's art")
+        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
+                   "the cleric should have the art of all three spells")
+        try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
+                   "the cleric's release should have a hand")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the cleric's file plays should have its art, missing: \(missing)")
+    }
+
     /// Each bundled class's idle figure is measured from its own art, against its foot line, and the slot reserves the tallest one
     /// rounded up to the 5 pt step. The tag's place follows these numbers.
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("bard", 159), ("paladin", 171), ("wizard", 150)] {
+        for (classID, figure) in [("bard", 159), ("cleric", 155), ("paladin", 171), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }

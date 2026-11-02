@@ -17,6 +17,7 @@ struct TrackerTagLayoutTests {
     /// the head, so the top opaque row is 2.
     private static let bundledClasses: [(name: String, topRow: Int, footRow: Int, figure: Int)] = [
         ("bard", 2, 160, 159),
+        ("cleric", 2, 156, 155),
         ("paladin", 2, 172, 171),
         ("wizard", 2, 151, 150),
     ]
