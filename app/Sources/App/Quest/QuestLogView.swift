@@ -88,7 +88,7 @@ struct QuestLogView: View {
             QuestLogList(store: store)
                 .frame(width: QuestLogMetrics.listWidth, height: QuestLogMetrics.pageOrigin.y + QuestLogMetrics.pageSize.height - QuestLogMetrics.listOrigin.y, alignment: .top)
                 .offset(x: QuestLogMetrics.listOrigin.x, y: QuestLogMetrics.listOrigin.y)
-            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll)
+            QuestLogPageView(page: store.selectedPage, pageID: store.selectedID, pageScroll: pageScroll, emptyReason: store.emptyReason)
                 .offset(x: QuestLogMetrics.pageOrigin.x, y: QuestLogMetrics.pageOrigin.y)
             buttons
                 .frame(width: QuestLogMetrics.sheetSize.width)
@@ -270,6 +270,8 @@ private struct QuestLogPageView: View {
     let page: QuestLogPage?
     let pageID: String?
     let pageScroll: QuestLogPageScroll
+    /// Why there is no page to show, when there is none.
+    let emptyReason: ListEmptyReason
     @State private var unrolled = false
     @State private var inked = false
 
@@ -335,7 +337,7 @@ private struct QuestLogPageView: View {
             .id(pageID)
             .transition(.opacity)
         } else {
-            EmptyState(color: AppPalette.panel)
+            EmptyState(color: AppPalette.panel, reason: emptyReason)
         }
     }
 }

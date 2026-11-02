@@ -42,6 +42,7 @@ enum QuestmasterLogicTests {
         timed("QuestCoreTests") { QuestCoreTests.run() }
         timed("ShellChromeTests") { ShellChromeTests.run() }
         timed("CaffeineStateTests") { CaffeineStateTests.run() }
+        timed("ListEmptyReasonTests") { ListEmptyReasonTests.run() }
         timed("GhosttyConfigParserTests") { GhosttyConfigParserTests.run() }
         timed("TerminalDetachSignalTests") { TerminalDetachSignalTests.run() }
         timed("WorkerChatTests") { WorkerChatTests.run() }

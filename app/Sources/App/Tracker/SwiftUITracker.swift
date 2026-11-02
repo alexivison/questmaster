@@ -1674,13 +1674,7 @@ struct TrackerAgentMark: View {
                 canvasSize: canvasSize
             )
         case .unknown:
-            return AppSymbolStyle.image(
-                name: "questionmark.circle",
-                pointSize: 10,
-                weight: .medium,
-                color: AppPalette.muted,
-                canvasSize: canvasSize
-            )
+            return AppIcon.agentUnknown.image(glyphSide: side * 0.58, canvasSide: side, tint: AppPalette.muted)
         }
     }
 }

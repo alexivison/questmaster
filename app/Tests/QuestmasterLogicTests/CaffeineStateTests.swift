@@ -3,21 +3,9 @@ import QuestmasterCore
 
 struct CaffeineStateTests {
     static func run() {
-        symbolSwapsOutlineToFill()
         labelFlipsWithState()
         argumentsDropDeadFlagAndTieToAppPID()
         print("CaffeineStateTests: all tests passed")
-    }
-
-    private static func symbolSwapsOutlineToFill() {
-        expect(
-            CaffeineState(isActive: false).symbolName == "cup.and.saucer",
-            "idle should show the outline cup"
-        )
-        expect(
-            CaffeineState(isActive: true).symbolName == "cup.and.saucer.fill",
-            "active should show the filled cup"
-        )
     }
 
     private static func labelFlipsWithState() {

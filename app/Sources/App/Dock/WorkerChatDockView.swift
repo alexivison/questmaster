@@ -91,7 +91,7 @@ struct WorkerChatDockView: View {
             // failed): a lone notice sits in the middle of what is left, as it does with no chip.
             VStack(alignment: .leading, spacing: 0) {
                 if store.isKnownEmpty {
-                    EmptyState()
+                    EmptyState(reason: store.emptyReason)
                 } else if !store.lines.isEmpty {
                     WorkerChatFeedView(lines: store.lines, revision: store.revision, trimCount: store.trimCount, appended: store.lastUpdateAppended)
                 }

@@ -153,6 +153,8 @@ public final class QuestLogStore {
     /// Counts openings, so the view can play its opening once per open and not on later changes.
     public private(set) var openGeneration = 0
     public private(set) var sections: [QuestSection] = []
+    /// The quests before the filter, as of the last sync: with `sections`, it tells an empty list from a filter that hid it.
+    private var questCount = 0
     public private(set) var selectedID: String?
     public private(set) var markedIDs: Set<String> = []
     /// Bumped when a jump asks the list to scroll to the selection even if it didn't change (`gg` / `G`).
@@ -191,6 +193,7 @@ public final class QuestLogStore {
         query: String = "",
         projectIDs: Set<String> = []
     ) {
+        questCount = quests.count
         let next = QuestDisplayState.sections(quests: quests, repos: repos, projects: projects, query: query, projectIDs: projectIDs)
         guard next != sections else {
             return
@@ -199,6 +202,11 @@ public final class QuestLogStore {
         sections = next
         selectedID = QuestDisplayState.recoveredSelection(current: selectedID, in: next, previouslyDisplayedQuests: previous)
         markedIDs.formIntersection(QuestDisplayState.flatQuests(in: next).map(\.id))
+    }
+
+    /// Why the list shows nothing: no quests at all, or a filter that hid every one.
+    public var emptyReason: ListEmptyReason {
+        ListEmptyReason.of(total: questCount, shown: QuestDisplayState.flatQuests(in: sections).count)
     }
 
     public func select(_ id: String) {

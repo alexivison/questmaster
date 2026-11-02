@@ -40,16 +40,17 @@ public struct TrackerCast: Decodable, Equatable {
         WorkerChatLineBuilder.callLabel(name: tool)
     }
 
-    /// The SF Symbol for the tool, by the names Claude, Codex, OpenCode and Pi give their tools.
-    public var symbol: String {
+    /// The icon's resource name for the tool, by the names Claude, Codex, OpenCode and Pi give their tools. The App
+    /// maps it to its glyph (`AppIcon`).
+    public var iconName: String {
         switch tool.lowercased() {
-        case "bash", "shell", "exec_command", "local_shell": "terminal"
-        case "edit", "write", "multiedit", "notebookedit", "apply_patch", "patch": "pencil"
-        case "read", "grep", "glob", "ls", "list", "find": "doc.text.magnifyingglass"
-        case "webfetch", "websearch", "web_search": "globe"
-        case "task", "agent": "person.2"
-        case "todowrite", "todoread", "update_plan": "checklist"
-        default: "puzzlepiece.extension"
+        case "bash", "shell", "exec_command", "local_shell": "cast-shell"
+        case "edit", "write", "multiedit", "notebookedit", "apply_patch", "patch": "cast-edit"
+        case "read", "grep", "glob", "ls", "list", "find": "cast-read"
+        case "webfetch", "websearch", "web_search": "cast-web"
+        case "task", "agent": "cast-task"
+        case "todowrite", "todoread", "update_plan": "cast-todo"
+        default: "cast-tool"
         }
     }
 
