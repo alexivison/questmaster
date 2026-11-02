@@ -227,6 +227,8 @@ For dev benches and test sessions, `swift run --package-path app Questmaster` fr
 
 App-created shells use the daemon's identity shims on `PATH` via `QUESTMASTER_PATH_PREFIX` and set `QUESTMASTER_BIN` from the daemon record. Reattach/continue refreshes the tmux session environment after an app move or rebuild; already-running agent processes may need restart because their process environment is fixed. The first canonical `daemon start` migrates old app-written Application Support shims to the canonical binary; `prune` removes unused shim directories.
 
+The app's icons are game-icons.net glyphs by Lorc and Delapouite, licensed under CC BY 3.0. See [CREDITS.md](CREDITS.md) for each icon and its author.
+
 GhosttyKit wrapper sources live under `app/Vendor/GhosttyKit-0.8.0`, but the `GhosttyKit.xcframework` binary is not committed. `Package.swift` fetches it as the `CGhosttyKitBinary` binary target from the `ghosttykit-0.8.0` GitHub release and pins the checksum there.
 
 ## State

@@ -165,7 +165,7 @@ enum AppSymbolStyle {
         )
     }
 
-    private static func pixelAligned(_ rect: NSRect, scale: CGFloat) -> NSRect {
+    static func pixelAligned(_ rect: NSRect, scale: CGFloat) -> NSRect {
         let minX = (rect.minX * scale).rounded() / scale
         let minY = (rect.minY * scale).rounded() / scale
         let maxX = (rect.maxX * scale).rounded() / scale
@@ -173,7 +173,7 @@ enum AppSymbolStyle {
         return NSRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
     }
 
-    private static func currentBackingScale() -> CGFloat {
+    static func currentBackingScale() -> CGFloat {
         if let transform = NSGraphicsContext.current?.cgContext.userSpaceToDeviceSpaceTransform {
             let scale = max(abs(transform.a), abs(transform.d))
             if scale > 0 {
