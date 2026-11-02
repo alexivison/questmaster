@@ -7,9 +7,10 @@ struct ArtifactWebView: NSViewRepresentable {
     var reloadNonce: Int = 0
     var decideNavigation: (URL?, Bool) -> ArtifactNavigationDecision
     var openExternal: (URL) -> Void
+    var onLoadingChange: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(decideNavigation: decideNavigation, openExternal: openExternal)
+        Coordinator(decideNavigation: decideNavigation, openExternal: openExternal, onLoadingChange: onLoadingChange)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -19,6 +20,7 @@ struct ArtifactWebView: NSViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
+        context.coordinator.observeLoading(webView)
         return webView
     }
 
@@ -66,7 +68,8 @@ struct ArtifactWebView: NSViewRepresentable {
             in: webView,
             reloadNonce: reloadNonce,
             decideNavigation: decideNavigation,
-            openExternal: openExternal
+            openExternal: openExternal,
+            onLoadingChange: onLoadingChange
         )
     }
 
@@ -79,7 +82,9 @@ struct ArtifactWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         var decideNavigation: (URL?, Bool) -> ArtifactNavigationDecision
         var openExternal: (URL) -> Void
+        var onLoadingChange: (Bool) -> Void
         var loadedPath: String?
+        private var loadingObservation: NSKeyValueObservation?
         private let watcher = ArtifactFileWatcher()
         private var pendingPath: String?
         private var pendingScrollY: Double?
@@ -89,10 +94,12 @@ struct ArtifactWebView: NSViewRepresentable {
 
         init(
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
-            openExternal: @escaping (URL) -> Void
+            openExternal: @escaping (URL) -> Void,
+            onLoadingChange: @escaping (Bool) -> Void
         ) {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
+            self.onLoadingChange = onLoadingChange
         }
 
         deinit {
@@ -104,10 +111,12 @@ struct ArtifactWebView: NSViewRepresentable {
             in webView: WKWebView,
             reloadNonce: Int,
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
-            openExternal: @escaping (URL) -> Void
+            openExternal: @escaping (URL) -> Void,
+            onLoadingChange: @escaping (Bool) -> Void
         ) {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
+            self.onLoadingChange = onLoadingChange
             pendingPath = artifact.path
 
             if reloadNonce != self.reloadNonce {
@@ -129,6 +138,17 @@ struct ArtifactWebView: NSViewRepresentable {
             pendingPath = nil
             loadedPath = nil
             pendingScrollY = nil
+            loadingObservation = nil
+        }
+
+        func observeLoading(_ webView: WKWebView) {
+            loadingObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+                // WebKit can report this during updateNSView; update SwiftUI on the next turn.
+                DispatchQueue.main.async { [weak self, weak webView] in
+                    guard let self, let webView, self.loadingObservation != nil else { return }
+                    self.onLoadingChange(webView.isLoading)
+                }
+            }
         }
 
         private func installNetworkBlockerIfNeeded(on webView: WKWebView) {
