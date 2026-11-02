@@ -32,6 +32,8 @@ struct ArtifactDockModel: Equatable {
     /// Bumped whenever the selected artifact must scroll into view even if its id didn't change (a
     /// `gg`/`G` jump back to the already-selected edge row).
     var scrollNonce: Int = 0
+    /// Why the list shows nothing: nothing yet, or the filter hid every artifact the session has.
+    var emptyReason: ListEmptyReason = .nothingYet
 
     static let empty = ArtifactDockModel(
         currentSessionTitle: "",
@@ -84,7 +86,7 @@ struct ArtifactDockView: View {
             }
             switch model.displayState {
             case .noCurrentSession, .empty:
-                EmptyState()
+                EmptyState(reason: model.emptyReason)
             case .missing, .unsupported, .viewing:
                 SectionedList(
                     selectedID: model.selectedArtifactID,
