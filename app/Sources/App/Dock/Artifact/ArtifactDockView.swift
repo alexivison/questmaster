@@ -169,10 +169,11 @@ private extension ArtifactScope {
 
 /// A pick-to-open row: artifact-item-v2.svg's 50pt row fitted to 40 (2026-10-22, the tracker worker plate's density),
 /// radius 5, in its `RowLook` (the fill only while highlighted). The icon tile 30 square at (10, 5), radius 5, with a
-/// 1pt border and the kind's glyph centred in it at 20 square (the design's 18, snapped to the 5 scale); the title 10
-/// past the tile; a 1pt divider through the row's middle from the tile to 40 short of the right edge; the title and the
-/// project and date sitting 4.5 off it on either side, the date ending on the divider's end. The 20pt gutters on either
-/// side hold the pane's margin; in select mode the left one holds the mark.
+/// 1pt border and the kind's glyph centred in it at 15 square, the old glyph's 14.4pt width (a 20pt box would reach the
+/// spacing probe's column inside the tile); the title 10 past the tile; a 1pt divider through the row's middle from the
+/// tile to 40 short of the right edge; the title and the project and date sitting 4.5 off it on either side, the date
+/// ending on the divider's end. The 20pt gutters on either side hold the pane's margin; in select mode the left one
+/// holds the mark.
 struct ArtifactRow: View {
     var artifact: ArtifactReference
     var projectTitle: String
@@ -189,7 +190,7 @@ struct ArtifactRow: View {
         static let gutter = Space.section
         static let tileOrigin = CGPoint(x: Space.item, y: Space.row)
         static let tileSide: CGFloat = 30
-        static let iconSide: CGFloat = 20
+        static let iconSide: CGFloat = 15
         static let textX = tileOrigin.x + tileSide + Space.item
         /// The text column ends as far from the right as the tile's far edge is from the left.
         static let trailingInset = tileOrigin.x + tileSide
