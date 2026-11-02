@@ -21,6 +21,7 @@ require (
 )
 
 retract (
+	// Republished after history cleanup; cached copies contain removed content.
 	[v0.3.44, v0.3.52]
 	// Republished after history cleanup; cached copies contain removed content.
 	v0.3.11
