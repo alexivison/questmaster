@@ -7,9 +7,10 @@ struct ArtifactWebView: NSViewRepresentable {
     var reloadNonce: Int = 0
     var decideNavigation: (URL?, Bool) -> ArtifactNavigationDecision
     var openExternal: (URL) -> Void
+    var onLoadingChange: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(decideNavigation: decideNavigation, openExternal: openExternal)
+        Coordinator(decideNavigation: decideNavigation, openExternal: openExternal, onLoadingChange: onLoadingChange)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -66,7 +67,8 @@ struct ArtifactWebView: NSViewRepresentable {
             in: webView,
             reloadNonce: reloadNonce,
             decideNavigation: decideNavigation,
-            openExternal: openExternal
+            openExternal: openExternal,
+            onLoadingChange: onLoadingChange
         )
     }
 
@@ -79,7 +81,9 @@ struct ArtifactWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate {
         var decideNavigation: (URL?, Bool) -> ArtifactNavigationDecision
         var openExternal: (URL) -> Void
+        var onLoadingChange: (Bool) -> Void
         var loadedPath: String?
+        private var activeNavigation: WKNavigation?
         private let watcher = ArtifactFileWatcher()
         private var pendingPath: String?
         private var pendingScrollY: Double?
@@ -89,10 +93,12 @@ struct ArtifactWebView: NSViewRepresentable {
 
         init(
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
-            openExternal: @escaping (URL) -> Void
+            openExternal: @escaping (URL) -> Void,
+            onLoadingChange: @escaping (Bool) -> Void
         ) {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
+            self.onLoadingChange = onLoadingChange
         }
 
         deinit {
@@ -104,14 +110,20 @@ struct ArtifactWebView: NSViewRepresentable {
             in webView: WKWebView,
             reloadNonce: Int,
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
-            openExternal: @escaping (URL) -> Void
+            openExternal: @escaping (URL) -> Void,
+            onLoadingChange: @escaping (Bool) -> Void
         ) {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
+            self.onLoadingChange = onLoadingChange
+            if pendingPath != artifact.path {
+                activeNavigation = nil
+            }
             pendingPath = artifact.path
 
             if reloadNonce != self.reloadNonce {
                 self.reloadNonce = reloadNonce
+                activeNavigation = nil
                 // Manual refresh: reload the current artifact even though its path
                 // is unchanged, preserving scroll like the file watcher does.
                 if contentRuleListReady, loadedPath == artifact.path {
@@ -129,6 +141,7 @@ struct ArtifactWebView: NSViewRepresentable {
             pendingPath = nil
             loadedPath = nil
             pendingScrollY = nil
+            activeNavigation = nil
         }
 
         private func installNetworkBlockerIfNeeded(on webView: WKWebView) {
@@ -218,16 +231,50 @@ struct ArtifactWebView: NSViewRepresentable {
             }
         }
 
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            activeNavigation = navigation
+            // This delegate can fire during updateNSView; defer the SwiftUI state change.
+            DispatchQueue.main.async { [weak self, weak navigation] in
+                guard let self, let navigation, self.activeNavigation === navigation else {
+                    return
+                }
+                self.onLoadingChange(true)
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard activeNavigation === navigation else {
+                return
+            }
             guard let scrollY = pendingScrollY else {
+                finishLoading(navigation)
                 return
             }
             pendingScrollY = nil
             let clampedScrollY = max(0, scrollY)
             guard clampedScrollY.isFinite else {
+                finishLoading(navigation)
                 return
             }
-            webView.evaluateJavaScript("window.scrollTo(0, \(clampedScrollY))") { _, _ in }
+            webView.evaluateJavaScript("window.scrollTo(0, \(clampedScrollY))") { [weak self] _, _ in
+                self?.finishLoading(navigation)
+            }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            finishLoading(navigation)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            finishLoading(navigation)
+        }
+
+        private func finishLoading(_ navigation: WKNavigation) {
+            guard activeNavigation === navigation else {
+                return
+            }
+            activeNavigation = nil
+            onLoadingChange(false)
         }
     }
 }
