@@ -41,6 +41,52 @@ enum TrackerAvatarDesign {
     static let flightArcHeight: CGFloat = 40
 }
 
+/// The two parts of a spell's art: what flies, and what bursts where it lands.
+enum TrackerSpellPart: String, CaseIterable {
+    case flight
+    case impact
+}
+
+/// A spell's art for one part of its flight, ready to draw: the frames, and how they play. A spell the file gives no frames keeps
+/// its one still, which has no track.
+struct TrackerSpellArt {
+    /// The art, a frame per step of `track`, or the lone still.
+    let frames: [CGImage]
+    /// How the frames play, from the class's file; nil for a still.
+    let track: TrackerAvatarTrack?
+    /// The point of the art, in sprite pixels from its top left, that rides the path: the middle of the file's anchor pixel (so a
+    /// mirror leaves that pixel where it is), else the frame's centre.
+    let anchor: CGPoint
+
+    /// Frames of a track are drawn facing right and mirrored on a flight that heads left. A still is drawn as it is.
+    var facesRight: Bool {
+        track != nil
+    }
+
+    /// How far the art reaches behind its anchor, facing right, in sprite pixels.
+    var trailPixels: CGFloat {
+        anchor.x
+    }
+}
+
+/// A track's frames as one discrete animation of a layer's contents.
+enum TrackerAvatarFramesAnimation {
+    /// Each frame shows from its step's start, over `duration`, once. The last key closes the cycle: a looping track's first frame,
+    /// so it joins up, and otherwise the last frame, which holds. A discrete keyframe holds each value only up to the next key, so
+    /// the closing frame gets a key of its own. A caller that cycles sets how long it repeats.
+    static func make(images: [CGImage], track: TrackerAvatarTrack, duration: TimeInterval, looping: Bool) -> CAKeyframeAnimation? {
+        guard images.count == track.steps.count, let first = images.first, let last = images.last else {
+            return nil
+        }
+        let frames = CAKeyframeAnimation(keyPath: "contents")
+        frames.values = images + [looping ? first : last]
+        frames.keyTimes = (track.starts + [duration]).map { NSNumber(value: $0 / duration) }
+        frames.calculationMode = .discrete
+        frames.duration = duration
+        return frames
+    }
+}
+
 /// Idle's layer art, split for its motion: the figure above and below the legs.
 final class TrackerAvatarArt {
     let width: Int
@@ -204,21 +250,32 @@ final class TrackerAvatarSprites {
         )
     }
 
-    /// A spell's flight panel, cropped to its pixels, and its impact panel. A class's spells are its own art.
-    func flight(for spell: TrackerSpellFlight.Spell) -> CGImage? {
-        image(named: "\(Self.spellStem(spell))-flight")
+    /// A spell's flight art and its impact art. A class's spells are its own art: the frames its file names for the part
+    /// (`S6-returning-wisp-flight-f<n>.png`), or the one still (`S6-returning-wisp-flight.png`). Nil while any of it is missing.
+    func flight(for spell: TrackerSpellFlight.Spell) -> TrackerSpellArt? {
+        let animation = animation.spell(spell)
+        return spellArt(spell, .flight, track: animation?.flight, anchor: animation?.anchor)
     }
 
-    func impact(for spell: TrackerSpellFlight.Spell) -> CGImage? {
-        image(named: "\(Self.spellStem(spell))-impact")
+    func impact(for spell: TrackerSpellFlight.Spell) -> TrackerSpellArt? {
+        spellArt(spell, .impact, track: animation.spell(spell)?.impact, anchor: nil)
     }
 
-    private static func spellStem(_ spell: TrackerSpellFlight.Spell) -> String {
-        switch spell {
-        case .orb: "S1-summoning-orb"
-        case .messenger: "S2-messenger"
-        case .wisp: "S6-returning-wisp"
+    /// One frame of a spell's part (`S6-returning-wisp-flight-f3`), or its still (`S6-returning-wisp-flight`) when `number` is nil.
+    /// Nil while its art is missing.
+    func spellFrame(_ spell: TrackerSpellFlight.Spell, _ part: TrackerSpellPart, _ number: Int? = nil) -> CGImage? {
+        let stem = "\(spell.resourceName)-\(part.rawValue)"
+        return image(named: number.map { "\(stem)-f\($0)" } ?? stem)
+    }
+
+    private func spellArt(_ spell: TrackerSpellFlight.Spell, _ part: TrackerSpellPart, track: TrackerAvatarTrack?, anchor: TrackerAvatarPixel?) -> TrackerSpellArt? {
+        let frames = track.map { track in track.steps.compactMap { spellFrame(spell, part, $0.frame) } } ?? spellFrame(spell, part).map { [$0] }
+        guard let frames, let first = frames.first, frames.count == (track?.steps.count ?? 1) else {
+            return nil
         }
+        let centre = CGPoint(x: CGFloat(first.width) / 2, y: CGFloat(first.height) / 2)
+        let pixelMiddle = anchor.map { CGPoint(x: CGFloat($0.x) + 0.5, y: CGFloat($0.y) + 0.5) }
+        return TrackerSpellArt(frames: frames, track: track, anchor: pixelMiddle ?? centre)
     }
 
     /// The PNG `name` in `directory` (this class's folder by default), decoded once; nil when it is missing.
@@ -616,19 +673,13 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
         addMove(TrackerAvatarMotion.steps(for: pose, in: placement), duration: block.seconds)
     }
 
-    /// Plays a track's frames as discrete keyframes over `duration`, each from its start. The last key holds the frame that closes the
-    /// cycle: a loop's first frame, so it joins up, and a one-shot's last. A discrete keyframe holds each value only up to the next key,
-    /// so the closing frame gets a key of its own.
+    /// Plays a track's frames as discrete keyframes over `duration` (`TrackerAvatarFramesAnimation`): a loop cycles, and a one-shot
+    /// plays once and holds its last frame.
     private func addFrames(of kind: TrackerAvatarLayer, track: TrackerAvatarTrack, duration: TimeInterval, looping: Bool) {
         let images = track.steps.compactMap { sprites.frame(pose, kind, $0.frame) }
-        guard images.count == track.steps.count, let first = images.first, let last = images.last else {
+        guard let frames = TrackerAvatarFramesAnimation.make(images: images, track: track, duration: duration, looping: looping) else {
             return
         }
-        let frames = CAKeyframeAnimation(keyPath: "contents")
-        frames.values = images + [looping ? first : last]
-        frames.keyTimes = (track.starts + [duration]).map { NSNumber(value: $0 / duration) }
-        frames.calculationMode = .discrete
-        frames.duration = duration
         frames.repeatCount = looping ? .infinity : 1
         layer(kind).add(frames, forKey: TrackerAvatarMotionKey.frames)
     }

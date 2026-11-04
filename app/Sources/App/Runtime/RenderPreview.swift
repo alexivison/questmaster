@@ -2244,7 +2244,8 @@ enum RenderPreview {
     }
 
     /// The tracker column's avatar under two placeholder plates and a master's, read from the stage. The spells fly in the window
-    /// (`TrackerFlightOverlay`), so this column draws none.
+    /// (`TrackerFlightOverlay`), so this column draws none: the recorder lays the overlay over it. The slot hands its view to the
+    /// stage's handle, which is where the spells leave from.
     private struct TrackerAvatarColumnPreview: View {
         let stage: TrackerAvatarStage
 
@@ -2253,7 +2254,7 @@ enum RenderPreview {
                 placeholderPlate(height: TrackerNameplateRole.master.canvasSize.height)
                 placeholderPlate(height: TrackerNameplateRole.worker.canvasSize.height)
                 placeholderPlate(height: TrackerNameplateRole.worker.canvasSize.height)
-                TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish, enter: stage.enter)
+                TrackerAvatarSlot(pose: stage.pose, sprites: stage.sprites, fidget: stage.fidgetFrame, beat: stage.beat, finish: stage.finish, enter: stage.enter, handle: stage.avatar)
             }
             .frame(width: TrackerAvatarMetrics.slotWidth, alignment: .topLeading)
             .frame(maxHeight: .infinity, alignment: .top)
@@ -2282,7 +2283,9 @@ enum RenderPreview {
     private static let firstDrawSeconds: TimeInterval = 0.05
 
     /// One avatar timeline, recorded at real speed from the stage: each step drives the stage at its offset from the start.
-    /// The column is recorded with its plates and spells, otherwise the slot alone. Only runs when RENDER_ONLY names it.
+    /// The column is recorded with its plates and its spells, flying over a stand-in for the Worker Log on its right (so a flight lands
+    /// on its left edge with its impact, as in the window), otherwise the slot alone. `AVATAR_CLASS` picks the class. Only runs when
+    /// RENDER_ONLY names it.
     @MainActor
     private static func recordTrackerAvatarTimeline(_ name: String, seconds: Double, column: Bool, steps: [(Double, (TrackerAvatarStage) -> Void)], to dir: String) {
         guard ProcessInfo.processInfo.environment["RENDER_ONLY"]?.split(separator: ",").contains(Substring(name)) == true else {
@@ -2291,15 +2294,27 @@ enum RenderPreview {
         let stage = TrackerAvatarStage()
         // The capture is the container's own bounds, so the room under the slot keeps a circle that hangs below its feet.
         let size = column
-            ? CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.previewColumnHeight + AvatarPreviewMetrics.overhangRoom)
+            ? CGSize(width: TrackerAvatarMetrics.slotWidth + AvatarPreviewMetrics.flightRoom, height: TrackerAvatarMetrics.previewColumnHeight + AvatarPreviewMetrics.overhangRoom)
             : CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight + AvatarPreviewMetrics.overhangRoom)
         let host = column
             ? NSHostingView(rootView: TrackerAvatarColumnPreview(stage: stage))
             : NSHostingView(rootView: TrackerAvatarSlotPreview(stage: stage))
         let container = NSView(frame: NSRect(origin: .zero, size: size))
-        host.frame = container.bounds
-        host.autoresizingMask = [.width, .height]
+        host.frame = NSRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: size.height)
+        host.autoresizingMask = [.height]
         container.addSubview(host)
+        if column {
+            container.wantsLayer = true
+            container.layer?.backgroundColor = AppPalette.window.cgColor
+            let panel = NSView(frame: NSRect(x: size.width - AvatarPreviewMetrics.panelWidth, y: 0, width: AvatarPreviewMetrics.panelWidth, height: size.height))
+            panel.wantsLayer = true
+            panel.layer?.backgroundColor = AppPalette.line.cgColor
+            container.addSubview(panel)
+            let overlay = TrackerFlightOverlay(avatar: stage.avatar, sprites: { stage.sprites }, workerLogFrame: { panel.frame })
+            overlay.frame = container.bounds
+            container.addSubview(overlay)
+            stage.onLaunch = { [weak overlay] in overlay?.fly($0) }
+        }
         recordAnimation(name, root: container, size: size, crop: CGRect(origin: .zero, size: size), duration: seconds, capturesLayers: true, to: dir) {
             // The first pose lands before the first frame, and a turn of the run loop lets the tracker draw it, so frame 0 shows
             // the rig and not an empty slot. The later steps run on their timers.
@@ -2443,6 +2458,9 @@ enum RenderPreview {
     private enum AvatarPreviewMetrics {
         /// Room under the slot in the recordings: the rune circle hangs about 23 pt below the baseline.
         static let overhangRoom: CGFloat = 30
+        /// The room right of the tracker column in a column recording, for the spells to fly across to a stand-in Worker Log panel.
+        static let flightRoom: CGFloat = 400
+        static let panelWidth: CGFloat = 100
         static let markerSide: CGFloat = 4
         static let shellStandIn: CGFloat = 43
         static let outlineWidth: CGFloat = 1

@@ -12,13 +12,22 @@ public enum TrackerAvatarTiming {
 
 /// A spell's path across the tracker column. The spell's art is in its class's folder, `Resources/Sprites/<class>/`.
 public struct TrackerSpellFlight: Equatable {
-    public enum Spell: Equatable {
+    public enum Spell: Hashable, CaseIterable, Sendable {
         /// The summoning orb (`S1`), from the avatar to a new worker's plate.
         case orb
         /// The messenger (`S2`), from the avatar to a worker's plate.
         case messenger
         /// The returning wisp (`S6`), from a worker's plate to the avatar.
         case wisp
+
+        /// The art's file stem in a class's folder, and the spell's key in `animation.json`: `S6-returning-wisp-flight.png`.
+        public var resourceName: String {
+            switch self {
+            case .orb: "S1-summoning-orb"
+            case .messenger: "S2-messenger"
+            case .wisp: "S6-returning-wisp"
+            }
+        }
     }
 
     public enum End: Equatable {

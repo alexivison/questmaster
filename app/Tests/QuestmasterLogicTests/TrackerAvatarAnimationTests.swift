@@ -25,6 +25,8 @@ struct TrackerAvatarAnimationTests {
         aFinishNeedsALoopAndACharacterTrack()
         aStrikeFrameReadsFromAReleaseOrACatch()
         aStrikeFrameNeedsAStrikingPoseAndAFrameOfItsCharacterTrack()
+        aSpellMayGiveItsFlightAndImpactFrames()
+        aSpellNeedsAKnownNameGoodTracksAndAnAnchorOnAFlight()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
         aCatalogShowsEachClassWithArtAndNoOthers()
@@ -350,6 +352,63 @@ struct TrackerAvatarAnimationTests {
             _ = try AvatarAnimationFixture.bard(editing: "08-release") { pose in
                 pose["strike_frame"] = 0
             }
+        }
+    }
+
+    private static func withSpells(_ spells: [String: Any]) throws -> TrackerAvatarAnimation {
+        var json = bardJSON()
+        json["spells"] = spells
+        return try decode(json)
+    }
+
+    /// A spell's flight and impact each take a track in the poses' own `[frame, seconds]` form, and an anchor beside the flight. Each
+    /// part is optional: a part with no track keeps its still, and a file with no `spells` key (the bard's) names none.
+    private static func aSpellMayGiveItsFlightAndImpactFrames() {
+        guard let animation = try? withSpells([
+            "S6-returning-wisp": [
+                "flight": [[1, 0.1], [2, 0.1], [3, 0.2]],
+                "impact": [[1, 0.1], [2, 0.1]],
+                "anchor": ["x": 30, "y": 7],
+            ],
+            "S2-messenger": ["impact": [[1, 0.25]]],
+        ]) else {
+            fail("a file with animated spells should decode")
+        }
+        let wisp = animation.spell(.wisp)
+        expect(wisp?.flight?.steps == [TrackerAvatarStep(frame: 1, seconds: 0.1), TrackerAvatarStep(frame: 2, seconds: 0.1), TrackerAvatarStep(frame: 3, seconds: 0.2)],
+               "the wisp's flight should cycle its three frames")
+        expect(wisp?.impact?.steps.map(\.frame) == [1, 2], "the wisp's impact should play its two frames")
+        expect(wisp?.anchor == TrackerAvatarPixel(x: 30, y: 7), "the wisp should carry its anchor")
+        let messenger = animation.spell(.messenger)
+        expect(messenger?.flight == nil && messenger?.anchor == nil && messenger?.impact?.seconds == 0.25,
+               "a spell may name only its impact, keeping its flight still")
+        expect(animation.spell(.orb) == nil, "a spell the file doesn't name should keep its stills")
+        expect(TrackerSpellFlight.Spell.allCases.map(\.resourceName) == ["S1-summoning-orb", "S2-messenger", "S6-returning-wisp"],
+               "the spells' keys and file stems should be their resource names")
+        expect(TrackerSpellFlight.Spell.allCases.allSatisfy { AvatarAnimationFixture.bard().spell($0) == nil },
+               "the bard's file names no spells, so he draws all three as stills")
+    }
+
+    /// A spell is named as its art is (`S6-returning-wisp`), its tracks are checked like any track, and an anchor belongs to a flight's
+    /// frames and sits on the art's own pixels: no negative coordinate.
+    private static func aSpellNeedsAKnownNameGoodTracksAndAnAnchorOnAFlight() {
+        expectThrows(TrackerAvatarAnimationError.unknownSpell("S9-comet"), "a spell the app doesn't have") {
+            _ = try withSpells(["S9-comet": ["flight": [[1, 0.1]]]])
+        }
+        expectThrows(TrackerAvatarAnimationError.invalidTrack("S6-returning-wisp flight"), "a flight with no steps") {
+            _ = try withSpells(["S6-returning-wisp": ["flight": [Any]()]])
+        }
+        expectThrows(TrackerAvatarAnimationError.invalidTrack("S6-returning-wisp flight"), "a flight step shown for no time") {
+            _ = try withSpells(["S6-returning-wisp": ["flight": [[1, 0]]]])
+        }
+        expectThrows(TrackerAvatarAnimationError.invalidTrack("S2-messenger impact"), "an impact step on frame 0") {
+            _ = try withSpells(["S2-messenger": ["impact": [[0, 0.1]]]])
+        }
+        expectThrows(TrackerAvatarAnimationError.invalidAnchor("S6-returning-wisp"), "an anchor on a spell with no flight frames") {
+            _ = try withSpells(["S6-returning-wisp": ["impact": [[1, 0.1]], "anchor": ["x": 3, "y": 3]]])
+        }
+        expectThrows(TrackerAvatarAnimationError.invalidAnchor("S6-returning-wisp"), "an anchor with a negative coordinate") {
+            _ = try withSpells(["S6-returning-wisp": ["flight": [[1, 0.1]], "anchor": ["x": -1, "y": 3]]])
         }
     }
 

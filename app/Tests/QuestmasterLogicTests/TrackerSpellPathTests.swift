@@ -7,6 +7,8 @@ struct TrackerSpellPathTests {
         handOutsideThePanelsHeightClampsIntoIt()
         panelHiddenFliesOffTheRightEdgeAtTheHandsHeight()
         everyWorkerMeetsTheSameSpot()
+        aFlightHeadsLeftOnlyWhenItReturnsToTheAvatar()
+        aFlightLeavingTheWindowClearsItsTrail()
         print("TrackerSpellPathTests: all tests passed")
     }
 
@@ -63,6 +65,32 @@ struct TrackerSpellPathTests {
             for: TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-3")), hand: hand, workerLog: workerLog, window: window
         )
         expect(first == second, "two workers should meet the same spot, got \(first) and \(second)")
+    }
+
+    /// Frames are drawn facing right and mirrored on a flight that heads left, so the facing follows the route's direction, whether the
+    /// Worker Log shows or the flight runs off the window's edge.
+    private static func aFlightHeadsLeftOnlyWhenItReturnsToTheAvatar() {
+        for log in [workerLog, nil] {
+            let shown = log == nil ? "with no Worker Log" : "with a Worker Log"
+            let out = TrackerSpellPath.route(for: outgoing, hand: hand, workerLog: log, window: window)
+            expect(!out.headsLeft, "a flight leaving the avatar should head right \(shown)")
+            let back = TrackerSpellPath.route(for: returning, hand: hand, workerLog: log, window: window)
+            expect(back.headsLeft, "a wisp returning to the avatar should head left \(shown)")
+        }
+    }
+
+    /// The art's trail reaches back from the point that rides the path, so a flight that leaves the window runs far enough past its edge
+    /// that the trail is out of view too, and never less than the usual overshoot. The returning wisp starts from that same spot.
+    private static func aFlightLeavingTheWindowClearsItsTrail() {
+        let trail = TrackerSpellPath.offscreenOvershoot * 2
+        let out = TrackerSpellPath.route(for: outgoing, hand: hand, workerLog: nil, window: window, trail: trail)
+        expect(out.to == TrackerSpellPoint(x: window.maxX + trail, y: 300), "a long trail should run past the edge by its length, got \(out)")
+        let back = TrackerSpellPath.route(for: returning, hand: hand, workerLog: nil, window: window, trail: trail)
+        expect(back.from == out.to, "the wisp should start where the flights leave, got \(back)")
+        let short = TrackerSpellPath.route(for: outgoing, hand: hand, workerLog: nil, window: window, trail: 5)
+        expect(short.to.x == window.maxX + TrackerSpellPath.offscreenOvershoot, "a short trail should keep the usual overshoot, got \(short)")
+        let landing = TrackerSpellPath.route(for: outgoing, hand: hand, workerLog: workerLog, window: window, trail: trail)
+        expect(landing.to == TrackerSpellPoint(x: 900, y: 300), "a trail should not move a flight that lands on the Worker Log, got \(landing)")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

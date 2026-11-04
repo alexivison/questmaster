@@ -11,8 +11,10 @@ final class TrackerAvatarHandle {
 /// The spells' flights, drawn over the whole window: above the tracker, the terminal and the dock. The overlay takes no clicks and
 /// never becomes the first responder, so the keys stay where they were. A flight leaves the avatar's hand and lands on the Worker
 /// Log's left edge, or leaves the window's right edge when no Worker Log shows; a returning wisp runs back the other way
-/// (`TrackerSpellPath`, Core). Each flight is one Core Animation position animation, and its impact frame lingers and fades where
-/// the flight lands on screen.
+/// (`TrackerSpellPath`, Core). Each flight is one Core Animation position animation. A spell with frames also cycles them while it
+/// flies, drawn facing right with its anchor on the path and mirrored on a flight that heads left, so its head leads on every path;
+/// its impact plays its frames once where the flight lands on screen, then goes. A spell with stills keeps its one flight still, and
+/// its impact still lingers and fades.
 @MainActor
 final class TrackerFlightOverlay: NSView {
     private typealias Design = TrackerAvatarDesign
@@ -46,13 +48,14 @@ final class TrackerFlightOverlay: NSView {
     /// Flies one spell along its route, starting now. Nothing flies under Reduce Motion, nor while the avatar has no sprites or no
     /// view on screen.
     func fly(_ flight: TrackerSpellFlight) {
-        guard !Motion.reducesMotion(), let route = route(for: flight), let sprites = sprites(),
-              let art = sprites.flight(for: flight.spell), let impact = sprites.impact(for: flight.spell) else {
+        guard !Motion.reducesMotion(), let sprites = sprites(), let art = sprites.flight(for: flight.spell),
+              let impact = sprites.impact(for: flight.spell),
+              let route = route(for: flight, trail: Double(art.trailPixels * Design.pixelPoints)) else {
             return
         }
         let start = layerPoint(route.from)
         let end = layerPoint(route.to)
-        let spell = spriteLayer(art)
+        let spell = flightLayer(art, headsLeft: route.headsLeft)
         spell.position = end
         layer?.addSublayer(spell)
         let move = CAKeyframeAnimation(keyPath: "position")
@@ -60,6 +63,12 @@ final class TrackerFlightOverlay: NSView {
         move.keyTimes = (0...Self.flightSampleCount).map { NSNumber(value: Double($0) / Double(Self.flightSampleCount)) }
         move.calculationMode = .linear
         move.duration = Motion.duration(.flight)
+        if let track = art.track,
+           let frames = TrackerAvatarFramesAnimation.make(images: art.frames, track: track, duration: track.seconds, looping: true) {
+            // The frames cycle for the flight and no longer, so nothing keeps running once the spell lands.
+            frames.repeatDuration = move.duration
+            spell.add(frames, forKey: MotionKey.frames)
+        }
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             spell.removeFromSuperlayer()
@@ -72,7 +81,7 @@ final class TrackerFlightOverlay: NSView {
     }
 
     /// The flight's route in the window's top-left coordinates, which Core works in. Nil while the avatar isn't on screen to measure.
-    private func route(for flight: TrackerSpellFlight) -> TrackerSpellPath.Route? {
+    private func route(for flight: TrackerSpellFlight, trail: Double) -> TrackerSpellPath.Route? {
         guard let sprites = sprites(), let avatarView = avatar.view, avatarView.window != nil else {
             return nil
         }
@@ -86,12 +95,40 @@ final class TrackerFlightOverlay: NSView {
             for: flight,
             hand: TrackerSpellPoint(x: Double(hand.x), y: Double(hand.y)),
             workerLog: workerLog,
-            window: shellRect(CGRect(origin: .zero, size: bounds.size))
+            window: shellRect(CGRect(origin: .zero, size: bounds.size)),
+            trail: trail
         )
     }
 
-    /// The impact frame holds for a flight's time, then fades over a fast step, and is removed.
-    private func showImpact(_ image: CGImage, at point: CGPoint) {
+    /// A spell's impact where it lands: its frames play once, or its still lingers and fades.
+    private func showImpact(_ art: TrackerSpellArt, at point: CGPoint) {
+        if let track = art.track {
+            playImpact(art, track: track, at: point)
+        } else {
+            lingerImpact(art.frames[0], at: point)
+        }
+    }
+
+    /// The impact's frames play once from the landing, and the layer goes when the last one has shown. It rests on that last frame
+    /// meanwhile, so nothing flashes back to the first.
+    private func playImpact(_ art: TrackerSpellArt, track: TrackerAvatarTrack, at point: CGPoint) {
+        guard let frames = TrackerAvatarFramesAnimation.make(images: art.frames, track: track, duration: track.seconds, looping: false) else {
+            return
+        }
+        let impact = spriteLayer(art.frames[0])
+        impact.contents = art.frames.last
+        impact.position = point
+        layer?.addSublayer(impact)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
+            impact.removeFromSuperlayer()
+        }
+        impact.add(frames, forKey: MotionKey.impact)
+        CATransaction.commit()
+    }
+
+    /// The impact still holds for a flight's time, then fades over a fast step, and is removed.
+    private func lingerImpact(_ image: CGImage, at point: CGPoint) {
         let hold = Motion.duration(.flight)
         let total = hold + Motion.duration(.fast)
         let impact = spriteLayer(image)
@@ -124,6 +161,23 @@ final class TrackerFlightOverlay: NSView {
         }
     }
 
+    /// The layer a flight's art rides. A spell with frames is drawn facing right with its anchor on the layer's position, so the head
+    /// lands on the target, and a flight that heads left mirrors it about that anchor: the head leads and the trail follows on
+    /// every path. A still is drawn as it is, centred.
+    private func flightLayer(_ art: TrackerSpellArt, headsLeft: Bool) -> CALayer {
+        let spell = spriteLayer(art.frames[0])
+        guard art.facesRight else {
+            return spell
+        }
+        let first = art.frames[0]
+        // A layer's y runs up, a sprite's down.
+        spell.anchorPoint = CGPoint(x: art.anchor.x / CGFloat(first.width), y: 1 - art.anchor.y / CGFloat(first.height))
+        if headsLeft {
+            spell.transform = CATransform3DMakeScale(-1, 1, 1)
+        }
+        return spell
+    }
+
     /// A layer showing `image` at one point a pixel, nearest-neighbour, centred on its position.
     private func spriteLayer(_ image: CGImage) -> CALayer {
         let pixel = Design.pixelPoints
@@ -152,6 +206,7 @@ final class TrackerFlightOverlay: NSView {
 
     private enum MotionKey {
         static let flight = "spell-flight"
+        static let frames = "spell-frames"
         static let impact = "spell-impact"
     }
 }

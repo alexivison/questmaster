@@ -29,12 +29,22 @@ public enum TrackerSpellPath {
             self.to = to
             self.impactsAtEnd = impactsAtEnd
         }
+
+        /// Whether the flight travels leftward, as a returning wisp does. A class draws a flight's frames facing right, so the overlay
+        /// mirrors them on a flight that heads left, and the head leads either way.
+        public var headsLeft: Bool {
+            to.x < from.x
+        }
     }
 
     /// The route of one flight. A flight from the avatar's hand lands on the Worker Log's left edge, or off the window's right edge
     /// when no Worker Log shows. A returning flight starts at that same point and lands on the hand, which is always on screen.
-    public static func route(for flight: TrackerSpellFlight, hand: TrackerSpellPoint, workerLog: ShellSplitRect?, window: ShellSplitRect) -> Route {
-        let edge = edge(hand: hand, workerLog: workerLog, window: window)
+    /// `trail` is how far the flying art reaches behind the point that rides the path, in points: a flight that leaves the window
+    /// ends far enough past its edge that the trail is out of view too.
+    public static func route(
+        for flight: TrackerSpellFlight, hand: TrackerSpellPoint, workerLog: ShellSplitRect?, window: ShellSplitRect, trail: Double = 0
+    ) -> Route {
+        let edge = edge(hand: hand, workerLog: workerLog, window: window, trail: trail)
         switch flight.from {
         case .avatar:
             return Route(from: hand, to: edge, impactsAtEnd: workerLog != nil)
@@ -45,9 +55,9 @@ public enum TrackerSpellPath {
 
     /// The point the flights meet: the Worker Log's left edge, level with the hand and clamped into the panel's height, or the point
     /// just off the window's right edge at the hand's height when no Worker Log shows. Every worker's flights meet it.
-    static func edge(hand: TrackerSpellPoint, workerLog: ShellSplitRect?, window: ShellSplitRect) -> TrackerSpellPoint {
+    static func edge(hand: TrackerSpellPoint, workerLog: ShellSplitRect?, window: ShellSplitRect, trail: Double = 0) -> TrackerSpellPoint {
         guard let workerLog else {
-            return TrackerSpellPoint(x: window.maxX + offscreenOvershoot, y: hand.y)
+            return TrackerSpellPoint(x: window.maxX + max(offscreenOvershoot, trail), y: hand.y)
         }
         return TrackerSpellPoint(x: workerLog.x, y: min(max(hand.y, workerLog.y), workerLog.maxY))
     }

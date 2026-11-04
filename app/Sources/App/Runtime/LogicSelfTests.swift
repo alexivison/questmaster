@@ -48,6 +48,8 @@ enum LogicSelfTests {
         ("testAReleaseMovesOnItsNamedStrikeFrame", testAReleaseMovesOnItsNamedStrikeFrame),
         ("testTheStageLaunchesEachSpellFromItsPayloads", testTheStageLaunchesEachSpellFromItsPayloads),
         ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
+        ("testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce", testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce),
+        ("testASpellFrameWithoutArtIsMissing", testASpellFrameWithoutArtIsMissing),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
@@ -1264,6 +1266,127 @@ enum LogicSelfTests {
         Motion.reducesMotion = { false }
     }
 
+    /// The synthetic class's spells: the wisp has a 3-frame flight with its head anchored at the right and a 2-frame impact, the
+    /// messenger has a 2-frame flight with no anchor and a still impact, and the orb keeps both stills.
+    @MainActor
+    private static func syntheticSpellSprites(in folder: URL) throws -> TrackerAvatarSprites {
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class's animation.json should read")
+        }
+        return sprites
+    }
+
+    /// A spell with frames cycles its flight while it flies, drawn facing right with its anchor on the path: it is mirrored about that
+    /// anchor on a flight that heads left (the returning wisp), so the head leads on every path, and not on one that heads right. The
+    /// frames run for the flight and no longer. The impact plays its frames once where the flight lands, and goes. A spell with
+    /// stills is drawn as it was: centred, never mirrored, with no frames. Under Reduce Motion nothing flies.
+    @MainActor
+    private static func testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let sprites = try syntheticSpellSprites(in: folder)
+        guard let wispFlight = sprites.flight(for: .wisp), let wispImpact = sprites.impact(for: .wisp),
+              let messengerFlight = sprites.flight(for: .messenger), let orbFlight = sprites.flight(for: .orb) else {
+            throw TestFailure("the synthetic spells should have their art")
+        }
+        try expect(wispFlight.frames.count == 3 && wispFlight.track?.seconds == 0.4 && wispFlight.anchor == CGPoint(x: 7.5, y: 2.5),
+                   "the wisp should fly three frames on its anchor's pixel, got \(wispFlight.frames.count) frames at \(wispFlight.anchor)")
+        try expect(wispImpact.frames.count == 2 && wispImpact.anchor == CGPoint(x: 3, y: 3), "the wisp's impact should play two frames, centred")
+        try expect(messengerFlight.frames.count == 2 && messengerFlight.anchor == CGPoint(x: 3, y: 2), "an unanchored flight should be anchored at its centre")
+        try expect(orbFlight.track == nil && !orbFlight.facesRight && orbFlight.anchor == CGPoint(x: 2, y: 2), "a still should have no frames and no facing")
+
+        let size = CGSize(width: 800, height: 500)
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        let avatarView = TrackerAvatarView(frame: NSRect(x: 40, y: 40, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        root.addSubview(avatarView)
+        let handle = TrackerAvatarHandle()
+        handle.view = avatarView
+        let panel = NSRect(x: 560, y: 0, width: 240, height: size.height)
+        let overlay = TrackerFlightOverlay(avatar: handle, sprites: { sprites }, workerLogFrame: { panel })
+        overlay.frame = root.bounds
+        overlay.autoresizingMask = [.width, .height]
+        root.addSubview(overlay)
+        let window = HeadlessWindow(size: size)
+        window.contentView = root
+        window.show()
+        Motion.reducesMotion = { false }
+
+        func flown(_ flight: TrackerSpellFlight) throws -> CALayer {
+            let before = overlay.layer?.sublayers?.count ?? 0
+            overlay.fly(flight)
+            guard let layers = overlay.layer?.sublayers, layers.count == before + 1, let spell = layers.last else {
+                throw TestFailure("\(flight.spell) should fly")
+            }
+            return spell
+        }
+        let wisp = try flown(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar))
+        guard let move = wisp.animation(forKey: "spell-flight") as? CAKeyframeAnimation,
+              let cycle = wisp.animation(forKey: "spell-frames") as? CAKeyframeAnimation else {
+            throw TestFailure("the wisp should move along its path and cycle its frames")
+        }
+        try expect(wisp.transform.m11 == -1, "the wisp heads left, so it should be mirrored, got m11 \(wisp.transform.m11)")
+        try expect(abs(wisp.anchorPoint.x - 7.5 / 8) < 1e-9 && abs(wisp.anchorPoint.y - (1 - 2.5 / 4)) < 1e-9,
+                   "the wisp's anchor should ride the path: the middle of its head pixel (column 7, row 2), got \(wisp.anchorPoint)")
+        // Mirrored about its anchor: the head pixel stays on the path point and the trail, drawn to the left, streams out to the right.
+        let pixel = TrackerAvatarDesign.pixelPoints
+        try expect(abs(wisp.frame.minX - (wisp.position.x - 0.5 * pixel)) < 1e-9 && abs(wisp.frame.maxX - (wisp.position.x + 7.5 * pixel)) < 1e-9,
+                   "a wisp heading left should trail to the right of its head, got \(wisp.frame) at \(wisp.position)")
+        try expect(cycle.calculationMode == .discrete && cycle.values?.count == 4 && cycle.duration == 0.4,
+                   "the wisp should cycle its three frames with a closing key, as discrete keyframes over its track")
+        try expect(cycle.repeatCount == 0 && abs(cycle.repeatDuration - move.duration) < 1e-9,
+                   "the frames should repeat for the flight and no longer, not forever: \(cycle.repeatCount), \(cycle.repeatDuration)")
+        let messenger = try flown(TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-2")))
+        try expect(messenger.transform.m11 == 1 && messenger.animation(forKey: "spell-frames") != nil,
+                   "a flight that heads right should cycle its frames unmirrored")
+        try expect(abs(messenger.frame.minX - (messenger.position.x - 3 * pixel)) < 1e-9,
+                   "a flight that heads right should keep its trail to the left, got \(messenger.frame) at \(messenger.position)")
+        try expect(abs(messenger.anchorPoint.x - 0.5) < 1e-9 && abs(messenger.anchorPoint.y - 0.5) < 1e-9, "an unanchored flight should ride on its centre")
+        let orb = try flown(TrackerSpellFlight(spell: .orb, from: .worker("qm-2"), to: .avatar))
+        try expect(orb.transform.m11 == 1 && orb.animation(forKey: "spell-frames") == nil && orb.anchorPoint == CGPoint(x: 0.5, y: 0.5),
+                   "a still should be drawn as it was even on a flight that heads left: no frames, no mirror, centred")
+
+        let count = overlay.layer?.sublayers?.count ?? 0
+        Motion.reducesMotion = { true }
+        overlay.fly(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar))
+        Motion.reducesMotion = { false }
+        try expect((overlay.layer?.sublayers?.count ?? 0) == count, "under Reduce Motion nothing should fly")
+
+        // Land the wisp alone: its flight layer goes, its impact plays its two frames once, and then nothing is left.
+        let lone = TrackerFlightOverlay(avatar: handle, sprites: { sprites }, workerLogFrame: { panel })
+        lone.frame = root.bounds
+        root.addSubview(lone)
+        lone.fly(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar))
+        RunLoop.current.run(until: Date().addingTimeInterval(Motion.duration(.flight) + 0.15))
+        guard let impact = lone.layer?.sublayers?.first, lone.layer?.sublayers?.count == 1,
+              let burst = impact.animation(forKey: "spell-impact") as? CAKeyframeAnimation else {
+            throw TestFailure("a wisp that has landed should leave only its impact, playing, got \(lone.layer?.sublayers?.count ?? -1) layers")
+        }
+        try expect(burst.values?.count == 3 && burst.calculationMode == .discrete && burst.repeatCount == 0 && burst.repeatDuration == 0 && burst.duration == 0.2,
+                   "the impact should play its two frames once, over its track's 0.2 s, with the last key holding the final frame")
+        try expect(impact.transform.m11 == 1, "the impact is a burst, not mirrored")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2 + 0.3))
+        try expect((lone.layer?.sublayers ?? []).isEmpty, "the impact should go when its frames have played, so nothing keeps running after a spell lands")
+    }
+
+    /// A frame a spell's file plays that has no art is missing, as a pose's is: the spell can't be drawn, and the check names it.
+    @MainActor
+    private static func testASpellFrameWithoutArtIsMissing() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let complete = try syntheticSpellSprites(in: folder)
+        try expect(complete.animation.spell(.wisp)?.flight?.steps.count == 3, "the synthetic wisp should fly three frames")
+        let spellMissing = missingFrames(of: complete).filter { $0.hasPrefix("S") }
+        try expect(spellMissing.isEmpty, "the synthetic spells should have all their art, missing: \(spellMissing)")
+        try FileManager.default.removeItem(at: folder.appendingPathComponent("S6-returning-wisp-flight-f2.png"))
+        try FileManager.default.removeItem(at: folder.appendingPathComponent("S1-summoning-orb-impact.png"))
+        let damaged = try syntheticSpellSprites(in: folder)
+        try expect(damaged.flight(for: .wisp) == nil, "a wisp missing a flight frame should have no flight art")
+        try expect(damaged.impact(for: .orb) == nil, "an orb missing its impact still should have no impact art")
+        let missing = missingFrames(of: damaged).filter { $0.hasPrefix("S") }
+        try expect(missing == ["S1-summoning-orb impact still", "S6-returning-wisp flight f2"],
+                   "the check should name each spell frame without art, got \(missing)")
+    }
+
     /// The stage reads each payload's spawn, message and report, and launches the spell each one flies, in order. Its clock is the
     /// test's own, so the spawn's summoning has time to show before the orb leaves.
     @MainActor
@@ -1450,7 +1573,7 @@ enum LogicSelfTests {
         try expect(TrackerAvatarMetrics.slotHeight == 175, "the slot should reserve the tallest figure rounded up to 5, got \(TrackerAvatarMetrics.slotHeight)")
     }
 
-    /// The frames a class's file plays that have no art, as `pose layer fN` names.
+    /// The frames a class's file plays that have no art, as `pose layer fN` names, and the spells' frames and stills.
     @MainActor
     private static func missingFrames(of sprites: TrackerAvatarSprites) -> [String] {
         var missing: [String] = []
@@ -1463,6 +1586,16 @@ enum LogicSelfTests {
                     for step in block.track(for: layer)?.steps ?? [] where sprites.frame(pose, layer, step.frame) == nil {
                         missing.append("\(pose.resourceName) \(layer.rawValue) f\(step.frame)")
                     }
+                }
+            }
+        }
+        for spell in TrackerSpellFlight.Spell.allCases {
+            let animation = sprites.animation.spell(spell)
+            for part in TrackerSpellPart.allCases {
+                let track = part == .flight ? animation?.flight : animation?.impact
+                // A part with a track plays one frame per step; one without keeps its still.
+                for number in track?.steps.map(\.frame) ?? [nil] where sprites.spellFrame(spell, part, number) == nil {
+                    missing.append("\(spell.resourceName) \(part.rawValue) \(number.map { "f\($0)" } ?? "still")")
                 }
             }
         }
@@ -1504,6 +1637,14 @@ enum LogicSelfTests {
         release["strike_frame"] = 3
         poses["08-release"] = release
         json["poses"] = poses
+        json["spells"] = [
+            "S6-returning-wisp": [
+                "flight": [[1, 0.1], [2, 0.1], [3, 0.2]],
+                "impact": [[1, 0.1], [2, 0.1]],
+                "anchor": ["x": 7, "y": 2],
+            ],
+            "S2-messenger": ["flight": [[1, 0.1], [2, 0.1]]],
+        ]
         try JSONSerialization.data(withJSONObject: json).write(to: folder.appendingPathComponent("animation.json"))
         for number in 1...3 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("09-summoning-f\(number).png"))
@@ -1514,6 +1655,18 @@ enum LogicSelfTests {
         try writeSolidFrame(0.3, to: folder.appendingPathComponent("11-calling-out-f3.png"))
         for number in 1...4 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("08-release-f\(number).png"))
+        }
+        // The spells' art, each canvas its own size: the wisp's flight 8 by 4 and its impact 6 by 6, the messenger's flight 6 by 4, and
+        // the stills 4 by 4.
+        for number in 1...3 {
+            try writeSolidFrame(Double(number) / 10, width: 8, height: 4, to: folder.appendingPathComponent("S6-returning-wisp-flight-f\(number).png"))
+        }
+        for number in 1...2 {
+            try writeSolidFrame(Double(number) / 10, width: 6, height: 6, to: folder.appendingPathComponent("S6-returning-wisp-impact-f\(number).png"))
+            try writeSolidFrame(Double(number) / 10, width: 6, height: 4, to: folder.appendingPathComponent("S2-messenger-flight-f\(number).png"))
+        }
+        for still in ["S2-messenger-impact", "S1-summoning-orb-flight", "S1-summoning-orb-impact"] {
+            try writeSolidFrame(0.5, width: 4, height: 4, to: folder.appendingPathComponent("\(still).png"))
         }
         for number in 1...8 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("11-calling-out-front-f\(number).png"))
@@ -1529,15 +1682,15 @@ enum LogicSelfTests {
         return url
     }
 
-    private static func writeSolidFrame(_ red: CGFloat, to url: URL) throws {
+    private static func writeSolidFrame(_ red: CGFloat, width: Int = 2, height: Int = 2, to url: URL) throws {
         guard let context = CGContext(
-            data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else {
             throw TestFailure("a test frame should be drawable")
         }
         context.setFillColor(CGColor(red: red, green: 0, blue: 0, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         guard let image = context.makeImage(),
               let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
             throw TestFailure("a test frame should be made")
