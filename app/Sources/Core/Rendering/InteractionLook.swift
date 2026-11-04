@@ -265,3 +265,28 @@ public struct PointerCursor: Equatable, Sendable {
         return .cancelQueued
     }
 }
+
+/// The Projects list's rows (settings-projects-mock.png). At rest a row has no fill. The cursor row is filled and
+/// outlined in `controlBorder`, as the design draws it; arrange mode fills every row, the cursor's outlined too.
+extension RowLook {
+    public static let projectRest = RowLook(fill: nil, outline: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
+
+    public static let projectCursor = RowLook(
+        fill: .item, outline: .controlBorder, text: .textSelected, meta: .textMetaHighlighted, icon: .textSelected, iconBorder: .controlBorder, bold: false
+    )
+
+    public static let projectArranged = RowLook(fill: .item, outline: nil, text: .textBody, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
+
+    public static func project(highlighted: Bool, arranging: Bool) -> RowLook {
+        switch (arranging, highlighted) {
+        case (true, true):
+            return projectCursor
+        case (true, false):
+            return projectArranged
+        case (false, true):
+            return projectCursor
+        case (false, false):
+            return projectRest
+        }
+    }
+}

@@ -892,7 +892,8 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsPresenter.present(
             mutationClient: mutationClient,
             modelClient: modelSuggestionClient,
-            effortClient: reasoningEffortSuggestionClient
+            effortClient: reasoningEffortSuggestionClient,
+            runtime: runtimeStore
         )
     }
 

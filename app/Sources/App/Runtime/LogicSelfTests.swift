@@ -1670,7 +1670,8 @@ enum LogicSelfTests {
             presentation: SettingsSheetPresentation(
                 mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
                 modelClient: StubModelClient(deferCompletions: true),
-                effortClient: StubReasoningEffortClient()
+                effortClient: StubReasoningEffortClient(),
+                runtime: RuntimeStore(sourceLabel: "test")
             ),
             dismiss: {}
         )
@@ -7130,7 +7131,8 @@ enum LogicSelfTests {
             presentation: SettingsSheetPresentation(
                 mutationClient: mutationClient,
                 modelClient: modelClient,
-                effortClient: effortClient
+                effortClient: effortClient,
+                runtime: RuntimeStore(sourceLabel: "test")
             ),
             dismiss: dismiss
         )

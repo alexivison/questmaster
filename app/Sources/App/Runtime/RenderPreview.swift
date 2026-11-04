@@ -219,6 +219,10 @@ enum RenderPreview {
         render(ToastBanner(message: "Copied qm-1783901769").background(AppPalette.window.swiftUI), size: CGSize(width: 400, height: 100), to: "\(outputDir)/toast.png")
         render(settingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings.png")
         render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
+        render(projectsSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects.png")
+        render(projectsSettingsView(arranging: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-arrange.png")
+        render(projectEditView(adding: false), size: projectEditSize, to: "\(outputDir)/settings-project-edit.png")
+        render(projectEditView(adding: true), size: projectEditSize, to: "\(outputDir)/settings-project-add.png")
         print("RenderPreview: done")
         exit(0)
     }
@@ -2038,8 +2042,56 @@ enum RenderPreview {
             presentation: SettingsSheetPresentation(
                 mutationClient: SettingsPreviewMutationClient(),
                 modelClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewModelClient(),
-                effortClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewEffortClient()
+                effortClient: loading ? SettingsPreviewStalledClient() : SettingsPreviewEffortClient(),
+                runtime: RuntimeStore(sourceLabel: "preview")
             ),
+            dismiss: {}
+        )
+    }
+
+    /// settings-projects-mock.png's projects, with their colours; the paths sit under this machine's home directory, so
+    /// they show as `~`.
+    private static let settingsProjects: [TrackerProject] = {
+        let home = NSHomeDirectory()
+        return [
+            TrackerProject(id: "repo-code", name: "Code", defaultName: "Code", path: home + "/Code", color: "sky"),
+            TrackerProject(id: "repo-dotfiles", name: "dotfiles", defaultName: "dotfiles", path: home + "/Code/dotfiles", color: "lime"),
+            TrackerProject(id: "repo-questmaster", name: "questmaster", defaultName: "questmaster", path: home + "/Code/questmaster", color: "orange"),
+            TrackerProject(id: "repo-scry", name: "scry", defaultName: "scry", path: home + "/Code/scry", color: "violet"),
+            TrackerProject(id: "repo-portfolio", name: "portfolio", defaultName: "github.io", path: home + "/Code/alexivison.github.io", color: "teal"),
+        ]
+    }()
+
+    private static let projectEditSize = CGSize(width: ModalFormMetrics.editWidth, height: ModalFormMetrics.height(fields: 3))
+
+    /// The Projects section with the second project highlighted, and arrange mode on when `arranging`.
+    @MainActor
+    private static func projectsSettingsView(arranging: Bool = false) -> some View {
+        let runtime = RuntimeStore(sourceLabel: "preview")
+        runtime.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [], projects: settingsProjects)))
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: SettingsPreviewMutationClient(),
+                modelClient: nil,
+                effortClient: nil,
+                runtime: runtime
+            ),
+            dismiss: {}
+        )
+        model.selectSection(.projects)
+        model.projects.highlightRow(2)
+        if arranging {
+            model.projects.beginArrange()
+        }
+        return SettingsSheetView(model: model)
+    }
+
+    /// The Edit Project sheet for the highlighted project, or Add Project with no path typed yet.
+    @MainActor
+    private static func projectEditView(adding: Bool) -> some View {
+        let draft = adding ? ProjectEditDraft.adding() : ProjectEditDraft.editing(settingsProjects[2])
+        return ProjectEditSheetView(
+            presentation: ProjectEditPresentation(draft: draft, mutationClient: SettingsPreviewMutationClient()),
             dismiss: {}
         )
     }

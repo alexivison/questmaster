@@ -346,6 +346,9 @@ enum ModalFormMetrics {
     /// Between the fields and the buttons (holding the error), and under the buttons.
     static let bandHeight = Space.section
     static let buttonWidth: CGFloat = 195
+    /// The edit sheets (Edit Session, Edit Repo, Edit Project) are narrower, with 150-wide buttons.
+    static let editWidth: CGFloat = 460
+    static let editButtonWidth: CGFloat = 150
     static let buttonSpacing = Space.item
     static let buttonHeight = ControlHeight.control
 

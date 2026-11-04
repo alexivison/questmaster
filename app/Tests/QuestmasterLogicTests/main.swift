@@ -42,6 +42,7 @@ timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("ArtifactCoreTests") { ArtifactCoreTests.run() }
         timed("QuestCoreTests") { QuestCoreTests.run() }
 timed("ProjectOrderTests") { ProjectOrderTests.run() }
+        timed("ProjectSettingsTests") { ProjectSettingsTests.run() }
         timed("ShellChromeTests") { ShellChromeTests.run() }
         timed("CaffeineStateTests") { CaffeineStateTests.run() }
         timed("GhosttyConfigParserTests") { GhosttyConfigParserTests.run() }

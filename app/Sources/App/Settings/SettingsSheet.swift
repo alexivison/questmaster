@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import QuestmasterCore
 import SwiftUI
 
@@ -9,12 +10,14 @@ final class SettingsSheetPresenter: ObservableObject {
     func present(
         mutationClient: ServeMutationSending,
         modelClient: ServeModelSuggesting?,
-        effortClient: ServeReasoningEffortSuggesting?
+        effortClient: ServeReasoningEffortSuggesting?,
+        runtime: RuntimeStore
     ) {
         presentation = SettingsSheetPresentation(
             mutationClient: mutationClient,
             modelClient: modelClient,
-            effortClient: effortClient
+            effortClient: effortClient,
+            runtime: runtime
         )
     }
 
@@ -28,12 +31,14 @@ struct SettingsSheetPresentation: Identifiable {
     let mutationClient: ServeMutationSending
     let modelClient: ServeModelSuggesting?
     let effortClient: ServeReasoningEffortSuggesting?
+    /// The projects the Projects section lists, and where its rows follow each snapshot.
+    let runtime: RuntimeStore
 }
 
 /// settings-models.svg (900 x 780): the sections as pill tabs down the left (250 wide), and the selected
 /// section on the right (x 290-880): the agent tabs, then a "Master" and a "Worker" section, each a bold
 /// title over a vine-ended rule and two rows of label, description and a compact "‹ value ›" picker.
-private enum SettingsMetrics {
+enum SettingsMetrics {
     static let inset = Space.section
     static let sidebarWidth: CGFloat = 250
     static let columnSpacing = Space.section
@@ -63,13 +68,16 @@ private enum SettingsMetrics {
 }
 
 /// The sidebar's sections. Only the ones that exist are listed; a new one is a new case.
-private enum SettingsSection: CaseIterable {
+enum SettingsSection: CaseIterable {
     case modelsAndReasoning
+    case projects
 
     var title: String {
         switch self {
         case .modelsAndReasoning:
             return "Models and Reasoning"
+        case .projects:
+            return "Projects"
         }
     }
 
@@ -77,6 +85,8 @@ private enum SettingsSection: CaseIterable {
         switch self {
         case .modelsAndReasoning:
             return "slider.vertical.3"
+        case .projects:
+            return "folder"
         }
     }
 }
@@ -91,10 +101,15 @@ struct SettingsSheetView: View {
         _model = StateObject(wrappedValue: SettingsSheetModel(presentation: presentation, dismiss: dismiss))
     }
 
+    /// For the render previews, which open the sheet already in a state (a section, arrange mode).
+    init(model: SettingsSheetModel) {
+        _model = StateObject(wrappedValue: model)
+    }
+
     var body: some View {
         ModalSheetScaffold(
             title: "Settings",
-            errorMessage: model.errorMessage
+            errorMessage: model.visibleError
         ) {
             HStack(alignment: .top, spacing: SettingsMetrics.columnSpacing) {
                 sidebar
@@ -115,20 +130,36 @@ struct SettingsSheetView: View {
     private var sidebar: some View {
         VStack(spacing: SettingsMetrics.sidebarSpacing) {
             ForEach(SettingsSection.allCases, id: \.self) { section in
+                let selected = section == model.section
+                let look: OutlineLook = selected ? .tabSelected : .tabRest
                 PillTab(
                     title: section.title,
-                    icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: OutlineLook.tabSelected.label.color, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
-                    look: .tabSelected,
-                    selected: true,
+                    icon: AppSymbolStyle.image(name: section.symbolName, pointSize: 14, weight: .regular, color: look.label.color, canvasSize: NSSize(width: PillTabMetrics.iconSide, height: PillTabMetrics.iconSide)),
+                    look: look,
+                    selected: selected,
                     help: "\(section.title) settings",
                     accessibilityLabel: "Settings section \(section.title)"
                 )
+                .contentShape(Rectangle())
+                .onTapGesture { model.selectSection(section) }
             }
         }
         .frame(width: SettingsMetrics.sidebarWidth)
     }
 
     private var sectionColumn: some View {
+        Group {
+            switch model.section {
+            case .modelsAndReasoning:
+                modelsColumn
+            case .projects:
+                SettingsProjectsView(model: model.projects)
+            }
+        }
+        .frame(width: SettingsMetrics.columnWidth, alignment: .topLeading)
+    }
+
+    private var modelsColumn: some View {
         ZStack(alignment: .topLeading) {
             PillTabRow(
                 tabs: model.state.agents.map { .agent($0) },
@@ -146,7 +177,6 @@ struct SettingsSheetView: View {
                     .offset(y: SettingsMetrics.firstSectionBaseline + CGFloat(offset) * SettingsMetrics.sectionPitch)
             }
         }
-        .frame(width: SettingsMetrics.columnWidth, alignment: .topLeading)
     }
 
     /// Laid out from the title's baseline, which sits at the section's top.
@@ -185,7 +215,7 @@ struct SettingsSheetView: View {
 
 /// The rule under a section title: a 1pt line with the Quest Log's rule vines at each end. `QuestLogArt`
 /// draws them about its rule at y 206 from x 20; here they hang off a line at the frame's top.
-private struct SettingsSectionRule: View {
+struct SettingsSectionRule: View {
     let width: CGFloat
 
     private static let svgRuleY: CGFloat = 206
@@ -276,7 +306,11 @@ final class SettingsSheetModel: ObservableObject {
     static let sheetSize = CGSize(width: 900, height: 780)
 
     @Published var state = RoleDefaultsSettingsModel()
+    @Published var section = SettingsSection.modelsAndReasoning
     @Published var errorMessage: String?
+    let projects: SettingsProjectsModel
+    /// The projects' changes redraw the sheet too, since its error row belongs to the sheet.
+    private var projectChanges: AnyCancellable?
 
     private let mutationClient: ServeMutationSending
     private let modelClient: ServeModelSuggesting?
@@ -297,6 +331,19 @@ final class SettingsSheetModel: ObservableObject {
         let rowCount = RoleDefaultsSettingsModel.defaultAgents.count * RoleDefaultsSettingsModel.roles.count
         modelRequestIDs = Array(repeating: 0, count: rowCount)
         effortRequestIDs = Array(repeating: 0, count: rowCount)
+        projects = SettingsProjectsModel(runtime: presentation.runtime, mutationClient: presentation.mutationClient)
+        projectChanges = projects.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+    }
+
+    /// A section's failed save, whichever section it came from, shows in the sheet's error row.
+    var visibleError: String? {
+        errorMessage ?? projects.errorMessage
+    }
+
+    func selectSection(_ next: SettingsSection) {
+        section = next
     }
 
     func present() {
@@ -335,19 +382,61 @@ final class SettingsSheetModel: ObservableObject {
         ModalKeyActions(
             context: { self.modalKeyContext },
             fieldKey: { self.handleFieldKey($0) },
-            submit: {},
-            cancel: { self.close() },
-            moveFocus: { self.state.moveFocus($0) },
-            cycle: { self.cycleFocusedValue($0) }
+            submit: { self.submit() },
+            cancel: { self.cancel() },
+            moveFocus: { self.moveFocus($0) },
+            cycle: { self.cycleFocused($0) }
         ).handle(event)
     }
 
+    /// Projects take Return (save the arrangement, or edit the highlighted row) and move with the cursor. The models
+    /// section's rows are selects that take no Return.
     private var modalKeyContext: ModalKeyContext {
-        ModalKeyContext(focus: .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, submitting: false, submits: false)
+        switch section {
+        case .modelsAndReasoning:
+            return ModalKeyContext(focus: .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, submitting: false, submits: false)
+        case .projects:
+            return ModalKeyContext(focus: nil, fieldCount: projects.rows.count, submitting: false, submits: true)
+        }
+    }
+
+    private func submit() {
+        guard section == .projects else {
+            return
+        }
+        projects.submit()
+    }
+
+    /// Esc leaves arrange mode and stays in Settings; anywhere else it closes the sheet.
+    private func cancel() {
+        if section == .projects, projects.isArranging {
+            projects.cancelArrange()
+        } else {
+            close()
+        }
+    }
+
+    private func moveFocus(_ delta: Int) {
+        switch section {
+        case .modelsAndReasoning:
+            state.moveFocus(delta)
+        case .projects:
+            projects.moveHighlight(by: delta)
+        }
+    }
+
+    private func cycleFocused(_ delta: Int) {
+        guard section == .modelsAndReasoning else {
+            return
+        }
+        cycleFocusedValue(delta)
     }
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {
         let press = event.keymapPress
+        if section == .projects {
+            return projects.handleKey(press)
+        }
         if Keymap.matches(press, .previousTab) {
             state.moveTab(-1)
             return true
