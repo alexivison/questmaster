@@ -81,8 +81,7 @@ func TestSessionPromptsDescribeCommonGuide(t *testing.T) {
 			for _, want := range []string{
 				"questmaster help",
 				"questmaster <command> --help",
-				"Delete only sessions you own",
-				"Never delete a session another master owns",
+				"Never delete another master's workers",
 			} {
 				if !strings.Contains(got, want) {
 					t.Fatalf("%s prompt missing common guide text %q:\n%s", name, want, got)

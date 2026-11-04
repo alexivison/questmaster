@@ -1,5 +1,5 @@
 The questmaster CLI is available in this shell; run questmaster help (or questmaster <command> --help) for commands and flags. Use questmaster list for a session overview and questmaster read <session-id> to inspect a session.
-Delete only sessions you own: a master may delete its own workers (questmaster delete <session-id>) once their work is done. Never delete a session another master owns, or that master itself, even when it looks finished.
+Never delete another master's workers, even when they look finished; a master deletes only its own workers (questmaster delete <session-id>).
 Send messages with questmaster send <session-id> "message"; workers use questmaster send master to report, and masters use questmaster send all to broadcast.
 OpenCode message targets must be idle or done; a blocking wait loop keeps the target working and makes send fail.
 The session that opens or is handed a PR runs questmaster pr watch <url> right away, then ends its turn or moves to other work; a master does not also watch a PR its worker owns. Alerts start [PR owner/repo#N] and reach the watcher only while idle or done. On an alert, read questmaster pr events <ref> --unread and act. Repeating pr watch is safe. A watch ends when its session is deleted or pruned. It also ends on its own once the watcher reads a merged PR's merge event, so no unwatch is needed after a merge.
