@@ -28,6 +28,9 @@ struct TrackerAvatarAnimationTests {
         aSpellMayGiveItsFlightAndImpactFrames()
         aSpellNeedsAKnownNameGoodTracksAndAnAnchorOnAFlight()
         aSpellSaysWhichWayItsFlightFaces()
+        aLoopingIdleNeedsNoLegsEyesOrFidgets()
+        aLayeredIdleNeedsAllItsKeys()
+        aLoopingIdleTakesNoEnterFinishOrOnce()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
         aCatalogShowsEachClassWithArtAndNoOthers()
@@ -390,6 +393,81 @@ struct TrackerAvatarAnimationTests {
                "the bard's file names no spells, so he draws all three as stills")
     }
 
+    /// The bard's file with `01-idle` given a loop (a character and a front track), and with whatever `edit` does to the file.
+    private static func bardWithIdleLoop(_ edit: (inout [String: Any]) -> Void = { _ in }) throws -> TrackerAvatarAnimation {
+        var json = bardJSON()
+        var poses = json["poses"] as? [String: Any] ?? [:]
+        var idle = poses["01-idle"] as? [String: Any] ?? [:]
+        idle["loop"] = ["character": [[1, 0.1], [2, 0.1], [3, 0.2]], "front": [[1, 0.2], [2, 0.2]]]
+        poses["01-idle"] = idle
+        json["poses"] = poses
+        edit(&json)
+        return try decode(json)
+    }
+
+    /// An idle with a loop is a frame loop like any steady pose, so it has no legs to hold, eyes to blink or fidgets to play. The
+    /// file may leave `idle` and `fidgets` out, and if it keeps them they aren't read: no fidget plays beside a loop, and a lid colour
+    /// that isn't one is no fault of a file that has no lids.
+    private static func aLoopingIdleNeedsNoLegsEyesOrFidgets() {
+        guard let bare = try? bardWithIdleLoop({ json in
+            json.removeValue(forKey: "idle")
+            json.removeValue(forKey: "fidgets")
+        }) else {
+            fail("a looping idle with no idle keys and no fidgets should decode")
+        }
+        let loop = bare.animation(for: .idle)?.loop
+        expect(loop?.character.steps == [TrackerAvatarStep(frame: 1, seconds: 0.1), TrackerAvatarStep(frame: 2, seconds: 0.1), TrackerAvatarStep(frame: 3, seconds: 0.2)],
+               "idle should cycle its three frames")
+        expect(loop?.front?.steps.map(\.frame) == [1, 2] && loop?.behind == nil, "idle's loop may carry an effect in front, as any loop does")
+        expect(bare.idle == nil && bare.fidgets.isEmpty, "a looping idle has no legs, eyes or fidgets")
+        guard let kept = try? bardWithIdleLoop({ json in
+            var idle = json["idle"] as? [String: Any] ?? [:]
+            idle["lid_colour"] = "not a colour"
+            json["idle"] = idle
+        }) else {
+            fail("a looping idle should not read the keys it has no use for")
+        }
+        expect(kept.idle == nil && kept.fidgets.isEmpty, "a looping idle should keep neither its idle keys nor the fidgets the file still lists")
+        expect(AvatarAnimationFixture.bard().animation(for: .idle)?.loop == nil, "the bard's own idle should still be layers")
+    }
+
+    /// An idle with no loop draws as layers, which needs every one of its four keys. The file may leave the fidgets out.
+    private static func aLayeredIdleNeedsAllItsKeys() {
+        expectThrows(TrackerAvatarAnimationError.incompleteIdle, "a layered idle with no idle keys") {
+            var json = bardJSON()
+            json.removeValue(forKey: "idle")
+            _ = try decode(json)
+        }
+        for key in ["leg_rows", "eye_row", "eye_columns", "lid_colour"] {
+            expectThrows(TrackerAvatarAnimationError.incompleteIdle, "a layered idle with no \(key)") {
+                var json = bardJSON()
+                var idle = json["idle"] as? [String: Any] ?? [:]
+                idle.removeValue(forKey: key)
+                json["idle"] = idle
+                _ = try decode(json)
+            }
+        }
+        var json = bardJSON()
+        json.removeValue(forKey: "fidgets")
+        expect((try? decode(json))?.fidgets.isEmpty == true, "a layered idle with no fidgets key should have none")
+    }
+
+    /// Idle's loop is all it takes: it comes on screen with no enter and leaves with no finish of its own, and a one-shot has no place
+    /// on it.
+    private static func aLoopingIdleTakesNoEnterFinishOrOnce() {
+        for (block, tracks) in [("enter", ["character": [[1, 0.25]]]), ("finish", ["character": [[1, 0.25]]]), ("once", ["character": [[1, 0.25]]])] {
+            expectThrows(TrackerAvatarAnimationError.misplacedBlock("01-idle"), "a looping idle with a \(block)") {
+                _ = try bardWithIdleLoop { json in
+                    var poses = json["poses"] as? [String: Any] ?? [:]
+                    var idle = poses["01-idle"] as? [String: Any] ?? [:]
+                    idle[block] = tracks
+                    poses["01-idle"] = idle
+                    json["poses"] = poses
+                }
+            }
+        }
+    }
+
     /// A spell's `faces` says which way its flight art is drawn, and the art is mirrored on a flight that heads the other way. It
     /// stands alone (a still has no flight track), and any other word than `left` or `right` is a bad file.
     private static func aSpellSaysWhichWayItsFlightFaces() {
@@ -478,9 +556,9 @@ struct TrackerAvatarAnimationTests {
                 pose.removeValue(forKey: "once")
             }
         }
-        expectThrows(TrackerAvatarAnimationError.misplacedBlock("01-idle"), "idle with a loop") {
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("01-idle"), "idle with a one-shot") {
             _ = try AvatarAnimationFixture.bard(editing: "01-idle") { pose in
-                pose["loop"] = ["character": [[1, 0.25]]]
+                pose["once"] = ["character": [[1, 0.25]]]
             }
         }
         expectThrows(TrackerAvatarAnimationError.unknownLayer("middle"), "a layer the avatar doesn't draw") {

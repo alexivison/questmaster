@@ -89,7 +89,8 @@ public struct TrackerAvatarBlock: Equatable, Sendable {
     }
 }
 
-/// One pose's art and timings: where its figure stands, and the blocks it plays. Idle plays none, and draws as layers. A one-shot
+/// One pose's art and timings: where its figure stands, and the blocks it plays. Idle plays none, and draws as layers, unless its file
+/// gives it a `loop`, which it then cycles like any steady pose (with no enter or finish of its own). A one-shot
 /// plays `once`. The other steady poses cycle `loop`, which an `enter` may open: the enter plays once when the pose comes on screen,
 /// then the loop starts from its own first frame. A pose with a loop may also have a `finish`, which plays when it leaves for another
 /// pose. A release or a catch may name the frame of its `once` where it strikes.
@@ -203,7 +204,8 @@ public struct TrackerAvatarColour: Equatable, Sendable {
     }
 }
 
-/// Idle draws as layers: the legs and cloak hold still while the figure above them breathes, and the eyelids cover the eyes.
+/// Idle draws as layers: the legs and cloak hold still while the figure above them breathes, and the eyelids cover the eyes. An idle
+/// that loops has none of this.
 public struct TrackerAvatarIdle: Equatable, Sendable {
     /// The bottom rows, which stay still while the figure above breathes.
     public let legRows: Int
@@ -249,7 +251,8 @@ public struct TrackerAvatarIdleFidget: Equatable, Sendable {
     }
 }
 
-/// How a pose's art plays: idle draws as layers, a one-shot plays once, and the other poses cycle a loop.
+/// How a pose's art plays: idle draws as layers (or cycles a loop, when its file gives it one), a one-shot plays once, and the other
+/// poses cycle a loop.
 public enum TrackerAvatarPlayKind: Equatable, Sendable {
     case layers
     case loop
@@ -261,8 +264,11 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case unsupportedVersion(Int)
     case unknownPose(String)
     case missingPose(String)
-    /// A pose's blocks don't match how it plays: an enter or a finish on a pose without a loop (a one-shot, or idle).
+    /// A pose's blocks don't match how it plays: an enter or a finish on a pose without a loop (a one-shot, or idle), a loop on a
+    /// one-shot, or a one-shot on a steady pose.
     case misplacedBlock(String)
+    /// An idle with no loop draws as layers, which needs all of `idle`'s `leg_rows`, `eye_row`, `eye_columns` and `lid_colour`.
+    case incompleteIdle
     /// A pose has a bubble anchor but isn't calling out, the only pose that draws the shared bubble.
     case misplacedBubble(String)
     /// A `spells` key that names no spell: the orb (`S1-summoning-orb`), the messenger (`S2-messenger`) or the wisp (`S6-returning-wisp`).
@@ -288,10 +294,11 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The only `version` this build reads.
     public static let supportedVersion = 1
 
-    public let idle: TrackerAvatarIdle
+    /// The layered idle's legs and eyes. Nil when `01-idle` has a loop, which needs none of it.
+    public let idle: TrackerAvatarIdle?
     /// The point a release's spell leaves the caster's hand from, on the release pose's canvas.
     public let releaseHand: TrackerAvatarPixel
-    /// The fidgets an idle figure may play, by name.
+    /// The fidgets an idle figure may play, by name. None when `01-idle` has a loop, which plays no fidgets.
     public let fidgets: [TrackerAvatarIdleFidget]
     private let poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation]
     private let spells: [TrackerSpellFlight.Spell: TrackerAvatarSpellAnimation]
@@ -302,14 +309,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         guard file.version == Self.supportedVersion else {
             throw TrackerAvatarAnimationError.unsupportedVersion(file.version)
         }
-        idle = try Self.idle(file.idle)
         releaseHand = TrackerAvatarPixel(x: file.releaseHand.x, y: file.releaseHand.y)
-        fidgets = try file.fidgets.sorted { $0.key < $1.key }.map { name, steps in
-            guard let track = TrackerAvatarTrack(steps: steps) else {
-                throw TrackerAvatarAnimationError.invalidTrack("fidget \(name)")
-            }
-            return TrackerAvatarIdleFidget(name: name, track: track)
-        }
         var poses: [TrackerAvatarPose: TrackerAvatarPoseAnimation] = [:]
         for (name, pose) in file.poses {
             guard let kind = TrackerAvatarPose.allCases.first(where: { $0.resourceName == name }) else {
@@ -322,6 +322,20 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         }
         self.poses = poses
         spells = try Self.spellAnimations(file.spells ?? [:])
+        // An idle that loops is a frame loop like any other pose: it has no legs to hold or eyes to blink, and no fidgets to play, so
+        // whatever the file keeps of them is not read.
+        if poses[.idle]?.loop != nil {
+            idle = nil
+            fidgets = []
+            return
+        }
+        idle = try Self.idle(file.idle)
+        fidgets = try (file.fidgets ?? [:]).sorted { $0.key < $1.key }.map { name, steps in
+            guard let track = TrackerAvatarTrack(steps: steps) else {
+                throw TrackerAvatarAnimationError.invalidTrack("fidget \(name)")
+            }
+            return TrackerAvatarIdleFidget(name: name, track: track)
+        }
     }
 
     /// The pose's art and timings. A file that decodes names every pose.
@@ -339,14 +353,17 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         poses[pose]?.once?.seconds ?? 0
     }
 
-    private static func idle(_ file: File.Idle) throws -> TrackerAvatarIdle {
-        guard let first = file.eyeColumns.first, file.eyeColumns.count == 2, let last = file.eyeColumns.last, first <= last else {
+    private static func idle(_ file: File.Idle?) throws -> TrackerAvatarIdle {
+        guard let file, let legRows = file.legRows, let eyeRow = file.eyeRow, let eyeColumns = file.eyeColumns, let lidHex = file.lidColour else {
+            throw TrackerAvatarAnimationError.incompleteIdle
+        }
+        guard let first = eyeColumns.first, eyeColumns.count == 2, let last = eyeColumns.last, first <= last else {
             throw TrackerAvatarAnimationError.invalidEyeColumns
         }
-        guard let lidColour = TrackerAvatarColour(hex: file.lidColour) else {
+        guard let lidColour = TrackerAvatarColour(hex: lidHex) else {
             throw TrackerAvatarAnimationError.invalidLidColour
         }
-        return TrackerAvatarIdle(legRows: file.legRows, eyeRow: file.eyeRow, eyeColumns: first...last, lidColour: lidColour)
+        return TrackerAvatarIdle(legRows: legRows, eyeRow: eyeRow, eyeColumns: first...last, lidColour: lidColour)
     }
 
     private static func poseAnimation(_ pose: File.Pose, named name: String, kind: TrackerAvatarPose) throws -> TrackerAvatarPoseAnimation {
@@ -356,7 +373,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         let once = try block(pose.once, named: name)
         let fitsItsKind: Bool
         switch kind.playKind {
-        case .layers: fitsItsKind = loop == nil && once == nil
+        case .layers: fitsItsKind = once == nil
         case .loop: fitsItsKind = loop != nil && once == nil
         case .oneShot: fitsItsKind = once != nil && loop == nil
         }
@@ -438,9 +455,9 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
     /// The file as JSON spells it. Its names and shapes are checked in `init(data:)`.
     private struct File: Decodable {
         let version: Int
-        let idle: Idle
+        let idle: Idle?
         let releaseHand: Pixel
-        let fidgets: [String: [TrackerAvatarStep]]
+        let fidgets: [String: [TrackerAvatarStep]]?
         let poses: [String: Pose]
         let spells: [String: Spell]?
 
@@ -450,10 +467,10 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         }
 
         struct Idle: Decodable {
-            let legRows: Int
-            let eyeRow: Int
-            let eyeColumns: [Int]
-            let lidColour: String
+            let legRows: Int?
+            let eyeRow: Int?
+            let eyeColumns: [Int]?
+            let lidColour: String?
 
             enum CodingKeys: String, CodingKey {
                 case legRows = "leg_rows"

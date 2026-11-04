@@ -222,12 +222,11 @@ final class TrackerAvatarSprites {
         animation.fidgets.filter { fidget in fidget.frames.allSatisfy { idleFrame($0) != nil } }
     }
 
-    /// Idle's layer art, split at its legs. Nil until its first frame has landed.
+    /// Idle's layer art, split at its legs. Nil until its first frame has landed, and for an idle that loops, which has no legs to split.
     func idleArt() -> TrackerAvatarArt? {
-        guard let body = idleFrame(1) else {
+        guard let body = idleFrame(1), let legs = animation.idle?.legRows else {
             return nil
         }
-        let legs = animation.idle.legRows
         let height = body.height
         guard let bodyUpper = crop(body, toRows: 0..<(height - legs)),
               let bodyLower = crop(body, toRows: (height - legs)..<height) else {
@@ -760,7 +759,8 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
 }
 
 /// The avatar's view. A pose change snaps: the shown rig hides and the new one shows at once. Idle breathes and blinks, and while
-/// he fidgets his fidget frame replaces the layers, so the breath and the blink pause until he is back. Motion runs only while the
+/// he fidgets his fidget frame replaces the layers, so the breath and the blink pause until he is back; an idle with a loop cycles
+/// its frames instead, from the first whenever it comes on screen, and neither breathes, blinks nor fidgets. Motion runs only while the
 /// view is in a window and not under Reduce Motion; a pose change still shows then. A pose's finish holds the loop still
 /// while it is on screen.
 final class TrackerAvatarView: NSView {
@@ -874,12 +874,14 @@ final class TrackerAvatarView: NSView {
             guard let placement = sprites.animation.animation(for: pose) else {
                 return nil
             }
-            if pose.playKind == .layers {
-                guard let art = sprites.idleArt() else {
+            if pose.playKind == .layers && placement.loop == nil {
+                guard let art = sprites.idleArt(), let idle = sprites.animation.idle else {
                     return nil
                 }
-                return TrackerAvatarRig(pose: pose, placement: placement, idle: sprites.animation.idle, art: art)
+                return TrackerAvatarRig(pose: pose, placement: placement, idle: idle, art: art)
             }
+            // An idle with a loop is a frame loop like the other steady poses: it restarts from its first frame whenever it comes on
+            // screen, since a hidden rig stops its loop, and it has no breath, no blink and no fidgets.
             return TrackerAvatarFrameRig(pose: pose, placement: placement, sprites: sprites)
         }
     }
@@ -916,9 +918,10 @@ final class TrackerAvatarView: NSView {
         }
     }
 
-    /// The shown idle layers, the only rig that blinks. A fidget's frame has no eyelids, so the blink waits for it to end.
+    /// The shown idle layers, the only rig that blinks. A fidget's frame has no eyelids, so the blink waits for it to end, and an idle
+    /// that loops has none.
     private var blinkingRig: (any TrackerAvatarPoseRig)? {
-        shownKey == .pose(.idle) ? shown : nil
+        shownKey == .pose(.idle) ? shown as? TrackerAvatarRig : nil
     }
 
     /// Shows the eyelids over the eyes, idle only, for the render previews; a blink does the same for a moment.

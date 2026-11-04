@@ -18,7 +18,8 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
     case catching
     case bow
 
-    /// How the pose's art plays: idle draws as layers, a one-shot plays once, and the rest cycle a loop.
+    /// How the pose's art plays: idle draws as layers (unless its file gives it a loop, which it then cycles like the rest), a one-shot
+    /// plays once, and the rest cycle a loop.
     public var playKind: TrackerAvatarPlayKind {
         switch self {
         case .idle: .layers

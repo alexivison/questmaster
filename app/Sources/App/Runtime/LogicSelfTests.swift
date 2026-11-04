@@ -46,6 +46,8 @@ enum LogicSelfTests {
         ("testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame", testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame),
         ("testASteadyPosesFinishPlaysInPlaceOfItsLoop", testASteadyPosesFinishPlaysInPlaceOfItsLoop),
         ("testAReleaseMovesOnItsNamedStrikeFrame", testAReleaseMovesOnItsNamedStrikeFrame),
+        ("testALoopingIdleCyclesItsFramesWithNoBreathOrBlink", testALoopingIdleCyclesItsFramesWithNoBreathOrBlink),
+        ("testALoopingIdleFrameWithoutArtIsMissing", testALoopingIdleFrameWithoutArtIsMissing),
         ("testTheStageLaunchesEachSpellFromItsPayloads", testTheStageLaunchesEachSpellFromItsPayloads),
         ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
         ("testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce", testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce),
@@ -1189,6 +1191,105 @@ enum LogicSelfTests {
         try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the finish should be skipped")
     }
 
+    /// A synthetic class whose idle is a frame loop: three frames on the character and two on a front effect, with no `idle` legs and
+    /// eyes and no fidgets in its file. Its idle art is a full-size canvas, since the tag measures the figure from f1.
+    @MainActor
+    private static func syntheticLoopingIdleFolder() throws -> URL {
+        let folder = try syntheticClassFolder()
+        let file = folder.appendingPathComponent("animation.json")
+        guard var json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
+              var poses = json["poses"] as? [String: Any], var idle = poses["01-idle"] as? [String: Any] else {
+            throw TestFailure("the synthetic class's animation.json should read as a JSON object with an idle")
+        }
+        idle["loop"] = ["character": [[1, 0.1], [2, 0.1], [3, 0.2]], "front": [[1, 0.2], [2, 0.2]]]
+        poses["01-idle"] = idle
+        json["poses"] = poses
+        json.removeValue(forKey: "idle")
+        json.removeValue(forKey: "fidgets")
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+        for number in 1...3 {
+            try writeSolidFrame(Double(number) / 10, width: 64, height: 170, to: folder.appendingPathComponent("01-idle-f\(number).png"))
+        }
+        for number in 1...2 {
+            try writeSolidFrame(Double(number) / 10 + 0.5, width: 64, height: 170, to: folder.appendingPathComponent("01-idle-front-f\(number).png"))
+        }
+        return folder
+    }
+
+    /// An idle with a loop cycles its frames like any steady pose and does none of the layered idle's work: no breath, no eyelids and
+    /// no blink. It restarts from its first frame whenever it comes on screen, so a finish that ends on idle f1 lands on the loop's
+    /// start, and Reduce Motion holds f1.
+    @MainActor
+    private static func testALoopingIdleCyclesItsFramesWithNoBreathOrBlink() throws {
+        let folder = try syntheticLoopingIdleFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class with a looping idle should read")
+        }
+        try expect(sprites.animation.idle == nil && sprites.animation.fidgets.isEmpty && sprites.availableFidgets.isEmpty,
+                   "a looping idle has no legs, eyes or fidgets")
+        try expect(sprites.idleFigureHeight != nil, "the tag should still follow idle f1, the loop's first frame")
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        guard let character = shownCharacter(of: avatar),
+              let loop = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation else {
+            throw TestFailure("a looping idle should cycle its character frames")
+        }
+        let first = sprites.idleFrame(1)
+        try expect(loop.values?.count == 4 && loop.calculationMode == .discrete && loop.repeatCount == .infinity && loop.duration == 0.4,
+                   "idle should loop its three frames as discrete keyframes over 0.4 s, closing on f1")
+        try expect(sameImage(loop.values?.first, first) && sameImage(loop.values?.last, first), "the loop should start and close on idle f1")
+        let figure = character.superlayer
+        try expect(figure?.sublayers?.dropFirst().first?.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "the front effect should cycle on its own track")
+
+        func hasBreathOrLids(_ layer: CALayer) -> Bool {
+            layer.animation(forKey: TrackerAvatarMotionKey.breath) != nil || layer is CAShapeLayer || (layer.sublayers ?? []).contains(where: hasBreathOrLids)
+        }
+        try expect(!(avatar.layer.map(hasBreathOrLids) ?? true), "a looping idle should have no breath and no eyelids")
+
+        // Out to another pose and back: the loop stops while idle is off screen, and starts again from its first frame.
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil, "the loop should stop when idle goes off screen")
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        let restarted = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(sameImage(restarted?.values?.first, first), "idle should start its loop from f1 when it comes back")
+
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: true)
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil && sameImage(character.contents, first),
+                   "under Reduce Motion idle should hold f1")
+    }
+
+    /// A frame of the idle loop with no art is missing, like any pose's, and the idle draws nothing until it lands.
+    @MainActor
+    private static func testALoopingIdleFrameWithoutArtIsMissing() throws {
+        let folder = try syntheticLoopingIdleFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let complete = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class with a looping idle should read")
+        }
+        try expect(missingFrames(of: complete).filter { $0.hasPrefix("01-idle") }.isEmpty, "the synthetic idle should have all its art")
+        try FileManager.default.removeItem(at: folder.appendingPathComponent("01-idle-front-f2.png"))
+        guard let damaged = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class should still read")
+        }
+        let missing = missingFrames(of: damaged).filter { $0.hasPrefix("01-idle") }
+        try expect(missing == ["01-idle front f2"], "the check should name the idle frame without art, got \(missing)")
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = damaged
+        window.contentView = avatar
+        window.show()
+        avatar.configure(pose: .idle, beat: 0, finish: nil, reduceMotion: false)
+        try expect(shownCharacter(of: avatar) == nil, "an idle loop missing a frame should draw nothing, like any pose")
+    }
+
     /// A release whose file names its strike frame steps forward as that frame begins, not on its second step: the synthetic class's
     /// release enters on frames 1 and 2, strikes on frame 3 (0.2 s in) and follows through on frame 4, so the move's keys fall at 0.2 s
     /// and 0.4 s of its 0.5 s, and it ends back on its anchor.
@@ -1521,7 +1622,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testBundledBardSpritesReadTheirAnimationFile() throws {
         let sprites = try bardSprites()
-        try expect(sprites.animation.idle.legRows == 37, "the bard's idle should split at his leg rows")
+        try expect(sprites.animation.idle?.legRows == 37, "the bard's idle should split at his leg rows")
         try expect(sprites.animation.fidgets.map(\.name) == ["hat", "yawn"], "the bard should have the hat and the yawn fidgets")
         try expect(sprites.availableFidgets.count == 2, "both of the bard's fidgets should have their art")
         try expect(sprites.idleArt() != nil, "the bard's idle layers should split from his art")
@@ -1535,7 +1636,7 @@ enum LogicSelfTests {
         guard let sprites = TrackerAvatarSprites.bundled()["wizard"] else {
             throw TestFailure("the wizard's sprites should load from the app bundle")
         }
-        try expect(sprites.animation.idle.legRows == 45, "the wizard's idle should split at his leg rows")
+        try expect(sprites.animation.idle?.legRows == 45, "the wizard's idle should split at his leg rows")
         try expect(sprites.animation.fidgets.map(\.name) == ["hood", "staff-tap"], "the wizard should have the hood and staff-tap fidgets")
         try expect(sprites.availableFidgets.count == 2, "both of the wizard's fidgets should have their art")
         try expect(sprites.idleArt() != nil, "the wizard's idle layers should split from his art")
@@ -1551,7 +1652,7 @@ enum LogicSelfTests {
         guard let sprites = TrackerAvatarSprites.bundled()["paladin"] else {
             throw TestFailure("the paladin's sprites should load from the app bundle")
         }
-        try expect(sprites.animation.idle.legRows == 60, "the paladin's idle should split at his leg rows")
+        try expect(sprites.animation.idle?.legRows == 60, "the paladin's idle should split at his leg rows")
         try expect(sprites.animation.fidgets.map(\.name) == ["watch"], "the paladin should have the watch fidget")
         try expect(sprites.availableFidgets.count == 1, "the paladin's fidget should have its art")
         try expect(sprites.idleArt() != nil, "the paladin's idle layers should split from his art")
@@ -1569,7 +1670,7 @@ enum LogicSelfTests {
         guard let sprites = TrackerAvatarSprites.bundled()["cleric"] else {
             throw TestFailure("the cleric's sprites should load from the app bundle")
         }
-        try expect(sprites.animation.idle.legRows == 45, "the cleric's idle should split at his leg rows")
+        try expect(sprites.animation.idle?.legRows == 45, "the cleric's idle should split at his leg rows")
         try expect(sprites.animation.fidgets.map(\.name) == ["mitre"], "the cleric should have the mitre fidget")
         try expect(sprites.availableFidgets.count == 1, "the cleric's fidget should have its art")
         try expect(sprites.idleArt() != nil, "the cleric's idle layers should split from his art")
