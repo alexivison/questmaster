@@ -2205,7 +2205,7 @@ enum RenderPreview {
         id: String,
         state: String = "working",
         parentID: String = "",
-        sessionClass: String? = "bard",
+        sessionClass: String? = avatarPreviewClass,
         tool: String? = nil,
         exchange: (kind: String, at: String)? = nil,
         elapsedSince: Date? = nil,
@@ -2270,7 +2270,12 @@ enum RenderPreview {
     /// The bard's sprites for the avatar previews, read from the app bundle. Without them a preview draws no avatar.
     @MainActor
     private static func previewBardSprites() -> TrackerAvatarSprites? {
-        TrackerAvatarSprites.bundled()["bard"]
+        TrackerAvatarSprites.bundled()[avatarPreviewClass]
+    }
+
+    /// The class the avatar timelines and the all-poses render draw: the bard, or `AVATAR_CLASS` when it names another.
+    private static var avatarPreviewClass: String {
+        ProcessInfo.processInfo.environment["AVATAR_CLASS"] ?? "bard"
     }
 
     /// How long the recorder lets the tracker draw the first pose before its first frame: a run-loop turn is enough.
