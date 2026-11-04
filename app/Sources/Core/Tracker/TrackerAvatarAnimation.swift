@@ -92,7 +92,7 @@ public struct TrackerAvatarBlock: Equatable, Sendable {
 /// One pose's art and timings: where its figure stands, and the blocks it plays. Idle plays none, and draws as layers. A one-shot
 /// plays `once`. The other steady poses cycle `loop`, which an `enter` may open: the enter plays once when the pose comes on screen,
 /// then the loop starts from its own first frame. A pose with a loop may also have a `finish`, which plays when it leaves for another
-/// pose.
+/// pose. A release or a catch may name the frame of its `once` where it strikes.
 public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
     /// The row of the lowest boot pixel, and the column of the body's centre, on the pose's canvas.
     public let footRow: Int
@@ -101,6 +101,9 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
     public let enter: TrackerAvatarBlock?
     public let finish: TrackerAvatarBlock?
     public let once: TrackerAvatarBlock?
+    /// The art frame of the `once` block's character track where the pose strikes, and its move happens (`TrackerAvatarMotion`): the
+    /// first step that shows it. Only a release and a catch have one. Nil strikes on the track's second step.
+    public let strikeFrame: Int?
     /// Where the shared bubble's bottom centre sits, on the pose's canvas. Only calling out has one; nil draws no bubble.
     public let bubble: TrackerAvatarPixel?
 
@@ -111,6 +114,7 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         enter: TrackerAvatarBlock? = nil,
         finish: TrackerAvatarBlock? = nil,
         once: TrackerAvatarBlock? = nil,
+        strikeFrame: Int? = nil,
         bubble: TrackerAvatarPixel? = nil
     ) {
         self.footRow = footRow
@@ -119,6 +123,7 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         self.enter = enter
         self.finish = finish
         self.once = once
+        self.strikeFrame = strikeFrame
         self.bubble = bubble
     }
 }
@@ -204,6 +209,10 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case misplacedBlock(String)
     /// A pose has a bubble anchor but isn't calling out, the only pose that draws the shared bubble.
     case misplacedBubble(String)
+    /// A pose has a strike frame but doesn't strike: only a release and a catch move.
+    case misplacedStrike(String)
+    /// A pose's strike frame isn't a frame of its one-shot's character track.
+    case unknownStrikeFrame(String)
     case unknownLayer(String)
     /// A track with no steps, a step that isn't a frame shown for a positive time, or a block with no character track.
     case invalidTrack(String)
@@ -290,6 +299,14 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         guard pose.bubble == nil || kind == .callingOut else {
             throw TrackerAvatarAnimationError.misplacedBubble(name)
         }
+        if let strikeFrame = pose.strikeFrame {
+            guard TrackerAvatarMotion.strikePixels(for: kind) != nil, let once else {
+                throw TrackerAvatarAnimationError.misplacedStrike(name)
+            }
+            guard once.character.steps.contains(where: { $0.frame == strikeFrame }) else {
+                throw TrackerAvatarAnimationError.unknownStrikeFrame(name)
+            }
+        }
         return TrackerAvatarPoseAnimation(
             footRow: pose.footRow,
             bodyColumn: pose.bodyColumn,
@@ -297,6 +314,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             enter: enter,
             finish: finish,
             once: once,
+            strikeFrame: pose.strikeFrame,
             bubble: pose.bubble.map { TrackerAvatarPixel(x: $0.x, y: $0.y) }
         )
     }
@@ -360,11 +378,13 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let enter: [String: [TrackerAvatarStep]]?
             let finish: [String: [TrackerAvatarStep]]?
             let once: [String: [TrackerAvatarStep]]?
+            let strikeFrame: Int?
             let bubble: Pixel?
 
             enum CodingKeys: String, CodingKey {
                 case footRow = "foot_row"
                 case bodyColumn = "body_column"
+                case strikeFrame = "strike_frame"
                 case loop, enter, finish, once, bubble
             }
         }

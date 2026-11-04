@@ -23,6 +23,8 @@ struct TrackerAvatarAnimationTests {
         anEnterNeedsALoopAndACharacterTrack()
         everyLoopPoseMayCarryAFinish()
         aFinishNeedsALoopAndACharacterTrack()
+        aStrikeFrameReadsFromAReleaseOrACatch()
+        aStrikeFrameNeedsAStrikingPoseAndAFrameOfItsCharacterTrack()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
         aCatalogShowsEachClassWithArtAndNoOthers()
@@ -275,6 +277,70 @@ struct TrackerAvatarAnimationTests {
         expectThrows(TrackerAvatarAnimationError.invalidTrack("02-pondering has no character track"), "a finish with no character track") {
             _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
                 pose["finish"] = ["front": [[1, 0.25]]]
+            }
+        }
+    }
+
+    /// A release or a catch names the frame of its one-shot where it strikes, on the pose beside its `once` block. The four classes'
+    /// files name none, so they read as before.
+    private static func aStrikeFrameReadsFromAReleaseOrACatch() {
+        let entrance: [[Any]] = [[1, 0.1], [2, 0.1], [3, 0.2], [4, 0.1]]
+        guard let edited = try? AvatarAnimationFixture.bard(editing: [
+            "08-release": { pose in
+                pose["once"] = ["character": entrance]
+                pose["strike_frame"] = 3
+            },
+            "10-catching": { pose in
+                pose["once"] = ["character": entrance]
+                pose["strike_frame"] = 4
+            },
+        ]) else {
+            fail("a strike frame on a release and a catch should decode")
+        }
+        expect(edited.animation(for: .release)?.strikeFrame == 3, "a release should carry its strike frame")
+        expect(edited.animation(for: .catching)?.strikeFrame == 4, "a catch should carry its strike frame")
+        expect(edited.animation(for: .bow)?.strikeFrame == nil, "a pose without the key should name no strike frame")
+        for classID in ["bard", "cleric", "paladin", "wizard"] {
+            guard let animation = try? decode(AvatarAnimationFixture.classJSON(classID)) else {
+                fail("the \(classID)'s file should decode")
+            }
+            expect(TrackerAvatarPose.allCases.allSatisfy { animation.animation(for: $0)?.strikeFrame == nil }, "the \(classID)'s file should name no strike frame")
+        }
+    }
+
+    /// Only a release and a catch move, so only they may name a strike, and the frame must be one the character shows: a frame only
+    /// an effect shows, or one the track lacks, would leave the move on no step.
+    private static func aStrikeFrameNeedsAStrikingPoseAndAFrameOfItsCharacterTrack() {
+        expectThrows(TrackerAvatarAnimationError.misplacedStrike("12-bow"), "a strike frame on a one-shot that doesn't move") {
+            _ = try AvatarAnimationFixture.bard(editing: "12-bow") { pose in
+                pose["strike_frame"] = 1
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.misplacedStrike("02-pondering"), "a strike frame on a loop") {
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
+                pose["strike_frame"] = 1
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.misplacedStrike("01-idle"), "a strike frame on idle") {
+            _ = try AvatarAnimationFixture.bard(editing: "01-idle") { pose in
+                pose["strike_frame"] = 1
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.unknownStrikeFrame("08-release"), "a strike frame the character track lacks") {
+            _ = try AvatarAnimationFixture.bard(editing: "08-release") { pose in
+                pose["once"] = ["character": [[1, 0.1], [2, 0.1], [3, 0.1]]]
+                pose["strike_frame"] = 4
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.unknownStrikeFrame("10-catching"), "a strike frame only an effect shows") {
+            _ = try AvatarAnimationFixture.bard(editing: "10-catching") { pose in
+                pose["once"] = ["character": [[1, 0.1], [2, 0.1]], "front": [[1, 0.1], [5, 0.1]]]
+                pose["strike_frame"] = 5
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.unknownStrikeFrame("08-release"), "a strike frame of 0, which no step shows") {
+            _ = try AvatarAnimationFixture.bard(editing: "08-release") { pose in
+                pose["strike_frame"] = 0
             }
         }
     }

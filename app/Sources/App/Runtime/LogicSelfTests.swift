@@ -45,6 +45,7 @@ enum LogicSelfTests {
         ("testIdleBreathsInWholePixelSteps", testIdleBreathsInWholePixelSteps),
         ("testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame", testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame),
         ("testASteadyPosesFinishPlaysInPlaceOfItsLoop", testASteadyPosesFinishPlaysInPlaceOfItsLoop),
+        ("testAReleaseMovesOnItsNamedStrikeFrame", testAReleaseMovesOnItsNamedStrikeFrame),
         ("testTheStageLaunchesEachSpellFromItsPayloads", testTheStageLaunchesEachSpellFromItsPayloads),
         ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
@@ -1184,6 +1185,32 @@ enum LogicSelfTests {
         try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the finish should be skipped")
     }
 
+    /// A release whose file names its strike frame steps forward as that frame begins, not on its second step: the synthetic class's
+    /// release enters on frames 1 and 2, strikes on frame 3 (0.2 s in) and follows through on frame 4, so the move's keys fall at 0.2 s
+    /// and 0.4 s of its 0.5 s, and it ends back on its anchor.
+    @MainActor
+    private static func testAReleaseMovesOnItsNamedStrikeFrame() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder),
+              let placement = sprites.animation.animation(for: .release),
+              let release = TrackerAvatarFrameRig(pose: .release, placement: placement, sprites: sprites) else {
+            throw TestFailure("the synthetic class's release should draw")
+        }
+        try expect(placement.strikeFrame == 3, "the synthetic release should name frame 3 as its strike")
+        release.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
+        release.startMotion()
+        guard let move = release.figure.animation(forKey: TrackerAvatarMotionKey.move) as? CAKeyframeAnimation else {
+            throw TestFailure("a release should move the figure")
+        }
+        let pixel = Double(TrackerAvatarDesign.pixelPoints)
+        let keyTimes = move.keyTimes?.map(\.doubleValue) ?? []
+        let offsets = move.values?.compactMap { ($0 as? NSNumber)?.doubleValue } ?? []
+        try expect(keyTimes.count == 4 && zip(keyTimes, [0, 0.4, 0.8, 1]).allSatisfy { abs($0 - $1) < 1e-9 },
+                   "the move should step at the strike frame's start (0.4 of the one-shot) and at the next frame's (0.8), got \(keyTimes)")
+        try expect(offsets == [0, 3 * pixel, 0, 0], "the move should step 3 pixels forward on the strike and end on the anchor, got \(offsets)")
+    }
+
     /// The flight overlay sits above the terminal and the dock, takes no clicks or keys, and flies a spell from the avatar's hand to the
     /// Worker Log's left edge, level with the hand. Under Reduce Motion nothing flies.
     @MainActor
@@ -1469,6 +1496,13 @@ enum LogicSelfTests {
         calling["enter"] = ["character": [[2, 0.25]]]
         calling["finish"] = ["character": [[3, 0.25]]]
         poses["11-calling-out"] = calling
+        // A release with an entrance (frames 1 and 2) before its strike (3) and follow-through (4): it names its strike frame.
+        guard var release = poses["08-release"] as? [String: Any] else {
+            throw TestFailure("the bard's file should have a release")
+        }
+        release["once"] = ["character": [[1, 0.1], [2, 0.1], [3, 0.2], [4, 0.1]]]
+        release["strike_frame"] = 3
+        poses["08-release"] = release
         json["poses"] = poses
         try JSONSerialization.data(withJSONObject: json).write(to: folder.appendingPathComponent("animation.json"))
         for number in 1...3 {
@@ -1478,6 +1512,9 @@ enum LogicSelfTests {
         try writeSolidFrame(0.1, to: folder.appendingPathComponent("11-calling-out-f1.png"))
         try writeSolidFrame(0.2, to: folder.appendingPathComponent("11-calling-out-f2.png"))
         try writeSolidFrame(0.3, to: folder.appendingPathComponent("11-calling-out-f3.png"))
+        for number in 1...4 {
+            try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("08-release-f\(number).png"))
+        }
         for number in 1...8 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("11-calling-out-front-f\(number).png"))
         }

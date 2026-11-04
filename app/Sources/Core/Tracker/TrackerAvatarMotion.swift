@@ -20,30 +20,37 @@ public enum TrackerAvatarMotion {
     /// A catch recoils this many pixels back (left) as the wisp lands.
     public static let catchRecoilPixels = 2
 
-    /// The steps of a pose's move over its one-shot (`block`). The first step is at 0, and the last step holds to the block's end.
-    /// A pose without a move has no steps.
-    public static func steps(for pose: TrackerAvatarPose, in block: TrackerAvatarBlock) -> [TrackerAvatarMoveStep] {
+    /// How far a pose's strike moves it, in pixels right of its anchor: a release steps forward, a catch recoils back. Nil for a pose
+    /// that doesn't move.
+    public static func strikePixels(for pose: TrackerAvatarPose) -> Int? {
         switch pose {
-        case .release:
-            return strike(in: block, x: releaseStepPixels)
-        case .catching:
-            return strike(in: block, x: -catchRecoilPixels)
-        default:
-            return []
+        case .release: releaseStepPixels
+        case .catching: -catchRecoilPixels
+        default: nil
         }
     }
 
-    /// Steps to the offset as the strike begins (the block's second step), and back to the anchor as its follow-through begins
-    /// (its third step, or the block's end when it has no third).
-    private static func strike(in block: TrackerAvatarBlock, x: Int) -> [TrackerAvatarMoveStep] {
-        let starts = block.character.starts
-        guard starts.count > 1 else {
+    /// The steps of a pose's move over its one-shot. The first step is at 0, and the last step holds to the block's end. A pose
+    /// without a move, or a one-shot with no step to strike on, has no steps.
+    ///
+    /// The strike is one step of the character track: the first one that shows the pose's `strikeFrame`, or the second when it names
+    /// none. The figure steps to the offset as that step begins, and back to the anchor as the next one does (or as the block ends,
+    /// when it is the last).
+    public static func steps(for pose: TrackerAvatarPose, in placement: TrackerAvatarPoseAnimation) -> [TrackerAvatarMoveStep] {
+        guard let x = strikePixels(for: pose), let block = placement.once else {
             return []
         }
-        let end = starts.count > 2 ? starts[2] : block.seconds
-        return [
-            TrackerAvatarMoveStep(seconds: 0),
-            TrackerAvatarMoveStep(seconds: starts[1], x: x),
+        let frames = block.character.steps.map(\.frame)
+        let strikeIndex = placement.strikeFrame.flatMap { frames.firstIndex(of: $0) } ?? 1
+        guard strikeIndex < frames.count else {
+            return []
+        }
+        let starts = block.character.starts
+        let strike = starts[strikeIndex]
+        let end = strikeIndex + 1 < starts.count ? starts[strikeIndex + 1] : block.seconds
+        let lead = strike > 0 ? [TrackerAvatarMoveStep(seconds: 0)] : []
+        return lead + [
+            TrackerAvatarMoveStep(seconds: strike, x: x),
             TrackerAvatarMoveStep(seconds: end),
         ]
     }

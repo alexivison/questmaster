@@ -613,7 +613,7 @@ final class TrackerAvatarFrameRig: TrackerAvatarPoseRig {
             layer(kind).contents = track.steps.last.flatMap { sprites.frame(pose, kind, $0.frame) }
             addFrames(of: kind, track: track, duration: block.seconds, looping: false)
         }
-        addMove(TrackerAvatarMotion.steps(for: pose, in: block), duration: block.seconds)
+        addMove(TrackerAvatarMotion.steps(for: pose, in: placement), duration: block.seconds)
     }
 
     /// Plays a track's frames as discrete keyframes over `duration`, each from its start. The last key holds the frame that closes the
