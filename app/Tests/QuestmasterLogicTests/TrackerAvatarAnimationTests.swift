@@ -53,7 +53,9 @@ struct TrackerAvatarAnimationTests {
         expect(pondering?.loop?.character.steps == [TrackerAvatarStep(frame: 1, seconds: 0.5), TrackerAvatarStep(frame: 2, seconds: 0.5), TrackerAvatarStep(frame: 3, seconds: 0.5)],
                "pondering should cycle f1 to f3 at half a second a frame")
         let calling = animation.animation(for: .callingOut)?.loop
-        expect(calling?.front?.steps.map(\.frame) == [1, 2, 3] && calling?.behind == nil, "calling out should cycle a front layer and no behind layer")
+        expect(calling?.character.steps.map(\.frame) == [1, 2, 3] && calling?.front == nil && calling?.behind == nil,
+               "calling out should cycle its character with no effect layers")
+        expect(animation.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 71, y: 20), "calling out should anchor the shared bubble at the bard's head")
         expect(animation.animation(for: .idle)?.loop == nil && animation.animation(for: .idle)?.once == nil, "idle should play no block")
     }
 
