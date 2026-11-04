@@ -24,7 +24,15 @@ controlPageAndHalfPageChords()
         controlHandoffMapsListControlDirections()
         gPrefixTrackerResolvesDoubleGWithinWindowAndExpiresAfter()
         gPrefixTrackerResetClearsPendingState()
+        projectsAddKeyIsPlainN()
         print("KeymapTests: all tests passed")
+    }
+
+    /// Settings' Projects list adds with plain n. ⌘T and a no longer add, so each key stays with one action.
+    private static func projectsAddKeyIsPlainN() {
+        expect(matches(press("n", keyCode: 45), .addProject), "n should add a project")
+        expect(!matches(press("t", [.command], keyCode: 17), .addProject), "⌘T should no longer add a project")
+        expect(!matches(press("a", keyCode: 0), .addProject), "a should no longer add a project")
     }
 
     private static func press(_ character: String?, _ modifiers: Set<Keymap.Modifier> = [], keyCode: UInt16 = 0) -> Keymap.KeyPress {

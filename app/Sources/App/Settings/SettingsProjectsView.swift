@@ -45,7 +45,7 @@ struct SettingsProjectsView: View {
                 ChromeIconButton(symbolName: "checkmark", accessibilityLabel: "Save order", tooltip: "Save order (Return)", tint: AppPalette.gitGreen, action: model.saveArrange)
             } else {
                 ChromeIconButton(symbolName: "arrow.up.arrow.down", accessibilityLabel: "Arrange projects", tooltip: "Arrange projects (R)", action: model.beginArrange)
-                ChromeIconButton(symbolName: "plus", accessibilityLabel: "Add project", tooltip: "Add project (⌘T)", action: model.addProject)
+                ChromeIconButton(symbolName: "plus", accessibilityLabel: "Add project", tooltip: "Add project (n)", action: model.addProject)
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)

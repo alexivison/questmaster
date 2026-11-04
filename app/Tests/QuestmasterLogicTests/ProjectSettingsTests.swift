@@ -20,7 +20,6 @@ struct ProjectSettingsTests {
         folderListFollowsTheProjectsAndHidesWhileArranging()
         folderRowAddsWithItsPathFilled()
         folderSessionLabelCountsSessions()
-        addKeyOpensAddFromAnyRowAndAliasesCommandT()
         folderRowsDimUntilHighlighted()
         print("ProjectSettingsTests: all tests passed")
     }
@@ -221,12 +220,6 @@ struct ProjectSettingsTests {
     private static func folderSessionLabelCountsSessions() {
         expect(TrackerUnlistedFolder(path: "/opt/notes", sessionCount: 1).sessionLabel == "1 session", "one session should read singular")
         expect(folders[0].sessionLabel == "2 sessions", "several sessions should read plural")
-    }
-
-    private static func addKeyOpensAddFromAnyRowAndAliasesCommandT() {
-        expect(Keymap.matches(Keymap.KeyPress(keyCode: 0, character: "a"), .addProject), "a should add a project")
-        expect(Keymap.matches(Keymap.KeyPress(keyCode: 17, character: "t", modifiers: [.command]), .addProject), "⌘T should still add a project")
-        expect(!Keymap.matches(Keymap.KeyPress(keyCode: 0, character: "a", modifiers: [.command]), .addProject), "⌘A should not add a project")
     }
 
     private static func folderRowsDimUntilHighlighted() {
