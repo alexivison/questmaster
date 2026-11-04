@@ -280,6 +280,7 @@ final class NewQuestSheetModel: ObservableObject {
         ModalKeyContext(
             focus: form.modalFocus,
             fieldCount: NewQuestField.allCases.count,
+            hasTextFields: true,
             submitting: form.submitting,
             submits: true
         )

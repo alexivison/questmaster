@@ -21,22 +21,25 @@ public enum FilterFieldCommand: Equatable {
 }
 
 /// The keys the Quest Log's and the artifact dock's filter fields share. The fields type text, so letters never move
-/// the list here: it moves with ↑/↓ and ⌃p/⌃n. Nil for a key the text system takes: a typed character, Tab with
-/// nothing to take, Backspace in a non-empty field, and any key with a modifier that isn't listed.
+/// the list here. Nil for a key the text system takes: a typed character, Tab with nothing to take, Backspace in a
+/// non-empty field, and any key with a modifier that isn't listed.
 public enum FilterFieldKey {
     /// `showsSuggestions`: a suggestion is showing, so the keys act on it rather than on the list.
+    /// `listMoves`: with no suggestion showing, ↑/↓ and ⌃p/⌃n move the list. The Quest Log's rows move with the modal
+    /// keys instead, so there ↑/↓ and ⌃p/⌃n stay the caret's.
     /// `queryIsEmpty` and `hasChips` decide what Backspace removes.
     public static func command(
         _ press: Keymap.KeyPress,
         showsSuggestions: Bool,
+        listMoves: Bool,
         queryIsEmpty: Bool,
         hasChips: Bool
     ) -> FilterFieldCommand? {
         if Keymap.matches(press, .suggestionUp) || Keymap.matches(press, .suggestionPrevious) {
-            return showsSuggestions ? .moveSuggestion(-1) : .moveList(-1)
+            return showsSuggestions ? .moveSuggestion(-1) : listMove(-1, listMoves: listMoves)
         }
         if Keymap.matches(press, .suggestionDown) || Keymap.matches(press, .suggestionNext) {
-            return showsSuggestions ? .moveSuggestion(1) : .moveList(1)
+            return showsSuggestions ? .moveSuggestion(1) : listMove(1, listMoves: listMoves)
         }
         if Keymap.matches(press, .tab) {
             return showsSuggestions ? .acceptSuggestion : nil
@@ -51,5 +54,9 @@ public enum FilterFieldKey {
             return showsSuggestions ? .hideSuggestions : .leave
         }
         return nil
+    }
+
+    private static func listMove(_ delta: Int, listMoves: Bool) -> FilterFieldCommand? {
+        listMoves ? .moveList(delta) : nil
     }
 }

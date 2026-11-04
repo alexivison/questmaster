@@ -81,11 +81,13 @@ public struct ListCapabilities: OptionSet, Equatable, Sendable {
     /// Esc and ⌃[ close the list's window.
     public static let closes = ListCapabilities(rawValue: 1 << 11)
     public static let externalOpen = ListCapabilities(rawValue: 1 << 12)
+    /// The modal keys move the rows (`ModalKeys`: j and k), so this list's own moves, j, k and ↑/↓ alike, take nothing.
+    public static let modalMoves = ListCapabilities(rawValue: 1 << 13)
 
     public static let tracker: ListCapabilities = [.opensOnReturn, .controlRows, .delete, .edit, .editRepo, .collapseWorkers]
     public static let artifacts: ListCapabilities = [.opensOnReturn, .externalOpen, .controlRows, .tabs, .filter, .mark, .delete]
     public static let versionControl: ListCapabilities = [.opensOnReturn, .controlRows, .refresh]
-    public static let questLog: ListCapabilities = [.controlRows, .filter, .mark, .delete, .edit, .start, .closes]
+    public static let questLog: ListCapabilities = [.modalMoves, .filter, .mark, .delete, .edit, .start, .closes]
     /// The Worker Log's dropdown: Return and Space tick a row, Esc closes it, and the tab keys still step the tabs.
     public static let workerLogMenu: ListCapabilities = [.tabs, .opensOnReturn, .mark, .closes]
     public static let workerLogFeed: ListCapabilities = [.tabs]
@@ -116,8 +118,10 @@ public struct ListKeyResolver {
 
     /// The command a press means on its own, without `gg`. Nil for a key the capabilities don't give the surface.
     private static func command(for press: Keymap.KeyPress, in capabilities: ListCapabilities) -> ListCommand? {
-        if Keymap.matches(press, .moveUp) { return .move(-1) }
-        if Keymap.matches(press, .moveDown) { return .move(1) }
+        if !capabilities.contains(.modalMoves) {
+            if Keymap.matches(press, .moveUp) { return .move(-1) }
+            if Keymap.matches(press, .moveDown) { return .move(1) }
+        }
         if Keymap.matches(press, .pageUp) { return .page(-1) }
         if Keymap.matches(press, .pageDown) { return .page(1) }
         if Keymap.matches(press, .halfPageUp) { return .halfPage(-1) }

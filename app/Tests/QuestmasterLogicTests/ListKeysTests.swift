@@ -43,18 +43,23 @@ struct ListKeysTests {
     ]
 
     private static func sharedMovesAndTheirAliases() {
-        for list in lists {
+        for list in lists where !list.capabilities.contains(.modalMoves) {
             expect(command(press(nil, keyCode: 125), list.capabilities) == .move(1), "↓ should move down in the \(list.name)")
             expect(command(press(nil, keyCode: 126), list.capabilities) == .move(-1), "↑ should move up in the \(list.name)")
             expect(command(press("j", keyCode: 38), list.capabilities) == .move(1), "j should move down in the \(list.name)")
             expect(command(press("k", keyCode: 40), list.capabilities) == .move(-1), "k should move up in the \(list.name)")
             expect(command(press("j", [.control], keyCode: 38), list.capabilities) == .move(1), "⌃j should move down in the \(list.name)")
             expect(command(press("k", [.control], keyCode: 40), list.capabilities) == .move(-1), "⌃k should move up in the \(list.name)")
+        }
+        for list in lists {
             expect(command(press("j", [.command], keyCode: 38), list.capabilities) == nil, "⌘j is no list key in the \(list.name)")
             expect(command(press("h", [.control], keyCode: 4), list.capabilities) == nil, "⌃h hands focus over, it is no list key in the \(list.name)")
             expect(command(press("l", [.control], keyCode: 37), list.capabilities) == nil, "⌃l hands focus over, it is no list key in the \(list.name)")
         }
         expect(command(press(nil, keyCode: 125), .tracker) == .move(1), "the tracker takes the arrows")
+        expect(command(press(nil, keyCode: 125), .questLog) == nil, "the Quest Log's arrows are no list moves: its rows move with the modal keys")
+        expect(command(press("j", keyCode: 38), .questLog) == nil, "j is no list move in the Quest Log: its rows move with the modal keys")
+        expect(command(press("j", [.control], keyCode: 38), .questLog) == nil, "⌃j is no list move in the Quest Log")
         expect(command(press("y", keyCode: 16), .tracker) == .copy, "y should copy in the tracker")
         expect(command(press("y", keyCode: 16), .versionControl) == .copy, "y should copy in Version Control")
         expect(command(press("y", keyCode: 16), .artifacts) == .copy, "y should copy in the artifact list")
@@ -156,7 +161,7 @@ struct ListKeysTests {
     /// The viewer and the Worker Log's feed scroll alike: a line for j, k and the arrows, a page for PgUp, PgDn, ⌃b and ⌃f,
     /// half a page for ⌃u and ⌃d, and gg and G for the ends. ⌃j and ⌃k do not scroll.
     private static func scrollKeysAreTheSameOnEveryReadSurface() {
-        for surface in [ListCapabilities.workerLogFeed, [], .questLog] {
+        for surface in [ListCapabilities.workerLogFeed, []] {
             expect(command(press("j", keyCode: 38), surface) == .move(1), "j should scroll a line")
             expect(command(press("k", keyCode: 40), surface) == .move(-1), "k should scroll a line")
             expect(command(press(nil, keyCode: 125), surface) == .move(1), "↓ should scroll a line")

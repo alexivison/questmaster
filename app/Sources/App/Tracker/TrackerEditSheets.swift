@@ -169,7 +169,7 @@ struct TrackerEditSessionSheet: View {
     }
 
     private var modalKeyContext: ModalKeyContext {
-        ModalKeyContext(focus: keyFocus, fieldCount: allowsColor ? 2 : 1, submitting: false, submits: true)
+        ModalKeyContext(focus: keyFocus, fieldCount: allowsColor ? 2 : 1, hasTextFields: true, submitting: false, submits: true)
     }
 
     /// The colour input takes ←/→ to cycle only in SELECT; while it searches they move the caret.
@@ -266,8 +266,8 @@ struct TrackerEditRepoSheet: View {
         dismiss()
     }
 
-    /// The sheet's keys: the colour input's own, then the shared modal keys (`ModalKeys`). The colour is the only
-    /// field, so Tab does nothing.
+    /// The sheet's keys: the colour input's own, then the shared modal keys (`ModalKeys`). The name is fixed, so the
+    /// colour is the only field: Tab does nothing, and j and k type only into the colour's search.
     private func handle(_ event: NSEvent) -> Bool {
         ModalKeyActions(
             context: { modalKeyContext },
@@ -279,7 +279,7 @@ struct TrackerEditRepoSheet: View {
     }
 
     private var modalKeyContext: ModalKeyContext {
-        ModalKeyContext(focus: color.mode == .select ? .select : .line, fieldCount: 1, submitting: false, submits: true)
+        ModalKeyContext(focus: color.mode == .select ? .select : .line, fieldCount: 1, hasTextFields: false, submitting: false, submits: true)
     }
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {

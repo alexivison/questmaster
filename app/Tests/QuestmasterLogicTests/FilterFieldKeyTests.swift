@@ -6,6 +6,7 @@ struct FilterFieldKeyTests {
     static func run() {
         suggestionKeysMoveTheHighlightWhileSuggestionsShow()
         listKeysMoveTheListWhenNoSuggestionShows()
+        listKeysAreTheCaretsWhenTheListDoesNotMove()
         lettersTypeAndNeverMoveTheList()
         tabTakesOnlyAShownSuggestion()
         returnTakesASuggestionOrReturnsToTheList()
@@ -27,6 +28,14 @@ struct FilterFieldKeyTests {
         expect(key("", 125, showsSuggestions: false) == .moveList(1), "↓ with no suggestion should move the list down")
         expect(key("p", 35, modifiers: [.control], showsSuggestions: false) == .moveList(-1), "⌃p with no suggestion should move the list up")
         expect(key("n", 45, modifiers: [.control], showsSuggestions: false) == .moveList(1), "⌃n with no suggestion should move the list down")
+    }
+
+    /// A list whose rows move with the modal keys (the Quest Log) keeps ↑/↓ and ⌃p/⌃n for the caret. A suggestion still takes them.
+    private static func listKeysAreTheCaretsWhenTheListDoesNotMove() {
+        expect(key("", 126, showsSuggestions: false, listMoves: false) == nil, "↑ with no suggestion should be the caret's when the list does not move")
+        expect(key("", 125, showsSuggestions: false, listMoves: false) == nil, "↓ with no suggestion should be the caret's when the list does not move")
+        expect(key("n", 45, modifiers: [.control], showsSuggestions: false, listMoves: false) == nil, "⌃n with no suggestion should be the caret's when the list does not move")
+        expect(key("", 126, showsSuggestions: true, listMoves: false) == .moveSuggestion(-1), "↑ should still move a shown suggestion")
     }
 
     /// `j`, `k` and `l` are the list's keys elsewhere; the filter types them.
@@ -77,12 +86,14 @@ struct FilterFieldKeyTests {
         _ keyCode: UInt16,
         modifiers: Set<Keymap.Modifier> = [],
         showsSuggestions: Bool = false,
+        listMoves: Bool = true,
         queryIsEmpty: Bool = false,
         hasChips: Bool = true
     ) -> FilterFieldCommand? {
         FilterFieldKey.command(
             Keymap.KeyPress(keyCode: keyCode, character: characters, modifiers: modifiers),
             showsSuggestions: showsSuggestions,
+            listMoves: listMoves,
             queryIsEmpty: queryIsEmpty,
             hasChips: hasChips
         )

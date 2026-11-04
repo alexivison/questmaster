@@ -22,6 +22,7 @@ struct QuestCoreTests {
         questLogStoreReturnsEffectsAndClosingClearsMarks()
         questLogStoreScrollsByPagesAndOnlyTakesItsOwnCommands()
         questLogStoreJumpsToTheEdgesAndAsksForAScroll()
+        questLogStoreMovesRowsWithJAndKOnly()
         displayEdgeSelectionJumpsToFirstAndLastAcrossSections()
         newQuestFormBuildsPayload()
         newQuestFormNeedsAProjectAndContent()
@@ -203,6 +204,22 @@ struct QuestCoreTests {
         expect(store.handle(.page(1)) == .scrollPage(0.9) && store.handle(.halfPage(-1)) == .scrollPage(-0.5), "page keys scroll by 0.9 and half pages")
         expect(store.handle(.open) == nil && store.handle(.previousTab) == nil && store.handle(.jumpToTopPrefix) == nil, "Return, the tabs and a lone g do nothing in the Quest Log")
         expect(store.handle(.refresh) == nil && store.handle(.editRepo) == nil && store.handle(.toggleWorkersCollapsed) == nil, "the tracker's and Version Control's keys do nothing in the Quest Log")
+    }
+
+    /// The rows move with the modal keys: j and k, while the arrows, Tab and ⌃J/⌃K take nothing. A lone g still
+    /// arms gg, so the list keys see every press.
+    private static func questLogStoreMovesRowsWithJAndKOnly() {
+        let store = QuestLogStore()
+        store.sync(quests: logQuests, repos: [])
+        func command(_ characters: String?, _ keyCode: UInt16, _ modifiers: Set<Keymap.Modifier> = []) -> ListCommand? {
+            store.command(for: Keymap.KeyPress(keyCode: keyCode, character: characters, modifiers: modifiers))
+        }
+        expect(command("j", 38) == .move(1), "j should move the Quest Log down")
+        expect(command("k", 40) == .move(-1), "k should move the Quest Log up")
+        expect(command(nil, 125) == nil && command(nil, 126) == nil, "the arrows should take nothing in the Quest Log")
+        expect(command(nil, 48) == nil, "Tab should take nothing in the Quest Log")
+        expect(command("j", 38, [.control]) == nil && command("k", 40, [.control]) == nil, "⌃j and ⌃k should take nothing in the Quest Log")
+        expect(command("g", 5) == .jumpToTopPrefix, "one g should still arm gg in the Quest Log")
     }
 
     private static func questLogStoreJumpsToTheEdgesAndAsksForAScroll() {

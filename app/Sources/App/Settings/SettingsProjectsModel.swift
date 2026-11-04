@@ -50,16 +50,9 @@ final class SettingsProjectsModel: ObservableObject {
         highlightRow(highlightIndex + delta)
     }
 
-    /// The Projects keys, taken before the shared modal keys (`ModalKeys`). False leaves the press to them.
+    /// The Projects keys, taken before the shared modal keys (`ModalKeys`), which move the highlight with j and k. False
+    /// leaves the press to them.
     func handleKey(_ press: Keymap.KeyPress) -> Bool {
-        if Keymap.matches(press, .moveUp) {
-            moveHighlight(by: -1)
-            return true
-        }
-        if Keymap.matches(press, .moveDown) {
-            moveHighlight(by: 1)
-            return true
-        }
         if isArranging {
             return handleArrangingKey(press)
         }

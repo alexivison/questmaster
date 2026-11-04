@@ -83,15 +83,20 @@ final class QuestLogFilter {
         return true
     }
 
-    /// The field's own keys (each press from `CommandTextField`). True when the filter took the press.
+    /// The filter is the Quest Log's one text field, so Tab, ⌃J and ⌃K have no other field to move to and take nothing.
+    private static let keysInTheField = ModalKeyContext(focus: .line, fieldCount: 1, hasTextFields: true, submitting: false, submits: false)
+
+    /// The field's own keys (each press from `CommandTextField`). True when the filter took the press. ↑/↓ and ⌃p/⌃n
+    /// with no suggestion are the caret's: the list moves with j and k.
     func handleCommand(_ press: Keymap.KeyPress) -> Bool {
         guard let command = FilterFieldKey.command(
             press,
             showsSuggestions: !suggestions.isEmpty,
+            listMoves: false,
             queryIsEmpty: query.isEmpty,
             hasChips: !tokens.isEmpty
         ) else {
-            return false
+            return ModalKeys.command(for: press, in: Self.keysInTheField) == .consume
         }
         apply(command)
         return true

@@ -60,7 +60,7 @@ struct DestructiveConfirmationSheetView: View {
         .frame(width: Self.width)
         .scoopedPanel()
         .background(SheetKeyEventMonitor(onKeyDown: ModalKeyActions(
-            context: { ModalKeyContext(focus: nil, fieldCount: 0, submitting: false, submits: true) },
+            context: { ModalKeyContext(focus: nil, fieldCount: 0, hasTextFields: false, submitting: false, submits: true) },
             submit: { onDecision(true) },
             cancel: { onDecision(false) }
         ).handle))
