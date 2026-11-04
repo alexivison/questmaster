@@ -502,9 +502,14 @@ every step in DEBUG builds so the recorder can sample it).
   and CLI behavior. Delegation thresholds, reviewer cadence, model preferences,
   and general writing or repository practices belong to the user or applicable
   project instructions, not the injected session prompt.
-- Branch from `main`. App work and backend work both ship as PRs **direct to
-  `main`** (there is no long-lived integration branch). Open **draft** PRs by
-  default. Prefer separate PRs for backend vs app when the change is separable.
+- Branch from a freshly fetched `origin/main` (`git fetch origin`, then
+  `git worktree add <path> -b <branch> origin/main`), never from a local `main`:
+  it can be stale or still on a history `main` has since rewritten, and a PR
+  cut from it drags that old history along. Before opening a PR, check that
+  `git log origin/main..HEAD` lists only its own commits. App work and backend
+  work both ship as PRs **direct to `main`** (there is no long-lived integration
+  branch). Open **draft** PRs by default. Prefer separate PRs for backend vs app
+  when the change is separable.
 - Do file edits inside a **dedicated git worktree** so concurrent sessions don't
   trample each other.
 - **Do not drive the GUI via AppleScript/`osascript`/synthetic keystrokes** — it
