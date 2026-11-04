@@ -221,6 +221,7 @@ enum RenderPreview {
         render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
         render(projectsSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects.png")
         render(projectsSettingsView(arranging: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-arrange.png")
+        render(projectsSettingsView(folders: settingsUnlistedFolders), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-folders.png")
         render(projectEditView(adding: false), size: projectEditSize(fields: 2), to: "\(outputDir)/settings-project-edit.png")
         render(projectEditView(adding: true), size: projectEditSize(fields: 3), to: "\(outputDir)/settings-project-add.png")
         print("RenderPreview: done")
@@ -2067,11 +2068,22 @@ enum RenderPreview {
         CGSize(width: ModalFormMetrics.editWidth, height: ModalFormMetrics.height(fields: fields))
     }
 
+    /// Folders that hold sessions but belong to no project: one with several sessions, one with a single session, and one
+    /// under home, so the paths show as `~`.
+    private static let settingsUnlistedFolders: [TrackerUnlistedFolder] = {
+        let home = NSHomeDirectory()
+        return [
+            TrackerUnlistedFolder(path: home + "/Code/scratch-notes", sessionCount: 3),
+            TrackerUnlistedFolder(path: home + "/Downloads/build-logs", sessionCount: 1),
+            TrackerUnlistedFolder(path: "/opt/tools/exports", sessionCount: 2),
+        ]
+    }()
+
     /// The Projects section with the second project highlighted, and arrange mode on when `arranging`.
     @MainActor
-    private static func projectsSettingsView(arranging: Bool = false) -> some View {
+    private static func projectsSettingsView(arranging: Bool = false, folders: [TrackerUnlistedFolder] = []) -> some View {
         let runtime = RuntimeStore(sourceLabel: "preview")
-        runtime.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [], projects: settingsProjects)))
+        runtime.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [], projects: settingsProjects, unlistedFolders: folders)))
         let model = SettingsSheetModel(
             presentation: SettingsSheetPresentation(
                 mutationClient: SettingsPreviewMutationClient(),

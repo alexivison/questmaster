@@ -160,6 +160,10 @@ func serveContractFixtures() []contractFixture {
 			DefaultName: "scratch",
 			Path:        "/tmp/questmaster/scratch",
 		}},
+		UnlistedFolders: []UnlistedFolderSnapshot{{
+			Path:         "/tmp/questmaster/loose-notes",
+			SessionCount: 2,
+		}},
 		Artifacts: []ArtifactSnapshot{artifact, markdownArtifact, imageArtifact, orphanArtifact},
 		Quests:    []QuestSnapshot{activeQuest, secondQuest},
 	}

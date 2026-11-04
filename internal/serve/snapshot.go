@@ -64,12 +64,13 @@ func (s *Snapshotter) StateRoot() string {
 
 // TrackerSnapshot is the native tracker's read model.
 type TrackerSnapshot struct {
-	ObservedAt time.Time          `json:"observed_at"`
-	Current    *CurrentSession    `json:"current,omitempty"`
-	Sessions   []SessionSnapshot  `json:"sessions"`
-	Projects   []ProjectSnapshot  `json:"projects,omitempty"`
-	Artifacts  []ArtifactSnapshot `json:"artifacts,omitempty"`
-	Quests     []QuestSnapshot    `json:"quests,omitempty"`
+	ObservedAt      time.Time                `json:"observed_at"`
+	Current         *CurrentSession          `json:"current,omitempty"`
+	Sessions        []SessionSnapshot        `json:"sessions"`
+	Projects        []ProjectSnapshot        `json:"projects,omitempty"`
+	UnlistedFolders []UnlistedFolderSnapshot `json:"unlisted_folders,omitempty"`
+	Artifacts       []ArtifactSnapshot       `json:"artifacts,omitempty"`
+	Quests          []QuestSnapshot          `json:"quests,omitempty"`
 }
 
 // CurrentSession identifies the session the current process is attached to,
@@ -103,6 +104,14 @@ type ProjectSnapshot struct {
 	DefaultName string `json:"default_name,omitempty"`
 	Path        string `json:"path,omitempty"`
 	Color       string `json:"color,omitempty"`
+}
+
+// UnlistedFolderSnapshot is a folder that holds sessions but belongs to no
+// project. Path is the session cwd as stored, not the folder's repo or parent.
+// SessionCount counts the sessions whose cwd is exactly that path.
+type UnlistedFolderSnapshot struct {
+	Path         string `json:"path"`
+	SessionCount int    `json:"session_count"`
 }
 
 type QuestSnapshot struct {
@@ -397,17 +406,18 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	statuses, _ := state.LoadPullRequestStatuses(s.store.Root())
 	state.AttachPullRequestStatuses(prs, statuses)
 	s.observeTrackerRows(snap.Sessions, observedAt)
-	projects, err := buildProjectSnapshots(s.store, s.projects, artifacts, quests)
+	projects, unlisted, err := buildProjectSnapshots(s.store, s.projects, artifacts, quests)
 	if err != nil {
 		return TrackerSnapshot{}, err
 	}
 	return s.cacheTracker(TrackerSnapshot{
-		ObservedAt: observedAt,
-		Current:    currentSessionSnapshot(current),
-		Sessions:   s.sessionSnapshots(snap.Sessions, observedAt, artifacts, prs),
-		Projects:   projects,
-		Artifacts:  artifactSnapshots(artifacts),
-		Quests:     questSnapshots(quests),
+		ObservedAt:      observedAt,
+		Current:         currentSessionSnapshot(current),
+		Sessions:        s.sessionSnapshots(snap.Sessions, observedAt, artifacts, prs),
+		Projects:        projects,
+		UnlistedFolders: unlisted,
+		Artifacts:       artifactSnapshots(artifacts),
+		Quests:          questSnapshots(quests),
 	}), nil
 }
 
@@ -439,6 +449,7 @@ func cloneTrackerSnapshot(snapshot TrackerSnapshot) TrackerSnapshot {
 	snapshot.Artifacts = cloneArtifactSnapshots(snapshot.Artifacts)
 	snapshot.Quests = append([]QuestSnapshot(nil), snapshot.Quests...)
 	snapshot.Projects = append([]ProjectSnapshot(nil), snapshot.Projects...)
+	snapshot.UnlistedFolders = append([]UnlistedFolderSnapshot(nil), snapshot.UnlistedFolders...)
 	return snapshot
 }
 
@@ -677,12 +688,13 @@ func (s *Snapshotter) globalQuests() []state.Quest {
 }
 
 // buildProjectSnapshots lists every project the tracker shows, in the user's
-// order. A project is found from a session cwd, a repo color, an artifact, or
-// a quest. An added folder is listed even when nothing lives in it yet.
-func buildProjectSnapshots(store *state.Store, resolver *state.ProjectResolver, artifacts []state.Artifact, quests []state.Quest) ([]ProjectSnapshot, error) {
+// order, and the session folders that belong to none. A project is found from
+// a session cwd, a repo color, an artifact, or a quest. An added folder is
+// listed even when nothing lives in it yet.
+func buildProjectSnapshots(store *state.Store, resolver *state.ProjectResolver, artifacts []state.Artifact, quests []state.Quest) ([]ProjectSnapshot, []UnlistedFolderSnapshot, error) {
 	manifests, err := store.DiscoverSessions()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Graceful degradation: an unreadable store leaves no added folders, names or order.
 	registry, _ := state.NewProjectStore(store.Root()).Load()
@@ -699,9 +711,13 @@ func buildProjectSnapshots(store *state.Store, resolver *state.ProjectResolver, 
 		}
 		return ok
 	}
+	sessionCwdCounts := make(map[string]int)
 	for _, manifest := range manifests {
-		addPath(manifest.Cwd)
+		if !addPath(manifest.Cwd) {
+			sessionCwdCounts[manifest.Cwd]++
+		}
 	}
+	unlisted := unlistedFolderSnapshots(sessionCwdCounts, store.Root())
 	for _, project := range registry.AddedProjects() {
 		found[project.ID] = project
 	}
@@ -717,7 +733,7 @@ func buildProjectSnapshots(store *state.Store, resolver *state.ProjectResolver, 
 		}
 	}
 	if len(found) == 0 {
-		return nil, nil
+		return nil, unlisted, nil
 	}
 
 	out := make([]ProjectSnapshot, 0, len(found))
@@ -734,7 +750,37 @@ func buildProjectSnapshots(store *state.Store, resolver *state.ProjectResolver, 
 	sort.SliceStable(out, func(i, j int) bool {
 		return ranks.Less(out[i].ID, out[i].Name, out[j].ID, out[j].Name)
 	})
-	return out, nil
+	return out, unlisted, nil
+}
+
+// unlistedFolderSnapshots keeps the session folders that still exist, sit
+// outside the state root, and are project paths, sorted by path. Each distinct
+// folder is looked up once, however many sessions it holds.
+func unlistedFolderSnapshots(sessionCounts map[string]int, stateRoot string) []UnlistedFolderSnapshot {
+	resolvedRoot := resolvedFolderPath(stateRoot)
+	var out []UnlistedFolderSnapshot
+	for path, count := range sessionCounts {
+		if !isProjectPath(path) {
+			continue
+		}
+		// EvalSymlinks also fails when the folder no longer exists.
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil || state.PathWithin(resolvedRoot, resolved) {
+			continue
+		}
+		out = append(out, UnlistedFolderSnapshot{Path: path, SessionCount: count})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// resolvedFolderPath follows symlinks when the path exists, so a state root
+// reached through a link still matches the real path of a session folder.
+func resolvedFolderPath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return filepath.Clean(path)
 }
 
 // isProjectPath reports whether a stored reference names a folder. Pseudo

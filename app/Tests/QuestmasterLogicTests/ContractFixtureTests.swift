@@ -41,6 +41,7 @@ struct ContractFixtureTests {
         expect(tracker.quests.contains { $0.id == "qst-1781842860" }, "second quest did not decode")
         expect(tracker.projects.first?.id == "/tmp/questmaster/.git", "tracker project id did not decode")
         expect(tracker.projects.first?.path == "/tmp/questmaster", "tracker project path did not decode")
+        expect(tracker.unlistedFolders == [TrackerUnlistedFolder(path: "/tmp/questmaster/loose-notes", sessionCount: 2)], "tracker unlisted folders did not decode")
 
         let suggestions = try decodeFixture(DirSuggestFixture.self, "dir_suggest_payload.json")
         expect(suggestions.suggestions == ["/tmp/project-app", "/tmp/project-log"], "dir_suggest suggestions did not decode")

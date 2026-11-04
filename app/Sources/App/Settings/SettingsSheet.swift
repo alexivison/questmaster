@@ -409,7 +409,7 @@ final class SettingsSheetModel: ObservableObject {
         case .modelsAndReasoning:
             return ModalKeyContext(focus: .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, hasTextFields: false, submitting: false, submits: false)
         case .projects:
-            return ModalKeyContext(focus: nil, fieldCount: projects.rows.count, hasTextFields: false, submitting: false, submits: true)
+            return ModalKeyContext(focus: nil, fieldCount: projects.entries.count, hasTextFields: false, submitting: false, submits: true)
         }
     }
 

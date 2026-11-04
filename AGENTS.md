@@ -92,6 +92,8 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
   `repo-colors.json`, keyed by the same project ID. `state.ProjectResolver` is the one
   path-to-project mapping: a session cwd, a new artifact, a quest, or a color seed takes its
   project ID from it (`state.ProjectIDAt` for one-shot callers), never from a raw `repo.Resolve`.
+  The tracker payload's `unlisted_folders` are the session cwds that resolve to no project, still exist
+  and lie outside the state root; `buildProjectSnapshots` builds them in the same pass as `projects`.
 
 Invariants that aren't obvious from the code:
 

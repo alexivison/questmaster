@@ -3,17 +3,21 @@ import Foundation
 public struct TrackerSnapshot: Decodable, Equatable {
     public var repos: [TrackerRepo]
     public var projects: [TrackerProject]
+    /// Session folders that belong to no project, sorted by path.
+    public var unlistedFolders: [TrackerUnlistedFolder]
     public var artifacts: [ArtifactReference]
     public var quests: [QuestItem]
 
     public init(
         repos: [TrackerRepo],
         projects: [TrackerProject] = [],
+        unlistedFolders: [TrackerUnlistedFolder] = [],
         artifacts: [ArtifactReference] = [],
         quests: [QuestItem] = []
     ) {
         self.repos = repos
         self.projects = projects
+        self.unlistedFolders = unlistedFolders
         self.artifacts = artifacts
         self.quests = quests
     }
@@ -22,6 +26,7 @@ public struct TrackerSnapshot: Decodable, Equatable {
         case repos
         case sessions
         case projects
+        case unlistedFolders = "unlisted_folders"
         case artifacts
         case quests
     }
@@ -31,6 +36,7 @@ public struct TrackerSnapshot: Decodable, Equatable {
         artifacts = try container.decodeIfPresent([ArtifactReference].self, forKey: .artifacts) ?? []
         quests = try container.decodeIfPresent([QuestItem].self, forKey: .quests) ?? []
         projects = try container.decodeIfPresent([TrackerProject].self, forKey: .projects) ?? []
+        unlistedFolders = try container.decodeIfPresent([TrackerUnlistedFolder].self, forKey: .unlistedFolders) ?? []
         if let repos = try container.decodeIfPresent([TrackerRepo].self, forKey: .repos) {
             self.repos = repos
             return
@@ -75,6 +81,31 @@ public struct TrackerProject: Decodable, Equatable, Identifiable {
         defaultName = try container.decodeIfPresent(String.self, forKey: .defaultName) ?? name
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
         color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
+    }
+}
+
+/// A folder that holds sessions but belongs to no project. `path` is the session cwd as stored, and `sessionCount`
+/// counts the sessions whose cwd is exactly that path.
+public struct TrackerUnlistedFolder: Decodable, Equatable, Identifiable {
+    public var path: String
+    public var sessionCount: Int
+
+    public var id: String { path }
+
+    public init(path: String, sessionCount: Int) {
+        self.path = path
+        self.sessionCount = sessionCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case sessionCount = "session_count"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount) ?? 0
     }
 }
 

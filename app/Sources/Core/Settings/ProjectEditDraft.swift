@@ -50,6 +50,20 @@ public struct ProjectEditDraft: Equatable {
         ProjectEditDraft(target: .add, defaultName: "", initialName: "", initialColor: "", path: "", name: "", color: "")
     }
 
+    /// Add Project for a folder that holds sessions: its path is filled in, and the empty name falls back to the
+    /// folder's name, which is the name field's placeholder.
+    public static func adding(folder: TrackerUnlistedFolder) -> ProjectEditDraft {
+        ProjectEditDraft(
+            target: .add,
+            defaultName: URL(fileURLWithPath: folder.path).lastPathComponent,
+            initialName: "",
+            initialColor: "",
+            path: folder.path,
+            name: "",
+            color: ""
+        )
+    }
+
     /// The request Save sends, or nil when an edit changed nothing (the sheet then just closes).
     public func saveRequest() throws -> ServeMutationRequest? {
         switch target {

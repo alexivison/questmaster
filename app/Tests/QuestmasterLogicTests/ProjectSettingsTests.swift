@@ -17,6 +17,11 @@ struct ProjectSettingsTests {
         addingRequiresAPath()
         addingSendsThePathAndOnlyTheNameAndColourGiven()
         pathShortensTheHomeDirectoryAtAComponentBoundary()
+        folderListFollowsTheProjectsAndHidesWhileArranging()
+        folderRowAddsWithItsPathFilled()
+        folderSessionLabelCountsSessions()
+        addKeyOpensAddFromAnyRowAndAliasesCommandT()
+        folderRowsDimUntilHighlighted()
         print("ProjectSettingsTests: all tests passed")
     }
 
@@ -179,6 +184,55 @@ struct ProjectSettingsTests {
         expect(ProjectPathDisplay.shortened("/Users/devops/Code", homeDirectory: home) == "/Users/devops/Code", "a sibling sharing the home's prefix should not shorten")
         expect(ProjectPathDisplay.shortened("/opt/tools", homeDirectory: home) == "/opt/tools", "a path outside home should show unchanged")
         expect(ProjectPathDisplay.shortened("/Users/dev/Code", homeDirectory: "/Users/dev/") == "~/Code", "a home with a trailing slash should shorten the same way")
+    }
+
+    private static let folders = [
+        TrackerUnlistedFolder(path: "/Users/dev/scratch", sessionCount: 2),
+        TrackerUnlistedFolder(path: "/opt/notes", sessionCount: 1),
+    ]
+
+    private static func folderListFollowsTheProjectsAndHidesWhileArranging() {
+        let entries = ProjectListEntry.list(projects: projects, folders: folders)
+        expect(
+            entries.map(\.id) == ["project:repo-a", "project:repo-b", "project:repo-c", "folder:/Users/dev/scratch", "folder:/opt/notes"],
+            "the projects should come first, then the folders, as one highlight order"
+        )
+        expect(ProjectListEntry.list(projects: projects, folders: []).count == projects.count, "no folders should leave only the projects")
+        expect(ProjectListEntry.list(projects: [], folders: folders).count == folders.count, "folders should list on their own when no project exists")
+    }
+
+    private static func folderRowAddsWithItsPathFilled() {
+        let entry = ProjectListEntry.folder(folders[0])
+        let draft = entry.editDraft
+        expect(draft.target == .add, "editing a folder row should open Add Project")
+        expect(draft.path == "/Users/dev/scratch", "the folder's path should fill in the path field")
+        expect(draft.defaultName == "scratch", "the folder's name should be the name field's placeholder")
+        expect(draft.name.isEmpty && draft.color.isEmpty, "the name and colour should start empty")
+        do {
+            let request = try entry.addDraft.saveRequest()
+            expect(request?.method == "project.add" && request?.data["path"] == "/Users/dev/scratch", "saving should add the folder's path")
+            expect(request?.data["name"] == nil, "an empty name should be left out, so the project takes the folder's name")
+        } catch {
+            fail("folder add request threw: \(error)")
+        }
+        expect(ProjectListEntry.project(projects[0]).addDraft.path.isEmpty, "the add key on a project row should open a blank Add Project")
+    }
+
+    private static func folderSessionLabelCountsSessions() {
+        expect(TrackerUnlistedFolder(path: "/opt/notes", sessionCount: 1).sessionLabel == "1 session", "one session should read singular")
+        expect(folders[0].sessionLabel == "2 sessions", "several sessions should read plural")
+    }
+
+    private static func addKeyOpensAddFromAnyRowAndAliasesCommandT() {
+        expect(Keymap.matches(Keymap.KeyPress(keyCode: 0, character: "a"), .addProject), "a should add a project")
+        expect(Keymap.matches(Keymap.KeyPress(keyCode: 17, character: "t", modifiers: [.command]), .addProject), "⌘T should still add a project")
+        expect(!Keymap.matches(Keymap.KeyPress(keyCode: 0, character: "a", modifiers: [.command]), .addProject), "⌘A should not add a project")
+    }
+
+    private static func folderRowsDimUntilHighlighted() {
+        expect(RowLook.folder(highlighted: false) == .folderRest, "a resting folder row should take the dimmed look")
+        expect(RowLook.folderRest.text == .textMeta && RowLook.folderRest.fill == nil, "a folder row's text should be meta, with no fill")
+        expect(RowLook.folder(highlighted: true) == .projectCursor, "the highlighted folder row should take the project cursor")
     }
 
     private static func projectRowLooksFillWhileArrangingOrHighlighted() {
