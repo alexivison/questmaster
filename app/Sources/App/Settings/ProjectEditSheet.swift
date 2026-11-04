@@ -194,7 +194,7 @@ struct ProjectEditSheetView: View {
     private var nameField: some View {
         FormTextField(
             text: $model.draft.name,
-            placeholder: model.draft.defaultName.isEmpty ? "Folder name" : model.draft.defaultName,
+            placeholder: model.draft.defaultName.isEmpty ? "Project name" : model.draft.defaultName,
             focusNonce: model.nameNonce,
             focused: model.focus == .name,
             onFocusChanged: { editing in

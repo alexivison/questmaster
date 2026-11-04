@@ -31,7 +31,7 @@ extension Keymap {
         // Settings: H and L step through the sidebar's sections (vim-style, as LazyVim steps buffers)
         case previousSection
         case nextSection
-        // Settings' Projects list: R arranges, ⌘T adds, and ⌥↑/⌥↓ move the highlighted row while arranging
+        // Settings' Projects list: R arranges, ⌘T adds, e (the shared edit) edits, and ⌥↑/⌥↓ move the highlighted row while arranging
         case arrangeProjects
         case addProject
         case moveRowUp

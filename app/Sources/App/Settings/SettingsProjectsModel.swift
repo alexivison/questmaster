@@ -71,6 +71,10 @@ final class SettingsProjectsModel: ObservableObject {
             addProject()
             return true
         }
+        if Keymap.matches(press, .edit) {
+            editRow(at: highlightIndex)
+            return true
+        }
         return false
     }
 
@@ -150,8 +154,8 @@ final class SettingsProjectsModel: ObservableObject {
             arrangement?.moveHighlightedRow(by: 1)
             return true
         }
-        // Arrange and add mean nothing while arranging, so their presses are taken and do nothing.
-        return Keymap.matches(press, .arrangeProjects) || Keymap.matches(press, .addProject)
+        // Arrange, add and edit mean nothing while arranging, so their presses are taken and do nothing.
+        return Keymap.matches(press, .arrangeProjects) || Keymap.matches(press, .addProject) || Keymap.matches(press, .edit)
     }
 
     /// Ends arrange mode with the highlight where the arranged list left it.
