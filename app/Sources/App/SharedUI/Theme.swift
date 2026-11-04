@@ -83,31 +83,6 @@ enum AppPalette {
     static let parchmentHighlightWarm = NSColor(hex: 0xfffff0)
     static let parchmentWhite = NSColor.white
 
-    static let repoFallbacks = [
-        NSColor(hex: 0x58a6ff),
-        NSColor(hex: 0xd29922),
-        NSColor(hex: 0xbc8cff),
-        NSColor(hex: 0x2dd4bf),
-        NSColor(hex: 0xf778ba),
-    ]
-
-    static let displayFallbacks = [
-        NSColor(hex: 0x4d9bf0),
-        NSColor(hex: 0x57ab5a),
-        NSColor(hex: 0xd9a441),
-        NSColor(hex: 0xc578dd),
-        NSColor(hex: 0x4fb6c4),
-        NSColor(hex: 0xe5534b),
-        NSColor(hex: 0xe0883b),
-        NSColor(hex: 0xd7b13d),
-        NSColor(hex: 0x8cc265),
-        NSColor(hex: 0x2bb8a3),
-        NSColor(hex: 0x4cb3e6),
-        NSColor(hex: 0x7a7af0),
-        NSColor(hex: 0xb886e6),
-        NSColor(hex: 0xe57ab0),
-    ]
-
     static let displayColorNames: [String: NSColor] = [
         "none": inert,
         "blue": NSColor(hex: 0x4d9bf0),
@@ -181,12 +156,6 @@ enum AppPalette {
         return displayColorNames[name]
     }
 
-    static func repo(_ value: String, index: Int) -> NSColor {
-        if let color = displayColor(value) {
-            return color
-        }
-        return repoFallbacks[index % repoFallbacks.count]
-    }
 }
 
 /// How far a surface floats above what is under it, drawn as a drop shadow in `AppPalette.shadow`. A shadow comes from

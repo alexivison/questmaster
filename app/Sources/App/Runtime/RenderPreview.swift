@@ -1703,9 +1703,8 @@ enum RenderPreview {
         let displayColors = AppPalette.displayColorNames.keys.sorted().compactMap { name in
             AppPalette.displayColorNames[name].map { (name, $0) }
         }
-        let fallbackColors = AppPalette.repoFallbacks.enumerated().map { ("repo fallback \($0.offset + 1)", $0.element) }
         return VStack(alignment: .leading, spacing: 3) {
-            ForEach(displayColors + fallbackColors, id: \.0) { name, color in
+            ForEach(displayColors + [("none", AppPalette.muted)], id: \.0) { name, color in
                 HStack(spacing: 8) {
                     Text(name)
                         .font(AppFonts.monoSmall.swiftUI)

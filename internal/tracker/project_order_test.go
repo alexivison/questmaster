@@ -93,13 +93,27 @@ func TestProjectLookupResolvesRowProjectNameAndColor(t *testing.T) {
 		colors:   map[string]state.RepoColor{identity: {Color: "green"}},
 	}
 
-	var row SessionRow
-	lookup.resolveRow(&row, state.Manifest{Cwd: repoRoot})
-
-	if row.RepoIdentity != identity || row.RepoName != "Dots" || row.RepoColor != "green" {
-		t.Fatalf("row project = %q %q %q, want %q Dots green", row.RepoIdentity, row.RepoName, row.RepoColor, identity)
+	tests := []struct {
+		name        string
+		sessionType string
+		ownColor    string
+		wantDisplay string
+	}{
+		{name: "master takes the project color", sessionType: "master", wantDisplay: "green"},
+		{name: "shell ignores the project color", sessionType: "shell", wantDisplay: ""},
+		{name: "shell keeps its own color", sessionType: "shell", ownColor: "red", wantDisplay: "red"},
 	}
-	if row.DisplayColor != "green" {
-		t.Fatalf("display color = %q, want the project color", row.DisplayColor)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			row := SessionRow{SessionType: tt.sessionType, DisplayColor: tt.ownColor}
+			lookup.resolveRow(&row, state.Manifest{Cwd: repoRoot})
+
+			if row.RepoIdentity != identity || row.RepoName != "Dots" || row.RepoColor != "green" {
+				t.Fatalf("row project = %q %q %q, want %q Dots green", row.RepoIdentity, row.RepoName, row.RepoColor, identity)
+			}
+			if row.DisplayColor != tt.wantDisplay {
+				t.Fatalf("display color = %q, want %q", row.DisplayColor, tt.wantDisplay)
+			}
+		})
 	}
 }

@@ -292,9 +292,10 @@ func (l projectLookup) resolveRow(row *SessionRow, manifest state.Manifest) {
 	if hasRepoColor {
 		row.RepoColor = rc.Color
 	}
-	// Workers take their master's effective color via inheritWorkerDisplayColors;
-	// only non-workers resolve last-write-wins against the repo color here.
-	if row.SessionType == "worker" {
+	// Workers take their master's effective color via inheritWorkerDisplayColors.
+	// Shells keep only a color of their own: a project color never tints them.
+	// Masters resolve last-write-wins against the project color here.
+	if row.SessionType == "worker" || row.SessionType == "shell" {
 		return
 	}
 
