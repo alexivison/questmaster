@@ -196,24 +196,32 @@ func WatchPullRequest(root, sessionID string, ref PullRequest, now time.Time) (b
 
 func UnwatchPullRequest(root, sessionID, key string) (bool, error) {
 	n, err := mutatePullRequests(root, func(prs *[]PullRequest) (int, error) {
-		for i := range *prs {
-			if (*prs)[i].Key != key {
-				continue
-			}
-			for j, watcher := range (*prs)[i].Watchers {
-				if watcher.SessionID != sessionID {
-					continue
-				}
-				(*prs)[i].Watchers = append((*prs)[i].Watchers[:j], (*prs)[i].Watchers[j+1:]...)
-				if len((*prs)[i].Watchers) == 0 {
-					*prs = append((*prs)[:i], (*prs)[i+1:]...)
-				}
-				return 1, nil
-			}
+		if !removePullRequestWatcher(prs, key, sessionID) {
+			return 0, nil
 		}
-		return 0, nil
+		return 1, nil
 	})
 	return n != 0, err
+}
+
+// removePullRequestWatcher drops one watch, and the PR entry once its last watcher goes.
+func removePullRequestWatcher(prs *[]PullRequest, key, sessionID string) bool {
+	for i := range *prs {
+		if (*prs)[i].Key != key {
+			continue
+		}
+		for j, watcher := range (*prs)[i].Watchers {
+			if watcher.SessionID != sessionID {
+				continue
+			}
+			(*prs)[i].Watchers = append((*prs)[i].Watchers[:j], (*prs)[i].Watchers[j+1:]...)
+			if len((*prs)[i].Watchers) == 0 {
+				*prs = append((*prs)[:i], (*prs)[i+1:]...)
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // DropPullRequestWatches removes watches matching a session predicate. Dry runs count only.

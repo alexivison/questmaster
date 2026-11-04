@@ -103,6 +103,7 @@ func TestSessionPromptsDescribeQuestmasterPRAlerts(t *testing.T) {
 				"idle or done",
 				"questmaster pr events <ref> --unread",
 				"deleted or pruned",
+				"ends on its own once the watcher reads a merged PR's merge event",
 				"not your own polling",
 				"gh pr checks --watch",
 				"A one-off gh pr view or gh pr checks",
