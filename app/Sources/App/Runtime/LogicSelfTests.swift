@@ -50,6 +50,8 @@ enum LogicSelfTests {
         ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
         ("testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce", testASpellWithFramesFliesHeadFirstAndPlaysItsImpactOnce),
         ("testASpellFrameWithoutArtIsMissing", testASpellFrameWithoutArtIsMissing),
+        ("testAStillThatSaysWhichWayItFacesLeadsWithItsHead", testAStillThatSaysWhichWayItFacesLeadsWithItsHead),
+        ("testEveryBundledStillLeadsWithItsHeadOnItsPath", testEveryBundledStillLeadsWithItsHeadOnItsPath),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
         ("testBundledWizardSpritesReadTheirAnimationFile", testBundledWizardSpritesReadTheirAnimationFile),
         ("testBundledPaladinSpritesReadTheirAnimationFile", testBundledPaladinSpritesReadTheirAnimationFile),
@@ -1276,6 +1278,47 @@ enum LogicSelfTests {
         return sprites
     }
 
+    /// A flight overlay over a window, with the avatar's view at its left and a Worker Log panel at its right edge for the spells to
+    /// land on. The window stays up as long as the stage does.
+    private struct FlightStage {
+        let size: CGSize
+        let root: NSView
+        let handle: TrackerAvatarHandle
+        let panel: NSRect
+        let overlay: TrackerFlightOverlay
+        let window: HeadlessWindow
+    }
+
+    @MainActor
+    private static func flightStage(for sprites: TrackerAvatarSprites) -> FlightStage {
+        let size = CGSize(width: 800, height: 500)
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        let avatarView = TrackerAvatarView(frame: NSRect(x: 40, y: 40, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
+        root.addSubview(avatarView)
+        let handle = TrackerAvatarHandle()
+        handle.view = avatarView
+        let panel = NSRect(x: 560, y: 0, width: 240, height: size.height)
+        let overlay = TrackerFlightOverlay(avatar: handle, sprites: { sprites }, workerLogFrame: { panel })
+        overlay.frame = root.bounds
+        overlay.autoresizingMask = [.width, .height]
+        root.addSubview(overlay)
+        let window = HeadlessWindow(size: size)
+        window.contentView = root
+        window.show()
+        return FlightStage(size: size, root: root, handle: handle, panel: panel, overlay: overlay, window: window)
+    }
+
+    /// The layer `overlay` adds when `flight` flies.
+    @MainActor
+    private static func flownSpell(_ flight: TrackerSpellFlight, by overlay: TrackerFlightOverlay) throws -> CALayer {
+        let before = overlay.layer?.sublayers?.count ?? 0
+        overlay.fly(flight)
+        guard let layers = overlay.layer?.sublayers, layers.count == before + 1, let spell = layers.last else {
+            throw TestFailure("\(flight.spell) should fly")
+        }
+        return spell
+    }
+
     /// A spell with frames cycles its flight while it flies, drawn facing right with its anchor on the path: it is mirrored about that
     /// anchor on a flight that heads left (the returning wisp), so the head leads on every path, and not on one that heads right. The
     /// frames run for the flight and no longer. The impact plays its frames once where the flight lands, and goes. A spell with
@@ -1293,33 +1336,15 @@ enum LogicSelfTests {
                    "the wisp should fly three frames on its anchor's pixel, got \(wispFlight.frames.count) frames at \(wispFlight.anchor)")
         try expect(wispImpact.frames.count == 2 && wispImpact.anchor == CGPoint(x: 3, y: 3), "the wisp's impact should play two frames, centred")
         try expect(messengerFlight.frames.count == 2 && messengerFlight.anchor == CGPoint(x: 3, y: 2), "an unanchored flight should be anchored at its centre")
-        try expect(orbFlight.track == nil && !orbFlight.facesRight && orbFlight.anchor == CGPoint(x: 2, y: 2), "a still should have no frames and no facing")
+        try expect(wispFlight.drawnFacing == .right && messengerFlight.drawnFacing == .right, "frames should face right unless the file says")
+        try expect(orbFlight.track == nil && orbFlight.drawnFacing == nil && orbFlight.anchor == CGPoint(x: 2, y: 2),
+                   "a still that doesn't say should have no frames and no facing")
 
-        let size = CGSize(width: 800, height: 500)
-        let root = NSView(frame: NSRect(origin: .zero, size: size))
-        let avatarView = TrackerAvatarView(frame: NSRect(x: 40, y: 40, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
-        root.addSubview(avatarView)
-        let handle = TrackerAvatarHandle()
-        handle.view = avatarView
-        let panel = NSRect(x: 560, y: 0, width: 240, height: size.height)
-        let overlay = TrackerFlightOverlay(avatar: handle, sprites: { sprites }, workerLogFrame: { panel })
-        overlay.frame = root.bounds
-        overlay.autoresizingMask = [.width, .height]
-        root.addSubview(overlay)
-        let window = HeadlessWindow(size: size)
-        window.contentView = root
-        window.show()
+        let stage = flightStage(for: sprites)
+        let (overlay, root, handle, panel) = (stage.overlay, stage.root, stage.handle, stage.panel)
+        let pixel = TrackerAvatarDesign.pixelPoints
         Motion.reducesMotion = { false }
-
-        func flown(_ flight: TrackerSpellFlight) throws -> CALayer {
-            let before = overlay.layer?.sublayers?.count ?? 0
-            overlay.fly(flight)
-            guard let layers = overlay.layer?.sublayers, layers.count == before + 1, let spell = layers.last else {
-                throw TestFailure("\(flight.spell) should fly")
-            }
-            return spell
-        }
-        let wisp = try flown(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar))
+        let wisp = try flownSpell(TrackerSpellFlight(spell: .wisp, from: .worker("qm-2"), to: .avatar), by: overlay)
         guard let move = wisp.animation(forKey: "spell-flight") as? CAKeyframeAnimation,
               let cycle = wisp.animation(forKey: "spell-frames") as? CAKeyframeAnimation else {
             throw TestFailure("the wisp should move along its path and cycle its frames")
@@ -1328,20 +1353,19 @@ enum LogicSelfTests {
         try expect(abs(wisp.anchorPoint.x - 7.5 / 8) < 1e-9 && abs(wisp.anchorPoint.y - (1 - 2.5 / 4)) < 1e-9,
                    "the wisp's anchor should ride the path: the middle of its head pixel (column 7, row 2), got \(wisp.anchorPoint)")
         // Mirrored about its anchor: the head pixel stays on the path point and the trail, drawn to the left, streams out to the right.
-        let pixel = TrackerAvatarDesign.pixelPoints
         try expect(abs(wisp.frame.minX - (wisp.position.x - 0.5 * pixel)) < 1e-9 && abs(wisp.frame.maxX - (wisp.position.x + 7.5 * pixel)) < 1e-9,
                    "a wisp heading left should trail to the right of its head, got \(wisp.frame) at \(wisp.position)")
         try expect(cycle.calculationMode == .discrete && cycle.values?.count == 4 && cycle.duration == 0.4,
                    "the wisp should cycle its three frames with a closing key, as discrete keyframes over its track")
         try expect(cycle.repeatCount == 0 && abs(cycle.repeatDuration - move.duration) < 1e-9,
                    "the frames should repeat for the flight and no longer, not forever: \(cycle.repeatCount), \(cycle.repeatDuration)")
-        let messenger = try flown(TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-2")))
+        let messenger = try flownSpell(TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker("qm-2")), by: overlay)
         try expect(messenger.transform.m11 == 1 && messenger.animation(forKey: "spell-frames") != nil,
                    "a flight that heads right should cycle its frames unmirrored")
         try expect(abs(messenger.frame.minX - (messenger.position.x - 3 * pixel)) < 1e-9,
                    "a flight that heads right should keep its trail to the left, got \(messenger.frame) at \(messenger.position)")
         try expect(abs(messenger.anchorPoint.x - 0.5) < 1e-9 && abs(messenger.anchorPoint.y - 0.5) < 1e-9, "an unanchored flight should ride on its centre")
-        let orb = try flown(TrackerSpellFlight(spell: .orb, from: .worker("qm-2"), to: .avatar))
+        let orb = try flownSpell(TrackerSpellFlight(spell: .orb, from: .worker("qm-2"), to: .avatar), by: overlay)
         try expect(orb.transform.m11 == 1 && orb.animation(forKey: "spell-frames") == nil && orb.anchorPoint == CGPoint(x: 0.5, y: 0.5),
                    "a still should be drawn as it was even on a flight that heads left: no frames, no mirror, centred")
 
@@ -1366,6 +1390,54 @@ enum LogicSelfTests {
         try expect(impact.transform.m11 == 1, "the impact is a burst, not mirrored")
         RunLoop.current.run(until: Date().addingTimeInterval(0.2 + 0.3))
         try expect((lone.layer?.sublayers ?? []).isEmpty, "the impact should go when its frames have played, so nothing keeps running after a spell lands")
+    }
+
+    /// A still whose file says which way it faces is mirrored on a flight that heads the other way, so its head leads, and isn't on one
+    /// that heads the same way. It rides its centre and trails behind it. A still that doesn't say is never mirrored.
+    @MainActor
+    private static func testAStillThatSaysWhichWayItFacesLeadsWithItsHead() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("animation.json")
+        guard var object = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any],
+              var spells = object["spells"] as? [String: Any] else {
+            throw TestFailure("the synthetic class's animation.json should read as a JSON object with spells")
+        }
+        spells["S1-summoning-orb"] = ["faces": "left"]
+        object["spells"] = spells
+        let animation = try TrackerAvatarAnimation(data: JSONSerialization.data(withJSONObject: object))
+        let sprites = TrackerAvatarSprites(classID: "synthetic", animation: animation, folder: folder)
+        guard let orb = sprites.flight(for: .orb) else {
+            throw TestFailure("the synthetic orb should have its still")
+        }
+        try expect(orb.track == nil && orb.drawnFacing == .left && orb.anchor == CGPoint(x: 2, y: 2), "the orb should be a still that faces left, centred")
+        try expect(orb.trailPixels == 2, "a still facing left trails on its right side, got \(orb.trailPixels)")
+        let stage = flightStage(for: sprites)
+        Motion.reducesMotion = { false }
+        let heading = try flownSpell(TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker("qm-2")), by: stage.overlay)
+        try expect(heading.transform.m11 == -1, "an orb facing left that heads right should be mirrored, got m11 \(heading.transform.m11)")
+        let returning = try flownSpell(TrackerSpellFlight(spell: .orb, from: .worker("qm-2"), to: .avatar), by: stage.overlay)
+        try expect(returning.transform.m11 == 1, "an orb facing left that heads left should be drawn as it is, got m11 \(returning.transform.m11)")
+    }
+
+    /// Every bundled class's still flights lead with their heads on their paths. Only the returning wisp flies left; the orb and the
+    /// messenger fly right. How each still is drawn is read from the art: the bard's and the paladin's wisps face left already, and every
+    /// other still faces right, so a wisp that faces right needs its file to say so (`faces`) to be mirrored on its way back.
+    @MainActor
+    private static func testEveryBundledStillLeadsWithItsHeadOnItsPath() throws {
+        let drawnLeft: Set<String> = ["bard S6-returning-wisp", "paladin S6-returning-wisp"]
+        for (classID, sprites) in TrackerAvatarSprites.bundled().sorted(by: { $0.key < $1.key }) {
+            for spell in TrackerSpellFlight.Spell.allCases {
+                guard let art = sprites.flight(for: spell) else {
+                    throw TestFailure("the \(classID)'s \(spell.resourceName) should have its flight art")
+                }
+                let drawn: TrackerAvatarFacing = drawnLeft.contains("\(classID) \(spell.resourceName)") ? .left : .right
+                let path: TrackerAvatarFacing = spell == .wisp ? .left : .right
+                let mirrored = art.isMirrored(headsLeft: path == .left)
+                let shown: TrackerAvatarFacing = mirrored ? (drawn == .left ? .right : .left) : drawn
+                try expect(shown == path, "the \(classID)'s \(spell.resourceName) is drawn facing \(drawn) and flies \(path), so it should lead with its head, but it shows facing \(shown)")
+            }
+        }
     }
 
     /// A frame a spell's file plays that has no art is missing, as a pose's is: the spell can't be drawn, and the check names it.

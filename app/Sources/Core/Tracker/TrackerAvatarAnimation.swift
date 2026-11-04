@@ -146,6 +146,18 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
     }
 }
 
+/// The way a spell's flight art is drawn: which way its head points. The overlay mirrors it on a flight that heads the other way, so
+/// the head leads on every path.
+public enum TrackerAvatarFacing: String, Decodable, Sendable {
+    case left
+    case right
+
+    /// Whether art drawn facing this way is mirrored on a flight that heads left (`headsLeft`) or right.
+    public func isMirrored(headsLeft: Bool) -> Bool {
+        (self == .right) == headsLeft
+    }
+}
+
 /// A spell's art beyond one still: the frames it flies with and bursts with. Each part is optional, and a part without a track keeps
 /// its single still (`S6-returning-wisp-flight.png`), so a spell the file doesn't mention is drawn as it always was.
 public struct TrackerAvatarSpellAnimation: Equatable, Sendable {
@@ -158,11 +170,17 @@ public struct TrackerAvatarSpellAnimation: Equatable, Sendable {
     /// head of a comet, so it lands on the hand with its trail behind it. A mirror leaves that pixel where it is. Nil is the frame's
     /// centre. Only a spell with a `flight` track has one.
     public let anchor: TrackerAvatarPixel?
+    /// Which way the flight art is drawn, still or frames. Nil is facing right for frames, and for a still, drawn as it is: never
+    /// mirrored, so a still that doesn't say flies the way it always did.
+    public let faces: TrackerAvatarFacing?
 
-    public init(flight: TrackerAvatarTrack? = nil, impact: TrackerAvatarTrack? = nil, anchor: TrackerAvatarPixel? = nil) {
+    public init(
+        flight: TrackerAvatarTrack? = nil, impact: TrackerAvatarTrack? = nil, anchor: TrackerAvatarPixel? = nil, faces: TrackerAvatarFacing? = nil
+    ) {
         self.flight = flight
         self.impact = impact
         self.anchor = anchor
+        self.faces = faces
     }
 }
 
@@ -380,7 +398,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
                 throw TrackerAvatarAnimationError.invalidAnchor(name)
             }
             spells[kind] = TrackerAvatarSpellAnimation(
-                flight: flight, impact: impact, anchor: spell.anchor.map { TrackerAvatarPixel(x: $0.x, y: $0.y) }
+                flight: flight, impact: impact, anchor: spell.anchor.map { TrackerAvatarPixel(x: $0.x, y: $0.y) }, faces: spell.faces
             )
         }
         return spells
@@ -454,6 +472,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
             let flight: [TrackerAvatarStep]?
             let impact: [TrackerAvatarStep]?
             let anchor: Pixel?
+            let faces: TrackerAvatarFacing?
         }
 
         struct Pose: Decodable {

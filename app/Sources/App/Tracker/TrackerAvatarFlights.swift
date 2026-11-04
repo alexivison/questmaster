@@ -161,18 +161,18 @@ final class TrackerFlightOverlay: NSView {
         }
     }
 
-    /// The layer a flight's art rides. A spell with frames is drawn facing right with its anchor on the layer's position, so the head
-    /// lands on the target, and a flight that heads left mirrors it about that anchor: the head leads and the trail follows on
-    /// every path. A still is drawn as it is, centred.
+    /// The layer a flight's art rides. Art with a facing (frames, which face right unless the file says, and a still whose file says)
+    /// has its anchor on the layer's position, so the head lands on the target, and is mirrored about that anchor on a flight that
+    /// heads the other way: the head leads and the trail follows on every path. A still that doesn't say is drawn as it is, centred.
     private func flightLayer(_ art: TrackerSpellArt, headsLeft: Bool) -> CALayer {
         let spell = spriteLayer(art.frames[0])
-        guard art.facesRight else {
+        guard art.drawnFacing != nil else {
             return spell
         }
         let first = art.frames[0]
         // A layer's y runs up, a sprite's down.
         spell.anchorPoint = CGPoint(x: art.anchor.x / CGFloat(first.width), y: 1 - art.anchor.y / CGFloat(first.height))
-        if headsLeft {
+        if art.isMirrored(headsLeft: headsLeft) {
             spell.transform = CATransform3DMakeScale(-1, 1, 1)
         }
         return spell

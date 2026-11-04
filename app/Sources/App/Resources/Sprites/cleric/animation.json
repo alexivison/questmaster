@@ -1444,5 +1444,10 @@
         ]
       }
     }
+  },
+  "spells": {
+    "S6-returning-wisp": {
+      "faces": "right"
+    }
   }
 }

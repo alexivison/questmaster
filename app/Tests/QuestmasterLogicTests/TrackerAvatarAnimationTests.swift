@@ -27,6 +27,7 @@ struct TrackerAvatarAnimationTests {
         aStrikeFrameNeedsAStrikingPoseAndAFrameOfItsCharacterTrack()
         aSpellMayGiveItsFlightAndImpactFrames()
         aSpellNeedsAKnownNameGoodTracksAndAnAnchorOnAFlight()
+        aSpellSaysWhichWayItsFlightFaces()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
         aCatalogShowsEachClassWithArtAndNoOthers()
@@ -387,6 +388,28 @@ struct TrackerAvatarAnimationTests {
                "the spells' keys and file stems should be their resource names")
         expect(TrackerSpellFlight.Spell.allCases.allSatisfy { AvatarAnimationFixture.bard().spell($0) == nil },
                "the bard's file names no spells, so he draws all three as stills")
+    }
+
+    /// A spell's `faces` says which way its flight art is drawn, and the art is mirrored on a flight that heads the other way. It
+    /// stands alone (a still has no flight track), and any other word than `left` or `right` is a bad file.
+    private static func aSpellSaysWhichWayItsFlightFaces() {
+        guard let animation = try? withSpells([
+            "S6-returning-wisp": ["faces": "right"],
+            "S2-messenger": ["faces": "left", "flight": [[1, 0.1], [2, 0.1]]],
+        ]) else {
+            fail("a spell that says which way it faces should decode")
+        }
+        expect(animation.spell(.wisp)?.faces == .right && animation.spell(.wisp)?.flight == nil, "a still may say which way it faces")
+        expect(animation.spell(.messenger)?.faces == .left, "a flight with frames may face left")
+        expect(animation.spell(.orb)?.faces == nil, "a spell that doesn't say has no facing")
+        expect(TrackerAvatarFacing.right.isMirrored(headsLeft: true) && !TrackerAvatarFacing.right.isMirrored(headsLeft: false),
+               "art facing right should be mirrored on a flight that heads left, and only then")
+        expect(TrackerAvatarFacing.left.isMirrored(headsLeft: false) && !TrackerAvatarFacing.left.isMirrored(headsLeft: true),
+               "art facing left should be mirrored on a flight that heads right, and only then")
+        do {
+            _ = try withSpells(["S6-returning-wisp": ["faces": "up"]])
+            fail("a facing other than left or right should throw")
+        } catch {}
     }
 
     /// A spell is named as its art is (`S6-returning-wisp`), its tracks are checked like any track, and an anchor belongs to a flight's

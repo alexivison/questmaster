@@ -58,14 +58,21 @@ struct TrackerSpellArt {
     /// mirror leaves that pixel where it is), else the frame's centre.
     let anchor: CGPoint
 
-    /// Frames of a track are drawn facing right and mirrored on a flight that heads left. A still is drawn as it is.
-    var facesRight: Bool {
-        track != nil
+    /// Which way the art is drawn: the file's `faces`, else right for frames. Nil for a still that doesn't say, which is drawn as it is.
+    let drawnFacing: TrackerAvatarFacing?
+    /// The art's width in sprite pixels. Every frame shares it.
+    let width: CGFloat
+
+    /// Whether a flight that heads left (`headsLeft`) or right shows the art mirrored, so its head leads. Never for a still that
+    /// doesn't say which way it faces.
+    func isMirrored(headsLeft: Bool) -> Bool {
+        drawnFacing?.isMirrored(headsLeft: headsLeft) ?? false
     }
 
-    /// How far the art reaches behind its anchor, facing right, in sprite pixels.
+    /// How far the art reaches behind its anchor on a flight that heads right, in sprite pixels: its left side when it faces right,
+    /// and its right side, mirrored, when it faces left. A still that doesn't say reaches its half.
     var trailPixels: CGFloat {
-        anchor.x
+        drawnFacing == .left ? width - anchor.x : anchor.x
     }
 }
 
@@ -254,11 +261,12 @@ final class TrackerAvatarSprites {
     /// (`S6-returning-wisp-flight-f<n>.png`), or the one still (`S6-returning-wisp-flight.png`). Nil while any of it is missing.
     func flight(for spell: TrackerSpellFlight.Spell) -> TrackerSpellArt? {
         let animation = animation.spell(spell)
-        return spellArt(spell, .flight, track: animation?.flight, anchor: animation?.anchor)
+        let facing = animation?.faces ?? (animation?.flight == nil ? nil : .right)
+        return spellArt(spell, .flight, track: animation?.flight, anchor: animation?.anchor, facing: facing)
     }
 
     func impact(for spell: TrackerSpellFlight.Spell) -> TrackerSpellArt? {
-        spellArt(spell, .impact, track: animation.spell(spell)?.impact, anchor: nil)
+        spellArt(spell, .impact, track: animation.spell(spell)?.impact, anchor: nil, facing: nil)
     }
 
     /// One frame of a spell's part (`S6-returning-wisp-flight-f3`), or its still (`S6-returning-wisp-flight`) when `number` is nil.
@@ -268,14 +276,16 @@ final class TrackerAvatarSprites {
         return image(named: number.map { "\(stem)-f\($0)" } ?? stem)
     }
 
-    private func spellArt(_ spell: TrackerSpellFlight.Spell, _ part: TrackerSpellPart, track: TrackerAvatarTrack?, anchor: TrackerAvatarPixel?) -> TrackerSpellArt? {
+    private func spellArt(
+        _ spell: TrackerSpellFlight.Spell, _ part: TrackerSpellPart, track: TrackerAvatarTrack?, anchor: TrackerAvatarPixel?, facing: TrackerAvatarFacing?
+    ) -> TrackerSpellArt? {
         let frames = track.map { track in track.steps.compactMap { spellFrame(spell, part, $0.frame) } } ?? spellFrame(spell, part).map { [$0] }
         guard let frames, let first = frames.first, frames.count == (track?.steps.count ?? 1) else {
             return nil
         }
         let centre = CGPoint(x: CGFloat(first.width) / 2, y: CGFloat(first.height) / 2)
         let pixelMiddle = anchor.map { CGPoint(x: CGFloat($0.x) + 0.5, y: CGFloat($0.y) + 0.5) }
-        return TrackerSpellArt(frames: frames, track: track, anchor: pixelMiddle ?? centre)
+        return TrackerSpellArt(frames: frames, track: track, anchor: pixelMiddle ?? centre, drawnFacing: facing, width: CGFloat(first.width))
     }
 
     /// The PNG `name` in `directory` (this class's folder by default), decoded once; nil when it is missing.
