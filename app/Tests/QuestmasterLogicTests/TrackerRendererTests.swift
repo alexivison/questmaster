@@ -25,6 +25,7 @@ struct TrackerRendererTests {
         terminalSessionActivationDecisionUsesEmbeddedTerminalState()
         shellRowsUseEmptySnippetAndHideMetadata()
         shellSessionsGroupAsUngroupedUntilAgentAdopts()
+        groupingKeepsTheDaemonsProjectOrder()
         selectionFollowsCurrentSessionOnlyWhenItActuallyChanges()
         print("TrackerRendererTests: all tests passed")
     }
@@ -391,6 +392,24 @@ struct TrackerRendererTests {
 
         expect(TrackerRowText.snippet(for: shell).isEmpty, "shell snippet should be visually empty")
         expect(TrackerRowText.snippet(for: agent) == "second", "agent snippet should use latest activity")
+    }
+
+    /// The daemon sends sessions in the user's project order (ungrouped last); the groups keep that order rather than
+    /// sorting by identity path.
+    private static func groupingKeepsTheDaemonsProjectOrder() {
+        func agent(_ id: String, repo: String) -> TrackerSession {
+            TrackerSession(id: id, title: id, repoIdentity: repo, repoName: repo, worktreePath: "/\(repo)", agent: "codex")
+        }
+        let shell = TrackerSession(id: "shell", title: "Shell", repoIdentity: "/a/.git", repoName: "a", worktreePath: "/a", agent: "shell")
+        let repos = TrackerRepo.grouping([
+            agent("z1", repo: "/z/.git"),
+            shell,
+            agent("a1", repo: "/a/.git"),
+            agent("z2", repo: "/z/.git"),
+            agent("loose", repo: ""),
+        ])
+        expect(repos.map(\.id) == ["/z/.git", "/a/.git", "ungrouped"], "groups should follow the sessions' order with ungrouped last, got \(repos.map(\.id))")
+        expect(repos.first?.sessions.map(\.id) == ["z1", "z2"], "a group keeps its sessions in order")
     }
 
     private static func shellSessionsGroupAsUngroupedUntilAgentAdopts() {

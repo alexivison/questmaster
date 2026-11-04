@@ -159,8 +159,10 @@ public struct TrackerRepo: Decodable, Equatable {
         }
     }
 
+    /// Groups the daemon's sessions by project. The daemon sends them in the user's project order, so the groups keep
+    /// the order each project first appears in, with ungrouped (and every shell) last.
     public static func grouping(_ sessions: [TrackerSession]) -> [TrackerRepo] {
-        let grouped = Dictionary(grouping: sessions) { session in
+        let groupKey = { (session: TrackerSession) -> String in
             if AgentKind(name: session.agent) == .shell {
                 return "ungrouped"
             }
@@ -169,7 +171,11 @@ public struct TrackerRepo: Decodable, Equatable {
             }
             return session.repoName.isEmpty ? "ungrouped" : session.repoName
         }
-        return grouped.keys.sorted().map { key in
+        let grouped = Dictionary(grouping: sessions, by: groupKey)
+        var seen = Set<String>()
+        let projectKeys = sessions.map(groupKey).filter { $0 != "ungrouped" && seen.insert($0).inserted }
+        let keys = grouped["ungrouped"] == nil ? projectKeys : projectKeys + ["ungrouped"]
+        return keys.map { key in
             let rows = grouped[key] ?? []
             let first = rows.first
             return TrackerRepo(
