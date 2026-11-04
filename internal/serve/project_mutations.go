@@ -170,5 +170,6 @@ func (s *Server) knownProjects() ([]ProjectSnapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load quests: %w", err)
 	}
-	return buildProjectSnapshots(store, state.NewProjectResolver(), artifacts, quests)
+	projects, _, err := buildProjectSnapshots(store, state.NewProjectResolver(), artifacts, quests)
+	return projects, err
 }

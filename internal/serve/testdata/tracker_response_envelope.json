@@ -100,6 +100,12 @@
         "path": "/tmp/questmaster/scratch"
       }
     ],
+    "unlisted_folders": [
+      {
+        "path": "/tmp/questmaster/loose-notes",
+        "session_count": 2
+      }
+    ],
     "artifacts": [
       {
         "id": "art-contract-plan",

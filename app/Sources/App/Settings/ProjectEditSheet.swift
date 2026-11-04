@@ -40,7 +40,9 @@ final class ProjectEditModel: ObservableObject {
         initialColorIndex = colorField.selectedIndex
         mutationClient = presentation.mutationClient
         dismissSheet = dismiss
-        focus = presentation.draft.target == .add ? .path : .name
+        // Add Project starts at the path, unless a folder already filled it in: then the name is what's left to type.
+        let needsPath = presentation.draft.target == .add && presentation.draft.path.isEmpty
+        focus = needsPath ? .path : .name
     }
 
     var title: String {

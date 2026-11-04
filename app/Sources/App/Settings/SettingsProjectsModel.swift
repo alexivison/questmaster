@@ -26,15 +26,25 @@ final class SettingsProjectsModel: ObservableObject {
         arrangement != nil
     }
 
-    /// The rows in the order the list shows them: the snapshot's, or the arranged copy while arranging.
-    var rows: [TrackerProject] {
+    /// The projects in the order the list shows them: the snapshot's, or the arranged copy while arranging.
+    var projectRows: [TrackerProject] {
         let projects = runtime.snapshot.tracker.projects
         return arrangement?.projects(from: projects) ?? projects
     }
 
+    /// The folders that hold sessions but belong to no project. Arranging hides them: the arrangement covers projects only.
+    var folderRows: [TrackerUnlistedFolder] {
+        isArranging ? [] : runtime.snapshot.tracker.unlistedFolders
+    }
+
+    /// Every row in the order the highlight moves through them: the projects, then the folders.
+    var entries: [ProjectListEntry] {
+        ProjectListEntry.list(projects: projectRows, folders: folderRows)
+    }
+
     /// The highlighted row's index, held inside the rows as they are now.
     var highlightIndex: Int {
-        ProjectListCursor.moved(from: arrangement?.highlight ?? highlight, by: 0, count: rows.count)
+        ProjectListCursor.moved(from: arrangement?.highlight ?? highlight, by: 0, count: entries.count)
     }
 
     /// Highlights a row: a click on it, or the cursor's step.
@@ -42,7 +52,7 @@ final class SettingsProjectsModel: ObservableObject {
         if arrangement != nil {
             arrangement?.setHighlight(index)
         } else {
-            highlight = ProjectListCursor.moved(from: index, by: 0, count: rows.count)
+            highlight = ProjectListCursor.moved(from: index, by: 0, count: entries.count)
         }
     }
 
@@ -82,7 +92,7 @@ final class SettingsProjectsModel: ObservableObject {
 
     /// Arrange mode starts from the snapshot's order, with the highlight where it is.
     func beginArrange() {
-        guard !rows.isEmpty else {
+        guard !projectRows.isEmpty else {
             return
         }
         errorMessage = nil
@@ -123,19 +133,28 @@ final class SettingsProjectsModel: ObservableObject {
     }
 
     func editRow(at index: Int) {
-        let rows = rows
-        guard rows.indices.contains(index) else {
+        let entries = entries
+        guard entries.indices.contains(index) else {
             return
         }
         highlightRow(index)
-        openEdit(ProjectEditDraft.editing(rows[index]))
+        openEdit(entries[index].editDraft)
     }
 
+    /// The add key and the header's +: Add Project, with the highlighted folder's path filled in.
     func addProject() {
         guard !isArranging else {
             return
         }
-        openEdit(ProjectEditDraft.adding())
+        openEdit(highlightedEntry?.addDraft ?? ProjectEditDraft.adding())
+    }
+
+    private var highlightedEntry: ProjectListEntry? {
+        let entries = entries
+        guard entries.indices.contains(highlightIndex) else {
+            return nil
+        }
+        return entries[highlightIndex]
     }
 
     private func handleArrangingKey(_ press: Keymap.KeyPress) -> Bool {

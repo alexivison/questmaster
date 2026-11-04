@@ -23,6 +23,10 @@ enum ProjectRowMetrics {
     /// The feather's hit square, 10 in from the row's trailing edge.
     static let featherSide = Space.section
     static let trailingInset = Space.item
+    /// The folder row's `+` sits where the feather does, drawn at this point size.
+    static let addPointSize: CGFloat = 13
+    /// The session count clears the `+`'s box: 10 in from the edge, 20 wide, and a `Space.item` gap.
+    static let folderCountTrailingInset = trailingInset + featherSide + Space.item
 }
 
 /// The Projects row's feather (the design's own path, settings-projects-mock.png): it's the one icon with no SF Symbol
@@ -124,5 +128,61 @@ struct SettingsProjectRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(delta < 0 ? "Move \(project.name) up" : "Move \(project.name) down")
+    }
+}
+
+/// A folder without a project, in the project row's shape and dimmed: its name and its path in meta text, the session
+/// count on the name's line, and a `+` where the feather sits. The `+` and Edit (e, Return) open Add Project with the
+/// path filled in.
+struct SettingsFolderRow: View {
+    let folder: TrackerUnlistedFolder
+    let look: RowLook
+    let onSelect: () -> Void
+    let onAdd: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            nameAndPath
+            ProjectAddGlyph(color: look.icon.color)
+                .onTapGesture(perform: onAdd)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .padding(.trailing, ProjectRowMetrics.trailingInset)
+        }
+        .frame(maxWidth: .infinity, minHeight: ProjectRowMetrics.height, maxHeight: ProjectRowMetrics.height, alignment: .topLeading)
+        .stateRow(look, cornerRadius: ProjectRowMetrics.cornerRadius)
+        .onTapGesture(perform: onSelect)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Folder \(folder.path), \(folder.sessionLabel)")
+    }
+
+    private var nameAndPath: some View {
+        ZStack(alignment: .topLeading) {
+            BaselineText(URL(fileURLWithPath: folder.path).lastPathComponent, font: AppFonts.questLogBody, color: look.text.color, baseline: ProjectRowMetrics.nameBaseline)
+                .lineLimit(1)
+                .padding(.trailing, ProjectRowMetrics.featherSide)
+            BaselineText(folder.sessionLabel, font: AppFonts.monoSmall, color: look.meta.color, baseline: ProjectRowMetrics.nameBaseline)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, ProjectRowMetrics.folderCountTrailingInset)
+            BaselineText(ProjectPathDisplay.shortened(folder.path, homeDirectory: NSHomeDirectory()), font: AppFonts.monoSmall, color: look.meta.color, baseline: ProjectRowMetrics.pathBaseline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.trailing, ProjectRowMetrics.featherSide)
+        }
+        .padding(.leading, ProjectRowMetrics.textInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+/// The folder row's `+`, drawn in the feather's square so the two rows line up.
+struct ProjectAddGlyph: View {
+    let color: NSColor
+
+    var body: some View {
+        Image(systemName: "plus")
+            .font(.system(size: ProjectRowMetrics.addPointSize, weight: .regular))
+            .foregroundStyle(color.swiftUI)
+            .frame(width: ProjectRowMetrics.featherSide, height: ProjectRowMetrics.featherSide)
+            .contentShape(Rectangle())
     }
 }

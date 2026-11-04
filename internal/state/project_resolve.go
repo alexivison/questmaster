@@ -54,7 +54,7 @@ func (r *ProjectResolver) Resolve(reg ProjectRegistry, path string) (Project, bo
 	checkout, inRepo := r.repos.Resolve(resolved)
 
 	switch {
-	case hasFolder && inRepo && containsPath(checkout.Checkout, folder.Path):
+	case hasFolder && inRepo && PathWithin(checkout.Checkout, folder.Path):
 		return folder, true
 	case inRepo:
 		return reg.project(checkout.Identity, checkout.Root), true
@@ -114,7 +114,7 @@ func (reg ProjectRegistry) deepestAddedFolder(path string) (Project, bool) {
 	var best Project
 	found := false
 	for id, record := range reg.Projects {
-		if record.Path == "" || !containsPath(record.Path, path) {
+		if record.Path == "" || !PathWithin(record.Path, path) {
 			continue
 		}
 		candidate := reg.project(id, record.Path)
@@ -125,9 +125,9 @@ func (reg ProjectRegistry) deepestAddedFolder(path string) (Project, bool) {
 	return best, found
 }
 
-// containsPath reports whether p is root or lies beneath it. Both must be
+// PathWithin reports whether p is root or lies beneath it. Both must be
 // cleaned absolute paths.
-func containsPath(root, p string) bool {
+func PathWithin(root, p string) bool {
 	rel, err := filepath.Rel(root, p)
 	if err != nil || filepath.IsAbs(rel) {
 		return false

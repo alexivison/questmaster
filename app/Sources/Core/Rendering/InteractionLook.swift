@@ -289,4 +289,12 @@ extension RowLook {
             return projectRest
         }
     }
+
+    /// A folder without a project (settings-projects Folders): the project row's shape with its text dimmed to meta.
+    /// Its cursor is the project cursor, so the one highlight reads the same down both groups.
+    public static let folderRest = RowLook(fill: nil, outline: nil, text: .textMeta, meta: .textMeta, icon: .textMeta, iconBorder: .line, bold: false)
+
+    public static func folder(highlighted: Bool) -> RowLook {
+        highlighted ? projectCursor : folderRest
+    }
 }
