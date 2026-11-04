@@ -59,9 +59,10 @@ controlPageAndHalfPageChords()
         expect(!matches(press("j", [.control]), .modalMoveDown), "⌃j is the field step, not a modal row step")
         expect(!matches(press(nil, keyCode: 125), .modalMoveDown), "↓ is no modal row key: a modal's arrows never move it")
         expect(!matches(press(nil, keyCode: 126), .modalMoveUp), "↑ is no modal row key: a modal's arrows never move it")
-        expect(matches(press("˚", [.option], keyCode: 40), .moveRowUp), "⌥k should move the arranged row up by key code")
-        expect(matches(press("∆", [.option], keyCode: 38), .moveRowDown), "⌥j should move the arranged row down by key code")
-        expect(!matches(press(nil, [.option], keyCode: 126), .moveRowUp), "⌥↑ no longer moves a row")
+        expect(matches(press("K", [.shift]), .moveRowUp), "shift-k should move the arranged row up")
+        expect(matches(press("J", [.shift]), .moveRowDown), "shift-j should move the arranged row down")
+        expect(!matches(press("˚", [.option], keyCode: 40), .moveRowUp), "⌥k no longer moves a row: AeroSpace takes it system-wide")
+        expect(!matches(press("k"), .moveRowUp) && !matches(press("j"), .moveRowDown), "plain k and j move the highlight, not the row")
     }
 
     private static func everyActionHasChords() {

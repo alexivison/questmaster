@@ -214,7 +214,7 @@ struct ModalKeysTests {
         expect(ModalKeys.command(for: press(nil, [.option], keyCode: 126), in: context(nil, fields: 3, text: false)) == nil, "⌥↑ is not a modal key and passes")
     }
 
-    /// ⌥k moves an arranged row in Settings' Projects, so it steps no field, in a form or a list.
+    /// ⌥k is no field key, in a form or a list: the stray alias was removed.
     private static func theRemovedOptionKAliasIsNoFieldKey() {
         expect(ModalKeys.command(for: press(nil, [.option], keyCode: 40), in: context(.line, fields: 3, text: true)) == nil, "⌥k in a form should pass, not step a field")
         expect(ModalKeys.command(for: press(nil, [.option], keyCode: 40), in: context(nil, fields: 3, text: false)) == nil, "⌥k in a list should pass, not step a row")

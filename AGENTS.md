@@ -351,7 +351,7 @@ fields (`ModalKeyContext.hasTextFields`), and the focused part decides the rest:
 - **Arrows**: ↑ and ↓ never move a modal. A suggestion dropdown takes them first (`suggestionUp` and `suggestionDown`),
   a text field's caret takes them, and anywhere else they are taken and do nothing.
 - **Unchanged**: ⇧⌘J and ⇧⌘K move in every modal; ←/→ and h/l cycle a select; ⇧⌘H and ⇧⌘L as before; Return and Esc as
-  before. Settings' own keys (H/L, [ and ], e, R, n, ⌥k and ⌥j) stay. ⌥k is no field key.
+  before. Settings' own keys (H/L, [ and ], e, R, n, K and J) stay. ⌥k is no field key.
 - **The Quest Log** applies the rule per focused part: its filter is a text field, its list is a list
   (`ListCapabilities.modalMoves`). With no suggestion showing, the filter's ↑/↓ are the caret's (`FilterFieldKey`'s
   `arrowsMoveList` is off there), while ⌃p and ⌃n still move the list, as vim's previous and next do.
