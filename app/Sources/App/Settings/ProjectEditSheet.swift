@@ -133,7 +133,7 @@ final class ProjectEditModel: ObservableObject {
     }
 
     private var keyContext: ModalKeyContext {
-        ModalKeyContext(focus: focus == .color && color.mode == .select ? .select : .line, fieldCount: fields.count, submitting: false, submits: true)
+        ModalKeyContext(focus: focus == .color && color.mode == .select ? .select : .line, fieldCount: fields.count, hasTextFields: true, submitting: false, submits: true)
     }
 
     private func handleFieldKey(_ event: NSEvent) -> Bool {

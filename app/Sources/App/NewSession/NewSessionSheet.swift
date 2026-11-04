@@ -174,6 +174,7 @@ final class NewSessionSheetModel: ObservableObject {
         ModalKeyContext(
             focus: state.model.modalFocus,
             fieldCount: NewSessionField.formOrder.count,
+            hasTextFields: true,
             submitting: state.model.submitting,
             submits: true
         )

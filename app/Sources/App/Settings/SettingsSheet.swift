@@ -390,7 +390,7 @@ final class SettingsSheetModel: ObservableObject {
     }
 
     /// The sheet's keys: H and L step the sections, the `[` and `]` tabs (its own), then the shared modal keys (`ModalKeys`). The rows are selects,
-    /// so ←/→ cycle a value and Tab moves between them. Nothing submits: each change applies as it is made.
+    /// so ←/→ cycle a value, and j and k or Tab move between them. Nothing submits: each change applies as it is made.
     func handle(_ event: NSEvent) -> Bool {
         ModalKeyActions(
             context: { self.modalKeyContext },
@@ -402,14 +402,14 @@ final class SettingsSheetModel: ObservableObject {
         ).handle(event)
     }
 
-    /// Projects take Return (save the arrangement, or edit the highlighted row) and move with the cursor. The models
-    /// section's rows are selects that take no Return.
+    /// Both sections have no text field, so j and k move. Projects take Return (save the arrangement, or edit the
+    /// highlighted row). The models section's rows are selects that take no Return.
     private var modalKeyContext: ModalKeyContext {
         switch section {
         case .modelsAndReasoning:
-            return ModalKeyContext(focus: .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, submitting: false, submits: false)
+            return ModalKeyContext(focus: .select, fieldCount: RoleDefaultsSettingsModel.focusableFieldCount, hasTextFields: false, submitting: false, submits: false)
         case .projects:
-            return ModalKeyContext(focus: nil, fieldCount: projects.rows.count, submitting: false, submits: true)
+            return ModalKeyContext(focus: nil, fieldCount: projects.rows.count, hasTextFields: false, submitting: false, submits: true)
         }
     }
 

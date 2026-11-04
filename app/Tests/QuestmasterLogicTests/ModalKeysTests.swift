@@ -15,6 +15,13 @@ struct ModalKeysTests {
         cyclingIsOnlyForSelects()
         plainLettersBelongToTheText()
         editRepoAndDeleteConfirmationSubmit()
+        tabAndControlJKMoveFromASelectInAFormWithTextFields()
+        jAndKTypeInAFormWithTextFields()
+        jAndKMoveAListOrASelectOnlyModal()
+        tabAndControlJKTakeNothingInAListOrASelectOnlyModal()
+        arrowsNeverMoveAModal()
+        theRemovedOptionKAliasIsNoFieldKey()
+        everyModalsMovementKeys()
         print("ModalKeysTests: all tests passed")
     }
 
@@ -33,13 +40,15 @@ struct ModalKeysTests {
         Keymap.KeyPress(keyCode: keyCode, character: character, modifiers: modifiers)
     }
 
+    /// A form with text fields unless `text` says otherwise: a list or a select-only modal.
     private static func context(
         _ focus: ModalKeyContext.Focus? = .line,
         fields: Int = 3,
+        text: Bool = true,
         submitting: Bool = false,
         submits: Bool = true
     ) -> ModalKeyContext {
-        ModalKeyContext(focus: focus, fieldCount: fields, submitting: submitting, submits: submits)
+        ModalKeyContext(focus: focus, fieldCount: fields, hasTextFields: text, submitting: submitting, submits: submits)
     }
 
     private static func returnSubmitsFromALineAndASelect() {
@@ -63,7 +72,7 @@ struct ModalKeysTests {
     }
 
     private static func settingsSubmitsNothing() {
-        let settings = context(.select, fields: 4, submits: false)
+        let settings = context(.select, fields: 4, text: false, submits: false)
         expect(ModalKeys.command(for: press("\r", keyCode: 36), in: settings) == nil, "Settings' Return should do nothing")
         expect(ModalKeys.command(for: press("\r", [.command], keyCode: 36), in: settings) == nil, "Settings' ⌘Return should do nothing")
         expect(ModalKeys.command(for: press(nil, keyCode: 53), in: settings) == .cancel, "Settings should still close on Esc")
@@ -94,19 +103,18 @@ struct ModalKeysTests {
         expect(ModalKeys.command(for: press(nil, keyCode: 48), in: form) == .nextField, "Tab should move to the next field")
         expect(ModalKeys.command(for: press(nil, [.shift], keyCode: 48), in: form) == .previousField, "⇧Tab should move back")
         expect(ModalKeys.command(for: press("j", [.control], keyCode: 38), in: form) == .nextField, "⌃j should move to the next field")
-        expect(ModalKeys.command(for: press(nil, [.option], keyCode: 40), in: form) == .nextField, "⌥k should move to the next field")
         expect(ModalKeys.command(for: press("k", [.control], keyCode: 40), in: form) == .previousField, "⌃k should move back")
         expect(ModalKeys.command(for: press("J", [.command, .shift], keyCode: 38), in: form) == .nextField, "⇧⌘J should move to the next field")
         expect(ModalKeys.command(for: press("K", [.command, .shift], keyCode: 40), in: form) == .previousField, "⇧⌘K should move back")
     }
 
     private static func tabWithOneFieldOrNoFieldDoesNothing() {
-        let editRepo = context(.select, fields: 1)
+        let editRepo = context(.select, fields: 1, text: false)
         expect(ModalKeys.command(for: press(nil, keyCode: 48), in: editRepo) == .consume, "Tab with one field should be taken and do nothing")
         expect(ModalKeys.command(for: press(nil, [.shift], keyCode: 48), in: editRepo) == .consume, "⇧Tab with one field should be taken and do nothing")
         expect(ModalKeys.command(for: press("j", [.control], keyCode: 38), in: editRepo) == .consume, "⌃j with one field should be taken and do nothing")
         expect(ModalKeys.command(for: press("J", [.command, .shift], keyCode: 38), in: editRepo) == .consume, "⇧⌘J with one field should be taken and do nothing")
-        let confirmation = context(nil, fields: 0)
+        let confirmation = context(nil, fields: 0, text: false)
         expect(ModalKeys.command(for: press(nil, keyCode: 48), in: confirmation) == .consume, "Tab with no field should be taken and do nothing")
     }
 
@@ -144,11 +152,100 @@ struct ModalKeysTests {
     }
 
     private static func editRepoAndDeleteConfirmationSubmit() {
-        let editRepo = context(.select, fields: 1)
+        let editRepo = context(.select, fields: 1, text: false)
         expect(ModalKeys.command(for: press("\r", keyCode: 36), in: editRepo) == .submit, "Edit Repo's Return should submit")
-        let confirmation = context(nil, fields: 0)
+        let confirmation = context(nil, fields: 0, text: false)
         expect(ModalKeys.command(for: press("\r", keyCode: 36), in: confirmation) == .submit, "the delete confirmation's Return should confirm")
         expect(ModalKeys.command(for: press(nil, keyCode: 53), in: confirmation) == .cancel, "the delete confirmation's Esc should cancel")
         expect(ModalKeys.command(for: press("a"), in: confirmation) == nil, "typing should pass the confirmation by")
+    }
+
+    private static func tabAndControlJKMoveFromASelectInAFormWithTextFields() {
+        let form = context(.select, fields: 3, text: true)
+        expect(ModalKeys.command(for: press(nil, keyCode: 48), in: form) == .nextField, "Tab should move on from a select in a form with text fields")
+        expect(ModalKeys.command(for: press(nil, [.shift], keyCode: 48), in: form) == .previousField, "⇧Tab should move back from a select in a form with text fields")
+        expect(ModalKeys.command(for: press("j", [.control], keyCode: 38), in: form) == .nextField, "⌃J should move on from a select in a form with text fields")
+        expect(ModalKeys.command(for: press("k", [.control], keyCode: 40), in: form) == .previousField, "⌃K should move back from a select in a form with text fields")
+    }
+
+    /// The letters belong to the text: a field types them, and a select in a form passes them on (a picker starts its
+    /// search with them), so a form's j and k never move.
+    private static func jAndKTypeInAFormWithTextFields() {
+        for focus in [ModalKeyContext.Focus.line, .prompt, .select] {
+            let form = context(focus, fields: 3, text: true)
+            expect(ModalKeys.command(for: press("j", keyCode: 38), in: form) == nil, "j should type in a form with text fields, focus \(focus)")
+            expect(ModalKeys.command(for: press("k", keyCode: 40), in: form) == nil, "k should type in a form with text fields, focus \(focus)")
+        }
+        let colourSearch = context(.line, fields: 1, text: false)
+        expect(ModalKeys.command(for: press("j", keyCode: 38), in: colourSearch) == nil, "j should type into a colour's search, which is a line even in a modal with no text field")
+    }
+
+    private static func jAndKMoveAListOrASelectOnlyModal() {
+        for modal in [context(nil, fields: 3, text: false), context(.select, fields: 4, text: false)] {
+            expect(ModalKeys.command(for: press("j", keyCode: 38), in: modal) == .nextField, "j should move down a list or a select-only modal")
+            expect(ModalKeys.command(for: press("k", keyCode: 40), in: modal) == .previousField, "k should move up a list or a select-only modal")
+            expect(ModalKeys.command(for: press("J", [.command, .shift], keyCode: 38), in: modal) == .nextField, "⇧⌘J should move down a list or a select-only modal")
+            expect(ModalKeys.command(for: press("K", [.command, .shift], keyCode: 40), in: modal) == .previousField, "⇧⌘K should move up a list or a select-only modal")
+        }
+        expect(ModalKeys.command(for: press("j", keyCode: 38), in: context(nil, fields: 1, text: false)) == .consume, "j with one row has nowhere to go and is taken")
+        expect(ModalKeys.command(for: press("j", keyCode: 38), in: context(nil, fields: 0, text: false)) == .consume, "j with no rows is taken")
+    }
+
+    private static func tabAndControlJKTakeNothingInAListOrASelectOnlyModal() {
+        for modal in [context(nil, fields: 3, text: false), context(.select, fields: 4, text: false)] {
+            expect(ModalKeys.command(for: press(nil, keyCode: 48), in: modal) == .consume, "Tab should take the press and do nothing in a list or a select-only modal")
+            expect(ModalKeys.command(for: press(nil, [.shift], keyCode: 48), in: modal) == .consume, "⇧Tab should take the press and do nothing in a list or a select-only modal")
+            expect(ModalKeys.command(for: press("j", [.control], keyCode: 38), in: modal) == .consume, "⌃J should take the press and do nothing in a list or a select-only modal")
+            expect(ModalKeys.command(for: press("k", [.control], keyCode: 40), in: modal) == .consume, "⌃K should take the press and do nothing in a list or a select-only modal")
+        }
+    }
+
+    /// ↑ and ↓ never move a modal. A text field's caret takes them; anywhere else they are taken and do nothing.
+    private static func arrowsNeverMoveAModal() {
+        for modal in [context(nil, fields: 3, text: false), context(.select, fields: 4, text: false), context(.select, fields: 4, text: true)] {
+            expect(ModalKeys.command(for: press(nil, keyCode: 126), in: modal) == .consume, "↑ should be taken and do nothing in a modal with no text field caret")
+            expect(ModalKeys.command(for: press(nil, keyCode: 125), in: modal) == .consume, "↓ should be taken and do nothing in a modal with no text field caret")
+        }
+        for focus in [ModalKeyContext.Focus.line, .prompt] {
+            let field = context(focus, fields: 3, text: true)
+            expect(ModalKeys.command(for: press(nil, keyCode: 126), in: field) == nil, "↑ should reach the caret of \(focus)")
+            expect(ModalKeys.command(for: press(nil, keyCode: 125), in: field) == nil, "↓ should reach the caret of \(focus)")
+        }
+        expect(ModalKeys.command(for: press(nil, [.option], keyCode: 126), in: context(nil, fields: 3, text: false)) == nil, "⌥↑ is not a modal key and passes")
+    }
+
+    /// ⌥k moves an arranged row in Settings' Projects, so it steps no field, in a form or a list.
+    private static func theRemovedOptionKAliasIsNoFieldKey() {
+        expect(ModalKeys.command(for: press(nil, [.option], keyCode: 40), in: context(.line, fields: 3, text: true)) == nil, "⌥k in a form should pass, not step a field")
+        expect(ModalKeys.command(for: press(nil, [.option], keyCode: 40), in: context(nil, fields: 3, text: false)) == nil, "⌥k in a list should pass, not step a row")
+    }
+
+    /// The rule per modal, as the sheets build their contexts. Each row: the context, what Tab does, what j does and
+    /// what ↑ does. Nil is "the press goes on to the text" (typed letters, the caret).
+    private static func everyModalsMovementKeys() {
+        let tab = press(nil, keyCode: 48)
+        let j = press("j", keyCode: 38)
+        let up = press(nil, keyCode: 126)
+        let modals: [(name: String, context: ModalKeyContext, tab: ModalCommand?, j: ModalCommand?, up: ModalCommand?)] = [
+            ("Settings' Models", context(.select, fields: 4, text: false, submits: false), .consume, .nextField, .consume),
+            ("Settings' Projects", context(nil, fields: 5, text: false), .consume, .nextField, .consume),
+            ("Add or Edit Project, name", context(.line, fields: 3, text: true), .nextField, nil, nil),
+            ("Add or Edit Project, colour select", context(.select, fields: 3, text: true), .nextField, nil, .consume),
+            ("New Session, path", context(.line, fields: 5, text: true), .nextField, nil, nil),
+            ("New Session, agent select", context(.select, fields: 5, text: true), .nextField, nil, .consume),
+            ("New Quest, prompt", context(.prompt, fields: 2, text: true), nil, nil, nil),
+            ("New Quest, project", context(.line, fields: 2, text: true), .nextField, nil, nil),
+            ("Edit Session, title", context(.line, fields: 2, text: true), .nextField, nil, nil),
+            ("Edit Repo, colour select", context(.select, fields: 1, text: false), .consume, .consume, .consume),
+            ("Edit Repo, colour search", context(.line, fields: 1, text: false), .consume, nil, nil),
+            ("delete confirmation", context(nil, fields: 0, text: false), .consume, .consume, .consume),
+            ("Quest Log list", context(nil, fields: 4, text: false), .consume, .nextField, .consume),
+            ("Quest Log filter", context(.line, fields: 1, text: true), .consume, nil, nil),
+        ]
+        for modal in modals {
+            expect(ModalKeys.command(for: tab, in: modal.context) == modal.tab, "Tab in \(modal.name)")
+            expect(ModalKeys.command(for: j, in: modal.context) == modal.j, "j in \(modal.name)")
+            expect(ModalKeys.command(for: up, in: modal.context) == modal.up, "↑ in \(modal.name)")
+        }
     }
 }

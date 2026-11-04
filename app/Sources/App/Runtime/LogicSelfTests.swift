@@ -3104,12 +3104,15 @@ enum LogicSelfTests {
         try expect(sent == [.jumpToTop] && leaves == 1, "Return should only move the cursor and hand the keys back, sent \(sent)")
         try expect(filter.query == "write", "Return should keep the filter applied, got \(filter.query)")
 
-        try expect(filter.handleCommand(.plain(125)), "↓ should move the list when no suggestion shows")
-        try expect(store.selectedID == "q3", "↓ should move the cursor to the next match, got \(String(describing: store.selectedID))")
+        try expect(!filter.handleCommand(.plain(125)), "↓ should be the caret's when no suggestion shows: the list moves with j and k")
+        try expect(store.selectedID == "q1", "↓ should leave the cursor on the first match, got \(String(describing: store.selectedID))")
+        try expect(filter.handleCommand(Keymap.KeyPress(keyCode: 45, character: "n", modifiers: [.control])) && store.selectedID == "q3", "⌃n should move the list down with no suggestion showing, got \(String(describing: store.selectedID))")
+        try expect(filter.handleCommand(Keymap.KeyPress(keyCode: 35, character: "p", modifiers: [.control])) && store.selectedID == "q1", "⌃p should move the list back up with no suggestion showing")
+        try expect(filter.handleCommand(.plain(48)) && store.selectedID == "q1", "Tab should take the press and move nothing: the filter is the Quest Log's one field")
         try expect(!filter.handleCommand(Keymap.KeyPress(keyCode: 38, character: "j")), "j should type into the filter, not move the list")
 
         try expect(filter.handleCommand(.plain(53)), "Esc should be the filter's when no suggestion shows")
-        try expect(leaves == 2 && store.selectedID == "q3" && filter.query == "write", "Esc should hand the keys back and keep the cursor and the filter")
+        try expect(leaves == 2 && store.selectedID == "q1" && filter.query == "write", "Esc should hand the keys back and keep the cursor and the filter")
     }
 
     /// A child (⌘T's New Quest over the Quest Log) closing hands the keys back to what had them in the modal it

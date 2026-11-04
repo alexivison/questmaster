@@ -59,6 +59,10 @@ extension Keymap {
         case backTab
         case nextField
         case previousField
+        /// Plain j and k in a modal (`ModalKeys`): they move a modal's rows or select fields, and type in a form with
+        /// text fields. The lists' own `moveUp` and `moveDown` keep the arrows.
+        case modalMoveUp
+        case modalMoveDown
         case cycleLeft
         case cycleRight
         case optionCycleLeft
@@ -124,8 +128,10 @@ extension Keymap {
         case .cancel: return [.code(53), .character("[", [.control])]
         case .tab: return [.code(48)]
         case .backTab: return [.code(48, [.shift])]
-        case .nextField: return [.character("j", [.control]), .code(40, [.option])]
+        case .nextField: return [.character("j", [.control])]
         case .previousField: return [.character("k", [.control])]
+        case .modalMoveUp: return [.character("k")]
+        case .modalMoveDown: return [.character("j")]
         case .cycleLeft: return [.code(123), .character("h")]
         case .cycleRight: return [.code(124), .character("l")]
         case .optionCycleLeft: return [.code(123, [.option])]
