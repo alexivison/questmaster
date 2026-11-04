@@ -21,7 +21,7 @@ final class QuestLogFilter {
 
     /// The filter changed: re-sync the list.
     @ObservationIgnored var onChange: (() -> Void)?
-    /// The list's cursor moves: ↑/↓ with no suggestion open, and Return, which moves it to the first quest.
+    /// The list's cursor moves: ⌃p and ⌃n with no suggestion open, and Return, which moves it to the first quest.
     @ObservationIgnored var onMoveSelection: ((ListCommand) -> Void)?
     /// The keys go back to the list: Esc or Return with no suggestion open. The filter stays; the next Esc closes the log.
     @ObservationIgnored var onLeave: (() -> Void)?
@@ -86,13 +86,13 @@ final class QuestLogFilter {
     /// The filter is the Quest Log's one text field, so Tab, ⌃J and ⌃K have no other field to move to and take nothing.
     private static let keysInTheField = ModalKeyContext(focus: .line, fieldCount: 1, hasTextFields: true, submitting: false, submits: false)
 
-    /// The field's own keys (each press from `CommandTextField`). True when the filter took the press. ↑/↓ and ⌃p/⌃n
-    /// with no suggestion are the caret's: the list moves with j and k.
+    /// The field's own keys (each press from `CommandTextField`). True when the filter took the press. With no suggestion
+    /// open, ↑/↓ are the caret's, since the list moves with j and k; ⌃p and ⌃n still move the list.
     func handleCommand(_ press: Keymap.KeyPress) -> Bool {
         guard let command = FilterFieldKey.command(
             press,
             showsSuggestions: !suggestions.isEmpty,
-            listMoves: false,
+            arrowsMoveList: false,
             queryIsEmpty: query.isEmpty,
             hasChips: !tokens.isEmpty
         ) else {

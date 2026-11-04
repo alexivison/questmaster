@@ -3106,6 +3106,8 @@ enum LogicSelfTests {
 
         try expect(!filter.handleCommand(.plain(125)), "↓ should be the caret's when no suggestion shows: the list moves with j and k")
         try expect(store.selectedID == "q1", "↓ should leave the cursor on the first match, got \(String(describing: store.selectedID))")
+        try expect(filter.handleCommand(Keymap.KeyPress(keyCode: 45, character: "n", modifiers: [.control])) && store.selectedID == "q3", "⌃n should move the list down with no suggestion showing, got \(String(describing: store.selectedID))")
+        try expect(filter.handleCommand(Keymap.KeyPress(keyCode: 35, character: "p", modifiers: [.control])) && store.selectedID == "q1", "⌃p should move the list back up with no suggestion showing")
         try expect(filter.handleCommand(.plain(48)) && store.selectedID == "q1", "Tab should take the press and move nothing: the filter is the Quest Log's one field")
         try expect(!filter.handleCommand(Keymap.KeyPress(keyCode: 38, character: "j")), "j should type into the filter, not move the list")
 

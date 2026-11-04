@@ -25,21 +25,27 @@ public enum FilterFieldCommand: Equatable {
 /// non-empty field, and any key with a modifier that isn't listed.
 public enum FilterFieldKey {
     /// `showsSuggestions`: a suggestion is showing, so the keys act on it rather than on the list.
-    /// `listMoves`: with no suggestion showing, ↑/↓ and ⌃p/⌃n move the list. The Quest Log's rows move with the modal
-    /// keys instead, so there ↑/↓ and ⌃p/⌃n stay the caret's.
+    /// `arrowsMoveList`: with no suggestion showing, ↑/↓ move the list. The Quest Log's rows move with the modal keys
+    /// instead, so there ↑/↓ stay the caret's. ⌃p and ⌃n (vim's next and previous) move the list either way.
     /// `queryIsEmpty` and `hasChips` decide what Backspace removes.
     public static func command(
         _ press: Keymap.KeyPress,
         showsSuggestions: Bool,
-        listMoves: Bool,
+        arrowsMoveList: Bool,
         queryIsEmpty: Bool,
         hasChips: Bool
     ) -> FilterFieldCommand? {
-        if Keymap.matches(press, .suggestionUp) || Keymap.matches(press, .suggestionPrevious) {
-            return showsSuggestions ? .moveSuggestion(-1) : listMove(-1, listMoves: listMoves)
+        if Keymap.matches(press, .suggestionUp) {
+            return showsSuggestions ? .moveSuggestion(-1) : arrowListMove(-1, arrowsMoveList: arrowsMoveList)
         }
-        if Keymap.matches(press, .suggestionDown) || Keymap.matches(press, .suggestionNext) {
-            return showsSuggestions ? .moveSuggestion(1) : listMove(1, listMoves: listMoves)
+        if Keymap.matches(press, .suggestionDown) {
+            return showsSuggestions ? .moveSuggestion(1) : arrowListMove(1, arrowsMoveList: arrowsMoveList)
+        }
+        if Keymap.matches(press, .suggestionPrevious) {
+            return showsSuggestions ? .moveSuggestion(-1) : .moveList(-1)
+        }
+        if Keymap.matches(press, .suggestionNext) {
+            return showsSuggestions ? .moveSuggestion(1) : .moveList(1)
         }
         if Keymap.matches(press, .tab) {
             return showsSuggestions ? .acceptSuggestion : nil
@@ -56,7 +62,7 @@ public enum FilterFieldKey {
         return nil
     }
 
-    private static func listMove(_ delta: Int, listMoves: Bool) -> FilterFieldCommand? {
-        listMoves ? .moveList(delta) : nil
+    private static func arrowListMove(_ delta: Int, arrowsMoveList: Bool) -> FilterFieldCommand? {
+        arrowsMoveList ? .moveList(delta) : nil
     }
 }

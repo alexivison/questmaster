@@ -308,7 +308,7 @@ final class DockPaneModel: ObservableObject {
               let command = FilterFieldKey.command(
                 press,
                 showsSuggestions: !artifactModel.filterSuggestions.isEmpty,
-                listMoves: true,
+                arrowsMoveList: true,
                 queryIsEmpty: artifactFilterQuery.isEmpty,
                 hasChips: !artifactFilterTokens.isEmpty
               ) else {

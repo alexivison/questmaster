@@ -351,8 +351,8 @@ fields (`ModalKeyContext.hasTextFields`), and the focused part decides the rest:
 - **Unchanged**: ⇧⌘J and ⇧⌘K move in every modal; ←/→ and h/l cycle a select; ⇧⌘H and ⇧⌘L as before; Return and Esc as
   before. Settings' own keys (H/L, [ and ], e, R, ⌘T, ⌥k and ⌥j) stay. ⌥k is no field key.
 - **The Quest Log** applies the rule per focused part: its filter is a text field, its list is a list
-  (`ListCapabilities.modalMoves`). The filter's ↑/↓ and ⌃p/⌃n with no suggestion are the caret's (`FilterFieldKey`'s
-  `listMoves`).
+  (`ListCapabilities.modalMoves`). With no suggestion showing, the filter's ↑/↓ are the caret's (`FilterFieldKey`'s
+  `arrowsMoveList` is off there), while ⌃p and ⌃n still move the list, as vim's previous and next do.
 
 Non-modal lists (the tracker, the dock's lists, Version Control, the Worker Log) keep their own keys, arrows included
 (`ListKeyResolver`'s `moveUp` and `moveDown`).
