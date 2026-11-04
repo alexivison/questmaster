@@ -46,6 +46,9 @@ controlPageAndHalfPageChords()
         expect(matches(press(nil, [.option], keyCode: 40), .nextField), "⌥k should move to the next field by key code, since it types ˚")
         expect(!matches(press("k"), .nextField), "plain k must not move to the next field")
         expect(!matches(press("˚", keyCode: 40), .nextField), "⌥k without its modifier must not match")
+        expect(matches(press("˚", [.option], keyCode: 40), .moveRowUp), "⌥k should move the arranged row up by key code")
+        expect(matches(press("∆", [.option], keyCode: 38), .moveRowDown), "⌥j should move the arranged row down by key code")
+        expect(!matches(press(nil, [.option], keyCode: 126), .moveRowUp), "⌥↑ no longer moves a row")
     }
 
     private static func everyActionHasChords() {
