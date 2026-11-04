@@ -10,6 +10,7 @@ enum QuestmasterLogicTests {
         timed("TrackerRecolorLogicTests") { TrackerRecolorLogicTests.run() }
         timed("TrackerCommandStateTests") { TrackerCommandStateTests.run() }
         timed("MutationRequestTests") { MutationRequestTests.run() }
+timed("ProjectMutationRequestTests") { ProjectMutationRequestTests.run() }
         timed("NavigationLogicTests") { NavigationLogicTests.run() }
         timed("ShellSplitLayoutTests") { ShellSplitLayoutTests.run() }
         timed("TerminalCellSnappingTests") { TerminalCellSnappingTests.run() }
@@ -40,6 +41,7 @@ enum QuestmasterLogicTests {
         timed("DisplayClassificationTests") { DisplayClassificationTests.run() }
         timed("ArtifactCoreTests") { ArtifactCoreTests.run() }
         timed("QuestCoreTests") { QuestCoreTests.run() }
+timed("ProjectOrderTests") { ProjectOrderTests.run() }
         timed("ShellChromeTests") { ShellChromeTests.run() }
         timed("CaffeineStateTests") { CaffeineStateTests.run() }
         timed("GhosttyConfigParserTests") { GhosttyConfigParserTests.run() }

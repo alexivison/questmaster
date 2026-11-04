@@ -40,15 +40,19 @@ public struct TrackerSnapshot: Decodable, Equatable {
     }
 }
 
+/// A project as the tracker lists it, in the user's order. `name` is the effective display name; `defaultName`
+/// is the folder's name, which the name reverts to when the user clears the override.
 public struct TrackerProject: Decodable, Equatable, Identifiable {
     public var id: String
     public var name: String
+    public var defaultName: String
     public var path: String
     public var color: String
 
-    public init(id: String, name: String, path: String = "", color: String = "") {
+    public init(id: String, name: String, defaultName: String? = nil, path: String = "", color: String = "") {
         self.id = id
         self.name = name
+        self.defaultName = defaultName ?? name
         self.path = path
         self.color = color
     }
@@ -57,6 +61,7 @@ public struct TrackerProject: Decodable, Equatable, Identifiable {
         case id
         case identity
         case name
+        case defaultName = "default_name"
         case path
         case color
     }
@@ -67,6 +72,7 @@ public struct TrackerProject: Decodable, Equatable, Identifiable {
             ?? container.decodeIfPresent(String.self, forKey: .identity)
             ?? ""
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? id
+        defaultName = try container.decodeIfPresent(String.self, forKey: .defaultName) ?? name
         path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
         color = try container.decodeIfPresent(String.self, forKey: .color) ?? ""
     }

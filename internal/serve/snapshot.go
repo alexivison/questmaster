@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/sessionactivity"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
@@ -27,6 +26,7 @@ type Snapshotter struct {
 	store        *state.Store
 	tmuxClient   *tmux.Client
 	fetcher      tracker.SessionFetcher
+	projects     *state.ProjectResolver
 	now          func() time.Time
 	mu           sync.Mutex
 	trackerCache *TrackerSnapshot
@@ -44,10 +44,12 @@ func NewSnapshotter(store *state.Store, tmuxClient *tmux.Client, now func() time
 	if now == nil {
 		now = time.Now
 	}
+	projects := state.NewProjectResolver()
 	return &Snapshotter{
 		store:      store,
 		tmuxClient: tmuxClient,
-		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store),
+		fetcher:    tracker.NewLiveSessionFetcher(tmuxClient, store, projects),
+		projects:   projects,
 		now:        now,
 	}
 }
@@ -92,13 +94,15 @@ type ArtifactSnapshot struct {
 	Missing            bool     `json:"missing,omitempty"`
 }
 
-// ProjectSnapshot is a historical repo project discovered from session
-// manifests. Linked worktrees share one ID and path through repo.Resolve.
+// ProjectSnapshot is one project in the user's order. Name is the effective
+// display name; DefaultName is the folder name it falls back to. Path is the
+// project folder: a repo's main root or an added folder.
 type ProjectSnapshot struct {
-	ID    string `json:"id"`
-	Name  string `json:"name,omitempty"`
-	Path  string `json:"path,omitempty"`
-	Color string `json:"color,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	DefaultName string `json:"default_name,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Color       string `json:"color,omitempty"`
 }
 
 type QuestSnapshot struct {
@@ -393,11 +397,15 @@ func (s *Snapshotter) fullTracker() (TrackerSnapshot, error) {
 	statuses, _ := state.LoadPullRequestStatuses(s.store.Root())
 	state.AttachPullRequestStatuses(prs, statuses)
 	s.observeTrackerRows(snap.Sessions, observedAt)
+	projects, err := buildProjectSnapshots(s.store, s.projects, artifacts, quests)
+	if err != nil {
+		return TrackerSnapshot{}, err
+	}
 	return s.cacheTracker(TrackerSnapshot{
 		ObservedAt: observedAt,
 		Current:    currentSessionSnapshot(current),
 		Sessions:   s.sessionSnapshots(snap.Sessions, observedAt, artifacts, prs),
-		Projects:   s.projectSnapshots(artifacts, quests),
+		Projects:   projects,
 		Artifacts:  artifactSnapshots(artifacts),
 		Quests:     questSnapshots(quests),
 	}), nil
@@ -668,77 +676,72 @@ func (s *Snapshotter) globalQuests() []state.Quest {
 	return quests
 }
 
-func (s *Snapshotter) projectSnapshots(artifacts []state.Artifact, quests []state.Quest) []ProjectSnapshot {
-	manifests, err := s.store.DiscoverSessions()
+// buildProjectSnapshots lists every project the tracker shows, in the user's
+// order. A project is found from a session cwd, a repo color, an artifact, or
+// a quest. An added folder is listed even when nothing lives in it yet.
+func buildProjectSnapshots(store *state.Store, resolver *state.ProjectResolver, artifacts []state.Artifact, quests []state.Quest) ([]ProjectSnapshot, error) {
+	manifests, err := store.DiscoverSessions()
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	repoColors, _ := state.NewRepoColorStore(s.StateRoot()).Load()
-	repoCache := repo.NewCache()
-	byID := make(map[string]ProjectSnapshot)
-	addRepo := func(r repo.Repo, color string) {
-		if r.Identity == "" {
-			return
-		}
-		existing, exists := byID[r.Identity]
-		if exists {
-			if existing.Color == "" && color != "" {
-				existing.Color = color
-				byID[r.Identity] = existing
-			}
-			return
-		}
-		byID[r.Identity] = ProjectSnapshot{
-			ID:    r.Identity,
-			Name:  r.Name,
-			Path:  r.Root,
-			Color: color,
-		}
-	}
-	addPath := func(path, color string) bool {
-		path = strings.TrimSpace(path)
-		if path == "" || strings.HasPrefix(path, "_") || path == "ungrouped" || !filepath.IsAbs(path) {
-			return false
-		}
-		r, ok := repoCache.Resolve(path)
-		if !ok {
-			return false
-		}
-		addRepo(r, color)
-		return true
-	}
+	// Graceful degradation: an unreadable store leaves no added folders, names or order.
+	registry, _ := state.NewProjectStore(store.Root()).Load()
+	colors, _ := state.NewRepoColorStore(store.Root()).Load()
 
-	for _, manifest := range manifests {
-		addPath(manifest.Cwd, "")
+	found := make(map[string]state.Project)
+	addPath := func(path string) bool {
+		if !isProjectPath(path) {
+			return false
+		}
+		project, ok := resolver.Resolve(registry, path)
+		if ok {
+			found[project.ID] = project
+		}
+		return ok
 	}
-	for id, repoColor := range repoColors {
-		addPath(id, repoColor.Color)
+	for _, manifest := range manifests {
+		addPath(manifest.Cwd)
+	}
+	for _, project := range registry.AddedProjects() {
+		found[project.ID] = project
+	}
+	for id := range colors {
+		addPath(id)
 	}
 	for _, artifact := range artifacts {
-		addPath(artifact.ProjectID, "")
+		addPath(artifact.ProjectID)
 	}
 	for _, quest := range quests {
-		if addPath(quest.ProjectID, "") {
-			continue
+		if !addPath(quest.ProjectID) {
+			addPath(quest.ProjectPath)
 		}
-		addPath(quest.ProjectPath, "")
 	}
-	if len(byID) == 0 {
-		return nil
+	if len(found) == 0 {
+		return nil, nil
 	}
-	out := make([]ProjectSnapshot, 0, len(byID))
-	for _, project := range byID {
-		out = append(out, project)
+
+	out := make([]ProjectSnapshot, 0, len(found))
+	for _, project := range found {
+		out = append(out, ProjectSnapshot{
+			ID:          project.ID,
+			Name:        project.Name,
+			DefaultName: project.DefaultName,
+			Path:        project.Path,
+			Color:       colors[project.ID].Color,
+		})
 	}
+	ranks := state.NewProjectOrder(registry.Order)
 	sort.SliceStable(out, func(i, j int) bool {
-		left := strings.ToLower(out[i].Name)
-		right := strings.ToLower(out[j].Name)
-		if left == right {
-			return out[i].ID < out[j].ID
-		}
-		return left < right
+		return ranks.Less(out[i].ID, out[i].Name, out[j].ID, out[j].Name)
 	})
-	return out
+	return out, nil
+}
+
+// isProjectPath reports whether a stored reference names a folder. Pseudo
+// buckets such as "_misc" or "ungrouped", and relative paths, name no project.
+func isProjectPath(path string) bool {
+	path = strings.TrimSpace(path)
+	return path != "" && !strings.HasPrefix(path, "_") && path != "ungrouped" && filepath.IsAbs(path)
 }
 
 func artifactSnapshots(artifacts []state.Artifact) []ArtifactSnapshot {

@@ -41,7 +41,7 @@ active flag, so consumers can render idle sessions too.`,
 }
 
 func runSessions(w io.Writer, store *state.Store, client *tmux.Client) error {
-	snapshot, err := tracker.NewLiveSessionFetcher(client, store)(tracker.SessionInfo{})
+	snapshot, err := tracker.NewLiveSessionFetcher(client, store, state.NewProjectResolver())(tracker.SessionInfo{})
 	if err != nil {
 		return err
 	}

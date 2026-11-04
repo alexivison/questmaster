@@ -63,19 +63,25 @@ public enum QuestDisplayState {
 
         let grouped = Dictionary(grouping: visible) { clean($0.projectID) ?? "" }
         let repoByID = Dictionary(uniqueKeysWithValues: repos.map { ($0.id, $0) })
-        let projectByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
+        let order = ProjectOrder(projects: projects)
         var out: [QuestSection] = []
 
+        // Listed projects in the user's order; unlisted ones after them, by title.
         let sortedProjectIDs = grouped.keys
             .filter { !$0.isEmpty }
             .sorted { lhs, rhs in
-                sectionTitle(repoByID[lhs], projectByID[lhs], grouped[lhs]?.first).localizedCaseInsensitiveCompare(
-                    sectionTitle(repoByID[rhs], projectByID[rhs], grouped[rhs]?.first)
+                let lhsRank = order.rank(of: lhs)
+                let rhsRank = order.rank(of: rhs)
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
+                return sectionTitle(repoByID[lhs], order.project(for: lhs), grouped[lhs]?.first).localizedCaseInsensitiveCompare(
+                    sectionTitle(repoByID[rhs], order.project(for: rhs), grouped[rhs]?.first)
                 ) == .orderedAscending
             }
         for id in sortedProjectIDs {
             let repo = repoByID[id]
-            let project = projectByID[id]
+            let project = order.project(for: id)
             out.append(QuestSection(
                 id: id,
                 title: sectionTitle(repo, project, grouped[id]?.first),
@@ -146,12 +152,13 @@ public enum QuestDisplayState {
         clean(quest?.projectName) ?? clean(quest?.projectPath).map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Unknown Project"
     }
 
+    /// The project's effective name when the snapshot lists the project, then the repo's, then what the quest stored.
     private static func sectionTitle(_ repo: TrackerRepo?, _ project: TrackerProject?, _ quest: QuestItem?) -> String {
-        if let repo {
-            return clean(repo.name) ?? repo.id
-        }
         if let project {
             return clean(project.name) ?? project.id
+        }
+        if let repo {
+            return clean(repo.name) ?? repo.id
         }
         return title(for: quest)
     }

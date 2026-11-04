@@ -1330,7 +1330,7 @@ func TestQuestMutationsResolveAProjectSentAsAPathOnly(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatalf("sub dir: %v", err)
 	}
-	wantID, wantPath, wantName, err := state.ResolveQuestProject(sub, true)
+	wantID, wantPath, wantName, err := state.ResolveQuestProject(t.TempDir(), sub, true)
 	if err != nil || wantID == "" || wantName != "realm" || wantPath != sub {
 		t.Fatalf("resolve %s = %q %q %q, %v", sub, wantID, wantPath, wantName, err)
 	}

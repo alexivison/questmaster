@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
@@ -28,8 +27,8 @@ func newArtifactCreateCmd(store *state.Store, client *tmux.Client, sessionFlag *
 				if err != nil {
 					return err
 				}
-				if r, ok := repo.Resolve(opts.SourcePath); ok {
-					opts.ProjectID = r.Identity
+				if projectID := state.ProjectIDAt(artifactStateRoot(store), opts.SourcePath); projectID != "" {
+					opts.ProjectID = projectID
 				}
 			} else {
 				opts.Content = cmd.InOrStdin()
