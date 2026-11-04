@@ -51,6 +51,14 @@ struct TrackerAvatarDirectorTests {
         noEnterUnderReduceMotion()
         aSummoningCastPlaysItsPhasesOnTheCue()
         aSpawnWaitsForTheSummoningOnScreen()
+        aReleaseLaunchesItsSpellAsTheStrikeBegins()
+        anOrbLeavesAsTheStrikeOfAReleaseAfterTheSummoning()
+        aLatePollStillLaunchesEachSpellInOrder()
+        aFileWithNoStrikeFrameKeepsItsCueTimings()
+        aCatchStartsEarlyToStrikeAsTheWispLands()
+        aFlightShorterThanTheCatchsLeadInStartsBothTogether()
+        reduceMotionKeepsTheEntrancesCuesWithoutSpells()
+        switchingSessionDropsASpellStillWaitingOnItsStrike()
         print("TrackerAvatarDirectorTests: all tests passed")
     }
 
@@ -691,6 +699,163 @@ struct TrackerAvatarDirectorTests {
     }
 
     /// Times measured from a payload's clock carry rounding, so they compare within a nanosecond.
+    /// The cleric's shape: a release and a catch that enter before they strike. The release (0.9 s) strikes 0.3 s in, on frame 4; the
+    /// catch (0.8 s) strikes 0.4 s in, on frame 5.
+    private static let entranceRelease: [[Any]] = [[1, 0.1], [2, 0.1], [3, 0.1], [4, 0.5], [3, 0.1]]
+    private static let entranceCatch: [[Any]] = [[1, 0.1], [2, 0.1], [3, 0.1], [4, 0.1], [5, 0.3], [4, 0.1]]
+    private static let releaseLeadIn: TimeInterval = 0.3
+    private static let releaseSeconds: TimeInterval = 0.9
+    private static let catchLeadIn: TimeInterval = 0.4
+    private static let catchSeconds: TimeInterval = 0.8
+
+    /// The bard with a release and a catch that enter before they strike, naming their strike frames (nil names none).
+    private static func catalogWithEntrances(
+        releaseStrike: Int?, catchStrike: Int?, catching: [[Any]] = entranceCatch
+    ) -> TrackerAvatarCatalog {
+        func edit(_ track: [[Any]], _ strike: Int?) -> (inout [String: Any]) -> Void {
+            { pose in
+                pose["once"] = ["character": track]
+                pose["strike_frame"] = strike
+            }
+        }
+        guard let animation = try? AvatarAnimationFixture.bard(editing: [
+            "08-release": edit(entranceRelease, releaseStrike),
+            "10-catching": edit(catching, catchStrike),
+        ]) else {
+            fail("the bard with entrances before his strikes should decode")
+        }
+        return AvatarAnimationFixture.catalog(animation)
+    }
+
+    private static func messenger(to worker: String) -> TrackerSpellFlight {
+        TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker(worker))
+    }
+
+    private static func wisp(from worker: String) -> TrackerSpellFlight {
+        TrackerSpellFlight(spell: .wisp, from: .worker(worker), to: .avatar)
+    }
+
+    /// A release that names its strike frame sends its spell as the strike begins, not as the beat does: the arms are out when the
+    /// messenger leaves. The beat keeps its length, and the director wakes at the launch.
+    private static func aReleaseLaunchesItsSpellAsTheStrikeBegins() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 10)
+        let start = director.frame(at: 10)
+        expect(start.pose == .release && start.beat == 1 && start.launches.isEmpty, "the release should start with no spell yet, got \(start)")
+        expect(near(start.nextChange, 10 + releaseLeadIn), "the director should wake as the strike begins, got \(String(describing: start.nextChange))")
+        expect(director.frame(at: 10 + releaseLeadIn - 0.05).launches.isEmpty, "the spell should wait out the entrance")
+        let strike = director.frame(at: 10 + releaseLeadIn + 0.05)
+        expect(strike.pose == .release && strike.launches == [messenger(to: "qm-2")] && strike.beat == 1,
+               "the messenger should leave as the strike begins, on the same beat, got \(strike)")
+        expect(director.frame(at: 10 + releaseLeadIn + 0.2).launches.isEmpty, "a spell should launch once")
+        expect(director.frame(at: 10 + releaseSeconds - 0.05).pose == .release, "the beat should keep its length")
+        expect(director.frame(at: 10 + releaseSeconds + 0.05).pose == .pondering, "the release should end at its length")
+    }
+
+    /// The orb of a spawn leaves as the strike of its release begins, after the summoning cast.
+    private static func anOrbLeavesAsTheStrikeOfAReleaseAfterTheSummoning() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(), at: 0)
+        director.answer(.spawned(worker: "qm-2"), at: 10)
+        let releaseStart = 10 + summoningCastSeconds
+        let entering = director.frame(at: releaseStart + 0.05)
+        expect(entering.pose == .release && entering.launches.isEmpty, "the orb should wait out the release's entrance, got \(entering)")
+        let strike = director.frame(at: releaseStart + releaseLeadIn + 0.05)
+        expect(strike.launches == [TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker("qm-2"))], "the orb should leave as the strike begins, got \(strike)")
+    }
+
+    /// A frame asked for long after a beat ended still gives its spell, and in the order the beats played.
+    private static func aLatePollStillLaunchesEachSpellInOrder() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 10)
+        director.answer(.messaged(worker: "qm-3"), at: 10)
+        let late = director.frame(at: 20)
+        expect(late.launches == [messenger(to: "qm-2"), messenger(to: "qm-3")], "both messengers should leave, in order, got \(late.launches)")
+        expect(late.pose == .pondering && late.beat == 2, "both releases should have played, got \(late)")
+    }
+
+    /// A file that names no strike frame has no lead-in: the spell leaves with the beat and the catch follows the landing, whatever
+    /// its entrance, as every cue timed before the key.
+    private static func aFileWithNoStrikeFrameKeepsItsCueTimings() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: nil, catchStrike: nil))
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 10)
+        let release = director.frame(at: 10)
+        expect(release.pose == .release && release.launches == [messenger(to: "qm-2")], "the messenger should leave with the beat, got \(release)")
+        expect(near(release.nextChange, 10 + releaseSeconds), "only the beat's end should be due, got \(String(describing: release.nextChange))")
+        director.answer(.reported(worker: "qm-2"), at: 20)
+        expect(director.frame(at: 20).launches == [wisp(from: "qm-2")], "the wisp should fly at once")
+        expect(director.frame(at: 20 + MotionStep.flight.seconds - 0.001).pose == .pondering, "the catch should wait for the wisp to land")
+        expect(director.frame(at: 20 + MotionStep.flight.seconds + 0.001).pose == .catching, "the catch should start as the wisp lands")
+    }
+
+    /// A catch that names its strike frame starts early, over the end of the flight, so its strike step begins as the wisp lands.
+    /// The wisp is launched with the cue, as before, and the catch keeps its own length.
+    private static func aCatchStartsEarlyToStrikeAsTheWispLands() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(), at: 0)
+        director.answer(.reported(worker: "qm-2"), at: 10)
+        let flying = director.frame(at: 10)
+        expect(flying.launches == [wisp(from: "qm-2")] && flying.pose == .pondering, "the wisp should fly while the avatar keeps its pose, got \(flying)")
+        let catchStart = 10 + MotionStep.flight.seconds - catchLeadIn
+        expect(near(flying.nextChange, catchStart), "the director should wake when the catch starts, got \(String(describing: flying.nextChange))")
+        expect(director.frame(at: catchStart - 0.001).pose == .pondering, "the catch should not start before its entrance fits the flight")
+        let catching = director.frame(at: catchStart + 0.001)
+        expect(catching.pose == .catching && catching.launches.isEmpty && catching.beat == 1, "the catch should start early, with no second wisp, got \(catching)")
+        expect(director.frame(at: catchStart + catchSeconds - 0.05).pose == .catching, "the catch should keep its length")
+        expect(director.frame(at: catchStart + catchSeconds + 0.05).pose == .pondering, "the catch should end at its length")
+    }
+
+    /// The flight lasts as long as it lasts, however long the catch's entrance: a lead-in as long as the flight or longer starts the
+    /// catch with the wisp, which still flies the flight's length (the view's), and the catch's strike lands after it.
+    private static func aFlightShorterThanTheCatchsLeadInStartsBothTogether() {
+        let tracks: [(name: String, track: [[Any]], strike: Int, seconds: TimeInterval)] = [
+            ("longer than the flight", [[1, 0.5], [2, 0.5], [3, 0.5], [4, 0.5], [5, 0.3]], 5, 2.3),
+            ("as long as the flight", [[1, 0.5], [2, 0.5], [3, 0.3]], 3, 1.3),
+        ]
+        for (name, track, strike, seconds) in tracks {
+            var director = TrackerAvatarDirector(
+                reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: nil, catchStrike: strike, catching: track)
+            )
+            director.observe(bard(), at: 0)
+            director.answer(.reported(worker: "qm-2"), at: 10)
+            let start = director.frame(at: 10)
+            expect(start.pose == .catching && start.launches == [wisp(from: "qm-2")] && start.beat == 1,
+                   "a lead-in \(name) should start the catch with the wisp, got \(start)")
+            expect(director.frame(at: 10.5).launches.isEmpty, "a lead-in \(name) should launch the wisp once")
+            expect(director.frame(at: 10 + seconds - 0.05).pose == .catching, "a lead-in \(name) should keep the catch's length")
+            expect(director.frame(at: 10 + seconds + 0.05).pose == .pondering, "a lead-in \(name) should end the catch at its length")
+        }
+    }
+
+    /// Under Reduce Motion no spell flies and nothing waits for one: the release plays with no launch to time, and the catch starts at
+    /// once, as it does with no key.
+    private static func reduceMotionKeepsTheEntrancesCuesWithoutSpells() {
+        var director = TrackerAvatarDirector(reducesMotion: true, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 10)
+        let release = director.frame(at: 10)
+        expect(release.pose == .release && release.launches.isEmpty, "the release should play with no spell, got \(release)")
+        expect(near(release.nextChange, 10 + releaseSeconds), "no spell should be due, only the beat's end, got \(String(describing: release.nextChange))")
+        expect(director.frame(at: 10 + releaseLeadIn + 0.05).launches.isEmpty, "no spell should leave as the strike begins")
+        director.answer(.reported(worker: "qm-2"), at: 20)
+        let catching = director.frame(at: 20)
+        expect(catching.pose == .catching && catching.launches.isEmpty, "the catch should start at once with no wisp, got \(catching)")
+    }
+
+    /// A different session clears the cue with its waiting spell, so the old session's messenger never leaves.
+    private static func switchingSessionDropsASpellStillWaitingOnItsStrike() {
+        var director = TrackerAvatarDirector(reducesMotion: false, catalog: catalogWithEntrances(releaseStrike: 4, catchStrike: 5))
+        director.observe(bard(id: "qm-1"), at: 0)
+        director.answer(.messaged(worker: "qm-2"), at: 10)
+        _ = director.frame(at: 10)
+        director.observe(bard(id: "qm-9"), at: 10.1)
+        expect(director.frame(at: 10 + releaseLeadIn + 0.05).launches.isEmpty, "a switch should drop the spell that was waiting")
+        expect(director.frame(at: 10.1).nextChange == nil, "a switch should leave nothing due, got \(String(describing: director.frame(at: 10.1).nextChange))")
+    }
+
     private static func near(_ value: TimeInterval?, _ expected: TimeInterval) -> Bool {
         guard let value else {
             return false

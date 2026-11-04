@@ -300,6 +300,9 @@ struct TrackerAvatarAnimationTests {
         expect(edited.animation(for: .release)?.strikeFrame == 3, "a release should carry its strike frame")
         expect(edited.animation(for: .catching)?.strikeFrame == 4, "a catch should carry its strike frame")
         expect(edited.animation(for: .bow)?.strikeFrame == nil, "a pose without the key should name no strike frame")
+        expect(abs((edited.animation(for: .release)?.strikeLeadIn ?? -1) - 0.2) < 1e-9, "a release's lead-in should be the time before its strike step")
+        expect(abs((edited.animation(for: .catching)?.strikeLeadIn ?? -1) - 0.4) < 1e-9, "a catch's lead-in should be the time before its strike step")
+        expect(edited.animation(for: .bow)?.strikeLeadIn == 0, "a pose without the key should have no lead-in")
         for classID in ["bard", "paladin", "wizard"] {
             guard let animation = try? decode(AvatarAnimationFixture.classJSON(classID)) else {
                 fail("the \(classID)'s file should decode")

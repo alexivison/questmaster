@@ -126,6 +126,24 @@ public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
         self.strikeFrame = strikeFrame
         self.bubble = bubble
     }
+
+    /// The step of the `once` character track the pose strikes on when it names its strike frame: the first step that shows it. Nil
+    /// when it names none, and the strike is the track's second step.
+    var namedStrikeStep: Int? {
+        guard let strikeFrame, let once else {
+            return nil
+        }
+        return once.character.steps.firstIndex { $0.frame == strikeFrame }
+    }
+
+    /// How long into the one-shot its strike begins, when the pose names its strike frame: the entrance before the peak. Zero when it
+    /// names none, so a file that doesn't name one has no lead-in and its timings are as they were.
+    public var strikeLeadIn: TimeInterval {
+        guard let step = namedStrikeStep, let once else {
+            return 0
+        }
+        return once.character.starts[step]
+    }
 }
 
 /// An sRGB colour, read from `#rrggbb`.

@@ -78,6 +78,11 @@ public struct TrackerAvatarFrame: Equatable {
 ///   `queueCapacity` cues wait behind the one playing; a burst past that drops the newest.
 /// - A spawn casts the summoning first: its enter, one loop cycle and its finish, on one beat, then the release with the orb. When
 ///   the summoning is on screen already (its command is still running), the release waits for that summoning to finish instead.
+/// - A pose whose file names its strike frame has an entrance before the strike, and the spell keeps to the strike. A release
+///   launches its spell (orb or messenger) as the strike begins, not as the beat does, and the beat keeps its length. A report's
+///   catch starts early, as the wisp is still flying, so its strike begins as the wisp lands: the wisp's beat is the flight less the
+///   catch's lead-in, and a flight shorter than the lead-in starts both together and lands on time all the same. A file that names no
+///   strike frame has no lead-in, and the spell leaves with the beat and the catch follows the landing.
 /// - Under Reduce Motion the poses still play, but no spell flies.
 public struct TrackerAvatarDirector {
     public static let queueCapacity = 4
@@ -88,7 +93,15 @@ public struct TrackerAvatarDirector {
         let pose: TrackerAvatarPose?
         let seconds: TimeInterval
         let flight: TrackerSpellFlight?
+        /// How long into the beat the spell leaves: the pose's entrance, when its file names a strike frame. Less than `seconds`.
+        var launchAfter: TimeInterval = 0
         var cast: CastCue?
+    }
+
+    /// A spell that waits for its time within the beat on screen.
+    private struct DelayedLaunch: Equatable {
+        let flight: TrackerSpellFlight
+        let at: TimeInterval
     }
 
     /// The phases of a cast on its beat, in seconds: its enter, one loop cycle, then its finish.
@@ -126,6 +139,8 @@ public struct TrackerAvatarDirector {
     private var beatPose: TrackerAvatarPose?
     private var beatEnd: TimeInterval?
     private var launches: [TrackerSpellFlight] = []
+    /// The beat's spell, while the beat's pose is still entering. It launches at its time, and no later than the beat's end.
+    private var delayedLaunch: DelayedLaunch?
     private var beatCount = 0
     /// A steady pose's finish in progress: its tracks play from `startedAt`, and the pose wanted then snaps in when they end.
     private var finishing: Finish?
@@ -168,7 +183,7 @@ public struct TrackerAvatarDirector {
             return
         }
         if case .spawned(let worker) = event, steadyShown == .summoning {
-            waitingForSummoning.append([orbRelease(to: worker, animation)])
+            waitingForSummoning.append([release(.orb, to: worker, animation)])
             return
         }
         enqueue(cue(for: event, animation: animation), at: now)
@@ -198,6 +213,7 @@ public struct TrackerAvatarDirector {
         beatPose = nil
         beatEnd = nil
         beatCast = nil
+        delayedLaunch = nil
         finishing = nil
         bowPending = false
         bowRequested = false
@@ -240,18 +256,16 @@ public struct TrackerAvatarDirector {
     private func cue(for event: TrackerAvatarEvent, animation: TrackerAvatarAnimation) -> [Beat] {
         switch event {
         case .spawned(let worker):
-            return [summoningCast(animation), orbRelease(to: worker, animation)]
+            return [summoningCast(animation), release(.orb, to: worker, animation)]
         case .messaged(let worker):
-            return [
-                Beat(
-                    pose: .release,
-                    seconds: animation.onceSeconds(for: .release),
-                    flight: TrackerSpellFlight(spell: .messenger, from: .avatar, to: .worker(worker))
-                ),
-            ]
+            return [release(.messenger, to: worker, animation)]
         case .reported(let worker):
+            let catchLeadIn = animation.animation(for: .catching)?.strikeLeadIn ?? 0
+            let wisp = TrackerSpellFlight(spell: .wisp, from: .worker(worker), to: .avatar)
             return [
-                Beat(pose: nil, seconds: MotionStep.flight.seconds, flight: TrackerSpellFlight(spell: .wisp, from: .worker(worker), to: .avatar)),
+                // The flight lasts `MotionStep.flight` however early the catch starts, so a lead-in longer than it only starts the catch
+                // with the wisp: the wisp's beat can't be shorter than nothing.
+                Beat(pose: nil, seconds: max(0, MotionStep.flight.seconds - catchLeadIn), flight: wisp),
                 Beat(pose: .catching, seconds: animation.onceSeconds(for: .catching), flight: nil),
             ]
         }
@@ -268,12 +282,13 @@ public struct TrackerAvatarDirector {
         return Beat(pose: .summoning, seconds: cast.enter + cast.loop + cast.finish, flight: nil, cast: cast)
     }
 
-    /// The release that launches the orb from the avatar to a new worker's plate.
-    private func orbRelease(to worker: String, _ animation: TrackerAvatarAnimation) -> Beat {
+    /// A release that launches `spell` from the avatar to a worker's plate, as the strike begins.
+    private func release(_ spell: TrackerSpellFlight.Spell, to worker: String, _ animation: TrackerAvatarAnimation) -> Beat {
         Beat(
             pose: .release,
             seconds: animation.onceSeconds(for: .release),
-            flight: TrackerSpellFlight(spell: .orb, from: .avatar, to: .worker(worker))
+            flight: TrackerSpellFlight(spell: spell, from: .avatar, to: .worker(worker)),
+            launchAfter: animation.animation(for: .release)?.strikeLeadIn ?? 0
         )
     }
 
@@ -306,6 +321,7 @@ public struct TrackerAvatarDirector {
         while let end = beatEnd, now >= end {
             startBeat(at: end)
         }
+        launchDelayedFlight(at: now)
         endFinish(at: now)
         startIdleBeat(at: now)
         updateBow(at: now)
@@ -323,6 +339,8 @@ public struct TrackerAvatarDirector {
     /// Starts the next beat at `start`, taking the next cue when the one playing has run out. With nothing left, the avatar
     /// falls back to its steady pose. A pose's cue cuts a finish short: the cue plays, then the steady pose resumes.
     private mutating func startBeat(at start: TimeInterval) {
+        // The beat before is over, and its spell left by its end.
+        launchDelayedFlight(at: start)
         if playing.isEmpty, !queued.isEmpty {
             playing = queued.removeFirst()
         }
@@ -342,8 +360,21 @@ public struct TrackerAvatarDirector {
             finishing = nil
         }
         if let flight = beat.flight {
-            launches.append(flight)
+            if beat.launchAfter > 0 {
+                delayedLaunch = DelayedLaunch(flight: flight, at: start + beat.launchAfter)
+            } else {
+                launches.append(flight)
+            }
         }
+    }
+
+    /// Launches the beat's waiting spell once its time has come.
+    private mutating func launchDelayedFlight(at now: TimeInterval) {
+        guard let delayedLaunch, now >= delayedLaunch.at else {
+            return
+        }
+        launches.append(delayedLaunch.flight)
+        self.delayedLaunch = nil
     }
 
     /// The bow's length: its one-shot's. With no attached avatar there is no bow to time.
@@ -462,12 +493,15 @@ public struct TrackerAvatarDirector {
         return now >= start ? now - start : nil
     }
 
-    /// When the state next changes on its own, after `now`: a beat ends, a finish moves to its next step or ends, the hold runs out,
-    /// the enter moves to its next step or ends, or the bow's time is up.
+    /// When the state next changes on its own, after `now`: a beat ends, a release's spell leaves, a finish moves to its next step or
+    /// ends, the hold runs out, the enter moves to its next step or ends, or the bow's time is up.
     private func nextChange(after now: TimeInterval) -> TimeInterval? {
         var changes: [TimeInterval] = []
         if let beatEnd {
             changes.append(beatEnd)
+        }
+        if let delayedLaunch {
+            changes.append(delayedLaunch.at)
         }
         if let cast = beatCast {
             changes.append(beatStartedAt + cast.enter)

@@ -40,12 +40,11 @@ public enum TrackerAvatarMotion {
         guard let x = strikePixels(for: pose), let block = placement.once else {
             return []
         }
-        let frames = block.character.steps.map(\.frame)
-        let strikeIndex = placement.strikeFrame.flatMap { frames.firstIndex(of: $0) } ?? 1
-        guard strikeIndex < frames.count else {
+        let starts = block.character.starts
+        let strikeIndex = placement.namedStrikeStep ?? 1
+        guard strikeIndex < starts.count else {
             return []
         }
-        let starts = block.character.starts
         let strike = starts[strikeIndex]
         let end = strikeIndex + 1 < starts.count ? starts[strikeIndex + 1] : block.seconds
         let lead = strike > 0 ? [TrackerAvatarMoveStep(seconds: 0)] : []
