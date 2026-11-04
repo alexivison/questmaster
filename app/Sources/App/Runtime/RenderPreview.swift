@@ -2339,6 +2339,10 @@ enum RenderPreview {
         // A cast that holds one finish frame: inscribing shows f4 for the whole finish, then pondering snaps in.
         recordTrackerAvatarTimeline("avatar-inscribing-finish", seconds: 4, column: false, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", tool: "Edit")])), (2, feed([master]))], to: dir)
         recordTrackerAvatarTimeline("avatar-bow-oneshot", seconds: 4.5, column: false, steps: [(0, feed([longTurn])), (0.5, feed([done]))], to: dir)
+        // A message and a report with the worker's plate in view: the release launches its spell on its strike frame, and the
+        // catch starts early so its strike lands as the wisp arrives.
+        recordTrackerAvatarTimeline("avatar-message-release", seconds: 3, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, instructed]))], to: dir)
+        recordTrackerAvatarTimeline("avatar-report-catch", seconds: 3.5, column: true, steps: [(0, feed([master, worker])), (0.5, feed([master, reported]))], to: dir)
         let strumming = avatarPreviewSession(id: "qm-m1", state: "done", subagents: 1)
         recordTrackerAvatarTimeline("avatar-subagent-strum", seconds: 5, column: false, steps: [(0, feed([avatarPreviewSession(id: "qm-m1", subagents: 1)])), (2, feed([strumming])), (4, feed([avatarPreviewSession(id: "qm-m1", state: "done")]))], to: dir)
         let casting = avatarPreviewSession(id: "qm-m1", tool: "Task")
