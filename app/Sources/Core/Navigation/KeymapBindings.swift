@@ -28,6 +28,11 @@ extension Keymap {
 
         // Screen-specific: no meaning shared with another screen
         case editRepo
+        // Settings' Projects list: R arranges, ⌘T adds, and ⌥↑/⌥↓ move the highlighted row while arranging
+        case arrangeProjects
+        case addProject
+        case moveRowUp
+        case moveRowDown
         case startQuest
         case toggleWorkersCollapsed
         case toggleAllWorkersCollapsed
@@ -90,6 +95,10 @@ extension Keymap {
         case .edit: return [.character("e")]
 
         case .editRepo: return [.character("E")]
+        case .arrangeProjects: return [.character("r")]
+        case .addProject: return [.character("t", [.command])]
+        case .moveRowUp: return [.code(126, [.option])]
+        case .moveRowDown: return [.code(125, [.option])]
         case .startQuest: return [.character("s")]
         case .toggleWorkersCollapsed: return [.character("c")]
         case .toggleAllWorkersCollapsed: return [.character("C")]
