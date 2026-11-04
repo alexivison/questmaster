@@ -27,14 +27,6 @@ public enum TrackerAvatarPose: CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// The poses that cast a spell. A cast that ends for another pose plays its finish first (`TrackerAvatarDirector`).
-    public var isCast: Bool {
-        switch self {
-        case .studying, .inscribing, .channelling, .scrying, .spellsong, .summoning: true
-        default: false
-        }
-    }
-
     /// The steady pose for `session`, or nil when it shows no avatar: its class has no art, or it is not a master. In order: calling
     /// out (blocked or needing input); a running tool's pose while working; spellsong while sub-agents run (working, idle or done);
     /// pondering while working with no cast; idle. A done session idles at rest: it bows once when it turns done (`TrackerAvatarDirector`).

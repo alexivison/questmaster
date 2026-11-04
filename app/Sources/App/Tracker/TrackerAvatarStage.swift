@@ -15,7 +15,7 @@ final class TrackerAvatarStage {
     private(set) var fidgetFrame: Int?
     /// The director's beat count (`TrackerAvatarFrame.beat`): it rises when a pose's cue starts.
     private(set) var beat = 0
-    /// How far into the cast's finish the avatar is, while it finishes; nil otherwise.
+    /// How far into the pose's finish the avatar is, while it finishes; nil otherwise.
     private(set) var finish: TimeInterval?
     /// How far into the pose's enter the avatar is, while it enters; nil otherwise.
     private(set) var enter: TimeInterval?

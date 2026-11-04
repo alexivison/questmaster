@@ -21,6 +21,8 @@ struct TrackerAvatarAnimationTests {
         aPoseWithAnEnterReadsItsBlock()
         anEnterPlaysOnceAndTheLoopKeepsItsOwnClock()
         anEnterNeedsALoopAndACharacterTrack()
+        everyLoopPoseMayCarryAFinish()
+        aFinishNeedsALoopAndACharacterTrack()
         aBadFileThrows()
         aCatalogShowsAnAvatarOnlyForAMasterWhoseClassHasArt()
         aCatalogShowsEachClassWithArtAndNoOthers()
@@ -229,6 +231,54 @@ struct TrackerAvatarAnimationTests {
         }
     }
 
+    /// Every pose with a loop may carry a finish, not only the casts: it plays when the pose leaves. The finish is its own block, with
+    /// tracks on their own clocks, and the loop beside it is untouched.
+    private static func everyLoopPoseMayCarryAFinish() {
+        let loopPoses = TrackerAvatarPose.allCases.filter { $0.playKind == .loop }
+        expect(loopPoses.contains(.pondering) && loopPoses.contains(.callingOut), "pondering and calling out should be loop poses")
+        for pose in loopPoses {
+            let name = pose.resourceName
+            let animation = try? AvatarAnimationFixture.bard(editing: name) { json in
+                json["finish"] = ["character": [[4, 0.25], [5, 0.5]], "front": [[1, 1]]]
+            }
+            guard let placement = animation?.animation(for: pose), let finish = placement.finish, let loop = placement.loop else {
+                fail("\(name) should read a finish beside its loop")
+            }
+            expect(finish.character.steps == [TrackerAvatarStep(frame: 4, seconds: 0.25), TrackerAvatarStep(frame: 5, seconds: 0.5)],
+                   "\(name)'s finish should play f4 then f5, got \(finish.character.steps)")
+            expect(finish.front?.steps == [TrackerAvatarStep(frame: 1, seconds: 1)], "\(name)'s finish front should be its own track")
+            expect(near(finish.seconds, 1), "\(name)'s finish should last as long as its longest track, got \(finish.seconds)")
+            expect(finish.changes == [0.25], "\(name)'s finish should change once, at 0.25 s, got \(finish.changes)")
+            expect(loop == (try? decode(bardJSON()))?.animation(for: pose)?.loop, "\(name)'s loop should be the file's own")
+        }
+    }
+
+    /// A finish plays as a pose leaves, so a pose with no loop has nothing to finish: a one-shot, idle, or a pose whose loop is
+    /// removed is a bad file. A finish with no character track is a bad block, as any block is.
+    private static func aFinishNeedsALoopAndACharacterTrack() {
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("10-catching"), "a finish on a one-shot, which has no loop") {
+            _ = try AvatarAnimationFixture.bard(editing: "10-catching") { pose in
+                pose["finish"] = ["character": [[1, 0.25]]]
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("01-idle"), "a finish on idle, which draws as layers") {
+            _ = try AvatarAnimationFixture.bard(editing: "01-idle") { pose in
+                pose["finish"] = ["character": [[1, 0.25]]]
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.misplacedBlock("02-pondering"), "a finish on a pose whose loop is removed") {
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
+                pose.removeValue(forKey: "loop")
+                pose["finish"] = ["character": [[4, 0.25]]]
+            }
+        }
+        expectThrows(TrackerAvatarAnimationError.invalidTrack("02-pondering has no character track"), "a finish with no character track") {
+            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
+                pose["finish"] = ["front": [[1, 0.25]]]
+            }
+        }
+    }
+
     /// Calling out's bubble anchor is read from its pose, and only calling out may carry one: a file that puts one on another pose
     /// doesn't read, since no other pose would draw it.
     private static func aBubbleAnchorBelongsToCallingOut() {
@@ -275,11 +325,6 @@ struct TrackerAvatarAnimationTests {
         expectThrows(TrackerAvatarAnimationError.misplacedBlock("01-idle"), "idle with a loop") {
             _ = try AvatarAnimationFixture.bard(editing: "01-idle") { pose in
                 pose["loop"] = ["character": [[1, 0.25]]]
-            }
-        }
-        expectThrows(TrackerAvatarAnimationError.misplacedBlock("02-pondering"), "a finish on a pose that isn't a cast") {
-            _ = try AvatarAnimationFixture.bard(editing: "02-pondering") { pose in
-                pose["finish"] = ["character": [[4, 0.25]]]
             }
         }
         expectThrows(TrackerAvatarAnimationError.unknownLayer("middle"), "a layer the avatar doesn't draw") {

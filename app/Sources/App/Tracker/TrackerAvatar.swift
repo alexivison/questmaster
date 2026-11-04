@@ -241,7 +241,7 @@ final class TrackerAvatarSprites {
 }
 
 /// The class avatar in the tracker column, in its slot. `beat` is the director's beat count: it rises whenever a pose's cue
-/// starts, so a one-shot that repeats on the same pose plays again. `finish` is how far into the cast's finish the avatar is, while it
+/// starts, so a one-shot that repeats on the same pose plays again. `finish` is how far into the pose's finish the avatar is, while it
 /// finishes, and `enter` how far into the pose's enter, while it enters. `fidget` is the idle fidget's art frame, while he fidgets.
 /// `handle` lets the flight overlay measure the view, where the spells leave from.
 struct TrackerAvatarSlot: View {
@@ -700,7 +700,7 @@ fileprivate final class TrackerAvatarFidgetRig: TrackerAvatarPoseRig {
 
 /// The avatar's view. A pose change snaps: the shown rig hides and the new one shows at once. Idle breathes and blinks, and while
 /// he fidgets his fidget frame replaces the layers, so the breath and the blink pause until he is back. Motion runs only while the
-/// view is in a window and not under Reduce Motion; a pose change still shows then. A cast's finish holds the loop still
+/// view is in a window and not under Reduce Motion; a pose change still shows then. A pose's finish holds the loop still
 /// while it is on screen.
 final class TrackerAvatarView: NSView {
     /// A rig is a pose drawn from its own art, or the idle fidget's frame.
@@ -752,8 +752,8 @@ final class TrackerAvatarView: NSView {
     }
 
     /// Shows `pose`. While `fidget` names an art frame and the pose is idle, the fidget's frame shows in its place. When `beat`
-    /// has risen on the same pose, starts that pose's one-shot again from its lead-in. A `finish` (how far into the cast's finish
-    /// it is) holds the cast's loop still while it shows. An `enter` (how far into the pose's enter it is) plays in place of the loop
+    /// has risen on the same pose, starts that pose's one-shot again from its lead-in. A `finish` (how far into the pose's finish
+    /// it is) holds the pose's loop still while it shows. An `enter` (how far into the pose's enter it is) plays in place of the loop
     /// until it has run, and then the loop starts from its first frame.
     func configure(pose: TrackerAvatarPose?, fidget: Int? = nil, beat: Int, finish: TimeInterval?, enter: TimeInterval? = nil, reduceMotion: Bool) {
         self.reduceMotion = reduceMotion

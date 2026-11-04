@@ -44,6 +44,7 @@ enum LogicSelfTests {
         ("testAFinishPlaysInPlace", testAFinishPlaysInPlace),
         ("testIdleBreathsInWholePixelSteps", testIdleBreathsInWholePixelSteps),
         ("testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame", testAnEnterPlaysThenTheLoopStartsFromItsFirstFrame),
+        ("testASteadyPosesFinishPlaysInPlaceOfItsLoop", testASteadyPosesFinishPlaysInPlaceOfItsLoop),
         ("testTheStageLaunchesEachSpellFromItsPayloads", testTheStageLaunchesEachSpellFromItsPayloads),
         ("testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge", testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge),
         ("testBundledBardSpritesReadTheirAnimationFile", testBundledBardSpritesReadTheirAnimationFile),
@@ -1148,6 +1149,41 @@ enum LogicSelfTests {
         try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the enter should be skipped")
     }
 
+    /// A steady pose that isn't a cast plays its finish like a cast: the finish's frame shows in place of the loop, which doesn't run
+    /// under it, and the loop starts again from its first frame once the finish is over. Reduce Motion skips the finish.
+    @MainActor
+    private static func testASteadyPosesFinishPlaysInPlaceOfItsLoop() throws {
+        let folder = try syntheticClassFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        guard let sprites = TrackerAvatarSprites(classID: "synthetic", folder: folder) else {
+            throw TestFailure("the synthetic class's animation.json should read")
+        }
+        let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
+        let window = HeadlessWindow(size: size)
+        let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
+        avatar.sprites = sprites
+        window.contentView = avatar
+        window.show()
+        Motion.reducesMotion = { false }
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
+        guard let character = shownCharacter(of: avatar) else {
+            throw TestFailure("calling out should draw its character")
+        }
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) != nil, "calling out should loop before it finishes")
+        let finishFrame = sprites.frame(.callingOut, .character, 3)
+        let loopFrame = sprites.frame(.callingOut, .character, 1)
+        avatar.configure(pose: .callingOut, beat: 0, finish: 0, reduceMotion: false)
+        try expect(sameImage(character.contents, finishFrame), "a finish should show its own frame in place of the loop")
+        try expect(character.animation(forKey: TrackerAvatarMotionKey.frames) == nil, "the loop should not run under the finish")
+        avatar.configure(pose: .callingOut, beat: 0, finish: 0.1, reduceMotion: false)
+        try expect(sameImage(character.contents, finishFrame), "a finish should hold its frame until the director moves it on")
+        avatar.configure(pose: .callingOut, beat: 0, finish: nil, reduceMotion: false)
+        let loop = character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
+        try expect(sameImage(loop?.values?.first, loopFrame), "once the finish is over, the loop should start from its first frame")
+        avatar.configure(pose: .callingOut, beat: 0, finish: 0, reduceMotion: true)
+        try expect(sameImage(character.contents, loopFrame), "under Reduce Motion the finish should be skipped")
+    }
+
     /// The flight overlay sits above the terminal and the dock, takes no clicks or keys, and flies a spell from the avatar's hand to the
     /// Worker Log's left edge, level with the hand. Under Reduce Motion nothing flies.
     @MainActor
@@ -1416,8 +1452,8 @@ enum LogicSelfTests {
     }
 
     /// A class folder for the render tests, in a temporary directory: the bard's `animation.json` with calling out's loop made 1 frame
-    /// for the character and 8 frames for the front, and an enter of f2 on the character. The frames the loops, the enter and the
-    /// summoning need are each a solid square.
+    /// for the character and 8 frames for the front, an enter of f2 and a finish of f3 on the character. The frames the loops, the
+    /// enter, the finish and the summoning need are each a solid square.
     @MainActor
     private static func syntheticClassFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("avatar-class-\(UUID().uuidString)", isDirectory: true)
@@ -1431,6 +1467,7 @@ enum LogicSelfTests {
         let eightFrames = (1...8).map { [$0, 0.125] as [Any] }
         calling["loop"] = ["character": [[1, 0.25]], "front": eightFrames]
         calling["enter"] = ["character": [[2, 0.25]]]
+        calling["finish"] = ["character": [[3, 0.25]]]
         poses["11-calling-out"] = calling
         json["poses"] = poses
         try JSONSerialization.data(withJSONObject: json).write(to: folder.appendingPathComponent("animation.json"))
@@ -1440,6 +1477,7 @@ enum LogicSelfTests {
         }
         try writeSolidFrame(0.1, to: folder.appendingPathComponent("11-calling-out-f1.png"))
         try writeSolidFrame(0.2, to: folder.appendingPathComponent("11-calling-out-f2.png"))
+        try writeSolidFrame(0.3, to: folder.appendingPathComponent("11-calling-out-f3.png"))
         for number in 1...8 {
             try writeSolidFrame(Double(number) / 10, to: folder.appendingPathComponent("11-calling-out-front-f\(number).png"))
         }

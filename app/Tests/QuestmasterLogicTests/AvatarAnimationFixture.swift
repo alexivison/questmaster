@@ -35,12 +35,19 @@ enum AvatarAnimationFixture {
     }
 
     /// The bard's file with one pose's JSON edited, decoded.
-    static func bard(editing name: String, _ edit: (inout [String: Any]) -> Void) throws -> TrackerAvatarAnimation {
+    static func bard(editing name: String, _ edit: @escaping (inout [String: Any]) -> Void) throws -> TrackerAvatarAnimation {
+        try bard(editing: [name: edit])
+    }
+
+    /// The bard's file with several poses' JSON edited, decoded: each pose's name maps to its edit.
+    static func bard(editing edits: [String: (inout [String: Any]) -> Void]) throws -> TrackerAvatarAnimation {
         var json = bardJSON()
         var poses = json["poses"] as? [String: Any] ?? [:]
-        var pose = poses[name] as? [String: Any] ?? [:]
-        edit(&pose)
-        poses[name] = pose
+        for (name, edit) in edits {
+            var pose = poses[name] as? [String: Any] ?? [:]
+            edit(&pose)
+            poses[name] = pose
+        }
         json["poses"] = poses
         return try decode(json)
     }

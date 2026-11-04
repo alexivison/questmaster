@@ -48,8 +48,8 @@ public struct TrackerAvatarFrame: Equatable {
     /// How many pose beats have started so far. A beat on the same pose as the one before still starts afresh, so the view
     /// replays that pose's one-shot when this rises.
     public let beat: Int
-    /// How far into a finish the avatar is, while `pose` finishes: a cast leaving for another pose, or a summoning cast's finish on
-    /// its cue. Nil otherwise. The view reads each layer's frame at this time from the finish's tracks.
+    /// How far into a finish the avatar is, while `pose` finishes: a steady pose leaving for another pose, or a summoning cast's finish
+    /// on its cue. Nil otherwise. The view reads each layer's frame at this time from the finish's tracks.
     public let finishElapsed: TimeInterval?
     /// How far into an enter the avatar is, while `pose` enters: a steady pose's enter, or a summoning cast's on its cue. Nil
     /// otherwise, so the loop plays. The view reads each layer's frame at this time from the enter's tracks.
@@ -64,13 +64,16 @@ public struct TrackerAvatarFrame: Equatable {
 ///   holds the pose on screen for `holdSeconds` before the next one shows, and only the latest desired pose is kept meanwhile.
 ///   Calling out shows at once.
 /// - A turn that ends after a working stretch of at least `minimumBowWorkSeconds` bows once. The bow waits for the
-///   sub-agents of that turn to stop, then waits for the pose's hold like any other change. A cast's finish plays first,
+///   sub-agents of that turn to stop, then waits for the pose's hold like any other change. The pose's finish plays first,
 ///   and the bow plays for its one-shot's length.
 ///   A shorter turn goes straight to idle. Attaching to a done session, or switching to one, shows its steady pose with
 ///   no bow.
 /// - A steady pose with an `enter` plays it once when it comes on screen (on attach, a switch, a change or a calling out cut-in),
 ///   then its loop. The hold counts from the pose's arrival, so the enter counts toward it. A pose that continues doesn't replay
 ///   its enter, and Reduce Motion skips it.
+/// - A steady pose with a `finish` plays it when it leaves for another pose, once the hold has run, and the new pose shows (on its
+///   own enter, if it has one) when the finish ends. Calling out cuts in with no finish, a cue cuts a finish short, a pose without
+///   a finish snaps, and Reduce Motion skips it.
 /// - Events play as cues, one after another: a cue is a few beats, each holding a pose and maybe starting a spell. At most
 ///   `queueCapacity` cues wait behind the one playing; a burst past that drops the newest.
 /// - A spawn casts the summoning first: its enter, one loop cycle and its finish, on one beat, then the release with the orb. When
@@ -124,7 +127,7 @@ public struct TrackerAvatarDirector {
     private var beatEnd: TimeInterval?
     private var launches: [TrackerSpellFlight] = []
     private var beatCount = 0
-    /// A cast's finish in progress: its tracks play from `startedAt`, and the steady pose snaps in when they end.
+    /// A steady pose's finish in progress: its tracks play from `startedAt`, and the pose wanted then snaps in when they end.
     private var finishing: Finish?
     /// The cast cue on the beat now, and when its beat began; its phases time the enter and the finish on that beat.
     private var beatCast: CastCue?
@@ -370,7 +373,7 @@ public struct TrackerAvatarDirector {
     }
 
     /// Applies the steady pose the session calls for. Calling out cuts in at once, with no finish. Any other change waits for
-    /// the hold; then a cast leaving for another pose plays its finish first, and the new pose shows when the finish ends.
+    /// the hold; then the pose leaving plays its finish first, when it has one, and the new pose shows when the finish ends.
     private mutating func applySteady(at now: TimeInterval) {
         steadyWanted = wantedSteady()
         if steadyWanted == .callingOut, steadyShown != .callingOut {
@@ -392,13 +395,16 @@ public struct TrackerAvatarDirector {
     }
 
     /// Ends a finish once its tracks have played, and snaps to the pose wanted then. The hold already ran before the finish,
-    /// so the new pose shows at once.
+    /// so the new pose shows at once, and opens on its enter from the finish's end. The finish left the figure at rest, so even the
+    /// pose that finished, if it is wanted again by now, plays its enter again.
     private mutating func endFinish(at now: TimeInterval) {
         guard let finishing, now >= Self.finishEnd(of: finishing) else {
             return
         }
+        let end = Self.finishEnd(of: finishing)
         self.finishing = nil
-        show(wantedSteady(), at: Self.finishEnd(of: finishing))
+        enterSince = end
+        show(wantedSteady(), at: end)
     }
 
     private mutating func show(_ pose: TrackerAvatarPose?, at time: TimeInterval) {
@@ -488,11 +494,11 @@ public struct TrackerAvatarDirector {
         finish.startedAt + finish.block.seconds
     }
 
-    /// The finish a steady change from `shown` to `wanted` plays first, when there is one: only a cast with a finish, leaving for
-    /// another pose. A bow is a steady change too, so it waits for the finish. Calling out cuts in, a change to the same pose isn't
-    /// a change, and nothing finishes under Reduce Motion.
+    /// The finish a steady change from `shown` to `wanted` plays first, when there is one: the shown pose's own `finish` block, which
+    /// only a pose with a loop can have. A bow is a steady change too, so it waits for the finish. Calling out cuts in, a change to the
+    /// same pose isn't a change, and nothing finishes under Reduce Motion.
     private func finishBlock(leaving shown: TrackerAvatarPose, for wanted: TrackerAvatarPose?) -> TrackerAvatarBlock? {
-        guard !reducesMotion, shown.isCast, let wanted, wanted != shown, wanted != .callingOut else {
+        guard !reducesMotion, let wanted, wanted != shown, wanted != .callingOut else {
             return nil
         }
         return animation?.animation(for: shown)?.finish

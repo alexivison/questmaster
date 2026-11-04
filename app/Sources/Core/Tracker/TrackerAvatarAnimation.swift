@@ -91,7 +91,8 @@ public struct TrackerAvatarBlock: Equatable, Sendable {
 
 /// One pose's art and timings: where its figure stands, and the blocks it plays. Idle plays none, and draws as layers. A one-shot
 /// plays `once`. The other steady poses cycle `loop`, which an `enter` may open: the enter plays once when the pose comes on screen,
-/// then the loop starts from its own first frame. A cast also has a `finish` for when it leaves for another pose.
+/// then the loop starts from its own first frame. A pose with a loop may also have a `finish`, which plays when it leaves for another
+/// pose.
 public struct TrackerAvatarPoseAnimation: Equatable, Sendable {
     /// The row of the lowest boot pixel, and the column of the body's centre, on the pose's canvas.
     public let footRow: Int
@@ -199,7 +200,7 @@ public enum TrackerAvatarAnimationError: Error, Equatable {
     case unsupportedVersion(Int)
     case unknownPose(String)
     case missingPose(String)
-    /// A pose's blocks don't match how it plays: a finish on a pose that isn't a cast, or an enter on a pose without a loop.
+    /// A pose's blocks don't match how it plays: an enter or a finish on a pose without a loop (a one-shot, or idle).
     case misplacedBlock(String)
     /// A pose has a bubble anchor but isn't calling out, the only pose that draws the shared bubble.
     case misplacedBubble(String)
@@ -283,7 +284,7 @@ public struct TrackerAvatarAnimation: Equatable, Sendable {
         case .loop: fitsItsKind = loop != nil && once == nil
         case .oneShot: fitsItsKind = once != nil && loop == nil
         }
-        guard fitsItsKind, finish == nil || kind.isCast, enter == nil || kind.playKind == .loop else {
+        guard fitsItsKind, (enter == nil && finish == nil) || kind.playKind == .loop else {
             throw TrackerAvatarAnimationError.misplacedBlock(name)
         }
         guard pose.bubble == nil || kind == .callingOut else {
