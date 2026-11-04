@@ -24,6 +24,9 @@ type Repo struct {
 	Root string
 	// Name is the display name: the base name of Root.
 	Name string
+	// Checkout is the directory holding the .git entry Resolve found: the main
+	// root for a plain checkout, or a linked worktree's own top level.
+	Checkout string
 }
 
 // gitPointerPrefix marks a linked worktree's .git file ("gitdir: <path>").
@@ -51,7 +54,9 @@ func Resolve(path string) (Repo, bool) {
 			if !ok {
 				return Repo{}, false
 			}
-			return build(commonGitDir), true
+			r := build(commonGitDir)
+			r.Checkout = dir
+			return r, true
 		}
 
 		parent := filepath.Dir(dir)

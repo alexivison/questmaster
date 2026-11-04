@@ -363,7 +363,7 @@ func (s *FileChangeSource) classify(path string) Change {
 			change.BroadTracker = true
 			return change
 		}
-		if base == state.RepoColorsFile {
+		if base == state.RepoColorsFile || base == state.ProjectRegistryFile {
 			change := topicChange(topicTracker)
 			change.BroadTracker = true
 			return change

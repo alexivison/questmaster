@@ -89,8 +89,15 @@
       {
         "id": "/tmp/questmaster/.git",
         "name": "questmaster",
+        "default_name": "questmaster",
         "path": "/tmp/questmaster",
         "color": "green"
+      },
+      {
+        "id": "/tmp/questmaster/scratch",
+        "name": "Scratch notes",
+        "default_name": "scratch",
+        "path": "/tmp/questmaster/scratch"
       }
     ],
     "artifacts": [

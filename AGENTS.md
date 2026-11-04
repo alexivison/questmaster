@@ -87,6 +87,11 @@ State lives at `~/.questmaster-state` (override with `QUESTMASTER_STATE_ROOT`).
   background alerts on live, idle or done sessions and recent tmux input.
   The status query also reads the authenticated viewer login; this one-way
   personal setup ignores that author's discussion before recording events.
+- Projects are the folders the tracker groups by. `projects.json` (`state.ProjectRegistry`)
+  stores the user's order, added folders and name overrides; project colors stay in
+  `repo-colors.json`, keyed by the same project ID. `state.ProjectResolver` is the one
+  path-to-project mapping: a session cwd, a new artifact, a quest, or a color seed takes its
+  project ID from it (`state.ProjectIDAt` for one-shot callers), never from a raw `repo.Resolve`.
 
 Invariants that aren't obvious from the code:
 

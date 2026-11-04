@@ -79,7 +79,7 @@ func newQuestListCmd(store *state.Store) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			projectID := ""
 			if cmd.Flags().Changed("project") {
-				meta, err := questProjectFromPath(project, true)
+				meta, err := questProjectFromPath(questStateRoot(store), project, true)
 				if err != nil {
 					return err
 				}
@@ -140,7 +140,7 @@ func newQuestEditCmd(store *state.Store) *cobra.Command {
 				if strings.TrimSpace(project) == "" {
 					quest.ProjectID, quest.ProjectPath, quest.ProjectName = "", "", ""
 				} else {
-					meta, err := questProjectFromPath(project, true)
+					meta, err := questProjectFromPath(questStateRoot(store), project, true)
 					if err != nil {
 						return err
 					}
@@ -268,11 +268,11 @@ func questSession(ctx context.Context, client *tmux.Client, sessionFlag string) 
 
 func questProject(cmd *cobra.Command, store *state.Store, sessionID, project string) (questProjectMeta, error) {
 	if cmd.Flags().Changed("project") {
-		return questProjectFromPath(project, true)
+		return questProjectFromPath(questStateRoot(store), project, true)
 	}
 	if store != nil && sessionID != "" {
 		if m, err := store.Read(sessionID); err == nil {
-			if meta, err := questProjectFromPath(m.Cwd, false); err == nil && meta.id != "" {
+			if meta, err := questProjectFromPath(questStateRoot(store), m.Cwd, false); err == nil && meta.id != "" {
 				return meta, nil
 			}
 		}
@@ -281,11 +281,11 @@ func questProject(cmd *cobra.Command, store *state.Store, sessionID, project str
 	if err != nil {
 		return questProjectMeta{}, nil
 	}
-	return questProjectFromPath(cwd, false)
+	return questProjectFromPath(questStateRoot(store), cwd, false)
 }
 
-func questProjectFromPath(path string, strict bool) (questProjectMeta, error) {
-	id, abs, name, err := state.ResolveQuestProject(path, strict)
+func questProjectFromPath(stateRoot, path string, strict bool) (questProjectMeta, error) {
+	id, abs, name, err := state.ResolveQuestProject(stateRoot, path, strict)
 	return questProjectMeta{id: id, path: abs, name: name}, err
 }
 

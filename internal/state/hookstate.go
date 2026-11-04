@@ -18,8 +18,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/alexivison/questmaster/internal/repo"
 )
 
 // SchemaVersion is the current PaneState/SessionState schema version. Hook
@@ -974,11 +972,7 @@ func artifactProjectID(root, sessionID string) string {
 	if err != nil {
 		return ""
 	}
-	r, ok := repo.Resolve(m.Cwd)
-	if !ok {
-		return ""
-	}
-	return r.Identity
+	return ProjectIDAt(root, m.Cwd)
 }
 
 func loadArtifactsSidecarAt(root, sessionID string) ([]Artifact, bool, error) {

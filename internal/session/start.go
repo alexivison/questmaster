@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/alexivison/questmaster/internal/agent"
-	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -393,11 +392,11 @@ func (s *Service) seedRepoDisplayColor(cwd, color string) error {
 	if color == "" {
 		return nil
 	}
-	r, ok := repo.Resolve(cwd)
-	if !ok {
+	projectID := state.ProjectIDAt(s.Store.Root(), cwd)
+	if projectID == "" {
 		return nil
 	}
-	if err := state.NewRepoColorStore(s.Store.Root()).Set(r.Identity, color); err != nil {
+	if err := state.NewRepoColorStore(s.Store.Root()).Set(projectID, color); err != nil {
 		return fmt.Errorf("set repo color: %w", err)
 	}
 	return nil

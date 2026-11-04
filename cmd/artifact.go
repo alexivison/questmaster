@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alexivison/questmaster/internal/repo"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
@@ -69,8 +68,8 @@ func newArtifactAddCmd(store *state.Store, client *tmux.Client, sessionFlag *str
 				return nil
 			}
 			projectID := resolveArtifactProjectID(store, sessionID)
-			if r, ok := repo.Resolve(path); ok {
-				projectID = r.Identity
+			if pathProjectID := state.ProjectIDAt(root, path); pathProjectID != "" {
+				projectID = pathProjectID
 			}
 			if found {
 				projectID = existing.ProjectID
@@ -216,11 +215,7 @@ func resolveArtifactProjectID(store *state.Store, sessionID string) string {
 	if err != nil {
 		return ""
 	}
-	r, ok := repo.Resolve(m.Cwd)
-	if !ok {
-		return ""
-	}
-	return r.Identity
+	return state.ProjectIDAt(store.Root(), m.Cwd)
 }
 
 func artifactStateRoot(store *state.Store) string {

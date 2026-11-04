@@ -209,7 +209,7 @@ final class QuestLogFilter {
             guard let id = DockPaneModel.cleanName(repo.id), id != "ungrouped" else {
                 continue
             }
-            titlesByID[id] = DockPaneModel.cleanName(repo.name) ?? DockPaneModel.humanProjectName(id)
+            titlesByID[id] = titlesByID[id] ?? DockPaneModel.cleanName(repo.name) ?? DockPaneModel.humanProjectName(id)
         }
         for quest in tracker.quests {
             guard let id = DockPaneModel.cleanName(quest.projectID) else {
@@ -220,8 +220,7 @@ final class QuestLogFilter {
                 ?? DockPaneModel.cleanName(quest.projectPath).map(DockPaneModel.humanProjectName(_:))
                 ?? DockPaneModel.humanProjectName(id)
         }
-        return titlesByID
-            .map { ArtifactFilterOption(id: $0.key, title: $0.value) }
-            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        let options = titlesByID.map { ArtifactFilterOption(id: $0.key, title: $0.value) }
+        return ProjectOrder(projects: tracker.projects).sorted(options, id: \.id, title: \.title)
     }
 }

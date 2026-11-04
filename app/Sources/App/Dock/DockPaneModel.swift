@@ -838,12 +838,9 @@ final class DockPaneModel: ObservableObject {
             }
             titlesByID[id] = titlesByID[id] ?? projectTitle(for: artifact, tracker: tracker)
         }
-        let options = titlesByID
-            .map { ArtifactFilterOption(id: $0.key, title: $0.value) }
-            .sorted { lhs, rhs in
-                lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-            }
-        return [ArtifactFilterOption(id: "", title: "All Projects")] + options
+        let options = titlesByID.map { ArtifactFilterOption(id: $0.key, title: $0.value) }
+        let ordered = ProjectOrder(projects: tracker.projects).sorted(options, id: \.id, title: \.title)
+        return [ArtifactFilterOption(id: "", title: "All Projects")] + ordered
     }
 
     private func typeFilterOptions(artifacts: [ArtifactReference]) -> [ArtifactFilterOption] {
@@ -866,9 +863,13 @@ final class DockPaneModel: ObservableObject {
     }
 
     private func projectTitle(for artifact: ArtifactReference, tracker: TrackerSnapshot) -> String {
-        if let projectID = Self.cleanName(artifact.projectID),
-           let repoName = repoTitle(forProjectID: projectID, tracker: tracker) {
-            return repoName
+        if let projectID = Self.cleanName(artifact.projectID) {
+            if let projectName = tracker.projects.first(where: { $0.id == projectID }).flatMap({ Self.cleanName($0.name) }) {
+                return projectName
+            }
+            if let repoName = repoTitle(forProjectID: projectID, tracker: tracker) {
+                return repoName
+            }
         }
         if let session = session(for: artifact, tracker: tracker),
            let repoName = Self.cleanName(session.repoName) {

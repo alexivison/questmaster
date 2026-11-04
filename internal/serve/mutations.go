@@ -117,6 +117,15 @@ var mutationRegistry = map[string]mutationHandler{
 	"role_default.set": func(s *Server, ctx context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateRoleDefaultSet(ctx, payload)
 	},
+	"project.add": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
+		return s.mutateProjectAdd(payload)
+	},
+	"project.update": func(s *Server, _ context.Context, req Request, _ mutationPayload) (any, error) {
+		return s.mutateProjectUpdate(req.Data)
+	},
+	"project.reorder": func(s *Server, _ context.Context, req Request, _ mutationPayload) (any, error) {
+		return s.mutateProjectReorder(req.Data)
+	},
 	"quest.add": func(s *Server, _ context.Context, _ Request, payload mutationPayload) (any, error) {
 		return s.mutateQuestAdd(payload)
 	},
@@ -454,7 +463,7 @@ func (s *Server) mutateQuestAdd(payload mutationPayload) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	projectID, projectPath, projectName, err := questProjectFromPayload(payload)
+	projectID, projectPath, projectName, err := questProjectFromPayload(s.mutationStore().Root(), payload)
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +509,7 @@ func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
 		strings.TrimSpace(payload.ProjectID) != "" ||
 		strings.TrimSpace(payload.ProjectPath) != "" ||
 		strings.TrimSpace(payload.ProjectName) != "" {
-		quest.ProjectID, quest.ProjectPath, quest.ProjectName, err = questProjectFromPayload(payload)
+		quest.ProjectID, quest.ProjectPath, quest.ProjectName, err = questProjectFromPayload(s.mutationStore().Root(), payload)
 		if err != nil {
 			return nil, err
 		}
@@ -514,7 +523,7 @@ func (s *Server) mutateQuestEdit(payload mutationPayload) (any, error) {
 
 // questProjectFromPayload takes the project the request names. A path sent without an id (a path typed
 // in the app) resolves to the id and name `quest add --project` would give it.
-func questProjectFromPayload(payload mutationPayload) (id, path, name string, err error) {
+func questProjectFromPayload(stateRoot string, payload mutationPayload) (id, path, name string, err error) {
 	id = strings.TrimSpace(payload.ProjectID)
 	path = strings.TrimSpace(payload.ProjectPath)
 	name = strings.TrimSpace(payload.ProjectName)
@@ -525,7 +534,7 @@ func questProjectFromPayload(payload mutationPayload) (id, path, name string, er
 	if !filepath.IsAbs(state.ExpandHome(path)) {
 		return "", "", "", fmt.Errorf("project path must be absolute: %s", path)
 	}
-	return state.ResolveQuestProject(path, true)
+	return state.ResolveQuestProject(stateRoot, path, true)
 }
 
 func (s *Server) mutateQuestDelete(payload mutationPayload) (any, error) {
