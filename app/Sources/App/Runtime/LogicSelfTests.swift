@@ -128,6 +128,7 @@ enum LogicSelfTests {
         ("testServeStreamReconnectsAfterProtocolMismatch", testServeStreamReconnectsAfterProtocolMismatch),
         ("testReadLineReturnsALineSpanningManyReads", testReadLineReturnsALineSpanningManyReads),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
+        ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
         ("testSettingsFailedSaveSurfacesErrorMessage", testSettingsFailedSaveSurfacesErrorMessage),
         ("testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight", testSettingsResendsAnEditMadeWhileAPreviousSaveIsInFlight),
@@ -5504,6 +5505,40 @@ enum LogicSelfTests {
 
     // Guards the live-apply contract: cycling a value sends its
     // role_default.set the moment it changes, with no confirm/done step.
+    /// R arranges, j moves the highlight, and J / K move the highlighted project, through the sheet's own key handling.
+    private static func testSettingsArrangeMovesAProjectWithShiftJAndK() throws {
+        let runtime = RuntimeStore(sourceLabel: "test")
+        let projects = ["alpha", "beta", "gamma"].map { TrackerProject(id: "/p/\($0)", name: $0, path: "/p/\($0)") }
+        runtime.apply(RuntimeUpdate(tracker: TrackerSnapshot(repos: [], projects: projects)))
+        let model = SettingsSheetModel(
+            presentation: SettingsSheetPresentation(
+                mutationClient: StubMutationClient(result: .success(ServeMutationAck(data: nil))),
+                modelClient: nil,
+                effortClient: nil,
+                runtime: runtime
+            ),
+            dismiss: {}
+        )
+        model.selectSection(.projects)
+        func press(_ characters: String, ignoring: String, keyCode: UInt16, flags: NSEvent.ModifierFlags = []) throws -> Bool {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil,
+                characters: characters, charactersIgnoringModifiers: ignoring, isARepeat: false, keyCode: keyCode
+            ) else {
+                throw TestFailure("could not create \(characters) key event")
+            }
+            return model.handle(event)
+        }
+        try expect(try press("r", ignoring: "r", keyCode: 15), "r should be taken")
+        try expect(model.projects.isArranging, "r should start arranging")
+        try expect(try press("j", ignoring: "j", keyCode: 38), "j should be taken")
+        try expect(model.projects.highlightIndex == 1, "j should move the highlight to beta, got \(model.projects.highlightIndex)")
+        try expect(try press("J", ignoring: "J", keyCode: 38, flags: .shift), "J should be taken")
+        try expect(model.projects.projectRows.map(\.name) == ["alpha", "gamma", "beta"], "J should move beta down, got \(model.projects.projectRows.map(\.name))")
+        try expect(try press("K", ignoring: "K", keyCode: 40, flags: .shift), "K should be taken")
+        try expect(model.projects.projectRows.map(\.name) == ["alpha", "beta", "gamma"], "K should move beta back up, got \(model.projects.projectRows.map(\.name))")
+    }
+
     private static func testSettingsCyclingAFieldSendsItsRoleDefaultImmediately() throws {
         let modelClient = StubModelClient(
             models: ["claude": [

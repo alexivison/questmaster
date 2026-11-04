@@ -31,7 +31,8 @@ extension Keymap {
         // Settings: H and L step through the sidebar's sections (vim-style, as LazyVim steps buffers)
         case previousSection
         case nextSection
-        // Settings' Projects list: R arranges, n adds, e (the shared edit) edits, and ⌥k/⌥j move the highlighted row while arranging
+        // Settings' Projects list: R arranges, n adds, e (the shared edit) edits, and K/J move the highlighted row while arranging
+        // (not ⌥k/⌥j: window managers such as AeroSpace take those system-wide)
         case arrangeProjects
         case addProject
         case moveRowUp
@@ -106,9 +107,8 @@ extension Keymap {
         case .nextSection: return [.character("L")]
         case .arrangeProjects: return [.character("r")]
         case .addProject: return [.character("n")]
-        // ⌥k and ⌥j by key code: with ⌥ held they type ˚ and ∆.
-        case .moveRowUp: return [.code(40, [.option])]
-        case .moveRowDown: return [.code(38, [.option])]
+        case .moveRowUp: return [.character("K")]
+        case .moveRowDown: return [.character("J")]
         case .startQuest: return [.character("s")]
         case .toggleWorkersCollapsed: return [.character("c")]
         case .toggleAllWorkersCollapsed: return [.character("C")]
