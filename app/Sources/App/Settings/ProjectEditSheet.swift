@@ -9,14 +9,15 @@ struct ProjectEditPresentation: Identifiable {
     let mutationClient: ServeMutationSending
 }
 
-/// The sheet's fields in the order Tab moves between them. The path is editable only when adding.
+/// The sheet's fields. The path shows only when adding: a listed project's folder can't change.
 enum ProjectEditField: Equatable {
-    case color
-    case name
     case path
+    case name
+    case color
 }
 
-/// Edit Project: the colour input, the display name and the path, under the shared header. Its keys are the colour
+/// Add Project: the path, the display name and the colour input; Edit Project: the name and the colour, under the
+/// shared header. Its keys are the colour
 /// input's own, then the shared modal keys (`ModalKeys`), as the tracker's edit sheets take them.
 @MainActor
 final class ProjectEditModel: ObservableObject {
@@ -39,28 +40,24 @@ final class ProjectEditModel: ObservableObject {
         initialColorIndex = colorField.selectedIndex
         mutationClient = presentation.mutationClient
         dismissSheet = dismiss
-        focus = presentation.draft.target == .add ? .path : .color
+        focus = presentation.draft.target == .add ? .path : .name
     }
 
     var title: String {
         draft.target == .add ? "Add Project" : "Edit Project"
     }
 
-    /// The fields Tab moves between: the path only when it is editable.
+    /// The fields top to bottom, the order Tab moves between them.
     var fields: [ProjectEditField] {
-        draft.target == .add ? [.color, .name, .path] : [.color, .name]
+        draft.target == .add ? [.path, .name, .color] : [.name, .color]
     }
 
-    var isPathEditable: Bool {
-        draft.target == .add
-    }
-
-    /// The sheet's first focus: the path when adding (it has to be given), else the colour.
+    /// The sheet's first focus, its top field: the path when adding (it has to be given), else the name.
     func appear() {
         if focus == .path {
             pathNonce += 1
         } else {
-            colorFocus.sinkNonce += 1
+            nameNonce += 1
         }
     }
 
@@ -169,20 +166,22 @@ struct ProjectEditSheetView: View {
             errorMessage: model.errorMessage,
             primaryLabel: "Save",
             canSubmit: true,
-            size: CGSize(width: ModalFormMetrics.editWidth, height: ModalFormMetrics.height(fields: 3)),
+            size: CGSize(width: ModalFormMetrics.editWidth, height: ModalFormMetrics.height(fields: model.fields.count)),
             buttonWidth: ModalFormMetrics.editButtonWidth,
             onCancel: model.cancel,
             onPrimary: model.submit
         ) {
             VStack(spacing: ModalFormMetrics.fieldSpacing) {
+                if model.fields.contains(.path) {
+                    pathField
+                }
+                nameField
                 ModalColorInput(
                     color: $model.color,
                     colorFocus: $model.colorFocus,
                     focused: model.focus == .color,
                     onFocus: { model.moveFocus(to: .color, byClick: true) }
                 )
-                nameField
-                pathField
             }
             .background(FocusSink(nonce: model.colorFocus.sinkNonce))
         }
@@ -207,30 +206,18 @@ struct ProjectEditSheetView: View {
         .accessibilityLabel("Project name")
     }
 
-    @ViewBuilder
     private var pathField: some View {
-        if model.isPathEditable {
-            FormTextField(
-                text: $model.draft.path,
-                placeholder: "Folder path",
-                focusNonce: model.pathNonce,
-                focused: model.focus == .path,
-                onFocusChanged: { editing in
-                    if editing {
-                        model.moveFocus(to: .path, byClick: true)
-                    }
+        FormTextField(
+            text: $model.draft.path,
+            placeholder: "Folder path",
+            focusNonce: model.pathNonce,
+            focused: model.focus == .path,
+            onFocusChanged: { editing in
+                if editing {
+                    model.moveFocus(to: .path, byClick: true)
                 }
-            )
-            .accessibilityLabel("Project path")
-        } else {
-            // A project's folder is fixed once it's listed: shown as text in a dim field, like a repo's name.
-            BaselineText(ProjectPathDisplay.shortened(model.draft.path, homeDirectory: NSHomeDirectory()), font: AppFonts.questLogBody, color: AppPalette.textMeta, baseline: FormFieldMetrics.baseline)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .padding(.horizontal, FormFieldMetrics.textInset)
-                .frame(maxWidth: .infinity, minHeight: FormFieldMetrics.height, maxHeight: FormFieldMetrics.height, alignment: .topLeading)
-                .fieldChrome(focused: false)
-                .accessibilityLabel("Project path \(model.draft.path)")
-        }
+            }
+        )
+        .accessibilityLabel("Project path")
     }
 }
