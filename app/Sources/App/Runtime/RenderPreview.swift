@@ -221,8 +221,8 @@ enum RenderPreview {
         render(settingsView(loading: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-skeleton.png")
         render(projectsSettingsView(), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects.png")
         render(projectsSettingsView(arranging: true), size: SettingsSheetModel.sheetSize, to: "\(outputDir)/settings-projects-arrange.png")
-        render(projectEditView(adding: false), size: projectEditSize, to: "\(outputDir)/settings-project-edit.png")
-        render(projectEditView(adding: true), size: projectEditSize, to: "\(outputDir)/settings-project-add.png")
+        render(projectEditView(adding: false), size: projectEditSize(fields: 2), to: "\(outputDir)/settings-project-edit.png")
+        render(projectEditView(adding: true), size: projectEditSize(fields: 3), to: "\(outputDir)/settings-project-add.png")
         print("RenderPreview: done")
         exit(0)
     }
@@ -2062,7 +2062,10 @@ enum RenderPreview {
         ]
     }()
 
-    private static let projectEditSize = CGSize(width: ModalFormMetrics.editWidth, height: ModalFormMetrics.height(fields: 3))
+    /// Edit Project shows the name and colour; Add Project the path above them.
+    private static func projectEditSize(fields: Int) -> CGSize {
+        CGSize(width: ModalFormMetrics.editWidth, height: ModalFormMetrics.height(fields: fields))
+    }
 
     /// The Projects section with the second project highlighted, and arrange mode on when `arranging`.
     @MainActor

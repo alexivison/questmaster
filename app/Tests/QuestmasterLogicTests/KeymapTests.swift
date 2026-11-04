@@ -66,6 +66,11 @@ controlPageAndHalfPageChords()
         expect(!matches(press("h", [.command]), .focusLeft), "⌘h must not focus left")
         expect(!matches(press("?", [.shift]), .focusFilter), "shift-/ types ? and is not the filter key")
         expect(matches(press("/"), .focusFilter), "/ should focus the filter")
+        expect(matches(press("H", [.shift]), .previousSection), "shift-h should step to the previous Settings section")
+        expect(matches(press("L", [.shift]), .nextSection), "shift-l should step to the next Settings section")
+        expect(!matches(press("h"), .previousSection) && !matches(press("l"), .nextSection), "plain h and l cycle a select, not the section")
+        expect(!matches(press("H", [.command, .shift]), .previousSection), "⇧⌘H is the focus chord, not the section key")
+        expect(!matches(press("L", [.command, .shift]), .nextSection), "⇧⌘L is the focus chord, not the section key")
     }
 
     private static func listKeysAreArrowsAndLetters() {
