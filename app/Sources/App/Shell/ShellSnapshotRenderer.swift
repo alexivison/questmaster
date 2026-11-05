@@ -88,9 +88,8 @@ final class ShellSnapshotRenderer {
         }
     }
 
-    /// The intent names a new artifact in the viewed session that opens by itself (markdown and images, never HTML:
-    /// `ArtifactDisplayState`). It opens in the bottom panel, but not over the worker chat (`DockState.openNewArtifact`);
-    /// Version Control stays as it was.
+    /// A new artifact in the viewed session opens in the bottom panel (never a session switch: `ArtifactDisplayState`),
+    /// but not over the worker chat (`DockState.openNewArtifact`); Version Control stays as it was.
     private func openArtifactDockIfActive(_ artifact: ArtifactReference) -> Bool {
         guard appIsActive(), dockCoordinator.state.openNewArtifact(artifact.id) else {
             return false

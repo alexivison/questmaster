@@ -1495,7 +1495,7 @@ enum LogicSelfTests {
     private static func testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile() throws {
         let page = try temporaryArtifactPage()
         defer { try? FileManager.default.removeItem(atPath: page.path) }
-        let compiler = FailingRuleListCompiler()
+        let compiler = DeferredRuleListCompiler()
         let window = HeadlessWindow(size: artifactViewerSize)
         let host = NSHostingView(rootView: artifactViewer(page, compiler: compiler))
         host.frame = NSRect(origin: .zero, size: artifactViewerSize)
@@ -1503,8 +1503,10 @@ enum LogicSelfTests {
         window.show()
         defer { window.close() }
 
+        // The compile is held, so the page view is in the tree while the blocker is still pending.
         let webView = try pageView(in: host)
-        try expect(waitUntil { compiler.attempts > 0 }, "the viewer should ask for the blocker")
+        try expect(waitUntil { compiler.attempts == 1 }, "the viewer should ask for the blocker once")
+        compiler.failCompile()
         try expect(
             waitUntil { !subviews(of: host).contains { $0 is WKWebView } },
             "the blocked pane should replace the page view when the blocker fails"
@@ -4366,8 +4368,8 @@ enum LogicSelfTests {
     /// doesn't jump to it.
     private static func testNewArtifactsOpenFromBehindTheWorkerChat() throws {
         let a1 = ArtifactReference(kind: "html", path: "/tmp/a1.html", label: "A1", sessionID: "qm-a", addedAt: "")
-        let a2 = ArtifactReference(kind: "markdown", path: "/tmp/a2.md", label: "A2", sessionID: "qm-a", addedAt: "")
-        let a3 = ArtifactReference(kind: "markdown", path: "/tmp/a3.md", label: "A3", sessionID: "qm-a", addedAt: "")
+        let a2 = ArtifactReference(kind: "html", path: "/tmp/a2.html", label: "A2", sessionID: "qm-a", addedAt: "")
+        let a3 = ArtifactReference(kind: "html", path: "/tmp/a3.html", label: "A3", sessionID: "qm-a", addedAt: "")
         func snapshot(_ artifacts: [ArtifactReference]) -> RuntimeSnapshot {
             var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
             snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [
@@ -7530,9 +7532,11 @@ private struct TestFailure: Error, CustomStringConvertible {
     }
 }
 
-/// A blocker that never compiles, so the viewer is tested on the path where WebKit rejects the rule list.
-private final class FailingRuleListCompiler: ArtifactRuleListCompiling {
+/// A blocker whose compile waits until the test fails it, as WebKit rejects a rule list. Holding the completion keeps
+/// the page view in the tree long enough for the test to capture it; a compile that failed at once would be gone first.
+private final class DeferredRuleListCompiler: ArtifactRuleListCompiling {
     private(set) var attempts = 0
+    private var pendingCompletion: ((WKContentRuleList?, Error?) -> Void)?
 
     func compileRuleList(
         identifier: String,
@@ -7540,7 +7544,12 @@ private final class FailingRuleListCompiler: ArtifactRuleListCompiling {
         completion: @escaping (WKContentRuleList?, Error?) -> Void
     ) {
         attempts += 1
-        completion(nil, TestFailure("injected rule list failure"))
+        pendingCompletion = completion
+    }
+
+    func failCompile() {
+        pendingCompletion?(nil, TestFailure("injected rule list failure"))
+        pendingCompletion = nil
     }
 }
 #endif

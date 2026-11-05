@@ -105,12 +105,11 @@ public struct ArtifactDisplayState: Equatable {
             : nil
         var nextSelectedArtifactID = kept?.id ?? Self.recoveredSelection(current: selectedArtifactID, in: artifacts)
 
-        // On either tab: the baseline holds only the viewed session's own artifacts, so a peer's never opens. Only kinds
-        // that open by themselves are candidates (`ArtifactKind.opensAutomatically`): a new HTML artifact waits for a click.
+        // On either tab: the baseline holds only the viewed session's own artifacts, so a peer's never opens.
         let intent: ArtifactDisplayIntent
         if cleanPreferredSessionID == session.id,
            previousIDs != nil,
-           let newestNewArtifact = artifacts.first(where: { newIDs.contains($0.id) && $0.resolvedKind.opensAutomatically }) {
+           let newestNewArtifact = artifacts.first(where: { newIDs.contains($0.id) }) {
             nextSelectedArtifactID = newestNewArtifact.id
             intent = .open(newestNewArtifact)
         } else {
