@@ -518,6 +518,12 @@ func ArtifactsRegistryPath(root string) string {
 	return filepath.Join(root, "artifacts.json")
 }
 
+// SendLockDir holds the per-pane locks that keep two tmux senders to one pane
+// from interleaving (tmux.Client.Send).
+func SendLockDir(root string) string {
+	return filepath.Join(root, "tmux-send")
+}
+
 // ArtifactsRegistryLockPath returns the root-level artifact registry lock path.
 func ArtifactsRegistryLockPath(root string) string {
 	return filepath.Join(root, "artifacts.json.lock")

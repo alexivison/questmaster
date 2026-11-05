@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -175,7 +176,7 @@ func TestIntegrationSessionTargetsMissAPrefixSibling(t *testing.T) {
 	mustRun(t, runner, "set-environment", "-t", sibling, "MARK", "sibling")
 	siblingPID := mustRun(t, runner, "display-message", "-t", sibling, "-p", "#{pane_pid}")
 	client := tmux.NewClient(runner)
-	client.SendTimeout = 200 * time.Millisecond
+	client.SendTimeout = time.Second
 	ctx := t.Context()
 	basePane := tmux.PaneTarget(base, tmux.WindowWorkspace, 0)
 
@@ -197,7 +198,7 @@ func TestIntegrationSessionTargetsMissAPrefixSibling(t *testing.T) {
 	if err := client.SetPaneOption(ctx, basePane, tmux.PaneRoleOption, tmux.RoleAgent); err == nil {
 		t.Error("SetPaneOption on a missing session's pane succeeded")
 	}
-	if result := client.Send(ctx, basePane, "typed into the wrong session"); result.Submitted {
+	if result := client.Send(ctx, t.TempDir(), basePane, "typed into the wrong session"); result.Submitted {
 		t.Error("Send to a missing session's pane was submitted")
 	}
 	if err := client.RespawnPane(ctx, basePane, t.TempDir(), "sleep 60"); err == nil {
@@ -310,6 +311,48 @@ func TestIntegrationSwitchClientMovesTheCallersClient(t *testing.T) {
 		}
 		assertClientSessions(t, runner, "qm-other", "qm-to")
 	})
+}
+
+// Two senders to one pane must not interleave: each message's text and Enter
+// go in together. cat prints every line it reads, so interleaved sends come
+// back as one line holding both texts.
+func TestIntegrationConcurrentSendsStaySeparate(t *testing.T) {
+	t.Parallel()
+	tmuxtest.RequireIntegration(t)
+	runner := tmuxtest.NewRunner(t)
+	mustRun(t, runner, "new-session", "-d", "-s", "qm-cat", "-x", "200", "-y", "50", "cat")
+	client := tmux.NewClient(runner)
+	target := tmux.PaneTarget("qm-cat", tmux.WindowWorkspace, 0)
+	texts := []string{strings.Repeat("a", 24), strings.Repeat("b", 24)}
+	lockDir := t.TempDir()
+
+	var wg sync.WaitGroup
+	results := make([]tmux.SendResult, len(texts))
+	for i, text := range texts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = client.Send(t.Context(), lockDir, target, text)
+		}()
+	}
+	wg.Wait()
+	for i, result := range results {
+		if !result.Submitted {
+			t.Fatalf("send %d: %v", i, result.Err)
+		}
+	}
+
+	deadline := time.Now().Add(serverExitTimeout)
+	for {
+		lines := strings.Split(mustRun(t, runner, "capture-pane", "-t", target, "-p"), "\n")
+		if slices.Contains(lines, texts[0]) && slices.Contains(lines, texts[1]) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the two sends did not arrive as separate lines:\n%s", strings.Join(lines, "\n"))
+		}
+		time.Sleep(serverExitPoll)
+	}
 }
 
 // ---------------------------------------------------------------------------

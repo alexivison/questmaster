@@ -53,7 +53,7 @@ func (s *Service) Notify(ctx context.Context, sessionID, text string) (Delivery,
 	if err != nil || busy {
 		return "", err
 	}
-	if err := s.client.Send(ctx, target, text).Err; err != nil {
+	if err := s.client.Send(ctx, state.SendLockDir(s.store.Root()), target, text).Err; err != nil {
 		return "", err
 	}
 	return DeliverySubmitted, nil

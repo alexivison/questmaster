@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeTmuxScript stands in for tmux on PATH. Each run writes one file: the
@@ -72,7 +73,7 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 			t.Setenv("TMUX_PANE", "%9")
 			t.Setenv("TMUX_TMPDIR", "/tmp/qm-elsewhere")
 			c := NewClient(tt.server)
-			c.SendTimeout = 0
+			c.SendTimeout = time.Second
 			ctx := t.Context()
 
 			_, _ = c.HasSession(ctx, "qm-a")
@@ -85,7 +86,7 @@ func TestServerRunsEveryCommandOnItsSelection(t *testing.T) {
 			_, _ = c.ListSessions(ctx)
 			_, _ = c.ListPanes(ctx, "qm-a")
 			_, _ = c.Capture(ctx, PaneTarget("qm-a", 0, 0), 10)
-			_ = c.Send(ctx, PaneTarget("qm-a", 0, 0), "hello")
+			_ = c.Send(ctx, t.TempDir(), PaneTarget("qm-a", 0, 0), "hello")
 			_ = c.RespawnPane(ctx, PaneTarget("qm-a", 0, 0), "/tmp", "sh")
 			_ = c.SwitchClient(ctx, "qm-a")
 			_, _ = c.SessionName(ctx)

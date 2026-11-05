@@ -59,7 +59,7 @@ func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 					}
 					return "", nil
 				case "display-message":
-					return "0", nil
+					return livePaneDisplay(args), nil
 				case "send-keys":
 					if args[len(args)-1] != "Enter" {
 						sent++

@@ -30,17 +30,10 @@ func displayRunner(t *testing.T, sessionName string, live ...string) *mockRunner
 	}
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "display-message" {
-			// Distinguish session-name query from pane idle check.
-			// Idle check uses -t <target> -p #{pane_in_mode}.
-			for _, a := range args {
-				if a == "#{pane_in_mode}" {
-					return "0", nil // pane idle
-				}
-			}
-			if args[2] == testCallerPane {
+			if args[2] == testCallerPane && args[len(args)-1] == "#{socket_path}\t#{pane_id}\t#{session_name}" {
 				return testCallerSocket + "\t" + testCallerPane + "\t" + sessionName, nil
 			}
-			return "", nil
+			return livePaneDisplay(args), nil
 		}
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
