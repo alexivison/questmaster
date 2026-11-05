@@ -14,7 +14,7 @@ const sendEnterDelay = 200 * time.Millisecond
 
 // Send delivers text to a tmux pane with idle-check retry.
 // Retries until the pane leaves copy mode or timeout.
-// Returns a SendResult envelope — callers inspect .Delivered and .Err.
+// Returns a SendResult envelope — callers inspect .Submitted and .Err.
 func (c *Client) Send(ctx context.Context, target, text string) SendResult {
 	deadline := time.Now().Add(c.SendTimeout)
 	for {
@@ -59,5 +59,5 @@ func (c *Client) sendKeys(ctx context.Context, target, text string) SendResult {
 	if _, err := c.runner.Run(ctx, "send-keys", "-t", target, "Enter"); err != nil {
 		return SendResult{Target: target, Err: fmt.Errorf("send enter: %w", err)}
 	}
-	return SendResult{Delivered: true, Target: target}
+	return SendResult{Submitted: true, Target: target}
 }

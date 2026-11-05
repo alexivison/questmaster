@@ -108,6 +108,11 @@ Invariants that aren't obvious from the code:
   values to a list. Tests must disable the models.dev catalog (or inject a
   fetcher) and inject effort-source fixtures so they never access the network,
   real harnesses, or the real Codex cache.
+- **Delivery labels are what happened, not what the agent did.** A send result is
+  `accepted` (a native socket took the frame), `submitted` (tmux `send-keys` typed
+  it), or empty (the alert was held). `received` is reserved for a harness-observed
+  receipt that names the message; no code path produces it. Do not label a tmux
+  send as received. `README.md` documents the CLI output.
 
 ## The Go↔Swift contract
 

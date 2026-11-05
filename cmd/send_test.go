@@ -232,7 +232,7 @@ func TestSendCodexUsesTmuxWithFilePointer(t *testing.T) {
 		return base.Run(ctx, args...)
 	}}
 	out := runCmd(t, store, runner, "send", "qm-codex", "hello\nworld")
-	if !strings.Contains(out, `"submitted": true`) {
+	if !strings.Contains(out, `"delivery": "submitted"`) {
 		t.Fatalf("send output = %q", out)
 	}
 	if len(calls) != 2 || strings.Join(calls[0].args[:5], " ") != "send-keys -t qm-codex:1.0 -l --" || strings.Join(calls[1].args, " ") != "send-keys -t qm-codex:1.0 Enter" {

@@ -24,7 +24,7 @@ type Job struct {
 	Tmux             *tmux.Client
 	RunGH            Runner
 	RunREST          Runner
-	SendAlert        func(context.Context, string, string) (bool, error)
+	SendAlert        func(context.Context, string, string) (message.Delivery, error)
 	Now              func() time.Time
 	Tick             <-chan time.Time // injected by tests; production ticks every five seconds
 	mu               sync.Mutex
@@ -460,7 +460,7 @@ func (j *Job) deliverPending(ctx context.Context) error {
 		key := alert.PullRequest.Key + "\x00" + alert.SessionID
 		active[key] = true
 		text := alertText(alert.PullRequest, alert.Events)
-		delivered, err := send(ctx, alert.SessionID, text)
+		delivery, err := send(ctx, alert.SessionID, text)
 		if err != nil {
 			if ctx.Err() == nil && j.Now().Sub(j.alertErrorLogged[key]) >= time.Minute {
 				fmt.Fprintf(os.Stderr, "daemon job pr-status: alert %s to %s: %v\n", alert.PullRequest.Key, alert.SessionID, err)
@@ -468,7 +468,7 @@ func (j *Job) deliverPending(ctx context.Context) error {
 			}
 			continue // transport failures are retried on the next tick
 		}
-		if delivered {
+		if delivery != "" {
 			delete(j.alertErrorLogged, key)
 			if err := state.AdvancePullRequestAlert(j.Root, alert.PullRequest.Key, alert.SessionID, alert.Seq); err != nil {
 				return err

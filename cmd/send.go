@@ -28,13 +28,14 @@ Use --message-file <path> or --message-file - for file or stdin input.`,
 			ctx := cmd.Context()
 			recipient := args[0]
 			svc := message.NewService(store, client)
+			var delivery message.Delivery
 			switch recipient {
 			case "master":
 				sender, err := discoverSession(ctx, client)
 				if err != nil {
 					return err
 				}
-				if err := svc.Report(ctx, sender, text); err != nil {
+				if delivery, err = svc.Report(ctx, sender, text); err != nil {
 					return err
 				}
 			case "all":
@@ -49,25 +50,26 @@ Use --message-file <path> or --message-file - for file or stdin input.`,
 				return writeJSON(cmd.OutOrStdout(), struct {
 					Recipient  string `json:"recipient"`
 					Registered int    `json:"registered"`
+					Accepted   int    `json:"accepted"`
 					Submitted  int    `json:"submitted"`
-				}{recipient, result.Registered, result.Delivered})
+				}{recipient, result.Registered, result.Accepted, result.Submitted})
 			default:
 				sender, err := discoverSession(ctx, client)
 				if err != nil {
-					err = svc.Relay(ctx, recipient, text)
+					delivery, err = svc.Relay(ctx, recipient, text)
 				} else if source, readErr := store.Read(sender); readErr == nil && source.ExtraString("parent_session") == recipient {
-					err = svc.Report(ctx, sender, text)
+					delivery, err = svc.Report(ctx, sender, text)
 				} else {
-					err = svc.RelayFrom(ctx, sender, recipient, text)
+					delivery, err = svc.RelayFrom(ctx, sender, recipient, text)
 				}
 				if err != nil {
 					return err
 				}
 			}
 			return writeJSON(cmd.OutOrStdout(), struct {
-				Recipient string `json:"recipient"`
-				Submitted bool   `json:"submitted"`
-			}{recipient, true})
+				Recipient string           `json:"recipient"`
+				Delivery  message.Delivery `json:"delivery"`
+			}{recipient, delivery})
 		},
 	}
 	cmd.Flags().StringVar(&messageFile, "message-file", "", "read message from a file, or '-' for stdin")
