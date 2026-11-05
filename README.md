@@ -31,11 +31,11 @@ ln -sf "$(go env GOPATH)/bin/questmaster" ~/.local/bin/qm
 qm version
 ```
 
-On macOS with Questmaster.app installed, `./app/Scripts/build-app.sh` symlinks
-`~/.local/bin/questmaster` to the app's bundled `qm` after each build, so the
-global CLI always matches the app. Don't run a separate `go install` into
-that name afterward — it overwrites the symlink with a binary that stops
-tracking the app.
+On macOS with Questmaster.app installed, `./app/Scripts/build-app.sh` points
+`~/.local/bin/questmaster` at `~/.questmaster-state/bin/current/qm`, the stable
+link to the installed app's `qm`, so the global CLI always matches the app.
+Don't run a separate `go install` into that name afterward — it overwrites the
+symlink with a binary that stops tracking the app.
 
 From a source checkout:
 
@@ -234,9 +234,18 @@ Build and install from a source checkout:
 ./app/Scripts/build-app.sh
 ```
 
-The script builds the Swift package in release mode, assembles and ad-hoc codesigns `Questmaster.app`, builds the Go `qm` binary into the app bundle, and installs to `/Applications/Questmaster.app` by default. `Package.swift` declares macOS 14 and Swift tools 5.9; the build script also expects Go and the macOS command-line tools it calls (`swift`, `codesign`, and `install_name_tool`).
+The script builds the Swift package in release mode, assembles and ad-hoc codesigns `Questmaster.app`, builds the Go `qm` binary into the app bundle, stamps both with one `git describe` version (Info.plist's `CFBundleShortVersionString` and `qm version`), and installs to `/Applications/Questmaster.app` by default (`--install-path` or `QUESTMASTER_INSTALL_PATH` picks another). `Package.swift` declares macOS 14 and Swift tools 5.9; the build script also expects Go and the macOS command-line tools it calls (`swift`, `codesign`, and `install_name_tool`).
 
-For dev benches and test sessions, `swift run --package-path app Questmaster` from this source checkout uses `go run . daemon start --build-from <worktree>` before any installed `qm`/`questmaster` on `PATH`. Go builds the daemon at a stable worktree identity path. Packaged app launches prefer the bundled `qm`; `--qm-bin` overrides it. `--no-daemon-start` connects without starting a daemon, and `--daemon-socket` or `QUESTMASTER_DAEMON_SOCKET` selects a socket and also connects without starting. `--state-root` still overrides the state directory.
+Installing is `app/Scripts/install-app.sh`, which the build script runs, so running sessions never lose `qm`:
+
+- It stages the new bundle beside the installed one and verifies it: the signature, and a `qm` whose version matches Info.plist. A failure leaves the installed app untouched.
+- It copies the bundle's `qm` to `<state root>/bin/versions/<version>-<hash>/qm` and points `<state root>/bin/current/qm`, the link sessions' hooks run, at it by one rename, then swaps the bundle by renames. If a step fails part way, the steps already taken are undone.
+- The replaced bundle is kept as `Questmaster.app.previous`; `app/Scripts/install-app.sh --rollback` swaps it back and points the link at its `qm`. Versions other than the installed and previous ones (and one a running daemon uses) are pruned.
+- Quit the app before installing; the script doesn't stop a running app. A running daemon keeps its binary until the script's `daemon check-upgrade` nudge replaces it.
+
+`app/Scripts/test-install.sh` tests the installer against throwaway bundles. For a test install of the real bundle, give a temporary `--install-path`, `HOME` and `QUESTMASTER_STATE_ROOT` and pass `--isolated`, which skips LaunchServices and the daemon nudge; the installer refuses a mix of temporary and real paths.
+
+For dev benches and test sessions, `swift run --package-path app Questmaster` from this source checkout uses `go run . daemon start --build-from <worktree>` before any installed `qm`/`questmaster` on `PATH`. Go builds the daemon at a stable worktree identity path. Packaged app launches start `<state root>/bin/current/qm`, the stable link the installer manages, and fall back to the bundled `qm` only while that link doesn't resolve yet (a state root nothing has installed into); `--qm-bin` overrides both. `--no-daemon-start` connects without starting a daemon, and `--daemon-socket` or `QUESTMASTER_DAEMON_SOCKET` selects a socket and also connects without starting. `--state-root` still overrides the state directory.
 
 App-created shells use the daemon's identity shims on `PATH` via `QUESTMASTER_PATH_PREFIX` and set `QUESTMASTER_BIN` from the daemon record. Reattach/continue refreshes the tmux session environment after an app move or rebuild; already-running agent processes may need restart because their process environment is fixed. The first canonical `daemon start` migrates old app-written Application Support shims to the canonical binary; `prune` removes unused shim directories.
 

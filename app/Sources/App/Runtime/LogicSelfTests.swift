@@ -15,6 +15,8 @@ enum LogicSelfTests {
         ("testDaemonEnsureUsesRespawnPolicy", testDaemonEnsureUsesRespawnPolicy),
         ("testDevBackendBeatsGlobalPathInSourceCheckout", testDevBackendBeatsGlobalPathInSourceCheckout),
         ("testPackagedBundleBeatsDevAndGlobalBackends", testPackagedBundleBeatsDevAndGlobalBackends),
+        ("testInstalledBundleStartsTheStableLink", testInstalledBundleStartsTheStableLink),
+        ("testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM", testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM),
         ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
@@ -1297,6 +1299,33 @@ enum LogicSelfTests {
         let backend = AppBackendResolver.resolve(arguments: [], environment: fixture.environment,
                                                 workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
         try expect(backend.source == .bundled && backend.executablePath == fixture.qm.path, "bundle should use its qm")
+    }
+
+    private static func testInstalledBundleStartsTheStableLink() throws {
+        let fixture = try appBackendFixture()
+        let installed = fixture.stateRoot.appendingPathComponent("bin/versions/v1-test-0123456789ab/qm")
+        let stable = fixture.stateRoot.appendingPathComponent("bin/current/qm")
+        try FileManager.default.createDirectory(at: installed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try writeExecutable("#!/bin/sh\necho installed qm\n", to: installed)
+        try FileManager.default.createSymbolicLink(atPath: stable.path, withDestinationPath: installed.path)
+        let backend = AppBackendResolver.resolve(arguments: [], environment: fixture.environment,
+                                                workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        // The link path itself, not its target: the daemon is canonical because it runs as the link.
+        try expect(backend.source == .stable && backend.executablePath == stable.path,
+                   "installed bundle should start the stable link, got \(backend.source) \(backend.executablePath)")
+        try expect(backend.command("start")?.arguments == ["daemon", "start"], "stable link should use daemon start")
+    }
+
+    private static func testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM() throws {
+        let fixture = try appBackendFixture()
+        let stable = fixture.stateRoot.appendingPathComponent("bin/current/qm")
+        try FileManager.default.createDirectory(at: stable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: stable.path, withDestinationPath: fixture.root.appendingPathComponent("gone/qm").path)
+        let backend = AppBackendResolver.resolve(arguments: [], environment: fixture.environment,
+                                                workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        try expect(backend.source == .bundled && backend.executablePath == fixture.qm.path,
+                   "a dangling stable link should fall back to the bundle's qm, got \(backend.source) \(backend.executablePath)")
     }
 
     private static func testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath() throws {
