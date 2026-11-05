@@ -287,14 +287,57 @@ private func tmuxEnvironmentDumpLine() -> String {
     "if [ -n \"$dump_base\" ]; then \"$tmux\" show-environment -g 2>/dev/null | sort > \"$dump_base.tmux-global\" || true; \"$tmux\" show-environment -t \"=$session\" 2>/dev/null | sort > \"$dump_base.tmux-session\" || true; fi"
 }
 
+// Keys left out of the environment of a server this script starts. tmux copies the
+// environment a server starts with into its global environment, and every session inherits it.
+private let questmasterKeysOmittedFromNewServer = [
+    "QUESTMASTER_APP",
+    "QUESTMASTER_STATE_ROOT",
+    "QUESTMASTER_HOME",
+    "QUESTMASTER_BIN",
+    "QUESTMASTER_PATH_PREFIX",
+    "QUESTMASTER_DAEMON_SOCKET",
+    "QUESTMASTER_TMUX_STARTUP_SCRIPT",
+    "QUESTMASTER_SESSION",
+]
+
+// Sets server_path to PATH without the Questmaster shim directory, for a server this
+// script starts. The directory is removed wherever it sits; PATH is unchanged if it is absent.
+private func tmuxServerPathLines(environment: [String: String]) -> [String] {
+    [
+        "shim_prefix=\(shellQuoted(environment["QUESTMASTER_PATH_PREFIX"] ?? ""))",
+        "server_path=\"${PATH:-}\"",
+        "if [ -n \"$shim_prefix\" ]; then",
+        "  needle=\":$shim_prefix:\"",
+        "  scrubbed=\":${PATH:-}:\"",
+        "  while true; do",
+        "    case $scrubbed in",
+        "      *\"$needle\"*) ;;",
+        "      *) break ;;",
+        "    esac",
+        "    scrubbed=${scrubbed%%\"$needle\"*}:${scrubbed#*\"$needle\"}",
+        "  done",
+        "  if [ \"$scrubbed\" != \":${PATH:-}:\" ]; then",
+        "    scrubbed=${scrubbed#:}",
+        "    server_path=${scrubbed%:}",
+        "  fi",
+        "fi",
+    ]
+}
+
+private func tmuxNewServerCommand() -> String {
+    let unsetArguments = questmasterKeysOmittedFromNewServer.map { "-u \($0)" }.joined(separator: " ")
+    return "/usr/bin/env \(unsetArguments) PATH=\"$server_path\" \"$tmux\" new-session -d -s \"$session\" sleep 2147483647"
+}
+
 // tmux matches a bare session name by prefix, so "qm-123" reaches "qm-123-456" when
 // no session has the exact name. Every session target below is "=$session" to match exactly.
 func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
     var lines = tmuxEnvironmentPrologueLines(tmuxPath: tmuxPath, session: session, environment: environment)
     let loginShellCommand = "\(shellQuoted(nonEmpty(environment["SHELL"]) ?? "/bin/zsh")) -l"
     lines.append("if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi")
+    lines.append(contentsOf: tmuxServerPathLines(environment: environment))
     lines.append("created=0")
-    lines.append("if ! \"$tmux\" has-session -t \"=$session\" 2>/dev/null; then \"$tmux\" new-session -d -s \"$session\" sleep 2147483647; created=1; fi")
+    lines.append("if ! \"$tmux\" has-session -t \"=$session\" 2>/dev/null; then \(tmuxNewServerCommand()); created=1; fi")
     lines.append(contentsOf: tmuxEnvironmentSyncCommandLines(environment: environment))
     lines.append("if [ \"$created\" = 1 ]; then \"$tmux\" respawn-pane -k -t \"=$session\":0.0 \(shellQuoted(loginShellCommand)) || true; fi")
     lines.append(tmuxEnvironmentDumpLine())

@@ -19,6 +19,7 @@ enum LogicSelfTests {
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
         ("testTmuxStartupScriptTargetsOnlyTheExactSession", testTmuxStartupScriptTargetsOnlyTheExactSession),
         ("testTmuxStartupScriptWritesNoGlobalEnvironment", testTmuxStartupScriptWritesNoGlobalEnvironment),
+        ("testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment", testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment),
         ("testTmuxClientCallsTargetTheExactSession", testTmuxClientCallsTargetTheExactSession),
         ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
@@ -1445,6 +1446,42 @@ enum LogicSelfTests {
             let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: values)
             try expect(!script.contains("set-environment -g"), "startup script should write no global tmux environment")
         }
+    }
+
+    private static func testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment() throws {
+        // A server the script starts copies its starting environment into the global one,
+        // so the script starts it without Questmaster's keys and without the shim directory on PATH.
+        let environment = [
+            "HOME": "/Users/example",
+            "PATH": "/Users/example/shim:/usr/bin:/bin",
+            "QUESTMASTER_APP": "1",
+            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
+            "QUESTMASTER_BIN": "/Users/example/shim/qm",
+            "QUESTMASTER_PATH_PREFIX": "/Users/example/shim",
+            "QUESTMASTER_DAEMON_SOCKET": "/Users/example/.questmaster-state/daemon.sock",
+        ]
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: environment)
+        let lines = script.split(separator: "\n").map(String.init)
+        let newSessionLine = lines[try lineIndex(in: lines, containing: "new-session -d -s")]
+
+        try expect(newSessionLine.contains("/usr/bin/env -u QUESTMASTER_APP "), "new server should start through env without Questmaster keys")
+        for key in [
+            "QUESTMASTER_APP",
+            "QUESTMASTER_STATE_ROOT",
+            "QUESTMASTER_HOME",
+            "QUESTMASTER_BIN",
+            "QUESTMASTER_PATH_PREFIX",
+            "QUESTMASTER_DAEMON_SOCKET",
+            "QUESTMASTER_TMUX_STARTUP_SCRIPT",
+            "QUESTMASTER_SESSION",
+        ] {
+            try expect(newSessionLine.contains("-u \(key) "), "new server should start without \(key)")
+        }
+        try expect(newSessionLine.contains("PATH=\"$server_path\" \"$tmux\" new-session"), "new server should start with the scrubbed PATH")
+        try expect(script.contains("shim_prefix='/Users/example/shim'"), "startup script should name the shim directory it removes from PATH")
+        let scrubIndex = try substringIndex(in: script, "server_path=")
+        let hasSessionIndex = try substringIndex(in: script, "has-session -t \"=$session\"")
+        try expect(scrubIndex < hasSessionIndex, "startup script should scrub PATH before starting a server")
     }
 
     private static func testTmuxClientCallsTargetTheExactSession() throws {
