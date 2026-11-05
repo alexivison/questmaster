@@ -15,7 +15,9 @@ const (
 	maxHookInputBytes  = 64 << 20
 	maxHookOutputBytes = 4 << 20
 	maxHookStringBytes = 64 << 10
-	maxHookDepth       = 64
+	// A JSON escape can use six source bytes for one decoded byte.
+	maxHookEncodedStringBytes = maxHookStringBytes*6 + 2
+	maxHookDepth              = 64
 )
 
 type hookStdinScanner struct {
@@ -261,7 +263,7 @@ func (s *hookStdinScanner) string() error {
 			return err
 		}
 		if !truncated {
-			if len(token) < maxHookStringBytes {
+			if len(token) < maxHookEncodedStringBytes {
 				token = append(token, b)
 			} else {
 				truncated = true
@@ -277,6 +279,13 @@ func (s *hookStdinScanner) string() error {
 			continue
 		}
 		if b == '"' {
+			if !truncated && len(token) > maxHookStringBytes+2 {
+				var decoded string
+				if err := json.Unmarshal(token, &decoded); err != nil {
+					return fmt.Errorf("invalid JSON string: %w", err)
+				}
+				truncated = len(decoded) > maxHookStringBytes
+			}
 			if truncated {
 				s.lastString = nil
 				return s.write([]byte(`""`))
