@@ -57,13 +57,15 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	if alive {
 		// Reattach must stay manifest-tolerant; Pi resume capture is best-effort.
 		_, _ = s.persistPiResumeFromActivity(sessionID)
-		if _, err := ensureRuntimeDir(sessionID); err != nil {
-			return ContinueResult{}, err
+		m, err := s.Store.Read(sessionID)
+		if err == nil {
+			if err := s.reuseRuntimeDir(ctx, m); err != nil {
+				return ContinueResult{}, err
+			}
 		}
 		if err := s.refreshContinueSessionEnvironment(ctx, sessionID); err != nil {
 			return ContinueResult{}, err
 		}
-		m, err := s.Store.Read(sessionID)
 		master := err == nil && roleForManifest(m) == roleMaster
 		return ContinueResult{SessionID: sessionID, Reattach: true, Master: master}, nil
 	}
@@ -170,9 +172,23 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 		}
 	}
 
-	rtDir, err := ensureRuntimeDir(sessionID)
+	rtDir, err := m.RuntimeDirOrLegacy()
 	if err != nil {
 		return ContinueResult{}, err
+	}
+	if m.RuntimeDir == "" {
+		// A legacy directory belonged to the tmux session that is gone;
+		// the relaunched session gets a private one, recorded before launch so
+		// every reader finds it.
+		rtDir = state.NewRuntimeDir(s.Store.Root(), sessionID)
+	}
+	if err := prepareRuntimeDir(rtDir, sessionID, launchAgents); err != nil {
+		return ContinueResult{}, err
+	}
+	if m.RuntimeDir != rtDir {
+		if err := s.Store.Update(sessionID, func(m2 *state.Manifest) { m2.RuntimeDir = rtDir }); err != nil {
+			return ContinueResult{}, fmt.Errorf("record runtime dir: %w", err)
+		}
 	}
 
 	if err := s.Client.NewSession(ctx, sessionID, "", cwd); err != nil {
@@ -219,6 +235,22 @@ func (s *Service) continueLocked(ctx context.Context, sessionID string) (Continu
 	}
 
 	return ContinueResult{SessionID: sessionID, Master: isMaster}, nil
+}
+
+// reuseRuntimeDir hands a live session the runtime directory its manifest
+// records, recreating a recorded one that has gone missing. A legacy
+// session's directory is used as it is and never recreated.
+func (s *Service) reuseRuntimeDir(ctx context.Context, m state.Manifest) error {
+	dir, err := m.RuntimeDirOrLegacy()
+	if err != nil {
+		return err
+	}
+	if m.RuntimeDir != "" {
+		if err := ensureRuntimeDir(dir, m.SessionID); err != nil {
+			return err
+		}
+	}
+	return s.Client.SetEnvironment(ctx, m.SessionID, state.RuntimeDirEnv, dir)
 }
 
 func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, sessionID string) error {

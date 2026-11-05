@@ -4,6 +4,9 @@ package session
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -133,4 +136,47 @@ func (b *checkBarrier) Run(ctx context.Context, args ...string) (string, error) 
 		}
 	}
 	return b.Runner.Run(ctx, args...)
+}
+
+// tmux runs the session-closed hook of a session that is still alive, so the
+// hook must find the closed session's script by name. The state root holds a
+// character special to each parser the hook text passes (tmux's command
+// parser, run-shell's formats, sh): the closed session's private runtime
+// directory goes, the live one's stays.
+func TestIntegrationSessionClosedHookCleansTheClosedSession(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	t.Setenv("SHELL", "/bin/sh") // shell sessions start a login shell
+	store, err := state.NewStore(filepath.Join(shortTempDir(t), `a b'c"d$e#Sf\g`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(store, tmux.NewClient(tmuxtest.NewRunner(t)), "")
+	start := func(now int64) StartResult {
+		t.Helper()
+		svc.Now = func() int64 { return now }
+		result, err := svc.Start(t.Context(), StartOpts{Shell: true, Cwd: t.TempDir()})
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		return result
+	}
+	closed := start(1700000201)
+	live := start(1700000202)
+
+	if err := svc.Client.KillSession(t.Context(), closed.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Lstat(closed.RuntimeDir); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("session-closed hook did not remove %s", closed.RuntimeDir)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(filepath.Join(live.RuntimeDir, "cleanup.sh")); err != nil {
+		t.Fatalf("live session's runtime dir touched: %v", err)
+	}
 }

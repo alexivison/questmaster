@@ -320,7 +320,7 @@ func TestStartRollsBackWorkerAfterTmuxCreateFails(t *testing.T) {
 	if _, err := svc.Store.Read(sessionID); err == nil {
 		t.Fatalf("worker manifest %s should be removed after rollback", sessionID)
 	}
-	if _, err := os.Stat(runtimeDir(sessionID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(state.NewRuntimeDir(svc.Store.Root(), sessionID)); !os.IsNotExist(err) {
 		t.Fatalf("runtime dir should be removed after rollback, stat err=%v", err)
 	}
 	if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {
@@ -359,7 +359,7 @@ func TestStartRollsBackManifestWhenWorkerRegistrationFails(t *testing.T) {
 	if _, err := svc.Store.Read(sessionID); err == nil {
 		t.Fatalf("manifest %s should be removed after rollback", sessionID)
 	}
-	if _, err := os.Stat(runtimeDir(sessionID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(state.NewRuntimeDir(svc.Store.Root(), sessionID)); !os.IsNotExist(err) {
 		t.Fatalf("runtime dir should be removed after rollback, stat err=%v", err)
 	}
 	if _, err := os.Stat(state.SessionStateDir(stateRoot, sessionID)); !os.IsNotExist(err) {
@@ -434,7 +434,7 @@ func TestStart_ResolvesAgentFromInteractiveLoginShellPath(t *testing.T) {
 	}
 	t.Setenv("SHELL", shellPath)
 
-	store, err := state.NewStore(t.TempDir())
+	store, err := state.NewStore(shortTempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +511,7 @@ func TestWriteCleanupScript_ChecksJqAvailability(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cleanup.sh")
 
-	if err := writeCleanupScript(path, "/tmp/state", "qm-test", "qm-master"); err != nil {
+	if err := writeCleanupScript(dir, "/state", "qm-test", "qm-master"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -542,7 +542,7 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	sessionID := uniqueRuntimeSessionID(t, "qm-pi-cleanup-resume")
+	sessionID := "qm-pi-cleanup-resume"
 	resumeID := "019dee69-5623-75c9-9317-04bf7f94e92b"
 	if err := store.Create(state.Manifest{
 		SessionID: sessionID,
@@ -554,8 +554,12 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	}
 	writePiResumeState(t, store, sessionID, resumeID)
 
-	scriptPath := filepath.Join("/tmp", sessionID, "cleanup.sh")
-	if err := writeCleanupScript(scriptPath, store.Root(), sessionID, ""); err != nil {
+	runtime := state.NewRuntimeDir(storeDir, sessionID)
+	if err := ensureRuntimeDir(runtime, sessionID); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(runtime, "cleanup.sh")
+	if err := writeCleanupScript(runtime, store.Root(), sessionID, ""); err != nil {
 		t.Fatalf("write cleanup script: %v", err)
 	}
 	if out, err := exec.Command("/bin/sh", scriptPath, sessionID).CombinedOutput(); err != nil {
@@ -572,7 +576,7 @@ func TestWriteCleanupScript_PersistsPiResumeID(t *testing.T) {
 	if got := m.ExtraString("pi_session_id"); got != resumeID {
 		t.Fatalf("pi_session_id: got %q, want %q", got, resumeID)
 	}
-	if _, err := os.Stat(filepath.Join("/tmp", sessionID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(runtime); !os.IsNotExist(err) {
 		t.Fatalf("runtime dir should be removed, stat err=%v", err)
 	}
 }
@@ -585,7 +589,7 @@ func TestWriteCleanupScript_DoesNotDeleteWorkerManifest(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cleanup.sh")
 
-	if err := writeCleanupScript(path, "/tmp/state", "qm-worker", "qm-master"); err != nil {
+	if err := writeCleanupScript(dir, "/state", "qm-worker", "qm-master"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -610,8 +614,8 @@ func TestWriteCleanupScript_IgnoresDifferentClosedSession(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 
-	masterID := uniqueRuntimeSessionID(t, "qm-master-wrong-hook")
-	workerID := uniqueRuntimeSessionID(t, "qm-worker-wrong-hook")
+	masterID := "qm-master-wrong-hook"
+	workerID := "qm-worker-wrong-hook"
 	otherID := "qm-other-wrong-hook"
 	if err := store.Create(state.Manifest{SessionID: masterID, SessionType: "master", Workers: []string{workerID}}); err != nil {
 		t.Fatalf("create master: %v", err)
@@ -625,10 +629,13 @@ func TestWriteCleanupScript_IgnoresDifferentClosedSession(t *testing.T) {
 		t.Fatalf("set parent: %v", err)
 	}
 
-	runtime := filepath.Join("/tmp", workerID)
+	runtime := state.NewRuntimeDir(storeDir, workerID)
+	if err := ensureRuntimeDir(runtime, workerID); err != nil {
+		t.Fatal(err)
+	}
 
 	scriptPath := filepath.Join(runtime, "cleanup.sh")
-	if err := writeCleanupScript(scriptPath, store.Root(), workerID, masterID); err != nil {
+	if err := writeCleanupScript(runtime, store.Root(), workerID, masterID); err != nil {
 		t.Fatalf("write cleanup script: %v", err)
 	}
 	if out, err := exec.Command("/bin/sh", scriptPath, otherID).CombinedOutput(); err != nil {
@@ -654,7 +661,7 @@ func TestWriteCleanupScript_NoParent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cleanup.sh")
 
-	if err := writeCleanupScript(path, "/tmp/state", "qm-shell", ""); err != nil {
+	if err := writeCleanupScript(dir, "/state", "qm-shell", ""); err != nil {
 		t.Fatal(err)
 	}
 

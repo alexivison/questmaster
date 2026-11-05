@@ -110,7 +110,7 @@ func (s *Service) deliver(ctx context.Context, sessionID, target, message string
 	if err != nil {
 		return "", fmt.Errorf("read recipient manifest: %w", err)
 	}
-	if err := s.nativeDeliver(ctx, sessionID, m, target, message); err == nil {
+	if err := s.nativeDeliver(ctx, m, target, message); err == nil {
 		return DeliveryAccepted, nil
 	} else if !errors.Is(err, errNativeUnavailable) {
 		return "", err

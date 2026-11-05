@@ -224,3 +224,58 @@ type failingConn struct{ net.Conn }
 func (f *failingConn) Write([]byte) (int, error)   { return 1, errors.New("write failed") }
 func (f *failingConn) SetDeadline(time.Time) error { return nil }
 func (f *failingConn) Close() error                { return nil }
+
+// A session that records its runtime directory takes Pi's socket from there,
+// not from /tmp/<id>.
+func TestPiDeliveryUsesTheRecordedRuntimeDir(t *testing.T) {
+	// Not t.TempDir: its path carries the test name and can exceed the
+	// 103-byte socket limit.
+	root, err := os.MkdirTemp("", "qmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	store, err := state.NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := state.NewSessionID(time.Now().UnixNano())
+	dir := state.NewRuntimeDir(root, id)
+	if err := state.EnsureRuntimeDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", filepath.Join(dir, "pi.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	if err := os.Chmod(filepath.Join(dir, "pi.sock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	createManifest(t, store, id, "pi", "worker")
+	setAgent(t, store, id, "pi")
+	if err := store.Update(id, func(m *state.Manifest) { m.RuntimeDir = dir }); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var request piMessageRequest
+		_ = json.NewDecoder(conn).Decode(&request)
+		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed"}` + "\n"))
+	}()
+	var sent []string
+	delivery, err := newService(store, idleAndSendRunner(&sent)).Relay(t.Context(), id, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delivery != DeliveryAccepted || len(sent) != 0 {
+		t.Fatalf("delivery = %q, tmux fallback = %v; want the recorded socket to accept it", delivery, sent)
+	}
+	if _, err := os.Lstat(filepath.Join("/tmp", id)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("/tmp/%s exists: %v", id, err)
+	}
+}

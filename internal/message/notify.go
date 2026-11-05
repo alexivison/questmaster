@@ -44,7 +44,7 @@ func (s *Service) Notify(ctx context.Context, sessionID, text string) (Delivery,
 	if err != nil {
 		return "", err
 	}
-	if err := s.nativeDeliver(ctx, sessionID, m, target, text); err == nil {
+	if err := s.nativeDeliver(ctx, m, target, text); err == nil {
 		return DeliveryAccepted, nil
 	} else if !errors.Is(err, errNativeUnavailable) {
 		return "", err

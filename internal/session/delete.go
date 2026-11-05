@@ -46,7 +46,7 @@ func (s *Service) Delete(ctx context.Context, sessionID string) (int, error) {
 
 func (s *Service) cleanupStartedSession(sessionID string) (int, error) {
 	s.deregisterFromParent(sessionID)
-	removeRuntimeDir(sessionID)
+	s.removeRuntimeDir(sessionID)
 	removeSessionStateDir(sessionID)
 	if err := s.Store.Delete(sessionID); err != nil && !isManifestNotFound(err) {
 		return 0, fmt.Errorf("delete manifest: %w", err)

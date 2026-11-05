@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/agent"
@@ -104,29 +103,28 @@ func NewService(store *state.Store, client *tmux.Client, repoRoot string, regist
 	return svc
 }
 
-// runtimeDir returns the runtime directory path for a session.
-// Uses /tmp/ (not os.TempDir()) so runtime cleanup sees the same stable path
-// on macOS, where os.TempDir() returns a per-user /var/folders/... location.
-func runtimeDir(sessionID string) string {
-	return filepath.Join("/tmp", sessionID)
+// ensureRuntimeDir makes a session's private runtime directory at dir and
+// writes its session-name file.
+func ensureRuntimeDir(dir, sessionID string) error {
+	if err := state.EnsureRuntimeDir(dir); err != nil {
+		return err
+	}
+	if err := state.WriteRuntimeFile(dir, "session-name", []byte(sessionID+"\n")); err != nil {
+		return fmt.Errorf("write session-name: %w", err)
+	}
+	return nil
 }
 
-// ensureRuntimeDir creates the runtime directory and writes the session name file.
-func ensureRuntimeDir(sessionID string) (string, error) {
-	dir := runtimeDir(sessionID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create runtime dir: %w", err)
+// removeRuntimeDir removes the runtime directory the session's manifest
+// records. A session with no readable manifest has no known directory.
+func (s *Service) removeRuntimeDir(sessionID string) {
+	m, err := s.Store.Read(sessionID)
+	if err != nil {
+		return
 	}
-	nameFile := filepath.Join(dir, "session-name")
-	if err := os.WriteFile(nameFile, []byte(sessionID+"\n"), 0o644); err != nil {
-		return "", fmt.Errorf("write session-name: %w", err)
+	if dir, err := m.RuntimeDirOrLegacy(); err == nil {
+		_ = os.RemoveAll(dir)
 	}
-	return dir, nil
-}
-
-// removeRuntimeDir removes the runtime directory for a session.
-func removeRuntimeDir(sessionID string) {
-	os.RemoveAll(runtimeDir(sessionID))
 }
 
 // sessionRole identifies a session's role for agent launch behavior.
