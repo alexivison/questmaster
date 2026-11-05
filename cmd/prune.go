@@ -154,16 +154,29 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 		result.Pruned++
 		pruneRecordedRuntimeDir(&result, m, readErr, sessionID, legacyRoot, false)
 	}
-	for _, parent := range []string{filepath.Join(root, "runtime"), legacyRoot} {
-		if parent == "" {
+	for _, parent := range []struct {
+		path   string
+		legacy bool
+	}{
+		{path: filepath.Join(root, "runtime")},
+		{path: legacyRoot, legacy: true},
+	} {
+		if parent.path == "" {
 			continue
 		}
-		if info, err := os.Lstat(parent); err != nil || !info.IsDir() {
+		var info os.FileInfo
+		if parent.legacy {
+			// /tmp is a symlink on macOS; only this parent may be followed.
+			info, err = os.Stat(parent.path)
+		} else {
+			info, err = os.Lstat(parent.path)
+		}
+		if err != nil || !info.IsDir() {
 			continue
 		}
-		dirs, err := os.ReadDir(parent)
+		dirs, err := os.ReadDir(parent.path)
 		if err != nil {
-			return result, fmt.Errorf("read runtime dir %s: %w", parent, err)
+			return result, fmt.Errorf("read runtime dir %s: %w", parent.path, err)
 		}
 		for _, dir := range dirs {
 			id := dir.Name()
@@ -173,7 +186,7 @@ func pruneManifestsWithLegacyRoot(ctx context.Context, store *state.Store, clien
 			if _, err := os.Lstat(filepath.Join(root, id+".json")); !os.IsNotExist(err) {
 				continue
 			}
-			pruneRuntimePath(&result, filepath.Join(parent, id), dryRun)
+			pruneRuntimePath(&result, filepath.Join(parent.path, id), dryRun)
 		}
 	}
 	result.DroppedWatches, err = state.DropPullRequestWatches(root, func(id string) bool {
