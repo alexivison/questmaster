@@ -21,6 +21,7 @@ enum LogicSelfTests {
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
         ("testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges", testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
+        ("testTmuxStartupScriptRespawnsTheCreatedPaneByID", testTmuxStartupScriptRespawnsTheCreatedPaneByID),
         ("testTmuxStartupScriptTargetsOnlyTheExactSession", testTmuxStartupScriptTargetsOnlyTheExactSession),
         ("testTmuxStartupScriptWritesNoGlobalEnvironment", testTmuxStartupScriptWritesNoGlobalEnvironment),
         ("testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment", testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment),
@@ -1444,7 +1445,7 @@ enum LogicSelfTests {
             "QUESTMASTER_PATH_PREFIX": "/test/prefix",
         ]
         let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: env)
-        let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -s \"$session\" sleep 2147483647")
+        let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -P -F '#{pane_id}' -s \"$session\" sleep 2147483647")
 
         try expect(!script.contains("exec \"$tmux\" attach-session"), "startup script should not exec tmux attach")
         let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"=$session\" || true")
@@ -1462,13 +1463,13 @@ enum LogicSelfTests {
             try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
         }
         try expect(script.contains("set-environment -t \"=$session\" -r 'QUESTMASTER_HOME'"), "startup script should clear session quest home")
-        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"=$session\":0.0")
+        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"$pane\"")
         try expect(createIndex < respawnIndex, "startup script should respawn created panes after env sync")
         let respawnLines = script.split(separator: "\n").map(String.init)
-        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"=$session\":0.0")]
+        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"$pane\"")]
         try expect(respawnLines.last == "exec '/tmp/custom shell/zsh' -l", "startup script should end by execing the login shell")
         try expect(
-            !respawnLine.contains("respawn-pane -k -t \"$session\":0.0 || true"),
+            !respawnLine.contains("respawn-pane -k -t \"$pane\" || true"),
             "startup script should not respawn the placeholder without an explicit shell command"
         )
         try expect(respawnLine.contains("/tmp/custom shell/zsh"), "startup script should respawn using the configured shell")
@@ -1478,27 +1479,45 @@ enum LogicSelfTests {
         fallbackEnv.removeValue(forKey: "SHELL")
         let fallbackScript = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: fallbackEnv)
         let fallbackLines = fallbackScript.split(separator: "\n").map(String.init)
-        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"=$session\":0.0")]
+        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"$pane\"")]
         try expect(fallbackRespawnLine.contains("/bin/zsh"), "startup script should fall back to /bin/zsh")
         try expect(fallbackRespawnLine.contains("-l"), "fallback shell should be a login shell")
     }
 
     private static func testTmuxStartupScriptTargetsOnlyTheExactSession() throws {
         // qm-123 is a prefix of qm-123-456. tmux resolves a bare name to the sibling
-        // when no session is named qm-123, so every -t must carry the exact-match "=".
+        // when no session is named qm-123, so session targets need the exact-match "=".
         let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: [
             "HOME": "/Users/example",
             "PATH": "/usr/bin",
             "QUESTMASTER_BIN": "/Applications/example/qm",
         ])
         try expect(script.contains("session='qm-123'"), "startup script should name the session it was built for")
-        let targetArguments = script.components(separatedBy: " -t ").dropFirst()
-        try expect(!targetArguments.isEmpty, "startup script should address tmux sessions with -t")
-        for argument in targetArguments {
-            try expect(
-                argument.hasPrefix("\"=$session\""),
-                "startup script target should match the session exactly, found -t \(argument.prefix(24))"
-            )
+        let targetLines = script.split(separator: "\n").filter { $0.contains(" -t ") }
+        try expect(!targetLines.isEmpty, "startup script should address tmux sessions with -t")
+        for line in targetLines {
+            let target = line.contains("respawn-pane") ? "\"$pane\"" : "\"=$session\""
+            try expect(line.contains(" -t \(target)"), "startup script should use an exact target: \(line)")
+        }
+    }
+
+    private static func testTmuxStartupScriptRespawnsTheCreatedPaneByID() throws {
+        let tmuxPath = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_TMUX_WRAPPER"] ?? "/usr/bin/tmux"
+        let script = tmuxStartupScript(tmuxPath: tmuxPath, session: "qm-123", environment: [
+            "HOME": "/tmp",
+            "PATH": "/usr/bin:/bin",
+            "SHELL": "/bin/sh",
+        ])
+        try expect(!script.contains(":0.0"), "startup script should not assume window and pane index zero")
+        try expect(!script.contains("-t \"=$session\":0"), "startup script should not target window index zero")
+        try expect(script.contains("new-session -d -P -F '#{pane_id}' -s \"$session\""),
+                   "startup script should capture the created pane ID")
+        try expect(script.contains("respawn-pane -k -t \"$pane\""),
+                   "startup script should respawn the pane by its captured ID")
+        try expect(script.contains("if [ \"$created\" = 1 ] && [ -n \"$pane\" ]; then"),
+                   "startup script should not respawn without a captured pane ID")
+        if let path = ProcessInfo.processInfo.environment["QUESTMASTER_TEST_STARTUP_SCRIPT_DUMP"] {
+            try script.write(toFile: path, atomically: true, encoding: .utf8)
         }
     }
 
@@ -1536,7 +1555,7 @@ enum LogicSelfTests {
         ]
         let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: environment)
         let lines = script.split(separator: "\n").map(String.init)
-        let newSessionLine = lines[try lineIndex(in: lines, containing: "new-session -d -s")]
+        let newSessionLine = lines[try lineIndex(in: lines, containing: "new-session -d -P -F '#{pane_id}' -s")]
 
         try expect(newSessionLine.contains("/usr/bin/env -u QUESTMASTER_APP "), "new server should start through env without Questmaster keys")
         for key in [
