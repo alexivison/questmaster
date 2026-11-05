@@ -109,9 +109,13 @@ func TestStartGivesANewSessionAPrivateRuntimeDir(t *testing.T) {
 	if !strings.Contains(string(script), "RD="+shellQuoteForScript(want)) || !strings.Contains(string(script), `rm -rf "$RD"`) {
 		t.Fatalf("cleanup script does not remove the recorded runtime dir:\n%s", script)
 	}
+	// The state root itself may sit under /tmp (Linux temp dirs do), so look
+	// for the legacy shapes, not the substring.
 	for _, text := range []string{hook, string(script)} {
-		if strings.Contains(text, "/tmp") {
-			t.Fatalf("new session's hook or cleanup script names /tmp:\n%s", text)
+		for _, legacy := range []string{filepath.Join("/tmp", id), "/tmp/#{"} {
+			if strings.Contains(text, legacy) {
+				t.Fatalf("new session's hook or cleanup script names the legacy %s:\n%s", legacy, text)
+			}
 		}
 	}
 	assertAbsent(t, filepath.Join("/tmp", id))
