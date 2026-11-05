@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -353,6 +354,89 @@ func stubPRDaemon(t *testing.T) {
 		return map[string]prstatus.HostResult{}, nil
 	}
 	t.Cleanup(func() { prEnsure, prRequest = oldEnsure, oldRequest })
+}
+
+// holdJobsLock plays the daemon that owns PR jobs on the root.
+func holdJobsLock(t *testing.T, root string) {
+	t.Helper()
+	dir := filepath.Join(root, "daemon")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, "jobs.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.Close() })
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setupPRSession(t *testing.T) *state.Store {
+	t.Helper()
+	store := setupStore(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(state.StateRootEnv, store.Root())
+	t.Setenv(state.SessionEnv, "qm-pr")
+	if err := store.Create(state.Manifest{SessionID: "qm-pr", Agents: []state.AgentManifest{{Name: "codex", Role: "agent"}}}); err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func TestPRWatchReportsMonitoringUnavailableWhenNoDaemonPolls(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupPRSession(t)
+	prEnsure = func(context.Context, daemon.Config) (daemon.Record, error) {
+		return daemon.Record{}, fmt.Errorf("daemon unavailable")
+	}
+	prRequest = func(context.Context, daemon.Config, []string, bool) (map[string]prstatus.HostResult, error) {
+		return nil, fmt.Errorf("PR polling is unavailable on this daemon")
+	}
+	var result struct {
+		Added      bool   `json:"added"`
+		Monitoring string `json:"monitoring"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "watch", "owner/repo#7")), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Added || result.Monitoring != "unavailable" {
+		t.Fatalf("watch = %#v, want added with unavailable monitoring", result)
+	}
+}
+
+func TestPRWatchReportsMonitoringActiveWhileAnotherDaemonHoldsJobs(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupPRSession(t)
+	prEnsure = func(context.Context, daemon.Config) (daemon.Record, error) {
+		return daemon.Record{}, fmt.Errorf("daemon unavailable")
+	}
+	holdJobsLock(t, store.Root())
+	var result struct {
+		Monitoring string `json:"monitoring"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "watch", "owner/repo#7")), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Monitoring != "active" {
+		t.Fatalf("watch monitoring = %q, want active", result.Monitoring)
+	}
+}
+
+func TestPRRefreshReportsMonitoring(t *testing.T) {
+	stubPRDaemon(t)
+	store := setupPRSession(t)
+	holdJobsLock(t, store.Root())
+	var result struct {
+		Monitoring string `json:"monitoring"`
+	}
+	if err := json.Unmarshal([]byte(runCmd(t, store, sessionsRunner(), "pr", "refresh")), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Monitoring != "active" {
+		t.Fatalf("refresh monitoring = %q, want active", result.Monitoring)
+	}
 }
 
 func TestPRSessionRequiresManifest(t *testing.T) {

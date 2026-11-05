@@ -45,6 +45,7 @@ type server struct {
 	jobsDone        chan struct{}
 	jobsRequested   bool
 	nextJobsTry     time.Time
+	protocolVersion int // RED STAGE
 }
 
 func setDetached(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }

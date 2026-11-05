@@ -12,6 +12,16 @@ import (
 	"time"
 )
 
+// RED STAGE STUBS
+const jobsRetryInterval = time.Minute
+
+const (
+	MonitoringActive      = "active"
+	MonitoringUnavailable = "unavailable"
+)
+
+func PRMonitoring(root string) (string, error) { return "", nil }
+
 // Job reads its work from durable state and runs only under jobs.lock.
 type Job interface {
 	Name() string

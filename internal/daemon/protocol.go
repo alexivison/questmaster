@@ -30,6 +30,7 @@ type Config struct {
 	ClockInterval                            time.Duration
 	LoginEnvironmentRunner                   LoginEnvironmentRunner
 	Exec                                     func(string, []string, []string) error
+	Clock                                    func() time.Time // RED STAGE
 }
 
 func (c Config) resolve() (Config, string, string, error) {

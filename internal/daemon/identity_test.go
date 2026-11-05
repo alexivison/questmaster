@@ -71,6 +71,28 @@ func TestIdentity(t *testing.T) {
 	}
 }
 
+func TestIdentityStableLinkStaysCanonicalAcrossRetarget(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	root := filepath.Join(base, "state")
+	home := filepath.Join(base, "home")
+	stable := filepath.Join(root, "bin", "current", "qm")
+	first := writeEchoBinary(t, filepath.Join(base, "first", "qm"), "first")
+	second := writeEchoBinary(t, filepath.Join(base, "second", "qm"), "second")
+	if err := ensureStableExecutable(root, first, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{first, second} {
+		if err := ensureStableExecutable(root, target, true); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Identity(root, home, stable)
+		if err != nil || got != "canonical" {
+			t.Fatalf("Identity(stable) after retarget to %s = %q, %v; want canonical", target, got, err)
+		}
+	}
+}
+
 func TestSocketPathFallback(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join(t.TempDir(), strings.Repeat("long", 30))

@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// RED STAGE STUB
+func ensureStableExecutable(root, executable string, owner bool) error { return nil }
+
 func writeShims(root, id, executable string) error {
 	dir := filepath.Join(root, "daemon", "bin", id)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
