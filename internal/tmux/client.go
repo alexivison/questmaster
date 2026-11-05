@@ -16,7 +16,7 @@ const (
 	// (and any additional panes, e.g. an adopted shell) for every session type.
 	WindowWorkspace = 0
 
-	// DefaultSendTimeout is the default timeout for delivery-confirmed sends.
+	// DefaultSendTimeout is the default timeout for send-keys attempts.
 	DefaultSendTimeout = 2 * time.Second
 
 	// PaneRoleOption is the tmux user-option key storing a pane's questmaster role.
@@ -56,9 +56,10 @@ func (p Pane) Target() string {
 	return PaneTarget(p.SessionName, p.WindowIndex, p.PaneIndex)
 }
 
-// SendResult represents the outcome of a delivery-confirmed send.
+// SendResult represents the outcome of a send-keys attempt. Submitted is true once
+// the text and Enter were typed into the pane.
 type SendResult struct {
-	Delivered bool
+	Submitted bool
 	Target    string
 	Err       error
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexivison/questmaster/internal/message"
 	"github.com/alexivison/questmaster/internal/state"
 	"github.com/alexivison/questmaster/internal/tmux"
 )
@@ -101,9 +102,9 @@ func TestJobIgnoresViewerDiscussionButAlertsForOtherComment(t *testing.T) {
 		return []byte(fmt.Sprintf(`[{"node_id":"own-line","created_at":%q,"user":{"login":"viewer"}}]`, firstAt)), nil, nil
 	}
 	var alerts []string
-	j.SendAlert = func(_ context.Context, _ string, text string) (bool, error) {
+	j.SendAlert = func(_ context.Context, _ string, text string) (message.Delivery, error) {
 		alerts = append(alerts, text)
-		return true, nil
+		return message.DeliverySubmitted, nil
 	}
 	if err := j.step(context.Background()); err != nil {
 		t.Fatal(err)
@@ -161,7 +162,7 @@ func TestJobPollsExistingWatchAfterLegacyTimestamp(t *testing.T) {
 		return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100},"repository":{"pullRequest":{"%s":{"nodes":%s,"pageInfo":{"hasPreviousPage":false}}}}}}`, source, nodes)), nil, nil
 	}
 	j.RunREST = func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
-	j.SendAlert = func(context.Context, string, string) (bool, error) { return false, nil }
+	j.SendAlert = func(context.Context, string, string) (message.Delivery, error) { return "", nil }
 	if err := j.step(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -196,14 +197,15 @@ func TestJobHoldsThenCoalescesPendingAlert(t *testing.T) {
 	j.RunREST = func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
 	ready := false
 	var sent []string
-	j.SendAlert = func(_ context.Context, id, text string) (bool, error) {
+	j.SendAlert = func(_ context.Context, id, text string) (message.Delivery, error) {
 		if id != "qm-live" {
 			t.Fatalf("alert recipient = %s", id)
 		}
-		if ready {
-			sent = append(sent, text)
+		if !ready {
+			return "", nil
 		}
-		return ready, nil
+		sent = append(sent, text)
+		return message.DeliverySubmitted, nil
 	}
 	for tick := 0; tick < 3; tick++ {
 		if tick == 1 {
@@ -219,6 +221,58 @@ func TestJobHoldsThenCoalescesPendingAlert(t *testing.T) {
 	log, err := state.LoadPullRequestEventLog(store.Root(), pr.Key)
 	if err != nil || log.Seq != 1 || log.Cursors["qm-live"].AlertedSeq != 1 {
 		t.Fatalf("event log = %#v, %v", log, err)
+	}
+}
+
+func TestJobAdvancesAlertCursorOnlyForSentMessages(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		delivery message.Delivery
+		advanced bool
+	}{
+		{"accepted", message.DeliveryAccepted, true},
+		{"submitted", message.DeliverySubmitted, true},
+		{"held", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			j, store, now, _ := jobFixture(t)
+			pr, _ := state.ParsePullRequestRef("owner/repo#12")
+			if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			j.RunGH = func(_ context.Context, _, query string) ([]byte, []byte, error) {
+				if strings.Contains(query, "p0: repository") {
+					return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100,"resetAt":"2026-10-28T00:00:00Z"},"p0":{"pullRequest":{"title":"PR","state":"OPEN","updatedAt":%q,"totalCommentsCount":1}}}}`, now.Format(time.RFC3339))), nil, nil
+				}
+				source := "comments"
+				nodes := `[{"id":"comment-1","body":"please fix","createdAt":"2026-10-26T00:01:00Z","author":{"login":"reviewer"}}]`
+				if strings.Contains(query, "reviews(last:") {
+					source, nodes = "reviews", `[]`
+				}
+				return []byte(fmt.Sprintf(`{"data":{"rateLimit":{"cost":1,"remaining":100,"resetAt":"2026-10-28T00:00:00Z"},"repository":{"pullRequest":{"%s":{"nodes":%s,"pageInfo":{"hasPreviousPage":false,"startCursor":""}}}}}}`, source, nodes)), nil, nil
+			}
+			j.RunREST = func(context.Context, string, string) ([]byte, []byte, error) { return []byte(`[]`), nil, nil }
+			attempts := 0
+			j.SendAlert = func(context.Context, string, string) (message.Delivery, error) {
+				attempts++
+				return tc.delivery, nil
+			}
+			for range 3 {
+				if err := j.step(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			log, err := state.LoadPullRequestEventLog(store.Root(), pr.Key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cursor := log.Cursors["qm-live"]
+			if attempts == 0 || (cursor.AlertedSeq == 1) != tc.advanced {
+				t.Fatalf("attempts=%d cursor=%+v, want advanced=%v", attempts, cursor, tc.advanced)
+			}
+		})
 	}
 }
 
@@ -239,7 +293,10 @@ func TestMergedPRKeepsPendingAlertUntilDelivered(t *testing.T) {
 		t.Fatal("pending merged alert did not keep job alive")
 	}
 	called := 0
-	j.SendAlert = func(context.Context, string, string) (bool, error) { called++; return true, nil }
+	j.SendAlert = func(context.Context, string, string) (message.Delivery, error) {
+		called++
+		return message.DeliverySubmitted, nil
+	}
 	if err := j.step(context.Background()); err != nil || called != 1 || j.HasWork() {
 		t.Fatalf("merged delivery: calls=%d work=%v err=%v", called, j.HasWork(), err)
 	}
@@ -263,7 +320,10 @@ func TestStoppedPendingAlertWaitsForLiveWatcher(t *testing.T) {
 		t.Fatal("stopped watcher kept daemon work alive")
 	}
 	called := 0
-	j.SendAlert = func(context.Context, string, string) (bool, error) { called++; return true, nil }
+	j.SendAlert = func(context.Context, string, string) (message.Delivery, error) {
+		called++
+		return message.DeliverySubmitted, nil
+	}
 	if err := j.deliverPending(context.Background()); err != nil || called != 0 {
 		t.Fatalf("stopped delivery: calls=%d err=%v", called, err)
 	}
@@ -289,9 +349,9 @@ func TestAlertSendErrorIsRateLimitedAndRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	called := 0
-	j.SendAlert = func(context.Context, string, string) (bool, error) {
+	j.SendAlert = func(context.Context, string, string) (message.Delivery, error) {
 		called++
-		return false, errors.New("permanent send failure")
+		return "", errors.New("permanent send failure")
 	}
 	key := pr.Key + "\x00qm-live"
 	for i := 0; i < 2; i++ {
@@ -327,14 +387,14 @@ func TestRemovedWatchDoesNotStopOtherAlerts(t *testing.T) {
 		}
 	}
 	called := 0
-	j.SendAlert = func(context.Context, string, string) (bool, error) {
+	j.SendAlert = func(context.Context, string, string) (message.Delivery, error) {
 		called++
 		if called == 1 {
 			if removed, err := state.UnwatchPullRequest(store.Root(), "qm-live", refs[0].Key); err != nil || !removed {
 				t.Fatalf("remove during send: removed=%v err=%v", removed, err)
 			}
 		}
-		return true, nil
+		return message.DeliverySubmitted, nil
 	}
 	if err := j.deliverPending(context.Background()); err != nil || called != 2 {
 		t.Fatalf("delivery after watch removal: calls=%d err=%v", called, err)

@@ -109,14 +109,27 @@ Messages between a worker and its recorded parent use `[MASTER:<id>]` or
 routing relationship, not model receipt.
 
 Messaging uses native delivery for live Claude and Pi sessions when available.
-Codex sends through tmux. Pi steers the current turn and its receipt is
-unconfirmed. Claude's socket has no delivery receipt: `submitted: true` can
-coexist with Claude holding the message if its effective `crossSessionInbound`
-policy does not accept it. New Questmaster Claude launches set `accept`; older
-or adopted sessions may need an effective `accept` setting or a restart, while
-managed policy can still restrict delivery. OpenCode keeps its tmux
+Codex sends through tmux. A direct or report send prints a `delivery` label:
+
+- `"delivery": "accepted"`: a native socket took the message. Pi answers with
+  `unconfirmed` and steers the current turn; Questmaster reports that as
+  accepted. Questmaster reads no reply from Claude's socket, so accepted means
+  the frame was written.
+- `"delivery": "submitted"`: tmux `send-keys` typed the text and Enter into the
+  pane.
+
+Neither label means the agent read the message. `received` is reserved for a
+future receipt from the harness; no path reports it today. `send all` prints
+`registered`, `accepted` and `submitted` counts instead of one `delivery` label.
+
+Claude can still hold an accepted frame. Questmaster checks only the project
+`.claude` settings above the session's directory for `crossSessionInbound`, so
+a user or managed policy that does not accept inbound messages can hold the
+frame. New Questmaster Claude launches set `accept`; older or adopted sessions
+may need an effective `accept` setting or a restart. OpenCode keeps its tmux
 path and requires idle or done hook state. A native send that may have written
-bytes is never retried through tmux.
+bytes is never retried through tmux. If the send process dies after the write,
+it prints no result.
 
 OpenCode support expects an authenticated OpenCode CLI version 1.17.11 or newer.
 Questmaster writes its OpenCode plugin and role agents under

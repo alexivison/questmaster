@@ -45,20 +45,20 @@ type WorkerInfo struct {
 }
 
 // Relay sends an unattributed external message to a session's agent pane.
-func (s *Service) Relay(ctx context.Context, workerID, message string) error {
+func (s *Service) Relay(ctx context.Context, workerID, message string) (Delivery, error) {
 	if err := s.validateRelayTarget(workerID); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.client.EnsureSessionRunning(ctx, workerID, "worker"); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.ensureOpenCodeRelayReady(workerID); err != nil {
-		return err
+		return "", err
 	}
 
 	target, err := s.client.ResolveRole(ctx, workerID, agentRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve agent pane in %q: %w", workerID, err)
+		return "", fmt.Errorf("resolve agent pane in %q: %w", workerID, err)
 	}
 
 	const prefix = "[FROM:external] "
@@ -66,28 +66,28 @@ func (s *Service) Relay(ctx context.Context, workerID, message string) error {
 }
 
 // RelayFrom sends a message to a worker's agent pane with sender provenance.
-func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message string) error {
+func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message string) (Delivery, error) {
 	if !state.IsValidSessionID(senderID) {
-		return fmt.Errorf("invalid sender id: %q", senderID)
+		return "", fmt.Errorf("invalid sender id: %q", senderID)
 	}
 	if err := s.validateRelayTarget(targetID); err != nil {
-		return err
+		return "", err
 	}
 	recipient, err := s.store.Read(targetID)
 	if err != nil {
-		return fmt.Errorf("read recipient manifest: %w", err)
+		return "", fmt.Errorf("read recipient manifest: %w", err)
 	}
 	sender, _ := s.store.Read(senderID)
 	if err := s.client.EnsureSessionRunning(ctx, targetID, "worker"); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.ensureOpenCodeRelayReady(targetID); err != nil {
-		return err
+		return "", err
 	}
 
 	target, err := s.client.ResolveRole(ctx, targetID, agentRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve agent pane in %q: %w", targetID, err)
+		return "", fmt.Errorf("resolve agent pane in %q: %w", targetID, err)
 	}
 
 	prefix := recipientPrefix(senderID, sender, recipient)
@@ -95,31 +95,37 @@ func (s *Service) RelayFrom(ctx context.Context, senderID, targetID, message str
 	if strings.HasPrefix(prefix, "[MASTER:") {
 		pointer = relayPointer
 	}
-	if err := s.deliver(ctx, targetID, target, prefix+message, pointer, prefix); err != nil {
-		return err
+	delivery, err := s.deliver(ctx, targetID, target, prefix+message, pointer, prefix)
+	if err != nil {
+		return "", err
 	}
 	s.recordInstructions(senderID, targetID, sender, recipient, message)
-	return nil
+	return delivery, nil
 }
 
-func (s *Service) deliver(ctx context.Context, sessionID, target, message string, pointer func(string) string, pointerPrefix string) error {
+// deliver tries the native socket, then tmux send-keys. A native success means the
+// socket accepted the frame; a send-keys success means the text and Enter were typed.
+func (s *Service) deliver(ctx context.Context, sessionID, target, message string, pointer func(string) string, pointerPrefix string) (Delivery, error) {
 	m, err := s.store.Read(sessionID)
 	if err != nil {
-		return fmt.Errorf("read recipient manifest: %w", err)
+		return "", fmt.Errorf("read recipient manifest: %w", err)
 	}
 	if err := s.nativeDeliver(ctx, sessionID, m, target, message); err == nil {
-		return nil
+		return DeliveryAccepted, nil
 	} else if !errors.Is(err, errNativeUnavailable) {
-		return err
+		return "", err
 	}
 	msg, indirected, err := prepareMessageWith(message, pointer)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if indirected {
 		msg = pointerPrefix + msg
 	}
-	return s.client.Send(ctx, target, msg).Err
+	if err := s.client.Send(ctx, target, msg).Err; err != nil {
+		return "", err
+	}
+	return DeliverySubmitted, nil
 }
 
 func (s *Service) validateRelayTarget(workerID string) error {
@@ -161,10 +167,24 @@ func (s *Service) ensureOpenCodeRelayReady(sessionID string) error {
 	return fmt.Errorf("opencode relay unsafe for %q: bridge state %s (requires idle or done)", sessionID, result.State)
 }
 
+// Delivery says how far a message got. Neither label says the agent read it.
+// The zero value means the message was held and nothing was sent.
+type Delivery string
+
+const (
+	// DeliveryAccepted means a native socket took the frame. Claude's socket sends no
+	// reply, so a native send can show no more than this.
+	DeliveryAccepted Delivery = "accepted"
+	// DeliverySubmitted means tmux send-keys typed the text and Enter into the pane.
+	// "received" is reserved for a harness-observed receipt; no path produces it yet.
+	DeliverySubmitted Delivery = "submitted"
+)
+
 // BroadcastResult distinguishes "no registered workers" from "registered but none reachable."
 type BroadcastResult struct {
 	Registered int // total workers in manifest
-	Delivered  int // workers whose local transport accepted the message
+	Accepted   int // workers whose native socket accepted the message
+	Submitted  int // workers whose pane got the message through tmux send-keys
 }
 
 // BroadcastFrom sends a message with sender provenance to all workers of a master session.
@@ -222,12 +242,18 @@ func (s *Service) broadcastTo(ctx context.Context, workers []string, senderID st
 		if strings.HasPrefix(prefix, "[MASTER:") {
 			pointer = relayPointer
 		}
-		if err := s.deliver(ctx, wid, target, prefix+message, pointer, prefix); err != nil {
+		delivery, err := s.deliver(ctx, wid, target, prefix+message, pointer, prefix)
+		if err != nil {
 			errs = append(errs, fmt.Errorf("send to %q: %w", wid, err))
 			continue
 		}
 		s.recordInstructions(senderID, wid, sender, recipient, message)
-		result.Delivered++
+		switch delivery {
+		case DeliveryAccepted:
+			result.Accepted++
+		case DeliverySubmitted:
+			result.Submitted++
+		}
 	}
 	return result, errors.Join(errs...)
 }
@@ -275,34 +301,34 @@ func (s *Service) Read(ctx context.Context, workerID string, lines int) (string,
 }
 
 // Report sends a report-back message from a worker to its master's agent pane.
-func (s *Service) Report(ctx context.Context, sessionID, message string) error {
+func (s *Service) Report(ctx context.Context, sessionID, message string) (Delivery, error) {
 	m, err := s.store.Read(sessionID)
 	if err != nil {
-		return fmt.Errorf("read manifest: %w", err)
+		return "", fmt.Errorf("read manifest: %w", err)
 	}
 
 	parent := m.ExtraString("parent_session")
 	if parent == "" {
-		return fmt.Errorf("session %q has no parent_session — not a worker", sessionID)
+		return "", fmt.Errorf("session %q has no parent_session — not a worker", sessionID)
 	}
 	parentManifest, err := s.store.Read(parent)
 	if err != nil {
-		return fmt.Errorf("read parent manifest: %w", err)
+		return "", fmt.Errorf("read parent manifest: %w", err)
 	}
 	if err := rejectPlainSession(parentManifest, parent); err != nil {
-		return err
+		return "", err
 	}
 
 	if err := s.client.EnsureSessionRunning(ctx, parent, "master"); err != nil {
-		return err
+		return "", err
 	}
 	if err := s.ensureOpenCodeRelayReady(parent); err != nil {
-		return err
+		return "", err
 	}
 
 	target, err := s.client.ResolveRole(ctx, parent, agentRole, tmux.WindowWorkspace)
 	if err != nil {
-		return fmt.Errorf("resolve agent pane in master %q: %w", parent, err)
+		return "", fmt.Errorf("resolve agent pane in master %q: %w", parent, err)
 	}
 
 	prefix := senderPrefix(sessionID)
@@ -311,11 +337,12 @@ func (s *Service) Report(ctx context.Context, sessionID, message string) error {
 		prefix = "[WORKER:" + sessionID + "] "
 		pointer = reportPointer
 	}
-	if err := s.deliver(ctx, parent, target, prefix+message, pointer, prefix); err != nil {
-		return err
+	delivery, err := s.deliver(ctx, parent, target, prefix+message, pointer, prefix)
+	if err != nil {
+		return "", err
 	}
 	_ = workerfeed.RecordChatEntryAt(s.store.Root(), sessionID, "report", message, time.Now().UTC())
-	return nil
+	return delivery, nil
 }
 
 func (s *Service) recordInstructions(senderID, workerID string, sender, recipient state.Manifest, text string) {
