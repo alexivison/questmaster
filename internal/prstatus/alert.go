@@ -40,6 +40,9 @@ func alertText(pr state.PullRequest, events []state.PullRequestEvent) string {
 			latestReview = part
 		case "ci":
 			latestCI = "CI: " + sanitizeAlertField(event.Result, 16)
+			if event.HeadSHA != "" {
+				latestCI += " (" + event.HeadSHA[:min(7, len(event.HeadSHA))] + ")"
+			}
 		case "state":
 			latestState = "PR: " + sanitizeAlertField(event.State, 16)
 		}
