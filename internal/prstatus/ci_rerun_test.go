@@ -53,10 +53,9 @@ func newCIPoller(t *testing.T) *ciPoller {
 		const rate = `"rateLimit":{"cost":1,"remaining":100,"resetAt":"2026-10-27T00:00:00Z"}`
 		contexts := fmt.Sprintf(`"contexts":{"nodes":[%s]}`, strings.Join(p.checks, ","))
 		switch {
+		case strings.Contains(query, "p0: repository") && !strings.Contains(query, "contexts(last:100)"):
+			return []byte(fmt.Sprintf(`{"data":{%s,"p0":{"pullRequest":{"headRefOid":%q}}}}`, rate, p.head)), nil, nil
 		case strings.Contains(query, "p0: repository"):
-			if !strings.Contains(query, "contexts(last:100)") {
-				t.Errorf("the poll does not ask for the head's check times: %s", query)
-			}
 			rollup := fmt.Sprintf(`{"state":%q,%s}`, p.rollup, contexts)
 			return []byte(fmt.Sprintf(`{"data":{"viewer":{"login":"viewer"},%s,"p0":{"pullRequest":{"title":"PR","state":"OPEN","headRefOid":%q,"updatedAt":%q,"commits":{"nodes":[{"commit":{"statusCheckRollup":%s}}]}}}}}`, rate, p.head, ciPRUpdated, rollup)), nil, nil
 		case strings.Contains(query, "contexts(last:100)"):

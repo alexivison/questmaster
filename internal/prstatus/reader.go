@@ -171,6 +171,42 @@ func query(prs []state.PullRequest) string {
 	return b.String()
 }
 
+// checkHead re-reads only the PR head when a pending alert contains CI.
+func checkHead(ctx context.Context, pr state.PullRequest, run Runner, now time.Time) (string, HostResult) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	query := fmt.Sprintf("query { rateLimit { cost remaining resetAt } p0: repository(owner:%s,name:%s) { pullRequest(number:%d) { headRefOid } } }", strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
+	stdout, stderr, runErr := run(ctx, pr.Host, query)
+	body, retry, reset := responseBody(stdout)
+	var response graphResponse
+	decodeErr := json.Unmarshal(body, &response)
+	rate := response.Data.RateLimit
+	if reset != "" {
+		rate = &RateLimit{Remaining: 0, ResetAt: reset}
+	}
+	message := strings.TrimSpace(string(stderr))
+	if message == "" {
+		message = response.Message
+	}
+	if message == "" && len(response.Errors) > 0 {
+		message = response.Errors[0].Message
+	}
+	if runErr != nil || decodeErr != nil || isWholeRequestError(response.Errors, message) {
+		result := detailFailure(now, retry, reset, rate, []byte(message), runErr)
+		result.RateLimit = rate
+		return "", result
+	}
+	var alias struct {
+		PullRequest *struct {
+			HeadSHA string `json:"headRefOid"`
+		} `json:"pullRequest"`
+	}
+	if err := json.Unmarshal(response.Data.Aliases["p0"], &alias); err != nil || alias.PullRequest == nil || alias.PullRequest.HeadSHA == "" {
+		return "", HostResult{Error: "invalid GitHub head response", RateLimit: rate, BackoffUntil: backoff(now, retry, rate, message)}
+	}
+	return alias.PullRequest.HeadSHA, HostResult{RateLimit: rate, BackoffUntil: backoff(now, retry, rate, message)}
+}
+
 type graphError struct {
 	Type    string   `json:"type"`
 	Path    []string `json:"path"`

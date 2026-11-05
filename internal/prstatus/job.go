@@ -453,13 +453,49 @@ func (j *Job) deliverPending(ctx context.Context) error {
 		send = message.NewService(state.OpenStore(j.Root), j.Tmux).Notify
 	}
 	active := make(map[string]bool, len(alerts))
+	var statuses map[string]state.PullRequestStatus
 	for _, alert := range alerts {
 		if !live[alert.SessionID] {
 			continue
 		}
 		key := alert.PullRequest.Key + "\x00" + alert.SessionID
 		active[key] = true
-		text := alertText(alert.PullRequest, alert.Events)
+		events := alert.Events
+		if hasCIEvent(events) {
+			if statuses == nil {
+				statuses, err = state.LoadPullRequestStatuses(j.Root)
+				if err != nil {
+					return err
+				}
+			}
+			head := statuses[alert.PullRequest.Key].HeadSHA
+			if !j.Now().Before(j.blocked[alert.PullRequest.Host]) && j.RunGH != nil {
+				checked, result := checkHead(ctx, alert.PullRequest, j.RunGH, j.Now())
+				if result.BackoffUntil != "" {
+					if until, parseErr := time.Parse(time.RFC3339, result.BackoffUntil); parseErr == nil {
+						j.blocked[alert.PullRequest.Host] = until
+					}
+				}
+				if result.RateLimit != nil {
+					last := j.last[alert.PullRequest.Host]
+					last.RateLimit = mergeRateLimit(last.RateLimit, result.RateLimit)
+					last.BackoffUntil = result.BackoffUntil
+					j.last[alert.PullRequest.Host] = last
+				}
+				if checked != "" {
+					head = checked
+				}
+			}
+			events = currentHeadEvents(events, head)
+			if len(events) == 0 {
+				delete(j.alertErrorLogged, key)
+				if err := state.AdvancePullRequestAlert(j.Root, alert.PullRequest.Key, alert.SessionID, alert.Seq); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		text := alertText(alert.PullRequest, events)
 		delivery, err := send(ctx, alert.SessionID, text)
 		if err != nil {
 			if ctx.Err() == nil && j.Now().Sub(j.alertErrorLogged[key]) >= time.Minute {
@@ -481,6 +517,25 @@ func (j *Job) deliverPending(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func hasCIEvent(events []state.PullRequestEvent) bool {
+	for _, event := range events {
+		if event.Kind == "ci" {
+			return true
+		}
+	}
+	return false
+}
+
+func currentHeadEvents(events []state.PullRequestEvent, head string) []state.PullRequestEvent {
+	kept := make([]state.PullRequestEvent, 0, len(events))
+	for _, event := range events {
+		if event.Kind != "ci" || event.HeadSHA == "" || head == "" || event.HeadSHA == head {
+			kept = append(kept, event)
+		}
+	}
+	return kept
 }
 
 var _ interface {
