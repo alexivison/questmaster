@@ -19,6 +19,7 @@ enum LogicSelfTests {
         ("testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM", testBundleWithoutAResolvingStableLinkBootstrapsWithItsQM),
         ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
+        ("testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges", testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
         ("testTmuxStartupScriptTargetsOnlyTheExactSession", testTmuxStartupScriptTargetsOnlyTheExactSession),
         ("testTmuxStartupScriptWritesNoGlobalEnvironment", testTmuxStartupScriptWritesNoGlobalEnvironment),
@@ -1390,6 +1391,40 @@ enum LogicSelfTests {
         try expect(env["QUESTMASTER_BIN"] == fixture.qm.path, "terminal should use executable from daemon record")
         try expect(env["QUESTMASTER_PATH_PREFIX"] == shim, "terminal should use daemon-owned shim path")
         try expect(env["PATH"]?.split(separator: ":").first.map(String.init) == shim, "daemon shim should be first on PATH")
+    }
+
+    /// A record miss (after every dropped connection) hashes the daemon binary only when it changed on disk.
+    private static func testDaemonRecordReusesTheBinaryHashUntilTheBinaryChanges() throws {
+        let fixture = try appBackendFixture()
+        let binary = fixture.root.appendingPathComponent("daemon-qm")
+        try Data("first build".utf8).write(to: binary)
+        let json = try String(data: JSONSerialization.data(withJSONObject: [
+            "running": true, "root": fixture.stateRoot.path, "identity": "canonical",
+            "socket": fixture.root.appendingPathComponent("daemon.sock").path,
+            "executable": binary.path, "shim_directory": fixture.root.appendingPathComponent("daemon-shims").path,
+            "build": "first build", "generation": 1, "accepting": true,
+        ]), encoding: .utf8) ?? ""
+        try writeExecutable("#!/bin/sh\nprintf '%s\\n' '\(json)'\n", to: fixture.qm)
+        let config = LaunchConfiguration.load(environment: fixture.environment,
+                                              workingDirectory: fixture.workingDirectory.path, bundle: fixture.bundle)
+        let previous = AppBackendEnvironment.current
+        defer { if let previous { AppBackendEnvironment.activate(previous) } }
+        AppBackendEnvironment.activate(config.backend)
+        var hashed: [String] = []
+        let connection = DaemonConnection(config: config, hashFile: { path in
+            hashed.append(path)
+            return (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        })
+
+        _ = try connection.record()
+        connection.invalidate()
+        _ = try connection.record()
+        try expect(hashed == [binary.path], "an unchanged binary should be hashed once, got \(hashed.count) hashes")
+
+        try Data("second, longer build".utf8).write(to: binary)
+        connection.invalidate()
+        _ = try connection.record()
+        try expect(hashed.count == 2, "a changed binary should be hashed again, got \(hashed.count) hashes")
     }
 
     private static func testTmuxStartupScriptScopesAppBackendEnvironmentToSession() throws {

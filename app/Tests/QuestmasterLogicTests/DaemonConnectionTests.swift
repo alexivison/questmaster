@@ -6,6 +6,8 @@ struct DaemonConnectionTests {
         recordAndUpgradeNudge()
         handshakeValidation()
         oldEnvelopeIsIncompatible()
+        binaryHashIsReusedUntilTheFileChanges()
+        anUnreadableBinaryHasNoHashAndKeepsNothing()
         print("DaemonConnectionTests: all tests passed")
     }
 
@@ -59,6 +61,40 @@ struct DaemonConnectionTests {
         } catch ServeClientError.protocolMismatch {
             // Expected: the old envelope enters the incompatible state.
         } catch { fail("old envelope raised unexpected error: \(error)") }
+    }
+
+    private static func binaryHashIsReusedUntilTheFileChanges() {
+        var cache = BinaryHashCache()
+        var computed = 0
+        func hash(_ fingerprint: BinaryHashCache.Fingerprint) -> String? {
+            cache.hash(of: fingerprint) {
+                computed += 1
+                return "hash-\(computed)"
+            }
+        }
+        let built = Date(timeIntervalSince1970: 1_000)
+        let binary = BinaryHashCache.Fingerprint(path: "/state/bin/qm", size: 100, modified: built)
+
+        expect(hash(binary) == "hash-1" && hash(binary) == "hash-1", "an unchanged binary should reuse its hash")
+        expect(computed == 1, "an unchanged binary should be hashed once, got \(computed)")
+        let changes = [
+            BinaryHashCache.Fingerprint(path: "/state/bin/qm", size: 101, modified: built),
+            BinaryHashCache.Fingerprint(path: "/state/bin/qm", size: 101, modified: built.addingTimeInterval(0.001)),
+            BinaryHashCache.Fingerprint(path: "/state/bin/other-qm", size: 101, modified: built.addingTimeInterval(0.001)),
+        ]
+        for (index, changed) in changes.enumerated() {
+            expect(hash(changed) == "hash-\(index + 2)", "a new size, modification time or path should hash again")
+        }
+        expect(computed == 4, "each change should hash once, got \(computed)")
+    }
+
+    private static func anUnreadableBinaryHasNoHashAndKeepsNothing() {
+        var cache = BinaryHashCache()
+        var computed = 0
+        let binary = BinaryHashCache.Fingerprint(path: "/state/bin/qm", size: 100, modified: Date(timeIntervalSince1970: 1_000))
+        expect(cache.hash(of: nil) { computed += 1; return "unused" } == nil && computed == 0, "a missing file should have no hash and not be read")
+        expect(cache.hash(of: binary) { computed += 1; return nil } == nil, "an unreadable file should have no hash")
+        expect(cache.hash(of: binary) { computed += 1; return "hash" } == "hash" && computed == 2, "a failed hash should not be kept")
     }
 
     private static func expect(_ condition: Bool, _ message: String) {

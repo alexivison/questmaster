@@ -10,11 +10,19 @@ final class DaemonConnection {
     private var respawnPolicy = ServeRespawnPolicy()
     private var lastFailure: Error?
     private let now: () -> Date
+    private let hashFile: (String) -> String?
+    private var binaryHashes = BinaryHashCache()
 
-    init(config: LaunchConfiguration, record: DaemonRecord? = nil, now: @escaping () -> Date = { Date() }) {
+    init(
+        config: LaunchConfiguration,
+        record: DaemonRecord? = nil,
+        now: @escaping () -> Date = { Date() },
+        hashFile: @escaping (String) -> String? = DaemonConnection.sha256
+    ) {
         self.config = config
         self.cached = record
         self.now = now
+        self.hashFile = hashFile
     }
 
     func invalidate() {
@@ -44,7 +52,8 @@ final class DaemonConnection {
                 respawnPolicy.reset()
                 lastFailure = nil
                 AppBackendEnvironment.use(record)
-                if record.shouldCheckUpgrade(diskBuild: Self.sha256(record.executable)),
+                let diskBuild = binaryHashes.hash(of: Self.fingerprint(record.executable)) { hashFile(record.executable) }
+                if record.shouldCheckUpgrade(diskBuild: diskBuild),
                    let nudge = config.backend.command("check-upgrade") {
                     _ = try? run(nudge)
                 }
@@ -107,6 +116,14 @@ final class DaemonConnection {
             throw ServeClientError.connect("backend command failed (exit \(process.terminationStatus))")
         }
         return data
+    }
+
+    /// The file's size and modification time, through a symlink as the hash reads it.
+    private static func fingerprint(_ path: String) -> BinaryHashCache.Fingerprint? {
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        let modified = Date(timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec) + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000)
+        return BinaryHashCache.Fingerprint(path: path, size: UInt64(info.st_size), modified: modified)
     }
 
     private static func sha256(_ path: String) -> String? {
