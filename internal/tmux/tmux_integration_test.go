@@ -154,6 +154,52 @@ func TestIntegrationSetManagedPaneTitleOverridesPaneLocalFormat(t *testing.T) {
 // helpers
 // ---------------------------------------------------------------------------
 
+// A tmux server whose own working directory has been deleted starts every new pane
+// there and ignores -c. RespawnPane must still land the command in its directory.
+func TestIntegrationRespawnPaneSurvivesADeletedServerDirectory(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	serverDir := t.TempDir()
+	t.Chdir(serverDir) // the server takes the directory of the client that starts it
+	runner := tmuxtest.NewRunner(t)
+	client := tmux.NewClient(runner)
+	ctx := t.Context()
+	if err := client.NewSession(ctx, "qm-server-start", "", serverDir); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	t.Chdir(t.TempDir())
+	if err := os.RemoveAll(serverDir); err != nil {
+		t.Fatalf("remove server directory: %v", err)
+	}
+
+	workDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(workDir, "pwd.out")
+	const name = "qm-after-delete"
+	if err := client.NewSession(ctx, name, "", workDir); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if err := client.RespawnPane(ctx, "="+name+":", workDir, fmt.Sprintf("pwd -P > %q; sleep 30", out)); err != nil {
+		t.Fatalf("RespawnPane: %v", err)
+	}
+
+	deadline := time.Now().Add(serverExitTimeout)
+	for {
+		data, err := os.ReadFile(out)
+		if err == nil && strings.TrimSpace(string(data)) != "" {
+			if got := strings.TrimSpace(string(data)); got != workDir {
+				t.Fatalf("pane started in %q, want %q", got, workDir)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane never wrote its directory to %s (read err %v); it likely started in the deleted server directory", out, err)
+		}
+		time.Sleep(serverExitPoll)
+	}
+}
+
 func mustRun(t *testing.T, runner *tmuxtest.Runner, args ...string) string {
 	t.Helper()
 	out, err := runner.Run(t.Context(), args...)

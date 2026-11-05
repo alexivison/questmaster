@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/alexivison/questmaster/internal/config"
 )
 
 // HasSession returns true if the named tmux session exists.
@@ -111,8 +113,15 @@ func (c *Client) runWithoutTMUX(ctx context.Context, args ...string) (string, er
 	return c.runner.Run(ctx, args...)
 }
 
-// RespawnPane kills the current process in a pane and starts a new one.
+// RespawnPane kills the current process in a pane and starts a new one in cwd.
+//
+// The command changes into cwd itself instead of relying on -c alone: a tmux
+// server whose own working directory has been deleted (a removed worktree, for
+// example) starts every new pane in that deleted directory and ignores -c.
 func (c *Client) RespawnPane(ctx context.Context, target, cwd, cmd string) error {
+	if cwd != "" {
+		cmd = "cd -- " + config.ShellQuote(cwd) + " || exit 1; " + cmd
+	}
 	_, err := c.runner.Run(ctx, "respawn-pane", "-k", "-t", target, "-c", cwd, cmd)
 	if err != nil {
 		return fmt.Errorf("respawn-pane %s: %w", target, err)

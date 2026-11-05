@@ -370,6 +370,37 @@ func TestRespawnPane_Success(t *testing.T) {
 	}
 }
 
+func TestRespawnPaneChangesIntoTheDirectoryBeforeTheCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cwd  string
+		cmd  string
+		want string
+	}{
+		{name: "plain directory", cwd: "/work/repo", cmd: "exec claude", want: "cd -- '/work/repo' || exit 1; exec claude"},
+		{name: "quote in directory", cwd: "/work/it's", cmd: "exec zsh -l", want: `cd -- '/work/it'"'"'s' || exit 1; exec zsh -l`},
+		{name: "no directory", cwd: "", cmd: "exec claude", want: "exec claude"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got []string
+			c := NewClient(newMock(func(_ context.Context, args ...string) (string, error) {
+				got = args
+				return "", nil
+			}))
+			if err := c.RespawnPane(t.Context(), "qm-s:0.0", tt.cwd, tt.cmd); err != nil {
+				t.Fatalf("RespawnPane: %v", err)
+			}
+			if command := got[len(got)-1]; command != tt.want {
+				t.Fatalf("command = %q, want %q", command, tt.want)
+			}
+		})
+	}
+}
+
 func TestRespawnPane_Error(t *testing.T) {
 	t.Parallel()
 

@@ -61,8 +61,9 @@ func TestStartShellSession(t *testing.T) {
 	if envIdx > respawnIdx {
 		t.Fatalf("%s set after shell respawn: env=%d respawn=%d", state.SessionEnv, envIdx, respawnIdx)
 	}
-	if got, want := runner.calls[respawnIdx].args[len(runner.calls[respawnIdx].args)-1], loginShellCommand(); got != want {
-		t.Fatalf("shell respawn command = %q, want %q", got, want)
+	got := runner.calls[respawnIdx].args[len(runner.calls[respawnIdx].args)-1]
+	if !strings.HasPrefix(got, "cd -- ") || !strings.HasSuffix(got, " || exit 1; "+loginShellCommand()) {
+		t.Fatalf("shell respawn command = %q, want a cd into the session directory, then %q", got, loginShellCommand())
 	}
 }
 

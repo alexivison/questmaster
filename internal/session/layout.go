@@ -69,5 +69,7 @@ func loginShellCommand() string {
 	if sh == "" {
 		sh = "/bin/zsh"
 	}
-	return sh + " -l"
+	// exec: RespawnPane puts a cd in front, so the login shell must replace the
+	// wrapping sh rather than run as its child.
+	return "exec " + sh + " -l"
 }
