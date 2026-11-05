@@ -31,6 +31,8 @@ struct ArtifactWebView: NSViewRepresentable {
     var decideNavigation: (URL?, Bool) -> ArtifactNavigationDecision
     var openExternal: (URL) -> Void
     var onLoadingChange: (Bool) -> Void
+    /// Called with the compile error when the remote-content blocker fails; the page is then not loaded.
+    var onRuleListFailure: (String) -> Void
     var ruleListCompiler: any ArtifactRuleListCompiling = WebKitRuleListCompiler()
 
     func makeCoordinator() -> Coordinator {
@@ -38,6 +40,7 @@ struct ArtifactWebView: NSViewRepresentable {
             decideNavigation: decideNavigation,
             openExternal: openExternal,
             onLoadingChange: onLoadingChange,
+            onRuleListFailure: onRuleListFailure,
             ruleListCompiler: ruleListCompiler
         )
     }
@@ -98,7 +101,8 @@ struct ArtifactWebView: NSViewRepresentable {
             reloadNonce: reloadNonce,
             decideNavigation: decideNavigation,
             openExternal: openExternal,
-            onLoadingChange: onLoadingChange
+            onLoadingChange: onLoadingChange,
+            onRuleListFailure: onRuleListFailure
         )
     }
 
@@ -112,6 +116,7 @@ struct ArtifactWebView: NSViewRepresentable {
         var decideNavigation: (URL?, Bool) -> ArtifactNavigationDecision
         var openExternal: (URL) -> Void
         var onLoadingChange: (Bool) -> Void
+        var onRuleListFailure: (String) -> Void
         var loadedPath: String?
         private var loadingObservation: NSKeyValueObservation?
         private let watcher = ArtifactFileWatcher()
@@ -126,11 +131,13 @@ struct ArtifactWebView: NSViewRepresentable {
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
             openExternal: @escaping (URL) -> Void,
             onLoadingChange: @escaping (Bool) -> Void,
+            onRuleListFailure: @escaping (String) -> Void,
             ruleListCompiler: any ArtifactRuleListCompiling
         ) {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
             self.onLoadingChange = onLoadingChange
+            self.onRuleListFailure = onRuleListFailure
             self.ruleListCompiler = ruleListCompiler
         }
 
@@ -144,11 +151,13 @@ struct ArtifactWebView: NSViewRepresentable {
             reloadNonce: Int,
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
             openExternal: @escaping (URL) -> Void,
-            onLoadingChange: @escaping (Bool) -> Void
+            onLoadingChange: @escaping (Bool) -> Void,
+            onRuleListFailure: @escaping (String) -> Void
         ) {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
             self.onLoadingChange = onLoadingChange
+            self.onRuleListFailure = onRuleListFailure
             pendingPath = artifact.path
 
             if reloadNonce != self.reloadNonce {
@@ -201,24 +210,21 @@ struct ArtifactWebView: NSViewRepresentable {
                     guard let self, let webView else {
                         return
                     }
-                    if let ruleList {
-                        webView.configuration.userContentController.add(ruleList)
-                        self.contentRuleListReady = true
-                        self.loadPendingArtifact(in: webView)
-                    } else {
-                        // The remote blocker is best-effort. Log the failure, allow a
-                        // later update() to retry the compile, and still render the
-                        // artifact so the pane is not left permanently blank.
-                        print("artifact remote blocker compile failed; rendering without it: \(error?.localizedDescription ?? "unknown error")")
-                        self.contentRuleListInstallStarted = false
-                        self.loadPendingArtifact(in: webView, requireRuleList: false)
+                    guard let ruleList else {
+                        // Fail closed: the page stays unloaded and the viewer says why. The install is not retried here;
+                        // the viewer drops this view and a new one (a new artifact or a refresh) asks again.
+                        self.onRuleListFailure(error?.localizedDescription ?? "unknown error")
+                        return
                     }
+                    webView.configuration.userContentController.add(ruleList)
+                    self.contentRuleListReady = true
+                    self.loadPendingArtifact(in: webView)
                 }
             }
         }
 
-        private func loadPendingArtifact(in webView: WKWebView, requireRuleList: Bool = true) {
-            guard !requireRuleList || contentRuleListReady,
+        private func loadPendingArtifact(in webView: WKWebView) {
+            guard contentRuleListReady,
                   let path = pendingPath,
                   loadedPath != path else {
                 return

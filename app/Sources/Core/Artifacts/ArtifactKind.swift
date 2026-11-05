@@ -23,6 +23,16 @@ public enum ArtifactKind: Equatable {
         }
     }
 
+    /// Whether a new artifact of this kind opens in the viewer by itself. HTML runs script, so it waits for a click.
+    public var opensAutomatically: Bool {
+        switch self {
+        case .markdown, .image:
+            return true
+        case .html, .unsupported:
+            return false
+        }
+    }
+
     private static func from(_ kind: String) -> ArtifactKind {
         switch kind {
         case "html":
