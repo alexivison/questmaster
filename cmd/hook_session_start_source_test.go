@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/alexivison/questmaster/internal/message"
@@ -110,6 +111,11 @@ func (r *notifyTmuxRunner) Run(_ context.Context, args ...string) (string, error
 	case "list-panes":
 		return "0 0 agent", nil
 	case "display-message":
+		// Send resolves the pane first (pane_id, pane_dead), then checks it is
+		// not in copy mode (pane_in_mode).
+		if strings.Contains(args[len(args)-1], "pane_dead") {
+			return "%0\t0", nil
+		}
 		return "0", nil
 	case "send-keys":
 		if args[len(args)-1] != "Enter" {
