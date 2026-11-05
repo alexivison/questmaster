@@ -14,7 +14,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// stampedVersion is set at link time by the app build
+// (-ldflags "-X github.com/alexivison/questmaster/cmd.stampedVersion=<git describe>"),
+// so the bundled qm reports the same version as the app's Info.plist.
+var stampedVersion string
+
 func appVersion() string {
+	if stampedVersion != "" {
+		return stampedVersion
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
 		return "dev"
