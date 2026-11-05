@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alexivison/questmaster/internal/state"
@@ -31,9 +33,18 @@ const (
 	// hundred KB rather than the multi-MB upstream document.
 	CatalogFileName = "model-catalog.json"
 
-	catalogTTL          = 24 * time.Hour
+	catalogTTL = 24 * time.Hour
+	// catalogColdWait bounds how long a request with no cached catalog waits
+	// for the first fetch. The fetch keeps running and fills the cache, so the
+	// next request reads it.
+	catalogColdWait = 2 * time.Second
+	// catalogFetchTimeout bounds one fetch, background or not, so a hung
+	// network cannot keep a refresh open forever.
 	catalogFetchTimeout = 15 * time.Second
 	catalogMaxBytes     = 64 << 20
+	// maxCatalogRedirects matches net/http's default. A custom CheckRedirect
+	// replaces that default, so the limit is kept here.
+	maxCatalogRedirects = 10
 )
 
 // CatalogModel is one model as Questmaster needs it: the id a harness is
@@ -73,12 +84,13 @@ func (c Catalog) fresh(now time.Time) bool {
 
 // Fetcher retrieves the raw catalog document. It is injected so tests never
 // touch the network.
-type Fetcher func(ctx context.Context, url string) ([]byte, error)
+type Fetcher func(ctx context.Context, endpoint string) ([]byte, error)
 
 // CatalogOptions configures a catalog load.
 type CatalogOptions struct {
 	// Root is the state root that holds the cache. An empty root disables
-	// caching (the catalog is fetched and used in memory).
+	// caching: the catalog is never read from or written to disk, so a call
+	// waits on a fetch as it would for a cold cache.
 	Root string
 	// Fetch retrieves the raw document. Nil uses HTTPFetcher.
 	Fetch Fetcher
@@ -86,13 +98,21 @@ type CatalogOptions struct {
 	Now time.Time
 	// Refresh forces a fetch even when the cache is still fresh.
 	Refresh bool
+	// Background lets a request answer before the catalog is current: a stale
+	// cache is served at once while one refresh runs, and a cold cache waits at
+	// most catalogColdWait. Only the long-lived daemon sets it. A one-shot
+	// process exits before a background refresh could finish, so without it a
+	// request waits for the fetch, bounded by catalogFetchTimeout.
+	Background bool
 }
 
-// LoadCatalog resolves the model catalog, preferring the freshest source that
-// works: a fresh cache, then a fetch, then a stale cache. It returns an empty
-// catalog rather than failing hard — callers degrade to harness enumeration,
-// recent launches, and the built-in role defaults, and a model the user types
-// is never gated on the catalog.
+// LoadCatalog resolves the model catalog. A fresh cache is returned as is.
+// Otherwise the call waits for one fetch, bounded by catalogFetchTimeout. With
+// opts.Background (the daemon), a stale cache is returned at once while one
+// refresh runs, and a cold cache waits at most catalogColdWait; the fetch it
+// started fills the cache for the next request. Callers degrade to harness
+// enumeration, recent launches, and the built-in role defaults, and a model the
+// user types is never gated on the catalog.
 func LoadCatalog(ctx context.Context, opts CatalogOptions) (Catalog, error) {
 	now := opts.Now
 	if now.IsZero() {
@@ -105,8 +125,11 @@ func LoadCatalog(ctx context.Context, opts CatalogOptions) (Catalog, error) {
 		return cached, nil
 	}
 
-	url := catalogURL()
-	if url == "" {
+	endpoint, err := catalogURL()
+	if err != nil {
+		return cached, err
+	}
+	if endpoint == "" {
 		if cached.Empty() {
 			return cached, fmt.Errorf("model catalog fetch disabled by %s and no cache present", CatalogURLEnv)
 		}
@@ -117,53 +140,169 @@ func LoadCatalog(ctx context.Context, opts CatalogOptions) (Catalog, error) {
 	if fetch == nil {
 		fetch = HTTPFetcher
 	}
-	raw, err := fetch(ctx, url)
+	flight := startCatalogFlight(opts.Root, endpoint, fetch, now)
+	switch {
+	case opts.Refresh || !opts.Background:
+		return awaitCatalog(ctx, flight, catalogFetchTimeout, cached)
+	case cached.Empty():
+		return awaitCatalog(ctx, flight, catalogColdWait, cached)
+	default:
+		// Stale but usable: answer now, and the flight refreshes the cache for
+		// the next request.
+		return cached, nil
+	}
+}
+
+// catalogFlight is one catalog fetch. Once done closes, catalog or err holds
+// its result.
+type catalogFlight struct {
+	done    chan struct{}
+	catalog Catalog
+	err     error
+}
+
+// catalogFlights holds the fetch in progress for each cache root, so requests
+// that arrive during a refresh share it instead of starting another.
+var (
+	catalogFlightsMu     sync.Mutex
+	catalogFlightsByRoot = map[string]*catalogFlight{}
+)
+
+// startCatalogFlight returns the fetch already running for root, or starts one.
+// The fetch runs on its own goroutine and does not inherit the request's
+// context: a request that gives up must not cancel a refresh other requests
+// are waiting on. Its own timeout bounds its life, so it never outlives
+// catalogFetchTimeout.
+func startCatalogFlight(root, endpoint string, fetch Fetcher, now time.Time) *catalogFlight {
+	catalogFlightsMu.Lock()
+	defer catalogFlightsMu.Unlock()
+	if flight, running := catalogFlightsByRoot[root]; running {
+		return flight
+	}
+	flight := &catalogFlight{done: make(chan struct{})}
+	catalogFlightsByRoot[root] = flight
+	go flight.run(root, endpoint, fetch, now)
+	return flight
+}
+
+func (f *catalogFlight) run(root, endpoint string, fetch Fetcher, now time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), catalogFetchTimeout)
+	defer cancel()
+	f.catalog, f.err = fetchCatalog(ctx, fetch, endpoint, root, now)
+
+	catalogFlightsMu.Lock()
+	delete(catalogFlightsByRoot, root)
+	catalogFlightsMu.Unlock()
+	close(f.done)
+}
+
+// awaitCatalog waits up to limit for flight, or until ctx ends. When it stops
+// waiting first it returns fallback. The flight keeps running and fills the
+// cache either way.
+func awaitCatalog(ctx context.Context, flight *catalogFlight, limit time.Duration, fallback Catalog) (Catalog, error) {
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	select {
+	case <-flight.done:
+		if flight.err != nil {
+			return fallback, flight.err
+		}
+		return flight.catalog, nil
+	case <-timer.C:
+		return fallback, fmt.Errorf("model catalog not ready after %s", limit)
+	case <-ctx.Done():
+		return fallback, ctx.Err()
+	}
+}
+
+// fetchCatalog fetches, distills and caches one catalog. A cache we cannot
+// write is not a reason to drop a catalog we just fetched successfully.
+func fetchCatalog(ctx context.Context, fetch Fetcher, endpoint, root string, now time.Time) (Catalog, error) {
+	raw, err := fetch(ctx, endpoint)
 	if err != nil {
-		return cached, fmt.Errorf("fetch model catalog: %w", err)
+		return Catalog{}, fmt.Errorf("fetch model catalog: %w", err)
 	}
 	fresh, err := distillCatalog(raw, now)
 	if err != nil {
-		return cached, err
+		return Catalog{}, err
 	}
 	if fresh.Empty() {
-		return cached, fmt.Errorf("model catalog from %s carried no usable models", url)
+		return Catalog{}, fmt.Errorf("model catalog from %s carried no usable models", endpoint)
 	}
-	// Caching is best effort: a cache we cannot write is not a reason to drop
-	// a catalog we just fetched successfully.
-	_ = writeCatalogCache(opts.Root, fresh)
+	_ = writeCatalogCache(root, fresh)
 	return fresh, nil
 }
 
-// HTTPFetcher is the default catalog fetcher.
-func HTTPFetcher(ctx context.Context, url string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, catalogFetchTimeout)
-	defer cancel()
+// HTTPFetcher is the default catalog fetcher. It refuses any endpoint that is
+// not https, and ctx bounds the request.
+func HTTPFetcher(ctx context.Context, endpoint string) ([]byte, error) {
+	return getCatalog(ctx, catalogHTTPClient, endpoint)
+}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// catalogHTTPClient is the client HTTPFetcher uses.
+var catalogHTTPClient = newCatalogClient(http.DefaultClient)
+
+// newCatalogClient returns a copy of base that follows a redirect only to an
+// https URL, so a redirect cannot downgrade the catalog fetch to plain http.
+func newCatalogClient(base *http.Client) *http.Client {
+	client := *base
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxCatalogRedirects {
+			return fmt.Errorf("stopped after %d redirects", maxCatalogRedirects)
+		}
+		return requireHTTPS(req.URL.String())
+	}
+	return &client
+}
+
+// getCatalog GETs one catalog document with client. It requests only https
+// endpoints.
+func getCatalog(ctx context.Context, client *http.Client, endpoint string) ([]byte, error) {
+	if err := requireHTTPS(endpoint); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s returned HTTP %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("%s returned HTTP %d", endpoint, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, catalogMaxBytes))
 }
 
-func catalogURL() string {
+// catalogURL returns the endpoint to fetch, or "" when fetching is off. An
+// override that is not https is an error, so nothing is fetched from it.
+func catalogURL() (string, error) {
 	value, ok := os.LookupEnv(CatalogURLEnv)
 	if !ok {
-		return CatalogURL
+		return CatalogURL, nil
 	}
 	value = strings.TrimSpace(value)
 	if value == "" || strings.EqualFold(value, "off") {
-		return ""
+		return "", nil
 	}
-	return value
+	if err := requireHTTPS(value); err != nil {
+		return "", fmt.Errorf("%s: %w", CatalogURLEnv, err)
+	}
+	return value, nil
+}
+
+// requireHTTPS rejects a catalog endpoint that would not be fetched over TLS.
+func requireHTTPS(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("parse model catalog URL: %w", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("model catalog URL must be https://, got %q", endpoint)
+	}
+	return nil
 }
 
 // upstreamProvider mirrors just the parts of the models.dev document
