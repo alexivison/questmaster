@@ -235,7 +235,7 @@ func TestSendCodexUsesTmuxWithFilePointer(t *testing.T) {
 	if !strings.Contains(out, `"delivery": "submitted"`) {
 		t.Fatalf("send output = %q", out)
 	}
-	if len(calls) != 2 || strings.Join(calls[0].args[:5], " ") != "send-keys -t =qm-codex:1.0 -l --" || strings.Join(calls[1].args, " ") != "send-keys -t =qm-codex:1.0 Enter" {
+	if len(calls) != 2 || strings.Join(calls[0].args[:5], " ") != "send-keys -t %1 -l --" || strings.Join(calls[1].args, " ") != "send-keys -t %1 Enter" {
 		t.Fatalf("tmux sends = %+v", calls)
 	}
 	if delay := calls[1].at.Sub(calls[0].at); delay < 180*time.Millisecond {

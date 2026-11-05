@@ -242,12 +242,21 @@ func relayFilePathFromPointer(t *testing.T, pointer string) string {
 	return tail[:end+3]
 }
 
+// livePaneDisplay answers display-message like tmux for one live pane that is
+// not in copy mode.
+func livePaneDisplay(args []string) string {
+	if args[len(args)-1] == "#{pane_id}\t#{pane_dead}" {
+		return "%1\t0"
+	}
+	return "0"
+}
+
 // idleAndSendRunner returns a runner that reports panes as idle
 // and records send-keys calls.
 func idleAndSendRunner(sent *[]string) *mockRunner {
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "display-message" {
-			return "0", nil // pane idle
+			return livePaneDisplay(args), nil
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
 			// Record literal text sends (not Enter)
@@ -874,7 +883,7 @@ func TestBroadcastFrom_SkipsDeadWorkers(t *testing.T) {
 			return "", nil
 		}
 		if len(args) >= 1 && args[0] == "display-message" {
-			return "0", nil
+			return livePaneDisplay(args), nil
 		}
 		if len(args) >= 1 && args[0] == "send-keys" {
 			return "", nil
@@ -936,7 +945,7 @@ func TestBroadcastFrom_LiveWorkerSendFailureIsSurfaced(t *testing.T) {
 		case len(args) >= 1 && args[0] == "list-panes":
 			return "1 0 agent", nil // agent pane resolves
 		case len(args) >= 1 && args[0] == "display-message":
-			return "0", nil // pane idle
+			return livePaneDisplay(args), nil
 		case len(args) >= 1 && args[0] == "send-keys":
 			return "", &tmux.ExitError{Code: 1} // delivery fails
 		}

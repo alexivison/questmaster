@@ -16,7 +16,7 @@ const (
 	// (and any additional panes, e.g. an adopted shell) for every session type.
 	WindowWorkspace = 0
 
-	// DefaultSendTimeout is the default timeout for send-keys attempts.
+	// DefaultSendTimeout bounds one whole Send, lock wait to Enter.
 	DefaultSendTimeout = 2 * time.Second
 
 	// PaneRoleOption is the tmux user-option key storing a pane's questmaster role.

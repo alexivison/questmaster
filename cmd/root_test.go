@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alexivison/questmaster/internal/tmux"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -278,5 +279,21 @@ func TestStartModelAndReasoningEffortFlags(t *testing.T) {
 		if !strings.Contains(flag.Usage, want) {
 			t.Fatalf("start --reasoning-effort help missing %q: %q", want, flag.Usage)
 		}
+	}
+}
+
+// A CLI send may queue behind other senders to the same pane, so the CLI's
+// client gets the longer send timeout. The daemon keeps tmux's default: an alert
+// that fails to send is retried on the next tick.
+func TestSendTimeoutIsLongerForTheCLIThanForTheDaemon(t *testing.T) {
+	t.Parallel()
+	if got := newCLITmuxClient().SendTimeout; got != cliSendTimeout {
+		t.Errorf("CLI client SendTimeout = %s, want %s", got, cliSendTimeout)
+	}
+	if got := newDaemonTmuxClient().SendTimeout; got != tmux.DefaultSendTimeout {
+		t.Errorf("daemon client SendTimeout = %s, want the default %s", got, tmux.DefaultSendTimeout)
+	}
+	if cliSendTimeout <= tmux.DefaultSendTimeout {
+		t.Errorf("cliSendTimeout %s is not longer than the default %s", cliSendTimeout, tmux.DefaultSendTimeout)
 	}
 }

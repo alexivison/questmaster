@@ -1,8 +1,13 @@
 package tmux
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -602,35 +607,58 @@ func TestIsPaneIdle_Error(t *testing.T) {
 // Send
 // ---------------------------------------------------------------------------
 
+// paneMock answers like tmux for one live, idle pane %5. Tests override single
+// commands through override, which returns ok=false to fall through.
+func paneMock(override func(args []string) (string, error, bool)) *mockRunner {
+	return newMock(func(_ context.Context, args ...string) (string, error) {
+		if override != nil {
+			if out, err, ok := override(args); ok {
+				return out, err
+			}
+		}
+		if args[0] == "display-message" {
+			switch args[len(args)-1] {
+			case "#{pane_id}\t#{pane_dead}":
+				return "%5\t0", nil
+			case "#{pane_in_mode}":
+				return "0", nil
+			}
+		}
+		return "", nil
+	})
+}
+
+func sentKeys(m *mockRunner) [][]string {
+	var keys [][]string
+	for _, c := range m.calls {
+		if c.args[0] == "send-keys" {
+			keys = append(keys, c.args)
+		}
+	}
+	return keys
+}
+
 func TestSend_Success(t *testing.T) {
 	t.Parallel()
+	c := NewClient(paneMock(nil))
 
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] == "display-message" {
-			return "0", nil // idle
-		}
-		return "", nil // send-keys success
-	})
-	c := NewClient(m)
-
-	result := c.Send(t.Context(), "qm-s:0.1", "hello world")
+	result := c.Send(t.Context(), t.TempDir(), "=qm-s:0.1", "hello world")
 	if !result.Submitted {
 		t.Fatalf("expected delivered, got error: %v", result.Err)
 	}
-	if result.Target != "qm-s:0.1" {
-		t.Errorf("target: got %q, want %q", result.Target, "qm-s:0.1")
+	if result.Target != "=qm-s:0.1" {
+		t.Errorf("target: got %q, want %q", result.Target, "=qm-s:0.1")
 	}
 }
 
+// Text and Enter go to the pane resolved first, by ID, with the Enter delay
+// between them.
 func TestSend_VerifiesCommandArgs(t *testing.T) {
 	t.Parallel()
 
 	var textSentAt time.Time
 	var enterDelay time.Duration
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] == "display-message" {
-			return "0", nil
-		}
+	m := paneMock(func(args []string) (string, error, bool) {
 		if args[0] == "send-keys" {
 			if args[len(args)-1] == "Enter" {
 				enterDelay = time.Since(textSentAt)
@@ -638,28 +666,20 @@ func TestSend_VerifiesCommandArgs(t *testing.T) {
 				textSentAt = time.Now()
 			}
 		}
-		return "", nil
+		return "", nil, false
 	})
 	c := NewClient(m)
 
-	c.Send(t.Context(), "qm-s:0.1", "test msg")
-
-	// Expect 3 calls: display-message, send-keys -l, send-keys Enter
-	if len(m.calls) != 3 {
-		t.Fatalf("call count: got %d, want 3", len(m.calls))
+	if result := c.Send(t.Context(), t.TempDir(), "=qm-s:0.1", "test msg"); !result.Submitted {
+		t.Fatalf("Send: %v", result.Err)
 	}
 
-	// Verify send-keys -l call includes -- separator and literal text
-	sendCall := m.calls[1]
-	joined := strings.Join(sendCall.args, " ")
-	if !strings.Contains(joined, "-l") || !strings.Contains(joined, "--") || !strings.Contains(joined, "test msg") {
-		t.Errorf("send-keys call: got %v", sendCall.args)
+	want := [][]string{
+		{"send-keys", "-t", "%5", "-l", "--", "test msg"},
+		{"send-keys", "-t", "%5", "Enter"},
 	}
-
-	// Verify Enter key call
-	enterCall := m.calls[2]
-	if enterCall.args[len(enterCall.args)-1] != "Enter" {
-		t.Errorf("enter call: got %v", enterCall.args)
+	if got := sentKeys(m); !slices.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("send-keys calls = %q, want %q", got, want)
 	}
 	if enterDelay < 120*time.Millisecond {
 		t.Errorf("Enter followed text after %s; Codex can treat it as pasted newline within 120ms", enterDelay)
@@ -669,52 +689,196 @@ func TestSend_VerifiesCommandArgs(t *testing.T) {
 func TestSend_Timeout(t *testing.T) {
 	t.Parallel()
 
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
-		return "1", nil // always in copy mode
+	m := paneMock(func(args []string) (string, error, bool) {
+		if args[len(args)-1] == "#{pane_in_mode}" {
+			return "1", nil, true // always in copy mode
+		}
+		return "", nil, false
 	})
 	c := NewClient(m)
-	c.SendTimeout = 200 * time.Millisecond
+	c.SendTimeout = sendSubmitReserve + 200*time.Millisecond
 
-	result := c.Send(t.Context(), "qm-s:0.0", "blocked")
+	result := c.Send(t.Context(), t.TempDir(), "=qm-s:0.0", "blocked")
 	if result.Submitted {
 		t.Fatal("expected timeout, got delivered")
 	}
 	if !errors.Is(result.Err, ErrSendTimeout) {
 		t.Errorf("error: got %v, want ErrSendTimeout", result.Err)
 	}
+	if keys := sentKeys(m); len(keys) != 0 {
+		t.Errorf("typed %q into a pane that never left copy mode", keys)
+	}
 }
 
 func TestSend_IdleCheckError(t *testing.T) {
 	t.Parallel()
 
-	m := newMock(func(_ context.Context, _ ...string) (string, error) {
+	c := NewClient(newMock(func(_ context.Context, _ ...string) (string, error) {
 		return "", errors.New("pane gone")
-	})
-	c := NewClient(m)
+	}))
 
-	result := c.Send(t.Context(), "qm-s:0.0", "msg")
-	if result.Submitted {
-		t.Fatal("expected error, got delivered")
-	}
-	if result.Err == nil {
-		t.Fatal("expected error, got nil")
+	result := c.Send(t.Context(), t.TempDir(), "=qm-s:0.0", "msg")
+	if result.Submitted || result.Err == nil {
+		t.Fatalf("Send = %+v, want an error", result)
 	}
 }
 
 func TestSend_SendKeysError(t *testing.T) {
 	t.Parallel()
 
-	m := newMock(func(_ context.Context, args ...string) (string, error) {
-		if args[0] == "display-message" {
-			return "0", nil // idle
+	c := NewClient(paneMock(func(args []string) (string, error, bool) {
+		if args[0] == "send-keys" {
+			return "", errors.New("send failed"), true
 		}
-		return "", errors.New("send failed")
-	})
-	c := NewClient(m)
+		return "", nil, false
+	}))
 
-	result := c.Send(t.Context(), "qm-s:0.1", "msg")
-	if result.Submitted {
+	if result := c.Send(t.Context(), t.TempDir(), "=qm-s:0.1", "msg"); result.Submitted {
 		t.Fatal("expected error, got delivered")
+	}
+}
+
+// A pane that is gone or dead before Enter fails the send. tmux drops keys
+// sent to a dead pane without an error, so Enter alone cannot tell.
+func TestSend_FailsWhenThePaneClosesBeforeEnter(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name      string
+		afterText func(args []string) (string, error, bool)
+	}{
+		{name: "pane gone", afterText: func(args []string) (string, error, bool) {
+			if args[0] == "display-message" {
+				return "\t", nil, true
+			}
+			return "", nil, false
+		}},
+		{name: "pane dead", afterText: func(args []string) (string, error, bool) {
+			if args[0] == "display-message" {
+				return "%5\t1", nil, true
+			}
+			return "", nil, false
+		}},
+		{name: "enter cannot reach the pane", afterText: func(args []string) (string, error, bool) {
+			if args[0] == "send-keys" && args[len(args)-1] == "Enter" {
+				return "", &ExitError{Code: 1, Stderr: "can't find pane: %5"}, true
+			}
+			return "", nil, false
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			typed := false
+			m := paneMock(func(args []string) (string, error, bool) {
+				if typed {
+					return tt.afterText(args)
+				}
+				typed = args[0] == "send-keys"
+				return "", nil, false
+			})
+
+			result := NewClient(m).Send(t.Context(), t.TempDir(), "=qm-s:0.0", "msg")
+
+			if result.Submitted || result.Err == nil {
+				t.Fatalf("Send = %+v, want an error", result)
+			}
+			if tt.name != "enter cannot reach the pane" && len(sentKeys(m)) != 1 {
+				t.Errorf("send-keys calls = %q, want only the text", sentKeys(m))
+			}
+		})
+	}
+}
+
+// Send keeps enough of its deadline for Enter: with less left after waiting,
+// it types nothing rather than leave text without its Enter.
+func TestSend_DoesNotTypeWithoutTimeForEnter(t *testing.T) {
+	t.Parallel()
+	m := paneMock(nil)
+	c := NewClient(m)
+	c.SendTimeout = sendSubmitReserve / 2
+
+	result := c.Send(t.Context(), t.TempDir(), "=qm-s:0.0", "msg")
+
+	if !errors.Is(result.Err, context.DeadlineExceeded) {
+		t.Fatalf("Send error = %v, want the deadline", result.Err)
+	}
+	if keys := sentKeys(m); len(keys) != 0 {
+		t.Errorf("typed %q with no time left for Enter", keys)
+	}
+}
+
+// Another sender, in another process, holds the pane's send lock until after
+// the deadline. Send must give up at the deadline and type nothing.
+func TestSend_HeldLockReturnsTheDeadlineAndSendsNothing(t *testing.T) {
+	t.Parallel()
+	lockDir := t.TempDir()
+	holdLockInAnotherProcess(t, filepath.Join(lockDir, "pane-5.lock"))
+	m := paneMock(nil)
+	c := NewClient(m)
+	c.SendTimeout = sendSubmitReserve + 300*time.Millisecond
+
+	began := time.Now()
+	result := c.Send(t.Context(), lockDir, "=qm-s:0.0", "msg")
+
+	if !errors.Is(result.Err, context.DeadlineExceeded) {
+		t.Fatalf("Send error = %v, want the deadline", result.Err)
+	}
+	if keys := sentKeys(m); len(keys) != 0 {
+		t.Errorf("typed %q while another sender held the lock", keys)
+	}
+	if elapsed := time.Since(began); elapsed > c.SendTimeout+time.Second {
+		t.Errorf("Send took %s, past its %s deadline", elapsed, c.SendTimeout)
+	}
+}
+
+// The lock file stays after a send: removing it would let two senders hold
+// the lock at once.
+func TestSend_KeepsTheLockFile(t *testing.T) {
+	t.Parallel()
+	lockDir := t.TempDir()
+	c := NewClient(paneMock(nil))
+	if result := c.Send(t.Context(), lockDir, "=qm-s:0.0", "first"); !result.Submitted {
+		t.Fatal(result.Err)
+	}
+	before, err := os.Stat(filepath.Join(lockDir, "pane-5.lock"))
+	if err != nil {
+		t.Fatalf("lock file after a send: %v", err)
+	}
+	if result := c.Send(t.Context(), lockDir, "=qm-s:0.0", "second"); !result.Submitted {
+		t.Fatal(result.Err)
+	}
+	after, err := os.Stat(filepath.Join(lockDir, "pane-5.lock"))
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatalf("lock file replaced or removed between sends (err %v)", err)
+	}
+}
+
+// holdLockInAnotherProcess flocks path from a perl child until the test ends.
+func holdLockInAnotherProcess(t *testing.T, path string) {
+	t.Helper()
+	perl, err := exec.LookPath("perl")
+	if err != nil {
+		t.Skip("perl holds the lock from another process; not installed")
+	}
+	cmd := exec.Command(perl, "-MFcntl=:flock", "-e",
+		`open my $f, ">>", $ARGV[0] or die; flock($f, LOCK_EX) or die; $| = 1; print "locked\n"; <STDIN>;`, path)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+	})
+	line, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil || line != "locked\n" {
+		t.Fatalf("lock holder did not take the lock: %q, %v", line, err)
 	}
 }
 

@@ -122,7 +122,7 @@ func (s *Service) deliver(ctx context.Context, sessionID, target, message string
 	if indirected {
 		msg = pointerPrefix + msg
 	}
-	if err := s.client.Send(ctx, target, msg).Err; err != nil {
+	if err := s.client.Send(ctx, state.SendLockDir(s.store.Root()), target, msg).Err; err != nil {
 		return "", err
 	}
 	return DeliverySubmitted, nil
