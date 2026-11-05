@@ -312,44 +312,49 @@ func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any
 	if client == nil {
 		client = tmux.NewClient(tmux.DefaultServer())
 	}
-	var paneTitleErr error
-	if err := s.mutationStore().Update(sessionID, func(m *state.Manifest) {
+	store := s.mutationStore()
+	agentSession := false
+	if err := store.Update(sessionID, func(m *state.Manifest) {
 		m.Title = title
 		m.SetExtra("title_locked", "1")
 		delete(m.Extra, "title_provisional")
-		if len(m.Agents) == 0 {
-			return
-		}
-		alive, err := client.HasSession(ctx, sessionID)
-		if err != nil {
-			paneTitleErr = fmt.Errorf("check renamed session pane: %w", err)
-			return
-		}
-		if !alive {
-			return
-		}
-		pane, err := client.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
-		if errors.Is(err, tmux.ErrRoleNotFound) {
-			// Continue briefly has one untagged pane before launch assigns its role.
-			panes, listErr := client.ListPanes(ctx, sessionID)
-			if listErr != nil {
-				err = listErr
-			} else if len(panes) == 1 && panes[0].WindowIndex == tmux.WindowWorkspace && panes[0].PaneIndex == 0 && panes[0].Role == "" {
-				pane, err = panes[0].Target(), nil
-			}
-		}
-		if err != nil {
-			paneTitleErr = fmt.Errorf("resolve renamed session pane: %w", err)
-			return
-		}
-		paneTitleErr = client.SetManagedPaneTitle(ctx, pane, title)
+		agentSession = len(m.Agents) > 0
 	}); err != nil {
 		return nil, err
 	}
-	if paneTitleErr != nil {
-		return nil, fmt.Errorf("rename session pane: %w", paneTitleErr)
+	if agentSession {
+		if err := renameSessionPane(ctx, store, client, sessionID, title); err != nil {
+			return nil, fmt.Errorf("rename session pane: %w", err)
+		}
 	}
 	return map[string]string{"session_id": sessionID, "title": title}, nil
+}
+
+// renameSessionPane puts a renamed session's committed title on its agent
+// pane when the session is running. It runs after the manifest commit, and
+// WriteCommittedPaneTitle follows a rename that commits during the write.
+func renameSessionPane(ctx context.Context, store *state.Store, client *tmux.Client, sessionID, title string) error {
+	alive, err := client.HasSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("check renamed session pane: %w", err)
+	}
+	if !alive {
+		return nil
+	}
+	pane, err := client.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
+	if errors.Is(err, tmux.ErrRoleNotFound) {
+		// Continue briefly has one untagged pane before launch assigns its role.
+		panes, listErr := client.ListPanes(ctx, sessionID)
+		if listErr != nil {
+			err = listErr
+		} else if len(panes) == 1 && panes[0].WindowIndex == tmux.WindowWorkspace && panes[0].PaneIndex == 0 && panes[0].Role == "" {
+			pane, err = panes[0].Target(), nil
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("resolve renamed session pane: %w", err)
+	}
+	return state.WriteCommittedPaneTitle(ctx, store, client, sessionID, pane, title)
 }
 
 func (s *Server) mutateRecolor(payload mutationPayload) (any, error) {

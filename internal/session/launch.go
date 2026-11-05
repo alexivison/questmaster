@@ -101,22 +101,21 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	return nil
 }
 
-// syncLaunchedPaneTitle reads the current manifest under its lock. A rename
-// may have committed after Continue read its launch snapshot but before the
-// new tmux pane existed; the latest title wins in that case.
+// syncLaunchedPaneTitle puts the manifest's current title on the new pane. A
+// rename may have committed after Continue read its launch snapshot but
+// before the pane existed, so the title is read now, and
+// WriteCommittedPaneTitle follows a rename that commits during the write.
 func (s *Service) syncLaunchedPaneTitle(ctx context.Context, sessionID string) error {
-	var titleErr error
-	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
-		if m.Title == "" {
-			return
-		}
-		pane := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
-		titleErr = s.Client.SetManagedPaneTitle(ctx, pane, m.Title)
-	}); err != nil {
+	m, err := s.Store.Read(sessionID)
+	if err != nil {
 		return fmt.Errorf("sync launched pane title: %w", err)
 	}
-	if titleErr != nil {
-		return fmt.Errorf("sync launched pane title: %w", titleErr)
+	if m.Title == "" {
+		return nil
+	}
+	pane := tmux.PaneTarget(sessionID, tmux.WindowWorkspace, 0)
+	if err := state.WriteCommittedPaneTitle(ctx, s.Store, s.Client, sessionID, pane, m.Title); err != nil {
+		return fmt.Errorf("sync launched pane title: %w", err)
 	}
 	return nil
 }
