@@ -331,10 +331,11 @@ struct ArtifactRow: View {
     }
 }
 
-private struct ArtifactViewerPane: View {
+struct ArtifactViewerPane: View {
     var displayState: ArtifactViewerDisplayState
     var reloadNonce: Int
     var onOpenExternal: (URL) -> Void
+    var ruleListCompiler: any ArtifactRuleListCompiling = WebKitRuleListCompiler()
 
     @State private var htmlLoading = true
 
@@ -361,7 +362,8 @@ private struct ArtifactViewerPane: View {
                     reloadNonce: reloadNonce,
                     decideNavigation: ArtifactNavigationPolicy.decide,
                     openExternal: onOpenExternal,
-                    onLoadingChange: { htmlLoading = $0 }
+                    onLoadingChange: { htmlLoading = $0 },
+                    ruleListCompiler: ruleListCompiler
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay { if htmlLoading { htmlLoadingSkeleton } }

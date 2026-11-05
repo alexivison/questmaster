@@ -22,6 +22,7 @@ struct ArtifactCoreTests {
         sessionSwitchNeverOpensAnArtifact()
         viewerKeepsItsArtifactAcrossSessions()
         newArtifactsOpenOnEveryTab()
+        htmlArtifactsWaitForAClickWhileMarkdownAndImagesOpen()
         noSessionKeepsTheSelection()
         listMovementWrapsSelection()
         scopeMovementWrapsSelection()
@@ -247,7 +248,7 @@ struct ArtifactCoreTests {
         var state = ArtifactDisplayState()
         let old = artifact(path: "/tmp/old.html", label: "Old", addedAt: "2026-06-19T04:19:00Z")
         let renamedOld = artifact(path: "/tmp/old.html", label: "Old renamed", addedAt: "2026-06-19T04:20:00Z")
-        let new = artifact(path: "/tmp/new.html", label: "New", addedAt: "2026-06-19T04:21:00Z")
+        let new = artifact(path: "/tmp/new.md", kind: "markdown", label: "New", addedAt: "2026-06-19T04:21:00Z")
 
         var update = state.update(with: trackerSnapshot([
             session(id: "qm-current", artifacts: [old]),
@@ -306,7 +307,7 @@ struct ArtifactCoreTests {
         var state = ArtifactDisplayState()
         let current = artifact(path: "/tmp/current.html", label: "Current")
         let oldPreferred = artifact(path: "/tmp/preferred-old.html", label: "Preferred old")
-        let newPreferred = artifact(path: "/tmp/preferred-new.html", label: "Preferred new")
+        let newPreferred = artifact(path: "/tmp/preferred-new.md", kind: "markdown", label: "Preferred new")
 
         let seeded = state.update(with: trackerSnapshot([
             session(id: "qm-current", artifacts: [current]),
@@ -348,7 +349,7 @@ struct ArtifactCoreTests {
     private static func openIntentEmitsOncePerNewPath() {
         var state = ArtifactDisplayState()
         let old = artifact(path: "/tmp/old.html", label: "Old")
-        let new = artifact(path: "/tmp/new.html", label: "New")
+        let new = artifact(path: "/tmp/new.md", kind: "markdown", label: "New")
 
         _ = state.update(with: trackerSnapshot([
             session(id: "qm-current", artifacts: [old]),
@@ -426,8 +427,8 @@ struct ArtifactCoreTests {
     private static func sessionSwitchNeverOpensAnArtifact() {
         var state = ArtifactDisplayState()
         let a = artifact(path: "/tmp/a.html", label: "A")
-        let newA = artifact(path: "/tmp/new-a.html", label: "New A")
-        let newerA = artifact(path: "/tmp/newer-a.html", label: "Newer A")
+        let newA = artifact(path: "/tmp/new-a.md", kind: "markdown", label: "New A")
+        let newerA = artifact(path: "/tmp/newer-a.md", kind: "markdown", label: "Newer A")
         let b = artifact(path: "/tmp/b.html", label: "B")
         func snap(_ aArtifacts: [ArtifactReference]) -> TrackerSnapshot {
             trackerSnapshot([
@@ -449,8 +450,8 @@ struct ArtifactCoreTests {
     private static func newArtifactsOpenOnEveryTab() {
         var state = ArtifactDisplayState()
         let a = artifact(path: "/tmp/a.html", label: "A")
-        let newA = artifact(path: "/tmp/new-a.html", label: "New A")
-        let newerA = artifact(path: "/tmp/newer-a.html", label: "Newer A")
+        let newA = artifact(path: "/tmp/new-a.md", kind: "markdown", label: "New A")
+        let newerA = artifact(path: "/tmp/newer-a.md", kind: "markdown", label: "Newer A")
         func snap(_ artifacts: [ArtifactReference]) -> TrackerSnapshot {
             trackerSnapshot([session(id: "qm-a", artifacts: artifacts)])
         }
@@ -462,6 +463,35 @@ struct ArtifactCoreTests {
         expect(backOnSession.intent == .none, "the Session tab should not open it again")
         let live = state.update(with: snap([newerA, newA, a]), preferredSessionID: "qm-a")
         expect(live.intent == .open(newerA), "a new artifact on the Session tab opens")
+    }
+
+    /// An HTML artifact runs script, so a new one never opens by itself: the list keeps its selection and the viewer
+    /// keeps what it showed. Markdown and images still open, and a newer HTML artifact doesn't hold back a new markdown one.
+    private static func htmlArtifactsWaitForAClickWhileMarkdownAndImagesOpen() {
+        let old = artifact(path: "/tmp/old.html", label: "Old")
+        let newHTML = artifact(path: "/tmp/new.html", label: "New HTML")
+        let newMarkdown = artifact(path: "/tmp/notes.md", kind: "markdown", label: "Notes")
+        let newImage = artifact(path: "/tmp/shot.png", kind: "image", label: "Shot")
+        func snap(_ artifacts: [ArtifactReference]) -> TrackerSnapshot {
+            trackerSnapshot([session(id: "qm-current", artifacts: artifacts)])
+        }
+
+        var html = ArtifactDisplayState()
+        _ = html.update(with: snap([old]), preferredSessionID: "qm-current")
+        let arrivedHTML = html.update(with: snap([newHTML, old]), preferredSessionID: "qm-current", selectedArtifactID: old.id)
+        expect(arrivedHTML.intent == .none, "a new HTML artifact should not open by itself")
+        expect(arrivedHTML.selectedArtifactID == old.id, "a new HTML artifact should not take the selection")
+        expect(arrivedHTML.displayState == .viewing(old), "the viewer should keep the artifact it showed")
+
+        var behindHTML = ArtifactDisplayState()
+        _ = behindHTML.update(with: snap([old]), preferredSessionID: "qm-current")
+        let mixed = behindHTML.update(with: snap([newHTML, newMarkdown, old]), preferredSessionID: "qm-current", selectedArtifactID: old.id)
+        expect(mixed.intent == .open(newMarkdown), "a new markdown artifact should open past a newer HTML one that arrived with it")
+
+        var image = ArtifactDisplayState()
+        _ = image.update(with: snap([old]), preferredSessionID: "qm-current")
+        let arrivedImage = image.update(with: snap([newImage, old]), preferredSessionID: "qm-current", selectedArtifactID: old.id)
+        expect(arrivedImage.intent == .open(newImage), "a new image should open by itself")
     }
 
     /// No session (a detached terminal) keeps the open artifact for when one attaches, and the next session starts a

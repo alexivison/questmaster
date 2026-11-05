@@ -2,15 +2,44 @@ import QuestmasterCore
 import SwiftUI
 import WebKit
 
+/// Compiles the remote-content blocker. The app uses WebKit's store; a self-test injects one that fails.
+protocol ArtifactRuleListCompiling {
+    func compileRuleList(
+        identifier: String,
+        encodedRules: String,
+        completion: @escaping (WKContentRuleList?, Error?) -> Void
+    )
+}
+
+struct WebKitRuleListCompiler: ArtifactRuleListCompiling {
+    func compileRuleList(
+        identifier: String,
+        encodedRules: String,
+        completion: @escaping (WKContentRuleList?, Error?) -> Void
+    ) {
+        WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: identifier,
+            encodedContentRuleList: encodedRules,
+            completionHandler: completion
+        )
+    }
+}
+
 struct ArtifactWebView: NSViewRepresentable {
     var artifact: ArtifactReference
     var reloadNonce: Int = 0
     var decideNavigation: (URL?, Bool) -> ArtifactNavigationDecision
     var openExternal: (URL) -> Void
     var onLoadingChange: (Bool) -> Void
+    var ruleListCompiler: any ArtifactRuleListCompiling = WebKitRuleListCompiler()
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(decideNavigation: decideNavigation, openExternal: openExternal, onLoadingChange: onLoadingChange)
+        Coordinator(
+            decideNavigation: decideNavigation,
+            openExternal: openExternal,
+            onLoadingChange: onLoadingChange,
+            ruleListCompiler: ruleListCompiler
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -91,15 +120,18 @@ struct ArtifactWebView: NSViewRepresentable {
         private var contentRuleListInstallStarted = false
         private var contentRuleListReady = false
         private var reloadNonce = 0
+        private let ruleListCompiler: any ArtifactRuleListCompiling
 
         init(
             decideNavigation: @escaping (URL?, Bool) -> ArtifactNavigationDecision,
             openExternal: @escaping (URL) -> Void,
-            onLoadingChange: @escaping (Bool) -> Void
+            onLoadingChange: @escaping (Bool) -> Void,
+            ruleListCompiler: any ArtifactRuleListCompiling
         ) {
             self.decideNavigation = decideNavigation
             self.openExternal = openExternal
             self.onLoadingChange = onLoadingChange
+            self.ruleListCompiler = ruleListCompiler
         }
 
         deinit {
@@ -161,9 +193,9 @@ struct ArtifactWebView: NSViewRepresentable {
             }
 
             contentRuleListInstallStarted = true
-            WKContentRuleListStore.default().compileContentRuleList(
-                forIdentifier: ArtifactWebSecurity.contentRuleIdentifier,
-                encodedContentRuleList: ArtifactWebSecurity.remoteBlockRuleList
+            ruleListCompiler.compileRuleList(
+                identifier: ArtifactWebSecurity.contentRuleIdentifier,
+                encodedRules: ArtifactWebSecurity.remoteBlockRuleList
             ) { [weak self, weak webView] ruleList, error in
                 DispatchQueue.main.async {
                     guard let self, let webView else {

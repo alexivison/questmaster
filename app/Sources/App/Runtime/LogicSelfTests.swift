@@ -5,6 +5,7 @@ import Darwin
 import Foundation
 import QuestmasterCore
 import SwiftUI
+import WebKit
 
 @MainActor
 enum LogicSelfTests {
@@ -21,6 +22,8 @@ enum LogicSelfTests {
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
         ("testArtifactNavigationPolicy", testArtifactNavigationPolicy),
+        ("testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile", testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile),
+        ("testArtifactViewerLoadsThePageOnceTheBlockerCompiles", testArtifactViewerLoadsThePageOnceTheBlockerCompiles),
         ("testArtifactExternalOpenRouting", testArtifactExternalOpenRouting),
         ("testArtifactEditorWindowKeepsPathSeparate", testArtifactEditorWindowKeepsPathSeparate),
         ("testLocalMarkdownImageURLFiltering", testLocalMarkdownImageURLFiltering),
@@ -1485,6 +1488,79 @@ enum LogicSelfTests {
             ArtifactNavigationPolicy.decide(url: URL(string: "javascript:alert(1)"), userInitiated: true) == .block,
             "javascript URLs should be blocked"
         )
+    }
+
+    /// The page loads only behind the remote-content blocker. When the blocker doesn't compile, the viewer shows its
+    /// blocked pane and loads nothing: the page view is taken down, and the page it held never got a URL.
+    private static func testArtifactViewerLoadsNothingWhenTheBlockerFailsToCompile() throws {
+        let page = try temporaryArtifactPage()
+        defer { try? FileManager.default.removeItem(atPath: page.path) }
+        let compiler = FailingRuleListCompiler()
+        let window = HeadlessWindow(size: artifactViewerSize)
+        let host = NSHostingView(rootView: artifactViewer(page, compiler: compiler))
+        host.frame = NSRect(origin: .zero, size: artifactViewerSize)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+
+        let webView = try pageView(in: host)
+        try expect(waitUntil { compiler.attempts > 0 }, "the viewer should ask for the blocker")
+        try expect(
+            waitUntil { !subviews(of: host).contains { $0 is WKWebView } },
+            "the blocked pane should replace the page view when the blocker fails"
+        )
+        pump(0.3)
+        try expect(webView.url == nil && !webView.isLoading, "no page should load when the blocker fails, got \(String(describing: webView.url))")
+        let bitmap = try snapshot(host, size: artifactViewerSize, scale: 1)
+        try expect(
+            inkEdges(bitmap, scale: 1, columns: 0..<Int(artifactViewerSize.width), rows: 0..<Int(artifactViewerSize.height), over: AppPalette.artifactViewerBackground) != nil,
+            "the blocked pane should draw its message"
+        )
+    }
+
+    /// The control for the test above: with a blocker that compiles, the same viewer does load the page, so the page
+    /// staying unloaded there means the blocker held it.
+    private static func testArtifactViewerLoadsThePageOnceTheBlockerCompiles() throws {
+        let page = try temporaryArtifactPage()
+        defer { try? FileManager.default.removeItem(atPath: page.path) }
+        let window = HeadlessWindow(size: artifactViewerSize)
+        let host = NSHostingView(rootView: artifactViewer(page, compiler: WebKitRuleListCompiler()))
+        host.frame = NSRect(origin: .zero, size: artifactViewerSize)
+        window.contentView = host
+        window.show()
+        defer { window.close() }
+
+        let webView = try pageView(in: host)
+        try expect(waitUntil { webView.url != nil }, "the page should load once the blocker compiles")
+    }
+
+    /// The page view the viewer builds for an HTML artifact, once SwiftUI has laid the hosted viewer out.
+    private static func pageView(in host: NSView) throws -> WKWebView {
+        guard waitUntil({ subviews(of: host).contains { $0 is WKWebView } }),
+              let view = subviews(of: host).compactMap({ $0 as? WKWebView }).first else {
+            throw TestFailure("the viewer should build the page view for an HTML artifact")
+        }
+        return view
+    }
+
+    private static let artifactViewerSize = CGSize(width: 320, height: 240)
+
+    private static func artifactViewer(_ page: ArtifactReference, compiler: any ArtifactRuleListCompiling) -> some View {
+        ArtifactViewerPane(
+            displayState: .viewing(page),
+            reloadNonce: 0,
+            onOpenExternal: { _ in },
+            ruleListCompiler: compiler
+        )
+        .frame(width: artifactViewerSize.width, height: artifactViewerSize.height)
+    }
+
+    /// A real page in the temp directory, so a load that slips past the blocker would succeed.
+    private static func temporaryArtifactPage() throws -> ArtifactReference {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("questmaster-blocker-probe-\(UUID().uuidString).html")
+        try Data("<!doctype html><meta charset=\"utf-8\"><title>Probe</title><p>Probe</p>".utf8).write(to: url)
+        return ArtifactReference(kind: "html", path: url.path, label: "Probe", sessionID: "qm-probe", addedAt: "")
     }
 
     private static func testArtifactExternalOpenRouting() throws {
@@ -4290,8 +4366,8 @@ enum LogicSelfTests {
     /// doesn't jump to it.
     private static func testNewArtifactsOpenFromBehindTheWorkerChat() throws {
         let a1 = ArtifactReference(kind: "html", path: "/tmp/a1.html", label: "A1", sessionID: "qm-a", addedAt: "")
-        let a2 = ArtifactReference(kind: "html", path: "/tmp/a2.html", label: "A2", sessionID: "qm-a", addedAt: "")
-        let a3 = ArtifactReference(kind: "html", path: "/tmp/a3.html", label: "A3", sessionID: "qm-a", addedAt: "")
+        let a2 = ArtifactReference(kind: "markdown", path: "/tmp/a2.md", label: "A2", sessionID: "qm-a", addedAt: "")
+        let a3 = ArtifactReference(kind: "markdown", path: "/tmp/a3.md", label: "A3", sessionID: "qm-a", addedAt: "")
         func snapshot(_ artifacts: [ArtifactReference]) -> RuntimeSnapshot {
             var snapshot = RuntimeSnapshot.empty(sourceLabel: "test")
             snapshot.tracker = TrackerSnapshot(repos: [TrackerRepo(id: "repo", name: "Repo", sessions: [
@@ -7451,6 +7527,20 @@ private struct TestFailure: Error, CustomStringConvertible {
 
     init(_ description: String) {
         self.description = description
+    }
+}
+
+/// A blocker that never compiles, so the viewer is tested on the path where WebKit rejects the rule list.
+private final class FailingRuleListCompiler: ArtifactRuleListCompiling {
+    private(set) var attempts = 0
+
+    func compileRuleList(
+        identifier: String,
+        encodedRules: String,
+        completion: @escaping (WKContentRuleList?, Error?) -> Void
+    ) {
+        attempts += 1
+        completion(nil, TestFailure("injected rule list failure"))
     }
 }
 #endif
