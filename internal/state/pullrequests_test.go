@@ -1,10 +1,12 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,8 +17,6 @@ func TestParsePullRequestRef(t *testing.T) {
 	for _, tc := range []struct{ raw, key, owner, repo string }{
 		{"Owner/Repo#42", "github.com/owner/repo#42", "Owner", "Repo"},
 		{"https://GitHub.com/Owner/Repo/pull/042/files?x=1#discussion", "github.com/owner/repo#42", "Owner", "Repo"},
-		{"https://ghe.example/Org/Service/pull/8", "ghe.example/org/service#8", "Org", "Service"},
-		{"https://ghe.example:8443/Org/Service/pull/8", "ghe.example:8443/org/service#8", "Org", "Service"},
 		{"owner/repo#0", "", "", ""},
 		{"owner/repo#no", "", "", ""},
 		{"http://github.com/o/r/pull/1", "", "", ""},
@@ -28,7 +28,7 @@ func TestParsePullRequestRef(t *testing.T) {
 	} {
 		t.Run(tc.raw, func(t *testing.T) {
 			t.Parallel()
-			got, err := ParsePullRequestRef(tc.raw)
+			got, err := ParsePullRequestRef(tc.raw, nil)
 			if tc.key == "" {
 				if err == nil {
 					t.Fatalf("accepted %q: %#v", tc.raw, got)
@@ -39,6 +39,52 @@ func TestParsePullRequestRef(t *testing.T) {
 				t.Fatalf("parse %q = %#v, %v", tc.raw, got, err)
 			}
 		})
+	}
+}
+
+func TestParsePullRequestRefHostAllowlist(t *testing.T) {
+	t.Parallel()
+	loggedIn := func(hosts ...string) HostLister {
+		return func() ([]string, error) { return hosts, nil }
+	}
+	for _, tc := range []struct {
+		name, raw, key, wantErr string
+		lister                  HostLister
+	}{
+		{"logged-in host is accepted", "https://ghe.example/Org/Service/pull/8", "ghe.example/org/service#8", "", loggedIn("ghe.example")},
+		{"host match ignores case", "https://GHE.example/Org/Service/pull/8", "ghe.example/org/service#8", "", loggedIn("ghe.example")},
+		{"unlisted host is rejected with the accepted list", "https://ghe.example/Org/Service/pull/8", "", "accepted: github.com, other.example", loggedIn("other.example")},
+		{"no gh logins leaves github.com only", "https://ghe.example/Org/Service/pull/8", "", "accepted: github.com", nil},
+		{"github.com in gh's list is listed once", "https://ghe.example/Org/Service/pull/8", "", "accepted: github.com, other.example", loggedIn("github.com", "other.example")},
+		{"gh lookup failure rejects the host", "https://ghe.example/Org/Service/pull/8", "", "gh unavailable", func() ([]string, error) {
+			return nil, errors.New("gh unavailable")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ParsePullRequestRef(tc.raw, tc.lister)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("parse %q error = %v, want it to contain %q", tc.raw, err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got.Key != tc.key {
+				t.Fatalf("parse %q = %#v, %v", tc.raw, got, err)
+			}
+		})
+	}
+}
+
+func TestParsePullRequestRefSkipsGitHubLookup(t *testing.T) {
+	t.Parallel()
+	lister := func() ([]string, error) {
+		t.Error("github.com refs must not ask gh for its logged-in hosts")
+		return nil, errors.New("unexpected lookup")
+	}
+	got, err := ParsePullRequestRef("https://github.com/owner/repo/pull/8", lister)
+	if err != nil || got.Key != "github.com/owner/repo#8" {
+		t.Fatalf("parse github.com ref = %#v, %v", got, err)
 	}
 }
 
@@ -53,7 +99,7 @@ func TestPullRequestWatchLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ref, _ := ParsePullRequestRef("Owner/Repo#42")
+	ref, _ := ParsePullRequestRef("Owner/Repo#42", nil)
 	first := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	if added, err := WatchPullRequest(store.Root(), "qm-one", ref, first); err != nil || !added {
 		t.Fatalf("watch: %v, %v", added, err)
@@ -130,7 +176,7 @@ func TestPullRequestConcurrentWatches(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			ref, _ := ParsePullRequestRef("owner/repo#1")
+			ref, _ := ParsePullRequestRef("owner/repo#1", nil)
 			if _, err := WatchPullRequest(root, "qm-g"+strconv.Itoa(i), ref, time.Now()); err != nil {
 				t.Error(err)
 			}
@@ -159,7 +205,7 @@ func TestPullRequestWatchProcess(t *testing.T) {
 	if root == "" {
 		return
 	}
-	ref, _ := ParsePullRequestRef("owner/repo#1")
+	ref, _ := ParsePullRequestRef("owner/repo#1", nil)
 	if _, err := WatchPullRequest(root, os.Getenv("QM_PR_TEST_ID"), ref, time.Now()); err != nil {
 		t.Fatal(err)
 	}

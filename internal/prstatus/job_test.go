@@ -48,7 +48,7 @@ func jobFixture(t *testing.T) (*Job, *state.Store, *time.Time, *map[string]bool)
 }
 func jobWatch(t *testing.T, store *state.Store, id, ref string) string {
 	t.Helper()
-	pr, err := state.ParsePullRequestRef(ref)
+	pr, err := state.ParsePullRequestRef(ref, enterpriseHosts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func jobGH(t *testing.T, j *Job, calls *[]string, stateByHost map[string]string,
 func TestJobIgnoresViewerDiscussionButAlertsForOtherComment(t *testing.T) {
 	t.Parallel()
 	j, store, now, _ := jobFixture(t)
-	pr, _ := state.ParsePullRequestRef("owner/repo#42")
+	pr, _ := state.ParsePullRequestRef("owner/repo#42", nil)
 	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestJobIgnoresViewerDiscussionButAlertsForOtherComment(t *testing.T) {
 func TestJobPollsExistingWatchAfterLegacyTimestamp(t *testing.T) {
 	t.Parallel()
 	j, store, now, _ := jobFixture(t)
-	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	pr, _ := state.ParsePullRequestRef("owner/repo#12", nil)
 	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestJobPollsExistingWatchAfterLegacyTimestamp(t *testing.T) {
 func TestJobHoldsThenCoalescesPendingAlert(t *testing.T) {
 	t.Parallel()
 	j, store, now, _ := jobFixture(t)
-	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	pr, _ := state.ParsePullRequestRef("owner/repo#12", nil)
 	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestJobHoldsThenCoalescesPendingAlert(t *testing.T) {
 func TestMergedPRKeepsPendingAlertUntilDelivered(t *testing.T) {
 	t.Parallel()
 	j, store, now, _ := jobFixture(t)
-	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	pr, _ := state.ParsePullRequestRef("owner/repo#12", nil)
 	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestMergedPRKeepsPendingAlertUntilDelivered(t *testing.T) {
 func TestStoppedPendingAlertWaitsForLiveWatcher(t *testing.T) {
 	t.Parallel()
 	j, store, now, live := jobFixture(t)
-	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	pr, _ := state.ParsePullRequestRef("owner/repo#12", nil)
 	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestStoppedPendingAlertWaitsForLiveWatcher(t *testing.T) {
 func TestAlertSendErrorIsRateLimitedAndRetried(t *testing.T) {
 	t.Parallel()
 	j, store, now, _ := jobFixture(t)
-	pr, _ := state.ParsePullRequestRef("owner/repo#12")
+	pr, _ := state.ParsePullRequestRef("owner/repo#12", nil)
 	if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestRemovedWatchDoesNotStopOtherAlerts(t *testing.T) {
 	j, store, now, _ := jobFixture(t)
 	refs := []state.PullRequest{}
 	for _, ref := range []string{"owner/one#1", "owner/two#2"} {
-		pr, _ := state.ParsePullRequestRef(ref)
+		pr, _ := state.ParsePullRequestRef(ref, nil)
 		refs = append(refs, pr)
 		if _, err := state.WatchPullRequest(store.Root(), "qm-live", pr, now.Add(-time.Hour)); err != nil {
 			t.Fatal(err)

@@ -31,7 +31,7 @@ func TestPRJobQuiesceMidFetchKeepsLastStatus(t *testing.T) {
 	if err := store.Create(state.Manifest{SessionID: "qm-demo"}); err != nil {
 		t.Fatal(err)
 	}
-	ref, err := state.ParsePullRequestRef("owner/repo#1")
+	ref, err := state.ParsePullRequestRef("owner/repo#1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

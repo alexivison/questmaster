@@ -16,8 +16,8 @@ import (
 
 func TestPRRefreshScopesAndWaitsForStatus(t *testing.T) {
 	env := seedServeFixture(t)
-	ref, _ := state.ParsePullRequestRef("owner/repo#42")
-	other, _ := state.ParsePullRequestRef("owner/repo#43")
+	ref, _ := state.ParsePullRequestRef("owner/repo#42", nil)
+	other, _ := state.ParsePullRequestRef("owner/repo#43", nil)
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestPRRefreshScopesAndWaitsForStatus(t *testing.T) {
 
 func TestPRRefreshWithoutSessionQueuesWatchedKey(t *testing.T) {
 	env := seedServeFixture(t)
-	ref, _ := state.ParsePullRequestRef("owner/repo#42")
+	ref, _ := state.ParsePullRequestRef("owner/repo#42", nil)
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestPRRefreshWithoutSessionQueuesWatchedKey(t *testing.T) {
 	if err := env.store.Create(state.Manifest{SessionID: "qm-other"}); err != nil {
 		t.Fatal(err)
 	}
-	other, _ := state.ParsePullRequestRef("owner/repo#43")
+	other, _ := state.ParsePullRequestRef("owner/repo#43", nil)
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-other", other, env.now); err != nil {
 		t.Fatal(err)
 	}
@@ -129,9 +129,9 @@ func TestPullRequestsScopeAndRevision(t *testing.T) {
 	if err := env.store.Create(other); err != nil {
 		t.Fatal(err)
 	}
-	ref1, _ := state.ParsePullRequestRef("owner/repo#1")
-	ref2, _ := state.ParsePullRequestRef("owner/repo#2")
-	ref3, _ := state.ParsePullRequestRef("owner/repo#3")
+	ref1, _ := state.ParsePullRequestRef("owner/repo#1", nil)
+	ref2, _ := state.ParsePullRequestRef("owner/repo#2", nil)
+	ref3, _ := state.ParsePullRequestRef("owner/repo#3", nil)
 	for _, item := range []struct {
 		id  string
 		ref state.PullRequest
@@ -227,7 +227,7 @@ func TestPullRequestsRegistryRewritePushesTracker(t *testing.T) {
 	if err := srv.pushChanged(ctx, json.NewEncoder(&first), []string{topicTracker}, map[string][]byte{}, allTopicsChange()); err != nil {
 		t.Fatal(err)
 	}
-	ref, _ := state.ParsePullRequestRef("owner/repo#1")
+	ref, _ := state.ParsePullRequestRef("owner/repo#1", nil)
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestPullRequestsRegistryRewritePushesTracker(t *testing.T) {
 
 func TestPullRequestStatusRewritePushesTracker(t *testing.T) {
 	env := seedServeFixture(t)
-	ref, _ := state.ParsePullRequestRef("owner/repo#1")
+	ref, _ := state.ParsePullRequestRef("owner/repo#1", nil)
 	if _, err := state.WatchPullRequest(env.store.Root(), "qm-demo", ref, env.now); err != nil {
 		t.Fatal(err)
 	}

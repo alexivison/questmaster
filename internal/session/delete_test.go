@@ -75,7 +75,7 @@ func TestDeleteCleansWorkerSessionState(t *testing.T) {
 	}
 
 	svc := &Service{Store: store, Client: tmux.NewClient(noopKillRunner())}
-	ref, _ := state.ParsePullRequestRef("owner/repo#1")
+	ref, _ := state.ParsePullRequestRef("owner/repo#1", nil)
 	for _, id := range []string{masterID, workerID} {
 		if _, err := state.WatchPullRequest(stateRoot, id, ref, time.Now()); err != nil {
 			t.Fatal(err)

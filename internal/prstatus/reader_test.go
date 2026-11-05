@@ -12,9 +12,14 @@ import (
 	"github.com/alexivison/questmaster/internal/state"
 )
 
+// enterpriseHosts stands in for gh auth status in tests that watch GitHub Enterprise hosts.
+var enterpriseHosts state.HostLister = func() ([]string, error) {
+	return []string{"dead.test", "enterprise.example", "enterprise.test"}, nil
+}
+
 func pr(t *testing.T, ref string) state.PullRequest {
 	t.Helper()
-	value, err := state.ParsePullRequestRef(ref)
+	value, err := state.ParsePullRequestRef(ref, enterpriseHosts)
 	if err != nil {
 		t.Fatal(err)
 	}
