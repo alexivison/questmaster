@@ -2621,7 +2621,7 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		(strings.TrimSpace(manifest.Title) != "" && manifest.ExtraString(titleProvisionalExtraKey) == "") {
 		return
 	}
-	var paneTitleErr error
+	committed, agentPane := false, false
 	if err := r.Store.Update(sessionID, func(m *state.Manifest) {
 		// Re-check under the lock: a concurrent turn may have set it.
 		if m.ExtraString("title_locked") != "" ||
@@ -2631,22 +2631,23 @@ func maybeDeriveTitle(ctx context.Context, r *HookRunner, sessionID, prompt stri
 		m.Title = title
 		m.WindowName = ""
 		delete(m.Extra, titleProvisionalExtraKey)
-		if r.TmuxClient != nil && len(m.Agents) > 0 {
-			// Keep the tmux write inside the manifest lock so an explicit rename
-			// cannot be followed by this older first-prompt title.
-			pane, err := r.TmuxClient.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
-			if err != nil {
-				paneTitleErr = err
-				return
-			}
-			paneTitleErr = r.TmuxClient.SetManagedPaneTitle(ctx, pane, title)
-		}
+		committed = true
+		agentPane = len(m.Agents) > 0
 	}); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook: update title: %v\n", err)
 		return
 	}
-	if paneTitleErr != nil {
-		fmt.Fprintf(stderr, "questmaster hook: update pane title: %v\n", paneTitleErr)
+	if !committed || !agentPane || r.TmuxClient == nil {
+		return
+	}
+	// The pane write runs after the commit; WriteCommittedPaneTitle follows an
+	// explicit rename that commits meanwhile.
+	pane, err := r.TmuxClient.ResolveRole(ctx, sessionID, tmux.RoleAgent, tmux.WindowWorkspace)
+	if err == nil {
+		err = state.WriteCommittedPaneTitle(ctx, r.Store, r.TmuxClient, sessionID, pane, title)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "questmaster hook: update pane title: %v\n", err)
 	}
 }
 
