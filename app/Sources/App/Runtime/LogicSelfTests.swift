@@ -136,6 +136,9 @@ enum LogicSelfTests {
         ("testOneShotServeClientsRejectIncompatibleEnvelopes", testOneShotServeClientsRejectIncompatibleEnvelopes),
         ("testServeStreamReconnectsAfterProtocolMismatch", testServeStreamReconnectsAfterProtocolMismatch),
         ("testReadLineReturnsALineSpanningManyReads", testReadLineReturnsALineSpanningManyReads),
+        ("testServeStreamJoinsLinesSplitAcrossWrites", testServeStreamJoinsLinesSplitAcrossWrites),
+        ("testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap", testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap),
+        ("testServeStreamStopsReadingAtAMidStreamProtocolMismatch", testServeStreamStopsReadingAtAMidStreamProtocolMismatch),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
         ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
@@ -5350,6 +5353,168 @@ enum LogicSelfTests {
         // The sockets close only once the writer is done, so it never writes to a closed one.
         _ = written.wait(timeout: .now() + 5)
         try expect(read == line, "readLine should return the whole line, newline and later bytes excluded (got \(read.count) bytes)")
+    }
+
+    /// A tracker line reaches the store only once its newline arrives, however the bytes are split across writes; a
+    /// blank line is skipped and the connection stays up.
+    private static func testServeStreamJoinsLinesSplitAcrossWrites() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let one = serveTrackerLine("wire-one")
+        let two = serveTrackerLine("wire-two")
+        let three = serveTrackerLine("wire-three", padding: 100_000)
+
+        try harness.write(String(one.prefix(40)))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        try harness.write(String(one.dropFirst(40)) + "\n" + String(two.prefix(30)))
+        try waitForMainQueue("the first line", until: { harness.wireLabels == ["wire-one"] })
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        try expect(harness.wireLabels == ["wire-one"], "a line without its newline should wait, got \(harness.wireLabels)")
+
+        try harness.write(String(two.dropFirst(30)) + "\n\n")
+        let bytes = Array((three + "\n").utf8)
+        for start in stride(from: 0, to: bytes.count, by: 1_000) {
+            try UnixSocketIO.write(Data(bytes[start..<min(start + 1_000, bytes.count)]), to: harness.daemon)
+        }
+        try waitForMainQueue("every line", until: { harness.wireLabels.count == 3 })
+        try expect(harness.wireLabels == ["wire-one", "wire-two", "wire-three"], "lines should arrive whole and in order, got \(harness.wireLabels)")
+        try expect(harness.connects == 1, "a split line should not drop the connection, got \(harness.connects) connects")
+    }
+
+    /// A line as long as the pending-line cap still arrives; bytes past the cap with no newline drop the connection,
+    /// nothing of that frame reaches the store, and the client connects again.
+    private static func testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let cap = UnixSocketServeClient.maxBufferedLineBytes
+        let unpadded = serveTrackerLine("wire-at-cap")
+        let atCap = serveTrackerLine("wire-at-cap", padding: cap - unpadded.utf8.count)
+        try expect(atCap.utf8.count == cap, "the at-cap line should be exactly \(cap) bytes, got \(atCap.utf8.count)")
+        let stream = Data((serveTrackerLine("wire-before") + "\n" + atCap + "\n").utf8) + Data(repeating: 0x78, count: cap + 16_384)
+        let daemon = harness.daemon
+        let written = DispatchSemaphore(value: 0)
+        // The client hangs up partway through the oversized frame, so this write ends in an error the test expects.
+        DispatchQueue.global().async {
+            try? UnixSocketIO.write(stream, to: daemon)
+            written.signal()
+        }
+
+        try expect(readsClosed(daemon, within: 10), "the client should close a connection whose frame outgrows the cap")
+        // The daemon end closes only once the writer is done with it.
+        try expect(written.wait(timeout: .now() + 10) == .success, "the oversized write should end once the client hangs up")
+        try waitForMainQueue("a reconnect after the oversized frame", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        try expect(harness.wireLabels == ["wire-before", "wire-at-cap"], "only the whole lines should arrive, got \(harness.wireLabels)")
+    }
+
+    /// A line with another protocol version ends the read: lines after it on the same connection never reach the store,
+    /// and the client connects again.
+    private static func testServeStreamStopsReadingAtAMidStreamProtocolMismatch() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        let lines = [
+            serveTrackerLine("wire-before"),
+            serveTrackerLine("wire-mismatched", version: ServeContract.protocolVersion - 1),
+            serveTrackerLine("wire-after"),
+        ]
+        try harness.write(lines.joined(separator: "\n") + "\n")
+
+        try expect(readsClosed(harness.daemon, within: 10), "the client should close the connection at the mismatched line")
+        try waitForMainQueue("a reconnect after the mismatch", until: { harness.connects >= 2 })
+        try waitForMainQueueTurn()
+        try expect(harness.wireLabels == ["wire-before"], "nothing from the mismatched line on should arrive, got \(harness.wireLabels)")
+    }
+
+    /// One serve tracker event line, without its newline, labelled by `observed_at` and padded by `padding` bytes.
+    private static func serveTrackerLine(_ label: String, version: Int = ServeContract.protocolVersion, padding: Int = 0) -> String {
+        let pad = String(repeating: "x", count: padding)
+        return "{\"protocol_version\":\(version),\"type\":\"event\",\"topic\":\"tracker\",\"data\":{\"observed_at\":\"\(label)\",\"sessions\":[],\"padding\":\"\(pad)\"}}"
+    }
+
+    /// Reads `fd` until its peer closes (true), or `timeout` passes first (false).
+    private static func readsClosed(_ fd: Int32, within timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return false }
+            var ready = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+            guard poll(&ready, 1, Int32(remaining * 1000)) == 1 else { return false }
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count == 0 || (count < 0 && errno == ECONNRESET) { return true }
+            if count < 0 { return false }
+        }
+    }
+
+    /// A serve client whose first connect is one end of a socket pair; the test plays the daemon on the other end
+    /// (`daemon`). Every later connect fails, so after a drop the client only retries.
+    private final class ServeStreamHarness {
+        let daemon: Int32
+        let client: UnixSocketServeClient
+        private let counter: ConnectCounter
+        /// The `observed_at` labels of the tracker updates that reached the client's callback, in order, on the main
+        /// queue. Only `wire-` labels count: the client also reports its own connection status as updates.
+        private(set) var wireLabels: [String] = []
+
+        var connects: Int { counter.value }
+
+        init() throws {
+            var fds: [Int32] = [0, 0]
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+                throw TestFailure("could not create socket pair")
+            }
+            var on: Int32 = 1
+            for fd in fds {
+                setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+            }
+            let clientEnd = fds[0]
+            let counter = ConnectCounter()
+            daemon = fds[1]
+            self.counter = counter
+            client = UnixSocketServeClient(connect: {
+                guard counter.increment() == 1 else {
+                    throw ServeClientError.connect("the test daemon accepts one connection")
+                }
+                return clientEnd
+            }, invalidate: {})
+        }
+
+        func start() {
+            client.start(onUpdate: { [weak self] update in
+                DispatchQueue.main.async {
+                    guard let self, update.tracker != nil, let label = update.observedLabel, label.hasPrefix("wire-") else { return }
+                    self.wireLabels.append(label)
+                }
+            })
+        }
+
+        func write(_ text: String) throws {
+            try UnixSocketIO.write(Data(text.utf8), to: daemon)
+        }
+
+        func finish() {
+            client.stop()
+            close(daemon)
+        }
+    }
+
+    private final class ConnectCounter {
+        private let lock = NSLock()
+        private var count = 0
+
+        var value: Int {
+            lock.lock(); defer { lock.unlock() }
+            return count
+        }
+
+        func increment() -> Int {
+            lock.lock(); defer { lock.unlock() }
+            count += 1
+            return count
+        }
     }
 
     // The effort keys are the model field's own: e in its SELECT state, ⌃e in

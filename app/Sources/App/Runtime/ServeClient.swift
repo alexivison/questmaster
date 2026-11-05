@@ -3,10 +3,11 @@ import Foundation
 import QuestmasterCore
 
 final class UnixSocketServeClient {
-    private let connection: DaemonConnection
+    private let connect: () throws -> Int32
+    private let invalidate: () -> Void
     private let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
-    private static let maxBufferedLineBytes = 1_048_576
+    static let maxBufferedLineBytes = 1_048_576
     private static let pendingCompactionThreshold = 64 * 1024
     private var fd: Int32 = -1
     private var stopped = false
@@ -15,11 +16,17 @@ final class UnixSocketServeClient {
     private var onUpdate: ((RuntimeUpdate) -> Void)?
     private var onStatus: ((String) -> Void)?
 
-    init(connection: DaemonConnection) {
-        self.connection = connection
+    convenience init(connection: DaemonConnection) {
+        self.init(connect: { try connection.connect() }, invalidate: { connection.invalidate() })
     }
 
-    func start(onUpdate: @escaping (RuntimeUpdate) -> Void, onStatus: @escaping (String) -> Void) {
+    /// `connect` hands over a connected socket; a self-test passes one end of a socket pair.
+    init(connect: @escaping () throws -> Int32, invalidate: @escaping () -> Void) {
+        self.connect = connect
+        self.invalidate = invalidate
+    }
+
+    func start(onUpdate: @escaping (RuntimeUpdate) -> Void, onStatus: @escaping (String) -> Void = { _ in }) {
         self.onUpdate = onUpdate
         self.onStatus = onStatus
 
@@ -52,7 +59,7 @@ final class UnixSocketServeClient {
 
         while !stopped {
             do {
-                fd = try connectSocket()
+                fd = try connect()
                 onStatus?("backend connected")
                 try sendInitialRequests()
 
@@ -65,11 +72,11 @@ final class UnixSocketServeClient {
                     closeCurrentSocket()
                     return
                 case .closed:
-                    connection.invalidate()
+                    invalidate()
                     onStatus?("backend socket closed; reconnecting")
                     emitUnavailable("backend not connected - reconnecting")
                 case .failed(let message):
-                    connection.invalidate()
+                    invalidate()
                     onStatus?("backend socket read failed: \(message); reconnecting")
                     emitUnavailable("backend not connected - reconnecting")
                 case .incompatible:
@@ -218,9 +225,5 @@ final class UnixSocketServeClient {
             onStatus?("backend decode failed: \(error.localizedDescription)")
         }
         return .handled
-    }
-
-    private func connectSocket() throws -> Int32 {
-        try connection.connect()
     }
 }
