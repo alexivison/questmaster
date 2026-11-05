@@ -20,8 +20,35 @@ type ContinueResult struct {
 	FailedWorkers  []string `json:"failed_workers,omitempty"`  // worker IDs that failed to auto-continue
 }
 
-// Continue resumes a stopped session or reattaches to a running one.
+// Continue resumes a stopped session or reattaches to a running one. It holds
+// the session's lifecycle lock, and a worker's Continue its master's first. A
+// master's workers are continued after its own lock is released.
 func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResult, error) {
+	parent := ""
+	if m, err := s.Store.Read(sessionID); err == nil {
+		if p := m.ExtraString("parent_session"); p != sessionID && state.IsValidSessionID(p) {
+			parent = p
+		}
+	}
+	var result ContinueResult
+	err := s.locked(ctx, []string{parent, sessionID}, func(ctx context.Context) error {
+		var err error
+		result, err = s.continueLocked(ctx, sessionID)
+		return err
+	})
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	// Cascade even on reattach: a master may be alive while its workers are dead.
+	if result.Master {
+		result.RevivedWorkers, result.FailedWorkers = s.cascadeWorkers(ctx, sessionID)
+	}
+	return result, nil
+}
+
+// continueLocked runs under Continue's lifecycle locks, so the liveness check
+// below cannot go stale before new-session runs.
+func (s *Service) continueLocked(ctx context.Context, sessionID string) (ContinueResult, error) {
 	// Fast path: session still running — just reattach
 	alive, err := s.Client.HasSession(ctx, sessionID)
 	if err != nil {
@@ -36,14 +63,9 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		if err := s.refreshContinueSessionEnvironment(ctx, sessionID); err != nil {
 			return ContinueResult{}, err
 		}
-		result := ContinueResult{SessionID: sessionID, Reattach: true}
-		// Cascade even on reattach — master may be alive but workers dead.
 		m, err := s.Store.Read(sessionID)
-		if err == nil && roleForManifest(m) == roleMaster {
-			result.Master = true
-			result.RevivedWorkers, result.FailedWorkers = s.cascadeWorkers(ctx, sessionID)
-		}
-		return result, nil
+		master := err == nil && roleForManifest(m) == roleMaster
+		return ContinueResult{SessionID: sessionID, Reattach: true, Master: master}, nil
 	}
 
 	// Slow path: reconstruct session from manifest
@@ -154,7 +176,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 	}
 
 	if err := s.Client.NewSession(ctx, sessionID, "", cwd); err != nil {
-		return ContinueResult{}, s.continueRollback(ctx, sessionID, fmt.Errorf("create tmux session: %w", err))
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
 	}
 
 	isMaster := role == roleMaster
@@ -171,7 +193,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		agents:      launchAgents,
 		agentResume: agentResume,
 	}); err != nil {
-		return ContinueResult{}, s.continueRollback(ctx, sessionID, err)
+		return ContinueResult{}, s.continueRollback(ctx, sessionID, true, err)
 	}
 
 	// Update manifest timestamps
@@ -196,14 +218,7 @@ func (s *Service) Continue(ctx context.Context, sessionID string) (ContinueResul
 		_ = s.Store.AddWorker(parentSession, sessionID)
 	}
 
-	result := ContinueResult{SessionID: sessionID, Master: isMaster}
-
-	// Cascade: auto-continue orphaned workers (manifest exists, tmux dead).
-	if isMaster {
-		result.RevivedWorkers, result.FailedWorkers = s.cascadeWorkers(ctx, sessionID)
-	}
-
-	return result, nil
+	return ContinueResult{SessionID: sessionID, Master: isMaster}, nil
 }
 
 func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, sessionID string) error {
@@ -223,10 +238,17 @@ func (s *Service) refreshContinueSessionEnvironment(ctx context.Context, session
 }
 
 // continueRollback best-effort kills a partially launched tmux session after a
-// Continue failure. Unlike Start's rollback (startRollbackError), it MUST
-// preserve the manifest and runtime/state dirs: Continue reconstructs from a
-// pre-existing manifest, so a later retry depends on that manifest surviving.
-func (s *Service) continueRollback(ctx context.Context, sessionID string, cause error) error {
+// Continue failure, but only one this call created: a failed new-session can
+// mean another caller owns a session by that name. Unlike Start's rollback
+// (startRollbackError), it MUST preserve the manifest and runtime/state dirs:
+// Continue reconstructs from a pre-existing manifest, so a later retry depends
+// on that manifest surviving.
+func (s *Service) continueRollback(ctx context.Context, sessionID string, created bool, cause error) error {
+	if !created {
+		return cause
+	}
+	ctx, cancel := rollbackContext(ctx)
+	defer cancel()
 	_ = s.Client.KillSession(ctx, sessionID)
 	return cause
 }
@@ -234,6 +256,7 @@ func (s *Service) continueRollback(ctx context.Context, sessionID string, cause 
 // cascadeWorkers continues all orphaned workers for a master session.
 // A worker is orphaned if it has a manifest on disk but no live tmux session.
 // Workers whose manifests were deleted (intentionally stopped) are skipped.
+// It runs without the master's lifecycle lock: each Continue takes it.
 func (s *Service) cascadeWorkers(ctx context.Context, masterID string) (revived, failed []string) {
 	workerIDs, err := s.Store.GetWorkers(masterID)
 	if err != nil {

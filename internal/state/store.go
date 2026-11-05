@@ -67,8 +67,28 @@ func (s *Store) manifestPath(sessionID string) string {
 	return filepath.Join(s.root, sessionID+".json")
 }
 
+// Lock files are never removed. flock locks the open file, not the path: a
+// caller blocked on a removed file and a newcomer that creates a fresh one
+// would both hold the lock.
 func (s *Store) lockPath(sessionID string) string {
 	return filepath.Join(s.root, sessionID+".json.lock")
+}
+
+func (s *Store) lifecycleLockPath(sessionID string) string {
+	return filepath.Join(s.root, sessionID+".lifecycle.lock")
+}
+
+// WithLifecycleLock runs fn while holding the session's lifecycle lock, which
+// serializes starting, continuing and deleting the session. It is separate from
+// the manifest lock, which guards one manifest write at a time.
+func (s *Store) WithLifecycleLock(sessionID string, fn func() error) error {
+	if err := s.validateID(sessionID); err != nil {
+		return err
+	}
+	if err := EnsurePrivateStateRoot(s.root); err != nil {
+		return fmt.Errorf("create state root: %w", err)
+	}
+	return withFileLock(s.lifecycleLockPath(sessionID), fn)
 }
 
 // Create writes a new manifest. Returns an error if it already exists.
@@ -113,12 +133,12 @@ func (s *Store) Update(sessionID string, fn func(*Manifest)) error {
 	})
 }
 
-// Delete removes a manifest file and its lock file.
+// Delete removes a manifest file. Its lock file stays (see lockPath).
 func (s *Store) Delete(sessionID string) error {
 	if err := s.validateID(sessionID); err != nil {
 		return err
 	}
-	err := s.withLock(sessionID, func() error {
+	return s.withLock(sessionID, func() error {
 		path := s.manifestPath(sessionID)
 		if _, err := os.Stat(path); err != nil {
 			if os.IsNotExist(err) {
@@ -128,12 +148,6 @@ func (s *Store) Delete(sessionID string) error {
 		}
 		return os.Remove(path)
 	})
-	if err != nil {
-		return err
-	}
-	// Best-effort lock file cleanup after releasing the flock.
-	os.Remove(s.lockPath(sessionID)) //nolint:errcheck
-	return nil
 }
 
 // AddWorker adds a worker ID to the manifest's workers list (deduplicated).

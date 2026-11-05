@@ -231,91 +231,99 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	if role == roleMaster {
 		m.SessionType = "master"
 	}
-	sessionID, err := s.claimSessionID(ctx, m)
-	if err != nil {
-		return StartResult{}, err
-	}
+	var result StartResult
+	launch := func(ctx context.Context, sessionID string) error {
 
-	runtimeDir, err := ensureRuntimeDir(sessionID)
-	if err != nil {
-		_ = s.Store.Delete(sessionID) // rollback manifest
-		return StartResult{}, err
-	}
+		runtimeDir, err := ensureRuntimeDir(sessionID)
+		if err != nil {
+			_ = s.Store.Delete(sessionID) // rollback manifest
+			return err
+		}
 
-	// Seed state.json so the tracker shows "idle (started)" instead of
-	// "unknown" during the brief window between spawn and the agent's
-	// first SessionStart hook. Best-effort: a failure here only loses the
-	// pre-fill, not the session itself.
-	seed := make(map[string]string, len(manifestAgents))
-	for _, am := range manifestAgents {
-		if am.Role == "" || am.Name == "" {
-			continue
-		}
-		seed[am.Role] = am.Name
-	}
-	if err := state.InitStartingState(sessionID, seed); err != nil {
-		fmt.Fprintf(os.Stderr, "questmaster: warning: seed initial state for %s: %v\n", sessionID, err)
-	}
-
-	if err := s.Store.Update(sessionID, func(m *state.Manifest) {
-		m.SetExtra("last_started_at", state.NowUTC())
-		if titleLocked {
-			m.SetExtra("title_locked", "1")
-		} else if opts.Shell && strings.TrimSpace(opts.Title) != "" {
-			m.SetExtra("title_provisional", "1")
-		}
-		if p := opts.Prompt; p != "" {
-			m.SetExtra("initial_prompt", p)
-		} else if p := opts.SystemBrief; p != "" {
-			m.SetExtra("initial_prompt", p)
-		}
-		for _, binding := range bindings {
-			resumeID := resumeMap[binding.Agent.Name()]
-			if resumeID == "" {
+		// Seed state.json so the tracker shows "idle (started)" instead of
+		// "unknown" during the brief window between spawn and the agent's
+		// first SessionStart hook. Best-effort: a failure here only loses the
+		// pre-fill, not the session itself.
+		seed := make(map[string]string, len(manifestAgents))
+		for _, am := range manifestAgents {
+			if am.Role == "" || am.Name == "" {
 				continue
 			}
-			m.SetExtra(binding.Agent.ResumeKey(), resumeID)
+			seed[am.Role] = am.Name
 		}
-		if opts.MasterID != "" {
-			m.SetExtra("parent_session", opts.MasterID)
+		if err := state.InitStartingState(sessionID, seed); err != nil {
+			fmt.Fprintf(os.Stderr, "questmaster: warning: seed initial state for %s: %v\n", sessionID, err)
 		}
-	}); err != nil {
-		_, _ = s.cleanupStartedSession(sessionID)
-		return StartResult{}, fmt.Errorf("update manifest: %w", err)
-	}
 
-	if err := s.seedRepoDisplayColor(cwd, opts.DisplayColor); err != nil {
-		_, _ = s.cleanupStartedSession(sessionID)
+		if err := s.Store.Update(sessionID, func(m *state.Manifest) {
+			m.SetExtra("last_started_at", state.NowUTC())
+			if titleLocked {
+				m.SetExtra("title_locked", "1")
+			} else if opts.Shell && strings.TrimSpace(opts.Title) != "" {
+				m.SetExtra("title_provisional", "1")
+			}
+			if p := opts.Prompt; p != "" {
+				m.SetExtra("initial_prompt", p)
+			} else if p := opts.SystemBrief; p != "" {
+				m.SetExtra("initial_prompt", p)
+			}
+			for _, binding := range bindings {
+				resumeID := resumeMap[binding.Agent.Name()]
+				if resumeID == "" {
+					continue
+				}
+				m.SetExtra(binding.Agent.ResumeKey(), resumeID)
+			}
+			if opts.MasterID != "" {
+				m.SetExtra("parent_session", opts.MasterID)
+			}
+		}); err != nil {
+			_, _ = s.cleanupStartedSession(sessionID)
+			return fmt.Errorf("update manifest: %w", err)
+		}
+
+		if err := s.seedRepoDisplayColor(cwd, opts.DisplayColor); err != nil {
+			_, _ = s.cleanupStartedSession(sessionID)
+			return err
+		}
+
+		if opts.MasterID != "" {
+			if err := s.Store.AddWorker(opts.MasterID, sessionID); err != nil {
+				_, _ = s.cleanupStartedSession(sessionID)
+				return fmt.Errorf("register worker: %w", err)
+			}
+		}
+
+		if err := s.Client.NewSession(ctx, sessionID, "", cwd); err != nil {
+			return s.startRollbackError(ctx, sessionID, false, fmt.Errorf("create tmux session: %w", err))
+		}
+
+		if err := s.launchSession(ctx, launchConfig{
+			sessionID:   sessionID,
+			cwd:         cwd,
+			runtimeDir:  runtimeDir,
+			agentPath:   agentPath,
+			master:      role == roleMaster,
+			worker:      opts.MasterID != "",
+			shell:       opts.Shell,
+			agentCmds:   agentCmds,
+			agents:      launchAgents,
+			agentResume: agentResume,
+		}); err != nil {
+			return s.startRollbackError(ctx, sessionID, true, err)
+		}
+
+		result = StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd, Master: role == roleMaster}
+		return nil
+	}
+	// A worker holds its master's lifecycle lock through registration and
+	// launch; claimSessionID adds the new session's own.
+	if err := s.locked(ctx, []string{opts.MasterID}, func(ctx context.Context) error {
+		return s.claimSessionID(ctx, m, launch)
+	}); err != nil {
 		return StartResult{}, err
 	}
-
-	if opts.MasterID != "" {
-		if err := s.Store.AddWorker(opts.MasterID, sessionID); err != nil {
-			_, _ = s.cleanupStartedSession(sessionID)
-			return StartResult{}, fmt.Errorf("register worker: %w", err)
-		}
-	}
-
-	if err := s.Client.NewSession(ctx, sessionID, "", cwd); err != nil {
-		return StartResult{}, s.startRollbackError(ctx, sessionID, fmt.Errorf("create tmux session: %w", err))
-	}
-
-	if err := s.launchSession(ctx, launchConfig{
-		sessionID:   sessionID,
-		cwd:         cwd,
-		runtimeDir:  runtimeDir,
-		agentPath:   agentPath,
-		master:      role == roleMaster,
-		worker:      opts.MasterID != "",
-		shell:       opts.Shell,
-		agentCmds:   agentCmds,
-		agents:      launchAgents,
-		agentResume: agentResume,
-	}); err != nil {
-		return StartResult{}, s.startRollbackError(ctx, sessionID, err)
-	}
-
-	return StartResult{SessionID: sessionID, RuntimeDir: runtimeDir, Cwd: cwd, Master: role == roleMaster}, nil
+	return result, nil
 }
 
 func validateWorkerTitle(title string) error {
@@ -339,16 +347,20 @@ func workerParentBrief(parentID, brief string) string {
 	return identity + "\n\n" + brief
 }
 
-func (s *Service) startRollbackError(ctx context.Context, sessionID string, cause error) error {
-	if rollbackErr := s.rollbackStartedSession(ctx, sessionID); rollbackErr != nil {
+// startRollbackError undoes a failed Start. created is true once this Start's
+// new-session succeeded; only then is the tmux session its own to kill.
+func (s *Service) startRollbackError(ctx context.Context, sessionID string, created bool, cause error) error {
+	if rollbackErr := s.rollbackStartedSession(ctx, sessionID, created); rollbackErr != nil {
 		return fmt.Errorf("%w (rollback failed: %v)", cause, rollbackErr)
 	}
 	return cause
 }
 
-func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string) error {
+func (s *Service) rollbackStartedSession(ctx context.Context, sessionID string, created bool) error {
 	var errs []error
-	if s.Client != nil {
+	if created && s.Client != nil {
+		ctx, cancel := rollbackContext(ctx)
+		defer cancel()
 		if err := s.Client.KillSession(ctx, sessionID); err != nil {
 			errs = append(errs, fmt.Errorf("kill partial tmux session: %w", err))
 		}
@@ -402,11 +414,15 @@ func (s *Service) seedRepoDisplayColor(cwd, color string) error {
 	return nil
 }
 
-// claimSessionID generates a unique session ID and atomically creates its
-// manifest via Store.Create (flock-protected). Also rejects IDs that already
-// exist as tmux sessions (orphan sessions without manifests). The template's
-// SessionID field is overwritten with each candidate qm-* ID.
-func (s *Service) claimSessionID(ctx context.Context, template state.Manifest) (string, error) {
+// errSessionIDTaken marks a candidate session ID that is already in use.
+var errSessionIDTaken = errors.New("session ID taken")
+
+// claimSessionID claims an unused session ID and runs launch with it under the
+// ID's lifecycle lock. A candidate is in use when its manifest exists
+// (Store.Create is flock-protected) or a tmux session by that name exists
+// without one. The template's SessionID field is overwritten with each
+// candidate qm-* ID.
+func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, launch func(context.Context, string) error) error {
 	const maxAttempts = 100
 	timestamp := s.Now()
 	for attempt := range maxAttempts {
@@ -415,31 +431,36 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest) (
 			id = state.NewSessionIDWithSuffix(timestamp, s.RandSuffix())
 		}
 
-		template.SessionID = id
-		if err := s.Store.Create(template); err != nil {
-			if errors.Is(err, state.ErrManifestExists) {
-				continue
+		err := s.locked(ctx, []string{id}, func(ctx context.Context) error {
+			template.SessionID = id
+			if err := s.Store.Create(template); err != nil {
+				if errors.Is(err, state.ErrManifestExists) {
+					return errSessionIDTaken
+				}
+				return fmt.Errorf("create manifest: %w", err)
 			}
-			return "", fmt.Errorf("create manifest: %w", err)
-		}
 
-		// Guard against orphan tmux sessions that have no manifest.
-		// Propagate real transport errors; benign "no server" returns (false, nil).
-		exists, hsErr := s.Client.HasSession(ctx, id)
-		if hsErr != nil {
-			if delErr := s.Store.Delete(id); delErr != nil && !isManifestNotFound(delErr) {
-				return "", fmt.Errorf("check tmux session %s: %w (rollback failed: %v)", id, hsErr, delErr)
+			// Guard against orphan tmux sessions that have no manifest.
+			// Propagate real transport errors; benign "no server" returns (false, nil).
+			exists, hsErr := s.Client.HasSession(ctx, id)
+			if hsErr != nil {
+				if delErr := s.Store.Delete(id); delErr != nil && !isManifestNotFound(delErr) {
+					return fmt.Errorf("check tmux session %s: %w (rollback failed: %v)", id, hsErr, delErr)
+				}
+				return fmt.Errorf("check tmux session %s: %w", id, hsErr)
 			}
-			return "", fmt.Errorf("check tmux session %s: %w", id, hsErr)
-		}
-		if exists {
-			_ = s.Store.Delete(id) // best-effort; retries use different IDs
+			if exists {
+				_ = s.Store.Delete(id) // best-effort; retries use different IDs
+				return errSessionIDTaken
+			}
+			return launch(ctx, id)
+		})
+		if errors.Is(err, errSessionIDTaken) {
 			continue
 		}
-
-		return id, nil
+		return err
 	}
-	return "", fmt.Errorf("failed to generate unique session ID after %d attempts", maxAttempts)
+	return fmt.Errorf("failed to generate unique session ID after %d attempts", maxAttempts)
 }
 
 // persistResumeIDs writes resume IDs to the runtime directory.
