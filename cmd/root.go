@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/alexivison/questmaster/internal/daemon"
 	"github.com/alexivison/questmaster/internal/state"
@@ -20,6 +21,20 @@ func appVersion() string {
 		return "dev"
 	}
 	return info.Main.Version
+}
+
+// cliSendTimeout bounds one CLI send to a pane, lock wait to Enter. A send holds
+// the pane's lock for 230-270 ms (measured on tmux 3.8), so 5s lets about 18
+// queued senders through where tmux.DefaultSendTimeout lets six or seven. The
+// daemon keeps the default: an alert that fails to send is retried on the next
+// tick.
+const cliSendTimeout = 5 * time.Second
+
+// newCLITmuxClient is the tmux client CLI commands use.
+func newCLITmuxClient() *tmux.Client {
+	client := tmux.NewClient(tmux.DefaultServer())
+	client.SendTimeout = cliSendTimeout
+	return client
 }
 
 // Option configures a root command. Used for test injection.
@@ -53,7 +68,7 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 		o.store = state.OpenStore(state.StateRoot())
 	}
 	if o.client == nil {
-		o.client = tmux.NewClient(tmux.DefaultServer())
+		o.client = newCLITmuxClient()
 	}
 	if o.repoRoot == "" {
 		o.repoRoot = os.Getenv("PARTY_REPO_ROOT")
