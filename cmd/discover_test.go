@@ -115,6 +115,9 @@ func TestStartCmd_AttachFlag_Accepted(t *testing.T) {
 
 	// Verify --attach is accepted by cobra. The actual attach needs a live tmux
 	// server, so we tolerate runtime errors — only flag-parsing failures are bugs.
+	// With TMUX unset, attachSession runs the real `tmux attach-session` against
+	// the default server. Setting TMUX routes the attach through the injected client.
+	t.Setenv("TMUX", "test-tmux,0,0")
 	_, err := runCmdErr(t, store, allPassRunner(), "start", "--cwd", cwd, "--attach", "test-title")
 	if err != nil && strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("--attach flag not recognized by cobra: %v", err)
