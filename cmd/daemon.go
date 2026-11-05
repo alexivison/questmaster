@@ -52,6 +52,7 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 		}
 		return encode(cmd, record)
 	}
+	var jobs bool
 	var idleGrace time.Duration
 	var clockInterval time.Duration
 	run := &cobra.Command{Use: "run", Short: "Run the daemon in the foreground", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
@@ -68,11 +69,12 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 		if clockInterval > 0 {
 			c.ClockInterval = clockInterval
 		}
-		if err := daemon.Run(ctx, c); err != nil {
+		if err := daemon.Run(ctx, c, jobs); err != nil {
 			return err
 		}
 		return encode(cmd, daemon.Record{Running: false})
 	}}
+	run.Flags().BoolVar(&jobs, "jobs", false, "allow this development daemon to run background jobs")
 	run.Flags().DurationVar(&idleGrace, "idle-grace", 10*time.Minute, "exit after this period without clients or work")
 	run.Flags().DurationVar(&clockInterval, "clock-interval", time.Second, "clock-driven push interval")
 	parent.AddCommand(run)

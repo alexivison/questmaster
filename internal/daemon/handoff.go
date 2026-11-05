@@ -68,6 +68,9 @@ func (s *server) adopt(h handoff) (err error) {
 	if h.Root != s.config.Root || h.Identity != s.id || h.Generation < 1 {
 		return errors.New("handoff identity mismatch")
 	}
+	if jobs != nil && !s.jobsRequested {
+		return errors.New("unexpected jobs lock")
+	}
 	if err := verifyHandoffFile(lock, filepath.Join(s.dir, s.id+".lock")); err != nil {
 		return fmt.Errorf("lifetime lock: %w", err)
 	}

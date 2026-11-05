@@ -4,10 +4,8 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -32,9 +30,10 @@ type Job interface {
 	HasWork() bool
 }
 
-// jobsLockOwner is what the holder of jobs.lock writes for the next daemon to read.
-type jobsLockOwner struct {
-	ProtocolVersion int `json:"protocol_version"`
+// jobsAllowed reports whether a daemon may take jobs.lock. Installed builds may always; a development
+// build only when started with --jobs, so an in-progress build does not poll PRs or send alerts.
+func jobsAllowed(id string, requested bool) bool {
+	return requested || installedIdentity(id)
 }
 
 func (s *server) hasWork() bool {
@@ -53,17 +52,10 @@ func (s *server) hasWork() bool {
 }
 
 func (s *server) tryJobsLock() {
-	if s.jobsCancel != nil {
+	if !s.jobsRequested || s.jobsCancel != nil {
 		return
 	}
 	if s.jobsLock == nil && !s.takeJobsLock() {
-		return
-	}
-	// Recorded on every start, so a daemon that inherited the lock through a re-exec records its own protocol.
-	if err := writeJobsLockOwner(s.jobsLock, s.protocolVersion); err != nil {
-		fmt.Fprintf(os.Stderr, "daemon jobs: record owner: %v\n", err)
-		s.stopJobs()
-		s.nextJobsTry = s.config.now().Add(jobsRetryInterval)
 		return
 	}
 	s.mu.Lock()
@@ -90,7 +82,7 @@ func (s *server) takeJobsLock() bool {
 		return false
 	}
 	s.nextJobsTry = now.Add(jobsRetryInterval)
-	f, err := acquireJobsLock(filepath.Join(s.dir, "jobs.lock"), s.protocolVersion)
+	f, err := acquireJobsLock(filepath.Join(s.dir, "jobs.lock"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "daemon jobs: %v\n", err)
 		return false
@@ -102,10 +94,8 @@ func (s *server) takeJobsLock() bool {
 	return true
 }
 
-// acquireJobsLock returns a nil file and no error while another daemon holds the lock. It refuses,
-// with an error, a lock whose last owner speaks a newer protocol: an older binary must not take
-// jobs from a newer one. Builds that share a protocol version are not ordered, so they take turns.
-func acquireJobsLock(path string, protocolVersion int) (*os.File, error) {
+// acquireJobsLock returns a nil file and no error while another daemon holds the lock.
+func acquireJobsLock(path string) (*os.File, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
@@ -117,39 +107,7 @@ func acquireJobsLock(path string, protocolVersion int) (*os.File, error) {
 		}
 		return nil, err
 	}
-	previous, err := readJobsLockOwner(f)
-	if err != nil {
-		f.Close()
-		return nil, err
-	}
-	if previous.ProtocolVersion > protocolVersion {
-		f.Close()
-		return nil, fmt.Errorf("not taking jobs: last owner speaks protocol %d, this daemon %d", previous.ProtocolVersion, protocolVersion)
-	}
 	return f, nil
-}
-
-// readJobsLockOwner treats a file with no readable owner record as having no previous owner.
-func readJobsLockOwner(f *os.File) (jobsLockOwner, error) {
-	var owner jobsLockOwner
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return owner, err
-	}
-	_ = json.Unmarshal(data, &owner)
-	return owner, nil
-}
-
-func writeJobsLockOwner(f *os.File, protocolVersion int) error {
-	data, err := json.Marshal(jobsLockOwner{ProtocolVersion: protocolVersion})
-	if err != nil {
-		return err
-	}
-	if err := f.Truncate(0); err != nil {
-		return err
-	}
-	_, err = f.WriteAt(data, 0)
-	return err
 }
 
 // PRMonitoring reports whether a daemon on root holds jobs.lock. Watches live in the state root,

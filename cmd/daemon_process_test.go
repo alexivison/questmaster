@@ -54,7 +54,7 @@ func TestDaemonPRJobKeepsProcessAliveUntilWatcherDies(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command(h.bin, "daemon", "run", "--idle-grace=300ms")
+	cmd := exec.Command(h.bin, "daemon", "run", "--jobs", "--idle-grace=300ms")
 	cmd.Env = h.env
 	var output bytes.Buffer
 	cmd.Stdout = &output
@@ -481,7 +481,7 @@ func TestDaemonCanonicalAndDevJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = h.commandBin(dev, "daemon", "stop") })
-	devRun := exec.Command(dev, "daemon", "run")
+	devRun := exec.Command(dev, "daemon", "run", "--jobs")
 	devRun.Env = h.env
 	if err := devRun.Start(); err != nil {
 		t.Fatal(err)
@@ -693,9 +693,11 @@ func TestDaemonDevBuildFromStablePath(t *testing.T) {
 	if first["identity"] != second["identity"] || first["pid"] != second["pid"] {
 		t.Fatalf("dev start was not idempotent: %v %v", first, second)
 	}
-	// No other daemon holds jobs.lock here, so the development daemon owns jobs.
-	if first["jobs"] != true {
-		t.Fatalf("dev daemon did not take the free jobs lock: %v", first)
+	if first["jobs"] != false {
+		t.Fatalf("dev daemon took jobs without --jobs: %v", first)
+	}
+	if _, err := os.Lstat(filepath.Join(h.root, "bin", "current", "qm")); !os.IsNotExist(err) {
+		t.Fatalf("development daemon created the stable link: %v", err)
 	}
 	dev := first["executable"].(string)
 	if !strings.Contains(dev, "/daemon/bin/dev-") || !strings.HasSuffix(dev, "/exe/qm") {

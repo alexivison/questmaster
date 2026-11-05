@@ -43,14 +43,14 @@ type server struct {
 	sourceClients   int
 	jobsCancel      context.CancelFunc
 	jobsDone        chan struct{}
+	jobsRequested   bool
 	nextJobsTry     time.Time
-	protocolVersion int
 }
 
 func setDetached(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
 
 // Run holds the identity lock for the lifetime of the foreground daemon.
-func Run(ctx context.Context, config Config) error {
+func Run(ctx context.Context, config Config, jobsRequested bool) error {
 	h, handoffErr := takeHandoff()
 	if handoffErr != nil {
 		fmt.Fprintf(os.Stderr, "daemon handoff: %v\n", handoffErr)
@@ -83,7 +83,7 @@ func Run(ctx context.Context, config Config) error {
 	if err := os.Chdir(config.Home); err != nil {
 		return fmt.Errorf("daemon chdir home: %w", err)
 	}
-	if err := ensureStableExecutable(config.Root, config.Executable, id == "canonical"); err != nil {
+	if err := ensureStableForIdentity(config.Root, id, config.Executable); err != nil {
 		return fmt.Errorf("stable executable: %w", err)
 	}
 	if err := writeShims(config.Root, id, config.Executable); err != nil {
@@ -92,7 +92,7 @@ func Run(ctx context.Context, config Config) error {
 	if err := installEnvironment(config.daemonEnvironment(id)); err != nil {
 		return fmt.Errorf("daemon environment: %w", err)
 	}
-	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), upgrade: make(chan string, 1), lastActivity: time.Now(), protocolVersion: ProtocolVersion}
+	s := &server{config: config, id: id, socket: socket, dir: dir, stop: make(chan struct{}, 1), upgrade: make(chan string, 1), lastActivity: time.Now(), jobsRequested: jobsAllowed(id, jobsRequested)}
 	s.runtime = config.Runtime
 	if s.runtime == nil {
 		s.runtime = &serve.Server{Snapshotter: serve.NewSnapshotter(state.OpenStore(config.Root), nil, nil)}

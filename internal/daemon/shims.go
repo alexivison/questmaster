@@ -35,6 +35,20 @@ func ensureStableExecutable(root, executable string, canonical bool) error {
 	return retargetStable(root, target)
 }
 
+// installedIdentity reports whether id names an installed build: the canonical install or a go install
+// (bin-). A development build (dev-) keeps its own executable and never touches the stable path.
+func installedIdentity(id string) bool {
+	return id == "canonical" || strings.HasPrefix(id, "bin-")
+}
+
+// ensureStableForIdentity points the stable path at an installed build. Development builds are skipped.
+func ensureStableForIdentity(root, id, executable string) error {
+	if !installedIdentity(id) {
+		return nil
+	}
+	return ensureStableExecutable(root, executable, id == "canonical")
+}
+
 func stableResolves(root string) bool {
 	_, err := filepath.EvalSymlinks(StableExecutable(root))
 	return err == nil
@@ -90,8 +104,11 @@ func writeShims(root, id, executable string) error {
 			return fmt.Errorf("refusing to replace daemon binary with %s shim", name)
 		}
 	}
-	stable := StableExecutable(root)
-	script := []byte("#!/bin/sh\nexec '" + strings.ReplaceAll(stable, "'", "'\\''") + "' \"$@\"\n")
+	target := executable
+	if installedIdentity(id) {
+		target = StableExecutable(root)
+	}
+	script := []byte("#!/bin/sh\nexec '" + strings.ReplaceAll(target, "'", "'\\''") + "' \"$@\"\n")
 	for _, name := range []string{"qm", "questmaster"} {
 		file, err := os.CreateTemp(dir, name+"-")
 		if err != nil {

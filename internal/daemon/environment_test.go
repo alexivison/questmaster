@@ -42,7 +42,7 @@ func TestDaemonEnvironmentUsesAllowlistedBaseAndCapturedLogin(t *testing.T) {
 	prefix := filepath.Join(root, "daemon", "bin", "dev-abc")
 	if env["SSH_AUTH_SOCK"] != "/tmp/agent.sock" || env["CODEX_HOME"] != "/captured/codex" ||
 		env["QUESTMASTER_STATE_ROOT"] != root || env["QUESTMASTER_APP"] != "1" ||
-		env["QUESTMASTER_BIN"] != filepath.Join(root, "bin", "current", "qm") || env["QUESTMASTER_PATH_PREFIX"] != prefix {
+		env["QUESTMASTER_BIN"] != filepath.Join(prefix, "qm") || env["QUESTMASTER_PATH_PREFIX"] != prefix {
 		t.Fatalf("missing daemon environment: %+v", env)
 	}
 	if !strings.HasPrefix(env["PATH"], prefix+":/captured/bin:/usr/local/bin:") || !strings.Contains(env["PATH"], "/usr/bin") || strings.Contains(env["PATH"], "/pane/odd") {
@@ -50,6 +50,23 @@ func TestDaemonEnvironmentUsesAllowlistedBaseAndCapturedLogin(t *testing.T) {
 	}
 	if env["XDG_CONFIG_HOME"] != filepath.Join(home, ".config") {
 		t.Fatalf("XDG_CONFIG_HOME=%q", env["XDG_CONFIG_HOME"])
+	}
+}
+
+func TestOnlyInstalledIdentitiesGetTheStableExecutableInTheEnvironment(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for id, want := range map[string]string{
+		"canonical":          filepath.Join(root, "bin", "current", "qm"),
+		"bin-0123456789abcd": filepath.Join(root, "bin", "current", "qm"),
+		"dev-0123456789abcd": filepath.Join(root, "daemon", "bin", "dev-0123456789abcd", "qm"),
+	} {
+		c := Config{Root: root, Home: t.TempDir(), LoginEnvironmentRunner: func(context.Context, string, []string) ([]byte, error) {
+			return nil, context.Canceled
+		}}
+		if got := c.daemonEnvironment(id)["QUESTMASTER_BIN"]; got != want {
+			t.Fatalf("%s QUESTMASTER_BIN = %q, want %q", id, got, want)
+		}
 	}
 }
 

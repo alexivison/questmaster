@@ -4,7 +4,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -60,10 +59,11 @@ func waitForJobStart(t *testing.T, job *fakeJob) {
 	}
 }
 
-// newJobsServer builds a daemon on dir with an injected clock. The protocol is the version it records in jobs.lock.
-func newJobsServer(dir, id string, protocol int, clock *fakeClock, job Job) *server {
+// newJobsServer builds a daemon on dir with an injected clock. jobsFlag is the --jobs value, so the
+// gate is the same one Run applies.
+func newJobsServer(dir, id string, clock *fakeClock, job Job, jobsFlag bool) *server {
 	return &server{
-		dir: dir, id: id, protocolVersion: protocol,
+		dir: dir, id: id, jobsRequested: jobsAllowed(id, jobsFlag),
 		config: Config{Jobs: []Job{job}, JobDrainTimeout: time.Second, Clock: clock.Now},
 	}
 }
@@ -78,8 +78,8 @@ func TestOneJobsOwnerRunsAndTheOtherTakesOverWithinARetryWindow(t *testing.T) {
 	dir := t.TempDir()
 	clock := &fakeClock{now: time.Unix(1_800_000_000, 0)}
 	jobA, jobB := newFakeJob(), newFakeJob()
-	a := newJobsServer(dir, "dev-a", ProtocolVersion, clock, jobA)
-	b := newJobsServer(dir, "dev-b", ProtocolVersion, clock, jobB)
+	a := newJobsServer(dir, "bin-a0000000000000000", clock, jobA, false)
+	b := newJobsServer(dir, "bin-b0000000000000000", clock, jobB, false)
 
 	a.tryJobsLock()
 	waitForJobStart(t, jobA)
@@ -113,62 +113,53 @@ func TestOneJobsOwnerRunsAndTheOtherTakesOverWithinARetryWindow(t *testing.T) {
 	waitForJobStart(t, jobB)
 }
 
-func TestOlderProtocolDoesNotTakeJobsFromANewerOwner(t *testing.T) {
+func TestOnlyInstalledIdentitiesTakeJobsWithoutTheFlag(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	clock := &fakeClock{now: time.Unix(1_800_000_000, 0)}
-	jobNewer, jobOlder, jobCurrent := newFakeJob(), newFakeJob(), newFakeJob()
-	newer := newJobsServer(dir, "dev-newer", ProtocolVersion+1, clock, jobNewer)
-	older := newJobsServer(dir, "dev-older", ProtocolVersion, clock, jobOlder)
-
-	newer.tryJobsLock()
-	waitForJobStart(t, jobNewer)
-	stopJobsServer(newer)
-
-	clock.Advance(jobsRetryInterval)
-	older.tryJobsLock()
-	if jobOlder.runs.Load() != 0 || older.jobsLock != nil {
-		t.Fatal("older protocol took jobs from a newer owner")
+	for _, tc := range []struct {
+		id   string
+		flag bool
+		want bool
+	}{
+		{"canonical", false, true},
+		{"bin-0123456789abcdef", false, true},
+		{"dev-0123456789abcdef", false, false},
+		{"dev-0123456789abcdef", true, true},
+	} {
+		if got := jobsAllowed(tc.id, tc.flag); got != tc.want {
+			t.Fatalf("jobsAllowed(%s, flag=%v) = %v, want %v", tc.id, tc.flag, got, tc.want)
+		}
 	}
-
-	current := newJobsServer(dir, "dev-current", ProtocolVersion+1, clock, jobCurrent)
-	defer stopJobsServer(current)
-	current.tryJobsLock()
-	waitForJobStart(t, jobCurrent)
 }
 
-func TestJobsOwnerRecordsItsProtocolOnEveryStart(t *testing.T) {
+func TestDevDaemonRunsJobsOnlyWhenStartedWithJobsFlag(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
 	clock := &fakeClock{now: time.Unix(1_800_000_000, 0)}
 	job := newFakeJob()
-	s := newJobsServer(dir, "dev-a", ProtocolVersion, clock, job)
-	s.tryJobsLock()
-	waitForJobStart(t, job)
+	s := newJobsServer(t.TempDir(), "dev-0123456789abcdef", clock, job, false)
 	defer stopJobsServer(s)
-
-	// A daemon that inherits jobs.lock through a re-exec restarts its jobs under its own protocol.
-	s.protocolVersion = ProtocolVersion + 1
-	s.quiesceJobs()
-	s.startJobs()
-	waitForJobStart(t, job)
-
-	data, err := os.ReadFile(filepath.Join(dir, "jobs.lock"))
-	if err != nil {
-		t.Fatal(err)
+	s.tryJobsLock()
+	if s.jobsLock != nil {
+		t.Fatal("development daemon took jobs.lock without --jobs")
 	}
-	var owner jobsLockOwner
-	if err := json.Unmarshal(data, &owner); err != nil || owner.ProtocolVersion != ProtocolVersion+1 {
-		t.Fatalf("recorded owner = %q (%v), want protocol %d", data, err, ProtocolVersion+1)
+	select {
+	case <-job.started:
+		t.Fatal("development daemon ran a job without --jobs")
+	case <-time.After(100 * time.Millisecond):
 	}
+
+	withFlag := newFakeJob()
+	flagged := newJobsServer(t.TempDir(), "dev-fedcba9876543210", clock, withFlag, true)
+	defer stopJobsServer(flagged)
+	flagged.tryJobsLock()
+	waitForJobStart(t, withFlag)
 }
 
-func TestNonCanonicalDaemonRunsJobsWhenTheLockIsFree(t *testing.T) {
+func TestGoInstallDaemonRunsJobsWithoutTheFlag(t *testing.T) {
 	t.Parallel()
 	clock := &fakeClock{now: time.Unix(1_800_000_000, 0)}
 	job := newFakeJob()
-	// A go install binary gets a bin- identity; it must own jobs like any other daemon.
-	s := newJobsServer(t.TempDir(), "bin-0123456789abcdef", ProtocolVersion, clock, job)
+	// A go install binary gets a bin- identity; it owns jobs like the installed app does.
+	s := newJobsServer(t.TempDir(), "bin-0123456789abcdef", clock, job, false)
 	defer stopJobsServer(s)
 	s.tryJobsLock()
 	waitForJobStart(t, job)
@@ -192,7 +183,7 @@ func TestPRMonitoringReportsWhetherAJobsOwnerHoldsTheLock(t *testing.T) {
 
 	clock := &fakeClock{now: time.Unix(1_800_000_000, 0)}
 	job := newFakeJob()
-	owner := newJobsServer(dir, "dev-owner", ProtocolVersion, clock, job)
+	owner := newJobsServer(dir, "bin-0123456789abcdef", clock, job, false)
 	owner.tryJobsLock()
 	waitForJobStart(t, job)
 	want(MonitoringActive)

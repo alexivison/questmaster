@@ -32,17 +32,17 @@ func runShim(t *testing.T, shim string) string {
 	return string(output)
 }
 
-func TestDaemonShimsRunWhateverTheStableLinkPointsAt(t *testing.T) {
+func TestInstalledShimsFollowTheStableLinkWithoutRewrite(t *testing.T) {
 	t.Parallel()
 	// A quote in the state root must not break the shim's script.
 	root := filepath.Join(t.TempDir(), "state ' one")
 	first := writeEchoBinary(t, filepath.Join(root, "first", "qm"), "first")
 	second := writeEchoBinary(t, filepath.Join(root, "second", "qm"), "second")
-	if err := ensureStableExecutable(root, first, true); err != nil {
+	if err := ensureStableForIdentity(root, "canonical", first); err != nil {
 		t.Fatal(err)
 	}
 	shims := map[string]string{}
-	for _, id := range []string{"canonical", "dev-abc"} {
+	for _, id := range []string{"canonical", "bin-0123456789abcdef"} {
 		if err := writeShims(root, id, first); err != nil {
 			t.Fatal(err)
 		}
@@ -55,13 +55,41 @@ func TestDaemonShimsRunWhateverTheStableLinkPointsAt(t *testing.T) {
 			t.Fatalf("%s before retarget = %q", name, got)
 		}
 	}
-	if err := ensureStableExecutable(root, second, true); err != nil {
+	if err := ensureStableForIdentity(root, "canonical", second); err != nil {
 		t.Fatal(err)
 	}
 	for name, shim := range shims {
 		if got := runShim(t, shim); got != "second:hello" {
 			t.Fatalf("%s after retarget = %q, want the retargeted executable without rewriting the shim", name, got)
 		}
+	}
+}
+
+func TestDevShimKeepsItsExecutableAndLeavesTheStableLinkAlone(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	stable := filepath.Join(root, "bin", "current", "qm")
+	installed := writeEchoBinary(t, filepath.Join(root, "installed", "qm"), "installed")
+	dev := writeEchoBinary(t, filepath.Join(root, "dev", "exe", "qm"), "dev")
+	if err := ensureStableForIdentity(root, "canonical", installed); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureStableForIdentity(root, "dev-abc", dev); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeShims(root, "dev-abc", dev); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"qm", "questmaster"} {
+		shim := filepath.Join(root, "daemon", "bin", "dev-abc", name)
+		if got := runShim(t, shim); got != "dev:hello" {
+			t.Fatalf("%s = %q, want the development executable", shim, got)
+		}
+	}
+	got, err := filepath.EvalSymlinks(stable)
+	want, wantErr := filepath.EvalSymlinks(installed)
+	if err != nil || wantErr != nil || got != want {
+		t.Fatalf("stable link resolves to %q (%v), want untouched %q", got, err, want)
 	}
 }
 
@@ -144,7 +172,7 @@ func TestPreChangeSessionShimStillRunsAndNoBinaryIsRemoved(t *testing.T) {
 	}
 
 	newBinary := writeEchoBinary(t, filepath.Join(root, "new", "qm"), "new")
-	if err := ensureStableExecutable(root, newBinary, false); err != nil {
+	if err := ensureStableForIdentity(root, "dev-old", newBinary); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeShims(root, "dev-old", newBinary); err != nil {
@@ -152,6 +180,9 @@ func TestPreChangeSessionShimStillRunsAndNoBinaryIsRemoved(t *testing.T) {
 	}
 	if got := runShim(t, shim); got != "new:hello" {
 		t.Fatalf("pre-change shim after restart = %q", got)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "bin", "current", "qm")); !os.IsNotExist(err) {
+		t.Fatalf("development restart created the stable link: %v", err)
 	}
 	if _, err := os.Stat(oldBinary); err != nil {
 		t.Fatalf("old binary was removed: %v", err)
