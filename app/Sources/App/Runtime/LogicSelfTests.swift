@@ -139,6 +139,10 @@ enum LogicSelfTests {
         ("testServeStreamJoinsLinesSplitAcrossWrites", testServeStreamJoinsLinesSplitAcrossWrites),
         ("testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap", testServeStreamDropsAConnectionWhoseFrameOutgrowsTheCap),
         ("testServeStreamStopsReadingAtAMidStreamProtocolMismatch", testServeStreamStopsReadingAtAMidStreamProtocolMismatch),
+        ("testServeClientStopEndsAConnectedStream", testServeClientStopEndsAConnectedStream),
+        ("testServeClientStopClosesASocketThatConnectsAfterIt", testServeClientStopClosesASocketThatConnectsAfterIt),
+        ("testServeClientStopEndsTheRetryWait", testServeClientStopEndsTheRetryWait),
+        ("testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE", testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE),
         ("testSettingsCyclingAFieldSendsItsRoleDefaultImmediately", testSettingsCyclingAFieldSendsItsRoleDefaultImmediately),
         ("testSettingsArrangeMovesAProjectWithShiftJAndK", testSettingsArrangeMovesAProjectWithShiftJAndK),
         ("testSettingsCloseDoesNotWaitForInFlightSaves", testSettingsCloseDoesNotWaitForInFlightSaves),
@@ -5426,6 +5430,96 @@ enum LogicSelfTests {
         try waitForMainQueue("a reconnect after the mismatch", until: { harness.connects >= 2 })
         try waitForMainQueueTurn()
         try expect(harness.wireLabels == ["wire-before"], "nothing from the mismatched line on should arrive, got \(harness.wireLabels)")
+    }
+
+    /// Stop ends a healthy connection at once: it returns without waiting, the socket closes, the loop exits and the
+    /// client doesn't connect again.
+    private static func testServeClientStopEndsAConnectedStream() throws {
+        let harness = try ServeStreamHarness()
+        defer { harness.finish() }
+        harness.start()
+        try harness.write(serveTrackerLine("wire-live") + "\n")
+        try waitForMainQueue("the live line", until: { harness.wireLabels == ["wire-live"] })
+
+        let started = Date()
+        harness.client.stop()
+        try expect(Date().timeIntervalSince(started) < 0.1, "stop should return without waiting for the loop")
+        try expect(readsClosed(harness.daemon, within: 1), "stop should close a connected socket at once")
+        try expect(serveLoopExits(harness.client, within: 1), "the loop should exit once stopped")
+        try expect(harness.connects == 1, "a stopped client should not connect again, got \(harness.connects) connects")
+    }
+
+    /// A stop that lands while a connect is under way closes the socket that connect returns, without reading it.
+    private static func testServeClientStopClosesASocketThatConnectsAfterIt() throws {
+        var fds: [Int32] = [0, 0]
+        try expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0, "could not create socket pair")
+        defer { close(fds[1]) }
+        let clientEnd = fds[0]
+        let connecting = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let client = UnixSocketServeClient(connect: {
+            connecting.signal()
+            _ = release.wait(timeout: .now() + 10)
+            return clientEnd
+        }, invalidate: {})
+        client.start(onUpdate: { _ in })
+        try expect(connecting.wait(timeout: .now() + 5) == .success, "the client should start connecting")
+
+        client.stop()
+        release.signal()
+        try expect(readsClosed(fds[1], within: 1), "a socket connected after stop should close at once")
+        try expect(serveLoopExits(client, within: 1), "the loop should exit once stopped")
+    }
+
+    /// Stop wakes the wait between failed connects instead of sleeping it out.
+    private static func testServeClientStopEndsTheRetryWait() throws {
+        let counter = ConnectCounter()
+        let client = UnixSocketServeClient(connect: {
+            _ = counter.increment()
+            throw ServeClientError.connect("no daemon in this test")
+        }, invalidate: {})
+        client.start(onUpdate: { _ in })
+        // The fourth failure starts the longest wait (one second).
+        try waitForMainQueue("four failed connects", until: { counter.value >= 4 })
+
+        client.stop()
+        try expect(serveLoopExits(client, within: 0.5), "stop should end the retry wait at once")
+    }
+
+    /// A write to a socket whose other end has gone (a daemon that hung up, or a stop's shutdown before the serve
+    /// client's requests go out) fails with an error instead of raising SIGPIPE, which the app doesn't ignore.
+    private static func testSocketWriteToAPeerThatHungUpFailsWithoutSIGPIPE() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("qm-pipe-\(UUID().uuidString.prefix(8)).sock").path
+        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        try expect(listener >= 0, "could not create test socket")
+        defer {
+            close(listener)
+            unlink(path)
+        }
+        let bound = try UnixSocketIO.withAddress(path) { address, length in
+            Darwin.bind(listener, address, length)
+        }
+        try expect(bound == 0 && listen(listener, 1) == 0, "could not listen on test socket")
+
+        let client = try UnixSocketIO.connect(path: path)
+        defer { close(client) }
+        let peer = Darwin.accept(listener, nil, nil)
+        try expect(peer >= 0, "could not accept the test connection")
+        close(peer)
+
+        var failed = false
+        for _ in 0..<3 where !failed {
+            do { try UnixSocketIO.write(Data("{}\n".utf8), to: client) } catch { failed = true }
+        }
+        try expect(failed, "a write to a peer that hung up should fail")
+    }
+
+    /// Whether the client's connection loop has returned within `timeout`: it runs on the client's serial queue, so a
+    /// block queued behind it runs only once it does.
+    private static func serveLoopExits(_ client: UnixSocketServeClient, within timeout: TimeInterval) -> Bool {
+        let exited = DispatchSemaphore(value: 0)
+        client.queue.async { exited.signal() }
+        return exited.wait(timeout: .now() + timeout) == .success
     }
 
     /// One serve tracker event line, without its newline, labelled by `observed_at` and padded by `padding` bytes.

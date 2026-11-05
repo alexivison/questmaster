@@ -5,12 +5,16 @@ import QuestmasterCore
 final class UnixSocketServeClient {
     private let connect: () throws -> Int32
     private let invalidate: () -> Void
-    private let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
+    /// Runs the connection loop. Internal so a self-test can tell when the loop has returned.
+    let queue = DispatchQueue(label: "Questmaster.UnixSocketServeClient")
     private let retryDelays: [TimeInterval] = [0.15, 0.3, 0.6, 1.0]
     static let maxBufferedLineBytes = 1_048_576
     private static let pendingCompactionThreshold = 64 * 1024
-    private var fd: Int32 = -1
+    /// `stop()` runs on its caller's thread while the loop may be blocked in a read, a connect or a retry wait, so the
+    /// stop flag and the open socket are shared under this condition, which also wakes the retry wait.
+    private let control = NSCondition()
     private var stopped = false
+    private var fd: Int32 = -1
     private var lastUnavailableMessage = ""
     private var incompatibleMessage: String?
     private var onUpdate: ((RuntimeUpdate) -> Void)?
@@ -38,18 +42,22 @@ final class UnixSocketServeClient {
         }
     }
 
+    /// Ends the connection at once from any thread: a read blocked on the socket returns, a retry wait wakes, and a
+    /// socket that a connect still under way returns is closed unread. The loop closes the socket itself.
     func stop() {
-        queue.async { [weak self] in
-            guard let self else {
-                return
-            }
-            self.stopped = true
-            if self.fd >= 0 {
-                shutdown(self.fd, SHUT_RDWR)
-                close(self.fd)
-                self.fd = -1
-            }
+        control.lock()
+        stopped = true
+        if fd >= 0 {
+            shutdown(fd, SHUT_RDWR)
         }
+        control.broadcast()
+        control.unlock()
+    }
+
+    private var isStopped: Bool {
+        control.lock()
+        defer { control.unlock() }
+        return stopped
     }
 
     private func connectionLoop() {
@@ -57,13 +65,16 @@ final class UnixSocketServeClient {
         var attempt = 0
         emitUnavailable("connecting to backend...")
 
-        while !stopped {
+        while !isStopped {
             do {
-                fd = try connect()
+                let socket = try connect()
+                guard adopt(socket) else {
+                    return
+                }
                 onStatus?("backend connected")
-                try sendInitialRequests()
+                try sendInitialRequests(on: socket)
 
-                let exit = readLoop()
+                let exit = readLoop(on: socket)
                 if incompatibleMessage == nil {
                     attempt = 0
                 }
@@ -83,7 +94,7 @@ final class UnixSocketServeClient {
                     break
                 }
             } catch {
-                if !stopped {
+                if !isStopped {
                     if let failure = error as? ServeClientError, failure.isProtocolVersionMismatch {
                         let status = "incompatible backend: \(failure.localizedDescription)"
                         incompatibleMessage = status
@@ -113,31 +124,46 @@ final class UnixSocketServeClient {
         onUpdate?(.serveUnavailable(message))
     }
 
+    /// Makes `socket` the one `stop()` shuts down, or closes it when a stop came first.
+    private func adopt(_ socket: Int32) -> Bool {
+        control.lock()
+        defer { control.unlock() }
+        guard !stopped else {
+            close(socket)
+            return false
+        }
+        fd = socket
+        return true
+    }
+
     private func closeCurrentSocket() {
-        guard fd >= 0 else {
+        control.lock()
+        let socket = fd
+        fd = -1
+        control.unlock()
+        guard socket >= 0 else {
             return
         }
-        shutdown(fd, SHUT_RDWR)
-        close(fd)
-        fd = -1
+        shutdown(socket, SHUT_RDWR)
+        close(socket)
     }
 
     private func waitBeforeRetry(seconds: TimeInterval) {
-        guard seconds > 0 else {
-            return
-        }
-        Thread.sleep(forTimeInterval: seconds)
+        let deadline = Date(timeIntervalSinceNow: seconds)
+        control.lock()
+        defer { control.unlock() }
+        while !stopped, control.wait(until: deadline) {}
     }
 
-    private func sendInitialRequests() throws {
-        try send(["id": "1", "method": "tracker"])
-        try send(["id": "2", "method": "subscribe", "topics": ["tracker"]])
+    private func sendInitialRequests(on socket: Int32) throws {
+        try send(["id": "1", "method": "tracker"], on: socket)
+        try send(["id": "2", "method": "subscribe", "topics": ["tracker"]], on: socket)
     }
 
-    private func send(_ object: [String: Any]) throws {
+    private func send(_ object: [String: Any], on socket: Int32) throws {
         var data = try JSONSerialization.data(withJSONObject: object, options: [])
         data.append(0x0a)
-        try UnixSocketIO.write(data, to: fd)
+        try UnixSocketIO.write(data, to: socket)
     }
 
     private enum ReadLoopExit {
@@ -152,20 +178,21 @@ final class UnixSocketServeClient {
         case incompatible
     }
 
-    private func readLoop() -> ReadLoopExit {
+    private func readLoop(on socket: Int32) -> ReadLoopExit {
         var pending = Data()
         var parseOffset = pending.startIndex
         var buffer = [UInt8](repeating: 0, count: 8192)
 
-        while !stopped {
-            let count = Darwin.read(fd, &buffer, buffer.count)
+        while !isStopped {
+            let count = Darwin.read(socket, &buffer, buffer.count)
+            // A stop shuts the socket down, which ends a blocked read with end-of-file.
+            if count <= 0, isStopped {
+                return .stopped
+            }
             if count == 0 {
                 return .closed
             }
             if count < 0 {
-                if stopped {
-                    return .stopped
-                }
                 return .failed(String(cString: strerror(errno)))
             }
 
