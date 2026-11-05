@@ -70,8 +70,12 @@ func TestClaudeNativeWritesFrameWithoutTmux(t *testing.T) {
 			received <- frame
 		}
 	}()
-	if err := svc.Relay(t.Context(), "qm-claude-native", "hello"); err != nil {
+	delivery, err := svc.Relay(t.Context(), "qm-claude-native", "hello")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if delivery != DeliveryAccepted {
+		t.Fatalf("Claude native delivery = %q, want %q", delivery, DeliveryAccepted)
 	}
 	select {
 	case frame := <-received:
@@ -108,8 +112,12 @@ func TestClaudeInboundProjectRestriction(t *testing.T) {
 	}
 	var sent []string
 	svc := newService(store, idleAndSendRunner(&sent))
-	if err := svc.Relay(t.Context(), "qm-restricted-claude", "hello"); err != nil {
+	delivery, err := svc.Relay(t.Context(), "qm-restricted-claude", "hello")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if delivery != DeliverySubmitted {
+		t.Fatalf("restricted Claude delivery = %q, want %q", delivery, DeliverySubmitted)
 	}
 	if len(sent) != 1 || sent[0] != "[FROM:external] hello" {
 		t.Fatalf("restricted Claude tmux fallback = %v", sent)
@@ -139,8 +147,12 @@ func TestClaudeUndecidableSettingsUseTmux(t *testing.T) {
 			}
 			var sent []string
 			svc := newService(store, idleAndSendRunner(&sent))
-			if err := svc.Relay(t.Context(), "qm-claude-settings", "hello"); err != nil {
+			delivery, err := svc.Relay(t.Context(), "qm-claude-settings", "hello")
+			if err != nil {
 				t.Fatal(err)
+			}
+			if delivery != DeliverySubmitted {
+				t.Fatalf("undecidable Claude delivery = %q, want %q", delivery, DeliverySubmitted)
 			}
 			if len(sent) != 1 || sent[0] != "[FROM:external] hello" {
 				t.Fatalf("Claude tmux fallback = %v", sent)
@@ -186,8 +198,12 @@ func TestPiReceiptIsUnconfirmedAndNeverRetried(t *testing.T) {
 		_, _ = conn.Write([]byte(`{"id":"` + request.ID + `","status":"unconfirmed"}` + "\n"))
 	}()
 	message := strings.Repeat("x", LargeMessageThreshold+1)
-	if err := svc.Relay(t.Context(), id, message); err != nil {
+	delivery, err := svc.Relay(t.Context(), id, message)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if delivery != DeliveryAccepted {
+		t.Fatalf("Pi unconfirmed acknowledgment delivery = %q, want %q", delivery, DeliveryAccepted)
 	}
 	if <-got != "[FROM:external] "+message || len(sent) != 0 {
 		t.Fatalf("Pi native message or tmux fallback wrong: %v", sent)
@@ -195,7 +211,7 @@ func TestPiReceiptIsUnconfirmedAndNeverRetried(t *testing.T) {
 	svc.dial = func(context.Context, string, string) (net.Conn, error) {
 		return &failingConn{}, nil
 	}
-	if err := svc.Relay(t.Context(), id, "again"); err == nil || errors.Is(err, errNativeUnavailable) {
+	if _, err := svc.Relay(t.Context(), id, "again"); err == nil || errors.Is(err, errNativeUnavailable) {
 		t.Fatalf("post-connect error = %v", err)
 	}
 	if len(sent) != 0 {

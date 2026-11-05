@@ -34,7 +34,7 @@ func TestSendDirectPreservesSender(t *testing.T) {
 	createWorkerManifest(t, store, "qm-worker", "qm-master")
 	runner := newSendCaptureRunner("qm-worker")
 	out := runCmd(t, store, runner, "send", "qm-worker", "hello")
-	if !strings.Contains(out, `"recipient": "qm-worker"`) || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
+	if !strings.Contains(out, `"recipient": "qm-worker"`) || !strings.Contains(out, `"delivery": "submitted"`) || len(runner.sends) != 1 || runner.sends[0] != "[MASTER:qm-master] hello" {
 		t.Fatalf("send output = %q, payloads = %v", out, runner.sends)
 	}
 	page, err := workerfeed.ReadSince(store.Root(), "qm-master", nil)

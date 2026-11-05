@@ -614,7 +614,7 @@ func TestSend_Success(t *testing.T) {
 	c := NewClient(m)
 
 	result := c.Send(t.Context(), "qm-s:0.1", "hello world")
-	if !result.Delivered {
+	if !result.Submitted {
 		t.Fatalf("expected delivered, got error: %v", result.Err)
 	}
 	if result.Target != "qm-s:0.1" {
@@ -676,7 +676,7 @@ func TestSend_Timeout(t *testing.T) {
 	c.SendTimeout = 200 * time.Millisecond
 
 	result := c.Send(t.Context(), "qm-s:0.0", "blocked")
-	if result.Delivered {
+	if result.Submitted {
 		t.Fatal("expected timeout, got delivered")
 	}
 	if !errors.Is(result.Err, ErrSendTimeout) {
@@ -693,7 +693,7 @@ func TestSend_IdleCheckError(t *testing.T) {
 	c := NewClient(m)
 
 	result := c.Send(t.Context(), "qm-s:0.0", "msg")
-	if result.Delivered {
+	if result.Submitted {
 		t.Fatal("expected error, got delivered")
 	}
 	if result.Err == nil {
@@ -713,7 +713,7 @@ func TestSend_SendKeysError(t *testing.T) {
 	c := NewClient(m)
 
 	result := c.Send(t.Context(), "qm-s:0.1", "msg")
-	if result.Delivered {
+	if result.Submitted {
 		t.Fatal("expected error, got delivered")
 	}
 }

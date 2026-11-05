@@ -18,14 +18,15 @@ import (
 func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name, agent, hook  string
-		live, recent, want bool
+		name, agent, hook string
+		live, recent      bool
+		want              Delivery
 	}{
-		{"codex idle", "codex", "idle", true, false, true},
-		{"opencode done", "opencode", "done", true, false, true},
-		{"working", "codex", "working", true, false, false},
-		{"stopped", "codex", "idle", false, false, false},
-		{"typing", "opencode", "idle", true, true, false},
+		{"codex idle", "codex", "idle", true, false, DeliverySubmitted},
+		{"opencode done", "opencode", "done", true, false, DeliverySubmitted},
+		{"working", "codex", "working", true, false, ""},
+		{"stopped", "codex", "idle", false, false, ""},
+		{"typing", "opencode", "idle", true, true, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -69,8 +70,9 @@ func TestNotifyHoldsUnsafeSessionsAndRecentTyping(t *testing.T) {
 			}}
 			svc := NewService(store, tmux.NewClient(runner))
 			got, err := svc.Notify(context.Background(), id, "[PR owner/repo#12] activity")
-			if err != nil || got != tc.want || (sent > 0) != tc.want {
-				t.Fatalf("notify = %v, %v; sends=%d", got, err, sent)
+			wantSent := tc.want != ""
+			if err != nil || got != tc.want || (sent > 0) != wantSent {
+				t.Fatalf("notify = %q, %v; sends=%d", got, err, sent)
 			}
 		})
 	}

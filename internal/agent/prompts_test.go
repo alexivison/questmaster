@@ -62,7 +62,7 @@ func TestSessionPromptsUseSendForMessaging(t *testing.T) {
 		t.Fatal("master prompt must use send for direct and broadcast messages")
 	}
 	if !strings.Contains(workerPrompt, `questmaster send master "<result>"`) ||
-		!strings.Contains(workerPrompt, `"submitted": true`) {
+		!strings.Contains(workerPrompt, `"delivery" set to "accepted" or "submitted"`) {
 		t.Fatal("worker prompt must use send master for reports")
 	}
 	for name, prompt := range map[string]string{"master": masterPrompt, "worker": workerPrompt} {
