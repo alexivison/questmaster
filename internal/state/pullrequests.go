@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,6 +50,12 @@ type PullRequestStatus struct {
 	Stale              bool   `json:"stale"`
 }
 
+// githubHost is accepted without asking gh; any other host needs a gh login.
+const githubHost = "github.com"
+
+// HostLister reports the GitHub hosts gh is logged in to. A nil HostLister accepts github.com only.
+type HostLister func() ([]string, error)
+
 // ParsePullRequestRef accepts a GitHub-style URL on any host or owner/repo#number.
 func ParsePullRequestRef(raw string) (PullRequest, error) {
 	var host, owner, repo, number string
@@ -71,6 +78,30 @@ func ParsePullRequestRef(raw string) (PullRequest, error) {
 	}
 	host = strings.ToLower(host)
 	return PullRequest{Key: fmt.Sprintf("%s/%s/%s#%d", host, strings.ToLower(owner), strings.ToLower(repo), n), Host: host, Owner: owner, Repo: repo, Number: n}, nil
+}
+
+// AcceptPullRequestHost checks a host for a new watch: github.com, or a host in loggedInHosts.
+// The host must be the lowercase host from ParsePullRequestRef.
+func AcceptPullRequestHost(host string, loggedInHosts HostLister) error {
+	if host == githubHost {
+		return nil
+	}
+	accepted := []string{githubHost}
+	if loggedInHosts != nil {
+		hosts, err := loggedInHosts()
+		if err != nil {
+			return fmt.Errorf("check gh logins for PR host %q: %w", host, err)
+		}
+		for _, loggedIn := range hosts {
+			if loggedIn != githubHost {
+				accepted = append(accepted, loggedIn)
+			}
+		}
+	}
+	if slices.Contains(accepted, host) {
+		return nil
+	}
+	return fmt.Errorf("PR host %q is not accepted (accepted: %s); log in with gh auth login --hostname %s to watch it", host, strings.Join(accepted, ", "), host)
 }
 
 func PullRequestsRegistryPath(root string) string { return filepath.Join(root, "pull_requests.json") }

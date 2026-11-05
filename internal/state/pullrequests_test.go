@@ -1,10 +1,12 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -162,5 +164,49 @@ func TestPullRequestWatchProcess(t *testing.T) {
 	ref, _ := ParsePullRequestRef("owner/repo#1")
 	if _, err := WatchPullRequest(root, os.Getenv("QM_PR_TEST_ID"), ref, time.Now()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAcceptPullRequestHost(t *testing.T) {
+	t.Parallel()
+	loggedIn := func(hosts ...string) HostLister {
+		return func() ([]string, error) { return hosts, nil }
+	}
+	for _, tc := range []struct {
+		name, host, wantErr string
+		lister              HostLister
+	}{
+		{"logged-in host is accepted", "ghe.example", "", loggedIn("ghe.example")},
+		{"unlisted host is rejected with the accepted list", "ghe.example", "accepted: github.com, other.example", loggedIn("other.example")},
+		{"no gh logins leaves github.com only", "ghe.example", "accepted: github.com", nil},
+		{"github.com in gh's list is listed once", "ghe.example", "accepted: github.com, other.example", loggedIn("github.com", "other.example")},
+		{"gh lookup failure rejects the host", "ghe.example", "gh unavailable", func() ([]string, error) {
+			return nil, errors.New("gh unavailable")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := AcceptPullRequestHost(tc.host, tc.lister)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("accept %q: %v", tc.host, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("accept %q error = %v, want it to contain %q", tc.host, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestAcceptPullRequestHostSkipsGitHubLookup(t *testing.T) {
+	t.Parallel()
+	lister := func() ([]string, error) {
+		t.Error("github.com must not ask gh for its logged-in hosts")
+		return nil, errors.New("unexpected lookup")
+	}
+	if err := AcceptPullRequestHost("github.com", lister); err != nil {
+		t.Fatalf("accept github.com: %v", err)
 	}
 }
