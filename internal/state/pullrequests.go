@@ -45,6 +45,8 @@ type PullRequestStatus struct {
 	Comments           int    `json:"comments"`
 	Review             string `json:"review,omitempty"`
 	CI                 string `json:"ci,omitempty"`
+	CICompletedAt      string `json:"ci_completed_at,omitempty"` // newest finished check on the head; set while CI is success or failure
+	CIRunning          bool   `json:"ci_running,omitempty"`      // a check on the head has not finished
 	ChangedAt          string `json:"changed_at,omitempty"`
 	InaccessibleReason string `json:"inaccessible_reason,omitempty"`
 	Stale              bool   `json:"stale"`

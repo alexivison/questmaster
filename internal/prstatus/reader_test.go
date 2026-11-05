@@ -208,6 +208,38 @@ func TestStatusReviewAndCI(t *testing.T) {
 	}
 }
 
+func TestStatusCIDatesTheNewestFinishedCheck(t *testing.T) {
+	t.Parallel()
+	const (
+		checkDone    = `{"__typename":"CheckRun","completedAt":"2026-10-27T01:00:00Z"}`
+		checkRunning = `{"__typename":"CheckRun","completedAt":null}`
+	)
+	tests := []struct {
+		name, rollup, wantAt string
+		wantRunning          bool
+	}{
+		{"finished check", `{"state":"SUCCESS","contexts":{"nodes":[` + checkDone + `]}}`, "2026-10-27T01:00:00Z", false},
+		{"newest of a check run and a commit status", `{"state":"SUCCESS","contexts":{"nodes":[` + checkDone + `,{"__typename":"StatusContext","state":"SUCCESS","updatedAt":"2026-10-27T01:30:00Z"}]}}`, "2026-10-27T01:30:00Z", false},
+		{"failure while a check run still runs", `{"state":"FAILURE","contexts":{"nodes":[` + checkDone + `,` + checkRunning + `]}}`, "2026-10-27T01:00:00Z", true},
+		{"a pending commit status is not a finish", `{"state":"FAILURE","contexts":{"nodes":[` + checkDone + `,{"__typename":"StatusContext","state":"PENDING","updatedAt":"2026-10-27T02:00:00Z"}]}}`, "2026-10-27T01:00:00Z", true},
+		{"pending rollup carries neither", `{"state":"PENDING","contexts":{"nodes":[` + checkDone + `,` + checkRunning + `]}}`, "", false},
+		{"no contexts", `{"state":"SUCCESS"}`, "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var node graphPR
+			if err := json.Unmarshal([]byte(fmt.Sprintf(`{"commits":{"nodes":[{"commit":{"statusCheckRollup":%s}}]}}`, tc.rollup)), &node); err != nil {
+				t.Fatal(err)
+			}
+			got := node.status(time.Now())
+			if got.CICompletedAt != tc.wantAt || got.CIRunning != tc.wantRunning {
+				t.Fatalf("CICompletedAt=%q CIRunning=%v, want %q %v", got.CICompletedAt, got.CIRunning, tc.wantAt, tc.wantRunning)
+			}
+		})
+	}
+}
+
 func TestRateLimitBackoff(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)

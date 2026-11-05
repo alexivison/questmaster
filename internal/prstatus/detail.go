@@ -216,19 +216,14 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 			events = append(events, state.PullRequestEvent{ID: "state:" + current.State + ":" + stateAt, Kind: "state", State: current.State, OccurredAt: stateAt})
 		}
 	}
-	if (old.CI != current.CI || old.HeadSHA != current.HeadSHA) && (current.CI == "success" || current.CI == "failure") {
-		completedAt, problem := fetchCICompletion(ctx, pr, run, now)
-		if problem.Error != "" {
-			return nil, nil, problem
+	if (old.CI != current.CI || old.HeadSHA != current.HeadSHA || ciRerunFinished(old, current)) && (current.CI == "success" || current.CI == "failure") {
+		completed, err := time.Parse(time.RFC3339Nano, current.CICompletedAt)
+		if err != nil {
+			return nil, nil, HostResult{Error: "CI completion timestamp unavailable"}
 		}
-		if problem.RateLimit != nil {
-			hostResult.RateLimit = mergeRateLimit(hostResult.RateLimit, problem.RateLimit)
-		}
-		if problem.BackoffUntil != "" {
-			hostResult.BackoffUntil = problem.BackoffUntil
-		}
-		if completed, err := time.Parse(time.RFC3339Nano, completedAt); err == nil && !completed.Before(baseline) {
-			events = append(events, state.PullRequestEvent{ID: "ci:" + current.HeadSHA + ":" + current.CI, Kind: "ci", Result: current.CI, HeadSHA: current.HeadSHA, OccurredAt: completedAt})
+		// The finish time is part of the ID: a rerun on the same head with the same result is a new event.
+		if !completed.Before(baseline) {
+			events = append(events, state.PullRequestEvent{ID: "ci:" + current.HeadSHA + ":" + current.CI + ":" + current.CICompletedAt, Kind: "ci", Result: current.CI, HeadSHA: current.HeadSHA, OccurredAt: current.CICompletedAt})
 		}
 	}
 	sort.Slice(events, func(i, j int) bool {
@@ -240,56 +235,19 @@ func fetchDetails(ctx context.Context, pr state.PullRequest, old, current state.
 	return events, lastIDs, hostResult
 }
 
-func fetchCICompletion(ctx context.Context, pr state.PullRequest, run Runner, now time.Time) (string, HostResult) {
-	// ponytail: the newest 100 contexts cover ordinary PRs; paginate if a head SHA grows beyond 100 checks.
-	query := fmt.Sprintf("query { rateLimit { cost remaining resetAt } repository(owner:%s,name:%s) { pullRequest(number:%d) { commits(last:1) { nodes { commit { statusCheckRollup { contexts(last:100) { nodes { __typename ... on CheckRun { completedAt } ... on StatusContext { updatedAt } } } } } } } } } }", strconv.Quote(pr.Owner), strconv.Quote(pr.Repo), pr.Number)
-	stdout, stderr, runErr := run(ctx, pr.Host, query)
-	body, retry, reset := responseBody(stdout)
-	var response graphResponse
-	if err := json.Unmarshal(body, &response); err != nil || runErr != nil || len(response.Errors) > 0 {
-		return "", detailFailure(now, retry, reset, response.Data.RateLimit, stderr, runErr)
+// ciRerunFinished reports a CI run that finished after the one the stored status saw, with the head and
+// result unchanged. Both polls saw every check done, so no pending poll separates the two runs. A status
+// stored before CICompletedAt existed has no earlier run to compare with, so it never matches.
+func ciRerunFinished(old, current state.PullRequestStatus) bool {
+	if old.CIRunning || current.CIRunning {
+		return false
 	}
-	var repo struct {
-		PullRequest struct {
-			Commits struct {
-				Nodes []struct {
-					Commit struct {
-						Rollup struct {
-							Contexts struct {
-								Nodes []struct {
-									CompletedAt string `json:"completedAt"`
-									UpdatedAt   string `json:"updatedAt"`
-								} `json:"nodes"`
-							} `json:"contexts"`
-						} `json:"statusCheckRollup"`
-					} `json:"commit"`
-				} `json:"nodes"`
-			} `json:"commits"`
-		} `json:"pullRequest"`
+	before, err := time.Parse(time.RFC3339Nano, old.CICompletedAt)
+	if err != nil {
+		return false
 	}
-	if err := json.Unmarshal(response.Data.Aliases["repository"], &repo); err != nil {
-		return "", HostResult{Error: "invalid CI detail response"}
-	}
-	var latest time.Time
-	for _, node := range repo.PullRequest.Commits.Nodes {
-		for _, check := range node.Commit.Rollup.Contexts.Nodes {
-			at := check.CompletedAt
-			if at == "" {
-				at = check.UpdatedAt
-			}
-			if t, err := time.Parse(time.RFC3339Nano, at); err == nil && t.After(latest) {
-				latest = t
-			}
-		}
-	}
-	if latest.IsZero() {
-		return "", HostResult{Error: "CI completion timestamp unavailable"}
-	}
-	result := HostResult{RateLimit: response.Data.RateLimit, BackoffUntil: reset}
-	if result.RateLimit != nil && result.RateLimit.Remaining == 0 {
-		result.BackoffUntil = result.RateLimit.ResetAt
-	}
-	return latest.UTC().Format(time.RFC3339Nano), result
+	after, err := time.Parse(time.RFC3339Nano, current.CICompletedAt)
+	return err == nil && after.After(before)
 }
 
 func detailFailure(now time.Time, retry, reset string, rate *RateLimit, stderr []byte, runErr error) HostResult {
