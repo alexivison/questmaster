@@ -38,7 +38,7 @@ func hasSessionRunner(live ...string) *mockRunner {
 	}
 	return &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 3 && args[0] == "has-session" {
-			if set[args[2]] {
+			if set[exactSession(args[2])] {
 				return "", nil
 			}
 			return "", &tmux.ExitError{Code: 1}

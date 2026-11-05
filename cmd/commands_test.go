@@ -30,6 +30,16 @@ func (m *mockRunner) Run(ctx context.Context, args ...string) (string, error) {
 	return m.fn(ctx, args...)
 }
 
+// exactSession returns the session an exact tmux target names: "=qm-x:" is
+// qm-x. A bare name would match by prefix in real tmux, so it names none.
+func exactSession(target string) string {
+	name, ok := strings.CutPrefix(target, "=")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSuffix(name, ":")
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -131,7 +141,7 @@ func sessionsRunner(live ...string) *mockRunner {
 		}
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if liveSet[target] {
+			if liveSet[exactSession(target)] {
 				return "", nil
 			}
 			return "", &tmux.ExitError{Code: 1}

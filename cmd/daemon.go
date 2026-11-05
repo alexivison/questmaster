@@ -24,7 +24,7 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 	parent := &cobra.Command{Use: "daemon", Short: "Manage the on-demand backend", Args: cobra.NoArgs}
 	var buildFrom string
 	config := func() (daemon.Config, error) {
-		c, err := newDaemonConfig(store, tmux.NewExecClient())
+		c, err := newDaemonConfig(store, tmux.NewClient(tmux.DefaultServer()))
 		if err != nil {
 			return daemon.Config{}, err
 		}
@@ -63,7 +63,7 @@ func newDaemonCmd(store *state.Store) *cobra.Command {
 			return err
 		}
 		c.IdleGrace = idleGrace
-		prTmux := tmux.NewExecClient()
+		prTmux := tmux.NewClient(tmux.DefaultServer())
 		prTmux.CacheListSessions(time.Second)
 		c.Jobs = append(c.Jobs, prstatus.NewJob(store.Root(), prTmux, prstatus.GH))
 		if clockInterval > 0 {

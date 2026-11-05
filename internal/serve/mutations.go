@@ -310,7 +310,7 @@ func (s *Server) mutateRename(ctx context.Context, payload mutationPayload) (any
 		client = s.Snapshotter.tmuxClient
 	}
 	if client == nil {
-		client = tmux.NewExecClient()
+		client = tmux.NewClient(tmux.DefaultServer())
 	}
 	var paneTitleErr error
 	if err := s.mutationStore().Update(sessionID, func(m *state.Manifest) {

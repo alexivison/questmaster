@@ -43,11 +43,11 @@ func TestPane_Target(t *testing.T) {
 	}{
 		"standard": {
 			pane: Pane{SessionName: "qm-abc", WindowIndex: 1, PaneIndex: 2},
-			want: "qm-abc:1.2",
+			want: "=qm-abc:1.2",
 		},
 		"codex window": {
 			pane: Pane{SessionName: "qm-x", WindowIndex: 0, PaneIndex: 0},
-			want: "qm-x:0.0",
+			want: "=qm-x:0.0",
 		},
 	}
 
@@ -347,7 +347,7 @@ func TestListAllPanes(t *testing.T) {
 	if len(panes) != 2 {
 		t.Fatalf("count: got %d, want 2", len(panes))
 	}
-	if panes[0].SessionName != "qm-a" || panes[0].Target() != "qm-a:1.0" {
+	if panes[0].SessionName != "qm-a" || panes[0].Target() != "=qm-a:1.0" {
 		t.Fatalf("first pane: %#v", panes[0])
 	}
 	if panes[1].SessionName != "qm-b" || panes[1].Role != "tracker" {
@@ -371,8 +371,8 @@ func TestResolveRole_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRole: %v", err)
 	}
-	if target != "qm-s:0.1" {
-		t.Errorf("target: got %q, want %q", target, "qm-s:0.1")
+	if target != "=qm-s:0.1" {
+		t.Errorf("target: got %q, want %q", target, "=qm-s:0.1")
 	}
 }
 
@@ -388,8 +388,8 @@ func TestResolveRole_LegacyPrimaryMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRole: %v", err)
 	}
-	if target != "qm-s:0.0" {
-		t.Fatalf("target = %q, want qm-s:0.0", target)
+	if target != "=qm-s:0.0" {
+		t.Fatalf("target = %q, want =qm-s:0.0", target)
 	}
 }
 
@@ -406,8 +406,8 @@ func TestResolveRole_PreferredWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRole preferred=1: %v", err)
 	}
-	if target != "qm-s:1.0" {
-		t.Errorf("target: got %q, want %q", target, "qm-s:1.0")
+	if target != "=qm-s:1.0" {
+		t.Errorf("target: got %q, want %q", target, "=qm-s:1.0")
 	}
 
 	// Preferred window 0 — should find claude in window 0
@@ -415,8 +415,8 @@ func TestResolveRole_PreferredWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRole preferred=0: %v", err)
 	}
-	if target != "qm-s:0.1" {
-		t.Errorf("target: got %q, want %q", target, "qm-s:0.1")
+	if target != "=qm-s:0.1" {
+		t.Errorf("target: got %q, want %q", target, "=qm-s:0.1")
 	}
 }
 
@@ -433,8 +433,8 @@ func TestResolveRole_DuplicateAcrossWindows_NoPreference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRole: %v", err)
 	}
-	if target != "qm-s:0.0" {
-		t.Errorf("target: got %q, want %q", target, "qm-s:0.0")
+	if target != "=qm-s:0.0" {
+		t.Errorf("target: got %q, want %q", target, "=qm-s:0.0")
 	}
 }
 
@@ -524,8 +524,8 @@ func TestResolveRole_PreferredWindowFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRole: %v", err)
 	}
-	if target != "qm-s:1.0" {
-		t.Errorf("target: got %q, want %q", target, "qm-s:1.0")
+	if target != "=qm-s:1.0" {
+		t.Errorf("target: got %q, want %q", target, "=qm-s:1.0")
 	}
 }
 

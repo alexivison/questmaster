@@ -150,6 +150,168 @@ func TestIntegrationSetManagedPaneTitleOverridesPaneLocalFormat(t *testing.T) {
 	}
 }
 
+// A bare tmux target matches by prefix: has-session -t qm-123 finds qm-123-456.
+// HasSession must report only the session it names.
+func TestIntegrationHasSessionIsExact(t *testing.T) {
+	t.Parallel()
+	tmuxtest.RequireIntegration(t)
+	runner := tmuxtest.NewRunner(t)
+	mustRun(t, runner, "new-session", "-d", "-s", "qm-123-456", "sleep 60")
+	client := tmux.NewClient(runner)
+
+	assertHasSession(t, client, "qm-123", false)
+	assertHasSession(t, client, "qm-123-456", true)
+}
+
+// Every call that names a session, or a pane in it, must miss a live session
+// whose name only starts with that name. Each call below reached the sibling
+// while targets were bare names.
+func TestIntegrationSessionTargetsMissAPrefixSibling(t *testing.T) {
+	t.Parallel()
+	tmuxtest.RequireIntegration(t)
+	runner := tmuxtest.NewRunner(t)
+	const base, sibling = "qm-123", "qm-123-456"
+	mustRun(t, runner, "new-session", "-d", "-s", sibling, "sleep 60")
+	mustRun(t, runner, "set-environment", "-t", sibling, "MARK", "sibling")
+	siblingPID := mustRun(t, runner, "display-message", "-t", sibling, "-p", "#{pane_pid}")
+	client := tmux.NewClient(runner)
+	client.SendTimeout = 200 * time.Millisecond
+	ctx := t.Context()
+	basePane := tmux.PaneTarget(base, tmux.WindowWorkspace, 0)
+
+	if err := client.SetEnvironment(ctx, base, "MARK", "base"); err == nil {
+		t.Error("SetEnvironment on a missing session succeeded")
+	}
+	if value, ok, err := client.ShowEnvironment(ctx, base, "MARK"); err != nil || ok {
+		t.Errorf("ShowEnvironment on a missing session = %q, %v, %v; want not set", value, ok, err)
+	}
+	if err := client.SetHook(ctx, base, "session-closed", "run-shell true"); err == nil {
+		t.Error("SetHook on a missing session succeeded")
+	}
+	if _, err := client.ListPanes(ctx, base); err == nil {
+		t.Error("ListPanes on a missing session succeeded")
+	}
+	if _, err := client.Capture(ctx, basePane, 5); err == nil {
+		t.Error("Capture of a missing session's pane succeeded")
+	}
+	if err := client.SetPaneOption(ctx, basePane, tmux.PaneRoleOption, tmux.RoleAgent); err == nil {
+		t.Error("SetPaneOption on a missing session's pane succeeded")
+	}
+	if result := client.Send(ctx, basePane, "typed into the wrong session"); result.Submitted {
+		t.Error("Send to a missing session's pane was submitted")
+	}
+	if err := client.RespawnPane(ctx, basePane, t.TempDir(), "sleep 60"); err == nil {
+		t.Error("RespawnPane of a missing session's pane succeeded")
+	}
+	if err := client.KillSession(ctx, base); err != nil {
+		t.Errorf("KillSession of a missing session: %v", err)
+	}
+
+	assertSessions(t, runner, sibling)
+	if got := mustRun(t, runner, "show-environment", "-t", sibling, "MARK"); got != "MARK=sibling" {
+		t.Errorf("sibling environment = %q, want MARK=sibling", got)
+	}
+	if got := mustRun(t, runner, "display-message", "-t", sibling, "-p", "#{pane_pid}|#{@party_role}"); got != siblingPID+"|" {
+		t.Errorf("sibling pane pid|role = %q, want %s| (respawned or tagged)", got, siblingPID)
+	}
+	if got := mustRun(t, runner, "show-hooks", "-t", sibling, "session-closed"); got != "" {
+		t.Errorf("sibling session-closed hook = %q, want none", got)
+	}
+	if got := mustRun(t, runner, "capture-pane", "-t", sibling, "-p"); strings.Contains(got, "wrong session") {
+		t.Errorf("sibling pane received text: %q", got)
+	}
+}
+
+// DefaultServer passes -L default. That must be the socket tmux picks when no
+// flag or TMUX selects one, or sessions started before the flag became
+// explicit would be out of reach.
+func TestIntegrationDefaultLabelIsTheFlaglessSocket(t *testing.T) {
+	t.Parallel()
+	tmuxtest.RequireIntegration(t)
+	// TMUX_TMPDIR moves tmux's socket directory into a private one, for raw
+	// tmux only: a Server strips it.
+	tmpdir := filepath.Dir(tmuxtest.NewRunner(t).Socket())
+	t.Cleanup(func() {
+		_, _ = runWithInheritedTMUX(context.Background(), "", tmpdir, "-L", "default", "kill-server")
+	})
+	if out, err := runWithInheritedTMUX(t.Context(), "", tmpdir, "new-session", "-d", "-s", "qm-flagless", "sleep 60"); err != nil {
+		t.Fatalf("new-session without a flag: %v: %s", err, out)
+	}
+	if out, err := runWithInheritedTMUX(t.Context(), "", tmpdir, "-L", "default", "has-session", "-t", "=qm-flagless:"); err != nil {
+		t.Fatalf("-L default does not see the flagless session: %v: %s", err, out)
+	}
+}
+
+// An inherited TMUX names the caller's own server. A Server must still run
+// every call on the server it selects.
+func TestIntegrationInheritedTMUXDoesNotSteerAServer(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	selected := tmuxtest.NewRunner(t)
+	inherited := tmuxtest.NewRunner(t)
+	mustRun(t, selected, "new-session", "-d", "-s", "qm-on-selected", "sleep 60")
+	mustRun(t, inherited, "new-session", "-d", "-s", "qm-on-inherited", "sleep 60")
+	inheritedPID := mustRun(t, inherited, "display-message", "-p", "#{pid}")
+	t.Setenv("TMUX", fmt.Sprintf("%s,%s,0", inherited.Socket(), inheritedPID))
+	t.Setenv("TMUX_PANE", mustRun(t, inherited, "display-message", "-t", "qm-on-inherited", "-p", "#{pane_id}"))
+	client := tmux.NewClient(tmux.SocketServer(selected.Socket()))
+	ctx := t.Context()
+
+	assertHasSession(t, client, "qm-on-inherited", false)
+	if err := client.NewSession(ctx, "qm-created", "", t.TempDir()); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	if err := client.SetEnvironment(ctx, "qm-created", "MARK", "selected"); err != nil {
+		t.Fatalf("SetEnvironment: %v", err)
+	}
+	if err := client.KillSession(ctx, "qm-on-inherited"); err != nil {
+		t.Fatalf("KillSession: %v", err)
+	}
+
+	assertSessions(t, selected, "qm-on-selected", "qm-created")
+	assertSessions(t, inherited, "qm-on-inherited")
+	if got := mustRun(t, selected, "show-environment", "-t", "qm-created", "MARK"); got != "MARK=selected" {
+		t.Errorf("MARK on the selected server = %q", got)
+	}
+}
+
+// Commands run without the caller's TMUX_PANE, so tmux cannot tell which client
+// is the caller's. SwitchClient finds it from the caller's pane: the client
+// showing that pane's session. A pane on another server has none.
+func TestIntegrationSwitchClientMovesTheCallersClient(t *testing.T) {
+	tmuxtest.RequireIntegration(t)
+	runner := tmuxtest.NewRunner(t)
+	mustRun(t, runner, "new-session", "-d", "-s", "qm-from", "sleep 60")
+	mustRun(t, runner, "new-session", "-d", "-s", "qm-other", "sleep 60")
+	mustRun(t, runner, "new-session", "-d", "-s", "qm-to", "sleep 60")
+	startControlClient(t, runner, "qm-other")
+	caller := startControlClient(t, runner, "qm-from")
+	serverPID := mustRun(t, runner, "display-message", "-p", "#{pid}")
+	callerPane := mustRun(t, runner, "display-message", "-t", "qm-from", "-p", "#{pane_id}")
+	client := tmux.NewClient(runner)
+	ctx := t.Context()
+
+	t.Run("on another server", func(t *testing.T) {
+		t.Setenv("TMUX", fmt.Sprintf("%s,%s,0", filepath.Join(t.TempDir(), "other.sock"), serverPID))
+		t.Setenv("TMUX_PANE", callerPane)
+		if err := client.SwitchClient(ctx, "qm-to"); err == nil {
+			t.Fatal("SwitchClient succeeded for a pane on another server")
+		}
+		assertClientSessions(t, runner, "qm-from", "qm-other")
+	})
+
+	t.Run("on this server", func(t *testing.T) {
+		t.Setenv("TMUX", fmt.Sprintf("%s,%s,0", runner.Socket(), serverPID))
+		t.Setenv("TMUX_PANE", callerPane)
+		if err := client.SwitchClient(ctx, "qm-to"); err != nil {
+			t.Fatalf("SwitchClient: %v", err)
+		}
+		if got := mustRun(t, runner, "display-message", "-c", caller, "-p", "#{client_session}"); got != "qm-to" {
+			t.Errorf("caller's client shows %s, want qm-to", got)
+		}
+		assertClientSessions(t, runner, "qm-other", "qm-to")
+	})
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -217,6 +379,49 @@ func assertHasSession(t *testing.T, client *tmux.Client, name string, want bool)
 	}
 	if got != want {
 		t.Fatalf("HasSession(%s) = %v, want %v", name, got, want)
+	}
+}
+
+// startControlClient attaches a control-mode client to session and returns its
+// name. The client stays attached until the test ends.
+func startControlClient(t *testing.T, runner *tmuxtest.Runner, session string) string {
+	t.Helper()
+	before := strings.Fields(mustRun(t, runner, "list-clients", "-F", "#{client_name}"))
+	cmd := exec.Command("tmux", "-S", runner.Socket(), "-C", "attach-session", "-t", "="+session+":")
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start control client: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+	})
+	deadline := time.Now().Add(serverExitTimeout)
+	for {
+		for _, name := range strings.Fields(mustRun(t, runner, "list-clients", "-F", "#{client_name}")) {
+			if !slices.Contains(before, name) {
+				return name
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("control client on %s never attached", session)
+		}
+		time.Sleep(serverExitPoll)
+	}
+}
+
+// assertClientSessions checks which sessions the server's clients show.
+func assertClientSessions(t *testing.T, runner *tmuxtest.Runner, want ...string) {
+	t.Helper()
+	got := strings.Fields(mustRun(t, runner, "list-clients", "-F", "#{client_session}"))
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("client sessions = %q, want %q", got, want)
 	}
 }
 

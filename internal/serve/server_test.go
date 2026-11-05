@@ -2400,7 +2400,7 @@ func TestRenameMutationUpdatesAgentPaneTitle(t *testing.T) {
 			}
 			found := false
 			for _, args := range runner.Calls() {
-				if slices.Equal(args, []string{"set-option", "-p", "-t", "qm-demo:0.0", "@questmaster_title", "New session title"}) {
+				if slices.Equal(args, []string{"set-option", "-p", "-t", "=qm-demo:0.0", "@questmaster_title", "New session title"}) {
 					found = true
 				}
 			}
@@ -2424,7 +2424,7 @@ func TestRenameMutationTargetsAdoptedAgentPane(t *testing.T) {
 		t.Fatalf("rename: %v", err)
 	}
 	for _, args := range runner.calls {
-		if len(args) == 6 && args[0] == "set-option" && args[1] == "-p" && args[3] == "qm-demo:0.1" && args[4] == "@questmaster_title" && args[5] == "Adopted agent" {
+		if len(args) == 6 && args[0] == "set-option" && args[1] == "-p" && args[3] == "=qm-demo:0.1" && args[4] == "@questmaster_title" && args[5] == "Adopted agent" {
 			return
 		}
 	}
@@ -2439,7 +2439,7 @@ func TestRenameMutationDuringContinueBeforeRoleTag(t *testing.T) {
 		t.Fatalf("rename while the new pane has no role tag: %v", err)
 	}
 	for _, args := range runner.calls {
-		if slices.Equal(args, []string{"set-option", "-p", "-t", "qm-demo:0.0", "@questmaster_title", "Renamed during continue"}) {
+		if slices.Equal(args, []string{"set-option", "-p", "-t", "=qm-demo:0.0", "@questmaster_title", "Renamed during continue"}) {
 			return
 		}
 	}

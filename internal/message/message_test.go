@@ -868,7 +868,7 @@ func TestBroadcastFrom_SkipsDeadWorkers(t *testing.T) {
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if target == "qm-w2" {
+			if target == tmux.SessionTarget("qm-w2") {
 				return "", &tmux.ExitError{Code: 1}
 			}
 			return "", nil
@@ -1072,7 +1072,7 @@ func TestReadPlainTerminalCapturesWorkspacePaneRaw(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if captureTarget != sessionID+":0.0" {
+	if captureTarget != tmux.PaneTarget(sessionID, 0, 0) {
 		t.Fatalf("capture target = %q, want workspace pane 0", captureTarget)
 	}
 	if output != "second\nthird" {
@@ -1571,7 +1571,7 @@ func TestWorkers_ReturnsAllWithStatus(t *testing.T) {
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {
 			target := args[len(args)-1]
-			if target == "qm-w2" {
+			if target == tmux.SessionTarget("qm-w2") {
 				return "", &tmux.ExitError{Code: 1}
 			}
 			return "", nil
@@ -1614,9 +1614,9 @@ func TestWorkers_UsesHookDerivedPaneState(t *testing.T) {
 	writeAgentPaneState(t, "qm-status-dead", "working")
 
 	live := map[string]bool{
-		"qm-status-working":  true,
-		"qm-status-idle":     true,
-		"qm-status-hookless": true,
+		tmux.SessionTarget("qm-status-working"):  true,
+		tmux.SessionTarget("qm-status-idle"):     true,
+		tmux.SessionTarget("qm-status-hookless"): true,
 	}
 	runner := &mockRunner{fn: func(_ context.Context, args ...string) (string, error) {
 		if len(args) >= 1 && args[0] == "has-session" {

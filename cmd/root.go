@@ -61,7 +61,7 @@ func NewRootCmd(opts ...Option) *cobra.Command {
 		o.store = state.OpenStore(state.StateRoot())
 	}
 	if o.client == nil {
-		o.client = tmux.NewExecClient()
+		o.client = tmux.NewClient(tmux.DefaultServer())
 	}
 	if o.repoRoot == "" {
 		o.repoRoot = os.Getenv("PARTY_REPO_ROOT")

@@ -71,7 +71,7 @@ func TestHookClaudeDerivesTitleOnFirstPrompt(t *testing.T) {
 	if len(tmuxStub.renameCalls) != 0 {
 		t.Fatalf("rename calls = %d, want 0", len(tmuxStub.renameCalls))
 	}
-	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "investigate the flaky test" {
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "=qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "investigate the flaky test" {
 		t.Fatalf("pane title calls = %+v", tmuxStub.paneTitleCalls)
 	}
 }
@@ -171,7 +171,7 @@ func TestHookCodexDerivesTitleOnFirstPrompt(t *testing.T) {
 	if store.manifest.Title != "add a retry to the uploader" {
 		t.Fatalf("title = %q, want %q", store.manifest.Title, "add a retry to the uploader")
 	}
-	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "add a retry to the uploader" {
+	if len(tmuxStub.paneTitleCalls) != 1 || tmuxStub.paneTitleCalls[0].target != "=qm-t:0.0" || tmuxStub.paneTitleCalls[0].name != "add a retry to the uploader" {
 		t.Fatalf("pane title calls = %+v", tmuxStub.paneTitleCalls)
 	}
 }
