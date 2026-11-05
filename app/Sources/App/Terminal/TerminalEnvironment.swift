@@ -244,7 +244,10 @@ private func tmuxEnvironmentPrologueLines(tmuxPath: String, session: String, env
     ]
 }
 
-private func tmuxEnvironmentSyncCommandLines(environment: [String: String], syncGlobal: Bool) -> [String] {
+// Session-scoped only: the sync writes the session's own environment and never the
+// server's global one. Keys with no value are removed from the session, which also
+// hides any global copy from the session's panes.
+private func tmuxEnvironmentSyncCommandLines(environment: [String: String]) -> [String] {
     let keys = [
         "HOME",
         "XDG_CONFIG_HOME",
@@ -264,73 +267,81 @@ private func tmuxEnvironmentSyncCommandLines(environment: [String: String], sync
         "QUESTMASTER_BIN",
         "QUESTMASTER_PATH_PREFIX",
     ]
-    let globalSafeKeys: Set<String> = [
-        "HOME",
-        "XDG_CONFIG_HOME",
-        "XDG_DATA_HOME",
-        "XDG_CACHE_HOME",
-        "SHELL",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "USER",
-        "LOGNAME",
-        "TMPDIR",
-    ]
-    let staleGlobalKeys = [
-        "PATH",
-        "QUESTMASTER_APP",
-        "QUESTMASTER_STATE_ROOT",
-        "QUESTMASTER_HOME",
-        "QUESTMASTER_BIN",
-        "QUESTMASTER_PATH_PREFIX",
-        "QUESTMASTER_DAEMON_SOCKET",
-    ]
 
     var lines: [String] = []
-    if syncGlobal {
-        for key in staleGlobalKeys {
-            lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
-        }
-    }
-
     for key in keys {
         if let value = environment[key], !value.isEmpty {
-            if syncGlobal && globalSafeKeys.contains(key) {
-                lines.append("\"$tmux\" set-environment -g \(shellQuoted(key)) \(shellQuoted(value)) || true")
-            }
-            lines.append("\"$tmux\" set-environment -t \"$session\" \(shellQuoted(key)) \(shellQuoted(value)) 2>/dev/null || true")
+            lines.append("\"$tmux\" set-environment -t \"=$session\" \(shellQuoted(key)) \(shellQuoted(value)) 2>/dev/null || true")
         } else {
-            if syncGlobal && globalSafeKeys.contains(key) {
-                lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
-            }
-            lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
+            lines.append("\"$tmux\" set-environment -t \"=$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
         }
     }
     for key in ["ZDOTDIR", "QUESTMASTER_TMUX_STARTUP_SCRIPT", "TMUX", "TMUX_PANE"] {
-        if syncGlobal && globalSafeKeys.contains(key) {
-            lines.append("\"$tmux\" set-environment -g -r \(shellQuoted(key)) || true")
-        }
-        lines.append("\"$tmux\" set-environment -t \"$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
+        lines.append("\"$tmux\" set-environment -t \"=$session\" -r \(shellQuoted(key)) 2>/dev/null || true")
     }
 
     return lines
 }
 
 private func tmuxEnvironmentDumpLine() -> String {
-    "if [ -n \"$dump_base\" ]; then \"$tmux\" show-environment -g 2>/dev/null | sort > \"$dump_base.tmux-global\" || true; \"$tmux\" show-environment -t \"$session\" 2>/dev/null | sort > \"$dump_base.tmux-session\" || true; fi"
+    "if [ -n \"$dump_base\" ]; then \"$tmux\" show-environment -g 2>/dev/null | sort > \"$dump_base.tmux-global\" || true; \"$tmux\" show-environment -t \"=$session\" 2>/dev/null | sort > \"$dump_base.tmux-session\" || true; fi"
 }
 
+// Keys left out of the environment of a server this script starts. tmux copies the
+// environment a server starts with into its global environment, and every session inherits it.
+private let questmasterKeysOmittedFromNewServer = [
+    "QUESTMASTER_APP",
+    "QUESTMASTER_STATE_ROOT",
+    "QUESTMASTER_HOME",
+    "QUESTMASTER_BIN",
+    "QUESTMASTER_PATH_PREFIX",
+    "QUESTMASTER_DAEMON_SOCKET",
+    "QUESTMASTER_TMUX_STARTUP_SCRIPT",
+    "QUESTMASTER_SESSION",
+]
+
+// Sets server_path to PATH without the Questmaster shim directory, for a server this
+// script starts. The directory is removed wherever it sits; PATH is unchanged if it is absent.
+private func tmuxServerPathLines(environment: [String: String]) -> [String] {
+    [
+        "shim_prefix=\(shellQuoted(environment["QUESTMASTER_PATH_PREFIX"] ?? ""))",
+        "server_path=\"${PATH:-}\"",
+        "if [ -n \"$shim_prefix\" ]; then",
+        "  needle=\":$shim_prefix:\"",
+        "  scrubbed=\":${PATH:-}:\"",
+        "  while true; do",
+        "    case $scrubbed in",
+        "      *\"$needle\"*) ;;",
+        "      *) break ;;",
+        "    esac",
+        "    scrubbed=${scrubbed%%\"$needle\"*}:${scrubbed#*\"$needle\"}",
+        "  done",
+        "  if [ \"$scrubbed\" != \":${PATH:-}:\" ]; then",
+        "    scrubbed=${scrubbed#:}",
+        "    server_path=${scrubbed%:}",
+        "  fi",
+        "fi",
+    ]
+}
+
+private func tmuxNewServerCommand() -> String {
+    let unsetArguments = questmasterKeysOmittedFromNewServer.map { "-u \($0)" }.joined(separator: " ")
+    return "/usr/bin/env \(unsetArguments) PATH=\"$server_path\" \"$tmux\" new-session -d -s \"$session\" sleep 2147483647"
+}
+
+// tmux matches a bare session name by prefix, so "qm-123" reaches "qm-123-456" when
+// no session has the exact name. Every session target below is "=$session" to match exactly.
 func tmuxStartupScript(tmuxPath: String, session: String, environment: [String: String]) -> String {
     var lines = tmuxEnvironmentPrologueLines(tmuxPath: tmuxPath, session: session, environment: environment)
     let loginShellCommand = "\(shellQuoted(nonEmpty(environment["SHELL"]) ?? "/bin/zsh")) -l"
     lines.append("if [ -n \"$dump_base\" ]; then mkdir -p \"$(dirname \"$dump_base\")\"; env | sort > \"$dump_base.surface\"; fi")
+    lines.append(contentsOf: tmuxServerPathLines(environment: environment))
     lines.append("created=0")
-    lines.append("if ! \"$tmux\" has-session -t \"$session\" 2>/dev/null; then \"$tmux\" new-session -d -s \"$session\" sleep 2147483647; created=1; fi")
-    lines.append(contentsOf: tmuxEnvironmentSyncCommandLines(environment: environment, syncGlobal: true))
-    lines.append("if [ \"$created\" = 1 ]; then \"$tmux\" respawn-pane -k -t \"$session\":0.0 \(shellQuoted(loginShellCommand)) || true; fi")
+    lines.append("if ! \"$tmux\" has-session -t \"=$session\" 2>/dev/null; then \(tmuxNewServerCommand()); created=1; fi")
+    lines.append(contentsOf: tmuxEnvironmentSyncCommandLines(environment: environment))
+    lines.append("if [ \"$created\" = 1 ]; then \"$tmux\" respawn-pane -k -t \"=$session\":0.0 \(shellQuoted(loginShellCommand)) || true; fi")
     lines.append(tmuxEnvironmentDumpLine())
-    lines.append("\"$tmux\" attach-session -t \"$session\" || true")
+    lines.append("\"$tmux\" attach-session -t \"=$session\" || true")
     lines.append("printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
     lines.append("unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
     lines.append("exec \(loginShellCommand)")

@@ -18,6 +18,10 @@ enum LogicSelfTests {
         ("testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath", testAppChildProcessEnvironmentAppliesBackendAfterNormalizedPath),
         ("testDaemonRecordFeedsTerminalEnvironment", testDaemonRecordFeedsTerminalEnvironment),
         ("testTmuxStartupScriptScopesAppBackendEnvironmentToSession", testTmuxStartupScriptScopesAppBackendEnvironmentToSession),
+        ("testTmuxStartupScriptTargetsOnlyTheExactSession", testTmuxStartupScriptTargetsOnlyTheExactSession),
+        ("testTmuxStartupScriptWritesNoGlobalEnvironment", testTmuxStartupScriptWritesNoGlobalEnvironment),
+        ("testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment", testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment),
+        ("testTmuxClientCallsTargetTheExactSession", testTmuxClientCallsTargetTheExactSession),
         ("testNavigationTogglesKeepFocusAndHideToTerminal", testNavigationTogglesKeepFocusAndHideToTerminal),
         ("testDirectionalRegionFocusMapping", testDirectionalRegionFocusMapping),
         ("testKeymapErgonomicsBindings", testKeymapErgonomicsBindings),
@@ -1372,7 +1376,7 @@ enum LogicSelfTests {
         let createIndex = try substringIndex(in: script, "\"$tmux\" new-session -d -s \"$session\" sleep 2147483647")
 
         try expect(!script.contains("exec \"$tmux\" attach-session"), "startup script should not exec tmux attach")
-        let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"$session\" || true")
+        let attachIndex = try substringIndex(in: script, "\"$tmux\" attach-session -t \"=$session\" || true")
         let markerIndex = try substringIndex(in: script, "printf '\\033]0;\(TerminalDetachSignal.markerTitle)\\007'")
         let unsetIndex = try substringIndex(in: script, "unset QUESTMASTER_SESSION TMUX TMUX_PANE || true")
         let shellExecIndex = try substringIndex(in: script, "exec '/tmp/custom shell/zsh' -l")
@@ -1382,19 +1386,15 @@ enum LogicSelfTests {
 
         for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX"] {
             try expect(!script.contains("set-environment -g '\(key)'"), "startup script should not globally sync \(key)")
-            try expect(script.contains("set-environment -t \"$session\" '\(key)'"), "startup script should session-sync \(key)")
-            let syncIndex = try substringIndex(in: script, "set-environment -t \"$session\" '\(key)'")
+            try expect(script.contains("set-environment -t \"=$session\" '\(key)'"), "startup script should session-sync \(key)")
+            let syncIndex = try substringIndex(in: script, "set-environment -t \"=$session\" '\(key)'")
             try expect(createIndex < syncIndex, "startup script should create session before syncing \(key)")
         }
-        for key in ["PATH", "QUESTMASTER_APP", "QUESTMASTER_STATE_ROOT", "QUESTMASTER_BIN", "QUESTMASTER_PATH_PREFIX", "QUESTMASTER_DAEMON_SOCKET"] {
-            try expect(script.contains("set-environment -g -r '\(key)'"), "startup script should clear stale global \(key)")
-        }
-        try expect(script.contains("set-environment -g -r 'QUESTMASTER_HOME'"), "startup script should clear stale global quest home")
-        try expect(script.contains("set-environment -t \"$session\" -r 'QUESTMASTER_HOME'"), "startup script should clear session quest home")
-        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"$session\":0.0")
+        try expect(script.contains("set-environment -t \"=$session\" -r 'QUESTMASTER_HOME'"), "startup script should clear session quest home")
+        let respawnIndex = try substringIndex(in: script, "\"$tmux\" respawn-pane -k -t \"=$session\":0.0")
         try expect(createIndex < respawnIndex, "startup script should respawn created panes after env sync")
         let respawnLines = script.split(separator: "\n").map(String.init)
-        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"$session\":0.0")]
+        let respawnLine = respawnLines[try lineIndex(in: respawnLines, containing: "respawn-pane -k -t \"=$session\":0.0")]
         try expect(respawnLines.last == "exec '/tmp/custom shell/zsh' -l", "startup script should end by execing the login shell")
         try expect(
             !respawnLine.contains("respawn-pane -k -t \"$session\":0.0 || true"),
@@ -1407,10 +1407,102 @@ enum LogicSelfTests {
         fallbackEnv.removeValue(forKey: "SHELL")
         let fallbackScript = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-test", environment: fallbackEnv)
         let fallbackLines = fallbackScript.split(separator: "\n").map(String.init)
-        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"$session\":0.0")]
+        let fallbackRespawnLine = fallbackLines[try lineIndex(in: fallbackLines, containing: "respawn-pane -k -t \"=$session\":0.0")]
         try expect(fallbackRespawnLine.contains("/bin/zsh"), "startup script should fall back to /bin/zsh")
         try expect(fallbackRespawnLine.contains("-l"), "fallback shell should be a login shell")
-        try expect(script.contains("set-environment -g 'HOME'"), "startup script may still global-sync safe shell keys")
+    }
+
+    private static func testTmuxStartupScriptTargetsOnlyTheExactSession() throws {
+        // qm-123 is a prefix of qm-123-456. tmux resolves a bare name to the sibling
+        // when no session is named qm-123, so every -t must carry the exact-match "=".
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: [
+            "HOME": "/Users/example",
+            "PATH": "/usr/bin",
+            "QUESTMASTER_BIN": "/Applications/example/qm",
+        ])
+        try expect(script.contains("session='qm-123'"), "startup script should name the session it was built for")
+        let targetArguments = script.components(separatedBy: " -t ").dropFirst()
+        try expect(!targetArguments.isEmpty, "startup script should address tmux sessions with -t")
+        for argument in targetArguments {
+            try expect(
+                argument.hasPrefix("\"=$session\""),
+                "startup script target should match the session exactly, found -t \(argument.prefix(24))"
+            )
+        }
+    }
+
+    private static func testTmuxStartupScriptWritesNoGlobalEnvironment() throws {
+        let environment = [
+            "HOME": "/Users/example",
+            "XDG_CONFIG_HOME": "/Users/example/.config",
+            "SHELL": "/bin/zsh",
+            "LANG": "en_US.UTF-8",
+            "USER": "example",
+            "TMPDIR": "/private/tmp/example/",
+            "PATH": "/test/prefix:/usr/bin",
+            "QUESTMASTER_APP": "1",
+            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
+            "QUESTMASTER_BIN": "/test/prefix/qm",
+            "QUESTMASTER_PATH_PREFIX": "/test/prefix",
+        ]
+        for values in [environment, [:]] {
+            let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: values)
+            try expect(!script.contains("set-environment -g"), "startup script should write no global tmux environment")
+        }
+    }
+
+    private static func testTmuxStartupScriptStartsItsServerWithoutQuestmasterEnvironment() throws {
+        // A server the script starts copies its starting environment into the global one,
+        // so the script starts it without Questmaster's keys and without the shim directory on PATH.
+        let environment = [
+            "HOME": "/Users/example",
+            "PATH": "/Users/example/shim:/usr/bin:/bin",
+            "QUESTMASTER_APP": "1",
+            "QUESTMASTER_STATE_ROOT": "/Users/example/.questmaster-state",
+            "QUESTMASTER_BIN": "/Users/example/shim/qm",
+            "QUESTMASTER_PATH_PREFIX": "/Users/example/shim",
+            "QUESTMASTER_DAEMON_SOCKET": "/Users/example/.questmaster-state/daemon.sock",
+        ]
+        let script = tmuxStartupScript(tmuxPath: "/usr/bin/tmux", session: "qm-123", environment: environment)
+        let lines = script.split(separator: "\n").map(String.init)
+        let newSessionLine = lines[try lineIndex(in: lines, containing: "new-session -d -s")]
+
+        try expect(newSessionLine.contains("/usr/bin/env -u QUESTMASTER_APP "), "new server should start through env without Questmaster keys")
+        for key in [
+            "QUESTMASTER_APP",
+            "QUESTMASTER_STATE_ROOT",
+            "QUESTMASTER_HOME",
+            "QUESTMASTER_BIN",
+            "QUESTMASTER_PATH_PREFIX",
+            "QUESTMASTER_DAEMON_SOCKET",
+            "QUESTMASTER_TMUX_STARTUP_SCRIPT",
+            "QUESTMASTER_SESSION",
+        ] {
+            try expect(newSessionLine.contains("-u \(key) "), "new server should start without \(key)")
+        }
+        try expect(newSessionLine.contains("PATH=\"$server_path\" \"$tmux\" new-session"), "new server should start with the scrubbed PATH")
+        try expect(script.contains("shim_prefix='/Users/example/shim'"), "startup script should name the shim directory it removes from PATH")
+        let scrubIndex = try substringIndex(in: script, "server_path=")
+        let hasSessionIndex = try substringIndex(in: script, "has-session -t \"=$session\"")
+        try expect(scrubIndex < hasSessionIndex, "startup script should scrub PATH before starting a server")
+    }
+
+    private static func testTmuxClientCallsTargetTheExactSession() throws {
+        let sessionID = "qm-123"
+        let syncArguments = TerminalTmuxClientProcess.sessionEnvironmentSyncArguments(
+            sessionID: sessionID,
+            environment: ["HOME": "/Users/example", "QUESTMASTER_BIN": ""]
+        )
+        let syncTargets = zip(syncArguments, syncArguments.dropFirst()).filter { $0.0 == "-t" }.map(\.1)
+        try expect(!syncTargets.isEmpty, "environment sync should address the session with -t")
+        try expect(syncTargets.allSatisfy { $0 == "=\(sessionID)" }, "environment sync should target the session exactly: \(syncTargets)")
+        try expect(!syncArguments.contains("-g"), "environment sync should write no global tmux environment")
+
+        let switchArguments = TerminalTmuxClientProcess.switchClientArguments(clientName: "/dev/ttys001", targetSessionID: sessionID)
+        try expect(Array(switchArguments.suffix(2)) == ["-t", "=\(sessionID)"], "switch-client should target the session exactly")
+
+        let editorArguments = TerminalTmuxClientProcess.editorWindowArguments(sessionID: sessionID, path: "/tmp/a.md", shell: "/bin/zsh")
+        try expect(Array(editorArguments.prefix(3)) == ["new-window", "-t", "=\(sessionID)"], "editor window should target the session exactly")
     }
 
     private static func testNavigationTogglesKeepFocusAndHideToTerminal() throws {
@@ -1587,7 +1679,7 @@ enum LogicSelfTests {
     private static func testArtifactEditorWindowKeepsPathSeparate() throws {
         let path = "/tmp/report ' with spaces; $(touch danger).md"
         let args = TerminalTmuxClientProcess.editorWindowArguments(sessionID: "qm-a", path: path, shell: "/bin/zsh")
-        try expect(Array(args.prefix(5)) == ["new-window", "-t", "qm-a", "-n", "Artifact"], "editor should open a new tmux window")
+        try expect(Array(args.prefix(5)) == ["new-window", "-t", "=qm-a", "-n", "Artifact"], "editor should open a new tmux window")
         try expect(args[6] == "/tmp", "editor window should start beside the artifact")
         try expect(args[7].contains("artifact_path=$1"), "editor script should read the path as an argument")
         try expect(args[7].hasSuffix("'/tmp/report '\\'' with spaces; $(touch danger).md'"), "path should be shell quoted as one positional argument")
