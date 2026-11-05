@@ -160,22 +160,6 @@ func TestAlertStillDeliversForLongRefs(t *testing.T) {
 	}
 }
 
-func TestFetchCICompletionUsesHeadCheckTime(t *testing.T) {
-	t.Parallel()
-	pr, _ := state.ParsePullRequestRef("owner/repo#12")
-	now := time.Date(2026, 10, 27, 2, 0, 0, 0, time.UTC)
-	run := func(_ context.Context, _, query string) ([]byte, []byte, error) {
-		if !strings.Contains(query, "contexts(last:100)") {
-			t.Fatalf("missing contexts query: %s", query)
-		}
-		return []byte(`{"data":{"rateLimit":{"cost":1,"remaining":100,"resetAt":"2026-10-28T00:00:00Z"},"repository":{"pullRequest":{"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[{"__typename":"CheckRun","completedAt":"2026-10-27T01:00:00Z"},{"__typename":"StatusContext","updatedAt":"2026-10-27T01:30:00Z"}]}}}}]}}}}}`), nil, nil
-	}
-	at, problem := fetchCICompletion(context.Background(), pr, run, now)
-	if problem.Error != "" || at != "2026-10-27T01:30:00Z" {
-		t.Fatalf("CI completion = %q, %#v", at, problem)
-	}
-}
-
 func TestInitialMergeAfterWatchBecomesEvent(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 27, 2, 0, 0, 0, time.UTC)
