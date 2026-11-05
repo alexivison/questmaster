@@ -63,8 +63,11 @@ func (s *Server) models(ctx context.Context, req Request) (any, error) {
 		Query:   strings.TrimSpace(payload.Query),
 		Limit:   limit,
 		Refresh: payload.Refresh,
-		Root:    root,
-		Store:   state.OpenStore(root),
+		// The daemon outlives the request, so it may answer from a stale catalog
+		// and refresh it in the background.
+		Background: true,
+		Root:       root,
+		Store:      state.OpenStore(root),
 	}), nil
 }
 

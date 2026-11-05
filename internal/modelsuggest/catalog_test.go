@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/alexivison/questmaster/internal/agent"
 )
 
 // upstreamFixture mirrors the shape of the models.dev document, including the
@@ -162,11 +164,11 @@ func TestLoadCatalogCachesAndSurvivesFetchFailure(t *testing.T) {
 		t.Errorf("cached anthropic models = %d, want 3", len(cached.Models("anthropic")))
 	}
 
-	// An expired cache is served at once, and a refresh that then fails
-	// does not change that, so an offline picker keeps working.
+	// An expired cache plus a failed fetch still yields the stale catalog,
+	// so an offline picker keeps working.
 	stale, err := LoadCatalog(context.Background(), CatalogOptions{Root: root, Fetch: failingFetcher(t), Now: now.Add(48 * time.Hour)})
-	if err != nil {
-		t.Errorf("stale load returned %v, want the cached catalog with no error (the refresh runs in the background)", err)
+	if err == nil {
+		t.Errorf("expected an error describing the failed fetch")
 	}
 	if len(stale.Models("anthropic")) != 3 {
 		t.Errorf("stale anthropic models = %d, want the cached 3", len(stale.Models("anthropic")))
@@ -211,7 +213,7 @@ func TestLoadCatalogTTLBoundaryIsStrictlyLessThan(t *testing.T) {
 	// refresh starts in the background.
 	fetch := newBlockingFetcher(t)
 	boundary := now.Add(catalogTTL)
-	loadCatalogWithin(t, asyncDeadline, CatalogOptions{Root: root, Fetch: fetch.fetch, Now: boundary})
+	loadCatalogWithin(t, asyncDeadline, CatalogOptions{Root: root, Fetch: fetch.fetch, Now: boundary, Background: true})
 	fetch.awaitStarted(t)
 	if calls := fetch.calls.Load(); calls != 1 {
 		t.Errorf("fetch calls at exactly the TTL = %d, want 1 (a cache this old must not read as fresh)", calls)
@@ -505,7 +507,7 @@ func TestLoadCatalogServesStaleCacheAtOnceAndRefreshesOnce(t *testing.T) {
 	}
 
 	fetch := newBlockingFetcher(t)
-	opts := CatalogOptions{Root: root, Fetch: fetch.fetch, Now: now}
+	opts := CatalogOptions{Root: root, Fetch: fetch.fetch, Now: now, Background: true}
 
 	first := loadCatalogWithin(t, asyncDeadline, opts)
 	if first.err != nil {
@@ -547,7 +549,7 @@ func TestLoadCatalogColdCacheAnswersWithinBound(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	fetch := newBlockingFetcher(t)
-	opts := CatalogOptions{Root: root, Fetch: fetch.fetch, Now: now}
+	opts := CatalogOptions{Root: root, Fetch: fetch.fetch, Now: now, Background: true}
 
 	cold := loadCatalogWithin(t, asyncDeadline, opts)
 	if limit := coldCacheWaitLimit + coldCacheSlack; cold.elapsed > limit {
@@ -571,6 +573,131 @@ func TestLoadCatalogColdCacheAnswersWithinBound(t *testing.T) {
 	if calls := fetch.calls.Load(); calls != 1 {
 		t.Errorf("fetch calls = %d, want 1 (the next request reads the cache)", calls)
 	}
+}
+
+// TestLoadCatalogWithoutBackgroundWaitsForFreshCatalog: a one-shot process
+// exits before a background refresh could finish, so without Background a
+// stale cache is not answered at once. The call waits for the fetch and
+// returns the fresh catalog.
+func TestLoadCatalogWithoutBackgroundWaitsForFreshCatalog(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	stale := Catalog{
+		FetchedAt: now.Add(-48 * time.Hour),
+		Providers: map[string][]CatalogModel{"example": {{ID: "example-model-stale"}}},
+	}
+	if err := writeCatalogCache(root, stale); err != nil {
+		t.Fatalf("seed stale cache: %v", err)
+	}
+
+	const fetchDelay = 50 * time.Millisecond
+	slow := func(_ context.Context, _ string) ([]byte, error) {
+		time.Sleep(fetchDelay)
+		return []byte(upstreamFixture), nil
+	}
+	result := loadCatalogWithin(t, asyncDeadline, CatalogOptions{Root: root, Fetch: slow, Now: now})
+	if result.err != nil {
+		t.Fatalf("load: %v", result.err)
+	}
+	if !result.catalog.FetchedAt.Equal(now) {
+		t.Errorf("load returned the catalog fetched at %s, want the fresh one fetched at %s", result.catalog.FetchedAt, now)
+	}
+	if n := len(result.catalog.Models("anthropic")); n != 3 {
+		t.Errorf("anthropic models = %d, want 3 from the fresh fetch", n)
+	}
+	if result.elapsed < fetchDelay {
+		t.Errorf("load answered after %s, before its fetch could finish (%s)", result.elapsed, fetchDelay)
+	}
+}
+
+// TestCatalogClientRefusesRedirectToPlainHTTP: an https endpoint that
+// redirects to plain http is not followed, so the plain server never sees a
+// request. A redirect to https is still followed, which shows the client works.
+func TestCatalogClientRefusesRedirectToPlainHTTP(t *testing.T) {
+	t.Parallel()
+
+	var plainHits atomic.Int32
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		plainHits.Add(1)
+		_, _ = w.Write([]byte(upstreamFixture))
+	}))
+	t.Cleanup(plain.Close)
+
+	var secure *httptest.Server
+	secure = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/downgrade":
+			http.Redirect(w, r, plain.URL+"/api.json", http.StatusFound)
+		case "/secure":
+			http.Redirect(w, r, secure.URL+"/api.json", http.StatusFound)
+		default:
+			_, _ = w.Write([]byte(upstreamFixture))
+		}
+	}))
+	t.Cleanup(secure.Close)
+	client := newCatalogClient(secure.Client())
+
+	if _, err := getCatalog(context.Background(), client, secure.URL+"/downgrade"); err == nil {
+		t.Errorf("redirect to plain http was followed, want an error")
+	}
+	if n := plainHits.Load(); n != 0 {
+		t.Errorf("plain http target reached %d times, want 0", n)
+	}
+
+	body, err := getCatalog(context.Background(), client, secure.URL+"/secure")
+	if err != nil {
+		t.Fatalf("redirect to https: %v", err)
+	}
+	if string(body) != upstreamFixture {
+		t.Errorf("redirect to https returned %d bytes, want the fixture", len(body))
+	}
+}
+
+// TestResolveBackgroundServesStaleCatalogAtOnce: the daemon sets Background
+// through ResolveOptions, and Resolve must pass it on. With a stale cache and
+// a fetch that has not finished, Resolve answers at once.
+func TestResolveBackgroundServesStaleCatalogAtOnce(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	stale := Catalog{
+		FetchedAt: now.Add(-48 * time.Hour),
+		Providers: map[string][]CatalogModel{"anthropic": {{ID: "example-model-stale"}}},
+	}
+	if err := writeCatalogCache(root, stale); err != nil {
+		t.Fatalf("seed stale cache: %v", err)
+	}
+	fetch := newBlockingFetcher(t)
+
+	answered := make(chan time.Duration, 1)
+	go func() {
+		start := time.Now()
+		Resolve(context.Background(), ResolveOptions{
+			Agent:      "claude",
+			Role:       agent.RoleMaster,
+			Root:       root,
+			Fetch:      fetch.fetch,
+			Now:        now,
+			NoProbe:    true,
+			Background: true,
+		})
+		answered <- time.Since(start)
+	}()
+	select {
+	case elapsed := <-answered:
+		if elapsed >= staleServeLimit {
+			t.Errorf("Resolve answered after %s, want under %s while the refresh runs", elapsed, staleServeLimit)
+		}
+	case <-time.After(asyncDeadline):
+		t.Fatalf("Resolve did not return within %s", asyncDeadline)
+	}
+
+	fetch.awaitStarted(t)
+	fetch.release()
+	awaitCachedAt(t, root, now)
 }
 
 func TestProbeModelIDKeepsQualifiedIDsOnly(t *testing.T) {

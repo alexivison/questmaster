@@ -42,6 +42,9 @@ const (
 	// network cannot keep a refresh open forever.
 	catalogFetchTimeout = 15 * time.Second
 	catalogMaxBytes     = 64 << 20
+	// maxCatalogRedirects matches net/http's default. A custom CheckRedirect
+	// replaces that default, so the limit is kept here.
+	maxCatalogRedirects = 10
 )
 
 // CatalogModel is one model as Questmaster needs it: the id a harness is
@@ -95,15 +98,21 @@ type CatalogOptions struct {
 	Now time.Time
 	// Refresh forces a fetch even when the cache is still fresh.
 	Refresh bool
+	// Background lets a request answer before the catalog is current: a stale
+	// cache is served at once while one refresh runs, and a cold cache waits at
+	// most catalogColdWait. Only the long-lived daemon sets it. A one-shot
+	// process exits before a background refresh could finish, so without it a
+	// request waits for the fetch, bounded by catalogFetchTimeout.
+	Background bool
 }
 
-// LoadCatalog resolves the model catalog without holding a request on the
-// network. A fresh cache is returned as is. A stale cache is returned at once
-// while one background refresh runs. With no cache, the call waits up to
-// catalogColdWait and then answers empty, and the fetch it started fills the
-// cache for the next request. Refresh waits for the fetch. Callers degrade to
-// harness enumeration, recent launches, and the built-in role defaults, and a
-// model the user types is never gated on the catalog.
+// LoadCatalog resolves the model catalog. A fresh cache is returned as is.
+// Otherwise the call waits for one fetch, bounded by catalogFetchTimeout. With
+// opts.Background (the daemon), a stale cache is returned at once while one
+// refresh runs, and a cold cache waits at most catalogColdWait; the fetch it
+// started fills the cache for the next request. Callers degrade to harness
+// enumeration, recent launches, and the built-in role defaults, and a model the
+// user types is never gated on the catalog.
 func LoadCatalog(ctx context.Context, opts CatalogOptions) (Catalog, error) {
 	now := opts.Now
 	if now.IsZero() {
@@ -133,7 +142,7 @@ func LoadCatalog(ctx context.Context, opts CatalogOptions) (Catalog, error) {
 	}
 	flight := startCatalogFlight(opts.Root, endpoint, fetch, now)
 	switch {
-	case opts.Refresh:
+	case opts.Refresh || !opts.Background:
 		return awaitCatalog(ctx, flight, catalogFetchTimeout, cached)
 	case cached.Empty():
 		return awaitCatalog(ctx, flight, catalogColdWait, cached)
@@ -200,7 +209,7 @@ func awaitCatalog(ctx context.Context, flight *catalogFlight, limit time.Duratio
 		}
 		return flight.catalog, nil
 	case <-timer.C:
-		return fallback, fmt.Errorf("model catalog still loading after %s; the next request will have it", limit)
+		return fallback, fmt.Errorf("model catalog not ready after %s", limit)
 	case <-ctx.Done():
 		return fallback, ctx.Err()
 	}
@@ -227,6 +236,28 @@ func fetchCatalog(ctx context.Context, fetch Fetcher, endpoint, root string, now
 // HTTPFetcher is the default catalog fetcher. It refuses any endpoint that is
 // not https, and ctx bounds the request.
 func HTTPFetcher(ctx context.Context, endpoint string) ([]byte, error) {
+	return getCatalog(ctx, catalogHTTPClient, endpoint)
+}
+
+// catalogHTTPClient is the client HTTPFetcher uses.
+var catalogHTTPClient = newCatalogClient(http.DefaultClient)
+
+// newCatalogClient returns a copy of base that follows a redirect only to an
+// https URL, so a redirect cannot downgrade the catalog fetch to plain http.
+func newCatalogClient(base *http.Client) *http.Client {
+	client := *base
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxCatalogRedirects {
+			return fmt.Errorf("stopped after %d redirects", maxCatalogRedirects)
+		}
+		return requireHTTPS(req.URL.String())
+	}
+	return &client
+}
+
+// getCatalog GETs one catalog document with client. It requests only https
+// endpoints.
+func getCatalog(ctx context.Context, client *http.Client, endpoint string) ([]byte, error) {
 	if err := requireHTTPS(endpoint); err != nil {
 		return nil, err
 	}
@@ -234,7 +265,7 @@ func HTTPFetcher(ctx context.Context, endpoint string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
