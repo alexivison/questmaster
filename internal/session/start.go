@@ -233,9 +233,8 @@ func (s *Service) Start(ctx context.Context, opts StartOpts) (StartResult, error
 	}
 	var result StartResult
 	launch := func(ctx context.Context, sessionID string) error {
-
-		runtimeDir, err := ensureRuntimeDir(sessionID)
-		if err != nil {
+		runtimeDir := state.NewRuntimeDir(s.Store.Root(), sessionID)
+		if err := prepareRuntimeDir(runtimeDir, sessionID, launchAgents); err != nil {
 			_ = s.Store.Delete(sessionID) // rollback manifest
 			return err
 		}
@@ -414,6 +413,18 @@ func (s *Service) seedRepoDisplayColor(cwd, color string) error {
 	return nil
 }
 
+// prepareRuntimeDir makes a session's private runtime directory. A Pi
+// session's messaging socket lives in it, so a directory too deep for a Unix
+// socket path is refused before anything is created.
+func prepareRuntimeDir(dir, sessionID string, agents map[agent.Role]agent.Agent) error {
+	if provider, ok := agents[agent.RoleAgent]; ok && provider.Name() == "pi" {
+		if _, err := state.PiSocketPath(dir); err != nil {
+			return err
+		}
+	}
+	return ensureRuntimeDir(dir, sessionID)
+}
+
 // errSessionIDTaken marks a candidate session ID that is already in use.
 var errSessionIDTaken = errors.New("session ID taken")
 
@@ -421,7 +432,8 @@ var errSessionIDTaken = errors.New("session ID taken")
 // ID's lifecycle lock. A candidate is in use when its manifest exists
 // (Store.Create is flock-protected) or a tmux session by that name exists
 // without one. The template's SessionID field is overwritten with each
-// candidate qm-* ID.
+// candidate qm-* ID, and its RuntimeDir with that ID's private directory, so a
+// rollback removes that directory and never a legacy one.
 func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, launch func(context.Context, string) error) error {
 	const maxAttempts = 100
 	timestamp := s.Now()
@@ -433,6 +445,7 @@ func (s *Service) claimSessionID(ctx context.Context, template state.Manifest, l
 
 		err := s.locked(ctx, []string{id}, func(ctx context.Context) error {
 			template.SessionID = id
+			template.RuntimeDir = state.NewRuntimeDir(s.Store.Root(), id)
 			if err := s.Store.Create(template); err != nil {
 				if errors.Is(err, state.ErrManifestExists) {
 					return errSessionIDTaken
@@ -469,8 +482,7 @@ func (s *Service) persistResumeIDs(rtDir string, resume map[agent.Role]resumeInf
 	if !ok || info.resumeID == "" || info.provider == nil {
 		return nil
 	}
-	path := filepath.Join(rtDir, info.provider.ResumeFileName())
-	if err := os.WriteFile(path, []byte(info.resumeID+"\n"), 0o644); err != nil {
+	if err := state.WriteRuntimeFile(rtDir, info.provider.ResumeFileName(), []byte(info.resumeID+"\n")); err != nil {
 		return fmt.Errorf("write %s: %w", info.provider.ResumeFileName(), err)
 	}
 	return nil
@@ -490,20 +502,11 @@ func (s *Service) setResumeEnv(ctx context.Context, sessionID string, resume map
 
 // setCleanupHook registers the session-closed hook for cleanup.
 // On session close: deregister from parent's workers list (via jq),
-// remove runtime dir, then delete manifest unless it's a master.
+// remove the runtime dir, then delete the manifest unless it's a master.
 //
-// CRITICAL: tmux's run-shell expands $NAME patterns using its own format
-// system BEFORE passing the command to the shell. Unescaped $VAR references
-// expand to empty, turning "rm -rf /tmp/$W" into "rm -rf /tmp/" which
-// deletes the tmux socket and kills the server.
-//
-// To avoid both tmux format expansion AND shell quoting issues with paths
-// containing spaces or special characters, the cleanup logic is written to
-// a script file in the runtime dir. The hook simply calls that script.
-func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
-	runtimeDir := runtimeDir(sessionID)
-	scriptPath := filepath.Join(runtimeDir, "cleanup.sh")
-
+// The cleanup logic is a script in the runtime dir, so neither tmux's format
+// expansion nor shell quoting touches it; the hook only finds and runs it.
+func (s *Service) setCleanupHook(ctx context.Context, sessionID, runtimeDir string) error {
 	// Embed parent ID at hook-creation time so the cleanup script doesn't
 	// need jq to discover it. jq is only used (best-effort) for rewriting
 	// JSON state.
@@ -512,23 +515,39 @@ func (s *Service) setCleanupHook(ctx context.Context, sessionID string) error {
 		parentID = m.ExtraString("parent_session")
 	}
 
-	if err := writeCleanupScript(scriptPath, s.Store.Root(), sessionID, parentID); err != nil {
+	if err := writeCleanupScript(runtimeDir, s.Store.Root(), sessionID, parentID); err != nil {
 		return fmt.Errorf("write cleanup script: %w", err)
 	}
-
-	// Tmux may run a session-scoped session-closed hook from a different
-	// still-live session. Always clean the session that actually closed.
-	// No $VAR references survive to tmux.
-	hookCmd := `run-shell "test -x /tmp/#{q:hook_session_name}/cleanup.sh && /tmp/#{q:hook_session_name}/cleanup.sh #{q:hook_session_name}"`
-	return s.Client.SetHook(ctx, sessionID, "session-closed", hookCmd)
+	return s.Client.SetHook(ctx, sessionID, "session-closed", cleanupHookCommand(filepath.Dir(runtimeDir)))
 }
 
-// writeCleanupScript writes the session cleanup logic to a shell script.
-// Paths are injected via heredoc-style quoting so spaces and special
-// characters (including apostrophes) are safe. The parent session ID is
-// embedded at generation time so the script doesn't need jq to discover it.
+// cleanupHookCommand returns the session-closed hook. tmux may run a
+// session-scoped session-closed hook from a different still-live session, so
+// the hook always cleans the session that actually closed: it finds that
+// session's script by name under base, the directory every runtime directory
+// under this state root shares (state.NewRuntimeDir).
+//
+// The text passes three parsers. tmux's command parser reads the double-quoted
+// argument, where \, " and $ are special: an unescaped $VAR expands there, and
+// an empty one once turned the script's rm -rf of the runtime directory into
+// one of its parent, deleting the tmux socket. run-shell then expands formats,
+// where # is special and ## is a literal #. sh runs the rest, with base
+// single-quoted.
+func cleanupHookCommand(base string) string {
+	script := strings.ReplaceAll(shellQuoteForScript(base), "#", "##") + "/#{q:hook_session_name}/cleanup.sh"
+	command := "test -f " + script + " && /bin/sh " + script + " #{q:hook_session_name}"
+	return `run-shell "` + tmuxDoubleQuoted.Replace(command) + `"`
+}
+
+var tmuxDoubleQuoted = strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`)
+
+// writeCleanupScript writes the session cleanup logic to cleanup.sh in the
+// session's runtime directory, which the script removes last. Paths are
+// single-quoted so spaces and special characters (including apostrophes) are
+// safe. The parent session ID is embedded at generation time so the script
+// doesn't need jq to discover it.
 // jq is only used (best-effort) for rewriting JSON state.
-func writeCleanupScript(path, stateRoot, sessionID, parentID string) error {
+func writeCleanupScript(runtimeDir, stateRoot, sessionID, parentID string) error {
 	// Perl is used as a portable flock wrapper (macOS ships with Perl;
 	// flock CLI does not exist). system() (not exec) holds the lock
 	// while bash runs the jq rewrites.
@@ -538,6 +557,7 @@ SR=%s
 HSR=%s
 W=%s
 p=%s
+RD=%s
 closed=${1:-}
 export SR HSR W
 if [ "$closed" != "$W" ]; then
@@ -590,17 +610,14 @@ if [ -n "$p" ] && [ -f "$SR/$p.json" ] && command -v jq >/dev/null 2>&1; then
         && mv "$tmp" "$SR/$p.json" \
         || rm -f "$tmp"'
 fi
-rm -rf "/tmp/$W"
+rm -rf "$RD"
 # Manifests are NOT deleted on session close — the prune command handles
 # stale manifest cleanup with proper parent deregistration (7-day TTL).
 # Keep the manifest so the tracker can derive this session's role from its parent.
 exit 0
-`, shellQuoteForScript(stateRoot), shellQuoteForScript(hookStateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID))
+`, shellQuoteForScript(stateRoot), shellQuoteForScript(hookStateRoot), shellQuoteForScript(sessionID), shellQuoteForScript(parentID), shellQuoteForScript(runtimeDir))
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(script), 0o755)
+	return state.WriteRuntimeFile(runtimeDir, "cleanup.sh", []byte(script))
 }
 
 // shellQuoteForScript wraps a value in single quotes for safe embedding in

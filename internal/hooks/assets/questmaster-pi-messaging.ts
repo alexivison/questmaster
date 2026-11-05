@@ -2,7 +2,7 @@ import { chmod, lstat, unlink } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { accessSync, constants, mkdirSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { delimiter, dirname, join } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join } from "node:path";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -472,14 +472,17 @@ export default function (pi: ExtensionAPI) {
 		if (typeof pi.sendUserMessage !== "function") return;
 		const sessionID = process.env.QUESTMASTER_SESSION ?? "";
 		if (!sessionPattern.test(sessionID)) return;
-		const runtimeDir = join("/tmp", sessionID);
+		// Questmaster names the session's runtime directory; without it there is
+		// no socket, and messages fall back to typed input.
+		const runtimeDir = process.env.QUESTMASTER_RUNTIME_DIR ?? "";
+		if (!isAbsolute(runtimeDir) || basename(runtimeDir) !== sessionID) return;
 		try {
 			const runtime = await lstat(runtimeDir);
 			if (!runtime.isDirectory() || runtime.uid !== process.getuid() || (runtime.mode & 0o022) !== 0) return;
 		} catch {
 			return;
 		}
-		const socketPath = join("/tmp", sessionID, "pi.sock");
+		const socketPath = join(runtimeDir, "pi.sock");
 		if (!(await clearStaleSocket(socketPath))) return;
 		const next = createServer(handle);
 		next.on("error", () => {});

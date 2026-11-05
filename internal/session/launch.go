@@ -56,6 +56,9 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 	if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.SessionEnv, lc.sessionID); err != nil {
 		return err
 	}
+	if err := s.Client.SetEnvironment(ctx, lc.sessionID, state.RuntimeDirEnv, lc.runtimeDir); err != nil {
+		return err
+	}
 	if lc.agentPath != "" {
 		if err := s.Client.SetEnvironment(ctx, lc.sessionID, "PATH", lc.agentPath); err != nil {
 			return err
@@ -74,7 +77,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		if err := s.launchShellWorkspace(ctx, lc.sessionID, lc.cwd); err != nil {
 			return err
 		}
-		return s.setCleanupHook(ctx, lc.sessionID)
+		return s.setCleanupHook(ctx, lc.sessionID, lc.runtimeDir)
 	}
 
 	if lc.agentCmds[agent.RoleAgent] == "" {
@@ -94,7 +97,7 @@ func (s *Service) launchSession(ctx context.Context, lc launchConfig) error {
 		return err
 	}
 
-	if err := s.setCleanupHook(ctx, lc.sessionID); err != nil {
+	if err := s.setCleanupHook(ctx, lc.sessionID, lc.runtimeDir); err != nil {
 		return err
 	}
 

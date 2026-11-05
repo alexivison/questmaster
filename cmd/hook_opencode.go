@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -516,24 +517,33 @@ func updateOpenCodePane(ctx context.Context, r *HookRunner, sessionID string, no
 
 func captureOpenCodeSessionID(ctx context.Context, r *HookRunner, stderr io.Writer, sessionID, openCodeSessionID string) {
 	captureResumeID(ctx, r, stderr, sessionID, "opencode_session_id", "OPENCODE_SESSION_ID", openCodeSessionID, "opencode")
-	persistRuntimeResumeID(stderr, sessionID, "opencode-session-id", openCodeSessionID, "opencode")
+	persistRuntimeResumeID(r, stderr, sessionID, "opencode-session-id", openCodeSessionID, "opencode")
 }
 
-func persistRuntimeResumeID(stderr io.Writer, sessionID, fileName, value, agent string) {
-	if value == "" {
+// persistRuntimeResumeID writes value to fileName in the session's runtime
+// directory, as its manifest records it. The hook never creates that
+// directory (Start and Continue do), and it never writes through a symlink.
+func persistRuntimeResumeID(r *HookRunner, stderr io.Writer, sessionID, fileName, value, agent string) {
+	if value == "" || r.Store == nil {
 		return
 	}
-	dir := filepath.Join("/tmp", sessionID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		fmt.Fprintf(stderr, "questmaster hook %s: create runtime dir: %v\n", agent, err)
+	m, err := r.Store.Read(sessionID)
+	if err != nil {
 		return
 	}
-	path := filepath.Join(dir, fileName)
+	dir, err := m.RuntimeDirOrLegacy()
+	if err != nil {
+		fmt.Fprintf(stderr, "questmaster hook %s: %v\n", agent, err)
+		return
+	}
+	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+		return
+	}
 	body := []byte(value + "\n")
-	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(body) {
+	if existing, err := os.ReadFile(filepath.Join(dir, fileName)); err == nil && string(existing) == string(body) {
 		return
 	}
-	if err := os.WriteFile(path, body, 0o644); err != nil {
+	if err := state.WriteRuntimeFile(dir, fileName, body); err != nil {
 		fmt.Fprintf(stderr, "questmaster hook %s: write runtime resume id: %v\n", agent, err)
 	}
 }

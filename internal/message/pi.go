@@ -19,10 +19,9 @@ import (
 )
 
 const (
-	piNativeTimeout  = time.Second
-	piMaxFrameBytes  = 1 << 20
-	piMaxAckBytes    = 64 << 10
-	piSocketFileName = "pi.sock"
+	piNativeTimeout = time.Second
+	piMaxFrameBytes = 1 << 20
+	piMaxAckBytes   = 64 << 10
 )
 
 type piMessageRequest struct {
@@ -35,12 +34,12 @@ type piMessageAck struct {
 	Status string `json:"status"`
 }
 
-func (s *Service) deliverPi(ctx context.Context, sessionID, message string) error {
+func (s *Service) deliverPi(ctx context.Context, m state.Manifest, message string) error {
 	frame, id, err := piFrame(message)
 	if err != nil {
 		return err
 	}
-	path, err := piSocketPath(sessionID)
+	path, err := piSocketPath(m)
 	if err != nil {
 		return err
 	}
@@ -80,11 +79,18 @@ func (s *Service) deliverPi(ctx context.Context, sessionID, message string) erro
 	return nil
 }
 
-func piSocketPath(sessionID string) (string, error) {
-	if !state.IsValidSessionID(sessionID) {
-		return "", fmt.Errorf("%w: invalid Pi session id", errNativeUnavailable)
+// piSocketPath returns the socket the Pi extension listens on, in the
+// session's runtime directory.
+func piSocketPath(m state.Manifest) (string, error) {
+	dir, err := m.RuntimeDirOrLegacy()
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", errNativeUnavailable, err)
 	}
-	return filepath.Join("/tmp", sessionID, piSocketFileName), nil
+	path, err := state.PiSocketPath(dir)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", errNativeUnavailable, err)
+	}
+	return path, nil
 }
 
 func validatePiSocket(path string) error {

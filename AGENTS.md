@@ -112,6 +112,15 @@ Invariants that aren't obvious from the code:
   the caller's own server. Session targets are `tmux.SessionTarget` (`=name:`),
   never a bare name, which tmux matches by prefix. The caller's own pane counts
   only when TMUX names this server (`callerSession`).
+- **A session's runtime files live in its manifest's `runtime_dir`**, an
+  owner-only `<state root>/runtime/<id>` (`state.NewRuntimeDir`,
+  `state.EnsureRuntimeDir`, files through `state.WriteRuntimeFile`). The tmux
+  session carries it as `QUESTMASTER_RUNTIME_DIR` for the Pi extension; readers
+  take the path from one of the two, never from the ID. The session-closed hook
+  relies on the `<state root>/runtime/<id>` shape: tmux may run another live
+  session's hook, which finds the closed session's script by name. A manifest
+  without the field predates it and keeps its old path until the session stops
+  (`Manifest.RuntimeDirOrLegacy`, the one legacy branch).
 - The Go↔Swift wire contract is `internal/serve/testdata/*.json` (see next section),
   not any single Go type — version it deliberately.
 - **No model or reasoning-effort list is hardcoded.** Each harness declares its

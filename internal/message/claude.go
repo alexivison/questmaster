@@ -47,7 +47,7 @@ type claudeMessageFrame struct {
 	Type      string `json:"type"`
 }
 
-func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.Manifest, target, message string) error {
+func (s *Service) nativeDeliver(ctx context.Context, m state.Manifest, target, message string) error {
 	switch manifestAgentName(m) {
 	case "claude":
 		if restricted, err := claudeInboundRestricted(m.Cwd); err != nil {
@@ -57,7 +57,7 @@ func (s *Service) nativeDeliver(ctx context.Context, sessionID string, m state.M
 		}
 		return s.deliverClaude(ctx, target, message)
 	case "pi":
-		return s.deliverPi(ctx, sessionID, message)
+		return s.deliverPi(ctx, m, message)
 	default:
 		return errNativeUnavailable
 	}
