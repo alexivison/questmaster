@@ -4,7 +4,9 @@ package state
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -1354,5 +1356,36 @@ func TestStateWritersMoveCorruptStateAside(t *testing.T) {
 				t.Fatalf("hook-errors.log = %q (err %v), want the moved file named", log, err)
 			}
 		})
+	}
+}
+
+// A writer that gave up at its deadline is still queued for the lock in the
+// kernel; when the lock is granted to it, it must let go at once instead of
+// holding the lock for the rest of the process.
+func TestStateLockTimeoutDoesNotKeepTheLock(t *testing.T) {
+	root := setStateRoot(t)
+	id := "qm-lock-abandoned"
+	if err := ensureSessionStateDir(root, id); err != nil {
+		t.Fatalf("state dir: %v", err)
+	}
+	holder, err := lockFile(t.Context(), SessionStateLockPath(root, id))
+	if err != nil {
+		t.Fatalf("hold lock: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	err = withStateLockContext(ctx, root, id, func() error {
+		t.Fatal("ran without the lock")
+		return nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("held lock error = %v, want the deadline", err)
+	}
+	holder()
+
+	next, cancelNext := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancelNext()
+	if err := withStateLockContext(next, root, id, func() error { return nil }); err != nil {
+		t.Fatalf("lock after the timed-out writer was granted it: %v", err)
 	}
 }

@@ -354,19 +354,20 @@ func runHook(r *HookRunner, opts hookOptions, stderr io.Writer) {
 	if id == "" {
 		id = state.SessionIDFromEnv()
 	}
-	if id == "" {
-		return
-	}
-	if !state.IsValidSessionID(id) {
-		fmt.Fprintf(stderr, "questmaster hook: invalid QUESTMASTER_SESSION %q\n", id)
-		return
-	}
-	if r.LogHookError != nil {
+	validID := state.IsValidSessionID(id)
+	if validID && r.LogHookError != nil {
 		tag := opts.agent + "/" + opts.action + " "
 		stderr = hookErrorWriter{stderr: stderr, log: func(text string) { _ = r.LogHookError(id, tag+text) }}
 	}
 	if opts.stdinErr != nil {
 		fmt.Fprintf(stderr, "questmaster hook: read stdin: %v\n", opts.stdinErr)
+		return
+	}
+	if id == "" {
+		return
+	}
+	if !validID {
+		fmt.Fprintf(stderr, "questmaster hook: invalid QUESTMASTER_SESSION %q\n", id)
 		return
 	}
 

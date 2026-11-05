@@ -1491,55 +1491,66 @@ func withFileLock(lockPath string, fn func() error) error {
 }
 
 // withFileLockContext is withFileLock with the wait bounded by ctx's
-// deadline, as lockExclusive describes.
+// deadline, as lockFile describes.
 func withFileLockContext(ctx context.Context, lockPath string, fn func() error) error {
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	unlock, err := lockFile(ctx, lockPath)
 	if err != nil {
-		return fmt.Errorf("open lock %s: %w", filepath.Base(lockPath), err)
-	}
-	defer f.Close()
-	if err := lockExclusive(ctx, f); err != nil {
 		return fmt.Errorf("acquire lock %s: %w", filepath.Base(lockPath), err)
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	defer unlock()
 	return fn()
 }
 
-// stateLockPollInterval is how often a deadline-bound writer retries a held
-// lock: short against a hook's deadline, so a released lock is taken within
-// a few milliseconds.
-const stateLockPollInterval = 2 * time.Millisecond
-
-// lockExclusive takes an exclusive flock on f.
+// lockFile opens lockPath, creating it, and takes an exclusive flock on it.
+// unlock releases the lock and closes the file.
 //
-// Without a deadline on ctx it blocks in the kernel. That is what every
-// writer did before hooks had a deadline: on macOS the kernel can take tens
-// of ms to release a dropped flock after the holding process exits, a coarse
-// LOCK_NB poll loop showed ~200ms p99 tail outliers, and a blocking LOCK_EX
-// adds <1ms uncontended.
+// The flock is always a blocking LOCK_EX, so waiters queue in the kernel. On
+// macOS the kernel can take tens of ms to hand over a dropped flock; a
+// LOCK_NB + sleep poll loop showed ~200ms p99 tail outliers. A 2 ms poll
+// loop, tried in 2026-11 to give hooks a deadline, also starved waiters:
+// with nine hooks on one session, p99 reached ~1 s and some hooks hit the
+// deadline and skipped their state write.
 //
-// With a deadline it tries LOCK_NB at once, which costs the same as LOCK_EX
-// when nobody holds the lock, then retries every stateLockPollInterval until
-// the deadline and returns ctx's error. A hook passes its deadline, so a
-// stuck holder costs it at most that deadline instead of the agent's own hook
-// timeout.
-func lockExclusive(ctx context.Context, f *os.File) error {
-	fd := int(f.Fd())
-	if _, bounded := ctx.Deadline(); !bounded {
-		return syscall.Flock(fd, syscall.LOCK_EX)
+// With a deadline on ctx, the blocking flock runs in a goroutine and the
+// caller stops waiting at the deadline with ctx's error. The flock cannot be
+// cancelled, so it stays queued and is released as soon as it is granted;
+// the file stays open until then, so its descriptor is not reused under the
+// waiting call. A hook exits right after, which drops it anyway.
+func lockFile(ctx context.Context, lockPath string) (func(), error) {
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
 	}
-	for {
-		err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
-			return err
+	fd := int(f.Fd())
+	unlock := func() {
+		syscall.Flock(fd, syscall.LOCK_UN) //nolint:errcheck
+		f.Close()
+	}
+	if _, bounded := ctx.Deadline(); !bounded {
+		if err := syscall.Flock(fd, syscall.LOCK_EX); err != nil {
+			f.Close()
+			return nil, err
 		}
-		retry := time.NewTimer(stateLockPollInterval)
-		select {
-		case <-ctx.Done():
-			retry.Stop()
-			return ctx.Err()
-		case <-retry.C:
+		return unlock, nil
+	}
+	granted := make(chan error, 1)
+	go func() { granted <- syscall.Flock(fd, syscall.LOCK_EX) }()
+	select {
+	case err := <-granted:
+		if err != nil {
+			f.Close()
+			return nil, err
 		}
+		return unlock, nil
+	case <-ctx.Done():
+		go func() {
+			if <-granted == nil {
+				unlock()
+				return
+			}
+			f.Close()
+		}()
+		return nil, ctx.Err()
 	}
 }
 
@@ -1551,23 +1562,17 @@ func withStateLock(root, id string, fn func() error) error {
 
 // withStateLockContext acquires an exclusive flock on the per-session
 // lockfile and runs fn while holding it. The lockfile is created on first
-// use. A deadline on ctx bounds the wait (lockExclusive); there is no
-// deadlock to guard against otherwise (no recursive locking; defer-unlock on
-// every path).
+// use. A deadline on ctx bounds the wait (lockFile); there is no deadlock to
+// guard against otherwise (no recursive locking; defer-unlock on every path).
 func withStateLockContext(ctx context.Context, root, id string, fn func() error) error {
 	if err := ensureSessionStateDir(root, id); err != nil {
 		return err
 	}
-	lockPath := SessionStateLockPath(root, id)
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	unlock, err := lockFile(ctx, SessionStateLockPath(root, id))
 	if err != nil {
-		return fmt.Errorf("open state lock: %w", err)
-	}
-	defer f.Close()
-	if err := lockExclusive(ctx, f); err != nil {
 		return fmt.Errorf("acquire state lock for %s: %w", id, err)
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	defer unlock()
 	return fn()
 }
 
