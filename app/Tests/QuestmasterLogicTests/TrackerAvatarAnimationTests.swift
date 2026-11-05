@@ -287,8 +287,8 @@ struct TrackerAvatarAnimationTests {
         }
     }
 
-    /// A release or a catch names the frame of its one-shot where it strikes, on the pose beside its `once` block. The four classes'
-    /// files name none, so they read as before.
+    /// A release or a catch names the frame of its one-shot where it strikes, on the pose beside its `once` block. The bard's file
+    /// names none, so it reads as before; the PixelLab classes name their peaks.
     private static func aStrikeFrameReadsFromAReleaseOrACatch() {
         let entrance: [[Any]] = [[1, 0.1], [2, 0.1], [3, 0.2], [4, 0.1]]
         guard let edited = try? AvatarAnimationFixture.bard(editing: [
@@ -309,11 +309,16 @@ struct TrackerAvatarAnimationTests {
         expect(abs((edited.animation(for: .release)?.strikeLeadIn ?? -1) - 0.2) < 1e-9, "a release's lead-in should be the time before its strike step")
         expect(abs((edited.animation(for: .catching)?.strikeLeadIn ?? -1) - 0.4) < 1e-9, "a catch's lead-in should be the time before its strike step")
         expect(edited.animation(for: .bow)?.strikeLeadIn == 0, "a pose without the key should have no lead-in")
-        for classID in ["bard", "paladin", "wizard"] {
+        guard let bard = try? decode(AvatarAnimationFixture.classJSON("bard")) else {
+            fail("the bard's file should decode")
+        }
+        expect(TrackerAvatarPose.allCases.allSatisfy { bard.animation(for: $0)?.strikeFrame == nil }, "the bard's file should name no strike frame")
+        for classID in ["paladin", "wizard"] {
             guard let animation = try? decode(AvatarAnimationFixture.classJSON(classID)) else {
                 fail("the \(classID)'s file should decode")
             }
-            expect(TrackerAvatarPose.allCases.allSatisfy { animation.animation(for: $0)?.strikeFrame == nil }, "the \(classID)'s file should name no strike frame")
+            expect(animation.animation(for: .release)?.strikeFrame == 6, "the \(classID)'s release should strike on its peak, f6")
+            expect(animation.animation(for: .catching)?.strikeFrame == 4, "the \(classID)'s catch should strike on its peak, f4")
         }
         guard let cleric = try? decode(AvatarAnimationFixture.classJSON("cleric")) else {
             fail("the cleric's file should decode")
@@ -633,11 +638,11 @@ struct TrackerAvatarAnimationTests {
             animation.idle == TrackerAvatarIdle(legRows: 45, eyeRow: 16, eyeColumns: 44...45, lidColour: TrackerAvatarColour(rgb: 0x7b6c63)),
             "idle should carry the wizard's leg rows, eye row, eye columns and lid colour"
         )
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 87, y: 21), "the release hand should be the wizard's hand pixel")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 58, y: 14), "the release hand should be the wizard's hand pixel")
         expect(animation.fidgets.map(\.name) == ["hood", "staff-tap"], "fidgets should come in name order")
-        expect(animation.fidgets.first?.track.steps.map(\.frame) == [2, 3, 2], "the hood should play its three idle frames")
+        expect(animation.fidgets.first?.track.steps.map(\.frame) == Array(2...9), "the hood should play idle frames 2 to 9")
         let pondering = animation.animation(for: .pondering)
-        expect(pondering?.footRow == 158 && pondering?.bodyColumn == 33, "pondering should stand at the wizard's foot row and body column")
+        expect(pondering?.footRow == 158 && pondering?.bodyColumn == 36, "pondering should stand at the wizard's foot row and body column")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the wizard's summoning should have a ground effect")
     }
 
@@ -646,31 +651,31 @@ struct TrackerAvatarAnimationTests {
             fail("the paladin's file should decode")
         }
         expect(
-            animation.idle == TrackerAvatarIdle(legRows: 60, eyeRow: 15, eyeColumns: 41...42, lidColour: TrackerAvatarColour(rgb: 0xf6b83f)),
+            animation.idle == TrackerAvatarIdle(legRows: 60, eyeRow: 15, eyeColumns: 45...46, lidColour: TrackerAvatarColour(rgb: 0xf6b83f)),
             "idle should carry the paladin's leg rows, eye row, eye columns and lid colour"
         )
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 96, y: 52), "the release hand should be the paladin's hand pixel")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 131, y: 92), "the release hand should be the paladin's hand pixel")
         expect(animation.fidgets.map(\.name) == ["watch"], "the paladin should have the watch fidget")
         let pondering = animation.animation(for: .pondering)
-        expect(pondering?.footRow == 171 && pondering?.bodyColumn == 52, "pondering should stand at the paladin's foot row and body column")
+        expect(pondering?.footRow == 174 && pondering?.bodyColumn == 56, "pondering should stand at the paladin's foot row and body column")
         expect(animation.animation(for: .summoning)?.enter?.behind != nil, "the paladin's summoning should have a ground effect")
         expect(animation.animation(for: .channelling)?.finish != nil, "the paladin's channelling should finish")
     }
 
-    /// The paladin's frames at given times, read from his file: the summoning's ground circle opens below the figure, and the
-    /// channelling's finish lifts the hammer.
+    /// The paladin's frames at given times, read from his file: the summoning's entrance moves him while its ground circle opens
+    /// below the figure, and the channelling's finish plays its entrance backwards, from f4 down to f1.
     private static func thePaladinsBlocksPlayAtTheirTimes() {
         guard let animation = try? decode(AvatarAnimationFixture.classJSON("paladin")),
               let summoning = animation.animation(for: .summoning), let enter = summoning.enter, let loop = summoning.loop,
               let finish = summoning.finish, let channellingFinish = animation.animation(for: .channelling)?.finish else {
             fail("the paladin's summoning and channelling should have their blocks")
         }
-        expect(enter.character.frame(at: 0.3, looping: false) == 1, "a summoning should hold the paladin's f1 through its enter")
-        expect(enter.behind?.frame(at: 0.3, looping: false) == 15, "the ground circle should reach frame 15 at 0.3 s of its enter")
-        expect(loop.character.frame(at: 0.9, looping: true) == 2, "the summoning's loop should show f2 from 0.6 s")
-        expect(finish.behind?.frame(at: 0.2, looping: false) == 10, "the ground circle's finish should reach frame 10 at 0.2 s")
-        expect(channellingFinish.character.frame(at: 0.3, looping: false) == 3, "the channelling's finish should lift the hammer on f3 at 0.2 s")
-        expect(channellingFinish.character.frame(at: 9, looping: false) == 4, "the channelling's finish should hold f4 at its end")
+        expect(enter.character.frame(at: 0.35, looping: false) == 4, "a summoning's enter should reach the paladin's f4 at 0.35 s")
+        expect(enter.behind?.frame(at: 0.35, looping: false) == 14, "the ground circle should reach frame 14 at 0.35 s of its enter")
+        expect(loop.character.frame(at: 0.9, looping: true) == 11, "the summoning's loop should show f11 from 0.8 s")
+        expect(finish.behind?.frame(at: 0.25, looping: false) == 11, "the ground circle's finish should reach frame 11 at 0.25 s")
+        expect(channellingFinish.character.frame(at: 0, looping: false) == 4, "the channelling's finish should start on the pose's f4")
+        expect(channellingFinish.character.frame(at: 9, looping: false) == 1, "the channelling's finish should end on the paladin's f1")
     }
 
     private static func decodesTheClericsFile() {
