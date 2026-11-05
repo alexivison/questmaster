@@ -65,7 +65,8 @@ let package = Package(
             dependencies: [
                 "QuestmasterCore",
             ],
-            path: "Tests/QuestmasterLogicTests"
+            path: "Tests/QuestmasterLogicTests",
+            exclude: ["Fixtures"]
         ),
     ],
     swiftLanguageVersions: [.v5]

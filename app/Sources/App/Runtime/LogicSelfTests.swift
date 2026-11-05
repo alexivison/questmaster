@@ -1004,7 +1004,7 @@ enum LogicSelfTests {
         let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
         let window = HeadlessWindow(size: size)
         let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
-        avatar.sprites = try bardSprites()
+        avatar.sprites = try stillIdleSprites()
         window.contentView = avatar
         window.show()
         let ownKeys: Set<String> = [TrackerAvatarMotionKey.frames, TrackerAvatarMotionKey.breath, TrackerAvatarMotionKey.move]
@@ -1037,8 +1037,8 @@ enum LogicSelfTests {
         }
     }
 
-    /// An effect drawn behind the bard sits on the root, under the figure, and stays put when he moves; an effect in front sits in
-    /// the figure with him, so the figure's move carries it. The bard and both effects play the one-shot's frames together. A
+    /// An effect drawn behind the figure sits on the root, under it, and stays put when it moves; an effect in front sits in the
+    /// figure, so the figure's move carries it. The figure and both effects play the one-shot's frames together. A
     /// synthetic class's 1-frame character and 8-frame front loop each on their own clock, not the other's.
     @MainActor
     private static func testAvatarEffectLayersKeepTheirPlacement() throws {
@@ -1056,7 +1056,7 @@ enum LogicSelfTests {
         summoning.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
         try expect(summoning.root.sublayers?.first === summoning.behind && summoning.root.sublayers?.dropFirst().first === summoning.figure,
                    "the ground circle should draw under the figure, on the root, with the bubble above both")
-        try expect(summoning.figure.sublayers?.first === summoning.character, "the bard should be the figure's first layer")
+        try expect(summoning.figure.sublayers?.first === summoning.character, "the character should be the figure's first layer")
         summoning.startMotion()
         try expect(summoning.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "the summoning should not move: its feet stay on the baseline")
         for layer in [summoning.character, summoning.behind] {
@@ -1067,7 +1067,7 @@ enum LogicSelfTests {
                    "stopping should remove the move and the frames")
 
         calling.place(in: CGRect(x: 0, y: 0, width: 260, height: 160))
-        try expect(calling.figure.sublayers?.last === calling.front, "the bubble should draw in front of the bard, inside the figure")
+        try expect(calling.figure.sublayers?.last === calling.front, "the bubble should draw in front of the character, inside the figure")
         calling.startMotion()
         try expect(calling.figure.animation(forKey: TrackerAvatarMotionKey.move) == nil, "calling out should not bob: its feet stay on the baseline")
         let character = calling.character.animation(forKey: TrackerAvatarMotionKey.frames) as? CAKeyframeAnimation
@@ -1079,10 +1079,10 @@ enum LogicSelfTests {
     /// A cast's finish plays in place: its frames show, and the figure never leaves its anchor.
     @MainActor
     private static func testAFinishPlaysInPlace() throws {
-        let sprites = try bardSprites()
+        let sprites = try stillIdleSprites()
         guard let placement = sprites.animation.animation(for: .studying),
               let rig = TrackerAvatarFrameRig(pose: .studying, placement: placement, sprites: sprites) else {
-            throw TestFailure("the bard's studying should draw")
+            throw TestFailure("the wizard's studying should draw")
         }
         rig.place(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight))
         rig.showFinish(elapsed: 0)
@@ -1097,7 +1097,7 @@ enum LogicSelfTests {
         let size = CGSize(width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
         let window = HeadlessWindow(size: size)
         let avatar = TrackerAvatarView(frame: NSRect(origin: .zero, size: size))
-        avatar.sprites = try bardSprites()
+        avatar.sprites = try stillIdleSprites()
         window.contentView = avatar
         window.show()
         Motion.reducesMotion = { false }
@@ -1320,7 +1320,7 @@ enum LogicSelfTests {
     /// Worker Log's left edge, level with the hand. Under Reduce Motion nothing flies.
     @MainActor
     private static func testTheFlightOverlaySitsAboveTheTerminalIgnoresHitsAndFliesToThePanelsEdge() throws {
-        let sprites = try bardSprites()
+        let sprites = try stillIdleSprites()
         let size = CGSize(width: 800, height: 500)
         let root = NSView(frame: NSRect(origin: .zero, size: size))
         let terminal = NSView(frame: root.bounds)
@@ -1353,7 +1353,7 @@ enum LogicSelfTests {
         // The hand in the layer's own bottom-left coordinates, from the sprites' hand point in the slot's top-left ones.
         let slot = CGRect(x: 40, y: size.height - 40 - TrackerAvatarMetrics.slotHeight, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)
         guard let hand = sprites.handPoint(in: slot) else {
-            throw TestFailure("the bard should have a hand point")
+            throw TestFailure("the wizard should have a hand point")
         }
         let handLayer = CGPoint(x: hand.x, y: size.height - hand.y)
         try expect(abs(start.pointValue.x - handLayer.x) < 0.5 && abs(start.pointValue.y - handLayer.y) < 0.5,
@@ -1618,17 +1618,22 @@ enum LogicSelfTests {
         return (value as AnyObject) === image
     }
 
-    /// The bard's sprites load from the app bundle: their animation file reads, and the art the avatar draws from it is there.
+    /// The bard's sprites load from the app bundle: their animation file reads, and the art the avatar draws from it is there. His
+    /// idle is a strumming loop, so it has no idle layers and no fidgets.
     @MainActor
     private static func testBundledBardSpritesReadTheirAnimationFile() throws {
-        let sprites = try bardSprites()
-        try expect(sprites.animation.idle?.legRows == 37, "the bard's idle should split at his leg rows")
-        try expect(sprites.animation.fidgets.map(\.name) == ["hat", "yawn"], "the bard should have the hat and the yawn fidgets")
-        try expect(sprites.availableFidgets.count == 2, "both of the bard's fidgets should have their art")
-        try expect(sprites.idleArt() != nil, "the bard's idle layers should split from his art")
+        guard let sprites = TrackerAvatarSprites.bundled()["bard"] else {
+            throw TestFailure("the bard's sprites should load from the app bundle")
+        }
+        try expect(sprites.animation.animation(for: .idle)?.loop != nil, "the bard's idle should be a strumming loop")
+        try expect(sprites.animation.idle == nil && sprites.animation.fidgets.isEmpty, "the bard's looping idle should have no idle layers or fidgets")
         try expect(sprites.handPoint(in: CGRect(x: 0, y: 0, width: TrackerAvatarMetrics.slotWidth, height: TrackerAvatarMetrics.slotHeight)) != nil,
                    "the bard's release should have a hand")
-        try expect(TrackerAvatarSprites.bundled()["bard"] != nil, "the bundled bard should be a session class with sprites")
+        try expect(TrackerAvatarPose.allCases.allSatisfy { sprites.canvasSize(for: $0) != nil }, "every pose should have the bard's art")
+        try expect([.orb, .messenger, .wisp].allSatisfy { sprites.flight(for: $0) != nil && sprites.impact(for: $0) != nil },
+                   "the bard should have the art of all three spells")
+        let missing = missingFrames(of: sprites)
+        try expect(missing.isEmpty, "every frame the bard's file plays should have its art, missing: \(missing)")
     }
 
     @MainActor
@@ -1737,7 +1742,7 @@ enum LogicSelfTests {
     @MainActor
     private static func testTheBundledIdleFiguresSetTheSlot() throws {
         let sprites = TrackerAvatarSprites.bundled()
-        for (classID, figure) in [("bard", 159), ("cleric", 155), ("paladin", 171), ("wizard", 150)] {
+        for (classID, figure) in [("bard", 157), ("cleric", 155), ("paladin", 171), ("wizard", 150)] {
             try expect(sprites[classID]?.idleFigureHeight == figure,
                        "the \(classID)'s idle figure should be \(figure) px, got \(String(describing: sprites[classID]?.idleFigureHeight))")
         }
@@ -1775,28 +1780,37 @@ enum LogicSelfTests {
         return missing
     }
 
-    /// The bard's sprites, read from the app bundle.
     @MainActor
-    private static func bardSprites() throws -> TrackerAvatarSprites {
-        guard let sprites = TrackerAvatarSprites.bundled()["bard"] else {
-            throw TestFailure("the bard's sprites should load from the app bundle")
+    /// A bundled class whose idle stands still, breathing and blinking between fidgets: the wizard. The bard's idle is a strumming
+    /// loop, so the idle-layer tests read the wizard.
+    private static func stillIdleSprites() throws -> TrackerAvatarSprites {
+        guard let sprites = TrackerAvatarSprites.bundled()["wizard"] else {
+            throw TestFailure("the wizard's sprites should load from the app bundle")
         }
         return sprites
     }
 
-    /// A class folder for the render tests, in a temporary directory: the bard's `animation.json` with calling out's loop made 1 frame
-    /// for the character and 8 frames for the front, an enter of f2 and a finish of f3 on the character. The frames the loops, the
-    /// enter, the finish and the summoning need are each a solid square.
+    /// A class folder for the render tests, in a temporary directory: the wizard's `animation.json` with calling out's loop made 1 frame
+    /// for the character and 8 frames for the front, an enter of f2 and a finish of f3 on the character, and a summoning of three frames
+    /// with a ground layer. The frames the loops, the enter, the finish and the summoning need are each a solid square.
     @MainActor
     private static func syntheticClassFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("avatar-class-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let bardFile = try Data(contentsOf: try bardAnimationFile())
-        guard var json = try JSONSerialization.jsonObject(with: bardFile) as? [String: Any],
+        let classFile = try Data(contentsOf: try stillIdleAnimationFile())
+        guard var json = try JSONSerialization.jsonObject(with: classFile) as? [String: Any],
               var poses = json["poses"] as? [String: Any],
-              var calling = poses["11-calling-out"] as? [String: Any] else {
-            throw TestFailure("the bard's animation.json should read as a JSON object")
+              var calling = poses["11-calling-out"] as? [String: Any],
+              var summoning = poses["09-summoning"] as? [String: Any] else {
+            throw TestFailure("the wizard's animation.json should read as a JSON object")
         }
+        let summoningIn: [[Any]] = [[2, 0.18], [1, 0.36]]
+        let summoningOut: [[Any]] = [[1, 0.18], [3, 0.36]]
+        summoning["enter"] = ["character": summoningIn, "behind": summoningIn]
+        summoning["loop"] = ["character": [[3, 0.46]], "behind": [[3, 0.46]]]
+        summoning["finish"] = ["character": summoningOut, "behind": summoningOut]
+        summoning.removeValue(forKey: "front")
+        poses["09-summoning"] = summoning
         let eightFrames = (1...8).map { [$0, 0.125] as [Any] }
         calling["loop"] = ["character": [[1, 0.25]], "front": eightFrames]
         calling["enter"] = ["character": [[2, 0.25]]]
@@ -1804,7 +1818,7 @@ enum LogicSelfTests {
         poses["11-calling-out"] = calling
         // A release with an entrance (frames 1 and 2) before its strike (3) and follow-through (4): it names its strike frame.
         guard var release = poses["08-release"] as? [String: Any] else {
-            throw TestFailure("the bard's file should have a release")
+            throw TestFailure("the wizard's file should have a release")
         }
         release["once"] = ["character": [[1, 0.1], [2, 0.1], [3, 0.2], [4, 0.1]]]
         release["strike_frame"] = 3
@@ -1848,9 +1862,9 @@ enum LogicSelfTests {
     }
 
     @MainActor
-    private static func bardAnimationFile() throws -> URL {
-        guard let url = AppSymbolStyle.resourceBundle().url(forResource: "animation", withExtension: "json", subdirectory: "Sprites/bard") else {
-            throw TestFailure("the bard's animation.json should be in the app bundle")
+    private static func stillIdleAnimationFile() throws -> URL {
+        guard let url = AppSymbolStyle.resourceBundle().url(forResource: "animation", withExtension: "json", subdirectory: "Sprites/wizard") else {
+            throw TestFailure("the wizard's animation.json should be in the app bundle")
         }
         return url
     }

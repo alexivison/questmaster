@@ -10,16 +10,25 @@ enum AvatarAnimationFixture {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/App/Resources/Sprites/\(classID)/animation.json")
+        return json(at: url, named: "\(classID)'s animation.json")
+    }
+
+    /// The director's fixture as a JSON object, so a test can edit it before it is decoded. It is the bard's file as it shipped before
+    /// his redo (hand-timed blocks, fidgets, a still idle), kept in the tests so the director's cases don't move when a class's art
+    /// changes. The catalog gives it the bard's class ID.
+    static func bardJSON() -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/avatar-director-fixture.json")
+        return json(at: url, named: "the director's fixture")
+    }
+
+    private static func json(at url: URL, named name: String) -> [String: Any] {
         guard let data = try? Data(contentsOf: url), let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            fputs("AvatarAnimationFixture: \(classID)'s animation.json should read as a JSON object at \(url.path)\n", stderr)
+            fputs("AvatarAnimationFixture: \(name) should read as a JSON object at \(url.path)\n", stderr)
             exit(1)
         }
         return json
-    }
-
-    /// The bard's file as a JSON object, so a test can edit it before it is decoded.
-    static func bardJSON() -> [String: Any] {
-        classJSON("bard")
     }
 
     static func decode(_ json: [String: Any]) throws -> TrackerAvatarAnimation {

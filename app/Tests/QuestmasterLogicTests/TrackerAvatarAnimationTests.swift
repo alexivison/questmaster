@@ -47,26 +47,17 @@ struct TrackerAvatarAnimationTests {
     }
 
     private static func decodesTheBardsFile() {
-        guard let animation = try? decode(bardJSON()) else {
+        guard let animation = try? decode(AvatarAnimationFixture.classJSON("bard")) else {
             fail("the bard's file should decode")
         }
-        expect(
-            animation.idle == TrackerAvatarIdle(legRows: 37, eyeRow: 48, eyeColumns: 56...63, lidColour: TrackerAvatarColour(rgb: 0xf5b47b)),
-            "idle should carry the bard's leg rows, eye row, eye columns and lid colour"
-        )
-        expect(animation.releaseHand == TrackerAvatarPixel(x: 141, y: 64), "the release hand should be the bard's hand pixel")
-        expect(animation.fidgets.map(\.name) == ["hat", "yawn"], "fidgets should come in name order")
-        expect(animation.fidgets.first?.track.steps.map(\.frame) == [2, 3, 2], "the hat should play its three idle frames")
-        expect(animation.fidgets.last?.track.seconds == 0.6, "the yawn should hold its frame for 0.6 s")
+        expect(animation.idle == nil, "the bard's strumming idle should draw no idle layers")
+        expect(animation.releaseHand == TrackerAvatarPixel(x: 116, y: 76), "the release hand should be the bard's hand pixel")
+        expect(animation.fidgets.isEmpty, "the bard's strumming idle should leave him no fidgets")
+        expect(animation.animation(for: .idle)?.loop?.character.steps.map(\.frame) == Array(1...9), "idle should strum through f1 to f9")
         let pondering = animation.animation(for: .pondering)
-        expect(pondering?.footRow == 160 && pondering?.bodyColumn == 49, "pondering should stand at the bard's foot row and body column")
-        expect(pondering?.loop?.character.steps == [TrackerAvatarStep(frame: 1, seconds: 0.5), TrackerAvatarStep(frame: 2, seconds: 0.5), TrackerAvatarStep(frame: 3, seconds: 0.5)],
-               "pondering should cycle f1 to f3 at half a second a frame")
-        let calling = animation.animation(for: .callingOut)?.loop
-        expect(calling?.character.steps.map(\.frame) == [1, 2, 3] && calling?.front == nil && calling?.behind == nil,
-               "calling out should cycle its character with no effect layers")
-        expect(animation.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 71, y: 20), "calling out should anchor the shared bubble at the bard's head")
-        expect(animation.animation(for: .idle)?.loop == nil && animation.animation(for: .idle)?.once == nil, "idle should play no block")
+        expect(pondering?.footRow == 162 && pondering?.bodyColumn == 56, "pondering should stand at the bard's foot row and body column")
+        expect(pondering?.finish?.character.steps.map(\.frame) == [4, 3, 2, 1], "pondering's finish should play its entrance backwards to f1")
+        expect(animation.animation(for: .callingOut)?.bubble == TrackerAvatarPixel(x: 58, y: 10), "calling out should anchor the shared bubble at the bard's head")
     }
 
     /// A catch hovers on f1, then closes on f3 at the catch. The hand holds f3 through the recoil's return at 0.54 s, which is a step
@@ -287,8 +278,8 @@ struct TrackerAvatarAnimationTests {
         }
     }
 
-    /// A release or a catch names the frame of its one-shot where it strikes, on the pose beside its `once` block. The bard's file
-    /// names none, so it reads as before; the PixelLab classes name their peaks.
+    /// A release or a catch names the frame of its one-shot where it strikes, on the pose beside its `once` block. The director's
+    /// fixture names none, so it reads as before; the PixelLab classes name their peaks.
     private static func aStrikeFrameReadsFromAReleaseOrACatch() {
         let entrance: [[Any]] = [[1, 0.1], [2, 0.1], [3, 0.2], [4, 0.1]]
         guard let edited = try? AvatarAnimationFixture.bard(editing: [
@@ -309,16 +300,16 @@ struct TrackerAvatarAnimationTests {
         expect(abs((edited.animation(for: .release)?.strikeLeadIn ?? -1) - 0.2) < 1e-9, "a release's lead-in should be the time before its strike step")
         expect(abs((edited.animation(for: .catching)?.strikeLeadIn ?? -1) - 0.4) < 1e-9, "a catch's lead-in should be the time before its strike step")
         expect(edited.animation(for: .bow)?.strikeLeadIn == 0, "a pose without the key should have no lead-in")
-        guard let bard = try? decode(AvatarAnimationFixture.classJSON("bard")) else {
-            fail("the bard's file should decode")
+        guard let fixture = try? decode(bardJSON()) else {
+            fail("the director's fixture should decode")
         }
-        expect(TrackerAvatarPose.allCases.allSatisfy { bard.animation(for: $0)?.strikeFrame == nil }, "the bard's file should name no strike frame")
-        for classID in ["paladin", "wizard"] {
+        expect(TrackerAvatarPose.allCases.allSatisfy { fixture.animation(for: $0)?.strikeFrame == nil }, "the director's fixture should name no strike frame")
+        for (classID, catchFrame) in [("bard", 5), ("paladin", 4), ("wizard", 4)] {
             guard let animation = try? decode(AvatarAnimationFixture.classJSON(classID)) else {
                 fail("the \(classID)'s file should decode")
             }
             expect(animation.animation(for: .release)?.strikeFrame == 6, "the \(classID)'s release should strike on its peak, f6")
-            expect(animation.animation(for: .catching)?.strikeFrame == 4, "the \(classID)'s catch should strike on its peak, f4")
+            expect(animation.animation(for: .catching)?.strikeFrame == catchFrame, "the \(classID)'s catch should strike on its peak, f\(catchFrame)")
         }
         guard let cleric = try? decode(AvatarAnimationFixture.classJSON("cleric")) else {
             fail("the cleric's file should decode")
