@@ -140,6 +140,16 @@ func TestEnsureRuntimeDirRefusesAForeignOwner(t *testing.T) {
 	}
 }
 
+func TestRuntimeDirOwnershipPredicate(t *testing.T) {
+	t.Parallel()
+	if !ownedByCurrentUser(uint32(os.Getuid())) {
+		t.Fatal("current user was rejected")
+	}
+	if ownedByCurrentUser(uint32(os.Getuid() + 1)) {
+		t.Fatal("another user was accepted")
+	}
+}
+
 func TestWriteRuntimeFileRefusesSymlinks(t *testing.T) {
 	t.Parallel()
 	dir := NewRuntimeDir(t.TempDir(), "qm-1")

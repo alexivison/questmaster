@@ -80,6 +80,32 @@ func EnsureRuntimeDir(dir string) error {
 	return ensurePrivateDir(dir)
 }
 
+// PruneRuntimeDir removes an owned runtime directory named after a session.
+// It refuses symlinks and non-directories; os.RemoveAll removes symlink entries
+// inside the directory without following their targets. Missing paths are ignored.
+func PruneRuntimeDir(dir string, dryRun bool) (bool, error) {
+	if !IsValidSessionID(filepath.Base(dir)) {
+		return false, nil
+	}
+	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	fd, err := openOwnDir(dir)
+	if err != nil {
+		return false, err
+	}
+	defer unix.Close(fd)
+	if dryRun {
+		return true, nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func ensurePrivateDir(path string) error {
 	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("create runtime dir: %w", err)
@@ -134,7 +160,7 @@ func openOwnDir(path string) (int, error) {
 		unix.Close(fd)
 		return -1, fmt.Errorf("stat runtime dir %s: %w", path, err)
 	}
-	if int(st.Uid) != os.Getuid() {
+	if !ownedByCurrentUser(st.Uid) {
 		unix.Close(fd)
 		return -1, fmt.Errorf("runtime dir %s is owned by uid %d, not %d", path, st.Uid, os.Getuid())
 	}
@@ -144,3 +170,5 @@ func openOwnDir(path string) (int, error) {
 	}
 	return fd, nil
 }
+
+func ownedByCurrentUser(uid uint32) bool { return int(uid) == os.Getuid() }
